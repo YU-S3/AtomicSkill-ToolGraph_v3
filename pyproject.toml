@@ -1,0 +1,25 @@
+[project]
+name = "atomic-skillgraph"
+version = "3.0.0"
+description = "AtomicSkillGraph v3: native-toolcall atomic skill/tool co-evolution"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "PyYAML>=6.0",
+  "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+alfworld = ["alfworld>=0.3.0"]
+dev = ["pytest>=7.0"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "experiments/tests", "src/atomic_skillgraph/governance/tests"]
+addopts = "-p no:cacheprovider"

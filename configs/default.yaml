@@ -1,0 +1,67 @@
+# AtomicSkillGraph v3 base configuration.
+# API secrets are never valid configuration values: only api_key_env is read.
+schema_version: 3
+
+data_dir: data_v3
+
+llm:
+  provider: openai_compatible
+  base_url: "https://openrouter.ai/api/v1"
+  model: "REPLACE_WITH_MODEL_ID"
+  api_key_env: MODEL_API_KEY
+  connect_timeout_seconds: 15
+  request_timeout_seconds: 120
+  max_retries: 4
+  retry_backoff_seconds: 2
+  max_retry_after_seconds: 30
+
+  planner:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    max_visible_tokens: 8192
+    max_turns: 4
+    max_total_tokens_per_task: 120000
+
+  runtime:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    max_visible_tokens: 4096
+    max_turns_per_node: 12
+    max_total_tokens_per_node: 80000
+    max_turns_per_task: 12
+    max_total_tokens_per_task: 80000
+    learned_toolcall_repair_limit: 2
+
+  extractor:
+    reasoning_effort: high
+    max_completion_tokens: 131072
+    max_visible_tokens: 32768
+    max_turns: 2
+
+planner:
+  composite_top_k: 5
+  atomic_top_k_per_requirement: 3
+  max_atomic_top_k: 5
+  requirement_repair_limit: 1
+  graph_repair_limit: 1
+  max_runtime_occurrences: 16
+
+runtime:
+  global_action_budget: 100
+  node_action_budget: 35
+  node_agent_turn_budget: 12
+  max_implementation_candidates: 3
+
+lifecycle:
+  maintenance_interval_successes: 5
+  atomic_active_independent_support: 2
+  implementation_active_direct_successes: 2
+  tool_active_started_successes: 2
+  tool_preferred_min_started: 5
+  composite_active_self_sufficient_successes: 2
+
+extraction:
+  extract_full_dynamic_success: true
+  extract_task_rescue_success: true
+  extract_novel_seeded_success: true
+  skip_stable_direct_success: true
