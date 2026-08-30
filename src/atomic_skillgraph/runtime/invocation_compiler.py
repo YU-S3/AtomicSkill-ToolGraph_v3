@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import hashlib
 from dataclasses import dataclass
 from typing import Any
@@ -112,17 +113,23 @@ class InvocationCompiler:
                 or not resolution_satisfies(current.resolution, parameter.required_resolution)
             ):
                 required.append(parameter.name)
-        # Provider-facing native names are opaque routing identifiers.  Do not
-        # embed the persisted Implementation logical id: long ids both crowd
-        # the 64-character protocol limit and can be mistaken by a model for a
-        # second, derivable tool name when the artifact ref is present in
-        # policy context.  A stable 64-bit digest keeps names short and unique
-        # for the invocation candidates exposed in one turn.
+        # Keep provider-facing names semantic enough for reliable model tool
+        # selection, but never embed the full persisted Implementation id.
+        # Long ids crowd the 64-character protocol limit and can be mistaken
+        # for a second, derivable tool name.  The bounded semantic prefix plus
+        # stable digest is at most 49 characters and remains unique for the
+        # invocation candidates exposed in one turn.
+        raw_name_id = implementation.ref.logical_id
+        if raw_name_id.casefold().startswith("impl_"):
+            raw_name_id = raw_name_id[5:]
+        name_id = re.sub(r"[^A-Za-z0-9_-]", "_", raw_name_id)[:24].strip("_-")
+        if not name_id:
+            name_id = "implementation"
         name_digest = hashlib.sha256(
             str(implementation.ref).encode("utf-8")
-        ).hexdigest()[:16]
+        ).hexdigest()[:12]
         return ImplementationInvocationSpec(
-            name=f"invoke_impl_{name_digest}", implementation_ref=implementation.ref,
+            name=f"invoke_impl_{name_id}_{name_digest}", implementation_ref=implementation.ref,
             atomic_ref=atomic.ref, description=f"Execute learned implementation for: {atomic.summary}",
             input_schema={"type": "object", "properties": properties, "required": required, "additionalProperties": False},
             grounding_constraints=list(implementation.grounding_constraints),
