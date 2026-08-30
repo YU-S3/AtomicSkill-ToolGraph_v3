@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from ..core.errors import AtomicSkillGraphError, FailureLayer
+from ..core.errors import AgentProtocolError, AtomicSkillGraphError, FailureLayer
 from .protocol import AgentMessage, AgentTurn, NativeToolCall, NativeToolSpec, parse_json_strict
 
 
@@ -34,6 +34,14 @@ class ProviderProtocolError(AgentProviderError):
 
     def __init__(self, code: str, message: str, *, usage_turn: AgentTurn) -> None:
         super().__init__(code, message)
+        self.usage_turn = usage_turn
+
+
+class ProviderAgentProtocolError(AgentProtocolError):
+    """A metered HTTP-200 turn whose model-authored tool call is malformed."""
+
+    def __init__(self, code: str, message: str, *, usage_turn: AgentTurn) -> None:
+        super().__init__(code, message, layer=FailureLayer.RUNTIME_AGENT)
         self.usage_turn = usage_turn
 
 
@@ -275,7 +283,7 @@ class OpenAICompatibleProvider:
                     response=response,
                     tools_requested=bool(normalized_tools),
                 )
-            except AgentProviderError as exc:
+            except (AgentProviderError, ProviderAgentProtocolError) as exc:
                 usage_turn = getattr(exc, "usage_turn", None)
                 self._append_request_record(
                     audit_id, started_at, "error", response.status_code, retry_count,
@@ -375,8 +383,8 @@ class OpenAICompatibleProvider:
             for raw_call in raw_calls:
                 calls.append(_parse_native_tool_call(raw_call))
         except (TypeError, ValueError) as exc:
-            self._raise_protocol(
-                "provider_invalid_response", f"invalid native tool call: {exc}",
+            self._raise_agent_protocol(
+                "runtime_agent_schema_error", f"invalid native tool call: {exc}",
                 usage, latency_ms, metadata, content=content,
                 reasoning_content=reasoning_content, finish_reason=finish_reason,
             )
@@ -424,6 +432,32 @@ class OpenAICompatibleProvider:
             reasoning_content=reasoning_content,
         )
         raise ProviderProtocolError(code, message, usage_turn=usage_turn)
+
+    def _raise_agent_protocol(
+        self,
+        code: str,
+        message: str,
+        usage: dict[str, Any],
+        latency_ms: float,
+        metadata: dict[str, Any],
+        *,
+        content: str = "",
+        reasoning_content: str = "",
+        finish_reason: str = "",
+    ) -> None:
+        usage_turn = AgentTurn(
+            content=content,
+            tool_calls=[],
+            finish_reason=finish_reason,
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+            total_tokens=usage["total_tokens"],
+            reasoning_tokens=usage["reasoning_tokens"],
+            latency_ms=latency_ms,
+            provider_metadata=metadata,
+            reasoning_content=reasoning_content,
+        )
+        raise ProviderAgentProtocolError(code, message, usage_turn=usage_turn)
 
     def _append_request_record(
         self,
@@ -672,4 +706,5 @@ __all__ = [
     "OpenAICompatibleConfig",
     "OpenAICompatibleProvider",
     "ProviderProtocolError",
+    "ProviderAgentProtocolError",
 ]

@@ -255,6 +255,47 @@ def test_structured_submission_uses_native_tool_and_one_format_repair(
     assert session.pending_tool_call is None
 
 
+def test_malformed_native_tool_arguments_use_session_protocol_repair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_DEEPSEEK_KEY", "secret-fixture-key")
+    malformed = _success("call_bad", "submit_probe")
+    malformed["choices"][0]["message"]["tool_calls"][0]["function"][
+        "arguments"
+    ] = '{"ok":true}{"extra":1}'
+    responses = iter([
+        _Response(malformed, request_id="req_bad_arguments"),
+        _Response(_success("call_fixed", "submit_probe"), request_id="req_fixed"),
+    ])
+    posted: list[dict[str, Any]] = []
+
+    def post(_url, *, headers, json, timeout):
+        posted.append(json)
+        return next(responses)
+
+    monkeypatch.setattr("atomic_skillgraph.agents.provider.requests.post", post)
+    provider = OpenAICompatibleProvider(_config())
+    session = ReplayAgentSession(
+        provider,
+        system_prompt="probe",
+        usage_ledger=UsageLedger(),
+        usage_bucket="planner_p1",
+    )
+
+    turn = session.next_turn("submit ok", tools=[_tool()])
+
+    assert turn.tool_calls[0].name == "submit_probe"
+    assert turn.tool_calls[0].arguments == {"ok": True}
+    assert len(posted) == 2
+    assert "PROTOCOL REPAIR REQUIRED" in posted[1]["messages"][-1]["content"]
+    snapshot = session.snapshot()
+    assert snapshot["protocol_repairs_used"] == 1
+    assert snapshot["protocol_failures"][0]["code"] == "runtime_agent_schema_error"
+    assert snapshot["terminal_protocol_failure"] is None
+    assert [item["outcome"] for item in provider.request_records] == ["error", "success"]
+    assert provider.request_records[0]["usage_status"] == "reported"
+
+
 def test_provider_missing_reasoning_and_usage_are_classified_and_audited(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

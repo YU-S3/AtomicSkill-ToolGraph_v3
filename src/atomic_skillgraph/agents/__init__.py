@@ -16,6 +16,7 @@ from .provider import (
     AgentProviderError,
     OpenAICompatibleConfig,
     OpenAICompatibleProvider,
+    ProviderAgentProtocolError,
     ProviderProtocolError,
 )
 from .provider_probe import (
@@ -59,6 +60,7 @@ __all__ = [
     "OpenAICompatibleProvider",
     "PROTOCOL_REPAIR_LIMIT",
     "ProtocolFailureRecord",
+    "ProviderAgentProtocolError",
     "ProviderProtocolError",
     "ProviderCapabilityError",
     "REAL_USAGE_BUCKETS",
