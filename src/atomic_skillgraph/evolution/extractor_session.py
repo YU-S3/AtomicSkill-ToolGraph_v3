@@ -64,13 +64,22 @@ class ExtractorSession:
             schema=E1_SCHEMA,
         ).value
         self._e1_complete = True
-        return [AtomicOccurrenceProposal(
-            phase_id=str(item["phase_id"]), intent=str(item["intent"]),
-            event_start=int(item["event_start"]), event_end=int(item["event_end"]),
-            input_roles=dict(item["input_roles"]), output_roles=dict(item["output_roles"]),
-            preconditions=[_predicate(value) for value in item["preconditions"]],
-            effects=[_predicate(value) for value in item["effects"]], rationale=str(item["rationale"]),
-        ) for item in payload["occurrences"]]
+        proposals: list[AtomicOccurrenceProposal] = []
+        for item in payload["occurrences"]:
+            event_start = int(item["event_start"])
+            event_end_exclusive = int(item["event_end"])
+            if event_end_exclusive <= event_start:
+                raise ValueError(
+                    "Extractor E1 event_end must be exclusive and greater than event_start"
+                )
+            proposals.append(AtomicOccurrenceProposal(
+                phase_id=str(item["phase_id"]), intent=str(item["intent"]),
+                event_start=event_start, event_end=event_end_exclusive - 1,
+                input_roles=dict(item["input_roles"]), output_roles=dict(item["output_roles"]),
+                preconditions=[_predicate(value) for value in item["preconditions"]],
+                effects=[_predicate(value) for value in item["effects"]], rationale=str(item["rationale"]),
+            ))
+        return proposals
 
     def propose_composite(
         self, authoritative_occurrences: list[CanonicalAtomicOccurrence],
@@ -78,11 +87,27 @@ class ExtractorSession:
     ) -> CompositeExtractionProposal:
         if not self._e1_complete or self._e2_complete:
             raise RuntimeError("Extractor E2 requires one completed E1 and may run exactly once")
+        identity_by_value: dict[str, str] = {}
+
+        def identity(value: Any) -> str:
+            key = repr(value)
+            if key not in identity_by_value:
+                identity_by_value[key] = f"binding_{len(identity_by_value) + 1:03d}"
+            return identity_by_value[key]
+
         authority = [
             {
                 "occurrence_id": item.occurrence_id, "skill_ref": str(item.proposed_ref),
                 "intent": item.intent, "inputs": to_primitive(item.input_specs),
                 "outputs": to_primitive(item.output_specs), "effects": to_primitive(item.effects),
+                "input_binding_identities": {
+                    role: identity(value)
+                    for role, value in item.input_bindings.items()
+                },
+                "output_binding_identities": {
+                    role: identity(value)
+                    for role, value in item.output_bindings.items()
+                },
                 "known_edge_evidence": [
                     to_primitive(edge)
                     for edge in existing_edges

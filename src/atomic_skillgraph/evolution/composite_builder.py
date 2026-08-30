@@ -169,22 +169,6 @@ class CompositeBuilder:
         }
         if len(semantics) != len(edges):
             raise ValueError("E2 contains duplicate semantic edges")
-        if len(by_id) > 1:
-            adjacency = {occurrence_id: set() for occurrence_id in by_id}
-            for edge in edges:
-                adjacency[edge.source_step].add(edge.target_step)
-                adjacency[edge.target_step].add(edge.source_step)
-            visited: set[str] = set()
-            pending = [proposal.control_sequence[0]]
-            while pending:
-                current = pending.pop()
-                if current in visited:
-                    continue
-                visited.add(current)
-                pending.extend(adjacency[current] - visited)
-            if visited != set(by_id):
-                raise ValueError("E2 multi-occurrence graph must be weakly connected")
-
         incoming_roles: set[tuple[str, str]] = set()
         for edge in edges:
             self._validate_roles(edge, by_id)

@@ -86,6 +86,31 @@ def test_state_facts_replace_stale_holds_and_locations() -> None:
     assert not any(item["predicate"] == "object.at_location" for item in facts)
 
 
+def test_navigation_container_and_light_actions_publish_current_atomic_facts() -> None:
+    channel = AlfWorldValidatorChannel()
+    _record(channel, 1, "GO_TO", destination="cabinet_1")
+    _record(channel, 2, "OPEN", object="cabinet_1")
+    _record(channel, 3, "TOGGLE_ON", object="desklamp_1")
+    facts = channel.snapshot()["facts"]
+    assert {"predicate": "agent.at_location", "args": {"location": "cabinet_1"}} in facts
+    assert {"predicate": "container.open", "args": {"container": "cabinet_1"}} in facts
+    assert {"predicate": "light.on", "args": {"light": "desklamp_1"}} in facts
+
+    _record(channel, 4, "GO_TO", destination="desk_1")
+    _record(channel, 5, "CLOSE", object="cabinet_1")
+    _record(channel, 6, "TOGGLE_OFF", object="desklamp_1")
+    facts = channel.snapshot()["facts"]
+    assert {"predicate": "agent.at_location", "args": {"location": "desk_1"}} in facts
+    assert not any(
+        item == {"predicate": "agent.at_location", "args": {"location": "cabinet_1"}}
+        for item in facts
+    )
+    assert {"predicate": "container.closed", "args": {"container": "cabinet_1"}} in facts
+    assert {"predicate": "container.open", "args": {"container": "cabinet_1"}} not in facts
+    assert {"predicate": "light.off", "args": {"light": "desklamp_1"}} in facts
+    assert {"predicate": "light.on", "args": {"light": "desklamp_1"}} not in facts
+
+
 def test_atomic_effect_requires_concrete_binding_and_current_fact() -> None:
     channel = AlfWorldValidatorChannel()
     _record(channel, 1, "HEAT", object="egg_1", station="microwave_1")

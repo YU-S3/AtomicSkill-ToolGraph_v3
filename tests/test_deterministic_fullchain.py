@@ -20,7 +20,6 @@ from experiments.fakes import (
     ScriptedAgentProvider,
     fake_task,
     knowledge_digest,
-    planner_gap_replies,
 )
 from atomic_skillgraph.agents import (
     AgentProvider,
@@ -177,7 +176,7 @@ def _e1_take(item: str, *, start: int = 0) -> dict:
         "phase_id": f"take_{start}",
         "intent": "take target item",
         "event_start": start,
-        "event_end": start,
+        "event_end": start + 1,
         "input_roles": {"item": item},
         "output_roles": {"held_object": item},
         "preconditions": [],
@@ -191,7 +190,7 @@ def _e1_examine(item: str, *, start: int) -> dict:
         "phase_id": f"examine_{start}",
         "intent": "observe held item",
         "event_start": start,
-        "event_end": start,
+        "event_end": start + 1,
         "input_roles": {"item": item},
         "output_roles": {"observed_object": item},
         "preconditions": [],
@@ -364,7 +363,6 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
 
     # Episode 1: empty-bank Full Dynamic succeeds, then the real E1/E2 pipeline
     # admits all four kinds as online-usable Candidates.
-    factory.enqueue("planner", planner_gap_replies())
     factory.enqueue(
         "runtime_dynamic",
         [FakeReply.tool("environment_action", {"action_id": "r000_a001"})],
@@ -598,7 +596,6 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     digest_before_frozen = AtomicSkillGraphSystem.knowledge_digest(digest_view)
     assert knowledge_digest(database) == digest_before_frozen
     ledger_count_before_frozen = ledger.count()
-    factory.enqueue("planner", planner_gap_replies())
     factory.enqueue(
         "runtime_dynamic",
         [FakeReply.tool("environment_action", {"action_id": "r000_a001"})],

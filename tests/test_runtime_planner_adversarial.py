@@ -608,11 +608,12 @@ def test_dynamic_tool_result_carries_the_new_action_catalog(tmp_path: Path) -> N
         assert first_result["action_catalog"] == [
             {
                 "action_id": "r001_a001",
-                "action_type": "EXAMINE",
                 "display_text": "examine apple_1",
-                "revision": 1,
             }
         ]
+        assert "r000_a001" not in {
+            item["action_id"] for item in first_result["action_catalog"]
+        }
         assert first_result["remaining_budget"]["used_global_actions"] == 1
         assert first_result["remaining_budget"]["remaining_global_actions"] == 9
     finally:
@@ -698,6 +699,10 @@ class _InfrastructureSession:
 def test_planner_provider_infrastructure_error_is_not_dynamic_fallback(tmp_path: Path) -> None:
     database, skills, _tools, graph = _empty_runtime(tmp_path)
     try:
+        skills.register_atomic(_atomic(
+            "unrelated_active_atomic",
+            effects=[SemanticPredicate("unrelated.effect", {"value": "x"})],
+        ))
         planner = PlannerPipeline(skills, graph, lambda *_args: _InfrastructureSession())
         harness = FakeHarness()
         task = fake_task("planner-infra", "apple_1")
@@ -710,6 +715,10 @@ def test_planner_provider_infrastructure_error_is_not_dynamic_fallback(tmp_path:
 def test_untyped_planner_provider_error_is_not_dynamic_fallback(tmp_path: Path) -> None:
     database, skills, _tools, graph = _empty_runtime(tmp_path)
     try:
+        skills.register_atomic(_atomic(
+            "unrelated_active_atomic",
+            effects=[SemanticPredicate("unrelated.effect", {"value": "x"})],
+        ))
         class Session:
             def next_turn(self, *_args, **_kwargs):
                 raise ConnectionError("provider transport failed")

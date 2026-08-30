@@ -10,7 +10,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from ..core.errors import AgentProtocolError, AtomicSkillGraphError, FailureLayer
+from ..core.errors import (
+    AgentProtocolError,
+    AtomicSkillGraphError,
+    BudgetExhausted,
+    FailureLayer,
+)
 from .protocol import (
     AgentMessage,
     AgentProvider,
@@ -23,7 +28,19 @@ from .protocol import (
 from .usage import AgentBudget, BudgetTracker, LLMUsage, UsageBucket, UsageLedger
 
 
-_PROTOCOL_REPAIR_LIMIT = 1
+PROTOCOL_REPAIR_LIMIT = 1
+
+
+def structured_provider_turn_cap(semantic_max_turns: int) -> int:
+    """Add the one session-wide protocol-repair call to a semantic turn cap."""
+
+    if (
+        isinstance(semantic_max_turns, bool)
+        or not isinstance(semantic_max_turns, int)
+        or semantic_max_turns < 0
+    ):
+        raise ValueError("semantic_max_turns must be a non-negative integer")
+    return int(semantic_max_turns) + PROTOCOL_REPAIR_LIMIT
 
 
 @dataclass(frozen=True)
@@ -50,6 +67,7 @@ class ReplayAgentSession:
         usage_ledger: UsageLedger,
         usage_bucket: UsageBucket | str,
         budget: AgentBudget | None = None,
+        semantic_max_turns: int | None = None,
         session_id: str | None = None,
     ) -> None:
         if not isinstance(system_prompt, str) or not system_prompt.strip():
@@ -64,10 +82,25 @@ class ReplayAgentSession:
         self._usage_ledger = usage_ledger
         self._usage_bucket = UsageBucket(usage_bucket)
         self._budget_tracker = BudgetTracker(budget) if budget is not None else None
+        if (
+            semantic_max_turns is not None
+            and (
+                isinstance(semantic_max_turns, bool)
+                or not isinstance(semantic_max_turns, int)
+                or semantic_max_turns < 0
+            )
+        ):
+            raise ValueError("semantic_max_turns must be a non-negative integer or None")
+        if semantic_max_turns is not None and budget is None:
+            raise ValueError("semantic_max_turns requires an AgentBudget")
+        self._semantic_max_turns = semantic_max_turns
         self._pending_call: NativeToolCall | None = None
         self._seen_call_ids: set[str] = set()
         self._last_tools: list[NativeToolSpec] = []
         self._turn_index = 0
+        self._accepted_turn_count = 0
+        self._protocol_repairs_used = 0
+        self._context_compaction_count = 0
         self._protocol_failures: list[ProtocolFailureRecord] = []
         self._terminal_protocol_failure: AgentProtocolError | None = None
         self._finalized = False
@@ -124,6 +157,7 @@ class ReplayAgentSession:
                     layer=FailureLayer.RUNTIME_AGENT,
                 )
             normalized_tools = _normalize_tools(tools)
+            self._check_semantic_budget_before_call()
             self._check_budget_before_call()
             if user_input is not None:
                 self._messages.append({"role": "user", "content": user_input})
@@ -153,6 +187,7 @@ class ReplayAgentSession:
                     layer=FailureLayer.RUNTIME_AGENT,
                 )
             normalized_tools = self._last_tools if tools is None else _normalize_tools(tools)
+            self._check_semantic_budget_before_call()
             self._check_budget_before_call()
             self._append_tool_result(pending, result)
             self._last_tools = list(normalized_tools)
@@ -220,6 +255,21 @@ class ReplayAgentSession:
                 "finalized": self._finalized,
                 "seen_call_ids": sorted(self._seen_call_ids),
                 "turn_count": self._turn_index,
+                "provider_call_count": self._turn_index,
+                "accepted_turn_count": self._accepted_turn_count,
+                "protocol_repairs_used": self._protocol_repairs_used,
+                "context_compaction_count": self._context_compaction_count,
+                "semantic_budget": (
+                    None
+                    if self._semantic_max_turns is None
+                    else {
+                        "max_turns": self._semantic_max_turns,
+                        "used_turns": self._accepted_turn_count,
+                        "remaining_turns": max(
+                            0, self._semantic_max_turns - self._accepted_turn_count,
+                        ),
+                    }
+                ),
                 "usage_bucket": self._usage_bucket.value,
                 "budget": self._budget_tracker.snapshot() if self._budget_tracker else None,
                 "protocol_failures": [
@@ -247,9 +297,9 @@ class ReplayAgentSession:
         self,
         tools: list[NativeToolSpec],
     ) -> AgentTurn:
-        repair_count = 0
         while True:
             self._check_budget_before_call()
+            self._compact_superseded_action_catalogs()
             accepted_candidate: AgentTurn | None = None
             try:
                 set_context = getattr(self._provider, "set_request_context", None)
@@ -289,9 +339,10 @@ class ReplayAgentSession:
                     rejected_turn = _turn_dict(turn)
                 else:
                     self._append_assistant_turn(turn)
+                    self._accepted_turn_count += 1
                     return turn
 
-            can_repair = repair_count < _PROTOCOL_REPAIR_LIMIT
+            can_repair = self._protocol_repairs_used < PROTOCOL_REPAIR_LIMIT
             self._protocol_failures.append(
                 ProtocolFailureRecord(
                     turn_index=max(0, self._turn_index - 1),
@@ -304,7 +355,7 @@ class ReplayAgentSession:
             if not can_repair:
                 self._terminal_protocol_failure = failure
                 raise failure
-            repair_count += 1
+            self._protocol_repairs_used += 1
             self._check_budget_before_call()
             if accepted_candidate is not None:
                 self._append_rejected_turn_for_replay(accepted_candidate, failure)
@@ -415,6 +466,60 @@ class ReplayAgentSession:
     def _check_budget_before_call(self) -> None:
         if self._budget_tracker is not None:
             self._budget_tracker.check_before_call()
+
+    def _check_semantic_budget_before_call(self) -> None:
+        if (
+            self._semantic_max_turns is None
+            or self._accepted_turn_count < self._semantic_max_turns
+        ):
+            return
+        assert self._budget_tracker is not None
+        raise BudgetExhausted(
+            self._budget_tracker.budget.exhaustion_code,
+            "agent semantic turn budget exhausted",
+            layer=FailureLayer.RUNTIME_AGENT,
+        )
+
+    def _compact_superseded_action_catalogs(self) -> None:
+        """Keep only the newest revision's full display catalog in replay.
+
+        Assistant envelopes (including DeepSeek reasoning_content) and action
+        results remain intact.  Only client-authored catalogs from older world
+        revisions are replaced by an auditable marker; the canonical Trace and
+        GroundingEvidence retain their complete typed action records.
+        """
+
+        catalogs: list[tuple[int, dict[str, Any]]] = []
+        for index, message in enumerate(self._messages):
+            if message.get("role") != "tool":
+                continue
+            try:
+                payload = json.loads(str(message.get("content", "")))
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict) or not isinstance(
+                payload.get("action_catalog"), list,
+            ):
+                continue
+            catalogs.append((index, payload))
+        if len(catalogs) <= 1:
+            return
+        latest_revision = catalogs[-1][1].get("new_revision")
+        for index, payload in catalogs[:-1]:
+            entries = list(payload["action_catalog"])
+            payload["action_catalog"] = {
+                "status": "superseded",
+                "entry_count": len(entries),
+                "superseded_by_revision": latest_revision,
+            }
+            self._messages[index]["content"] = json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            self._context_compaction_count += 1
 
     def _ensure_live(self) -> None:
         if self._finalized:

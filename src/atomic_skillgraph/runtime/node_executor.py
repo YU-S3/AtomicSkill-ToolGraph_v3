@@ -180,14 +180,16 @@ class NodeExecutor:
             "accepted": result.accepted, "observation": result.observation, "done": result.done,
             "won": result.won, "new_revision": result.new_revision,
             # A revision changes the meaning of action ids.  The next Agent
-            # turn must receive the new policy-facing catalog, not merely an
-            # enum of opaque aNNN ids in the native-tool schema.
+            # turn receives the complete new policy-facing catalog.  Keep the
+            # replay representation compact: action_id is revision-scoped,
+            # new_revision is carried above, and display_text supplies the
+            # only action semantics the Agent needs to select that opaque id.
+            # Full typed arguments remain in TaskContext, GroundingEvidence,
+            # and the canonical EnvironmentActionRecord.
             "action_catalog": [
                 {
                     "action_id": item.action_id,
-                    "action_type": item.action_type,
                     "display_text": item.display_text,
-                    "revision": item.revision,
                 }
                 for item in result.catalog
             ],

@@ -23,7 +23,13 @@ from .provider_probe import (
     ensure_provider_capability,
     run_provider_capability_probe,
 )
-from .session import ClientManagedAgentSession, ProtocolFailureRecord, ReplayAgentSession
+from .session import (
+    ClientManagedAgentSession,
+    PROTOCOL_REPAIR_LIMIT,
+    ProtocolFailureRecord,
+    ReplayAgentSession,
+    structured_provider_turn_cap,
+)
 from .structured_submission import StructuredSubmission, StructuredSubmissionClient
 from .usage import (
     AgentBudget,
@@ -51,6 +57,7 @@ __all__ = [
     "NativeToolSpec",
     "OpenAICompatibleConfig",
     "OpenAICompatibleProvider",
+    "PROTOCOL_REPAIR_LIMIT",
     "ProtocolFailureRecord",
     "ProviderProtocolError",
     "ProviderCapabilityError",
@@ -63,6 +70,7 @@ __all__ = [
     "UsageEvent",
     "UsageLedger",
     "sum_usage",
+    "structured_provider_turn_cap",
     "ensure_provider_capability",
     "parse_json_strict",
     "validate_schema_instance",

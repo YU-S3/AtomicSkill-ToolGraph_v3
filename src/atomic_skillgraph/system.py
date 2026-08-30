@@ -25,6 +25,7 @@ from .agents import (
     ReplayAgentSession,
     UsageBucket,
     UsageLedger,
+    structured_provider_turn_cap,
 )
 from .core.edges import GlobalGraphEdge, GlobalRelationType
 from .core.errors import AtomicSkillGraphError, FailureEnvelope, FailureLayer
@@ -86,7 +87,8 @@ from .validation import ValidationEngine
 _SYSTEM_PROMPTS = {
     "planner": (
         "You are the AtomicSkillGraph v3 planner. Use only supplied contracts, candidates, and "
-        "edge evidence. Return only the requested strict JSON; never execute an environment action."
+        "edge evidence. Call the single offered native submission tool exactly once; never execute "
+        "an environment action or return a prose/JSON answer outside that ToolCall."
     ),
     "runtime_preparation": (
         "You are a runtime preparation agent. Use only native tools offered in the current turn. "
@@ -100,11 +102,12 @@ _SYSTEM_PROMPTS = {
     ),
     "extractor": (
         "You are the AtomicSkillGraph v3 two-turn extractor. Treat the canonical structured trace as authority; "
-        "do not invent actions, effects, occurrences, or existing edges. Return strict JSON only."
+        "do not invent actions, effects, occurrences, or existing edges. In each turn call the single "
+        "offered native submission tool exactly once; do not return prose or standalone JSON."
     ),
     "evolution_repair": (
         "You are the AtomicSkillGraph v3 batch evolution proposal agent. Use only supplied "
-        "structured Tool/replay/failure evidence. Return strict JSON. You may propose semantic "
+        "structured Tool/replay/failure evidence. Submit through the single offered native tool. You may propose semantic "
         "edits, but code is the sole replay, validation, versioning, and admission authority."
     ),
 }
@@ -458,6 +461,7 @@ class AtomicSkillGraphSystem:
         max_turns: int,
         max_tokens: int,
         exhaustion_code: str,
+        semantic_max_turns: int | None = None,
     ) -> _SessionProxy:
         session = ReplayAgentSession(
             self._provider(stage),
@@ -465,6 +469,7 @@ class AtomicSkillGraphSystem:
             usage_ledger=self.usage,
             usage_bucket=bucket,
             budget=AgentBudget(max_turns, max_tokens, exhaustion_code),
+            semantic_max_turns=semantic_max_turns,
         )
         observed = _ObservedSession(
             session, session_type, occurrence_id, task_id, time.time(), []
@@ -474,12 +479,14 @@ class AtomicSkillGraphSystem:
 
     def _planner_session(self, task: HarnessTask, _contract: Any) -> _SessionProxy:
         cfg = self._stage_config("planner")
+        semantic_max_turns = int(cfg.get("max_turns", 4))
         return self._new_session(
             stage="planner", bucket=UsageBucket.PLANNER_P1,
             session_type="PlannerSession", occurrence_id="", task_id=task.task_id,
-            max_turns=int(cfg.get("max_turns", 4)),
+            max_turns=structured_provider_turn_cap(semantic_max_turns),
             max_tokens=int(cfg.get("max_total_tokens_per_task", 120000)),
             exhaustion_code="planner_token_budget_exhausted",
+            semantic_max_turns=semantic_max_turns,
         )
 
     def _runtime_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:
@@ -505,16 +512,19 @@ class AtomicSkillGraphSystem:
 
     def _extractor_session(self, task_id: str) -> _SessionProxy:
         cfg = self._stage_config("extractor")
+        semantic_max_turns = int(cfg.get("max_turns", 2))
         return self._new_session(
             stage="extractor", bucket=UsageBucket.EXTRACTOR_E1,
             session_type="ExtractorSession", occurrence_id="", task_id=task_id,
-            max_turns=int(cfg.get("max_turns", 2)),
+            max_turns=structured_provider_turn_cap(semantic_max_turns),
             max_tokens=int(cfg.get("max_total_tokens_per_task", cfg.get("max_completion_tokens", 131072) * 2)),
             exhaustion_code="extractor_token_budget_exhausted",
+            semantic_max_turns=semantic_max_turns,
         )
 
     def _evolution_repair_session(self, task_id: str) -> _SessionProxy:
         cfg = self._stage_config("evolution_repair")
+        semantic_max_turns = int(cfg.get("max_turns", 1))
         batch_limit = int(
             cfg.get(
                 "max_total_tokens_per_batch",
@@ -538,11 +548,12 @@ class AtomicSkillGraphSystem:
             session_type="EvolutionRepairSession",
             occurrence_id="",
             task_id=task_id,
-            max_turns=int(cfg.get("max_turns", 1)),
+            max_turns=structured_provider_turn_cap(semantic_max_turns),
             # Every proposal producer in one maintenance milestone receives
             # only the unspent portion of the single batch-wide token cap.
             max_tokens=remaining,
             exhaustion_code="evolution_repair_token_budget_exhausted",
+            semantic_max_turns=semantic_max_turns,
         )
 
     def run_task(
@@ -917,7 +928,11 @@ class AtomicSkillGraphSystem:
         normalized = self.normalizer.build(trace)
         extractor = ExtractorSession(self._extractor_session(task.task_id))
         proposals = extractor.propose_atomics(normalized)
-        canonical = self.atomicizer.validate_and_canonicalize(proposals, normalized)
+        canonical, occurrence_rejections = self.atomicizer.validate_proposed_subset(
+            proposals, normalized,
+        )
+        if occurrence_rejections:
+            trace.metadata["extraction_occurrence_rejections"] = occurrence_rejections
         existing = self.graph.existing_edges(
             [str(item.proposed_ref) for item in canonical], mode=RuntimeMode.ONLINE
         )

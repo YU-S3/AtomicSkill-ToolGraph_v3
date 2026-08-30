@@ -135,7 +135,10 @@ class AlfWorldValidatorChannel:
             "object.heated": set(), "object.cooled": set(),
             "object.cleaned": set(), "object.sliced": set(),
         }
+        self._containers_open: set[str] = set()
+        self._containers_closed: set[str] = set()
         self._lights_on: set[str] = set()
+        self._lights_off: set[str] = set()
         self._observed: set[str] = set()
         self._observed_with: set[tuple[str, str]] = set()
         self._agent_location = ""
@@ -148,7 +151,10 @@ class AlfWorldValidatorChannel:
         self._locations.clear()
         for values in self._properties.values():
             values.clear()
+        self._containers_open.clear()
+        self._containers_closed.clear()
         self._lights_on.clear()
+        self._lights_off.clear()
         self._observed.clear()
         self._observed_with.clear()
         self._agent_location = ""
@@ -166,8 +172,16 @@ class AlfWorldValidatorChannel:
         for predicate, objects in self._properties.items():
             for obj in objects:
                 add(predicate, object=obj)
+        if self._agent_location:
+            add("agent.at_location", location=self._agent_location)
+        for container in self._containers_open:
+            add("container.open", container=container)
+        for container in self._containers_closed:
+            add("container.closed", container=container)
         for light in self._lights_on:
             add("light.on", light=light)
+        for light in self._lights_off:
+            add("light.off", light=light)
         for obj in self._observed:
             add("object.observed", object=obj)
         for obj, light in self._observed_with:
@@ -205,11 +219,22 @@ class AlfWorldValidatorChannel:
                 self._properties["object.sliced"].add(obj)
         elif spec.action_type == "GO_TO":
             self._agent_location = str(args.get("destination", ""))
+        elif spec.action_type == "OPEN":
+            if obj:
+                self._containers_closed.discard(obj)
+                self._containers_open.add(obj)
+        elif spec.action_type == "CLOSE":
+            if obj:
+                self._containers_open.discard(obj)
+                self._containers_closed.add(obj)
         elif spec.action_type == "TOGGLE_ON":
             if obj:
+                self._lights_off.discard(obj)
                 self._lights_on.add(obj)
         elif spec.action_type == "TOGGLE_OFF":
-            self._lights_on.discard(obj)
+            if obj:
+                self._lights_on.discard(obj)
+                self._lights_off.add(obj)
         elif spec.action_type == "USE":
             if obj:
                 # ALFWorld exposes lamp interaction as ``use <lamp>``.  The
@@ -219,10 +244,12 @@ class AlfWorldValidatorChannel:
                 # held, while the action argument identifies the lamp.
                 if obj in self._lights_on:
                     self._lights_on.discard(obj)
+                    self._lights_off.add(obj)
                     self._observed_with = {
                         pair for pair in self._observed_with if pair[1] != obj
                     }
                 else:
+                    self._lights_off.discard(obj)
                     self._lights_on.add(obj)
                     for held_object in self._held:
                         self._observed_with.add((held_object, obj))

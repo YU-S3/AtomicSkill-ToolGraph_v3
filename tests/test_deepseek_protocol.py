@@ -7,12 +7,15 @@ from typing import Any
 import pytest
 
 from atomic_skillgraph.agents import (
+    AgentBudget,
     ContextBuilder,
     NativeToolSpec,
     ReplayAgentSession,
     StructuredSubmissionClient,
     UsageLedger,
+    structured_provider_turn_cap,
 )
+from atomic_skillgraph.core.errors import AgentProtocolError, BudgetExhausted
 from atomic_skillgraph.agents.provider import (
     AgentProviderError,
     OpenAICompatibleConfig,
@@ -453,6 +456,231 @@ def test_same_session_supports_p1_p1r_p2_after_acknowledge() -> None:
     assert [message["role"] for message in provider.requests[-1].messages] == [
         "system", "user", "assistant", "tool", "user", "assistant", "tool", "user",
     ]
+
+
+def test_structured_semantic_budget_keeps_one_session_wide_format_repair_headroom(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_DEEPSEEK_KEY", "secret-fixture-key")
+    no_call = {
+        "id": "response_no_call",
+        "choices": [{
+            "finish_reason": "stop",
+            "message": {
+                "content": "prose instead of the submit call",
+                "reasoning_content": "repairable private reasoning",
+            },
+        }],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+    }
+    responses = iter([
+        _Response(no_call, request_id="req_bad"),
+        *[
+            _Response(
+                _success(f"call_{index}", f"submit_stage_{index}"),
+                request_id=f"req_{index}",
+            )
+            for index in range(1, 5)
+        ],
+    ])
+    posted: list[dict[str, Any]] = []
+
+    def post(_url, *, headers, json, timeout):
+        posted.append(json)
+        return next(responses)
+
+    monkeypatch.setattr("atomic_skillgraph.agents.provider.requests.post", post)
+    semantic_turns = 4
+    session = ReplayAgentSession(
+        OpenAICompatibleProvider(_config()),
+        system_prompt="planner",
+        usage_ledger=UsageLedger(),
+        usage_bucket="planner_p1",
+        budget=AgentBudget(
+            structured_provider_turn_cap(semantic_turns),
+            1000,
+            "planner_token_budget_exhausted",
+        ),
+        semantic_max_turns=semantic_turns,
+    )
+    client = StructuredSubmissionClient()
+    for index in range(1, 5):
+        result = client.request(
+            session,
+            prompt=f"semantic stage {index}",
+            tool_name=f"submit_stage_{index}",
+            description="submit stage",
+            schema=_tool().input_schema,
+        )
+        assert result.value == {"ok": True}
+
+    snapshot = session.snapshot()
+    assert snapshot["provider_call_count"] == 5
+    assert snapshot["accepted_turn_count"] == 4
+    assert snapshot["protocol_repairs_used"] == 1
+    assert snapshot["budget"]["max_turns"] == 5
+    assert snapshot["semantic_budget"] == {
+        "max_turns": 4,
+        "used_turns": 4,
+        "remaining_turns": 0,
+    }
+    with pytest.raises(BudgetExhausted, match="semantic turn budget"):
+        client.request(
+            session,
+            prompt="forbidden fifth semantic stage",
+            tool_name="submit_stage_5",
+            description="submit stage",
+            schema=_tool().input_schema,
+        )
+    assert len(posted) == 5
+    assert structured_provider_turn_cap(2) == 3
+    assert structured_provider_turn_cap(1) == 2
+
+
+def test_protocol_format_repair_quota_is_global_to_replay_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_DEEPSEEK_KEY", "secret-fixture-key")
+    no_call = {
+        "id": "response_no_call",
+        "choices": [{
+            "finish_reason": "stop",
+            "message": {
+                "content": "prose",
+                "reasoning_content": "private reasoning",
+            },
+        }],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+    }
+    responses = iter([
+        _Response(no_call, request_id="req_bad_1"),
+        _Response(_success("call_fixed", "submit_first"), request_id="req_fixed"),
+        _Response(no_call, request_id="req_bad_2"),
+    ])
+    posted: list[dict[str, Any]] = []
+
+    def post(_url, *, headers, json, timeout):
+        posted.append(json)
+        return next(responses)
+
+    monkeypatch.setattr("atomic_skillgraph.agents.provider.requests.post", post)
+    session = ReplayAgentSession(
+        OpenAICompatibleProvider(_config()),
+        system_prompt="extractor",
+        usage_ledger=UsageLedger(),
+        usage_bucket="extractor_e1",
+        budget=AgentBudget(3, 1000, "extractor_token_budget_exhausted"),
+        semantic_max_turns=2,
+    )
+    client = StructuredSubmissionClient()
+    assert client.request(
+        session,
+        prompt="E1",
+        tool_name="submit_first",
+        description="submit E1",
+        schema=_tool().input_schema,
+    ).value == {"ok": True}
+    with pytest.raises(AgentProtocolError, match="no native tool call"):
+        client.request(
+            session,
+            prompt="E2",
+            tool_name="submit_second",
+            description="submit E2",
+            schema=_tool().input_schema,
+        )
+    assert len(posted) == 3
+    snapshot = session.snapshot()
+    assert snapshot["accepted_turn_count"] == 1
+    assert snapshot["protocol_repairs_used"] == 1
+    assert snapshot["terminal_protocol_failure"] is not None
+
+
+def test_replay_compacts_only_superseded_action_catalogs_and_keeps_reasoning() -> None:
+    from experiments.fakes import FakeReply, ScriptedAgentProvider
+
+    def action_tool(action_id: str) -> NativeToolSpec:
+        return NativeToolSpec(
+            "environment_action",
+            "Execute one current action.",
+            {
+                "type": "object",
+                "required": ["action_id"],
+                "additionalProperties": False,
+                "properties": {
+                    "action_id": {"type": "string", "enum": [action_id]},
+                },
+            },
+        )
+
+    provider = ScriptedAgentProvider([
+        FakeReply.tool("environment_action", {"action_id": "r000_a001"}),
+        FakeReply.tool("environment_action", {"action_id": "r001_a001"}),
+        FakeReply.tool("environment_action", {"action_id": "r002_a001"}),
+    ])
+    session = ReplayAgentSession(
+        provider,
+        system_prompt="runtime",
+        usage_ledger=UsageLedger(),
+        usage_bucket="runtime_dynamic",
+    )
+    first = session.next_turn("start", tools=[action_tool("r000_a001")])
+    second = session.submit_tool_result(
+        first.tool_calls[0].call_id,
+        {
+            "accepted": True,
+            "observation": "first observation",
+            "new_revision": 1,
+            "action_catalog": [{
+                "action_id": "r001_a001",
+                "display_text": "go to desk 1",
+            }],
+        },
+        tools=[action_tool("r001_a001")],
+    )
+    third = session.submit_tool_result(
+        second.tool_calls[0].call_id,
+        {
+            "accepted": True,
+            "observation": "second observation",
+            "new_revision": 2,
+            "action_catalog": [{
+                "action_id": "r002_a001",
+                "display_text": "take apple 1",
+            }],
+        },
+        tools=[action_tool("r002_a001")],
+    )
+    session.acknowledge_tool_result(
+        third.tool_calls[0].call_id, {"accepted": True, "complete": True},
+    )
+
+    replay_messages = provider.requests[2].messages
+    tool_payloads = [
+        json.loads(message["content"])
+        for message in replay_messages
+        if message["role"] == "tool"
+    ]
+    assert tool_payloads[0]["observation"] == "first observation"
+    assert tool_payloads[0]["action_catalog"] == {
+        "status": "superseded",
+        "entry_count": 1,
+        "superseded_by_revision": 2,
+    }
+    assert tool_payloads[1]["action_catalog"] == [{
+        "action_id": "r002_a001",
+        "display_text": "take apple 1",
+    }]
+    first_reasoning = next(
+        message["reasoning_content"]
+        for message in provider.requests[1].messages
+        if message["role"] == "assistant"
+    )
+    assert next(
+        message["reasoning_content"]
+        for message in replay_messages
+        if message["role"] == "assistant"
+    ) == first_reasoning
+    assert session.snapshot()["context_compaction_count"] == 1
 
 
 def test_provider_capability_probe_is_exact_and_stored_gate_is_fail_closed(

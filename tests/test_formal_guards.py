@@ -18,15 +18,19 @@ from atomic_skillgraph.agents.provider_probe import (
     ensure_provider_capability,
 )
 from atomic_skillgraph.agents.usage import AgentBudget, BudgetTracker, LLMUsage
-from atomic_skillgraph.core.contracts import ToolAsset
+from atomic_skillgraph.core.contracts import (
+    AbstractAtomicSkill,
+    SemanticPredicate,
+    ToolAsset,
+)
 from atomic_skillgraph.core.errors import (
     ArtifactIntegrityError,
     AtomicSkillGraphError,
     BudgetExhausted,
     FailureLayer,
 )
-from atomic_skillgraph.core.refs import ToolRef
-from atomic_skillgraph.core.status import ToolStatus
+from atomic_skillgraph.core.refs import SkillRef, ToolRef
+from atomic_skillgraph.core.status import SkillStatus, ToolStatus
 from atomic_skillgraph.system import AtomicSkillGraphSystem, load_config
 from atomic_skillgraph.runtime.budget import RuntimeBudget
 from experiments.fakes import FakeHarness, fake_task
@@ -395,6 +399,22 @@ def test_planner_provider_error_persists_failure_trace(tmp_path: Path) -> None:
     with AtomicSkillGraphSystem(
         config, harness=FakeHarness(), provider=provider,
     ) as system:
+        # The formal empty-bank protocol intentionally skips Planner.  Seed an
+        # unrelated online-usable Atomic so this test reaches the provider
+        # failure boundary it is specifically intended to audit.
+        system.skills.register_atomic(AbstractAtomicSkill(
+            SkillRef("unrelated_active_atomic", "1.0.0"),
+            "unrelated active atomic",
+            [],
+            [],
+            [],
+            [SemanticPredicate("unrelated.effect", {"value": "x"})],
+            {},
+            [],
+            {},
+            {},
+            SkillStatus.ACTIVE,
+        ))
         with pytest.raises(AgentProviderError, match="HTTP 400"):
             system.run_task(
                 fake_task("planner-provider-failure", "apple_1"),

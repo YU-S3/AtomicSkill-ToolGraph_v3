@@ -14,7 +14,7 @@ from ..core.refs import content_hash
 from ..core.serialization import atomic_write_json, read_json, to_primitive
 from .protocol import NativeToolSpec
 from .provider import OpenAICompatibleConfig, OpenAICompatibleProvider
-from .session import ReplayAgentSession
+from .session import PROTOCOL_REPAIR_LIMIT, ReplayAgentSession
 from .structured_submission import StructuredSubmissionClient
 from .usage import AgentBudget, UsageBucket, UsageLedger
 
@@ -36,7 +36,7 @@ _FORBIDDEN_PAYLOAD_FIELDS = frozenset({
     "frequency_penalty",
 })
 _PROBE_B_ACCEPTED_TURNS = 2
-_PROBE_B_MAX_HTTP_REQUESTS = 2 * _PROBE_B_ACCEPTED_TURNS
+_PROBE_B_MAX_HTTP_REQUESTS = _PROBE_B_ACCEPTED_TURNS + PROTOCOL_REPAIR_LIMIT
 
 
 class ProviderCapabilityError(AtomicSkillGraphError):

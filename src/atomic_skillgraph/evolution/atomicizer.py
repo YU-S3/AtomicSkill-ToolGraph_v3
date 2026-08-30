@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 from ..core.bindings import BindingExpression, BindingExprKind
 from ..core.contracts import ParameterSpec, SemanticPredicate
@@ -73,6 +73,31 @@ _TERMINAL_CONTEXT_EFFECT_ACTIONS = {
     # effect and must not certify this two-entity relation.
     "object.observed_with": frozenset({"USE"}),
 }
+
+
+def terminal_context_effect_certificates(
+    action_type: str,
+    *,
+    won: bool,
+    benchmark_success: bool,
+    task_contract: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Project only TaskContract effects certified by a terminal primitive."""
+
+    if not won or not benchmark_success:
+        return []
+    result: list[dict[str, Any]] = []
+    for raw in task_contract.get("target_effects", []):
+        predicate = str(raw.get("predicate", ""))
+        if action_type not in _TERMINAL_CONTEXT_EFFECT_ACTIONS.get(predicate, ()):
+            continue
+        result.append({
+            "predicate": predicate,
+            "args": dict(raw.get("args") or {}),
+            "cardinality": int(raw.get("cardinality", 1)),
+            "distinct_by": str(raw.get("distinct_by", "")),
+        })
+    return result
 
 
 def _semantic_type(role: str, value: Any) -> str:
@@ -152,7 +177,7 @@ def _argument(arguments: dict[str, Any], *aliases: str) -> Any:
     return next((arguments[name] for name in aliases if name in arguments), None)
 
 
-def _reduce_action_state(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def reduce_action_state(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Reconstruct the current action-derived state without stale witnesses.
 
     TraceNormalizer intentionally does not expose private validator snapshots.
@@ -261,15 +286,15 @@ def _formal_terminal_facts(
     from that action's arguments alone.  The official terminal ``won`` signal
     plus the formal TaskContract is the authoritative witness for those facts.
     """
-    if not normalized_trace.get("benchmark_success") or not selected[-1].get("won"):
-        return []
     facts: list[dict[str, Any]] = []
     contract = dict(normalized_trace.get("task_contract") or {})
-    for raw in contract.get("target_effects", []):
-        predicate = str(raw.get("predicate", ""))
-        causal_actions = _TERMINAL_CONTEXT_EFFECT_ACTIONS.get(predicate)
-        if not causal_actions or str(selected[-1].get("action_type", "")) not in causal_actions:
-            continue
+    for raw in terminal_context_effect_certificates(
+        str(selected[-1].get("action_type", "")),
+        won=bool(selected[-1].get("won")),
+        benchmark_success=bool(normalized_trace.get("benchmark_success")),
+        task_contract=contract,
+    ):
+        predicate = str(raw["predicate"])
         arguments = {
             name: _resolve(value, bindings)
             for name, value in dict(raw.get("args") or {}).items()
@@ -323,6 +348,42 @@ def _canonical_predicate(predicate: SemanticPredicate, inputs: dict[str, Any], o
 
 
 class Atomicizer:
+    def validate_proposed_subset(
+        self,
+        proposals: list[AtomicOccurrenceProposal],
+        normalized_trace: dict[str, Any],
+    ) -> tuple[list[CanonicalAtomicOccurrence], list[dict[str, str]]]:
+        """Reject invalid Agent proposals without fabricating replacement occurrences.
+
+        A semantically invalid exploration proposal must not discard unrelated,
+        code-validated causal occurrences from the same E1 submission.  The
+        accepted proposals remain exactly Agent-proposed, and the later E2
+        TaskContract/data-flow validator still fails closed if that subset is
+        incomplete.
+        """
+
+        accepted: list[AtomicOccurrenceProposal] = []
+        canonical: list[CanonicalAtomicOccurrence] = []
+        rejections: list[dict[str, str]] = []
+        for proposal in proposals:
+            try:
+                candidate = self.validate_and_canonicalize(
+                    [*accepted, proposal], normalized_trace,
+                )
+            except ValueError as exc:
+                rejections.append({
+                    "phase_id": str(proposal.phase_id),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                })
+                continue
+            accepted.append(proposal)
+            canonical = candidate
+        if not canonical:
+            detail = rejections[0]["error"] if rejections else "no proposals"
+            raise ValueError(f"Extractor E1 produced no valid Atomic occurrences: {detail}")
+        return canonical, rejections
+
     def validate_and_canonicalize(
         self, proposals: list[AtomicOccurrenceProposal], normalized_trace: dict[str, Any],
     ) -> list[CanonicalAtomicOccurrence]:
@@ -376,7 +437,7 @@ class Atomicizer:
                 raise ValueError(f"Atomic output lacks reusable input identity: {proposal.phase_id}")
 
             bindings = {**inputs, **outputs}
-            prefix_facts = _reduce_action_state(list(events[:proposal.event_start]))
+            prefix_facts = reduce_action_state(list(events[:proposal.event_start]))
             prefix_facts += _normalized_state_facts(
                 normalized_trace,
                 key="before_state_facts",
@@ -388,7 +449,7 @@ class Atomicizer:
 
             effect_facts = [
                 fact
-                for fact in _reduce_action_state(
+                for fact in reduce_action_state(
                     list(events[:proposal.event_end + 1])
                 )
                 if proposal.event_start

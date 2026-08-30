@@ -80,6 +80,23 @@ class PlannerPipeline:
                 return plan
             audit.composite_rejections.append({"composite_ref": str(composite.ref), "reasons": report.failure_codes})
 
+        # With no usable Composite and no usable Atomic there is no retrieval
+        # evidence for P1/P1R to inspect.  The formal protocol routes directly
+        # to Dynamic and records why; later tasks stop taking this shortcut as
+        # soon as successful extraction admits online-usable Candidates.
+        if (
+            not self.skills.list_refs("composite", mode=mode)
+            and not self.skills.list_refs("atomic", mode=mode)
+        ):
+            audit.final_outcome = "full_dynamic"
+            audit.fallback_reason = "empty_knowledge_bank"
+            return RuntimeLinearPlan.full_dynamic(
+                task.task_id,
+                contract,
+                reason=audit.fallback_reason,
+                audit=to_primitive(audit),
+            )
+
         session = self.session_factory(task, contract)
         requirement_agent = RequirementAgent(session)
         workflow_agent = WorkflowAgent(session)

@@ -483,7 +483,7 @@ def test_same_atomic_contract_different_tools_align_same_atomic(tmp_path) -> Non
     database.close()
 
 
-def test_composite_requires_connected_dataflow_and_identity_consistency() -> None:
+def test_composite_requires_reused_identity_dataflow_and_identity_consistency() -> None:
     actions = [
         _action(0, "TAKE", {"item": "apple_1"}),
         _action(1, "EXAMINE", {"item": "apple_1"}, won=True),
@@ -509,7 +509,7 @@ def test_composite_requires_connected_dataflow_and_identity_consistency() -> Non
     )
     sequence = [item.occurrence_id for item in canonical]
     disconnected = CompositeExtractionProposal(sequence, [], [], "take and examine", {}, {})
-    with pytest.raises(ValueError, match="weakly connected"):
+    with pytest.raises(ValueError, match="explicit DataFlow"):
         CompositeBuilder().validate_and_build(
             disconnected,
             canonical,
@@ -589,6 +589,21 @@ def test_composite_requires_connected_dataflow_and_identity_consistency() -> Non
             SemanticPredicate("object.at_location", {"object": "banana_1", "location": "bowl_1"}),
         ]),
     )
+    control_only = CompositeBuilder().validate_and_build(
+        CompositeExtractionProposal(
+            [item.occurrence_id for item in mixed], [], [], "independent effects", {}, {},
+        ),
+        mixed,
+        TaskContract([
+            SemanticPredicate("object.heated", {"object": "apple_1"}),
+            SemanticPredicate(
+                "object.at_location", {"object": "banana_1", "location": "bowl_1"},
+            ),
+        ]),
+    )
+    assert control_only.data_edges == []
+    assert control_only.dependency_edges == []
+
     contract = TaskContract(
         [
             SemanticPredicate("object.heated", {"object": "target"}),

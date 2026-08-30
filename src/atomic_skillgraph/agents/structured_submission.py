@@ -162,7 +162,10 @@ PROPOSED_EDGE_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
     "properties": {
         "edge_id": NONEMPTY_STRING_SCHEMA,
-        "edge_type": {"type": "string", "enum": ["data_flow", "dependency"]},
+        "edge_type": {
+            "type": "string",
+            "enum": ["data_flow", "requires_skill"],
+        },
         "source_step": NONEMPTY_STRING_SCHEMA,
         "target_step": NONEMPTY_STRING_SCHEMA,
         "source_role": {"type": "string"},
@@ -192,12 +195,46 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
     "properties": {
         "phase_id": NONEMPTY_STRING_SCHEMA,
         "intent": NONEMPTY_STRING_SCHEMA,
-        "event_start": {"type": "integer", "minimum": 0},
-        "event_end": {"type": "integer", "minimum": 0},
-        "input_roles": {"type": "object"},
-        "output_roles": {"type": "object"},
-        "preconditions": {"type": "array", "items": PREDICATE_SCHEMA},
-        "effects": {"type": "array", "minItems": 1, "items": PREDICATE_SCHEMA},
+        "event_start": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Inclusive index of the first selected canonical action event.",
+        },
+        "event_end": {
+            "type": "integer",
+            "minimum": 1,
+            "description": (
+                "Exclusive index after the last selected event; a single event i uses [i,i+1)."
+            ),
+        },
+        "input_roles": {
+            "type": "object",
+            "minProperties": 1,
+            "description": (
+                "Non-empty role-to-concrete-value bindings copied exactly from selected action arguments."
+            ),
+        },
+        "output_roles": {
+            "type": "object",
+            "minProperties": 1,
+            "description": (
+                "Published role identities; every value must exactly repeat an input_roles value."
+            ),
+        },
+        "preconditions": {
+            "type": "array",
+            "items": PREDICATE_SCHEMA,
+            "description": "Only facts present in authoritative_before_state_facts.",
+        },
+        "effects": {
+            "type": "array",
+            "minItems": 1,
+            "items": PREDICATE_SCHEMA,
+            "description": (
+                "Only authoritative positive effects or explicitly listed narrow terminal certificates "
+                "of the selected accepted events."
+            ),
+        },
         "rationale": NONEMPTY_STRING_SCHEMA,
     },
 }
