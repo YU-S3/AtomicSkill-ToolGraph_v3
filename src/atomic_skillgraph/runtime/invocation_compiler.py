@@ -210,7 +210,7 @@ class InvocationCompiler:
                 break
         return result
 
-    def preflight(
+    def prepare_arguments(
         self, compiled: CompiledInvocation, *, call_name: str, call_id: str,
         arguments: dict[str, Any], occurrence: Any, binding_store: RuntimeBindingStore,
         evidence_store: GroundingEvidenceStore, revision: int,
@@ -289,14 +289,6 @@ class InvocationCompiler:
                         "runtime_binding", "runtime_identity_constraint_mismatch",
                         "Agent proposal violates occurrence identity/cardinality constraints",
                     )
-        # 4. static mapping closure was validated at compile time. Recheck immutable refs.
-        try:
-            current_impl = self.skills.get_implementation(compiled.implementation.ref)
-            if current_impl.abstract_ref != compiled.atomic.ref:
-                return fail("implementation", "implementation_mapping_error", "implementation mapping no longer matches Atomic")
-        except KeyError:
-            return fail("implementation", "implementation_mapping_error", "implementation disappeared")
-
         grounded: dict[str, RuntimeBinding] = {}
         matched: list[str] = []
         if arguments_are_agent_proposals:
@@ -322,7 +314,58 @@ class InvocationCompiler:
                     return fail("runtime_binding", "runtime_binding_unresolved", f"autonomous argument is not a certified current binding: {role}")
         merged = dict(current)
         merged.update(grounded)
-        # 5. resolution
+        # Parameter-only evidence is part of argument preparation.  It must
+        # be certified before the effect short-circuit, while affordance and
+        # current-context relations remain execution-context gates below.
+        argument_kinds = {
+            GroundingConstraintKind.ARGUMENT_EXISTS,
+            GroundingConstraintKind.ARGUMENT_CONCRETE,
+        }
+        for constraint in compiled.spec.grounding_constraints:
+            if constraint.kind not in argument_kinds:
+                continue
+            values = {role: binding.value for role, binding in merged.items()}
+            evidence = evidence_store.match_constraint(
+                constraint, values, revision,
+            )
+            if not evidence:
+                return fail(
+                    "runtime_binding",
+                    "runtime_binding_not_concrete",
+                    f"argument constraint not grounded: {constraint.constraint_id}",
+                )
+            if any(not item.valid_at(revision) for item in evidence):
+                return fail(
+                    "runtime_binding",
+                    "stale_grounding_evidence",
+                    f"stale evidence: {constraint.constraint_id}",
+                )
+            refs = [item.evidence_id for item in evidence]
+            matched.extend(refs)
+            if constraint.kind is not GroundingConstraintKind.ARGUMENT_CONCRETE:
+                continue
+            required = BindingResolution.CONCRETE
+            for expression in constraint.argument_mapping.values():
+                role = expression.source_role
+                if role not in merged:
+                    continue
+                old = merged[role]
+                if resolution_satisfies(old.resolution, required):
+                    continue
+                upgraded = RuntimeBinding(
+                    old.role,
+                    old.value,
+                    old.semantic_type,
+                    BindingSource.HARNESS_EVIDENCE,
+                    BindingStatus.GROUNDED,
+                    required,
+                    list(dict.fromkeys([*old.evidence_refs, *refs])),
+                    revision,
+                )
+                grounded[old.role] = upgraded
+                merged[old.role] = upgraded
+
+        # Required input resolution.
         for parameter in compiled.atomic.inputs:
             if not parameter.required:
                 continue
@@ -331,9 +374,78 @@ class InvocationCompiler:
                 return fail("runtime_binding", "runtime_binding_unresolved", f"required binding unresolved: {parameter.name}")
             if not resolution_satisfies(binding.resolution, parameter.required_resolution):
                 return fail("runtime_binding", "runtime_binding_not_concrete", f"binding resolution insufficient: {parameter.name}")
-        # 6/7. Grounding relation + current revision
+        normalized = {
+            role: binding.value
+            for role, binding in merged.items()
+            if role in by_parameter
+        }
+        return ToolCallPreflightResult(
+            True,
+            ref,
+            normalized,
+            list(grounded.values()),
+            list(dict.fromkeys(matched)),
+        )
+
+    def validate_execution_context(
+        self,
+        compiled: CompiledInvocation,
+        prepared: ToolCallPreflightResult,
+        *,
+        occurrence: Any,
+        binding_store: RuntimeBindingStore,
+        evidence_store: GroundingEvidenceStore,
+        revision: int,
+    ) -> ToolCallPreflightResult:
+        """Validate current affordances/lifecycle and commit only on success."""
+
+        ref = str(compiled.implementation.ref)
+
+        def fail(layer: str, code: str, message: str) -> ToolCallPreflightResult:
+            return ToolCallPreflightResult(
+                False,
+                ref,
+                failure_layer=layer,
+                failure_code=code,
+                message=message,
+            )
+
+        if not prepared.passed:
+            return prepared
+        # Static mapping closure was validated at compile time. Recheck the
+        # immutable relation immediately before execution-context admission.
+        try:
+            current_impl = self.skills.get_implementation(
+                compiled.implementation.ref,
+            )
+            if current_impl.abstract_ref != compiled.atomic.ref:
+                return fail(
+                    "implementation",
+                    "implementation_mapping_error",
+                    "implementation mapping no longer matches Atomic",
+                )
+        except KeyError:
+            return fail(
+                "implementation",
+                "implementation_mapping_error",
+                "implementation disappeared",
+            )
+
+        current = binding_store.snapshot_for_node(occurrence)
+        grounded = {item.role: item for item in prepared.binding_updates}
+        merged = dict(current)
+        merged.update(grounded)
+        matched = list(prepared.matched_evidence_refs)
+        # Grounding relation + current revision.  In particular,
+        # entry_affordance remains a hard gate whenever the Atomic effect has
+        # not already been proven by the validator short-circuit.
         values = {role: binding.value for role, binding in merged.items()}
         for constraint in compiled.spec.grounding_constraints:
+            if constraint.kind in {
+                GroundingConstraintKind.ARGUMENT_EXISTS,
+                GroundingConstraintKind.ARGUMENT_CONCRETE,
+            }:
+                continue
             evidence = evidence_store.match_constraint(constraint, values, revision)
             if not evidence:
                 return fail("runtime_binding", "runtime_relation_not_grounded", f"constraint not grounded: {constraint.constraint_id}")
@@ -351,20 +463,53 @@ class InvocationCompiler:
                         )
                         grounded[old.role] = upgraded
                         merged[old.role] = upgraded
-        # 8. compatibility
+        # Compatibility
         profiles = compiled.implementation.compatibility.get("harness_profiles") or []
         if profiles and self.harness.profile_name not in profiles:
             return fail("implementation", "implementation_compatibility_error", "Harness profile incompatible")
-        # 9. safety/lifecycle
+        # Safety/lifecycle
         if not skill_status_usable(compiled.implementation.status, self.mode):
             return fail("implementation", "implementation_compatibility_error", "Implementation status unusable")
         for tool in compiled.tools:
             if not tool_status_usable(tool.status, self.mode) or tool.safety.get("blocked"):
                 return fail("implementation", "implementation_compatibility_error", f"Tool unavailable or unsafe: {tool.ref}")
         binding_store.commit_grounded(occurrence.occurrence_id, grounded)
-        normalized = {role: binding.value for role, binding in merged.items() if role in by_parameter}
         return ToolCallPreflightResult(
-            True, ref, normalized, list(merged.values()), list(dict.fromkeys(matched)), "", "", "",
+            True,
+            ref,
+            dict(prepared.normalized_arguments),
+            list(merged.values()),
+            list(dict.fromkeys(matched)),
+        )
+
+    def preflight(
+        self, compiled: CompiledInvocation, *, call_name: str, call_id: str,
+        arguments: dict[str, Any], occurrence: Any, binding_store: RuntimeBindingStore,
+        evidence_store: GroundingEvidenceStore, revision: int,
+        arguments_are_agent_proposals: bool = True,
+        task_contract: TaskContract | None = None,
+    ) -> ToolCallPreflightResult:
+        prepared = self.prepare_arguments(
+            compiled,
+            call_name=call_name,
+            call_id=call_id,
+            arguments=arguments,
+            occurrence=occurrence,
+            binding_store=binding_store,
+            evidence_store=evidence_store,
+            revision=revision,
+            arguments_are_agent_proposals=arguments_are_agent_proposals,
+            task_contract=task_contract,
+        )
+        if not prepared.passed:
+            return prepared
+        return self.validate_execution_context(
+            compiled,
+            prepared,
+            occurrence=occurrence,
+            binding_store=binding_store,
+            evidence_store=evidence_store,
+            revision=revision,
         )
 
     def autonomous_preflight(

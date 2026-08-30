@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from ..core.contracts import TaskContract
-from ..core.results import PrimitiveToolStep, ValidationResult
+from ..core.results import AtomicEffectResolution, PrimitiveToolStep, ValidationResult
 from ..validation.contract_matcher import ContractMatcher
 
 
@@ -47,6 +47,7 @@ class ValidatorChannel(Protocol):
     validation_strength: str
 
     def snapshot(self) -> dict[str, Any]: ...
+    def resolve_atomic_effect(self, request: dict[str, Any]) -> AtomicEffectResolution: ...
     def validate_atomic_effect(self, request: dict[str, Any]) -> ValidationResult: ...
     def validate_task_contract(self, contract: TaskContract) -> ValidationResult: ...
 

@@ -33,6 +33,19 @@ class ValidationResult:
 
 
 @dataclass
+class AtomicEffectResolution:
+    """Deterministic action-derived witness resolution for one Atomic effect."""
+
+    passed: bool
+    resolved_bindings: dict[str, Any] = field(default_factory=dict)
+    output_candidates: dict[str, Any] = field(default_factory=dict)
+    witness_refs: list[str] = field(default_factory=list)
+    checks: dict[str, bool] = field(default_factory=dict)
+    failure_code: str = ""
+    message: str = ""
+
+
+@dataclass
 class RuntimeOccurrence:
     step_id: str
     occurrence_id: str

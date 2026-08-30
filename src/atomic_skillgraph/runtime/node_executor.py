@@ -204,47 +204,128 @@ class NodeExecutor:
         ))
         return payload, spec
 
-    def _effect_result(self, occurrence: Any, ctx: Any, *, mode: str) -> ImplementationExecutionResult | None:
+    def _complete_from_current_effect(
+        self,
+        occurrence: Any,
+        ctx: Any,
+        *,
+        mode: str,
+        preferred_values: list[Any],
+        provisional_bindings: list[RuntimeBinding] = (),
+    ) -> ImplementationExecutionResult | None:
         atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
         bindings = ctx.binding_store.snapshot_for_node(occurrence)
-        outputs = self._validated_output_candidates(atomic, bindings, ctx)
-        validation = self.validation.atomic.validate(
-            atomic, occurrence, bindings, ctx.harness.validator_channel(), outputs,
+        bindings.update({
+            item.role: item
+            for item in provisional_bindings
+            if item.status is BindingStatus.GROUNDED
+        })
+        semantic_anchors = {
+            parameter.name: anchor
+            for parameter in atomic.inputs
+            if (
+                anchor := ctx.binding_store.semantic_anchor_for(
+                    occurrence,
+                    parameter.name,
+                )
+            ) is not None
+        }
+        resolution = self.validation.atomic.resolve_current_effect(
+            atomic,
+            occurrence,
+            bindings,
+            ctx.harness.validator_channel(),
+            semantic_anchors=semantic_anchors,
+            preferred_values=preferred_values,
+            current_revision=ctx.world_revision,
+        )
+        if not resolution.passed:
+            return None
+        committed = ctx.binding_store.commit_atomic_effect_witnesses(
+            occurrence.occurrence_id,
+            resolution.resolved_bindings,
+            atomic.inputs,
+            resolution.witness_refs,
+            ctx.world_revision,
         )
         ctx.trace_builder.trace.validations.append(ValidationRecord(
-            occurrence.occurrence_id, "atomic", to_primitive(validation), ctx.world_revision,
+            occurrence.occurrence_id,
+            "atomic",
+            to_primitive(resolution),
+            ctx.world_revision,
         ))
-        if not validation.passed:
-            return None
+        if mode == "entry":
+            # Preserve the explicit entry audit while retaining the ordinary
+            # positive Atomic record consumed by evolution and credit logic.
+            ctx.trace_builder.trace.validations.append(ValidationRecord(
+                occurrence.occurrence_id,
+                "already_satisfied",
+                to_primitive(resolution),
+                ctx.world_revision,
+            ))
         status = (
-            NodeExecutionStatus.AGENT_COMPLETED_BEFORE_INVOCATION
-            if mode == "preparation" else NodeExecutionStatus.SEEDED_SUCCESS
+            NodeExecutionStatus.ALREADY_SATISFIED
+            if mode == "entry"
+            else NodeExecutionStatus.AGENT_COMPLETED_BEFORE_INVOCATION
+            if mode == "preparation"
+            else NodeExecutionStatus.SEEDED_SUCCESS
         )
         return ImplementationExecutionResult(
-            "", str(atomic.ref), False, False, True, True, validated_outputs=outputs,
-            before_state_ref="", after_state_ref=f"revision:{ctx.world_revision}", node_status=status,
+            "",
+            str(atomic.ref),
+            False,
+            False,
+            True,
+            True,
+            realized_bindings=committed,
+            validated_outputs=dict(resolution.output_candidates),
+            before_state_ref="",
+            after_state_ref=f"revision:{ctx.world_revision}",
+            node_status=status,
         )
 
     def _validated_output_candidates(self, atomic: Any, bindings: dict[str, RuntimeBinding], ctx: Any) -> dict[str, Any]:
         result: dict[str, Any] = {}
         plain = {role: value.value for role, value in bindings.items() if value.status is BindingStatus.GROUNDED}
+        mapped_outputs: set[str] = set()
+        for item in atomic.validator_spec.get("output_identity") or []:
+            output_role = str(item.get("output_role", ""))
+            input_role = str(item.get("input_role", ""))
+            if output_role and input_role in plain:
+                result[output_role] = plain[input_role]
+                mapped_outputs.add(output_role)
         facts = list(ctx.harness.validator_channel().snapshot().get("facts", []))
         witnesses = [fact for fact in facts if any(fact.get("predicate") == effect.predicate for effect in atomic.effects)]
-        witness_args = witnesses[-1].get("args", {}) if witnesses else {}
         for output in atomic.outputs:
+            if output.name in mapped_outputs:
+                continue
             if output.name in plain:
                 result[output.name] = plain[output.name]
                 continue
-            if "object" in output.name or output.semantic_type in {"entity", "object"}:
-                value = witness_args.get("object") or plain.get("object")
-                if value is not None:
-                    result[output.name] = value
-                    continue
-            if "location" in output.name:
-                value = witness_args.get("location") or plain.get("destination") or plain.get("target_location")
-                if value is not None:
-                    result[output.name] = value
+            exact_values = {
+                fact.get("args", {}).get(output.name)
+                for fact in witnesses
+                if fact.get("args", {}).get(output.name) is not None
+            }
+            if len(exact_values) == 1:
+                result[output.name] = next(iter(exact_values))
         return result
+
+    def _environment_effect_preferences(
+        self,
+        occurrence: Any,
+        ctx: Any,
+        spec: Any,
+    ) -> list[Any]:
+        """Treat the accepted node-session action as an explicit proposal.
+
+        Arbitrary entry state is still rejected because the orchestrator calls
+        effect resolution with no preferred values.  After an Agent chooses
+        and the Harness accepts an action, its concrete arguments are the
+        proposal needed to reconcile an otherwise runtime-resolvable role.
+        """
+
+        return list(spec.arguments.values())
 
     def run_preparation_session(
         self, occurrence: Any, invocations: list[CompiledInvocation], ctx: Any,
@@ -285,7 +366,7 @@ class NodeExecutor:
                     )
                     return self.not_started(occurrence, failure_code="runtime_binding_unresolved")
                 if call.name == "environment_action":
-                    payload, _ = self._execute_environment_call(
+                    payload, action_spec = self._execute_environment_call(
                         call, session, occurrence, ctx,
                         span_id=span.span_id, origin="runtime_preparation",
                         loop_guard=loop_guard,
@@ -299,7 +380,16 @@ class NodeExecutor:
                             )
                         turn = session.submit_tool_result(call.call_id, payload, tools=tools)
                         continue
-                    effect = self._effect_result(occurrence, ctx, mode="preparation")
+                    effect = self._complete_from_current_effect(
+                        occurrence,
+                        ctx,
+                        mode="preparation",
+                        preferred_values=self._environment_effect_preferences(
+                            occurrence,
+                            ctx,
+                            action_spec,
+                        ),
+                    )
                     tools = [self._environment_tool(ctx), *[self._invocation_tool(item) for item in invocations], self._status_tool()]
                     if effect is not None:
                         self._finalize_tool_result(session, call.call_id, payload, tools)
@@ -307,12 +397,73 @@ class NodeExecutor:
                     turn = session.submit_tool_result(call.call_id, payload, tools=tools)
                     continue
                 compiled = next(item for item in invocations if item.spec.name == call.name)
-                preflight = self.invocation_compiler.preflight(
+                prepared = self.invocation_compiler.prepare_arguments(
                     compiled, call_name=call.name, call_id=call.call_id, arguments=call.arguments,
                     occurrence=occurrence, binding_store=ctx.binding_store, evidence_store=ctx.evidence_store,
                     revision=ctx.world_revision,
                     task_contract=ctx.task_contract,
                 )
+                if prepared.passed:
+                    effect = self._complete_from_current_effect(
+                        occurrence,
+                        ctx,
+                        mode="preparation",
+                        preferred_values=list(
+                            prepared.normalized_arguments.values()
+                        ),
+                        provisional_bindings=prepared.binding_updates,
+                    )
+                    if effect is not None:
+                        witness_refs = next((
+                            list(record.result.get("witness_refs", []))
+                            for record in reversed(
+                                ctx.trace_builder.trace.validations
+                            )
+                            if (
+                                record.occurrence_id
+                                == occurrence.occurrence_id
+                                and record.level == "atomic"
+                            )
+                        ), [])
+                        ctx.trace_builder.trace.native_tool_calls.append(
+                            NativeToolCallRecord(
+                                call.call_id,
+                                session.session_id,
+                                occurrence.occurrence_id,
+                                call.name,
+                                dict(call.arguments),
+                                "implementation_invocation",
+                                {
+                                    "route": "implementation_skipped_effect_satisfied",
+                                    "executed": False,
+                                    "atomic_effect_passed": True,
+                                    "witness_refs": witness_refs,
+                                },
+                                f"revision:{ctx.world_revision}",
+                                sum(
+                                    1
+                                    for item in ctx.trace_builder.trace.agent_turns
+                                    if item.session_id == session.session_id
+                                ) - 1,
+                            )
+                        )
+                        self._finalize_tool_result(
+                            session,
+                            call.call_id,
+                            to_primitive(effect),
+                            tools,
+                        )
+                        return effect
+                    preflight = self.invocation_compiler.validate_execution_context(
+                        compiled,
+                        prepared,
+                        occurrence=occurrence,
+                        binding_store=ctx.binding_store,
+                        evidence_store=ctx.evidence_store,
+                        revision=ctx.world_revision,
+                    )
+                else:
+                    preflight = prepared
                 ctx.trace_builder.trace.native_tool_calls.append(NativeToolCallRecord(
                     call.call_id, session.session_id, occurrence.occurrence_id, call.name, dict(call.arguments),
                     "implementation_invocation", to_primitive(preflight), None,
@@ -387,7 +538,7 @@ class NodeExecutor:
                 if call.name == "report_runtime_status":
                     self._finalize_tool_result(session, call.call_id, {"accepted": True}, tools)
                     break
-                payload, _ = self._execute_environment_call(
+                payload, action_spec = self._execute_environment_call(
                     call, session, occurrence, ctx,
                     span_id=span.span_id, origin="runtime_seeded",
                     loop_guard=loop_guard,
@@ -403,7 +554,16 @@ class NodeExecutor:
                         return result
                     turn = session.submit_tool_result(call.call_id, payload, tools=tools)
                     continue
-                effect = self._effect_result(occurrence, ctx, mode="seeded")
+                effect = self._complete_from_current_effect(
+                    occurrence,
+                    ctx,
+                    mode="seeded",
+                    preferred_values=self._environment_effect_preferences(
+                        occurrence,
+                        ctx,
+                        action_spec,
+                    ),
+                )
                 tools = [self._environment_tool(ctx), self._status_tool()]
                 if effect is not None:
                     self._finalize_tool_result(session, call.call_id, payload, tools)

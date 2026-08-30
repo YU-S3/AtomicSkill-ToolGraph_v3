@@ -183,6 +183,99 @@ def _place_atomic(
     )
 
 
+def test_output_identity_canonicalization_is_boundary_aware_and_order_stable() -> None:
+    def multi_output(
+        suffix: str,
+        object_output: str,
+        location_output: str,
+    ) -> AbstractAtomicSkill:
+        identities = sorted([
+            {
+                "output_role": object_output,
+                "input_role": "item",
+            },
+            {
+                "output_role": location_output,
+                "input_role": "destination",
+            },
+        ], key=lambda item: item["output_role"])
+        return AbstractAtomicSkill(
+            SkillRef(f"draft_multi_{suffix}", "0.1.0"),
+            "place an object",
+            [
+                ParameterSpec("item", "object"),
+                ParameterSpec("destination", "location"),
+            ],
+            [
+                ParameterSpec(object_output, "object"),
+                ParameterSpec(location_output, "location"),
+            ],
+            [],
+            [SemanticPredicate(
+                "object.at_location",
+                {
+                    "object": BindingExpression(
+                        BindingExprKind.SKILL_INPUT,
+                        source_role="item",
+                    ),
+                    "location": BindingExpression(
+                        BindingExprKind.SKILL_INPUT,
+                        source_role="destination",
+                    ),
+                },
+            )],
+            {"output_identity": identities},
+            [],
+            {},
+            {},
+            SkillStatus.CANDIDATE,
+        )
+
+    first = multi_output("one", "a_object", "z_location")
+    second = multi_output("two", "z_object", "a_location")
+    canonicalizer = AtomicContractCanonicalizer()
+    first_bundle = canonicalizer.canonicalize(first)
+    second_bundle = canonicalizer.canonicalize(second)
+
+    assert atomic_contract_signature(first) == atomic_contract_signature(second)
+    assert first_bundle.atomic.ref == second_bundle.atomic.ref
+    assert first_bundle.atomic.validator_spec["output_identity"] == (
+        second_bundle.atomic.validator_spec["output_identity"]
+    )
+    assert first_bundle.atomic.validator_spec["output_identity"] == [
+        {"output_role": "output_000", "input_role": "input_000"},
+        {"output_role": "output_001", "input_role": "input_001"},
+    ]
+
+    shared = AbstractAtomicSkill(
+        SkillRef("draft_shared_boundary", "0.1.0"),
+        "identity output",
+        [ParameterSpec("item", "entity")],
+        [ParameterSpec("item", "entity")],
+        [],
+        [SemanticPredicate(
+            "agent.holds",
+            {"object": BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role="item",
+            )},
+        )],
+        {"output_identity": [{
+            "output_role": "item",
+            "input_role": "item",
+        }]},
+        [],
+        {},
+        {},
+        SkillStatus.CANDIDATE,
+    )
+    shared_bundle = canonicalizer.canonicalize(shared)
+    assert shared_bundle.atomic.validator_spec["output_identity"] == [{
+        "output_role": "output_000",
+        "input_role": "input_000",
+    }]
+
+
 def test_atomic_role_normalization_rewrites_implementation_and_composite(
     tmp_path: Path,
 ) -> None:

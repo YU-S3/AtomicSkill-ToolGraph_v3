@@ -306,8 +306,23 @@ def _take_canonical():
     )[0]
 
 
-def test_implementation_admission_is_fail_closed_on_mapping_and_output() -> None:
+def test_implementation_admission_is_fail_closed_on_mapping_and_output(
+    tmp_path,
+) -> None:
     compiled = ToolCompiler().compile([_take_canonical()])[0]
+    assert compiled.atomic.validator_spec["output_identity"] == [{
+        "output_role": "held_object",
+        "input_role": "item",
+    }]
+    database = StateDatabase(tmp_path / "identity.sqlite3")
+    registry = SkillRegistry(ArtifactStore(tmp_path, database), database)
+    registry.register_atomic(compiled.atomic)
+    assert registry.get_atomic(compiled.atomic.ref).validator_spec[
+        "output_identity"
+    ] == [{
+        "output_role": "held_object",
+        "input_role": "item",
+    }]
     admission = Admission(ValidationEngine().tool)
     tool = admission.admit_tool(compiled.tool, replay=lambda _tool, _case: True)
     harness = SimpleNamespace(

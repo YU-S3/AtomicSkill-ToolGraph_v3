@@ -119,21 +119,34 @@ class RuntimeOrchestrator:
                 atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
                 ctx.binding_store.apply_data_flow(plan, step_id, ctx.validated_outputs, revision=ctx.world_revision)
                 ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
-                bindings = ctx.binding_store.snapshot_for_node(occurrence)
-
-                already = self.validation.atomic.already_satisfied(
-                    atomic, occurrence, bindings, ctx.harness.validator_channel(),
+                already = self.node_executor._complete_from_current_effect(
+                    occurrence,
+                    ctx,
+                    mode="entry",
+                    preferred_values=[],
                 )
-                ctx.trace_builder.trace.validations.append(ValidationRecord(
-                    occurrence.occurrence_id, "already_satisfied", to_primitive(already), ctx.world_revision,
-                ))
-                if already.passed:
-                    outputs = self.node_executor._validated_output_candidates(atomic, bindings, ctx)
+                if already is not None:
+                    outputs = dict(already.validated_outputs)
                     node.status = NodeExecutionStatus.ALREADY_SATISFIED
                     node.validated_outputs = outputs
                     if outputs:
-                        ctx.binding_store.publish_validated_outputs(occurrence, outputs, already.witness_refs, ctx.world_revision)
+                        validation_refs = self._latest_atomic_witnesses(
+                            ctx,
+                            occurrence.occurrence_id,
+                        )
+                        ctx.binding_store.publish_validated_outputs(
+                            occurrence,
+                            outputs,
+                            validation_refs,
+                            ctx.world_revision,
+                        )
                         ctx.validated_outputs[occurrence.occurrence_id] = outputs
+                        for role, value in outputs.items():
+                            ctx.evidence_store.add_validated_tool_output(
+                                role,
+                                value,
+                                validation_refs,
+                            )
                     terminal = self.validation.task.terminal(
                         ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
                     )
@@ -243,7 +256,10 @@ class RuntimeOrchestrator:
 
     def _latest_atomic_witnesses(self, ctx: TaskRuntimeContext, occurrence_id: str) -> list[str]:
         for record in reversed(ctx.trace_builder.trace.validations):
-            if record.occurrence_id == occurrence_id and record.level == "atomic":
+            if (
+                record.occurrence_id == occurrence_id
+                and record.level in {"atomic", "already_satisfied"}
+            ):
                 refs = list(record.result.get("witness_refs", []))
                 if refs:
                     return refs

@@ -33,10 +33,25 @@ class ToolCompiler:
     def compile(self, occurrences: list[CanonicalAtomicOccurrence]) -> list[CompiledKnowledge]:
         result: list[CompiledKnowledge] = []
         for occurrence in occurrences:
+            output_identity: list[dict[str, str]] = []
+            for output_role, value in sorted(occurrence.output_bindings.items()):
+                input_role = _role_for_value(value, occurrence.input_bindings)
+                if input_role is None:
+                    raise ValueError(
+                        f"Atomic output {output_role} cannot be grounded in a reusable input role"
+                    )
+                output_identity.append({
+                    "output_role": output_role,
+                    "input_role": input_role,
+                })
             atomic = AbstractAtomicSkill(
                 occurrence.proposed_ref, occurrence.intent, occurrence.input_specs, occurrence.output_specs,
                 occurrence.preconditions, occurrence.effects,
-                {"validator_id": "harness_atomic_effect", "identity_strict": True}, [],
+                {
+                    "validator_id": "harness_atomic_effect",
+                    "identity_strict": True,
+                    "output_identity": output_identity,
+                }, [],
                 {"steps": [item["action_type"] for item in occurrence.action_events]},
                 {"source_trace_ids": [occurrence.source_trace_id]}, SkillStatus.DRAFT,
             )
@@ -69,8 +84,9 @@ class ToolCompiler:
             implementation_output_mapping: dict[str, BindingExpression] = {}
             for output_role, value in occurrence.output_bindings.items():
                 input_role = _role_for_value(value, occurrence.input_bindings)
-                if input_role is None:
-                    raise ValueError(f"Atomic output {output_role} cannot be grounded in a reusable input role")
+                # The same relation was validated before constructing the
+                # Atomic validator contract above.
+                assert input_role is not None
                 tool_output_mapping[output_role] = BindingExpression(BindingExprKind.SKILL_INPUT, source_role=input_role)
                 implementation_output_mapping[output_role] = BindingExpression(
                     BindingExprKind.TOOL_OUTPUT, source_role=output_role, source_step="primary",

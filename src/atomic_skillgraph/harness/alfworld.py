@@ -6,15 +6,16 @@ import os
 import re
 import hashlib
 from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from ..core.bindings import BindingExpression, BindingExprKind
 from ..core.contracts import (
     ContractSource, IdentityConstraint, IdentityRelation, SemanticPredicate, TaskContract,
 )
 from ..core.errors import AtomicSkillGraphError, FailureLayer
-from ..core.results import PrimitiveToolStep, ValidationResult
+from ..core.results import AtomicEffectResolution, PrimitiveToolStep, ValidationResult
 from ..validation.contract_matcher import ContractMatcher
 from .action_catalog import HarnessActionCatalog
 from .protocol import HarnessActionResult, HarnessActionSpec, HarnessTask
@@ -312,7 +313,17 @@ class AlfWorldValidatorChannel:
         expected: dict[str, Any] = {}
         for role, value in raw_args.items():
             if isinstance(value, BindingExpression):
-                expected[role] = bindings.get(value.source_role)
+                if value.kind is BindingExprKind.CONSTANT:
+                    expected[role] = value.constant
+                elif value.kind is BindingExprKind.SKILL_INPUT:
+                    expected[role] = bindings.get(value.source_role)
+                else:
+                    # Effect contracts may only refer to their own boundary
+                    # inputs or constants.  Keep unsupported expressions from
+                    # becoming a ``None`` wildcard in ``_matching_facts``.
+                    expected[role] = (
+                        f"__unsupported_effect_expression__:{value.kind.value}"
+                    )
             elif isinstance(value, str) and value.startswith("$"):
                 expected[role] = bindings.get(value[1:])
             else:
@@ -338,6 +349,390 @@ class AlfWorldValidatorChannel:
         if distinct_by:
             return len({item.get(distinct_by, "") for item in matches if item.get(distinct_by)}) >= cardinality
         return len(matches) >= cardinality
+
+    @staticmethod
+    def _effect_parts(
+        effect: SemanticPredicate | dict[str, Any],
+    ) -> tuple[str, dict[str, Any], int, str]:
+        if isinstance(effect, SemanticPredicate):
+            return (
+                effect.predicate,
+                dict(effect.args),
+                max(1, int(effect.cardinality)),
+                str(effect.distinct_by),
+            )
+        return (
+            str(effect.get("predicate", "")),
+            dict(effect.get("args") or {}),
+            max(1, int(effect.get("cardinality", 1))),
+            str(effect.get("distinct_by", "")),
+        )
+
+    @staticmethod
+    def _fact_ref(revision: int, predicate: str, arguments: dict[str, Any]) -> str:
+        suffix = ",".join(
+            f"{role}={normalize_entity(value)}"
+            for role, value in sorted(arguments.items())
+        )
+        return f"alfworld_action_fact:r{revision}:{predicate}:{suffix}"
+
+    @staticmethod
+    def _value_matches(actual: Any, expected: Any) -> bool:
+        if isinstance(actual, str) and isinstance(expected, str):
+            return entity_matches(actual, expected)
+        return actual == expected
+
+    def resolve_atomic_effect(
+        self, request: dict[str, Any],
+    ) -> AtomicEffectResolution:
+        """Resolve concrete Atomic inputs only from accepted-action facts.
+
+        This is deliberately separate from ``validate_atomic_effect``.  It
+        may discover concrete input witnesses, but the ordinary Atomic
+        validator remains the terminal authority after those witnesses are
+        merged with the occurrence bindings.
+        """
+
+        effects = list(request.get("effects") or [])
+        if not effects:
+            return AtomicEffectResolution(
+                False,
+                failure_code="atomic_effect_violation",
+                message="Atomic effect resolution requires at least one effect",
+            )
+        if "current_revision" not in request:
+            return AtomicEffectResolution(
+                False,
+                failure_code="atomic_effect_revision_invalid",
+                message="Atomic effect resolution requires an explicit revision",
+            )
+        try:
+            if isinstance(request["current_revision"], bool):
+                raise ValueError("boolean revision")
+            requested_revision = int(request["current_revision"])
+        except (TypeError, ValueError):
+            return AtomicEffectResolution(
+                False,
+                failure_code="atomic_effect_revision_invalid",
+                message="Atomic effect resolution revision is invalid",
+            )
+        if requested_revision != self.revision:
+            return AtomicEffectResolution(
+                False,
+                failure_code="stale_atomic_effect_witness",
+                message="Atomic effect resolution revision is stale",
+            )
+
+        known = {
+            str(role): value
+            for role, value in dict(request.get("known_bindings") or {}).items()
+            if value not in (None, "")
+        }
+        anchors = {
+            str(role): value
+            for role, value in dict(request.get("semantic_anchors") or {}).items()
+            if value not in (None, "")
+        }
+        preferred = [
+            value for value in list(request.get("preferred_values") or [])
+            if value not in (None, "")
+        ]
+        input_specs = list(request.get("input_specs") or [])
+        output_specs = list(request.get("output_specs") or [])
+        output_identity = list(request.get("output_identity") or [])
+        semantic_types: dict[str, str] = {}
+        for spec in input_specs:
+            if isinstance(spec, Mapping):
+                name = str(spec.get("name", ""))
+                semantic_type = str(spec.get("semantic_type", "entity"))
+            else:
+                name = str(getattr(spec, "name", ""))
+                semantic_type = str(getattr(spec, "semantic_type", "entity"))
+            if name:
+                semantic_types[name] = semantic_type
+        facts = [
+            (predicate, dict(arguments))
+            for predicate, arguments in sorted(self._facts)
+        ]
+        per_effect: list[list[tuple[dict[str, Any], list[str]]]] = []
+        checks: dict[str, bool] = {}
+
+        for index, effect in enumerate(effects):
+            predicate, raw_args, cardinality, distinct_by = self._effect_parts(effect)
+            parsed_args: dict[str, tuple[str, Any]] = {}
+            for predicate_role, raw in raw_args.items():
+                expression: BindingExpression | None = None
+                if isinstance(raw, BindingExpression):
+                    expression = raw
+                elif isinstance(raw, Mapping) and "kind" in raw:
+                    try:
+                        expression = BindingExpression.from_dict(dict(raw))
+                    except (KeyError, TypeError, ValueError):
+                        return AtomicEffectResolution(
+                            False,
+                            checks=checks,
+                            failure_code="atomic_effect_expression_invalid",
+                            message="Atomic effect contains an invalid binding expression",
+                        )
+                if expression is not None:
+                    if expression.kind is BindingExprKind.CONSTANT:
+                        parsed_args[predicate_role] = (
+                            "constant", expression.constant,
+                        )
+                    elif expression.kind is BindingExprKind.SKILL_INPUT:
+                        parsed_args[predicate_role] = (
+                            "role", str(expression.source_role),
+                        )
+                    else:
+                        return AtomicEffectResolution(
+                            False,
+                            checks=checks,
+                            failure_code="atomic_effect_expression_unsupported",
+                            message=(
+                                "Atomic effects may only use skill-input or "
+                                "constant expressions"
+                            ),
+                        )
+                elif isinstance(raw, str) and raw.startswith("$"):
+                    parsed_args[predicate_role] = ("role", raw[1:])
+                else:
+                    parsed_args[predicate_role] = ("constant", raw)
+
+            source_roles = {
+                str(value)
+                for kind, value in parsed_args.values()
+                if kind == "role" and str(value)
+            }
+            if any(kind == "role" and not str(value) for kind, value in parsed_args.values()):
+                return AtomicEffectResolution(
+                    False,
+                    checks=checks,
+                    failure_code="atomic_effect_expression_invalid",
+                    message="Atomic effect references an empty input role",
+                )
+            raw_candidates: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+            for fact_predicate, actual_args in facts:
+                if fact_predicate != predicate:
+                    continue
+                assignment: dict[str, Any] = {}
+                compatible = True
+                for predicate_role, (kind, expected) in parsed_args.items():
+                    actual = actual_args.get(predicate_role)
+                    if actual in (None, ""):
+                        compatible = False
+                        break
+                    if kind == "constant":
+                        if not self._value_matches(actual, expected):
+                            compatible = False
+                            break
+                        continue
+                    source_role = str(expected)
+                    if not source_role:
+                        compatible = False
+                        break
+                    if source_role in known and not self._value_matches(
+                        actual, known[source_role],
+                    ):
+                        compatible = False
+                        break
+                    anchor = anchors.get(source_role)
+                    if anchor not in (None, "") and not semantic_value_compatible(
+                        role=source_role,
+                        concrete_value=actual,
+                        semantic_anchor=anchor,
+                        semantic_type=semantic_types.get(source_role, "entity"),
+                    ):
+                        compatible = False
+                        break
+                    prior = assignment.get(source_role)
+                    if prior is not None and prior != actual:
+                        compatible = False
+                        break
+                    assignment[source_role] = actual
+                if compatible:
+                    raw_candidates.append((
+                        assignment,
+                        actual_args,
+                        self._fact_ref(self.revision, predicate, actual_args),
+                    ))
+
+            # An unanchored runtime-resolvable role may be filled only by a
+            # value explicitly implicated by the just-accepted action, or by
+            # a unique relation whose other roles are anchored.  The latter
+            # is intentionally non-vacuous: a one-role navigation effect at
+            # node entry may not adopt an arbitrary current location.
+            candidate_values = {
+                role: {
+                    candidate[0][role]
+                    for candidate in raw_candidates
+                    if role in candidate[0]
+                }
+                for role in source_roles
+            }
+            filtered: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+            for assignment, actual_args, witness in raw_candidates:
+                allowed = True
+                for role, value in assignment.items():
+                    if role in known or role in anchors:
+                        continue
+                    preferred_match = any(
+                        self._value_matches(value, candidate)
+                        for candidate in preferred
+                    )
+                    other_arguments = [
+                        (kind, expected)
+                        for kind, expected in parsed_args.values()
+                        if not (kind == "role" and str(expected) == role)
+                    ]
+                    other_arguments_anchored = bool(other_arguments) and all(
+                        kind == "constant"
+                        or str(expected) in known
+                        or str(expected) in anchors
+                        for kind, expected in other_arguments
+                    )
+                    uniquely_constrained = (
+                        len(candidate_values.get(role, set())) == 1
+                        and other_arguments_anchored
+                    )
+                    if not preferred_match and not uniquely_constrained:
+                        allowed = False
+                        break
+                if allowed:
+                    filtered.append((assignment, actual_args, witness))
+
+            groups_by_assignment: dict[
+                tuple[tuple[str, str], ...],
+                tuple[dict[str, Any], list[str]],
+            ] = {}
+            for group in combinations(filtered, cardinality):
+                if distinct_by and len({
+                    item[1].get(distinct_by)
+                    for item in group
+                    if item[1].get(distinct_by) not in (None, "")
+                }) < cardinality:
+                    continue
+                merged: dict[str, Any] = {}
+                consistent = True
+                refs: list[str] = []
+                for assignment, _actual_args, witness in group:
+                    refs.append(witness)
+                    for role, value in assignment.items():
+                        if role in merged and merged[role] != value:
+                            consistent = False
+                            break
+                        merged[role] = value
+                    if not consistent:
+                        break
+                if consistent:
+                    key = tuple(sorted(
+                        (role, repr(value)) for role, value in merged.items()
+                    ))
+                    if key in groups_by_assignment:
+                        prior, prior_refs = groups_by_assignment[key]
+                        groups_by_assignment[key] = (
+                            prior,
+                            list(dict.fromkeys([*prior_refs, *refs])),
+                        )
+                    else:
+                        groups_by_assignment[key] = (
+                            merged,
+                            list(dict.fromkeys(refs)),
+                        )
+            groups = list(groups_by_assignment.values())
+            checks[f"effect_{index}_witness_resolved"] = bool(groups)
+            per_effect.append(groups)
+
+        if not all(per_effect):
+            return AtomicEffectResolution(
+                False,
+                checks=checks,
+                failure_code="atomic_effect_violation",
+                message="Declared Atomic effect has no eligible current action-derived witness",
+            )
+
+        combined: list[tuple[dict[str, Any], list[str]]] = [({}, [])]
+        for groups in per_effect:
+            next_combined: list[tuple[dict[str, Any], list[str]]] = []
+            for existing, existing_refs in combined:
+                for assignment, refs in groups:
+                    if any(
+                        role in existing and existing[role] != value
+                        for role, value in assignment.items()
+                    ):
+                        continue
+                    next_combined.append((
+                        {**existing, **assignment},
+                        list(dict.fromkeys([*existing_refs, *refs])),
+                    ))
+            combined = next_combined
+
+        checks["joint_effect_assignment_exists"] = bool(combined)
+        if not combined:
+            return AtomicEffectResolution(
+                False,
+                checks=checks,
+                failure_code="atomic_effect_violation",
+                message="Atomic effects have no jointly consistent witness assignment",
+            )
+
+        by_assignment: dict[tuple[tuple[str, str], ...], tuple[dict[str, Any], list[str]]] = {}
+        for assignment, refs in combined:
+            key = tuple(sorted((role, repr(value)) for role, value in assignment.items()))
+            if key in by_assignment:
+                prior_assignment, prior_refs = by_assignment[key]
+                by_assignment[key] = (
+                    prior_assignment,
+                    list(dict.fromkeys([*prior_refs, *refs])),
+                )
+            else:
+                by_assignment[key] = (assignment, refs)
+        if len(by_assignment) != 1:
+            return AtomicEffectResolution(
+                False,
+                checks=checks,
+                failure_code="atomic_effect_witness_ambiguous",
+                message="Multiple concrete Atomic effect witness assignments remain",
+            )
+
+        resolved, witness_refs = next(iter(by_assignment.values()))
+        merged_values = {**known, **resolved}
+        outputs: dict[str, Any] = {}
+        for raw in output_identity:
+            output_role = str(raw.get("output_role", ""))
+            input_role = str(raw.get("input_role", ""))
+            if output_role and input_role in merged_values:
+                outputs[output_role] = merged_values[input_role]
+        output_roles = {
+            str(spec.get("name", ""))
+            if isinstance(spec, Mapping)
+            else str(getattr(spec, "name", ""))
+            for spec in output_specs
+        }
+        witness_set = set(witness_refs)
+        witness_arguments = [
+            arguments
+            for fact_predicate, arguments in facts
+            if self._fact_ref(
+                self.revision, fact_predicate, arguments,
+            ) in witness_set
+        ]
+        for output_role in sorted(output_roles - set(outputs)):
+            exact: dict[str, Any] = {}
+            for arguments in witness_arguments:
+                if output_role in arguments:
+                    value = arguments[output_role]
+                    exact.setdefault(repr(value), value)
+            if len(exact) == 1:
+                outputs[output_role] = next(iter(exact.values()))
+        checks["assignment_unique"] = True
+        checks["witness_revision_current"] = True
+        return AtomicEffectResolution(
+            True,
+            resolved_bindings=resolved,
+            output_candidates=outputs,
+            witness_refs=witness_refs,
+            checks=checks,
+        )
 
     def validate_atomic_effect(self, request: dict[str, Any]) -> ValidationResult:
         effects = request.get("effects", [])

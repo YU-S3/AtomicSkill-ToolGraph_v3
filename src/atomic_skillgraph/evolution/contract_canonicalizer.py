@@ -152,6 +152,38 @@ def _rewrite_nested(value: Any, role_map: Mapping[str, str]) -> Any:
     return value
 
 
+def _rewrite_validator_spec(
+    validator_spec: Mapping[str, Any],
+    input_role_map: Mapping[str, str],
+    output_role_map: Mapping[str, str],
+) -> dict[str, Any]:
+    """Rewrite validator roles at their explicit input/output boundaries."""
+
+    payload = copy.deepcopy(dict(validator_spec))
+    raw_identity = payload.pop("output_identity", None)
+    expression_roles = {**output_role_map, **input_role_map}
+    rewritten = _rewrite_nested(payload, expression_roles)
+    if raw_identity is not None:
+        rewritten["output_identity"] = sorted([
+            {
+                **dict(item),
+                "output_role": output_role_map.get(
+                    str(item.get("output_role", "")),
+                    str(item.get("output_role", "")),
+                ),
+                "input_role": input_role_map.get(
+                    str(item.get("input_role", "")),
+                    str(item.get("input_role", "")),
+                ),
+            }
+            for item in raw_identity
+        ], key=lambda item: (
+            str(item.get("output_role", "")),
+            str(item.get("input_role", "")),
+        ))
+    return rewritten
+
+
 def _rewrite_predicate(
     predicate: SemanticPredicate,
     role_map: Mapping[str, str],
@@ -246,7 +278,11 @@ def _identity_payload(
         "preconditions": predicates(atomic.preconditions),
         "effects": predicates(atomic.effects),
         "validator_contract": to_primitive(
-            _rewrite_nested(atomic.validator_spec, expression_roles)
+            _rewrite_validator_spec(
+                atomic.validator_spec,
+                input_role_map,
+                output_role_map,
+            )
         ),
     }
 
@@ -336,8 +372,10 @@ class AtomicContractCanonicalizer:
                 _rewrite_predicate(item, expression_roles)
                 for item in atomic.effects
             ],
-            validator_spec=_rewrite_nested(
-                atomic.validator_spec, expression_roles,
+            validator_spec=_rewrite_validator_spec(
+                atomic.validator_spec,
+                input_roles,
+                output_roles,
             ),
         )
         canonical_tool = (

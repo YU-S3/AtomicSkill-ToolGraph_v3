@@ -193,6 +193,49 @@ class RuntimeBindingStore:
         for binding in bindings.values():
             self._set(occurrence_id, binding, "grounding_preflight_passed")
 
+    def commit_atomic_effect_witnesses(
+        self,
+        occurrence_id: str,
+        values: dict[str, Any],
+        input_specs: list[ParameterSpec],
+        witness_refs: list[str],
+        revision: int,
+    ) -> dict[str, RuntimeBinding]:
+        """Commit validator-resolved concrete inputs after full effect proof."""
+
+        if not witness_refs:
+            raise ValueError("Atomic effect witness bindings require validator refs")
+        by_role = {item.name: item for item in input_specs}
+        unknown = set(values) - set(by_role)
+        if unknown:
+            raise ValueError(
+                f"Atomic effect witnesses reference unknown input roles: {sorted(unknown)}"
+            )
+        if any(value in (None, "") for value in values.values()):
+            raise ValueError("Atomic effect witness bindings must be concrete")
+        pending = {
+            role: RuntimeBinding(
+                role=role,
+                value=value,
+                semantic_type=by_role[role].semantic_type,
+                source=BindingSource.HARNESS_EVIDENCE,
+                status=BindingStatus.GROUNDED,
+                resolution=BindingResolution.CONCRETE,
+                evidence_refs=list(dict.fromkeys(witness_refs)),
+                world_revision=revision,
+            )
+            for role, value in values.items()
+        }
+        committed: dict[str, RuntimeBinding] = {}
+        for role, binding in pending.items():
+            self._set(
+                occurrence_id,
+                binding,
+                "atomic_effect_witness_grounded",
+            )
+            committed[role] = binding
+        return committed
+
     def invalidate_revision(self, revision: int) -> None:
         for key, binding in list(self._bindings.items()):
             if binding.source is BindingSource.HARNESS_EVIDENCE and binding.world_revision < revision:
