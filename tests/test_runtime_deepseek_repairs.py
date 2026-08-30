@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -198,6 +199,35 @@ def _compiled_invocation() -> tuple[CompiledInvocation, RuntimeOccurrence]:
         }, [implementation_ref], atomic.effects,
     )
     return CompiledInvocation(spec, atomic, implementation, []), occurrence
+
+
+def test_compiled_invocation_uses_short_opaque_native_name() -> None:
+    atomic_ref = SkillRef("navigate_source", "1.0.0")
+    implementation_ref = SkillRef(
+        "impl_navigate_to_the_source_location_of_the_target_1c1b67f5732e",
+        "1.0.0",
+    )
+    atomic = AbstractAtomicSkill(
+        atomic_ref, "navigate", [], [], [], [], {}, [], {}, {}, SkillStatus.ACTIVE,
+    )
+    implementation = ImplementationAtom(
+        implementation_ref,
+        atomic_ref,
+        [],
+        [],
+        {"mode": "serial"},
+        {"harness_profiles": ["alfworld_v3"]},
+        {},
+        SkillStatus.ACTIVE,
+    )
+
+    spec = InvocationCompiler(
+        SimpleNamespace(), SimpleNamespace(), SimpleNamespace()
+    ).compile(atomic, implementation, [], {})
+
+    assert re.fullmatch(r"invoke_impl_[0-9a-f]{16}", spec.name)
+    assert len(spec.name) == 28
+    assert implementation_ref.logical_id not in spec.name
 
 
 def test_wrong_semantic_family_rejected_before_tool_start() -> None:

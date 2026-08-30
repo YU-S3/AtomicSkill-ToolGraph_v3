@@ -16,7 +16,7 @@ from ..core.serialization import to_primitive
 
 _ATOMIC_RUNTIME_FIELDS = ("summary", "inputs", "outputs", "preconditions", "effects")
 _ATOMIC_SEEDED_FIELDS = (*_ATOMIC_RUNTIME_FIELDS, "guideline")
-_INVOCATION_FIELDS = ("name", "description", "input_schema", "implementation_ref", "atomic_ref")
+_INVOCATION_FIELDS = ("name", "description", "input_schema")
 _ACTION_HISTORY_FIELDS = (
     "action_id",
     "action_type",
@@ -103,7 +103,9 @@ class ContextBuilder:
             "not yet evidenced. This prohibition applies only to roles absent from "
             "current_occurrence_semantic_anchors. When a role is explicitly anchored there, ground a "
             "compatible concrete current entity for that anchor, including when it is the task's final "
-            "destination. For a learned invocation, copy canonical values exactly from the latest "
+            "destination. For a learned invocation, call the exact native-tool name shown in "
+            "allowed_implementation_invocations.name; never derive or extend a tool name from an "
+            "artifact description or identifier, and copy canonical values exactly from the latest "
             "public catalog arguments: current_action_catalog.arguments initially, then "
             "action_catalog.arguments in environment tool results; display_text is "
             "only human-readable. Use only native tools; "

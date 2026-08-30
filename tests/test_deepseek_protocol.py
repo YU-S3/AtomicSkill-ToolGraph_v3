@@ -352,7 +352,16 @@ def test_context_builder_separates_grounding_authorities() -> None:
         }],
         relevant_action_history=[],
         remaining_budget={"actions": 10},
-        implementation_invocations=[],
+        implementation_invocations=[{
+            "name": "invoke_impl_0123456789abcdef",
+            "description": "navigate to source",
+            "input_schema": {"type": "object", "properties": {}},
+            "implementation_ref": {
+                "logical_id": "impl_navigate_to_the_source_location_of_the_target",
+                "version": "1.0.0",
+            },
+            "atomic_ref": {"logical_id": "atomic_navigate", "version": "1.0.0"},
+        }],
     )
     payload = json.loads(payload_text.split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1])
     assert payload["task_semantic_context"] == {
@@ -370,6 +379,12 @@ def test_context_builder_separates_grounding_authorities() -> None:
     assert "the task's final destination" in payload_text
     assert "applies only to roles absent" in payload_text
     assert "When a role is explicitly anchored there" in payload_text
+    assert "call the exact native-tool name" in payload_text
+    assert payload["allowed_implementation_invocations"] == [{
+        "name": "invoke_impl_0123456789abcdef",
+        "description": "navigate to source",
+        "input_schema": {"type": "object", "properties": {}},
+    }]
     assert payload["execution_ready_bindings"] == {"held_object": "apple_2"}
     assert payload["missing_or_insufficient_bindings"] == ["destination"]
     assert "certified_bindings" not in payload
