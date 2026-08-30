@@ -80,9 +80,9 @@ from .traces import (
     TraceBuilder,
     TraceRecord,
     TraceStore,
-    provider_request_accounting,
 )
 from .validation import ValidationEngine
+from .validation.contract_matcher import ExactContractMatcher
 
 
 _SYSTEM_PROMPTS = {
@@ -621,9 +621,9 @@ class AtomicSkillGraphSystem:
             task, mode=run_mode, trace_builder=trace_builder,
             attempt_id=str(trace_builder.trace.metadata.get("attempt_id", "")),
         )
-        # Internal HTTP retries are individually auditable but belong to one
-        # logical provider call.  Only the terminal attempt is authoritative
-        # for resource completeness.
+        # Internal HTTP retries are individually auditable.  If any attempt
+        # lacks provider usage, the episode is not a valid formal success and
+        # must stop before Extractor/Evolution or credit can mutate knowledge.
         self._attach_provider_requests(trace, provider_offsets)
         self._require_resource_usage_complete(trace)
         trace.runtime_plan["failure_stage"] = "evolution"
@@ -796,10 +796,7 @@ class AtomicSkillGraphSystem:
     def _attach_provider_requests(
         self, trace: TraceRecord, offsets: Mapping[int, int],
     ) -> None:
-        existing = {
-            (item.logical_call_id or item.request_id, item.attempt_index, item.request_id)
-            for item in trace.provider_requests
-        }
+        existing = {item.request_id for item in trace.provider_requests}
         payload_fields: set[str] = set()
         for provider in self._provider_instances():
             start = int(offsets.get(id(provider), 0))
@@ -814,16 +811,7 @@ class AtomicSkillGraphSystem:
                 request_id = str(
                     payload.get("provider_request_id") or audit_request_id
                 )
-                logical_call_id = str(
-                    payload.get("logical_call_id") or audit_request_id or request_id
-                )
-                attempt_index = int(
-                    payload.get(
-                        "attempt_index", int(payload.get("retry_count", 0)) + 1,
-                    )
-                )
-                record_key = (logical_call_id, attempt_index, request_id)
-                if not request_id or record_key in existing:
+                if not request_id or request_id in existing:
                     continue
                 record = ProviderRequestRecord(
                     request_id=request_id,
@@ -841,27 +829,13 @@ class AtomicSkillGraphSystem:
                     error_code=str(payload.get("error_code", "")),
                     sanitized_error=str(payload.get("sanitized_error", ""))[:4000],
                     payload_fingerprint=str(payload.get("payload_fingerprint", "")),
-                    logical_call_id=logical_call_id,
-                    attempt_index=attempt_index,
-                    is_terminal_attempt=(
-                        payload.get("is_terminal_attempt", True) is True
-                    ),
                 )
                 trace.provider_requests.append(record)
-                existing.add(record_key)
+                existing.add(request_id)
                 payload_fields.update(map(str, payload.get("payload_field_names") or ()))
-        accounting = provider_request_accounting(trace.provider_requests)
-        trace.resource_usage_complete = bool(
-            accounting["resource_usage_complete"]
+        trace.resource_usage_complete = all(
+            item.usage_status == "reported" for item in trace.provider_requests
         )
-        trace.metadata["provider_request_accounting"] = {
-            "http_attempt_count": int(accounting["http_attempt_count"]),
-            "logical_call_count": int(accounting["logical_call_count"]),
-            "transient_retry_count": int(accounting["transient_retry_count"]),
-            "unmetered_transport_attempt_count": int(
-                accounting["unmetered_transport_attempt_count"]
-            ),
-        }
         if payload_fields:
             trace.metadata["provider_payload_field_names"] = sorted(payload_fields)
 
@@ -877,11 +851,14 @@ class AtomicSkillGraphSystem:
     def _require_resource_usage_complete(trace: TraceRecord) -> None:
         if trace.resource_usage_complete:
             return
-        accounting = provider_request_accounting(trace.provider_requests)
-        unavailable = list(accounting["incomplete_logical_call_ids"])
+        unavailable = [
+            item.request_id
+            for item in trace.provider_requests
+            if item.usage_status != "reported"
+        ]
         raise AtomicSkillGraphError(
             "provider_usage_missing",
-            "terminal provider-call usage is unavailable; formal learning is blocked"
+            "provider request usage is unavailable; formal learning is blocked"
             + (": " + ", ".join(unavailable[:5]) if unavailable else ""),
             layer=FailureLayer.INFRASTRUCTURE,
         )
@@ -953,12 +930,14 @@ class AtomicSkillGraphSystem:
         extractor = ExtractorSession(self._extractor_session(task.task_id))
         proposals = extractor.propose_atomics(normalized)
         contract = self.harness.task_contract(task)
-        matcher = self.harness.contract_matcher()
+        matcher_factory = getattr(self.harness, "contract_matcher", None)
+        matcher = (
+            matcher_factory()
+            if callable(matcher_factory)
+            else ExactContractMatcher()
+        )
         canonical, occurrence_rejections = self.atomicizer.validate_proposed_subset(
-            proposals,
-            normalized,
-            task_contract=contract,
-            contract_matcher=matcher,
+            proposals, normalized,
         )
         if occurrence_rejections:
             trace.metadata["extraction_occurrence_rejections"] = occurrence_rejections
@@ -990,24 +969,17 @@ class AtomicSkillGraphSystem:
             [str(item.proposed_ref) for item in staged_occurrences],
             mode=RuntimeMode.ONLINE,
         )
-        composite_proposal = extractor.propose_composite(
-            staged_occurrences,
-            existing,
-            contract,
-        )
+        composite_proposal = extractor.propose_composite(staged_occurrences, existing)
         composite = self.composite_builder.validate_and_build(
             composite_proposal,
             staged_occurrences,
             contract,
             existing_edge_evidence=existing,
             contract_matcher=matcher,
+            task_bindings=dict(
+                task.context.get("semantic_bindings") or {}
+            ),
         )
-        selected_ids = set(composite.control_sequence)
-        for item in staged_compiled:
-            excluded = item.occurrence.occurrence_id not in selected_ids
-            item.occurrence.metadata["not_in_task_composite"] = excluded
-            item.atomic.metadata["not_in_task_composite"] = excluded
-            item.tool.metadata["not_in_task_composite"] = excluded
         compiled = staged_compiled
         diagnosis = self.gap_diagnoser.diagnose(
             trace, [item.atomic for item in compiled],

@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Mapping
 
 from ..core.bindings import BindingExpression, BindingExprKind
 from ..core.contracts import (
-    CompositeOccurrence, CompositeSkill, TaskContract,
+    CompositeOccurrence, CompositeSkill, IdentityRelation, SemanticPredicate, TaskContract,
 )
 from ..core.edges import ExistingEdgeEvidence, GraphEdge, GraphEdgeType
 from ..core.refs import SkillRef, content_hash
 from ..core.status import SkillStatus
 from ..validation.contract_matcher import ContractMatcher, ExactContractMatcher
 from .atomicizer import CanonicalAtomicOccurrence
-from .causal_relevance import CausalRelevanceValidator, resolved_args
 from .extractor_session import CompositeExtractionProposal
 
 
@@ -34,6 +33,101 @@ def _types_compatible(
     )
 
 
+def _predicate_resolved_args(
+    predicate: SemanticPredicate, occurrence: CanonicalAtomicOccurrence,
+) -> dict[str, Any]:
+    bindings = {**occurrence.input_bindings, **occurrence.output_bindings}
+    result: dict[str, Any] = {}
+    for name, raw in predicate.args.items():
+        if isinstance(raw, dict) and "kind" in raw:
+            raw = BindingExpression.from_dict(raw)
+        if isinstance(raw, BindingExpression):
+            result[name] = raw.constant if raw.kind is BindingExprKind.CONSTANT else bindings.get(raw.source_role)
+        else:
+            result[name] = raw
+    return result
+
+
+def _contract_covered(
+    contract: TaskContract, canonical: list[CanonicalAtomicOccurrence],
+    matcher: ContractMatcher,
+) -> bool:
+    if not contract.target_effects:
+        return False
+    offered = [
+        (effect, occurrence, _predicate_resolved_args(effect, occurrence))
+        for occurrence in canonical
+        for effect in occurrence.effects
+    ]
+    matches_by_target: list[list[tuple[SemanticPredicate, CanonicalAtomicOccurrence, dict[str, Any]]]] = []
+    for target in contract.target_effects:
+        compatible = [
+            (effect, occurrence, arguments)
+            for effect, occurrence, arguments in offered
+            if matcher.covers(target, effect, arguments)
+        ]
+        if sum(max(1, int(effect.cardinality)) for effect, _, _ in compatible) < max(1, int(target.cardinality)):
+            return False
+        if target.distinct_by:
+            values = {
+                arguments.get(target.distinct_by)
+                for _, _, arguments in compatible
+                if arguments.get(target.distinct_by) is not None
+            }
+            if len(values) < max(1, int(target.cardinality)):
+                return False
+        matches_by_target.append(compatible)
+    matched_offered = [
+        item
+        for matches in matches_by_target
+        for item in matches
+    ]
+    for rule in contract.cardinality_constraints:
+        predicate = str(rule.get("predicate", ""))
+        count = int(rule.get("count", 1))
+        role = str(rule.get("distinct_by") or rule.get("role") or "")
+        matching = [
+            item for item in matched_offered
+            if item[0].predicate.casefold() == predicate.casefold()
+        ]
+        if sum(max(1, int(item[0].cardinality)) for item in matching) < count:
+            return False
+        if role and len({item[2].get(role) for item in matching if item[2].get(role) is not None}) < count:
+            return False
+    for constraint in contract.identity_constraints:
+        if constraint.relation is IdentityRelation.SAME_AS:
+            if constraint.left_role == constraint.right_role:
+                witness_sets = [
+                    {item[2][constraint.left_role] for item in matches if constraint.left_role in item[2]}
+                    for matches in matches_by_target
+                ]
+                witness_sets = [values for values in witness_sets if values]
+                if len(witness_sets) > 1 and not set.intersection(*witness_sets):
+                    return False
+            else:
+                left = {item[2][constraint.left_role] for item in matched_offered if constraint.left_role in item[2]}
+                right = {item[2][constraint.right_role] for item in matched_offered if constraint.right_role in item[2]}
+                if not left or not right or not left.intersection(right):
+                    return False
+        elif constraint.relation is IdentityRelation.DISTINCT_FROM:
+            left = {item[2][constraint.left_role] for item in matched_offered if constraint.left_role in item[2]}
+            right = {item[2][constraint.right_role] for item in matched_offered if constraint.right_role in item[2]}
+            if left and right:
+                if not any(left_value != right_value for left_value in left for right_value in right):
+                    return False
+            else:
+                distinct_values = {
+                    item[2].get(target.distinct_by)
+                    for target, matches in zip(contract.target_effects, matches_by_target)
+                    if target.distinct_by
+                    for item in matches
+                    if item[2].get(target.distinct_by) is not None
+                }
+                if len(distinct_values) < 2:
+                    return False
+    return True
+
+
 class CompositeBuilder:
     def validate_and_build(
         self, proposal: CompositeExtractionProposal,
@@ -42,6 +136,7 @@ class CompositeBuilder:
         existing_edge_evidence: list[ExistingEdgeEvidence] | None = None,
         known_edge_ids: set[str] | None = None,
         contract_matcher: ContractMatcher | None = None,
+        task_bindings: Mapping[str, Any] | None = None,
     ) -> CompositeSkill:
         evidence_by_id = {
             item.edge_id: item for item in (existing_edge_evidence or [])
@@ -50,7 +145,14 @@ class CompositeBuilder:
         by_id = {item.occurrence_id: item for item in canonical}
         if len(by_id) != len(canonical):
             raise ValueError("canonical occurrence ids must be unique")
-        selected_ids = set(proposal.control_sequence)
+        expected_sequence = [item.occurrence_id for item in canonical]
+        if proposal.control_sequence != expected_sequence:
+            raise ValueError(
+                "E2 control sequence must equal the canonical chronological order"
+            )
+        matcher = contract_matcher or ExactContractMatcher()
+        if not _contract_covered(contract, canonical, matcher):
+            raise ValueError("E2 canonical occurrences do not cover the authoritative TaskContract")
 
         edges: list[GraphEdge] = []
         for raw in proposal.existing_edges:
@@ -60,11 +162,6 @@ class CompositeBuilder:
             authority = evidence_by_id.get(edge_id)
             if authority is None:
                 raise ValueError(f"E2 existing edge lacks authoritative evidence: {edge_id}")
-            if (
-                raw.get("source_step") not in selected_ids
-                or raw.get("target_step") not in selected_ids
-            ):
-                raise ValueError("E2 existing edge references an unselected occurrence")
             self._validate_existing_edge(raw, authority, by_id)
             edges.append(self._edge(
                 raw,
@@ -73,8 +170,28 @@ class CompositeBuilder:
                 evidence_refs=authority.support_trace_ids,
             ))
         for raw in proposal.new_edges:
-            if raw.get("source_step") not in selected_ids or raw.get("target_step") not in selected_ids:
+            if raw.get("source_step") not in by_id or raw.get("target_step") not in by_id:
                 raise ValueError("E2 edge references non-authoritative occurrence")
+            source = by_id[str(raw["source_step"])]
+            target = by_id[str(raw["target_step"])]
+            claimed = (
+                str(source.proposed_ref),
+                str(target.proposed_ref),
+                str(raw.get("edge_type", "")),
+                str(raw.get("source_role", "")),
+                str(raw.get("target_role", "")),
+            )
+            if any(
+                claimed == (
+                    authority.source_step_ref,
+                    authority.target_step_ref,
+                    authority.edge_type,
+                    authority.source_role,
+                    authority.target_role,
+                )
+                for authority in evidence_by_id.values()
+            ):
+                raise ValueError("E2 re-proposed an authoritative existing edge as new")
             edges.append(self._edge(raw, origin="extractor_validated"))
         position = {item: index for index, item in enumerate(proposal.control_sequence)}
         if any(position[edge.source_step] >= position[edge.target_step] for edge in edges):
@@ -96,29 +213,14 @@ class CompositeBuilder:
                     raise ValueError(f"E2 DataFlow role has multiple producers: {target}")
                 incoming_roles.add(target)
 
-        matcher = contract_matcher or ExactContractMatcher()
-        CausalRelevanceValidator().validate(
-            control_sequence=proposal.control_sequence,
-            canonical=canonical,
-            contract=contract,
-            contract_matcher=matcher,
-            edges=edges,
-        )
-        for occurrence in canonical:
-            occurrence.metadata["not_in_task_composite"] = (
-                occurrence.occurrence_id not in selected_ids
-            )
-
+        task_values = dict(task_bindings or {})
         bindings_by_occurrence: dict[str, dict[str, BindingExpression]] = {}
         for occurrence_id, occurrence in by_id.items():
             task_aliases: dict[str, str] = {}
             for target in contract.target_effects:
                 for effect in occurrence.effects:
-                    if not matcher.effect_covers_target(
-                        offered_predicate=effect,
-                        offered_arguments=resolved_args(effect, occurrence),
-                        target_predicate=target,
-                    ):
+                    arguments = _predicate_resolved_args(effect, occurrence)
+                    if not matcher.covers(target, effect, arguments):
                         continue
                     for argument_name, target_value in target.args.items():
                         offered_value = effect.args.get(argument_name)
@@ -126,13 +228,29 @@ class CompositeBuilder:
                             target_value = BindingExpression.from_dict(target_value)
                         if isinstance(offered_value, dict) and "kind" in offered_value:
                             offered_value = BindingExpression.from_dict(offered_value)
+                        if not (
+                            isinstance(offered_value, BindingExpression)
+                            and offered_value.kind is BindingExprKind.SKILL_INPUT
+                        ):
+                            continue
                         if (
                             isinstance(target_value, BindingExpression)
                             and target_value.kind is BindingExprKind.SKILL_INPUT
-                            and isinstance(offered_value, BindingExpression)
-                            and offered_value.kind is BindingExprKind.SKILL_INPUT
                         ):
-                            task_aliases[offered_value.source_role] = target_value.source_role
+                            task_aliases[offered_value.source_role] = (
+                                target_value.source_role
+                            )
+                            continue
+                        matching_task_roles = [
+                            role for role, value in task_values.items()
+                            if value == target_value
+                        ]
+                        if argument_name in matching_task_roles:
+                            task_aliases[offered_value.source_role] = argument_name
+                        elif len(matching_task_roles) == 1:
+                            task_aliases[offered_value.source_role] = (
+                                matching_task_roles[0]
+                            )
             bindings_by_occurrence[occurrence_id] = {
                 role: BindingExpression(
                     BindingExprKind.SKILL_INPUT,
@@ -199,14 +317,8 @@ class CompositeBuilder:
                 "canonical_sequence": True,
                 "self_sufficiency_required": True,
                 "task_contract_covered": True,
-                "causal_relevance_validated": True,
             },
-            {
-                "source_trace_ids": sorted({
-                    by_id[item].source_trace_id for item in proposal.control_sequence
-                }),
-                "excluded_atomic_occurrences": sorted(set(by_id) - selected_ids),
-            }, SkillStatus.CANDIDATE,
+            {"source_trace_ids": sorted({item.source_trace_id for item in canonical})}, SkillStatus.CANDIDATE,
         )
 
     def _edge(

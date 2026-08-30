@@ -12,7 +12,6 @@ from typing import Any, Mapping
 from ..core.errors import AtomicSkillGraphError, FailureLayer
 from ..core.refs import content_hash
 from ..core.serialization import atomic_write_json, read_json, to_primitive
-from ..traces.schema import provider_request_accounting
 from .protocol import NativeToolSpec
 from .provider import OpenAICompatibleConfig, OpenAICompatibleProvider
 from .session import PROTOCOL_REPAIR_LIMIT, ReplayAgentSession
@@ -37,7 +36,7 @@ _FORBIDDEN_PAYLOAD_FIELDS = frozenset({
     "frequency_penalty",
 })
 _PROBE_B_ACCEPTED_TURNS = 2
-_PROBE_B_MAX_LOGICAL_CALLS = _PROBE_B_ACCEPTED_TURNS + PROTOCOL_REPAIR_LIMIT
+_PROBE_B_MAX_HTTP_REQUESTS = _PROBE_B_ACCEPTED_TURNS + PROTOCOL_REPAIR_LIMIT
 
 
 class ProviderCapabilityError(AtomicSkillGraphError):
@@ -144,20 +143,19 @@ def run_provider_capability_probe(
         for field in record.get("payload_field_names", ())
     })
     forbidden_present = sorted(_FORBIDDEN_PAYLOAD_FIELDS & set(payload_fields))
-    request_accounting = provider_request_accounting(request_records)
-    all_reported = bool(request_records) and bool(
-        request_accounting["resource_usage_complete"]
+    http_success = bool(request_records) and all(
+        record.get("http_status") == 200
+        and record.get("outcome") == "success"
+        for record in request_records
     )
-    logical_calls_succeeded = bool(request_records) and bool(
-        request_accounting["all_logical_calls_succeeded"]
+    all_reported = bool(request_records) and all(
+        record.get("usage_status") == "reported" for record in request_records
     )
     replay_passed = bool(
         dict(probe_results.get("reasoning_replay") or {}).get("passed")
     )
     probe_request_shape_valid = _probe_request_shape_is_valid(
-        probe_results,
-        int(request_accounting["logical_call_count"]),
-        int(request_accounting["http_attempt_count"]),
+        probe_results, len(request_records),
     )
     passed = bool(
         primary_error is None
@@ -168,7 +166,7 @@ def run_provider_capability_probe(
         and "thinking" in payload_fields
         and "reasoning_effort" in payload_fields
         and all_reported
-        and logical_calls_succeeded
+        and http_success
         and replay_passed
         and probe_request_shape_valid
     )
@@ -183,19 +181,11 @@ def run_provider_capability_probe(
         "probes": probe_results,
         "provider_requests": request_records,
         "provider_request_count": len(request_records),
-        "http_attempt_count": int(request_accounting["http_attempt_count"]),
-        "logical_call_count": int(request_accounting["logical_call_count"]),
-        "transient_retry_count": int(
-            request_accounting["transient_retry_count"]
-        ),
-        "unmetered_transport_attempt_count": int(
-            request_accounting["unmetered_transport_attempt_count"]
-        ),
         "usage_events": usage_events,
         "payload_field_names": payload_fields,
         "forbidden_payload_fields_present": forbidden_present,
         "resource_usage_complete": all_reported,
-        "all_logical_calls_succeeded": logical_calls_succeeded,
+        "all_http_requests_succeeded": http_success,
         "reasoning_content_replay_check": replay_passed,
         "probe_request_shape_valid": probe_request_shape_valid,
         "error_type": type(primary_error).__name__ if primary_error else "",
@@ -237,19 +227,11 @@ def run_provider_capability_probe(
             for record in request_records
         ],
         "provider_request_count": len(request_records),
-        "http_attempt_count": int(request_accounting["http_attempt_count"]),
-        "logical_call_count": int(request_accounting["logical_call_count"]),
-        "transient_retry_count": int(
-            request_accounting["transient_retry_count"]
-        ),
-        "unmetered_transport_attempt_count": int(
-            request_accounting["unmetered_transport_attempt_count"]
-        ),
         "usage": [record.get("usage") for record in request_records],
         "reasoning_content_replay_check": replay_passed,
         "probe_request_shape_valid": probe_request_shape_valid,
         "resource_usage_complete": all_reported,
-        "all_logical_calls_succeeded": logical_calls_succeeded,
+        "all_http_requests_succeeded": http_success,
         "probe_trace_sha256": trace_hash,
         "timestamp": trace_payload["timestamp"],
     }
@@ -287,7 +269,7 @@ def ensure_provider_capability(
             "reasoning_content_replay_check": True,
             "probe_request_shape_valid": True,
             "resource_usage_complete": True,
-            "all_logical_calls_succeeded": True,
+            "all_http_requests_succeeded": True,
         }
         mismatches = {
             name: {"expected": wanted, "actual": manifest.get(name)}
@@ -301,32 +283,12 @@ def ensure_provider_capability(
         request_ids = manifest.get("request_ids")
         usage = manifest.get("usage")
         provider_request_count = manifest.get("provider_request_count")
-        http_attempt_count = manifest.get("http_attempt_count")
-        logical_call_count = manifest.get("logical_call_count")
-        transient_retry_count = manifest.get("transient_retry_count")
-        unmetered_transport_attempt_count = manifest.get(
-            "unmetered_transport_attempt_count"
-        )
         trace = read_json(trace_path)
         trace_probes = trace.get("probes") if isinstance(trace, dict) else None
-        raw_trace_requests = (
-            trace.get("provider_requests") if isinstance(trace, dict) else None
-        )
-        trace_requests = (
-            raw_trace_requests
-            if isinstance(raw_trace_requests, list)
-            and all(isinstance(item, Mapping) for item in raw_trace_requests)
-            else []
-        )
-        trace_accounting = provider_request_accounting(trace_requests)
         request_shape_valid = bool(
-            isinstance(logical_call_count, int)
-            and not isinstance(logical_call_count, bool)
-            and isinstance(http_attempt_count, int)
-            and not isinstance(http_attempt_count, bool)
-            and _probe_request_shape_is_valid(
-                trace_probes, logical_call_count, http_attempt_count,
-            )
+            isinstance(provider_request_count, int)
+            and not isinstance(provider_request_count, bool)
+            and _probe_request_shape_is_valid(trace_probes, provider_request_count)
         )
         artifact_valid = bool(
             not mismatches
@@ -342,56 +304,33 @@ def ensure_provider_capability(
             and request_shape_valid
             and isinstance(statuses, list)
             and len(statuses) == provider_request_count
-            and statuses == [item.get("http_status") for item in trace_requests]
+            and all(status == 200 for status in statuses)
             and isinstance(outcomes, list)
             and len(outcomes) == provider_request_count
-            and outcomes == [item.get("outcome") for item in trace_requests]
+            and all(outcome == "success" for outcome in outcomes)
             and isinstance(request_ids, list)
             and len(request_ids) == provider_request_count
             and all(isinstance(request_id, str) and request_id for request_id in request_ids)
-            and request_ids == [
-                item.get("provider_request_id") or item.get("request_id")
-                for item in trace_requests
-            ]
             and isinstance(usage, list)
             and len(usage) == provider_request_count
-            and usage == [item.get("usage") for item in trace_requests]
+            and all(
+                isinstance(item, dict)
+                and all(name in item for name in (
+                    "prompt_tokens", "completion_tokens", "total_tokens",
+                ))
+                for item in usage
+            )
             and isinstance(trace, dict)
             and trace.get("passed") is True
             and trace.get("provider_fingerprint") == expected["provider_fingerprint"]
             and trace.get("config_hash") == expected["config_hash"]
             and trace.get("code_hash") == expected["code_hash"]
             and trace.get("resource_usage_complete") is True
-            and trace.get("all_logical_calls_succeeded") is True
+            and trace.get("all_http_requests_succeeded") is True
             and trace.get("reasoning_content_replay_check") is True
             and trace.get("probe_request_shape_valid") is True
             and trace.get("provider_request_count") == provider_request_count
-            and isinstance(provider_request_count, int)
-            and not isinstance(provider_request_count, bool)
-            and provider_request_count == http_attempt_count
-            and isinstance(transient_retry_count, int)
-            and not isinstance(transient_retry_count, bool)
-            and isinstance(unmetered_transport_attempt_count, int)
-            and not isinstance(unmetered_transport_attempt_count, bool)
-            and logical_call_count >= 0
-            and transient_retry_count >= 0
-            and unmetered_transport_attempt_count >= 0
-            and http_attempt_count == logical_call_count + transient_retry_count
-            and unmetered_transport_attempt_count <= transient_retry_count
-            and trace.get("http_attempt_count") == http_attempt_count
-            and trace.get("logical_call_count") == logical_call_count
-            and trace.get("transient_retry_count") == transient_retry_count
-            and trace.get("unmetered_transport_attempt_count")
-            == unmetered_transport_attempt_count
-            and len(trace_requests) == provider_request_count
-            and trace_accounting["resource_usage_complete"] is True
-            and trace_accounting["all_logical_calls_succeeded"] is True
-            and trace_accounting["http_attempt_count"] == http_attempt_count
-            and trace_accounting["logical_call_count"] == logical_call_count
-            and trace_accounting["transient_retry_count"]
-            == transient_retry_count
-            and trace_accounting["unmetered_transport_attempt_count"]
-            == unmetered_transport_attempt_count
+            and len(trace.get("provider_requests") or ()) == provider_request_count
             and isinstance(trace_probes, dict)
             and set(trace_probes) == set(probe_pass)
             and trace_probes["reasoning_replay"].get(
@@ -453,30 +392,15 @@ def _probe_structured_submission(provider: Any) -> tuple[dict[str, Any], list[di
         raise ProviderCapabilityError(
             "Probe A requires ok=true and non-empty reasoning_content"
         )
-    accounting = provider_request_accounting(
-        tuple(getattr(provider, "request_records", ()))[request_start:]
-    )
-    request_count = int(accounting["logical_call_count"])
+    request_count = int(getattr(provider, "request_record_count", 0)) - request_start
     turn_count = int(session.snapshot().get("turn_count", 0))
-    if not (
-        request_count == 1
-        and accounting["all_logical_calls_succeeded"] is True
-        and accounting["resource_usage_complete"] is True
-        and turn_count == 1
-        and len(ledger.events) == 1
-    ):
+    if request_count != 1 or turn_count != 1 or len(ledger.events) != 1:
         raise ProviderCapabilityError(
             "Probe A must complete as exactly one structured provider turn"
         )
     return {
         "passed": True,
         "request_count": request_count,
-        "http_attempt_count": int(accounting["http_attempt_count"]),
-        "logical_call_count": request_count,
-        "transient_retry_count": int(accounting["transient_retry_count"]),
-        "unmetered_transport_attempt_count": int(
-            accounting["unmetered_transport_attempt_count"]
-        ),
         "turn_count": turn_count,
         "metered_turn_count": len(ledger.events),
         "tool_name": submission.tool_name,
@@ -535,17 +459,12 @@ def _probe_reasoning_replay(provider: Any) -> tuple[dict[str, Any], list[dict[st
     )
     if not first.reasoning_content or not second.reasoning_content or not exact_hash_replayed:
         raise ProviderCapabilityError("Probe B did not preserve reasoning_content verbatim")
-    accounting = provider_request_accounting(
-        tuple(getattr(provider, "request_records", ()))[request_start:]
-    )
-    request_count = int(accounting["logical_call_count"])
+    request_count = int(getattr(provider, "request_record_count", 0)) - request_start
     provider_turn_count = int(snapshot.get("turn_count", 0))
     protocol_failures = list(snapshot.get("protocol_failures") or ())
     protocol_repair_count = len(protocol_failures)
     request_audit_valid = bool(
-        _PROBE_B_ACCEPTED_TURNS <= request_count <= _PROBE_B_MAX_LOGICAL_CALLS
-        and accounting["all_logical_calls_succeeded"] is True
-        and accounting["resource_usage_complete"] is True
+        _PROBE_B_ACCEPTED_TURNS <= request_count <= _PROBE_B_MAX_HTTP_REQUESTS
         and provider_turn_count == request_count
         and len(ledger.events) == request_count
         and protocol_repair_count == request_count - _PROBE_B_ACCEPTED_TURNS
@@ -555,20 +474,12 @@ def _probe_reasoning_replay(provider: Any) -> tuple[dict[str, Any], list[dict[st
     if not request_audit_valid:
         raise ProviderCapabilityError(
             "Probe B request audit mismatch: "
-            f"accepted={_PROBE_B_ACCEPTED_TURNS}, "
-            f"logical={request_count}, "
-            f"http={accounting['http_attempt_count']}, "
+            f"accepted={_PROBE_B_ACCEPTED_TURNS}, http={request_count}, "
             f"metered={len(ledger.events)}, repairs={protocol_repair_count}"
         )
     return {
         "passed": True,
         "request_count": request_count,
-        "http_attempt_count": int(accounting["http_attempt_count"]),
-        "logical_call_count": request_count,
-        "transient_retry_count": int(accounting["transient_retry_count"]),
-        "unmetered_transport_attempt_count": int(
-            accounting["unmetered_transport_attempt_count"]
-        ),
         "turn_count": provider_turn_count,
         "metered_turn_count": len(ledger.events),
         "accepted_turn_count": _PROBE_B_ACCEPTED_TURNS,
@@ -596,28 +507,13 @@ def _probe_extractor_limit(provider: Any) -> tuple[dict[str, Any], list[dict[str
     )
     if submission.value != {"ok": True} or not submission.turn.reasoning_content:
         raise ProviderCapabilityError("Probe C failed its structured response invariant")
-    accounting = provider_request_accounting(
-        tuple(getattr(provider, "request_records", ()))[request_start:]
-    )
-    request_count = int(accounting["logical_call_count"])
+    request_count = int(getattr(provider, "request_record_count", 0)) - request_start
     turn_count = int(session.snapshot().get("turn_count", 0))
-    if not (
-        request_count == 1
-        and accounting["all_logical_calls_succeeded"] is True
-        and accounting["resource_usage_complete"] is True
-        and turn_count == 1
-        and len(ledger.events) == 1
-    ):
+    if request_count != 1 or turn_count != 1 or len(ledger.events) != 1:
         raise ProviderCapabilityError("Probe C must use exactly one provider turn")
     return {
         "passed": True,
         "request_count": request_count,
-        "http_attempt_count": int(accounting["http_attempt_count"]),
-        "logical_call_count": request_count,
-        "transient_retry_count": int(accounting["transient_retry_count"]),
-        "unmetered_transport_attempt_count": int(
-            accounting["unmetered_transport_attempt_count"]
-        ),
         "turn_count": turn_count,
         "metered_turn_count": len(ledger.events),
         "max_tokens": int(provider.config.max_completion_tokens),
@@ -665,20 +561,16 @@ def _snapshot_has_tool_call_id(message: Mapping[str, Any], call_id: str) -> bool
 
 def _probe_request_shape_is_valid(
     probes: Any,
-    logical_call_count: int,
-    http_attempt_count: int,
+    provider_request_count: int,
 ) -> bool:
-    """Separate logical turns/repairs from retrying transport attempts."""
+    """Separate two accepted replay turns from their metered repair calls."""
 
     if not isinstance(probes, Mapping) or set(probes) != {
         "structured_submission", "reasoning_replay", "extractor_max_tokens",
     }:
         return False
-    if (
-        not isinstance(logical_call_count, int)
-        or isinstance(logical_call_count, bool)
-        or not isinstance(http_attempt_count, int)
-        or isinstance(http_attempt_count, bool)
+    if not isinstance(provider_request_count, int) or isinstance(
+        provider_request_count, bool,
     ):
         return False
     structured = probes.get("structured_submission")
@@ -691,17 +583,14 @@ def _probe_request_shape_is_valid(
         return False
     replay_repairs = replay.get("protocol_repair_count")
     failure_codes = replay.get("protocol_failure_codes")
-    probe_items = (structured, replay, extractor)
     return bool(
         structured.get("request_count") == 1
-        and structured.get("logical_call_count") == 1
         and structured.get("turn_count") == 1
         and structured.get("metered_turn_count") == 1
         and _PROBE_B_ACCEPTED_TURNS
         <= replay_requests
-        <= _PROBE_B_MAX_LOGICAL_CALLS
+        <= _PROBE_B_MAX_HTTP_REQUESTS
         and replay.get("accepted_turn_count") == _PROBE_B_ACCEPTED_TURNS
-        and replay.get("logical_call_count") == replay_requests
         and replay.get("turn_count") == replay_requests
         and replay.get("metered_turn_count") == replay_requests
         and replay_repairs == replay_requests - _PROBE_B_ACCEPTED_TURNS
@@ -709,28 +598,9 @@ def _probe_request_shape_is_valid(
         and len(failure_codes) == replay_repairs
         and all(isinstance(code, str) and code for code in failure_codes)
         and extractor.get("request_count") == 1
-        and extractor.get("logical_call_count") == 1
         and extractor.get("turn_count") == 1
         and extractor.get("metered_turn_count") == 1
-        and logical_call_count == 1 + replay_requests + 1
-        and all(
-            isinstance(item.get("http_attempt_count"), int)
-            and not isinstance(item.get("http_attempt_count"), bool)
-            and isinstance(item.get("transient_retry_count"), int)
-            and not isinstance(item.get("transient_retry_count"), bool)
-            and isinstance(item.get("unmetered_transport_attempt_count"), int)
-            and not isinstance(
-                item.get("unmetered_transport_attempt_count"), bool,
-            )
-            and item.get("http_attempt_count")
-            == item.get("logical_call_count") + item.get("transient_retry_count")
-            and 0 <= item.get("unmetered_transport_attempt_count")
-            <= item.get("transient_retry_count")
-            for item in probe_items
-        )
-        and http_attempt_count == sum(
-            item.get("http_attempt_count") for item in probe_items
-        )
+        and provider_request_count == 1 + replay_requests + 1
     )
 
 

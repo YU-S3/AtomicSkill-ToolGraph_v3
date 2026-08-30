@@ -40,10 +40,7 @@ class CompositeRetriever:
             if not task_contract_compatible(contract, composite.goal_contract):
                 reasons.append("goal_contract_incompatible")
             for occurrence in composite.occurrences:
-                try:
-                    self.skills.get_atomic(occurrence.node_ref)
-                except KeyError:
-                    reasons.append(f"occurrence_ref_unavailable:{occurrence.node_ref}")
+                self.skills.get_atomic(occurrence.node_ref)
             profiles = composite.metadata.get("harness_profiles") or []
             if profiles and harness_profile not in profiles:
                 reasons.append("harness_incompatible")

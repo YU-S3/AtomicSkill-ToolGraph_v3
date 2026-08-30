@@ -9,7 +9,6 @@ from typing import Any, Callable
 from ..agents.context_builder import ContextBuilder
 from ..agents.protocol import AgentTurn, NativeToolSpec
 from ..core.bindings import (
-    BindingExpression, BindingExprKind, BindingResolution, BindingSource,
     BindingStatus, RuntimeBinding,
 )
 from ..core.errors import AtomicSkillGraphError, FailureLayer
@@ -173,7 +172,6 @@ class NodeExecutor:
         record = EnvironmentActionRecord(
             spec.action_id, spec.revision, spec.action_type, dict(spec.arguments), result.accepted,
             result.observation, result.done, result.won, result.new_revision, span_id,
-            to_primitive(result.transition_certificate) if result.transition_certificate else None,
         )
         ctx.trace_builder.trace.environment_actions.append(record)
         occurrence_id = "" if occurrence is None else occurrence.occurrence_id
@@ -207,20 +205,9 @@ class NodeExecutor:
     def _effect_result(self, occurrence: Any, ctx: Any, *, mode: str) -> ImplementationExecutionResult | None:
         atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
         bindings = ctx.binding_store.snapshot_for_node(occurrence)
-        certificate = (
-            ctx.trace_builder.trace.environment_actions[-1].transition_certificate
-            if ctx.trace_builder.trace.environment_actions
-            else None
-        )
-        validation_bindings = self._with_ephemeral_certificate_bindings(
-            atomic, bindings, certificate, ctx.world_revision,
-        )
-        outputs = self._validated_output_candidates(
-            atomic, validation_bindings, ctx, certificate=certificate,
-        )
+        outputs = self._validated_output_candidates(atomic, bindings, ctx)
         validation = self.validation.atomic.validate(
-            atomic, occurrence, validation_bindings,
-            ctx.harness.validator_channel(), outputs,
+            atomic, occurrence, bindings, ctx.harness.validator_channel(), outputs,
         )
         ctx.trace_builder.trace.validations.append(ValidationRecord(
             occurrence.occurrence_id, "atomic", to_primitive(validation), ctx.world_revision,
@@ -236,81 +223,10 @@ class NodeExecutor:
             before_state_ref="", after_state_ref=f"revision:{ctx.world_revision}", node_status=status,
         )
 
-    @staticmethod
-    def _with_ephemeral_certificate_bindings(
-        atomic: Any,
-        bindings: dict[str, RuntimeBinding],
-        certificate: dict[str, Any] | None,
-        revision: int,
-    ) -> dict[str, RuntimeBinding]:
-        """Project certified effect arguments for this validation only.
-
-        Environment actions must not mutate the task-local BindingStore.  A
-        transition certificate may nevertheless witness a previously missing
-        input while validating the atomic occurrence that caused the action.
-        The returned mapping is an isolated snapshot and is never committed.
-        """
-
-        projected = dict(bindings)
-        if certificate is None:
-            return projected
-        parameters = {item.name: item for item in atomic.inputs}
-        facts = [
-            *list(certificate.get("positive_effects") or []),
-            *list(certificate.get("terminal_effects") or []),
-        ]
-        for effect in atomic.effects:
-            for fact in facts:
-                if str(fact.get("predicate", "")).casefold() != effect.predicate.casefold():
-                    continue
-                arguments = dict(fact.get("args") or {})
-                if set(arguments) != set(effect.args):
-                    continue
-                for argument_name, raw_expression in effect.args.items():
-                    expression = (
-                        BindingExpression.from_dict(raw_expression)
-                        if isinstance(raw_expression, dict)
-                        else raw_expression
-                    )
-                    if (
-                        not isinstance(expression, BindingExpression)
-                        or expression.kind is BindingExprKind.CONSTANT
-                        or expression.source_role not in parameters
-                    ):
-                        continue
-                    existing = projected.get(expression.source_role)
-                    if existing is not None and existing.status is BindingStatus.GROUNDED:
-                        continue
-                    projected[expression.source_role] = RuntimeBinding(
-                        role=expression.source_role,
-                        value=arguments[argument_name],
-                        semantic_type=parameters[expression.source_role].semantic_type,
-                        source=BindingSource.HARNESS_EVIDENCE,
-                        status=BindingStatus.GROUNDED,
-                        resolution=BindingResolution.RELATION_VERIFIED,
-                        evidence_refs=[str(
-                            fact.get("fact_ref")
-                            or f"transition:{certificate.get('action_id', '')}"
-                        )],
-                        world_revision=revision,
-                    )
-                break
-        return projected
-
-    def _validated_output_candidates(
-        self,
-        atomic: Any,
-        bindings: dict[str, RuntimeBinding],
-        ctx: Any,
-        *,
-        certificate: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    def _validated_output_candidates(self, atomic: Any, bindings: dict[str, RuntimeBinding], ctx: Any) -> dict[str, Any]:
         result: dict[str, Any] = {}
         plain = {role: value.value for role, value in bindings.items() if value.status is BindingStatus.GROUNDED}
         facts = list(ctx.harness.validator_channel().snapshot().get("facts", []))
-        if certificate is not None:
-            facts.extend(certificate.get("positive_effects") or [])
-            facts.extend(certificate.get("terminal_effects") or [])
         witnesses = [fact for fact in facts if any(fact.get("predicate") == effect.predicate for effect in atomic.effects)]
         witness_args = witnesses[-1].get("args", {}) if witnesses else {}
         for output in atomic.outputs:

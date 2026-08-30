@@ -184,10 +184,11 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         "phase_id",
         "intent",
         "event_start",
-        "event_end_exclusive",
-        "selected_effect_refs",
-        "selected_precondition_refs",
-        "output_role_mapping",
+        "event_end",
+        "input_roles",
+        "output_roles",
+        "preconditions",
+        "effects",
         "rationale",
     ],
     "additionalProperties": False,
@@ -199,31 +200,40 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "minimum": 0,
             "description": "Inclusive index of the first selected canonical action event.",
         },
-        "event_end_exclusive": {
+        "event_end": {
             "type": "integer",
             "minimum": 1,
             "description": (
                 "Exclusive index after the last selected event; a single event i uses [i,i+1)."
             ),
         },
-        "selected_effect_refs": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": True,
-            "items": NONEMPTY_STRING_SCHEMA,
-            "description": "References copied from selected transition certificates.",
-        },
-        "selected_precondition_refs": {
-            "type": "array",
-            "uniqueItems": True,
-            "items": NONEMPTY_STRING_SCHEMA,
-            "description": "Required-fact references copied from selected certificates.",
-        },
-        "output_role_mapping": {
+        "input_roles": {
             "type": "object",
             "minProperties": 1,
-            "additionalProperties": NONEMPTY_STRING_SCHEMA,
-            "description": "Published role to an argument: or fact: source reference.",
+            "description": (
+                "Non-empty role-to-concrete-value bindings copied exactly from selected action arguments."
+            ),
+        },
+        "output_roles": {
+            "type": "object",
+            "minProperties": 1,
+            "description": (
+                "Published role identities; every value must exactly repeat an input_roles value."
+            ),
+        },
+        "preconditions": {
+            "type": "array",
+            "items": PREDICATE_SCHEMA,
+            "description": "Only facts present in authoritative_before_state_facts.",
+        },
+        "effects": {
+            "type": "array",
+            "minItems": 1,
+            "items": PREDICATE_SCHEMA,
+            "description": (
+                "Only authoritative positive effects or explicitly listed narrow terminal certificates "
+                "of the selected accepted events."
+            ),
         },
         "rationale": NONEMPTY_STRING_SCHEMA,
     },

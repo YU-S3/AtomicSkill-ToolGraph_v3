@@ -308,37 +308,6 @@ class InvocationCompiler:
                 binding = current.get(role)
                 if binding is None or binding.value != value or binding.status is not BindingStatus.GROUNDED:
                     return fail("runtime_binding", "runtime_binding_unresolved", f"autonomous argument is not a certified current binding: {role}")
-                parameter = by_parameter.get(role)
-                if (
-                    parameter is None
-                    or resolution_satisfies(
-                        binding.resolution, parameter.required_resolution,
-                    )
-                ):
-                    continue
-                concrete_constraint = GroundingConstraint(
-                    f"autonomous_concrete_{role}",
-                    GroundingConstraintKind.ARGUMENT_CONCRETE,
-                    argument_mapping={
-                        role: BindingExpression(
-                            BindingExprKind.SKILL_INPUT, source_role=role,
-                        ),
-                    },
-                    required_resolution="concrete",
-                )
-                local, refs = binding_store.ground_from_evidence(
-                    occurrence.occurrence_id,
-                    {role: binding},
-                    [concrete_constraint],
-                    evidence_store,
-                )
-                if not local:
-                    return fail(
-                        "runtime_binding", "runtime_binding_not_concrete",
-                        f"autonomous binding has no current concrete evidence: {role}",
-                    )
-                grounded.update(local)
-                matched.extend(refs)
         merged = dict(current)
         merged.update(grounded)
         # 5. resolution

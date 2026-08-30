@@ -18,8 +18,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from atomic_skillgraph.traces.schema import provider_request_accounting
-
 
 USAGE_BUCKETS = (
     "planner_p1",
@@ -73,10 +71,6 @@ REPORT_COLUMNS = (
     "learning_eligible",
     "infrastructure_failure",
     "resource_usage_complete",
-    "http_attempt_count",
-    "logical_call_count",
-    "transient_retry_count",
-    "unmetered_transport_attempt_count",
     "plan_source",
     "source_composite_ref",
     "planner_outcome",
@@ -153,9 +147,6 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
     planned = _planned_node_count(plan, nodes)
     started_at = _number(_field(trace, "started_at", 0.0), 0.0)
     ended_at = _number(_field(trace, "ended_at", 0.0), 0.0)
-    provider_accounting = provider_request_accounting(
-        _sequence(_field(trace, "provider_requests", []))
-    )
 
     row: dict[str, Any] = {
         "trace_id": str(_field(trace, "trace_id", "")),
@@ -181,19 +172,8 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "infrastructure_failure": _boolean(
             _field(trace, "infrastructure_failure", False)
         ),
-        "resource_usage_complete": (
-            _boolean(_field(trace, "resource_usage_complete", True))
-            and bool(provider_accounting["resource_usage_complete"])
-        ),
-        "http_attempt_count": int(provider_accounting["http_attempt_count"]),
-        "logical_call_count": int(
-            provider_accounting["logical_call_count"]
-        ),
-        "transient_retry_count": int(
-            provider_accounting["transient_retry_count"]
-        ),
-        "unmetered_transport_attempt_count": int(
-            provider_accounting["unmetered_transport_attempt_count"]
+        "resource_usage_complete": _boolean(
+            _field(trace, "resource_usage_complete", True)
         ),
         "plan_source": str(plan.get("source", "")),
         "source_composite_ref": plan.get("source_composite_ref") or "",
@@ -456,22 +436,6 @@ def summarize_traces(
             _integer(row.get("unattributed_total_tokens", 0))
             for row in resource_rows
         ),
-        "http_attempt_count": sum(
-            _integer(row.get("http_attempt_count", 0))
-            for row in resource_rows
-        ),
-        "logical_call_count": sum(
-            _integer(row.get("logical_call_count", 0))
-            for row in resource_rows
-        ),
-        "transient_retry_count": sum(
-            _integer(row.get("transient_retry_count", 0))
-            for row in resource_rows
-        ),
-        "unmetered_transport_attempt_count": sum(
-            _integer(row.get("unmetered_transport_attempt_count", 0))
-            for row in resource_rows
-        ),
         "usage_by_bucket": by_bucket,
         "artifact_growth": _last_nonempty(rows, "artifact_growth"),
         "artifact_lifecycle": _last_nonempty(rows, "artifact_lifecycle"),
@@ -563,13 +527,6 @@ def render_markdown(
         ("Cost USD / solved task", _display(summary.get("cost_usd_per_solved_task"))),
         ("Token mismatch", summary.get("token_mismatch")),
         ("Unattributed total tokens", summary.get("unattributed_total_tokens")),
-        ("Provider HTTP attempts", summary.get("http_attempt_count")),
-        ("Provider logical calls", summary.get("logical_call_count")),
-        ("Provider transient retries", summary.get("transient_retry_count")),
-        (
-            "Provider unmetered transport attempts",
-            summary.get("unmetered_transport_attempt_count"),
-        ),
     )
     lines.extend(_markdown_pairs(accounting))
     lines.extend(["", "### Per-agent usage buckets", ""])
@@ -669,13 +626,11 @@ def validate_formal_usage(traces: Iterable[Mapping[str, Any] | Any]) -> dict[str
             raise ValueError(
                 f"trace {_field(trace, 'trace_id', '<unknown>')} has incomplete provider usage"
             )
-        provider_accounting = provider_request_accounting(
-            _sequence(_field(trace, "provider_requests", []))
-        )
-        if provider_accounting["resource_usage_complete"] is not True:
-            raise ValueError(
-                f"trace {_field(trace, 'trace_id', '<unknown>')} has an unaudited terminal provider call"
-            )
+        for request in _sequence(_field(trace, "provider_requests", [])):
+            if str(_field(request, "usage_status", "unavailable")) != "reported":
+                raise ValueError(
+                    f"trace {_field(trace, 'trace_id', '<unknown>')} has an unaudited provider request"
+                )
         events = [_mapping(item) for item in _sequence(_field(trace, "llm_usage", []))]
         turns = _sequence(_field(trace, "agent_turns", []))
         if not events and turns:

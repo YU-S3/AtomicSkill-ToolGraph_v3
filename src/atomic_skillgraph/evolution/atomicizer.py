@@ -1,31 +1,27 @@
-"""Validate reference-only E1 boundaries against transition certificates."""
+"""Validate E1 event slices and canonicalize instance values into typed roles."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from ..core.bindings import BindingExpression, BindingExprKind
-from ..core.contracts import ParameterSpec, SemanticPredicate, TaskContract
+from ..core.contracts import ParameterSpec, SemanticPredicate
 from ..core.refs import SkillRef, content_hash
-from ..validation.contract_matcher import ContractMatcher
 
 
 @dataclass
-class AtomicBoundaryProposal:
+class AtomicOccurrenceProposal:
     phase_id: str
     intent: str
     event_start: int
-    event_end_exclusive: int
-    selected_effect_refs: list[str]
-    selected_precondition_refs: list[str]
-    output_role_mapping: dict[str, str]
+    event_end: int
+    input_roles: dict[str, Any]
+    output_roles: dict[str, Any]
+    preconditions: list[SemanticPredicate]
+    effects: list[SemanticPredicate]
     rationale: str
-
-
-# Compatibility name for code that imports the previous public symbol.  The
-# constructor contract is intentionally the new reference-only contract.
-AtomicOccurrenceProposal = AtomicBoundaryProposal
 
 
 @dataclass
@@ -34,7 +30,7 @@ class CanonicalAtomicOccurrence:
     phase_id: str
     intent: str
     event_start: int
-    event_end_exclusive: int
+    event_end: int
     input_bindings: dict[str, Any]
     output_bindings: dict[str, Any]
     input_specs: list[ParameterSpec]
@@ -47,18 +43,64 @@ class CanonicalAtomicOccurrence:
     source_trace_id: str
     proposed_ref: SkillRef
     validation_refs: list[str] = field(default_factory=list)
-    selected_effect_refs: list[str] = field(default_factory=list)
-    selected_precondition_refs: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def event_end(self) -> int:
-        """Inclusive compatibility view; extractor authority remains half-open."""
-
-        return self.event_end_exclusive - 1
 
 
-def _semantic_type(value: Any) -> str:
+_ACTION_EFFECTS: dict[str, tuple[tuple[str, dict[str, tuple[str, ...]]], ...]] = {
+    "TAKE": (("agent.holds", {"object": ("object", "item")}),),
+    "PUT": (("object.at_location", {
+        "object": ("object", "item"), "location": ("destination", "location"),
+    }),),
+    "MOVE": (("object.at_location", {
+        "object": ("object", "item"), "location": ("destination", "location"),
+    }),),
+    "HEAT": (("object.heated", {"object": ("object", "item")}),),
+    "COOL": (("object.cooled", {"object": ("object", "item")}),),
+    "CLEAN": (("object.cleaned", {"object": ("object", "item")}),),
+    "SLICE": (("object.sliced", {"object": ("object", "item")}),),
+    "GO_TO": (("agent.at_location", {"location": ("destination", "location")}),),
+    "OPEN": (("container.open", {"container": ("object", "container")}),),
+    "CLOSE": (("container.closed", {"container": ("object", "container")}),),
+    "TOGGLE_ON": (("light.on", {"light": ("object", "light")}),),
+    "TOGGLE_OFF": (("light.off", {"light": ("object", "light")}),),
+    "EXAMINE": (("object.observed", {"object": ("object", "item")}),),
+}
+
+# Contextual goal facts that the ALFWorld validator certifies at terminal but
+# that cannot be reconstructed from the final action arguments alone.
+_TERMINAL_CONTEXT_EFFECT_ACTIONS = {
+    # ALFWorld's look-at-object-in-light terminal primitive is ``use <lamp>``
+    # while holding the target object.  EXAMINE is a different, single-object
+    # effect and must not certify this two-entity relation.
+    "object.observed_with": frozenset({"USE"}),
+}
+
+
+def terminal_context_effect_certificates(
+    action_type: str,
+    *,
+    won: bool,
+    benchmark_success: bool,
+    task_contract: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Project only TaskContract effects certified by a terminal primitive."""
+
+    if not won or not benchmark_success:
+        return []
+    result: list[dict[str, Any]] = []
+    for raw in task_contract.get("target_effects", []):
+        predicate = str(raw.get("predicate", ""))
+        if action_type not in _TERMINAL_CONTEXT_EFFECT_ACTIONS.get(predicate, ()):
+            continue
+        result.append({
+            "predicate": predicate,
+            "args": dict(raw.get("args") or {}),
+            "cardinality": int(raw.get("cardinality", 1)),
+            "distinct_by": str(raw.get("distinct_by", "")),
+        })
+    return result
+
+
+def _semantic_type(role: str, value: Any) -> str:
     if isinstance(value, bool):
         return "boolean"
     if isinstance(value, int):
@@ -67,450 +109,421 @@ def _semantic_type(value: Any) -> str:
         return "number"
     if isinstance(value, list):
         return "array"
-    return "entity" if isinstance(value, str) else "value"
+    return "entity" if any(token in role for token in (
+        "object", "source", "location", "station", "destination",
+        "entity", "receptacle", "container", "light", "tool",
+    )) else "string"
 
 
-def _value_key(value: Any) -> str:
-    return repr(value)
+def _resolve(value: Any, bindings: dict[str, Any]) -> Any:
+    if isinstance(value, dict) and "kind" in value:
+        value = BindingExpression.from_dict(value)
+    if isinstance(value, BindingExpression):
+        if value.kind is BindingExprKind.CONSTANT:
+            return value.constant
+        return bindings.get(value.source_role)
+    if isinstance(value, str) and value.startswith("$"):
+        return bindings.get(value[1:])
+    return value
 
 
-def _fact(raw: Mapping[str, Any]) -> dict[str, Any]:
-    fact_ref = str(raw.get("fact_ref", ""))
-    predicate = str(raw.get("predicate", ""))
-    arguments = dict(raw.get("args") or {})
-    if not fact_ref or not predicate or not arguments:
-        raise ValueError("transition certificate contains an invalid semantic fact")
-    return {
-        "fact_ref": fact_ref,
-        "predicate": predicate,
-        "args": arguments,
-        "cardinality": max(1, int(raw.get("cardinality", 1))),
-        "distinct_by": str(raw.get("distinct_by", "")),
-    }
+def _entity_family(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"(?:_|\s)\d+$", "", value.casefold()))
 
 
-def _parameter_role(
-    preferred: str,
-    value: Any,
-    bindings: dict[str, Any],
-    role_by_value: dict[str, str],
-) -> str:
-    value_id = _value_key(value)
-    if value_id in role_by_value:
-        return role_by_value[value_id]
-    base = str(preferred).strip() or "value"
-    role = base
-    suffix = 2
-    while role in bindings and bindings[role] != value:
-        role = f"{base}_{suffix}"
-        suffix += 1
-    bindings[role] = value
-    role_by_value[value_id] = role
-    return role
+def _witness_value_equal(expected: Any, observed: Any, *, semantic_family: bool) -> bool:
+    if expected == observed:
+        return True
+    if semantic_family and isinstance(expected, str) and isinstance(observed, str):
+        return bool(_entity_family(expected)) and _entity_family(expected) == _entity_family(observed)
+    return False
 
 
-def _predicate_from_fact(
-    raw: Mapping[str, Any], role_by_value: Mapping[str, str],
-) -> SemanticPredicate:
-    arguments: dict[str, Any] = {}
-    for name, value in dict(raw.get("args") or {}).items():
-        role = role_by_value.get(_value_key(value))
-        if not role:
-            raise ValueError(f"certificate fact argument lacks derived input role: {name}")
-        arguments[str(name)] = BindingExpression(
-            BindingExprKind.SKILL_INPUT,
-            source_role=role,
-        )
-    return SemanticPredicate(
-        str(raw.get("predicate", "")),
-        arguments,
-        max(1, int(raw.get("cardinality", 1))),
-        str(raw.get("distinct_by", "")),
+def _fact_matches(
+    predicate: SemanticPredicate, fact: dict[str, Any], bindings: dict[str, Any],
+) -> bool:
+    if predicate.predicate.casefold() != str(fact.get("predicate", "")).casefold():
+        return False
+    expected = {name: _resolve(value, bindings) for name, value in predicate.args.items()}
+    observed = dict(fact.get("args") or {})
+    semantic_family = bool(fact.get("semantic_family"))
+    return bool(expected) and set(expected) == set(observed) and all(
+        _witness_value_equal(value, observed.get(name), semantic_family=semantic_family)
+        for name, value in expected.items()
     )
 
 
-def _resolve_output_source(
-    source: str,
-    *,
-    selected_events: list[dict[str, Any]],
-    selected_effects: Mapping[str, dict[str, Any]],
-) -> Any:
-    if source.startswith("argument:"):
-        argument = source.removeprefix("argument:")
-        values = {
-            _value_key(value): value
-            for event in selected_events
-            for name, value in dict(event.get("arguments") or {}).items()
-            if name == argument
+def _predicate_has_witnesses(
+    predicate: SemanticPredicate,
+    facts: list[dict[str, Any]],
+    bindings: dict[str, Any],
+) -> bool:
+    matching = [fact for fact in facts if _fact_matches(predicate, fact, bindings)]
+    needed = max(1, int(predicate.cardinality))
+    if predicate.distinct_by:
+        return len({
+            dict(fact.get("args") or {}).get(predicate.distinct_by)
+            for fact in matching
+            if dict(fact.get("args") or {}).get(predicate.distinct_by) not in {None, ""}
+        }) >= needed
+    identities = {
+        tuple(sorted(dict(fact.get("args") or {}).items()))
+        for fact in matching
+    }
+    return len(identities) >= needed
+
+
+def _argument(arguments: dict[str, Any], *aliases: str) -> Any:
+    return next((arguments[name] for name in aliases if name in arguments), None)
+
+
+def reduce_action_state(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reconstruct the current action-derived state without stale witnesses.
+
+    TraceNormalizer intentionally does not expose private validator snapshots.
+    Its fallback therefore has to be a reducer, not a monotonic bag of every
+    historical action effect: TAKE→PUT no longer witnesses ``agent.holds``;
+    HEAT→COOL no longer witnesses ``object.heated``; and opposing open/light
+    transitions replace one another.  Each surviving fact retains the action
+    index that most recently established it so an Atomic effect can be tied to
+    the selected slice rather than to unrelated prefix history.
+    """
+
+    facts: dict[tuple[str, tuple[tuple[str, Any], ...]], dict[str, Any]] = {}
+
+    def key(predicate: str, arguments: dict[str, Any]) -> tuple[str, tuple[tuple[str, Any], ...]]:
+        return predicate, tuple(sorted(arguments.items()))
+
+    def discard(predicate: str, **arguments: Any) -> None:
+        facts.pop(key(predicate, arguments), None)
+
+    def discard_where(predicate: str, role: str, value: Any) -> None:
+        for fact_key in list(facts):
+            name, items = fact_key
+            if name == predicate and dict(items).get(role) == value:
+                facts.pop(fact_key, None)
+
+    def add(predicate: str, arguments: dict[str, Any], event: dict[str, Any], index: int) -> None:
+        facts[key(predicate, arguments)] = {
+            "predicate": predicate,
+            "args": arguments,
+            "witness_ref": (
+                f"action:{event.get('action_id', event.get('event_index', index))}:"
+                f"revision:{event.get('after_revision', '')}"
+            ),
+            "event_index": int(event.get("event_index", index)),
         }
-        if len(values) != 1:
-            raise ValueError(f"output source is not one unique action argument: {source}")
-        return next(iter(values.values()))
-    if source.startswith("fact:"):
-        body = source.removeprefix("fact:")
-        if ":" not in body:
-            raise ValueError(f"output fact source lacks an argument name: {source}")
-        fact_ref, argument = body.rsplit(":", 1)
-        fact = selected_effects.get(fact_ref)
-        if fact is None or argument not in dict(fact.get("args") or {}):
-            raise ValueError(f"output source is not a selected effect argument: {source}")
-        return dict(fact["args"])[argument]
-    raise ValueError(f"unsupported output source: {source}")
+
+    for index, event in enumerate(events):
+        if not event.get("accepted"):
+            continue
+        action = str(event.get("action_type", ""))
+        arguments = dict(event.get("arguments") or {})
+        obj = _argument(arguments, "object", "item")
+        if action == "TAKE" and obj is not None:
+            discard_where("object.at_location", "object", obj)
+            add("agent.holds", {"object": obj}, event, index)
+        elif action in {"PUT", "MOVE"} and obj is not None:
+            destination = _argument(arguments, "destination", "location")
+            discard("agent.holds", object=obj)
+            discard_where("object.at_location", "object", obj)
+            if destination is not None:
+                add(
+                    "object.at_location",
+                    {"object": obj, "location": destination},
+                    event,
+                    index,
+                )
+        elif action == "HEAT" and obj is not None:
+            discard("object.cooled", object=obj)
+            add("object.heated", {"object": obj}, event, index)
+        elif action == "COOL" and obj is not None:
+            discard("object.heated", object=obj)
+            add("object.cooled", {"object": obj}, event, index)
+        elif action == "CLEAN" and obj is not None:
+            add("object.cleaned", {"object": obj}, event, index)
+        elif action == "SLICE" and obj is not None:
+            add("object.sliced", {"object": obj}, event, index)
+        elif action == "GO_TO":
+            destination = _argument(arguments, "destination", "location")
+            for fact_key in list(facts):
+                if fact_key[0] == "agent.at_location":
+                    facts.pop(fact_key, None)
+            if destination is not None:
+                add("agent.at_location", {"location": destination}, event, index)
+        elif action in {"OPEN", "CLOSE"} and obj is not None:
+            current = "container.open" if action == "OPEN" else "container.closed"
+            opposite = "container.closed" if action == "OPEN" else "container.open"
+            discard(opposite, container=obj)
+            add(current, {"container": obj}, event, index)
+        elif action in {"TOGGLE_ON", "TOGGLE_OFF"} and obj is not None:
+            current = "light.on" if action == "TOGGLE_ON" else "light.off"
+            opposite = "light.off" if action == "TOGGLE_ON" else "light.on"
+            discard(opposite, light=obj)
+            add(current, {"light": obj}, event, index)
+        elif action == "EXAMINE" and obj is not None:
+            add("object.observed", {"object": obj}, event, index)
+        # USE has context-dependent toggle/observation semantics.  It is
+        # intentionally not guessed here; validated terminal TaskContract
+        # evidence handles object.observed_with below.
+
+    return sorted(
+        facts.values(),
+        key=lambda item: (
+            str(item["predicate"]),
+            tuple(sorted(dict(item["args"]).items())),
+        ),
+    )
 
 
-def _resolved_predicate_args(
-    predicate: SemanticPredicate, bindings: Mapping[str, Any],
-) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for name, raw in predicate.args.items():
-        if isinstance(raw, BindingExpression):
-            result[name] = raw.constant if raw.kind is BindingExprKind.CONSTANT else bindings.get(raw.source_role)
-        else:
-            result[name] = raw
+def _formal_terminal_facts(
+    selected: list[dict[str, Any]], normalized_trace: dict[str, Any], bindings: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Expose only formally certified terminal effects, never prose observations.
+
+    Some ALFWorld goals (notably ``object.observed_with``) depend on context
+    accumulated before the final USE and therefore cannot be reconstructed
+    from that action's arguments alone.  The official terminal ``won`` signal
+    plus the formal TaskContract is the authoritative witness for those facts.
+    """
+    facts: list[dict[str, Any]] = []
+    contract = dict(normalized_trace.get("task_contract") or {})
+    for raw in terminal_context_effect_certificates(
+        str(selected[-1].get("action_type", "")),
+        won=bool(selected[-1].get("won")),
+        benchmark_success=bool(normalized_trace.get("benchmark_success")),
+        task_contract=contract,
+    ):
+        predicate = str(raw["predicate"])
+        arguments = {
+            name: _resolve(value, bindings)
+            for name, value in dict(raw.get("args") or {}).items()
+        }
+        if arguments and all(value is not None and value != "" for value in arguments.values()):
+            facts.append({
+                "predicate": predicate,
+                "args": arguments,
+                "witness_ref": (
+                    f"task_contract:{normalized_trace.get('trace_id', '')}:"
+                    f"revision:{selected[-1].get('after_revision', '')}"
+                ),
+                "semantic_family": True,
+            })
+    return facts
+
+
+def _normalized_state_facts(
+    normalized_trace: dict[str, Any], *, key: str, revision: int,
+) -> list[dict[str, Any]]:
+    """Read optional canonical before/after facts when a richer Trace provides them."""
+    result: list[dict[str, Any]] = []
+    for item in normalized_trace.get(key, []):
+        item_revision = int(item.get("revision", revision))
+        if item_revision != revision:
+            continue
+        result.append({
+            "predicate": str(item.get("predicate", "")),
+            "args": dict(item.get("args") or {}),
+            "witness_ref": str(item.get("witness_ref") or f"{key}:revision:{revision}"),
+        })
     return result
 
 
-def _exact_contract_match(
-    target: SemanticPredicate,
-    offered: SemanticPredicate,
-    offered_args: Mapping[str, Any],
-) -> bool:
-    return (
-        target.predicate.casefold() == offered.predicate.casefold()
-        and set(target.args) == set(offered_args)
-        and all(target.args[name] == offered_args.get(name) for name in target.args)
-    )
+def _canonical_predicate(predicate: SemanticPredicate, inputs: dict[str, Any], outputs: dict[str, Any]) -> SemanticPredicate:
+    arguments: dict[str, Any] = {}
+    combined = {**inputs, **outputs}
+    for name, value in predicate.args.items():
+        if isinstance(value, BindingExpression):
+            if value.kind is not BindingExprKind.CONSTANT and value.source_role not in combined:
+                raise ValueError(f"predicate references unknown role: {value.source_role}")
+            arguments[name] = value
+            continue
+        matches = [role for role, bound in combined.items() if bound == value]
+        if isinstance(value, str) and value.startswith("$"):
+            matches = [value[1:]]
+        if not matches and isinstance(value, str) and re.search(r"(?:_|\s)\d+$", value):
+            raise ValueError(f"concrete instance in predicate is not bound to a role: {value}")
+        arguments[name] = BindingExpression(BindingExprKind.SKILL_INPUT, source_role=matches[0]) if matches else value
+    return SemanticPredicate(predicate.predicate, arguments, predicate.cardinality, predicate.distinct_by)
 
 
 class Atomicizer:
-    """Certificate reference validator; it contains no environment semantics."""
-
     def validate_proposed_subset(
         self,
-        proposals: list[AtomicBoundaryProposal],
+        proposals: list[AtomicOccurrenceProposal],
         normalized_trace: dict[str, Any],
-        *,
-        task_contract: TaskContract | None = None,
-        contract_matcher: ContractMatcher | None = None,
     ) -> tuple[list[CanonicalAtomicOccurrence], list[dict[str, str]]]:
-        validated: list[tuple[AtomicBoundaryProposal, CanonicalAtomicOccurrence]] = []
+        """Reject invalid Agent proposals without fabricating replacement occurrences.
+
+        A semantically invalid exploration proposal must not discard unrelated,
+        code-validated causal occurrences from the same E1 submission.  The
+        accepted proposals remain exactly Agent-proposed, and the later E2
+        TaskContract/data-flow validator still fails closed if that subset is
+        incomplete.
+        """
+
+        accepted: list[AtomicOccurrenceProposal] = []
+        canonical: list[CanonicalAtomicOccurrence] = []
         rejections: list[dict[str, str]] = []
-        seen_phases: set[str] = set()
         for proposal in proposals:
-            if not proposal.phase_id or proposal.phase_id in seen_phases:
-                rejections.append({
-                    "phase_id": str(proposal.phase_id),
-                    "error_type": "ValueError",
-                    "error": f"duplicate/empty Atomic phase id: {proposal.phase_id!r}",
-                })
-                continue
-            seen_phases.add(proposal.phase_id)
             try:
-                validated.append((proposal, self._validate_one(proposal, normalized_trace)))
+                candidate = self.validate_and_canonicalize(
+                    [*accepted, proposal], normalized_trace,
+                )
             except ValueError as exc:
                 rejections.append({
                     "phase_id": str(proposal.phase_id),
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 })
-
-        contract = task_contract or _task_contract(normalized_trace)
-
-        def contribution(item: CanonicalAtomicOccurrence) -> int:
-            bindings = {**item.input_bindings, **item.output_bindings}
-            score = 0
-            for target in contract.target_effects:
-                matched_cardinality = 0
-                distinct_values: set[str] = set()
-                for effect in item.effects:
-                    arguments = _resolved_predicate_args(effect, bindings)
-                    if contract_matcher is not None:
-                        matched = contract_matcher.effect_covers_target(
-                            offered_predicate=effect,
-                            offered_arguments=arguments,
-                            target_predicate=target,
-                        )
-                    else:
-                        matched = _exact_contract_match(target, effect, arguments)
-                    if not matched:
-                        continue
-                    matched_cardinality += max(1, int(effect.cardinality))
-                    if target.distinct_by:
-                        value = arguments.get(target.distinct_by)
-                        if value not in (None, ""):
-                            distinct_values.add(_value_key(value))
-                available = (
-                    len(distinct_values)
-                    if target.distinct_by
-                    else matched_cardinality
-                )
-                score += min(max(1, int(target.cardinality)), available)
-            return score
-
-        # Resolve overlap winners independently of Agent ordering.
-        priority = sorted(
-            validated,
-            key=lambda pair: (
-                -contribution(pair[1]),
-                pair[0].event_end_exclusive - pair[0].event_start,
-                -len(pair[0].selected_effect_refs),
-                pair[0].event_start,
-                pair[0].phase_id,
-            ),
-        )
-        accepted: list[CanonicalAtomicOccurrence] = []
-        for proposal, occurrence in priority:
-            if any(
-                proposal.event_start < current.event_end_exclusive
-                and current.event_start < proposal.event_end_exclusive
-                for current in accepted
-            ):
-                rejections.append({
-                    "phase_id": proposal.phase_id,
-                    "error_type": "OverlapResolution",
-                    "error": "Atomic proposal lost deterministic overlap resolution",
-                })
                 continue
-            accepted.append(occurrence)
-        accepted.sort(key=lambda item: (
-            item.event_start,
-            item.event_end_exclusive,
-            item.phase_id,
-        ))
-        if not accepted:
+            accepted.append(proposal)
+            canonical = candidate
+        if not canonical:
             detail = rejections[0]["error"] if rejections else "no proposals"
             raise ValueError(f"Extractor E1 produced no valid Atomic occurrences: {detail}")
-        return accepted, rejections
+        return canonical, rejections
 
     def validate_and_canonicalize(
-        self,
-        proposals: list[AtomicBoundaryProposal],
-        normalized_trace: dict[str, Any],
+        self, proposals: list[AtomicOccurrenceProposal], normalized_trace: dict[str, Any],
     ) -> list[CanonicalAtomicOccurrence]:
-        accepted, rejections = self.validate_proposed_subset(proposals, normalized_trace)
-        if rejections:
-            raise ValueError(rejections[0]["error"])
-        return accepted
+        events = normalized_trace.get("actions", [])
+        spans = normalized_trace.get("runtime_spans", [])
+        result: list[CanonicalAtomicOccurrence] = []
+        used_ranges: list[tuple[int, int]] = []
+        for proposal in proposals:
+            if not proposal.phase_id or any(item.phase_id == proposal.phase_id for item in result):
+                raise ValueError(f"duplicate/empty Atomic phase id: {proposal.phase_id!r}")
+            if not (0 <= proposal.event_start <= proposal.event_end < len(events)):
+                raise ValueError(f"invalid event range for {proposal.phase_id}")
+            if any(
+                proposal.event_start <= used_end and used_start <= proposal.event_end
+                for used_start, used_end in used_ranges
+            ):
+                raise ValueError(f"Atomic proposals overlap: {proposal.phase_id}")
+            selected = events[proposal.event_start: proposal.event_end + 1]
+            if not selected or not all(item.get("accepted") for item in selected):
+                raise ValueError(f"Atomic proposal contains rejected/no events: {proposal.phase_id}")
+            if any(
+                int(item.get("after_revision", -1)) <= int(item.get("before_revision", -1))
+                for item in selected
+            ):
+                raise ValueError(f"Atomic proposal lacks a real revision transition: {proposal.phase_id}")
+            selected_span_ids = {str(item.get("span_id", "")) for item in selected}
+            if len(selected_span_ids) != 1 or "" in selected_span_ids:
+                raise ValueError(f"Atomic proposal crosses incompatible RuntimeSpan: {proposal.phase_id}")
+            containing = [
+                span for span in spans
+                if span.get("action_start", 0) <= proposal.event_start
+                and span.get("action_end", len(events)) >= proposal.event_end + 1
+                and str(span.get("span_id", "")) in selected_span_ids
+            ]
+            if spans and not containing:
+                raise ValueError(f"Atomic proposal crosses incompatible RuntimeSpan: {proposal.phase_id}")
+            if not proposal.input_roles:
+                raise ValueError("Atomic occurrence requires explicit input roles")
+            inputs = dict(proposal.input_roles)
+            outputs = dict(proposal.output_roles)
+            if len({repr(value) for value in inputs.values()}) != len(inputs):
+                raise ValueError(f"Atomic input identity is ambiguous: {proposal.phase_id}")
+            available_values = {
+                repr(value)
+                for event in events[:proposal.event_end + 1]
+                for value in dict(event.get("arguments") or {}).values()
+            }
+            if any(repr(value) not in available_values for value in inputs.values()):
+                raise ValueError(f"Atomic input lacks action/binding provenance: {proposal.phase_id}")
+            if any(value not in inputs.values() for value in outputs.values()):
+                raise ValueError(f"Atomic output lacks reusable input identity: {proposal.phase_id}")
 
-    def _validate_one(
-        self,
-        proposal: AtomicBoundaryProposal,
-        normalized_trace: dict[str, Any],
-    ) -> CanonicalAtomicOccurrence:
-        events = list(normalized_trace.get("actions") or [])
-        if not (
-            0 <= proposal.event_start < proposal.event_end_exclusive <= len(events)
-        ):
-            raise ValueError(f"invalid half-open event range for {proposal.phase_id}")
-        selected = events[proposal.event_start:proposal.event_end_exclusive]
-        if not selected or not all(bool(item.get("accepted")) for item in selected):
-            raise ValueError(f"Atomic proposal contains rejected/no events: {proposal.phase_id}")
-        if any(
-            int(item.get("after_revision", -1)) <= int(item.get("before_revision", -1))
-            for item in selected
-        ):
-            raise ValueError(f"Atomic proposal lacks an executed revision transition: {proposal.phase_id}")
-
-        selected_span_ids = {str(item.get("span_id", "")) for item in selected}
-        if len(selected_span_ids) != 1 or "" in selected_span_ids:
-            raise ValueError(f"Atomic proposal crosses incompatible RuntimeSpan: {proposal.phase_id}")
-        spans = list(normalized_trace.get("runtime_spans") or [])
-        if spans and not any(
-            int(span.get("action_start", 0)) <= proposal.event_start
-            and int(span.get("action_end", len(events))) >= proposal.event_end_exclusive
-            and str(span.get("span_id", "")) in selected_span_ids
-            for span in spans
-        ):
-            raise ValueError(f"Atomic proposal crosses incompatible RuntimeSpan: {proposal.phase_id}")
-
-        effects_by_ref: dict[str, dict[str, Any]] = {}
-        effect_event_index: dict[str, int] = {}
-        required_by_ref: dict[str, dict[str, Any]] = {}
-        certificate_evidence: list[str] = []
-        produced_fact_ids: set[tuple[str, str]] = set()
-        latest_negative_index: dict[tuple[str, str], int] = {}
-
-        def semantic_fact_id(item: Mapping[str, Any]) -> tuple[str, str]:
-            return (
-                str(item.get("predicate", "")),
-                repr(sorted(dict(item.get("args") or {}).items())),
+            bindings = {**inputs, **outputs}
+            prefix_facts = reduce_action_state(list(events[:proposal.event_start]))
+            prefix_facts += _normalized_state_facts(
+                normalized_trace,
+                key="before_state_facts",
+                revision=int(selected[0].get("before_revision", 0)),
             )
+            for precondition in proposal.preconditions:
+                if not _predicate_has_witnesses(precondition, prefix_facts, bindings):
+                    raise ValueError(f"Atomic precondition lacks before-state witness: {proposal.phase_id}")
 
-        for local_index, event in enumerate(selected):
-            certificate = event.get("transition_certificate")
-            if not isinstance(certificate, dict):
-                raise ValueError(f"selected event lacks transition certificate: {proposal.phase_id}")
-            if certificate.get("accepted") is not True:
-                raise ValueError(f"certificate rejects selected event: {proposal.phase_id}")
-            for raw in list(certificate.get("required_facts") or []):
-                item = _fact(raw)
-                if semantic_fact_id(item) in produced_fact_ids:
-                    continue
-                previous = required_by_ref.get(item["fact_ref"])
-                if previous is not None and previous != item:
-                    raise ValueError("one precondition reference resolves to conflicting facts")
-                required_by_ref[item["fact_ref"]] = item
-            for raw in [
-                *list(certificate.get("positive_effects") or []),
-                *list(certificate.get("terminal_effects") or []),
-            ]:
-                item = _fact(raw)
-                previous = effects_by_ref.get(item["fact_ref"])
-                if previous is not None and previous != item:
-                    raise ValueError("one effect reference resolves to conflicting facts")
-                effects_by_ref[item["fact_ref"]] = item
-                effect_event_index[item["fact_ref"]] = local_index
-                produced_fact_ids.add(semantic_fact_id(item))
-            for raw in list(certificate.get("negative_effects") or []):
-                item = _fact(raw)
-                latest_negative_index[semantic_fact_id(item)] = local_index
-            certificate_evidence.extend(map(str, certificate.get("evidence_refs") or []))
-
-        if len(set(proposal.selected_effect_refs)) != len(proposal.selected_effect_refs):
-            raise ValueError("selected effect references must be unique")
-        if len(set(proposal.selected_precondition_refs)) != len(proposal.selected_precondition_refs):
-            raise ValueError("selected precondition references must be unique")
-        if not proposal.selected_effect_refs:
-            raise ValueError(f"Atomic proposal requires selected effects: {proposal.phase_id}")
-        missing_effects = sorted(set(proposal.selected_effect_refs) - set(effects_by_ref))
-        missing_preconditions = sorted(
-            set(proposal.selected_precondition_refs) - set(required_by_ref)
-        )
-        if missing_effects:
-            raise ValueError(f"unknown/out-of-boundary effect references: {missing_effects}")
-        if missing_preconditions:
-            raise ValueError(
-                f"unknown/out-of-boundary precondition references: {missing_preconditions}"
-            )
-        omitted_preconditions = sorted(
-            set(required_by_ref) - set(proposal.selected_precondition_refs)
-        )
-        if omitted_preconditions:
-            raise ValueError(
-                f"required certificate preconditions were omitted: {omitted_preconditions}"
-            )
-        selected_effects = {
-            ref: effects_by_ref[ref] for ref in proposal.selected_effect_refs
-        }
-        for ref, item in selected_effects.items():
-            if latest_negative_index.get(semantic_fact_id(item), -1) > effect_event_index[ref]:
-                raise ValueError(
-                    f"selected effect is negated within the Atomic boundary: {ref}"
+            effect_facts = [
+                fact
+                for fact in reduce_action_state(
+                    list(events[:proposal.event_end + 1])
                 )
-        selected_preconditions = {
-            ref: required_by_ref[ref] for ref in proposal.selected_precondition_refs
-        }
-
-        inputs: dict[str, Any] = {}
-        role_by_value: dict[str, str] = {}
-        for raw in [*selected_preconditions.values(), *selected_effects.values()]:
-            for argument, value in dict(raw.get("args") or {}).items():
-                _parameter_role(str(argument), value, inputs, role_by_value)
-        for event in selected:
-            for argument, value in dict(event.get("arguments") or {}).items():
-                _parameter_role(str(argument), value, inputs, role_by_value)
-        if not inputs:
-            raise ValueError(f"certificate boundary derives no reusable inputs: {proposal.phase_id}")
-
-        if not proposal.output_role_mapping:
-            raise ValueError(f"Atomic proposal requires output role mappings: {proposal.phase_id}")
-        outputs: dict[str, Any] = {}
-        effect_values = {
-            _value_key(value)
-            for item in selected_effects.values()
-            for value in dict(item.get("args") or {}).values()
-        }
-        for role, source in sorted(proposal.output_role_mapping.items()):
-            if not role:
-                raise ValueError("output role names must be non-empty")
-            value = _resolve_output_source(
-                source,
-                selected_events=selected,
-                selected_effects=selected_effects,
+                if proposal.event_start
+                <= int(fact.get("event_index", -1))
+                <= proposal.event_end
+            ]
+            effect_facts += _normalized_state_facts(
+                normalized_trace,
+                key="after_state_facts",
+                revision=int(selected[-1].get("after_revision", 0)),
             )
-            if _value_key(value) not in effect_values:
-                raise ValueError(f"output source is not established by a selected effect: {source}")
-            outputs[role] = value
+            effect_facts += _formal_terminal_facts(selected, normalized_trace, bindings)
+            unused_witnesses = set(range(len(effect_facts)))
+            effect_witness_indexes: list[int] = []
+            for effect in proposal.effects:
+                matching = [
+                    fact_index
+                    for fact_index in sorted(unused_witnesses)
+                    if _fact_matches(effect, effect_facts[fact_index], bindings)
+                ]
+                required_witnesses = max(1, int(effect.cardinality))
+                if len(matching) < required_witnesses:
+                    effect_witness_indexes = []
+                    break
+                selected_witnesses = matching[:required_witnesses]
+                effect_witness_indexes.extend(selected_witnesses)
+                unused_witnesses.difference_update(selected_witnesses)
+            if not proposal.effects or not effect_witness_indexes:
+                raise ValueError(f"Atomic effect lacks accepted state/validator witness: {proposal.phase_id}")
 
-        preconditions = [
-            _predicate_from_fact(item, role_by_value)
-            for item in selected_preconditions.values()
-        ]
-        effects = [
-            _predicate_from_fact(item, role_by_value)
-            for item in selected_effects.values()
-        ]
-        input_specs = [
-            ParameterSpec(
-                role,
-                _semantic_type(value),
-                True,
-                True,
-                "concrete" if isinstance(value, str) else "semantic",
+            validation_refs: list[str] = []
+            after_revision = int(selected[-1].get("after_revision", 0))
+            for validation in normalized_trace.get("validations", []):
+                if str(validation.get("level", "")) != "atomic" or int(validation.get("revision", -1)) != after_revision:
+                    continue
+                validation_result = dict(validation.get("result") or {})
+                if validation_result.get("passed") is not True:
+                    raise ValueError(f"Atomic validator rejected proposed boundary: {proposal.phase_id}")
+                validation_refs.extend(map(str, validation_result.get("witness_refs", [])))
+            validation_refs.extend(
+                str(effect_facts[fact_index]["witness_ref"])
+                for fact_index in effect_witness_indexes
             )
-            for role, value in sorted(inputs.items())
-        ]
-        output_specs = [
-            ParameterSpec(role, _semantic_type(value), True, False, "semantic")
-            for role, value in sorted(outputs.items())
-        ]
-        signature = content_hash({
-            "inputs": input_specs,
-            "outputs": output_specs,
-            "preconditions": preconditions,
-            "effects": effects,
-        })[:24]
-        occurrence_id = (
-            f"occ_{normalized_trace['trace_id']}_{proposal.event_start:04d}_"
-            f"{content_hash(proposal.phase_id)[:8]}"
-        )
-        refs = list(dict.fromkeys([
-            f"trace:{normalized_trace['trace_id']}:events:"
-            f"{proposal.event_start}-{proposal.event_end_exclusive}",
-            *proposal.selected_effect_refs,
-            *proposal.selected_precondition_refs,
-            *certificate_evidence,
-        ]))
-        return CanonicalAtomicOccurrence(
-            occurrence_id=occurrence_id,
-            phase_id=proposal.phase_id,
-            intent=proposal.intent,
-            event_start=proposal.event_start,
-            event_end_exclusive=proposal.event_end_exclusive,
-            input_bindings=inputs,
-            output_bindings=outputs,
-            input_specs=input_specs,
-            output_specs=output_specs,
-            preconditions=preconditions,
-            effects=effects,
-            action_events=selected,
-            prefix_events=list(events[:proposal.event_start]),
-            source_task=dict(normalized_trace.get("source_task") or {}),
-            source_trace_id=str(normalized_trace["trace_id"]),
-            proposed_ref=SkillRef(f"atomic_{signature}", "1.0.0"),
-            validation_refs=refs,
-            selected_effect_refs=list(proposal.selected_effect_refs),
-            selected_precondition_refs=list(proposal.selected_precondition_refs),
-        )
-
-
-def _task_contract(normalized_trace: Mapping[str, Any]) -> TaskContract:
-    raw = dict(normalized_trace.get("task_contract") or {})
-    effects = [
-        SemanticPredicate(
-            str(item.get("predicate", "")),
-            dict(item.get("args") or {}),
-            int(item.get("cardinality", 1)),
-            str(item.get("distinct_by", "")),
-        )
-        for item in raw.get("target_effects", [])
-    ]
-    return TaskContract(target_effects=effects)
-
-
-__all__ = [
-    "AtomicBoundaryProposal",
-    "AtomicOccurrenceProposal",
-    "Atomicizer",
-    "CanonicalAtomicOccurrence",
-]
+            preconditions = [_canonical_predicate(item, inputs, outputs) for item in proposal.preconditions]
+            effects = [_canonical_predicate(item, inputs, outputs) for item in proposal.effects]
+            input_specs = [
+                ParameterSpec(role, _semantic_type(role, value), True, True, "concrete" if _semantic_type(role, value) == "entity" else "semantic")
+                for role, value in sorted(inputs.items())
+            ]
+            output_specs = [ParameterSpec(role, _semantic_type(role, value), True, False, "semantic") for role, value in sorted(outputs.items())]
+            logical_id = "atomic_" + re.sub(r"[^a-z0-9]+", "_", proposal.intent.casefold()).strip("_")[:40]
+            signature = content_hash({
+                "intent": proposal.intent, "inputs": input_specs,
+                "outputs": output_specs, "preconditions": preconditions,
+                "effects": effects,
+            })[:12]
+            result.append(CanonicalAtomicOccurrence(
+                "", proposal.phase_id, proposal.intent, proposal.event_start, proposal.event_end,
+                inputs, outputs, input_specs, output_specs, preconditions, effects, selected,
+                list(events[:proposal.event_start]), dict(normalized_trace.get("source_task") or {}),
+                normalized_trace["trace_id"], SkillRef(f"{logical_id}_{signature}", "1.0.0"),
+                list(dict.fromkeys([
+                    f"trace:{normalized_trace['trace_id']}:events:{proposal.event_start}-{proposal.event_end}",
+                    *validation_refs,
+                ])),
+            ))
+            used_ranges.append((proposal.event_start, proposal.event_end))
+        if not result:
+            raise ValueError("Extractor E1 produced no canonical Atomic occurrence")
+        result.sort(key=lambda item: (
+            item.event_start, item.event_end, item.phase_id,
+        ))
+        for index, occurrence in enumerate(result):
+            occurrence.occurrence_id = (
+                f"occ_{normalized_trace['trace_id']}_{index:03d}"
+            )
+        return result

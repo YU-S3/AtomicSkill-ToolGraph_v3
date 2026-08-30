@@ -26,7 +26,6 @@ from atomic_skillgraph.agents.provider_probe import (
     ensure_provider_capability,
     run_provider_capability_probe,
 )
-from atomic_skillgraph.traces.schema import provider_request_accounting
 
 
 class _Response:
@@ -289,11 +288,6 @@ def test_provider_missing_reasoning_and_usage_are_classified_and_audited(
     assert usage_error.value.code == "provider_usage_missing"
     assert provider.request_records[0]["usage_status"] == "reported"
     assert provider.request_records[1]["usage_status"] == "unavailable"
-    accounting = provider_request_accounting(provider.request_records)
-    assert accounting["resource_usage_complete"] is False
-    assert accounting["incomplete_logical_call_ids"] == [
-        provider.request_records[1]["logical_call_id"]
-    ]
 
 
 def test_provider_error_body_cannot_leak_replayed_reasoning(
@@ -719,10 +713,6 @@ def test_provider_capability_probe_is_exact_and_stored_gate_is_fail_closed(
     assert manifest["passed"] is True
     assert manifest["http_statuses"] == [200, 200, 200, 200]
     assert manifest["http_outcomes"] == ["success"] * 4
-    assert manifest["http_attempt_count"] == 4
-    assert manifest["logical_call_count"] == 4
-    assert manifest["transient_retry_count"] == 0
-    assert manifest["unmetered_transport_attempt_count"] == 0
     assert len(payloads) == 4
     assert payloads[3]["max_tokens"] == 131072
     assert ensure_provider_capability(
@@ -745,55 +735,6 @@ def test_provider_capability_probe_is_exact_and_stored_gate_is_fail_closed(
             code_hash="code_fixture",
             run_if_missing=False,
         )
-
-
-def test_provider_capability_probe_accepts_unmetered_transient_retry(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("TEST_DEEPSEEK_KEY", "secret-fixture-key")
-    monkeypatch.setattr("atomic_skillgraph.agents.provider.time.sleep", lambda _delay: None)
-    responses = iter([
-        _Response(None, status=429, text="rate limited", request_id="req_retry"),
-        _Response(_success("probe_a", "submit_probe"), request_id="req_a"),
-        _Response(_success("probe_b1", "probe_step_one"), request_id="req_b1"),
-        _Response(_success("probe_b2", "probe_step_two"), request_id="req_b2"),
-        _Response(
-            _success("probe_c", "submit_extractor_probe"), request_id="req_c",
-        ),
-    ])
-    monkeypatch.setattr(
-        "atomic_skillgraph.agents.provider.requests.post",
-        lambda *_args, **_kwargs: next(responses),
-    )
-    config = _capability_config()
-    manifest = run_provider_capability_probe(
-        config,
-        output_dir=tmp_path,
-        config_hash="config_retry_fixture",
-        code_hash="code_retry_fixture",
-    )
-
-    assert manifest["passed"] is True
-    assert manifest["http_attempt_count"] == 5
-    assert manifest["logical_call_count"] == 4
-    assert manifest["transient_retry_count"] == 1
-    assert manifest["unmetered_transport_attempt_count"] == 1
-    assert manifest["http_statuses"] == [429, 200, 200, 200, 200]
-    assert manifest["resource_usage_complete"] is True
-    assert manifest["all_logical_calls_succeeded"] is True
-    trace = json.loads(
-        (tmp_path / "provider_probe_trace.json").read_text(encoding="utf-8")
-    )
-    assert trace["probes"]["structured_submission"]["request_count"] == 1
-    assert trace["probes"]["structured_submission"]["http_attempt_count"] == 2
-    assert ensure_provider_capability(
-        config,
-        output_dir=tmp_path,
-        config_hash="config_retry_fixture",
-        code_hash="code_retry_fixture",
-        run_if_missing=False,
-    )["passed"] is True
 
 
 def test_provider_capability_probe_audits_repaired_b_turn_separately(
@@ -844,10 +785,6 @@ def test_provider_capability_probe_audits_repaired_b_turn_separately(
 
     assert manifest["passed"] is True
     assert manifest["provider_request_count"] == 5
-    assert manifest["http_attempt_count"] == 5
-    assert manifest["logical_call_count"] == 5
-    assert manifest["transient_retry_count"] == 0
-    assert manifest["unmetered_transport_attempt_count"] == 0
     assert manifest["http_statuses"] == [200] * 5
     assert manifest["http_outcomes"] == ["success"] * 5
     assert len(payloads) == 5

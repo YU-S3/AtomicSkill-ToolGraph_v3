@@ -11,8 +11,9 @@ from ..agents.structured_submission import (
     COMPOSITE_EXTRACTION_SCHEMA,
     StructuredSubmissionClient,
 )
+from ..core.contracts import SemanticPredicate
 from ..core.serialization import to_primitive
-from .atomicizer import AtomicBoundaryProposal, CanonicalAtomicOccurrence
+from .atomicizer import AtomicOccurrenceProposal, CanonicalAtomicOccurrence
 
 
 E1_SCHEMA = {
@@ -35,6 +36,13 @@ class CompositeExtractionProposal:
     insight: dict[str, Any]
 
 
+def _predicate(value: dict[str, Any]) -> SemanticPredicate:
+    return SemanticPredicate(
+        str(value["predicate"]), dict(value.get("args", {})),
+        int(value.get("cardinality", 1)), str(value.get("distinct_by", "")),
+    )
+
+
 class ExtractorSession:
     def __init__(self, session: Any) -> None:
         self.session = session
@@ -43,7 +51,7 @@ class ExtractorSession:
         self._e1_complete = False
         self._e2_complete = False
 
-    def propose_atomics(self, normalized_trace: dict[str, Any]) -> list[AtomicBoundaryProposal]:
+    def propose_atomics(self, normalized_trace: dict[str, Any]) -> list[AtomicOccurrenceProposal]:
         if self._e1_complete:
             raise RuntimeError("Extractor E1 may run exactly once")
         if hasattr(self.session, "set_usage_bucket"):
@@ -56,34 +64,26 @@ class ExtractorSession:
             schema=E1_SCHEMA,
         ).value
         self._e1_complete = True
-        proposals: list[AtomicBoundaryProposal] = []
+        proposals: list[AtomicOccurrenceProposal] = []
         for item in payload["occurrences"]:
             event_start = int(item["event_start"])
-            event_end_exclusive = int(item["event_end_exclusive"])
+            event_end_exclusive = int(item["event_end"])
             if event_end_exclusive <= event_start:
                 raise ValueError(
-                    "Extractor E1 event_end_exclusive must be greater than event_start"
+                    "Extractor E1 event_end must be exclusive and greater than event_start"
                 )
-            proposals.append(AtomicBoundaryProposal(
+            proposals.append(AtomicOccurrenceProposal(
                 phase_id=str(item["phase_id"]), intent=str(item["intent"]),
-                event_start=event_start,
-                event_end_exclusive=event_end_exclusive,
-                selected_effect_refs=[str(value) for value in item["selected_effect_refs"]],
-                selected_precondition_refs=[
-                    str(value) for value in item["selected_precondition_refs"]
-                ],
-                output_role_mapping={
-                    str(role): str(source)
-                    for role, source in dict(item["output_role_mapping"]).items()
-                },
-                rationale=str(item["rationale"]),
+                event_start=event_start, event_end=event_end_exclusive - 1,
+                input_roles=dict(item["input_roles"]), output_roles=dict(item["output_roles"]),
+                preconditions=[_predicate(value) for value in item["preconditions"]],
+                effects=[_predicate(value) for value in item["effects"]], rationale=str(item["rationale"]),
             ))
         return proposals
 
     def propose_composite(
         self, authoritative_occurrences: list[CanonicalAtomicOccurrence],
         existing_edges: list[Any],
-        task_contract: Any,
     ) -> CompositeExtractionProposal:
         if not self._e1_complete or self._e2_complete:
             raise RuntimeError("Extractor E2 requires one completed E1 and may run exactly once")
@@ -122,10 +122,7 @@ class ExtractorSession:
             self.session.set_usage_bucket("extractor_e2")
         payload = self.submissions.request(
             self.session,
-            prompt=self.context.extractor_e2(
-                canonical_occurrences=authority,
-                task_contract=task_contract,
-            ),
+            prompt=self.context.extractor_e2(canonical_occurrences=authority),
             tool_name="submit_extractor_composite",
             description="Submit the complete Composite extraction proposal.",
             schema=E2_SCHEMA,

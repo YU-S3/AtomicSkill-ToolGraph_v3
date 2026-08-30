@@ -1010,7 +1010,6 @@ def test_typed_implementation_replay_checks_live_constraints_and_propagates_infr
     atomic = replace(compiled.atomic, status=SkillStatus.CANDIDATE)
     tool = replace(compiled.tool, status=ToolStatus.CANDIDATE)
     implementation = replace(compiled.implementation, status=SkillStatus.CANDIDATE)
-    input_role = atomic.inputs[0].name
     skills.register_atomic(atomic)
     tools.register(tool)
     harness = FakeHarness()
@@ -1030,7 +1029,7 @@ def test_typed_implementation_replay_checks_live_constraints_and_propagates_infr
             "context": task.context, "metadata": task.metadata,
         },
         "occurrence_id": "occ",
-        "bindings": {input_role: "apple_1"},
+        "bindings": {"item": "apple_1"},
         "prefix": [],
         "occurrence_actions": [],
         "source_attempt_started": False,
@@ -1326,7 +1325,6 @@ def test_system_maintenance_revises_composite_sequence_through_fresh_replay(
     task1 = fake_task("sequence_1", "apple_1", requires_rescue=True)
     task2 = fake_task("sequence_2", "apple_1", requires_rescue=True)
     compiled = ToolCompiler().compile([_take_canonical()])[0]
-    input_role = compiled.atomic.inputs[0].name
 
     def proposal_reply(request):
         review = request.policy_context["reviews"][0]
@@ -1357,7 +1355,7 @@ def test_system_maintenance_revises_composite_sequence_through_fresh_replay(
             effects=[SemanticPredicate(
                 "object.observed",
                 {"object": BindingExpression(
-                    BindingExprKind.SKILL_INPUT, source_role=input_role,
+                    BindingExprKind.SKILL_INPUT, source_role="item",
                 )},
             )],
             guideline={"boundary": "examine_after_holding"},
@@ -1420,11 +1418,11 @@ def test_system_maintenance_revises_composite_sequence_through_fresh_replay(
             [
                 CompositeOccurrence(
                     "step_examine", "occ_examine", examine_atomic.ref,
-                    {input_role: item_constant},
+                    {"item": item_constant},
                 ),
                 CompositeOccurrence(
                     "step_take", "occ_take", take_atomic.ref,
-                    {input_role: item_constant},
+                    {"item": item_constant},
                 ),
             ],
             ["step_examine", "step_take"],
@@ -1457,12 +1455,12 @@ def test_system_maintenance_revises_composite_sequence_through_fresh_replay(
             trace.implementation_invocations = [
                 ImplementationInvocationRecord(
                     f"attempt_examine_{index}", "occ_examine",
-                    str(examine_impl.ref), {input_role: "apple_1"}, {}, {},
+                    str(examine_impl.ref), {"item": "apple_1"}, {}, {},
                     f"span_examine_{index}",
                 ),
                 ImplementationInvocationRecord(
                     f"attempt_take_{index}", "occ_take",
-                    str(take_impl.ref), {input_role: "apple_1"}, {}, {},
+                    str(take_impl.ref), {"item": "apple_1"}, {}, {},
                     f"span_take_{index}",
                 ),
             ]

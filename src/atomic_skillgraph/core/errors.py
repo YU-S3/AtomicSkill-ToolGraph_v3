@@ -79,5 +79,17 @@ class AgentProtocolError(AtomicSkillGraphError):
     pass
 
 
+class PlannerProposalError(AtomicSkillGraphError):
+    """A model-authored Planner proposal failed protocol or semantic parsing."""
+
+
+class PlannerCoverageError(AtomicSkillGraphError):
+    """A validated Planner proposal cannot cover the required contract."""
+
+
+class PlannerGraphValidationError(AtomicSkillGraphError):
+    """A model-authored workflow violates the supplied graph authority."""
+
+
 class BudgetExhausted(AtomicSkillGraphError):
     pass

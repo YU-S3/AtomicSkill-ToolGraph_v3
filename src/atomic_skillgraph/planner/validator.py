@@ -386,14 +386,11 @@ class PlannerValidator:
         harness_ok = True
         atomics = {}
         for occurrence in plan.occurrences:
-            try:
-                atomic = self.skills.get_atomic(occurrence.node_ref)
-                atomics[occurrence.step_id] = atomic
-                refs_ok &= skill_status_usable(atomic.status, mode)
-                profiles = atomic.metadata.get("harness_profiles") or []
-                harness_ok &= not profiles or harness_profile in profiles
-            except KeyError:
-                refs_ok = False
+            atomic = self.skills.get_atomic(occurrence.node_ref)
+            atomics[occurrence.step_id] = atomic
+            refs_ok &= skill_status_usable(atomic.status, mode)
+            profiles = atomic.metadata.get("harness_profiles") or []
+            harness_ok &= not profiles or harness_profile in profiles
         checks["node_refs_exist_and_usable"] = refs_ok
         checks["harness_compatibility"] = harness_ok
         if not refs_ok or not harness_ok:
@@ -633,7 +630,7 @@ def validate_runtime_plan(plan: RuntimeLinearPlan) -> ValidationResult:
         for target_role, raw_expression in occurrence.binding_specs.items():
             try:
                 expression = BindingExpression.from_dict(raw_expression)
-            except Exception:
+            except (KeyError, TypeError, ValueError):
                 expression_consistency = False
                 continue
             if expression.kind is BindingExprKind.DATA_FLOW:

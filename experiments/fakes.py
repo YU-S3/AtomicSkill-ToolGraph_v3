@@ -30,7 +30,6 @@ from atomic_skillgraph.harness.protocol import (
     HarnessActionResult,
     HarnessActionSpec,
     HarnessTask,
-    build_transition_certificate,
 )
 from atomic_skillgraph.validation.contract_matcher import ExactContractMatcher
 
@@ -812,7 +811,6 @@ class FakeHarness:
         if self._task is None:
             raise RuntimeError("FakeHarness must be reset before action execution")
         spec = self._catalog.get(action_id, revision)
-        before_snapshot = self._validator.snapshot()
         target = str(self._task.context["target_item"])
         accepted = False
         observation = "Nothing happens."
@@ -837,39 +835,6 @@ class FakeHarness:
         self._validator.won = self._won
         self._validator.revision = self._revision
         catalog = self._replace_catalog()
-        after_snapshot = self._validator.snapshot()
-
-        def fact_identity(raw: Mapping[str, Any]) -> tuple[str, tuple[tuple[str, Any], ...]]:
-            return (
-                str(raw.get("predicate", "")),
-                tuple(sorted(dict(raw.get("args") or {}).items())),
-            )
-
-        before_facts = list(before_snapshot.get("facts", []))
-        before_ids = {fact_identity(item) for item in before_facts}
-        positive_ids = {
-            fact_identity(item)
-            for item in after_snapshot.get("facts", [])
-            if fact_identity(item) not in before_ids
-        }
-        required = {
-            fact_identity(item)
-            for item in before_facts
-            if set(dict(item.get("args") or {}).values()).intersection(spec.arguments.values())
-        }
-        certificate = build_transition_certificate(
-            action_id=spec.action_id,
-            revision_before=revision,
-            revision_after=self._revision,
-            action_type=spec.action_type,
-            arguments=dict(spec.arguments),
-            before_snapshot=before_snapshot,
-            after_snapshot=after_snapshot,
-            accepted=accepted,
-            required_fact_identities=required,
-            terminal_fact_identities=positive_ids if self._won else set(),
-            evidence_refs=(f"fake_transition:{spec.action_id}:r{self._revision}",),
-        )
         return HarnessActionResult(
             accepted,
             observation,
@@ -878,7 +843,6 @@ class FakeHarness:
             self._revision,
             catalog,
             {"action_type": spec.action_type},
-            certificate,
         )
 
     def task_contract(self, task: HarnessTask) -> TaskContract:

@@ -6,7 +6,14 @@ from dataclasses import asdict
 from typing import Any, Callable
 
 from ..core.contracts import PlannerAudit
-from ..core.errors import AtomicSkillGraphError, FailureLayer
+from ..core.errors import (
+    AgentProtocolError,
+    AtomicSkillGraphError,
+    FailureLayer,
+    PlannerCoverageError,
+    PlannerGraphValidationError,
+    PlannerProposalError,
+)
 from ..core.results import RuntimeLinearPlan
 from ..core.serialization import to_primitive
 from ..core.status import RuntimeMode
@@ -29,18 +36,14 @@ def _is_planner_content_failure(exc: Exception) -> bool:
     of being silently converted into Full Dynamic.
     """
 
-    return bool(
-        isinstance(exc, AtomicSkillGraphError)
-        and exc.code in {
-            "planner_requirement_invalid",
-            "planner_requirement_repair_failed",
-            "planner_graph_invalid",
-            "planner_graph_repair_failed",
-        }
-        and exc.layer in {
-            FailureLayer.PLANNER_REQUIREMENT,
-            FailureLayer.PLANNER_GRAPH,
-        }
+    return isinstance(
+        exc,
+        (
+            AgentProtocolError,
+            PlannerProposalError,
+            PlannerCoverageError,
+            PlannerGraphValidationError,
+        ),
     )
 
 
@@ -48,6 +51,24 @@ def _planner_failure_reason(exc: Exception, fallback: str) -> str:
     if isinstance(exc, AtomicSkillGraphError) and exc.code:
         return exc.code
     return fallback
+
+
+def _require_supplied_atomic_refs(
+    proposal: Any,
+    supplied_refs: set[str],
+) -> None:
+    unknown = sorted({
+        str(step.node_ref)
+        for step in proposal.steps
+        if str(step.node_ref) not in supplied_refs
+    })
+    if unknown:
+        raise PlannerGraphValidationError(
+            "planner_graph_invalid",
+            "Planner workflow references Atomic refs not supplied by retrieval: "
+            + ", ".join(unknown),
+            layer=FailureLayer.PLANNER_GRAPH,
+        )
 
 
 class PlannerPipeline:
@@ -163,6 +184,8 @@ class PlannerPipeline:
         try:
             proposal = workflow_agent.propose(task, contract, requirements, search.candidates, existing_edges, hints)
             audit.workflow_p2 = to_primitive(proposal)
+            supplied_refs = {str(ref) for ref in search.refs}
+            _require_supplied_atomic_refs(proposal, supplied_refs)
             plan = self.compiler.compile(proposal, task, contract, mode=mode, audit=to_primitive(audit))
             required_ids = [item.requirement_id for item in requirements if item.required]
             report = self.validator.validate(
@@ -174,6 +197,7 @@ class PlannerPipeline:
                 authoritative = [self.skills.get_atomic(ref) for ref in search.refs]
                 proposal = workflow_agent.repair(proposal, report, authoritative, existing_edges)
                 audit.workflow_p2r = to_primitive(proposal)
+                _require_supplied_atomic_refs(proposal, supplied_refs)
                 plan = self.compiler.compile(proposal, task, contract, mode=mode, audit=to_primitive(audit))
                 report = self.validator.validate(
                     plan, mode=mode, required_requirement_ids=required_ids, harness_profile=harness.profile_name,

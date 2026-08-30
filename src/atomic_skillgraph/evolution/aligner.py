@@ -13,6 +13,7 @@ from ..knowledge.tool_registry import ToolRegistry
 from .contract_canonicalizer import (
     AtomicContractCanonicalizer,
     CanonicalizedAtomicBundle,
+    aligned_role_maps,
     atomic_contract_signature,
     canonical_atomic_contract,
 )
@@ -112,6 +113,13 @@ def _version_key(version: str) -> tuple[int, int, int]:
 
 
 @dataclass(frozen=True)
+class AtomicAlignment:
+    ref: SkillRef
+    role_map: dict[str, str]
+    reused: bool
+
+
+@dataclass(frozen=True)
 class ToolAlignmentResult:
     ref: ToolRef
     source_ref: ToolRef | None = None
@@ -124,6 +132,35 @@ class Aligner:
     def __init__(self, skills: SkillRegistry, tools: ToolRegistry) -> None:
         self.skills, self.tools = skills, tools
         self.atomic_canonicalizer = AtomicContractCanonicalizer()
+
+    def resolve_atomic(self, candidate: AbstractAtomicSkill) -> AtomicAlignment:
+        """Resolve alpha-equivalence and expose candidate-to-persisted roles."""
+
+        existing_ref = self.skills.find_equivalent_atomic(candidate)
+        if existing_ref is not None:
+            persisted = self.skills.get_atomic(existing_ref)
+            input_roles, output_roles = aligned_role_maps(candidate, persisted)
+            return AtomicAlignment(
+                existing_ref,
+                {**output_roles, **input_roles},
+                True,
+            )
+        neutral = self.atomic_canonicalizer.canonicalize(candidate)
+        ref = self._next_skill_ref(
+            neutral.atomic.ref,
+            "atomic",
+        )
+        # A newly discovered Atomic establishes the persistent role schema.
+        # Keep those semantic role names intact; alpha-normalization is only
+        # an identity calculation.  Later equivalent candidates are mapped
+        # onto these actual persisted names by ``aligned_role_maps``.
+        input_roles = {item.name: item.name for item in candidate.inputs}
+        output_roles = {item.name: item.name for item in candidate.outputs}
+        return AtomicAlignment(
+            ref,
+            {**output_roles, **input_roles},
+            False,
+        )
 
     def stage_atomic(
         self,
@@ -139,34 +176,32 @@ class Aligner:
         single-process experiment bank.
         """
 
-        bundle = self.atomic_canonicalizer.canonicalize(
-            candidate, tool, implementation,
-        )
-        resolved_ref = (
-            self.skills.find_equivalent_atomic(bundle.atomic)
-            or self._next_skill_ref(bundle.atomic.ref, "atomic")
-        )
-        if resolved_ref == bundle.atomic.ref:
-            return bundle
-        return replace(
-            bundle,
-            atomic=replace(bundle.atomic, ref=resolved_ref),
-            implementation=(
-                None
-                if bundle.implementation is None
-                else replace(
-                    bundle.implementation,
-                    abstract_ref=resolved_ref,
-                )
-            ),
+        alignment = self.resolve_atomic(candidate)
+        if alignment.reused:
+            persisted = self.skills.get_atomic(alignment.ref)
+            input_roles, output_roles = aligned_role_maps(candidate, persisted)
+            return self.atomic_canonicalizer.canonicalize(
+                candidate,
+                tool,
+                implementation,
+                input_role_map=input_roles,
+                output_role_map=output_roles,
+                atomic_ref=alignment.ref,
+            )
+        return self.atomic_canonicalizer.canonicalize(
+            candidate,
+            tool,
+            implementation,
+            input_role_map={item.name: item.name for item in candidate.inputs},
+            output_role_map={item.name: item.name for item in candidate.outputs},
+            atomic_ref=alignment.ref,
         )
 
     def align_atomic(self, candidate: AbstractAtomicSkill) -> SkillRef:
+        alignment = self.resolve_atomic(candidate)
+        if alignment.reused:
+            return alignment.ref
         staged = self.stage_atomic(candidate)
-        existing_ref = self.skills.find_equivalent_atomic(staged.atomic)
-        if existing_ref is not None:
-            return existing_ref
-        # Persist the canonical role schema, not merely a canonical hash.
         admitted = replace(
             staged.atomic,
             status=SkillStatus.CANDIDATE,

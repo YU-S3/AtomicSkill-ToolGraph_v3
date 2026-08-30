@@ -12,7 +12,7 @@ from ..agents.structured_submission import (
 )
 from ..core.bindings import BindingExpression
 from ..core.contracts import PlannerWorkflowProposal, ProposedEdge, ProposedOccurrence
-from ..core.errors import AgentProtocolError, AtomicSkillGraphError, FailureLayer
+from ..core.errors import AgentProtocolError, FailureLayer, PlannerProposalError
 from ..core.refs import SkillRef
 from ..core.serialization import to_primitive
 
@@ -118,7 +118,7 @@ class WorkflowAgent:
                 schema=WORKFLOW_SCHEMA,
             )
         except AgentProtocolError as exc:
-            raise AtomicSkillGraphError(
+            raise PlannerProposalError(
                 error_code,
                 f"Planner workflow proposal protocol validation failed: {exc}",
                 layer=FailureLayer.PLANNER_GRAPH,
@@ -126,7 +126,7 @@ class WorkflowAgent:
         try:
             return _proposal(submission.value)
         except (KeyError, TypeError, ValueError) as exc:
-            raise AtomicSkillGraphError(
+            raise PlannerProposalError(
                 error_code,
                 f"Planner workflow proposal semantic validation failed: {exc}",
                 layer=FailureLayer.PLANNER_GRAPH,

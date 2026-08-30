@@ -4,6 +4,8 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from atomic_skillgraph.core.bindings import (
     BindingExpression,
     BindingExprKind,
@@ -26,10 +28,12 @@ from atomic_skillgraph.core.refs import SkillRef, ToolRef
 from atomic_skillgraph.core.status import RuntimeMode, SkillStatus, ToolStatus
 from atomic_skillgraph.evolution.aligner import Aligner
 from atomic_skillgraph.evolution.atomicizer import CanonicalAtomicOccurrence
+from atomic_skillgraph.evolution.composite_builder import CompositeBuilder
 from atomic_skillgraph.evolution.contract_canonicalizer import (
     AtomicContractCanonicalizer,
     atomic_contract_signature,
 )
+from atomic_skillgraph.evolution.extractor_session import CompositeExtractionProposal
 from atomic_skillgraph.knowledge.artifact_store import ArtifactStore
 from atomic_skillgraph.knowledge.database import StateDatabase
 from atomic_skillgraph.knowledge.graph_store import GraphStore
@@ -373,8 +377,8 @@ def test_existing_edge_lookup_uses_resolved_persistent_atomic_refs(
         target_ref = aligner.align_atomic(target_one)
         source_persistent = skills.get_atomic(source_ref)
         target_persistent = skills.get_atomic(target_ref)
-        assert [item.name for item in source_persistent.inputs] == ["input_000"]
-        assert [item.name for item in source_persistent.outputs] == ["output_000"]
+        assert [item.name for item in source_persistent.inputs] == ["object"]
+        assert [item.name for item in source_persistent.outputs] == ["held_object"]
 
         graph_composite = CompositeSkill(
             SkillRef("persistent_workflow", "1.0.0"),
@@ -427,6 +431,10 @@ def test_existing_edge_lookup_uses_resolved_persistent_atomic_refs(
 
         assert after == before
         assert staged_source.atomic.ref == source_ref
+        assert staged_source.role_map == {
+            "item": "object",
+            "acquired_item": "held_object",
+        }
         assert staged_source.implementation is not None
         assert staged_source.implementation.abstract_ref == source_ref
         assert staged_target.atomic.ref == target_ref
@@ -440,6 +448,78 @@ def test_existing_edge_lookup_uses_resolved_persistent_atomic_refs(
             proposed_refs,
             mode=RuntimeMode.ONLINE,
         ) == []
+
+        edge_evidence = graph.existing_edges(
+            [str(staged_source.atomic.ref), str(staged_target.atomic.ref)],
+            mode=RuntimeMode.ONLINE,
+        )
+        canonical = [
+            CanonicalAtomicOccurrence(
+                "occ_source",
+                "take",
+                "take",
+                0,
+                1,
+                {"object": "apple_1"},
+                {"held_object": "apple_1"},
+                list(staged_source.atomic.inputs),
+                list(staged_source.atomic.outputs),
+                list(staged_source.atomic.preconditions),
+                list(staged_source.atomic.effects),
+                [],
+                [],
+                {},
+                "trace_source",
+                staged_source.atomic.ref,
+            ),
+            CanonicalAtomicOccurrence(
+                "occ_target",
+                "place",
+                "place",
+                1,
+                2,
+                {"item": "apple_1", "destination": "table_1"},
+                {"placed_item": "apple_1"},
+                list(staged_target.atomic.inputs),
+                list(staged_target.atomic.outputs),
+                list(staged_target.atomic.preconditions),
+                list(staged_target.atomic.effects),
+                [],
+                [],
+                {},
+                "trace_target",
+                staged_target.atomic.ref,
+            ),
+        ]
+        duplicate_new_edge = CompositeExtractionProposal(
+            ["occ_source", "occ_target"],
+            [],
+            [{
+                "edge_id": "duplicate_edge",
+                "edge_type": "data_flow",
+                "source_step": "occ_source",
+                "target_step": "occ_target",
+                "source_role": "held_object",
+                "target_role": "item",
+            }],
+            "take then place",
+            {},
+            {},
+        )
+        contract = TaskContract(target_effects=[SemanticPredicate(
+            "object.at_location",
+            {"object": "apple_1", "receptacle": "table_1"},
+        )])
+        with pytest.raises(
+            ValueError,
+            match="re-proposed an authoritative existing edge as new",
+        ):
+            CompositeBuilder().validate_and_build(
+                duplicate_new_edge,
+                canonical,
+                contract,
+                existing_edge_evidence=edge_evidence,
+            )
     finally:
         database.close()
 
@@ -460,24 +540,6 @@ def test_staged_aliases_persist_one_role_schema_across_all_layers(
         first = aligner.stage_atomic(
             *_take_candidate("object", "held_object", "persistent_one")
         )
-        second = aligner.stage_atomic(
-            *_take_candidate("item", "acquired_item", "persistent_two")
-        )
-        assert first.atomic.ref == second.atomic.ref
-
-        before = database.execute(
-            "SELECT COUNT(*) AS count FROM artifact_index"
-        ).fetchone()["count"]
-        # Re-stage the alias after the initial pure resolution check: E2
-        # staging itself must remain read-only.
-        second = aligner.stage_atomic(
-            *_take_candidate("item", "acquired_item", "persistent_two")
-        )
-        after = database.execute(
-            "SELECT COUNT(*) AS count FROM artifact_index"
-        ).fetchone()["count"]
-        assert after == before
-
         assert first.tool is not None and first.implementation is not None
         atomic_ref = aligner.align_atomic(first.atomic)
         tool_ref = aligner.align_tool(first.tool)
@@ -487,12 +549,89 @@ def test_staged_aliases_persist_one_role_schema_across_all_layers(
             tool_ref,
         )
 
+        alias_candidate = _take_candidate(
+            "item", "acquired_item", "persistent_two"
+        )
+        alignment = aligner.resolve_atomic(alias_candidate[0])
+        assert alignment.ref == atomic_ref
+        assert alignment.reused is True
+        assert alignment.role_map == {
+            "item": "object",
+            "acquired_item": "held_object",
+        }
+
+        before = database.execute(
+            "SELECT COUNT(*) AS count FROM artifact_index"
+        ).fetchone()["count"]
+        second = aligner.stage_atomic(*alias_candidate)
+        after = database.execute(
+            "SELECT COUNT(*) AS count FROM artifact_index"
+        ).fetchone()["count"]
+        assert after == before
+        assert first.atomic.ref == second.atomic.ref == atomic_ref
+        assert second.role_map == alignment.role_map
+        assert second.tool is not None and second.implementation is not None
+
+        for bundle in (first, second):
+            assert [item.name for item in bundle.atomic.inputs] == ["object"]
+            assert [item.name for item in bundle.atomic.outputs] == [
+                "held_object"
+            ]
+            assert bundle.atomic.effects[0].args["object"].source_role == (
+                "object"
+            )
+            assert bundle.atomic.validator_spec == {
+                "input_role": "object",
+                "output_role": "$held_object",
+            }
+            assert set(bundle.tool.signature["properties"]) == {"object"}
+            assert bundle.tool.signature["required"] == ["object"]
+            assert set(
+                bundle.tool.interface["output_schema"]["properties"]
+            ) == {"held_object"}
+            assert bundle.tool.artifact["steps"][0]["argument_mapping"][
+                "object"
+            ].source_role == "object"
+            assert set(bundle.tool.artifact["output_mapping"]) == {
+                "held_object"
+            }
+            assert bundle.tool.artifact["output_mapping"][
+                "held_object"
+            ].source_role == "object"
+            assert set(bundle.tool.tests[0]["bindings"]) == {"object"}
+            assert bundle.tool.tests[0]["effects"][0].args[
+                "object"
+            ].source_role == "object"
+            binding = bundle.implementation.tool_bindings[0]
+            assert set(binding.parameter_mapping) == {"object"}
+            assert binding.parameter_mapping["object"].source_role == "object"
+            assert (
+                bundle.implementation.grounding_constraints[0]
+                .argument_mapping["object"]
+                .source_role
+                == "object"
+            )
+            output_mapping = bundle.implementation.execution_policy[
+                "output_mapping"
+            ]
+            assert set(output_mapping) == {"held_object"}
+            assert output_mapping["held_object"].source_role == "held_object"
+            assert bundle.implementation.abstract_ref == atomic_ref
+
+            invocation = InvocationCompiler(skills, tools, _Harness()).compile(
+                bundle.atomic,
+                bundle.implementation,
+                [bundle.tool],
+                {},
+            )
+            assert invocation.atomic_ref == atomic_ref
+
         first_occurrence = CompositeOccurrence(
             "first",
             "occ_first",
             first.atomic.ref,
             {
-                "input_000": BindingExpression(
+                "object": BindingExpression(
                     BindingExprKind.CONSTANT,
                     constant="apple_1",
                 )
@@ -503,9 +642,9 @@ def test_staged_aliases_persist_one_role_schema_across_all_layers(
             "occ_second",
             second.atomic.ref,
             {
-                "input_000": BindingExpression(
+                "object": BindingExpression(
                     BindingExprKind.DATA_FLOW,
-                    source_role="output_000",
+                    source_role="held_object",
                     source_step="first",
                 )
             },
@@ -520,8 +659,8 @@ def test_staged_aliases_persist_one_role_schema_across_all_layers(
                 GraphEdgeType.DATA_FLOW,
                 "first",
                 "second",
-                "output_000",
-                "input_000",
+                "held_object",
+                "object",
                 "extractor_validated",
                 evidence_refs=("persistent_one", "persistent_two"),
             )],
@@ -545,25 +684,27 @@ def test_staged_aliases_persist_one_role_schema_across_all_layers(
         )
         persistent_composite = skills.get_composite(composite_ref)
 
-        assert [item.name for item in persistent_atomic.inputs] == ["input_000"]
-        assert [item.name for item in persistent_atomic.outputs] == ["output_000"]
-        assert set(persistent_tool.signature["properties"]) == {"input_000"}
+        assert [item.name for item in persistent_atomic.inputs] == ["object"]
+        assert [item.name for item in persistent_atomic.outputs] == [
+            "held_object"
+        ]
+        assert set(persistent_tool.signature["properties"]) == {"object"}
         assert set(
             persistent_tool.interface["output_schema"]["properties"]
-        ) == {"output_000"}
+        ) == {"held_object"}
         assert persistent_implementation.abstract_ref == persistent_atomic.ref
         assert set(
             persistent_implementation.tool_bindings[0].parameter_mapping
-        ) == {"input_000"}
+        ) == {"object"}
         assert set(
             persistent_implementation.execution_policy["output_mapping"]
-        ) == {"output_000"}
+        ) == {"held_object"}
         assert {
             (edge.source_role, edge.target_role)
             for edge in persistent_composite.data_edges
-        } == {("output_000", "input_000")}
+        } == {("held_object", "object")}
         assert all(
-            set(occurrence.binding_specs) == {"input_000"}
+            set(occurrence.binding_specs) == {"object"}
             for occurrence in persistent_composite.occurrences
         )
 

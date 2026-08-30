@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from ..core.errors import FailureEnvelope
 from ..core.results import NodeExecutionStatus, RuntimeLinearPlan, ValidationResult
@@ -58,136 +58,6 @@ class ProviderRequestRecord:
     error_code: str
     sanitized_error: str
     payload_fingerprint: str
-    logical_call_id: str = ""
-    attempt_index: int = 1
-    is_terminal_attempt: bool = True
-
-
-@dataclass(frozen=True)
-class LogicalProviderCallRecord:
-    """One logical model call and all of its audited transport attempts."""
-
-    logical_call_id: str
-    attempts: tuple[ProviderRequestRecord | Mapping[str, Any], ...]
-    final_outcome: str
-    final_usage_status: str
-    unmetered_transport_attempt_count: int
-
-
-def provider_request_accounting(
-    records: Iterable[ProviderRequestRecord | Mapping[str, Any]],
-) -> dict[str, Any]:
-    """Summarize HTTP attempts without treating retries as extra logical calls.
-
-    Resource usage belongs to the terminal response of one logical provider
-    call.  A transient transport/HTTP attempt may have no usage metadata; when
-    its logical call later terminates with reported usage, accounting is still
-    complete.  Missing attempts, multiple terminal attempts, or an unreported
-    terminal attempt fail closed.
-    """
-
-    grouped: dict[str, list[ProviderRequestRecord | Mapping[str, Any]]] = {}
-    for ordinal, record in enumerate(records, start=1):
-        request_id = str(_provider_record_field(record, "request_id", ""))
-        logical_call_id = str(
-            _provider_record_field(record, "logical_call_id", "")
-        )
-        if not logical_call_id:
-            # Backward-compatible traces had no logical id and therefore keep
-            # their historical one-record-per-call interpretation.
-            logical_call_id = request_id or f"legacy_provider_attempt_{ordinal}"
-        grouped.setdefault(logical_call_id, []).append(record)
-
-    incomplete: list[str] = []
-    logical_calls: list[LogicalProviderCallRecord] = []
-    transient_retry_count = 0
-    unmetered_transport_attempt_count = 0
-    all_logical_calls_succeeded = bool(grouped)
-    for logical_call_id, attempts in grouped.items():
-        ordered = sorted(attempts, key=_provider_attempt_index)
-        indexes = [_provider_attempt_index(item) for item in ordered]
-        terminal = [
-            item for item in ordered
-            if _provider_record_field(item, "is_terminal_attempt", True) is True
-        ]
-        nonterminal = [
-            item for item in ordered
-            if _provider_record_field(item, "is_terminal_attempt", True) is not True
-        ]
-        transient_retry_count += len(nonterminal)
-        unmetered = sum(
-            _provider_record_field(item, "http_status", None) != 200
-            and str(_provider_record_field(item, "usage_status", "unavailable"))
-            != "reported"
-            for item in ordered
-        )
-        unmetered_transport_attempt_count += unmetered
-        final = terminal[0] if len(terminal) == 1 else None
-        final_outcome = str(
-            _provider_record_field(final, "outcome", "") if final is not None else ""
-        )
-        final_usage_status = str(
-            _provider_record_field(final, "usage_status", "unavailable")
-            if final is not None else "unavailable"
-        )
-        logical_calls.append(LogicalProviderCallRecord(
-            logical_call_id=logical_call_id,
-            attempts=tuple(ordered),
-            final_outcome=final_outcome,
-            final_usage_status=final_usage_status,
-            unmetered_transport_attempt_count=unmetered,
-        ))
-        structurally_valid = (
-            indexes == list(range(1, len(ordered) + 1))
-            and len(terminal) == 1
-            and terminal[0] is ordered[-1]
-        )
-        every_200_is_metered = all(
-            _provider_record_field(item, "http_status", None) != 200
-            or str(_provider_record_field(item, "usage_status", "unavailable"))
-            == "reported"
-            for item in ordered
-        )
-        terminal_metered_200 = bool(
-            final is not None
-            and _provider_record_field(final, "http_status", None) == 200
-            and final_usage_status == "reported"
-        )
-        if not (
-            structurally_valid and every_200_is_metered and terminal_metered_200
-        ):
-            incomplete.append(logical_call_id)
-        if not (
-            structurally_valid
-            and final is not None
-            and _provider_record_field(final, "http_status", None) == 200
-            and final_outcome == "success"
-        ):
-            all_logical_calls_succeeded = False
-
-    return {
-        "http_attempt_count": sum(len(items) for items in grouped.values()),
-        "logical_call_count": len(grouped),
-        "transient_retry_count": transient_retry_count,
-        "unmetered_transport_attempt_count": unmetered_transport_attempt_count,
-        "resource_usage_complete": not incomplete,
-        "all_logical_calls_succeeded": all_logical_calls_succeeded,
-        "incomplete_logical_call_ids": sorted(incomplete),
-        "logical_calls": tuple(logical_calls),
-    }
-
-
-def _provider_record_field(record: Any, name: str, default: Any) -> Any:
-    if isinstance(record, Mapping):
-        return record.get(name, default)
-    return getattr(record, name, default)
-
-
-def _provider_attempt_index(record: Any) -> int:
-    value = _provider_record_field(record, "attempt_index", 1)
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    return 0
 
 
 @dataclass
@@ -215,7 +85,6 @@ class EnvironmentActionRecord:
     won: bool
     new_revision: int
     span_id: str
-    transition_certificate: dict[str, Any] | None = None
 
 
 @dataclass

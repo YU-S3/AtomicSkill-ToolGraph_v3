@@ -10,12 +10,11 @@ from ..core.contracts import SemanticPredicate
 
 @runtime_checkable
 class ContractMatcher(Protocol):
-    def effect_covers_target(
+    def covers(
         self,
-        *,
-        offered_predicate: SemanticPredicate,
+        target: SemanticPredicate,
+        offered: SemanticPredicate,
         offered_arguments: Mapping[str, Any],
-        target_predicate: SemanticPredicate,
     ) -> bool: ...
 
 
@@ -36,6 +35,25 @@ class ExactContractMatcher:
             return self.bindings.get(raw[1:])
         return raw
 
+    def covers(
+        self,
+        target: SemanticPredicate,
+        offered: SemanticPredicate,
+        offered_arguments: Mapping[str, Any],
+    ) -> bool:
+        expected = {
+            name: self._resolve(value)
+            for name, value in target.args.items()
+        }
+        return (
+            target.predicate.casefold() == offered.predicate.casefold()
+            and set(expected) == set(offered_arguments)
+            and all(
+                expected[name] == offered_arguments.get(name)
+                for name in expected
+            )
+        )
+
     def effect_covers_target(
         self,
         *,
@@ -43,18 +61,10 @@ class ExactContractMatcher:
         offered_arguments: Mapping[str, Any],
         target_predicate: SemanticPredicate,
     ) -> bool:
-        expected = {
-            name: self._resolve(value)
-            for name, value in target_predicate.args.items()
-        }
-        return (
-            target_predicate.predicate.casefold()
-            == offered_predicate.predicate.casefold()
-            and set(expected) == set(offered_arguments)
-            and all(
-                expected[name] == offered_arguments.get(name)
-                for name in expected
-            )
+        """Compatibility alias for the earlier internal matcher name."""
+
+        return self.covers(
+            target_predicate, offered_predicate, offered_arguments,
         )
 
     def matches(
@@ -65,11 +75,7 @@ class ExactContractMatcher:
     ) -> bool:
         """Compatibility alias for callers outside the v3 extraction path."""
 
-        return self.effect_covers_target(
-            offered_predicate=offered,
-            offered_arguments=offered_args,
-            target_predicate=target,
-        )
+        return self.covers(target, offered, offered_args)
 
 
 __all__ = ["ContractMatcher", "ExactContractMatcher"]

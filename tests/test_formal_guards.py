@@ -20,6 +20,8 @@ from atomic_skillgraph.agents.provider_probe import (
 from atomic_skillgraph.agents.usage import AgentBudget, BudgetTracker, LLMUsage
 from atomic_skillgraph.core.contracts import (
     AbstractAtomicSkill,
+    CompositeOccurrence,
+    CompositeSkill,
     SemanticPredicate,
     ToolAsset,
 )
@@ -40,7 +42,7 @@ from experiments.protocol import (
     audit_failed_attempt,
     hash_code,
 )
-from experiments.report import summarize_traces, trace_to_row, validate_formal_usage
+from experiments.report import validate_formal_usage
 from experiments.run_v3_frozen_eval import _validate_formal_config as _validate_frozen_config
 from experiments.run_v3_train import _validate_formal_config
 from experiments.run_v3_smoke import _validated_dataflow
@@ -435,12 +437,49 @@ def test_planner_provider_error_persists_failure_trace(tmp_path: Path) -> None:
     assert trace["provider_requests"][0]["http_status"] == 400
     assert trace["provider_requests"][0]["usage_status"] == "unavailable"
     assert trace["resource_usage_complete"] is False
-    assert trace["metadata"]["provider_request_accounting"] == {
-        "http_attempt_count": 1,
-        "logical_call_count": 1,
-        "transient_retry_count": 0,
-        "unmetered_transport_attempt_count": 1,
-    }
+
+
+def test_missing_composite_atomic_ref_persists_planner_failure_and_rethrows(
+    tmp_path: Path,
+) -> None:
+    config = _system_config(tmp_path / "data_v3")
+    config["trace_data_dir"] = str(tmp_path / "formal_trace_output")
+    harness = FakeHarness()
+    task = fake_task("planner-missing-atomic", "apple_1")
+    missing_ref = SkillRef("missing_atomic", "1.0.0")
+
+    with AtomicSkillGraphSystem(
+        config, harness=harness, provider=object(),
+    ) as system:
+        system.skills.register_composite(CompositeSkill(
+            SkillRef("broken_active_composite", "1.0.0"),
+            "active Composite with a missing Atomic registry reference",
+            [CompositeOccurrence("s1", "occ1", missing_ref, {})],
+            ["s1"],
+            [],
+            [],
+            harness.task_contract(task),
+            {},
+            {},
+            {},
+            {"harness_profiles": [harness.profile_name]},
+            SkillStatus.ACTIVE,
+        ))
+
+        with pytest.raises(KeyError, match="missing_atomic@1.0.0"):
+            system.run_task(
+                task,
+                attempt_id="attempt_missing_composite_atomic",
+            )
+        payloads = list(system.traces.iter_payloads())
+
+    assert len(payloads) == 1
+    trace = payloads[0]
+    assert trace["runtime_plan"]["failure_stage"] == "planner"
+    assert trace["metadata"]["failure"]["error_type"] == "KeyError"
+    assert trace["metadata"]["attempt_id"] == "attempt_missing_composite_atomic"
+    assert trace["infrastructure_failure"] is True
+    assert trace["learning_eligible"] is False
 
 
 def test_attempt_capture_does_not_mask_primary_error(tmp_path: Path) -> None:
@@ -491,7 +530,7 @@ def test_attempt_capture_does_not_mask_primary_error(tmp_path: Path) -> None:
     ]
 
 
-def test_transient_retry_then_reported_success_is_one_complete_logical_call(
+def test_unavailable_retry_usage_aborts_before_evolution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RETRY_USAGE_KEY", "fixture-key")
@@ -541,7 +580,7 @@ def test_transient_retry_then_reported_success_is_one_complete_logical_call(
         def provider_only_runtime(task, *, mode, trace_builder, attempt_id=""):
             provider.complete([{"role": "system", "content": "fixture"}])
             trace_builder.trace.benchmark_success = True
-            trace_builder.trace.learning_eligible = False
+            trace_builder.trace.learning_eligible = True
             return trace_builder.finish()
 
         evolution_called = False
@@ -553,40 +592,20 @@ def test_transient_retry_then_reported_success_is_one_complete_logical_call(
 
         system.orchestrator.run_task = provider_only_runtime
         system._prepare_evolution = forbidden_evolution
-        system.run_task(
-            fake_task("logical-retry-usage", "apple_1"),
-            attempt_id="attempt_logical_retry_usage",
-        )
+        with pytest.raises(AtomicSkillGraphError) as error:
+            system.run_task(
+                fake_task("incomplete-usage", "apple_1"),
+                attempt_id="attempt_incomplete_usage",
+            )
         payloads = list(system.traces.iter_payloads())
 
+    assert getattr(error.value, "code", "") == "provider_usage_missing"
     assert evolution_called is False
     assert len(payloads) == 1
-    trace = payloads[0]
-    assert trace["resource_usage_complete"] is True
-    requests = trace["provider_requests"]
-    assert [item["usage_status"] for item in requests] == [
+    assert payloads[0]["resource_usage_complete"] is False
+    assert [item["usage_status"] for item in payloads[0]["provider_requests"]] == [
         "unavailable", "reported",
     ]
-    assert requests[0]["logical_call_id"] == requests[1]["logical_call_id"]
-    assert [item["attempt_index"] for item in requests] == [1, 2]
-    assert [item["is_terminal_attempt"] for item in requests] == [False, True]
-    assert trace["metadata"]["provider_request_accounting"] == {
-        "http_attempt_count": 2,
-        "logical_call_count": 1,
-        "transient_retry_count": 1,
-        "unmetered_transport_attempt_count": 1,
-    }
-    row = trace_to_row(trace)
-    assert row["http_attempt_count"] == 2
-    assert row["logical_call_count"] == 1
-    assert row["transient_retry_count"] == 1
-    assert row["unmetered_transport_attempt_count"] == 1
-    summary = summarize_traces([row])
-    assert summary["http_attempt_count"] == 2
-    assert summary["logical_call_count"] == 1
-    assert summary["transient_retry_count"] == 1
-    assert summary["unmetered_transport_attempt_count"] == 1
-    assert validate_formal_usage([trace])["task_count"] == 1
 
 
 def test_real_smoke_dataflow_requires_started_downstream_consumption() -> None:

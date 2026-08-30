@@ -265,6 +265,38 @@ def atomic_contract_signature(atomic: AbstractAtomicSkill) -> str:
     return content_hash(canonical_atomic_contract(atomic))
 
 
+def aligned_role_maps(
+    candidate: AbstractAtomicSkill,
+    persisted: AbstractAtomicSkill,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Map candidate aliases onto an alpha-equivalent persisted schema."""
+
+    if atomic_contract_signature(candidate) != atomic_contract_signature(persisted):
+        raise ValueError("Atomic contracts are not alpha-equivalent")
+
+    def align(
+        candidate_specs: list[ParameterSpec],
+        persisted_specs: list[ParameterSpec],
+        prefix: str,
+    ) -> dict[str, str]:
+        candidate_neutral = _boundary_role_map(candidate, candidate_specs, prefix)
+        persisted_neutral = _boundary_role_map(persisted, persisted_specs, prefix)
+        persisted_by_neutral = {
+            neutral: role for role, neutral in persisted_neutral.items()
+        }
+        if set(candidate_neutral.values()) != set(persisted_by_neutral):
+            raise ValueError("alpha-equivalent Atomic role boundaries do not align")
+        return {
+            role: persisted_by_neutral[neutral]
+            for role, neutral in candidate_neutral.items()
+        }
+
+    return (
+        align(candidate.inputs, persisted.inputs, "input"),
+        align(candidate.outputs, persisted.outputs, "output"),
+    )
+
+
 class AtomicContractCanonicalizer:
     """Canonicalize one Atomic and every artifact that names its roles."""
 
@@ -273,17 +305,27 @@ class AtomicContractCanonicalizer:
         atomic: AbstractAtomicSkill,
         tool: ToolAsset | None = None,
         implementation: ImplementationAtom | None = None,
+        *,
+        input_role_map: Mapping[str, str] | None = None,
+        output_role_map: Mapping[str, str] | None = None,
+        atomic_ref: SkillRef | None = None,
     ) -> CanonicalizedAtomicBundle:
-        input_roles = _boundary_role_map(atomic, atomic.inputs, "input")
-        output_roles = _boundary_role_map(atomic, atomic.outputs, "output")
+        input_roles = dict(input_role_map or _boundary_role_map(
+            atomic, atomic.inputs, "input",
+        ))
+        output_roles = dict(output_role_map or _boundary_role_map(
+            atomic, atomic.outputs, "output",
+        ))
         expression_roles = {**output_roles, **input_roles}
         signature = content_hash(
             _identity_payload(atomic, input_roles, output_roles)
         )
-        atomic_ref = SkillRef(f"atomic_{signature[:24]}", "1.0.0")
+        resolved_ref = atomic_ref or SkillRef(
+            f"atomic_{signature[:24]}", "1.0.0",
+        )
         canonical_atomic = replace(
             atomic,
-            ref=atomic_ref,
+            ref=resolved_ref,
             inputs=[_rewrite_parameter(item, input_roles) for item in atomic.inputs],
             outputs=[_rewrite_parameter(item, output_roles) for item in atomic.outputs],
             preconditions=[
@@ -308,7 +350,7 @@ class AtomicContractCanonicalizer:
             if implementation is None
             else self._rewrite_implementation(
                 implementation,
-                atomic_ref,
+                resolved_ref,
                 input_roles,
                 output_roles,
             )

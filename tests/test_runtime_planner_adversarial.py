@@ -24,6 +24,7 @@ from atomic_skillgraph.core.errors import (
     AgentProtocolError,
     AtomicSkillGraphError,
     FailureLayer,
+    PlannerGraphValidationError,
 )
 from atomic_skillgraph.core.refs import SkillRef, ToolRef
 from atomic_skillgraph.core.results import RuntimeLinearPlan, RuntimeOccurrence
@@ -35,7 +36,11 @@ from atomic_skillgraph.knowledge.database import StateDatabase
 from atomic_skillgraph.knowledge.graph_store import GraphStore
 from atomic_skillgraph.knowledge.skill_registry import SkillRegistry
 from atomic_skillgraph.knowledge.tool_registry import ToolRegistry
-from atomic_skillgraph.planner.pipeline import PlannerPipeline
+from atomic_skillgraph.planner.pipeline import (
+    PlannerPipeline,
+    _is_planner_content_failure,
+    _require_supplied_atomic_refs,
+)
 from atomic_skillgraph.planner.validator import PlannerValidator
 from atomic_skillgraph.runtime.binding_store import RuntimeBindingStore
 from atomic_skillgraph.runtime.invocation_compiler import InvocationCompiler
@@ -798,9 +803,59 @@ def test_explicit_planner_proposal_error_may_fallback_to_dynamic(
             initial_observation="initial",
         )
         assert plan.source == "full_dynamic"
-        assert plan.planner_audit["fallback_reason"] == "planner_requirement_invalid"
+        assert plan.planner_audit["fallback_reason"] == (
+            "planner_requirement_invalid"
+        )
     finally:
         database.close()
+
+
+def test_generic_error_cannot_masquerade_as_planner_content_failure(
+    tmp_path: Path,
+) -> None:
+    database, skills, _tools, graph = _empty_runtime(tmp_path)
+    try:
+        skills.register_atomic(_atomic(
+            "unrelated_active_atomic",
+            effects=[SemanticPredicate("unrelated.effect", {"value": "x"})],
+        ))
+
+        class Session:
+            def next_turn(self, *_args, **_kwargs):
+                raise AtomicSkillGraphError(
+                    "planner_graph_invalid",
+                    "generic error with forged Planner attribution",
+                    layer=FailureLayer.PLANNER_GRAPH,
+                )
+
+        planner = PlannerPipeline(skills, graph, lambda *_args: Session())
+        with pytest.raises(
+            AtomicSkillGraphError,
+            match="generic error with forged Planner attribution",
+        ):
+            planner.build_plan(
+                fake_task("planner-generic-forgery", "apple_1"),
+                FakeHarness(),
+                initial_observation="initial",
+            )
+    finally:
+        database.close()
+
+
+def test_unsupplied_workflow_ref_is_typed_fallback_eligible_content_failure() -> None:
+    proposal = SimpleNamespace(steps=[
+        SimpleNamespace(node_ref=SkillRef("invented_atomic", "1.0.0")),
+    ])
+
+    with pytest.raises(PlannerGraphValidationError) as error:
+        _require_supplied_atomic_refs(
+            proposal,
+            {str(SkillRef("retrieved_atomic", "1.0.0"))},
+        )
+
+    assert error.value.code == "planner_graph_invalid"
+    assert error.value.layer is FailureLayer.PLANNER_GRAPH
+    assert _is_planner_content_failure(error.value) is True
 
 
 def test_dynamic_provider_infrastructure_error_is_rethrown(tmp_path: Path) -> None:

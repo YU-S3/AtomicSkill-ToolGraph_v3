@@ -11,7 +11,7 @@ from ..agents.structured_submission import (
     StructuredSubmissionClient,
 )
 from ..core.contracts import CapabilityRequirement, ParameterSpec, SemanticPredicate, TaskContract
-from ..core.errors import AgentProtocolError, AtomicSkillGraphError, FailureLayer
+from ..core.errors import AgentProtocolError, FailureLayer, PlannerProposalError
 from ..core.serialization import to_primitive
 
 
@@ -110,7 +110,7 @@ class RequirementAgent:
                 schema=REQUIREMENT_SCHEMA,
             )
         except AgentProtocolError as exc:
-            raise AtomicSkillGraphError(
+            raise PlannerProposalError(
                 error_code,
                 f"Planner requirement proposal protocol validation failed: {exc}",
                 layer=FailureLayer.PLANNER_REQUIREMENT,
@@ -121,7 +121,7 @@ class RequirementAgent:
                 for item in submission.value["requirements"]
             ]
         except (KeyError, TypeError, ValueError) as exc:
-            raise AtomicSkillGraphError(
+            raise PlannerProposalError(
                 error_code,
                 f"Planner requirement proposal semantic validation failed: {exc}",
                 layer=FailureLayer.PLANNER_REQUIREMENT,
