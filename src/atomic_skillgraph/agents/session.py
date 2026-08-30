@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import threading
 import uuid
@@ -17,7 +18,6 @@ from .protocol import (
     NativeToolCall,
     NativeToolSpec,
     SchemaValidationError,
-    parse_json_strict,
     validate_schema_instance,
 )
 from .usage import AgentBudget, BudgetTracker, LLMUsage, UsageBucket, UsageLedger
@@ -106,7 +106,6 @@ class ReplayAgentSession:
         user_input: str | None,
         *,
         tools: list[NativeToolSpec] | None = None,
-        structured_output_schema: dict[str, Any] | None = None,
     ) -> AgentTurn:
         with self._lock:
             self._ensure_live()
@@ -125,12 +124,11 @@ class ReplayAgentSession:
                     layer=FailureLayer.RUNTIME_AGENT,
                 )
             normalized_tools = _normalize_tools(tools)
-            schema = _normalize_schema(structured_output_schema)
             self._check_budget_before_call()
             if user_input is not None:
                 self._messages.append({"role": "user", "content": user_input})
             self._last_tools = normalized_tools
-            return self._request_valid_turn(normalized_tools, schema)
+            return self._request_valid_turn(normalized_tools)
 
     def submit_tool_result(
         self,
@@ -158,7 +156,25 @@ class ReplayAgentSession:
             self._check_budget_before_call()
             self._append_tool_result(pending, result)
             self._last_tools = list(normalized_tools)
-            return self._request_valid_turn(normalized_tools, None)
+            return self._request_valid_turn(normalized_tools)
+
+    def acknowledge_tool_result(self, call_id: str, result: dict[str, Any]) -> None:
+        """Append a Tool result without purchasing another provider turn.
+
+        Planner/Extractor structured submissions use this acknowledgement to
+        keep one live replay session across their semantic stages while keeping
+        protocol-format repair independent from P1R/P2R semantic repair.
+        """
+        with self._lock:
+            self._ensure_live()
+            pending = self._pending_call
+            if pending is None or call_id != pending.call_id:
+                raise AgentProtocolError(
+                    "runtime_agent_schema_error",
+                    "acknowledged tool result does not match this session's pending call",
+                    layer=FailureLayer.RUNTIME_AGENT,
+                )
+            self._append_tool_result(pending, result)
 
     def finalize_tool_result(self, call_id: str, result: dict[str, Any]) -> None:
         """Close a terminal session after returning its final native-tool result.
@@ -190,7 +206,7 @@ class ReplayAgentSession:
             raise ValueError("tool result must be JSON serializable") from exc
         self._messages.append({
             "role": "tool", "tool_call_id": pending.call_id,
-            "name": pending.name, "content": encoded_result,
+            "content": encoded_result,
         })
         self._pending_call = None
 
@@ -199,7 +215,7 @@ class ReplayAgentSession:
             pending = self._pending_call
             return {
                 "session_id": self._session_id,
-                "messages": copy.deepcopy(self._messages),
+                "messages": _safe_messages_snapshot(self._messages),
                 "pending_tool_call": _tool_call_dict(pending) if pending is not None else None,
                 "finalized": self._finalized,
                 "seen_call_ids": sorted(self._seen_call_ids),
@@ -230,18 +246,27 @@ class ReplayAgentSession:
     def _request_valid_turn(
         self,
         tools: list[NativeToolSpec],
-        structured_output_schema: dict[str, Any] | None,
     ) -> AgentTurn:
         repair_count = 0
         while True:
             self._check_budget_before_call()
+            accepted_candidate: AgentTurn | None = None
             try:
+                set_context = getattr(self._provider, "set_request_context", None)
+                if callable(set_context):
+                    set_context(session_id=self._session_id, stage=self._usage_bucket.value)
                 turn = self._provider.complete(
                     copy.deepcopy(self._messages),
                     tools=list(tools) or None,
-                    structured_output_schema=copy.deepcopy(structured_output_schema),
                 )
-            except AgentProtocolError as exc:
+            except AtomicSkillGraphError as exc:
+                if not isinstance(exc, AgentProtocolError):
+                    metering_turn = getattr(exc, "usage_turn", None)
+                    if isinstance(metering_turn, AgentTurn):
+                        self._record_provider_call(metering_turn)
+                    # Provider failures are Infrastructure.  They are never
+                    # protocol-repaired and never converted to Dynamic.
+                    raise
                 metering_turn = getattr(exc, "usage_turn", None)
                 if not isinstance(metering_turn, AgentTurn):
                     # A provider may reject before it can construct AgentTurn.
@@ -256,8 +281,9 @@ class ReplayAgentSession:
                 )
             else:
                 self._record_provider_call(turn)
+                accepted_candidate = turn
                 try:
-                    self._validate_turn(turn, tools, structured_output_schema)
+                    self._validate_turn(turn, tools)
                 except AgentProtocolError as exc:
                     failure = exc
                     rejected_turn = _turn_dict(turn)
@@ -280,12 +306,13 @@ class ReplayAgentSession:
                 raise failure
             repair_count += 1
             self._check_budget_before_call()
+            if accepted_candidate is not None:
+                self._append_rejected_turn_for_replay(accepted_candidate, failure)
             self._messages.append(
                 {
                     "role": "user",
                     "content": _protocol_repair_message(
                         tools=tools,
-                        structured_output_schema=structured_output_schema,
                         failure=failure,
                     ),
                 }
@@ -295,7 +322,6 @@ class ReplayAgentSession:
         self,
         turn: AgentTurn,
         tools: list[NativeToolSpec],
-        structured_output_schema: dict[str, Any] | None,
     ) -> None:
         if len(turn.tool_calls) > 1:
             raise AgentProtocolError(
@@ -328,52 +354,49 @@ class ReplayAgentSession:
                 ) from exc
             return
 
-        if structured_output_schema is None:
-            raise AgentProtocolError(
-                "agent_protocol_no_action",
-                "assistant returned no native tool call or requested structured output",
-                layer=FailureLayer.RUNTIME_AGENT,
-            )
-        try:
-            structured_value = parse_json_strict(turn.content)
-        except (TypeError, ValueError) as exc:
-            raise AgentProtocolError(
-                "runtime_agent_schema_error",
-                "assistant structured output is not a single valid JSON value",
-                layer=FailureLayer.RUNTIME_AGENT,
-            ) from exc
-        try:
-            validate_schema_instance(structured_value, structured_output_schema)
-        except SchemaValidationError as exc:
-            raise AgentProtocolError(
-                "runtime_agent_schema_error",
-                f"assistant structured output failed schema validation: {exc}",
-                layer=FailureLayer.RUNTIME_AGENT,
-            ) from exc
+        raise AgentProtocolError(
+            "agent_protocol_no_action",
+            "assistant returned no native tool call",
+            layer=FailureLayer.RUNTIME_AGENT,
+        )
 
     def _append_assistant_turn(self, turn: AgentTurn) -> None:
-        message: AgentMessage = {"role": "assistant", "content": turn.content}
+        message = _assistant_replay_message(turn)
         if turn.tool_calls:
             call = turn.tool_calls[0]
-            message["tool_calls"] = [
-                {
-                    "id": call.call_id,
-                    "type": "function",
-                    "function": {
-                        "name": call.name,
-                        "arguments": json.dumps(
-                            call.arguments,
-                            ensure_ascii=False,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                            allow_nan=False,
-                        ),
-                    },
-                }
-            ]
             self._pending_call = call
             self._seen_call_ids.add(call.call_id)
         self._messages.append(message)
+
+    def _append_rejected_turn_for_replay(
+        self,
+        turn: AgentTurn,
+        failure: AgentProtocolError,
+    ) -> None:
+        """Preserve DeepSeek reasoning while explicitly rejecting every call.
+
+        This is only a submission/protocol repair.  No environment action is
+        executed and no semantic repair quota is consumed.
+        """
+        self._messages.append(_assistant_replay_message(turn))
+        for call in turn.tool_calls:
+            self._seen_call_ids.add(call.call_id)
+            self._messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.call_id,
+                    "content": json.dumps(
+                        {
+                            "accepted": False,
+                            "executed": False,
+                            "error": failure.code,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                }
+            )
 
     def _record_provider_call(self, turn: AgentTurn) -> None:
         self._usage_ledger.record_turn(
@@ -421,33 +444,16 @@ def _normalize_tools(tools: list[NativeToolSpec] | None) -> list[NativeToolSpec]
     return values
 
 
-def _normalize_schema(schema: dict[str, Any] | None) -> dict[str, Any] | None:
-    if schema is None:
-        return None
-    if not isinstance(schema, dict):
-        raise TypeError("structured_output_schema must be a mapping or None")
-    try:
-        json.dumps(schema, ensure_ascii=False, allow_nan=False)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("structured_output_schema must be JSON serializable") from exc
-    return copy.deepcopy(schema)
-
-
 def _protocol_repair_message(
     *,
     tools: list[NativeToolSpec],
-    structured_output_schema: dict[str, Any] | None,
     failure: AgentProtocolError,
 ) -> str:
-    if tools and structured_output_schema is not None:
-        expected = (
-            "Return either exactly one native tool call using an offered tool, or one raw JSON "
-            "value conforming to the supplied structured-output schema."
-        )
-    elif tools:
-        expected = "Return exactly one native tool call using one of the offered tools."
-    else:
-        expected = "Return one raw JSON value conforming to the supplied structured-output schema."
+    expected = (
+        "Return exactly one native tool call using the only offered submit tool."
+        if len(tools) == 1 and tools[0].name.startswith("submit_")
+        else "Return exactly one native tool call using one of the offered tools."
+    )
     return (
         "PROTOCOL REPAIR REQUIRED. The previous response was rejected and no action was executed. "
         f"Violation: {failure.code}. {expected} Do not encode action arguments in prose or Markdown."
@@ -461,6 +467,7 @@ def _tool_call_dict(call: NativeToolCall) -> dict[str, Any]:
 def _turn_dict(turn: AgentTurn) -> dict[str, Any]:
     return {
         "content": turn.content,
+        **_reasoning_summary(turn.reasoning_content),
         "tool_calls": [_tool_call_dict(call) for call in turn.tool_calls],
         "finish_reason": turn.finish_reason,
         "prompt_tokens": turn.prompt_tokens,
@@ -478,12 +485,77 @@ def _safe_provider_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "reasoning_tokens_status",
         "reasoning_tokens_source",
         "reasoning_tokens_in_completion",
+        "reasoning_content_present",
+        "reasoning_content_chars",
+        "reasoning_content_sha256",
     }
     for key, value in metadata.items():
         lowered = str(key).lower()
         if "reasoning" in lowered and lowered not in allowed_reasoning:
             continue
         safe[str(key)] = copy.deepcopy(value)
+    return safe
+
+
+def _assistant_replay_message(turn: AgentTurn) -> AgentMessage:
+    if turn.replay_assistant_message:
+        message = copy.deepcopy(turn.replay_assistant_message)
+        if message.get("role") != "assistant":
+            raise AgentProtocolError(
+                "provider_invalid_response",
+                "provider replay envelope must have assistant role",
+                layer=FailureLayer.INFRASTRUCTURE,
+            )
+        # Parsed fields remain authoritative for consumers; the replay envelope
+        # is provider-owned only for exact DeepSeek history transport.
+        message["content"] = turn.content
+        message["reasoning_content"] = turn.reasoning_content
+        return message
+    message: AgentMessage = {
+        "role": "assistant",
+        "content": turn.content,
+        "reasoning_content": turn.reasoning_content,
+    }
+    if turn.tool_calls:
+        message["tool_calls"] = [
+            {
+                "id": call.call_id,
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    "arguments": json.dumps(
+                        call.arguments,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ),
+                },
+            }
+            for call in turn.tool_calls
+        ]
+    return message
+
+
+def _reasoning_summary(reasoning_content: str) -> dict[str, Any]:
+    encoded = reasoning_content.encode("utf-8")
+    return {
+        "reasoning_content_present": bool(reasoning_content),
+        "reasoning_content_chars": len(reasoning_content),
+        "reasoning_content_sha256": (
+            hashlib.sha256(encoded).hexdigest() if reasoning_content else ""
+        ),
+    }
+
+
+def _safe_messages_snapshot(messages: list[AgentMessage]) -> list[AgentMessage]:
+    safe: list[AgentMessage] = []
+    for original in messages:
+        message = copy.deepcopy(original)
+        reasoning = message.pop("reasoning_content", None)
+        if isinstance(reasoning, str):
+            message.update(_reasoning_summary(reasoning))
+        safe.append(message)
     return safe
 
 

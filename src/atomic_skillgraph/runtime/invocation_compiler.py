@@ -13,7 +13,10 @@ from ..core.bindings import (
     BindingStatus, GroundingConstraint, GroundingConstraintKind, RuntimeBinding,
     resolution_satisfies,
 )
-from ..core.contracts import AbstractAtomicSkill, ImplementationAtom, ParameterSpec, ToolAsset
+from ..core.contracts import (
+    AbstractAtomicSkill, IdentityRelation, ImplementationAtom, ParameterSpec,
+    TaskContract, ToolAsset,
+)
 from ..core.errors import AtomicSkillGraphError, FailureLayer
 from ..core.results import ImplementationInvocationSpec, ToolCallPreflightResult
 from ..core.status import RuntimeMode, skill_status_usable, tool_status_usable
@@ -200,6 +203,7 @@ class InvocationCompiler:
         arguments: dict[str, Any], occurrence: Any, binding_store: RuntimeBindingStore,
         evidence_store: GroundingEvidenceStore, revision: int,
         arguments_are_agent_proposals: bool = True,
+        task_contract: TaskContract | None = None,
     ) -> ToolCallPreflightResult:
         ref = str(compiled.implementation.ref)
         def fail(layer: str, code: str, message: str) -> ToolCallPreflightResult:
@@ -219,6 +223,60 @@ class InvocationCompiler:
             parameter = by_parameter.get(role)
             if parameter and _TYPE_SCHEMA.get(parameter.semantic_type.casefold(), "string") == "string" and not isinstance(value, str):
                 return fail("runtime_agent", "runtime_agent_schema_error", f"{role} has incompatible semantic type")
+        current = binding_store.snapshot_for_node(occurrence)
+        # 3b. A schema-valid concrete entity may still belong to the wrong
+        # semantic family.  Compare before proposal grounding/commit, using
+        # immutable Task/DataFlow intent as the anchor.
+        if arguments_are_agent_proposals:
+            compatibility = getattr(self.harness, "semantic_value_compatible", None)
+            for role, value in arguments.items():
+                parameter = by_parameter.get(role)
+                anchor_binding = binding_store.semantic_anchor(role) or current.get(role)
+                if parameter is None or anchor_binding is None:
+                    continue
+                if callable(compatibility):
+                    compatible = bool(compatibility(
+                        role=role,
+                        concrete_value=value,
+                        semantic_anchor=anchor_binding.value,
+                        semantic_type=parameter.semantic_type,
+                    ))
+                else:
+                    compatible = value == anchor_binding.value
+                if not compatible:
+                    return fail(
+                        "runtime_binding",
+                        "runtime_semantic_anchor_mismatch",
+                        f"Agent proposal {role} is incompatible with its semantic anchor",
+                    )
+        # Occurrence-scoped identity is a pre-start obligation.  Task-scoped
+        # cardinality/identity remains a terminal contract obligation because
+        # a multi-object task may legitimately use one invocation per object.
+        if task_contract is not None:
+            proposal_values = {
+                role: binding.value for role, binding in current.items()
+                if binding.status is BindingStatus.GROUNDED
+            }
+            proposal_values.update(arguments)
+            for constraint in task_contract.identity_constraints:
+                if constraint.scope != "occurrence":
+                    continue
+                if (
+                    constraint.left_role not in proposal_values
+                    or constraint.right_role not in proposal_values
+                ):
+                    continue
+                left = proposal_values[constraint.left_role]
+                right = proposal_values[constraint.right_role]
+                if (
+                    constraint.relation is IdentityRelation.SAME_AS and left != right
+                ) or (
+                    constraint.relation is IdentityRelation.DISTINCT_FROM and left == right
+                ):
+                    return fail(
+                        "runtime_binding", "runtime_identity_constraint_mismatch",
+                        "Agent proposal violates occurrence identity/cardinality constraints",
+                    )
         # 4. static mapping closure was validated at compile time. Recheck immutable refs.
         try:
             current_impl = self.skills.get_implementation(compiled.implementation.ref)
@@ -227,7 +285,6 @@ class InvocationCompiler:
         except KeyError:
             return fail("implementation", "implementation_mapping_error", "implementation disappeared")
 
-        current = binding_store.snapshot_for_node(occurrence)
         grounded: dict[str, RuntimeBinding] = {}
         matched: list[str] = []
         if arguments_are_agent_proposals:
@@ -301,6 +358,7 @@ class InvocationCompiler:
     def autonomous_preflight(
         self, compiled: CompiledInvocation, occurrence: Any,
         binding_store: RuntimeBindingStore, evidence_store: GroundingEvidenceStore, revision: int,
+        task_contract: TaskContract | None = None,
     ) -> ToolCallPreflightResult:
         current = binding_store.snapshot_for_node(occurrence)
         arguments = {
@@ -313,4 +371,5 @@ class InvocationCompiler:
             arguments=arguments, occurrence=occurrence, binding_store=binding_store,
             evidence_store=evidence_store, revision=revision,
             arguments_are_agent_proposals=False,
+            task_contract=task_contract,
         )

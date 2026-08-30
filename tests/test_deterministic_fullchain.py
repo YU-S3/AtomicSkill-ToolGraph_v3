@@ -26,6 +26,7 @@ from atomic_skillgraph.agents import (
     AgentProvider,
     NativeToolSpec,
     ReplayAgentSession,
+    StructuredSubmissionClient,
     UsageBucket,
     UsageLedger,
 )
@@ -86,15 +87,19 @@ def test_scripted_provider_matches_replay_session_protocol() -> None:
         usage_bucket=UsageBucket.PLANNER_P1,
         session_id="provider_structured",
     )
-    structured_turn = structured_session.next_turn(
-        "Return the seed.\n\nPOLICY_CONTEXT_JSON\n{\"seed\":\"deterministic\"}",
-        structured_output_schema=structured_schema,
+    structured_submission = StructuredSubmissionClient().request(
+        structured_session,
+        prompt="Return the seed.\n\nPOLICY_CONTEXT_JSON\n{\"seed\":\"deterministic\"}",
+        tool_name="submit_fixture",
+        description="Submit the deterministic fixture value.",
+        schema=structured_schema,
     )
-    assert json.loads(structured_turn.content) == {"answer": "deterministic"}
+    assert structured_submission.value == {"answer": "deterministic"}
     structured_request = providers["planner"].requests[0]
     assert [item["role"] for item in structured_request.messages] == ["system", "user"]
-    assert structured_request.tools == ()
-    assert structured_request.structured_output_schema == structured_schema
+    assert len(structured_request.tools) == 1
+    assert structured_request.tools[0].name == "submit_fixture"
+    assert structured_request.tools[0].input_schema == structured_schema
 
     learned_tool = NativeToolSpec(
         "invoke_impl_fixture",
@@ -159,7 +164,7 @@ def test_scripted_provider_matches_replay_session_protocol() -> None:
         "invoke_impl_fixture",
         "report_runtime_status",
     ]
-    assert second_request.structured_output_schema is None
+    assert "name" not in second_request.messages[3]
     assert tool_session.snapshot()["finalized"] is True
     assert providers.snapshot()["runtime_preparation"]["call_count"] == 2
     assert len(usage.events) == 3
@@ -362,7 +367,7 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     factory.enqueue("planner", planner_gap_replies())
     factory.enqueue(
         "runtime_dynamic",
-        [FakeReply.tool("environment_action", {"action_id": "a001"})],
+        [FakeReply.tool("environment_action", {"action_id": "r000_a001"})],
     )
     task1 = fake_task("episode-1", "apple_1")
     episode1 = runtime.run_task(task1)
@@ -443,7 +448,7 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     )
     factory.enqueue(
         "runtime_seeded",
-        [FakeReply.tool("environment_action", {"action_id": "a001"})],
+        [FakeReply.tool("environment_action", {"action_id": "r000_a001"})],
     )
     tool_started_before = projection.stats(str(tool_ref), "tool").started_count
     implementation_failures_before = projection.stats(
@@ -502,7 +507,7 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     # only Composite structure while leaving started node layers positive.
     factory.enqueue(
         "runtime_dynamic",
-        [FakeReply.tool("environment_action", {"action_id": "a001"})],
+        [FakeReply.tool("environment_action", {"action_id": "r001_a001"})],
     )
     task4 = fake_task("episode-4", "mug_1", requires_rescue=True)
     episode4 = runtime.run_task(task4)
@@ -596,7 +601,7 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     factory.enqueue("planner", planner_gap_replies())
     factory.enqueue(
         "runtime_dynamic",
-        [FakeReply.tool("environment_action", {"action_id": "a001"})],
+        [FakeReply.tool("environment_action", {"action_id": "r000_a001"})],
     )
     frozen_trace = runtime.run_task(
         fake_task("frozen-check", "plate_1"),

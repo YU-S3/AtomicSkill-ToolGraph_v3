@@ -476,15 +476,6 @@ class PlannerValidator:
                     ):
                         existing_valid = False
         checks["edges_forward_only"] = forward
-        incident_steps = {
-            step
-            for edge in plan.data_edges + plan.dependency_edges
-            for step in (edge.source_step, edge.target_step)
-            if step in by_step
-        }
-        checks["no_disconnected_occurrence"] = (
-            len(by_step) == 1 or set(by_step) == incident_steps
-        )
         checks["edge_types_valid"] = edge_types
         checks["edge_ids_unique"] = edge_ids_unique or not edge_ids
         checks["edge_roles_valid"] = edge_roles
@@ -494,7 +485,7 @@ class PlannerValidator:
         if not all((
             forward, edge_types, checks["edge_ids_unique"], edge_roles,
             edge_semantic_types, edge_origin, existing_valid,
-            checks["one_authoritative_producer"], checks["no_disconnected_occurrence"],
+            checks["one_authoritative_producer"],
         )):
             errors.append("planner_graph_invalid")
 
@@ -632,13 +623,6 @@ def validate_runtime_plan(plan: RuntimeLinearPlan) -> ValidationResult:
     )
     producers = Counter((edge.target_step, edge.target_role) for edge in plan.data_edges)
     one_source = all(count == 1 for count in producers.values())
-    incident_steps = {
-        step
-        for edge in plan.data_edges + plan.dependency_edges
-        for step in (edge.source_step, edge.target_step)
-        if step in by_id
-    }
-    no_disconnected = len(by_id) == 1 or set(by_id) == incident_steps
     edge_types = all(
         edge.edge_type is GraphEdgeType.DATA_FLOW for edge in plan.data_edges
     ) and all(
@@ -669,7 +653,6 @@ def validate_runtime_plan(plan: RuntimeLinearPlan) -> ValidationResult:
     checks = {
         "unique": unique, "complete": complete, "forward": forward,
         "one_source": one_source, "edge_types": edge_types,
-        "no_disconnected_occurrence": no_disconnected,
         "data_flow_expression_consistent": expression_consistency,
     }
     return ValidationResult("planner", all(checks.values()), checks, [] if all(checks.values()) else ["planner_graph_invalid"])

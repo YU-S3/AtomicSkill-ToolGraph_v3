@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
 from .protocol import HarnessActionSpec
@@ -30,7 +28,10 @@ class HarnessActionCatalog:
                 continue
             seen.add(identity)
             index = len(items) + 1
-            action_id = f"a{index:03d}"
+            # Opaque ids are unique across an episode, not merely within one
+            # catalog.  This makes a stale id impossible to reinterpret after
+            # a transition even when action ordering happens to be unchanged.
+            action_id = f"r{self.revision:03d}_a{index:03d}"
             items.append(HarnessActionSpec(
                 action_id=action_id, revision=self.revision, action_type=action_type,
                 arguments=arguments, display_text=display, raw_action=raw, metadata=metadata,

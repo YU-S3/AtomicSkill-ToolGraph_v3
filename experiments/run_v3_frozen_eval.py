@@ -18,6 +18,7 @@ from .protocol import (
     RunManifest,
     RunState,
     TaskManifest,
+    audit_failed_attempt,
     artifact_audit_snapshot,
     artifact_growth_audit,
     ensure_task_manifest,
@@ -26,6 +27,7 @@ from .protocol import (
     hash_knowledge,
     load_task_report_traces,
     task_signature,
+    validate_deepseek_formal_llm,
     validate_distinct_formal_tasks,
 )
 from .report import (
@@ -62,6 +64,7 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
 
 
 def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
+    validate_deepseek_formal_llm(config)
     experiment = dict(config.get("experiment") or {})
     harness = dict(config.get("harness") or {})
     selection = dict(harness.get("task_selection") or {})
@@ -249,6 +252,13 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
         print(json.dumps({
             "recovered_attempt_trace_captures": recovered_attempts,
         }, ensure_ascii=False), flush=True)
+    unresolved_attempts = attempt_ledger.unresolved(run_id=run_id)
+    if unresolved_attempts:
+        raise ProtocolError(
+            "resume found an attempt with no durable Trace; provider usage is unproven. "
+            "Archive this eval run and start fresh without --resume: "
+            + ", ".join(str(item["attempt_id"]) for item in unresolved_attempts)
+        )
 
     with AtomicSkillGraphSystem(config) as system:
         if not system.readonly or system.database.readonly is not True:
@@ -352,7 +362,9 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                     sequence=attempt_sequence,
                 )
                 try:
-                    trace = system.run_task(by_id[item.task_id])
+                    trace = system.run_task(
+                        by_id[item.task_id], attempt_id=task_attempt.attempt_id,
+                    )
                     attempt_ledger.capture(task_attempt, reason="run_task_returned")
                     artifact_after = artifact_audit_snapshot(system.database)
                     artifact_growth = artifact_growth_audit(
@@ -384,18 +396,30 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                         "task": item.task_id, "success": trace.benchmark_success,
                         "trace_id": trace.trace_id,
                     }, ensure_ascii=False), flush=True)
-                except Exception as exc:
-                    attempt_ledger.capture(task_attempt, reason="task_exception")
-                    row = state_db.execute(
-                        "SELECT state FROM run_tasks WHERE run_id=? AND task_id=?",
-                        (run_id, item.task_id),
-                    ).fetchone()
-                    if row is not None and row["state"] == "running":
-                        store.mark_task_failed(
-                            run_id, item.task_id, infrastructure=True,
-                            result={"error_type": type(exc).__name__, "error": str(exc)},
-                        )
+                except Exception as primary:
+                    def update_failed_state() -> None:
+                        row = state_db.execute(
+                            "SELECT state FROM run_tasks WHERE run_id=? AND task_id=?",
+                            (run_id, item.task_id),
+                        ).fetchone()
+                        if row is not None and row["state"] == "running":
+                            store.mark_task_failed(
+                                run_id, item.task_id, infrastructure=True,
+                                result={
+                                    "error_type": type(primary).__name__,
+                                    "error": str(primary),
+                                },
+                            )
                         store.mark_run_state(run_id, RunState.INFRASTRUCTURE_FAILED)
+
+                    audit_failed_attempt(
+                        primary=primary,
+                        attempt=task_attempt,
+                        attempt_ledger=attempt_ledger,
+                        receipt_root=output_dir / "failure_receipts",
+                        update_state=update_failed_state,
+                        capture_reason="task_exception",
+                    )
                     raise
 
             traces = load_task_report_traces(system.traces, state_db, run_id)

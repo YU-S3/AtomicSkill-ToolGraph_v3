@@ -18,7 +18,13 @@ from .provider import (
     OpenAICompatibleProvider,
     ProviderProtocolError,
 )
+from .provider_probe import (
+    ProviderCapabilityError,
+    ensure_provider_capability,
+    run_provider_capability_probe,
+)
 from .session import ClientManagedAgentSession, ProtocolFailureRecord, ReplayAgentSession
+from .structured_submission import StructuredSubmission, StructuredSubmissionClient
 from .usage import (
     AgentBudget,
     BudgetTracker,
@@ -47,13 +53,18 @@ __all__ = [
     "OpenAICompatibleProvider",
     "ProtocolFailureRecord",
     "ProviderProtocolError",
+    "ProviderCapabilityError",
     "REAL_USAGE_BUCKETS",
     "ReplayAgentSession",
     "SchemaValidationError",
+    "StructuredSubmission",
+    "StructuredSubmissionClient",
     "UsageBucket",
     "UsageEvent",
     "UsageLedger",
     "sum_usage",
+    "ensure_provider_capability",
     "parse_json_strict",
     "validate_schema_instance",
+    "run_provider_capability_probe",
 ]

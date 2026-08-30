@@ -27,7 +27,7 @@ from .agents import (
     UsageLedger,
 )
 from .core.edges import GlobalGraphEdge, GlobalRelationType
-from .core.errors import AtomicSkillGraphError, FailureLayer
+from .core.errors import AtomicSkillGraphError, FailureEnvelope, FailureLayer
 from .core.refs import content_hash
 from .core.serialization import atomic_write_json, to_primitive
 from .core.status import RuntimeMode, SkillStatus
@@ -70,7 +70,16 @@ from .knowledge import ArtifactStore, GraphStore, SkillRegistry, StateDatabase, 
 from .planner import PlannerPipeline
 from .runtime.invocation_compiler import InvocationCompiler
 from .runtime.orchestrator import RuntimeOrchestrator
-from .traces import AgentSessionRecord, AgentTurnRecord, TaskRecord, TraceRecord, TraceStore
+from .runtime.budget import required_runtime_turn_caps, validate_runtime_turn_caps
+from .traces import (
+    AgentSessionRecord,
+    AgentTurnRecord,
+    ProviderRequestRecord,
+    TaskRecord,
+    TraceBuilder,
+    TraceRecord,
+    TraceStore,
+)
 from .validation import ValidationEngine
 
 
@@ -345,6 +354,28 @@ class AtomicSkillGraphSystem:
             "learned_toolcall_repair_limit",
             int(runtime_llm.get("learned_toolcall_repair_limit", 2)),
         )
+        required_node_turns, required_task_turns = required_runtime_turn_caps(
+            global_action_budget=int(runtime_config.get("global_action_budget", 100)),
+            node_action_budget=int(runtime_config.get("node_action_budget", 35)),
+            learned_toolcall_repair_limit=int(
+                runtime_llm.get("learned_toolcall_repair_limit", 2)
+            ),
+            protocol_repair_limit=int(runtime_llm.get("protocol_repair_limit", 1)),
+        )
+        self._runtime_turn_caps = validate_runtime_turn_caps(
+            global_action_budget=int(runtime_config.get("global_action_budget", 100)),
+            node_action_budget=int(runtime_config.get("node_action_budget", 35)),
+            learned_toolcall_repair_limit=int(
+                runtime_llm.get("learned_toolcall_repair_limit", 2)
+            ),
+            protocol_repair_limit=int(runtime_llm.get("protocol_repair_limit", 1)),
+            max_turns_per_node=int(
+                runtime_llm.get("max_turns_per_node", required_node_turns)
+            ),
+            max_turns_per_task=int(
+                runtime_llm.get("max_turns_per_task", required_task_turns)
+            ),
+        )
         self.orchestrator = RuntimeOrchestrator(
             self.planner,
             self.harness,
@@ -398,13 +429,15 @@ class AtomicSkillGraphSystem:
             return override
         if stage not in self._provider_cache:
             cfg = self._stage_config(stage)
+            protocol = dict(cfg.get("protocol") or {})
             provider_config = OpenAICompatibleConfig(
-                base_url=str(cfg.get("base_url", "https://api.openai.com/v1")),
+                base_url=str(cfg.get("base_url", "https://api.deepseek.com")),
                 model=str(cfg.get("model", "")),
                 api_key_env=str(cfg.get("api_key_env", "MODEL_API_KEY")),
                 max_completion_tokens=int(cfg.get("max_completion_tokens", 32768)),
-                reasoning_effort=cfg.get("reasoning_effort"),
-                temperature=cfg.get("temperature"),
+                dialect=str(cfg.get("dialect", "deepseek_v4_chat")),
+                thinking_type=str(protocol.get("thinking_type", "enabled")),
+                reasoning_effort=str(cfg.get("reasoning_effort", "high")),
                 connect_timeout_seconds=float(cfg.get("connect_timeout_seconds", 15)),
                 request_timeout_seconds=float(cfg.get("request_timeout_seconds", 120)),
                 max_retries=int(cfg.get("max_retries", 4)),
@@ -424,7 +457,6 @@ class AtomicSkillGraphSystem:
         task_id: str,
         max_turns: int,
         max_tokens: int,
-        max_visible_tokens: int,
         exhaustion_code: str,
     ) -> _SessionProxy:
         session = ReplayAgentSession(
@@ -432,10 +464,7 @@ class AtomicSkillGraphSystem:
             system_prompt=_SYSTEM_PROMPTS[stage],
             usage_ledger=self.usage,
             usage_bucket=bucket,
-            budget=AgentBudget(
-                max_turns, max_tokens, exhaustion_code,
-                max_visible_tokens_per_turn=max_visible_tokens,
-            ),
+            budget=AgentBudget(max_turns, max_tokens, exhaustion_code),
         )
         observed = _ObservedSession(
             session, session_type, occurrence_id, task_id, time.time(), []
@@ -450,14 +479,12 @@ class AtomicSkillGraphSystem:
             session_type="PlannerSession", occurrence_id="", task_id=task.task_id,
             max_turns=int(cfg.get("max_turns", 4)),
             max_tokens=int(cfg.get("max_total_tokens_per_task", 120000)),
-            max_visible_tokens=int(cfg.get("max_visible_tokens", 8192)),
             exhaustion_code="planner_token_budget_exhausted",
         )
 
     def _runtime_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:
         cfg = self._stage_config("runtime")
         bucket = UsageBucket(session_kind)
-        limit_name = "max_turns_per_task" if session_kind == "runtime_dynamic" else "max_turns_per_node"
         token_name = "max_total_tokens_per_task" if session_kind == "runtime_dynamic" else "max_total_tokens_per_node"
         return self._new_session(
             stage=session_kind, bucket=bucket,
@@ -467,16 +494,12 @@ class AtomicSkillGraphSystem:
                 "runtime_dynamic": "DynamicTaskSession",
             }[session_kind],
             occurrence_id=occurrence_id, task_id=self._current_task_id,
-            max_turns=int(
-                cfg.get(
-                    limit_name,
-                    (self.config.get("runtime") or {}).get(
-                        "node_agent_turn_budget", cfg.get("max_turns_per_node", 12)
-                    ),
-                )
+            max_turns=(
+                self._runtime_turn_caps[1]
+                if session_kind == "runtime_dynamic"
+                else self._runtime_turn_caps[0]
             ),
             max_tokens=int(cfg.get(token_name, cfg.get("max_total_tokens_per_node", 80000))),
-            max_visible_tokens=int(cfg.get("max_visible_tokens", 4096)),
             exhaustion_code="runtime_node_token_budget_exhausted",
         )
 
@@ -487,7 +510,6 @@ class AtomicSkillGraphSystem:
             session_type="ExtractorSession", occurrence_id="", task_id=task_id,
             max_turns=int(cfg.get("max_turns", 2)),
             max_tokens=int(cfg.get("max_total_tokens_per_task", cfg.get("max_completion_tokens", 131072) * 2)),
-            max_visible_tokens=int(cfg.get("max_visible_tokens", 32768)),
             exhaustion_code="extractor_token_budget_exhausted",
         )
 
@@ -520,12 +542,15 @@ class AtomicSkillGraphSystem:
             # Every proposal producer in one maintenance milestone receives
             # only the unspent portion of the single batch-wide token cap.
             max_tokens=remaining,
-            max_visible_tokens=int(cfg.get("max_visible_tokens", 8192)),
             exhaustion_code="evolution_repair_token_budget_exhausted",
         )
 
     def run_task(
-        self, task: HarnessTask, *, mode: RuntimeMode | str | None = None,
+        self,
+        task: HarnessTask,
+        *,
+        mode: RuntimeMode | str | None = None,
+        attempt_id: str = "",
     ) -> TraceRecord:
         run_mode = RuntimeMode(mode or self.mode)
         if self.readonly and run_mode is not RuntimeMode.FROZEN:
@@ -536,8 +561,60 @@ class AtomicSkillGraphSystem:
         self.invocation_compiler.mode = run_mode
         usage_start = len(self.usage.events)
         sessions_start = len(self._observed_sessions)
+        trace_builder = self.orchestrator.create_trace_builder(
+            task, attempt_id=attempt_id,
+        )
+        provider_offsets = self._provider_request_offsets()
+        try:
+            return self._run_task_pipeline(
+                task,
+                run_mode=run_mode,
+                trace_builder=trace_builder,
+                usage_start=usage_start,
+                sessions_start=sessions_start,
+                provider_offsets=provider_offsets,
+            )
+        except Exception as primary:
+            try:
+                self._persist_failure_trace(
+                    trace_builder,
+                    primary,
+                    attempt_id=attempt_id,
+                    usage_start=usage_start,
+                    sessions_start=sessions_start,
+                    provider_offsets=provider_offsets,
+                )
+            except Exception as audit_error:
+                if hasattr(primary, "add_note"):
+                    primary.add_note(
+                        "failure Trace finalization also failed: "
+                        + self._sanitize_failure_message(audit_error)
+                    )
+            raise
+        finally:
+            self._current_task_id = ""
 
-        trace = self.orchestrator.run_task(task, mode=run_mode)
+    def _run_task_pipeline(
+        self,
+        task: HarnessTask,
+        *,
+        run_mode: RuntimeMode,
+        trace_builder: TraceBuilder,
+        usage_start: int,
+        sessions_start: int,
+        provider_offsets: dict[int, int],
+    ) -> TraceRecord:
+
+        trace = self.orchestrator.run_task(
+            task, mode=run_mode, trace_builder=trace_builder,
+            attempt_id=str(trace_builder.trace.metadata.get("attempt_id", "")),
+        )
+        # Internal HTTP retries are individually auditable.  If any attempt
+        # lacks provider usage, the episode is not a valid formal success and
+        # must stop before Extractor/Evolution or credit can mutate knowledge.
+        self._attach_provider_requests(trace, provider_offsets)
+        self._require_resource_usage_complete(trace)
+        trace.runtime_plan["failure_stage"] = "evolution"
         self.failure_processor.localize(trace)
         decision = self.extraction_policy.decide(trace)
         trace.extraction_policy = {
@@ -626,6 +703,8 @@ class AtomicSkillGraphSystem:
         task_usage = self.usage.events[usage_start:]
         trace.llm_usage = [event.to_dict() for event in task_usage]
         trace.metadata["usage_reconciliation"] = _reconcile_events(task_usage)
+        self._attach_provider_requests(trace, provider_offsets)
+        self._require_resource_usage_complete(trace)
         if self._provider_override is None:
             _require_formal_usage(task_usage, trace.agent_turns)
 
@@ -635,17 +714,26 @@ class AtomicSkillGraphSystem:
             else []
         )
         trace.evidence_event_refs = [event.event_id for event in runtime_events]
-        self.traces.save_atomic(trace)
 
+        # Extractor validation and Evolution admission are part of this task's
+        # terminal outcome.  Complete them before publishing the immutable
+        # success Trace so an exception is persisted on the original skeleton
+        # rather than leaving a success-looking Trace for a failed attempt.
         if run_mode is RuntimeMode.ONLINE:
-            if trace.benchmark_success:
-                self._online_successes += 1
             if trace.infrastructure_failure:
                 pass
             elif trace.benchmark_success and trace.learning_eligible:
-                self._commit_evidence(runtime_events)
                 if prepared is not None:
                     applied = self._apply_evolution(prepared, trace, task)
+                    trace.metadata["evolution_applied"] = {
+                        "atomic_refs": [str(item) for item in applied["atomic_refs"]],
+                        "implementation_refs": [
+                            str(item) for item in applied["implementation_refs"]
+                        ],
+                        "tool_refs": [str(item) for item in applied["tool_refs"]],
+                        "composite_ref": str(applied["composite_ref"]),
+                        "composite_validated": bool(applied["composite_validated"]),
+                    }
                     self._commit_gap_diagnosis(prepared.gap_diagnosis)
                     if repair_proposals:
                         assert self.evolution_maintenance is not None
@@ -656,17 +744,174 @@ class AtomicSkillGraphSystem:
                                 validation_passed=bool(applied["composite_validated"]),
                             )
             elif trace.benchmark_success:
-                self._commit_evidence(runtime_events)
                 assert self.evolution_maintenance is not None
                 self.evolution_maintenance.commit_repairs(repair_proposals)
             else:
-                self._commit_evidence(runtime_events)
                 assert self.evolution_maintenance is not None
                 self.evolution_maintenance.commit_repairs(repair_proposals)
+
+        trace.runtime_plan["failure_stage"] = ""
+        self.traces.save_atomic(trace)
+
+        if run_mode is RuntimeMode.ONLINE:
+            if trace.benchmark_success:
+                self._online_successes += 1
+            if not trace.infrastructure_failure:
+                # Runtime credit remains Trace-first: the immutable evidence
+                # source exists before its append-only ledger projections.
+                self._commit_evidence(runtime_events)
             self._maybe_run_maintenance()
             self._persist_maintenance_state()
-        self._current_task_id = ""
         return trace
+
+    def _provider_instances(self) -> list[Any]:
+        values: list[Any] = list(self._provider_cache.values())
+        if isinstance(self._provider_override, Mapping):
+            values.extend(self._provider_override.values())
+        elif self._provider_override is not None:
+            values.append(self._provider_override)
+        unique: dict[int, Any] = {}
+        for value in values:
+            unique[id(value)] = value
+        return list(unique.values())
+
+    def _provider_request_offsets(self) -> dict[int, int]:
+        return {
+            id(provider): int(getattr(provider, "request_record_count", 0))
+            for provider in self._provider_instances()
+        }
+
+    def _attach_provider_requests(
+        self, trace: TraceRecord, offsets: Mapping[int, int],
+    ) -> None:
+        existing = {item.request_id for item in trace.provider_requests}
+        payload_fields: set[str] = set()
+        for provider in self._provider_instances():
+            start = int(offsets.get(id(provider), 0))
+            reader = getattr(provider, "request_records_since", None)
+            if not callable(reader):
+                continue
+            for raw in reader(start):
+                payload = to_primitive(raw)
+                if not isinstance(payload, Mapping):
+                    continue
+                audit_request_id = str(payload.get("request_id", ""))
+                request_id = str(
+                    payload.get("provider_request_id") or audit_request_id
+                )
+                if not request_id or request_id in existing:
+                    continue
+                record = ProviderRequestRecord(
+                    request_id=request_id,
+                    session_id=str(payload.get("session_id", "")),
+                    stage=str(payload.get("stage", "")),
+                    started_at=float(payload.get("started_at", 0.0)),
+                    ended_at=float(payload.get("ended_at", 0.0)),
+                    outcome=str(payload.get("outcome", "")),
+                    http_status=(
+                        int(payload["http_status"])
+                        if payload.get("http_status") is not None else None
+                    ),
+                    retry_count=int(payload.get("retry_count", 0)),
+                    usage_status=str(payload.get("usage_status", "unavailable")),
+                    error_code=str(payload.get("error_code", "")),
+                    sanitized_error=str(payload.get("sanitized_error", ""))[:4000],
+                    payload_fingerprint=str(payload.get("payload_fingerprint", "")),
+                )
+                trace.provider_requests.append(record)
+                existing.add(request_id)
+                payload_fields.update(map(str, payload.get("payload_field_names") or ()))
+        trace.resource_usage_complete = all(
+            item.usage_status == "reported" for item in trace.provider_requests
+        )
+        if payload_fields:
+            trace.metadata["provider_payload_field_names"] = sorted(payload_fields)
+
+    def _sanitize_failure_message(self, error: BaseException) -> str:
+        message = str(error)
+        llm = dict(self.config.get("llm") or {})
+        secret = os.environ.get(str(llm.get("api_key_env", "MODEL_API_KEY")), "")
+        if secret:
+            message = message.replace(secret, "[REDACTED]")
+        return message[:4000]
+
+    @staticmethod
+    def _require_resource_usage_complete(trace: TraceRecord) -> None:
+        if trace.resource_usage_complete:
+            return
+        unavailable = [
+            item.request_id
+            for item in trace.provider_requests
+            if item.usage_status != "reported"
+        ]
+        raise AtomicSkillGraphError(
+            "provider_usage_missing",
+            "provider request usage is unavailable; formal learning is blocked"
+            + (": " + ", ".join(unavailable[:5]) if unavailable else ""),
+            layer=FailureLayer.INFRASTRUCTURE,
+        )
+
+    def _persist_failure_trace(
+        self,
+        builder: TraceBuilder,
+        primary: BaseException,
+        *,
+        attempt_id: str,
+        usage_start: int,
+        sessions_start: int,
+        provider_offsets: Mapping[int, int],
+    ) -> None:
+        trace = builder.trace
+        if self.traces.exists(trace.trace_id):
+            return
+        raw_layer = getattr(primary, "layer", FailureLayer.INFRASTRUCTURE)
+        try:
+            layer = FailureLayer(raw_layer)
+        except (TypeError, ValueError):
+            layer = FailureLayer.INFRASTRUCTURE
+        code = str(getattr(primary, "code", "") or "infrastructure_failure")
+        message = self._sanitize_failure_message(primary)
+        trace.infrastructure_failure = layer is FailureLayer.INFRASTRUCTURE
+        trace.learning_eligible = False
+        trace.metadata["failure"] = {
+            "error_type": type(primary).__name__,
+            "error_code": code,
+            "sanitized_error": message,
+        }
+        trace.runtime_plan = {
+            **dict(trace.runtime_plan or {}),
+            "failure_stage": str(
+                dict(trace.runtime_plan or {}).get("failure_stage") or "system"
+            ),
+        }
+        self._attach_external_sessions(
+            trace, self._observed_sessions[sessions_start:]
+        )
+        usage = self.usage.events[usage_start:]
+        trace.llm_usage = [event.to_dict() for event in usage]
+        trace.metadata["usage_reconciliation"] = _reconcile_events(usage)
+        self._attach_provider_requests(trace, provider_offsets)
+        failure_id = "failure_" + content_hash({
+            "trace_id": trace.trace_id,
+            "attempt_id": attempt_id,
+            "code": code,
+            "message": message,
+        })[:24]
+        if not any(item.failure_id == failure_id for item in trace.failures):
+            trace.failures.append(FailureEnvelope(
+                failure_id=failure_id,
+                layer=layer,
+                code=code,
+                task_id=trace.task.task_id,
+                trace_id=trace.trace_id,
+                occurrence_id="",
+                attempt_id=attempt_id,
+                started=bool(trace.provider_requests or trace.agent_sessions),
+                recoverable=False,
+                message=message,
+            ))
+        builder.finish()
+        self.traces.save_atomic(trace)
 
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
         normalized = self.normalizer.build(trace)
@@ -1019,6 +1264,7 @@ class AtomicSkillGraphSystem:
             raise RuntimeError("nested evolution maintenance batch is forbidden")
         self._evolution_batch_usage_start = usage_start
         sessions_start = len(self._observed_sessions)
+        provider_offsets = self._provider_request_offsets()
         reviews: list[dict[str, Any]] = []
         typed_reviews = []
         composite_reviews = []
@@ -1111,6 +1357,8 @@ class AtomicSkillGraphSystem:
                             )
                         ),
                     })
+            self._attach_provider_requests(trace, provider_offsets)
+            self._require_resource_usage_complete(trace)
         except AtomicSkillGraphError as exc:
             if exc.layer is FailureLayer.INFRASTRUCTURE:
                 trace.infrastructure_failure = True
@@ -1120,7 +1368,7 @@ class AtomicSkillGraphSystem:
                 }
                 self._finalize_maintenance_trace(
                     trace, sessions_start=sessions_start,
-                    usage_start=usage_start,
+                    usage_start=usage_start, provider_offsets=provider_offsets,
                 )
                 raise
             # Protocol/budget failures are attributable Agent outcomes.  They
@@ -1140,6 +1388,7 @@ class AtomicSkillGraphSystem:
             }
             self._finalize_maintenance_trace(
                 trace, sessions_start=sessions_start, usage_start=usage_start,
+                provider_offsets=provider_offsets,
             )
             raise
         except (TypeError, ValueError) as exc:
@@ -1170,6 +1419,7 @@ class AtomicSkillGraphSystem:
             trace.metadata["semantic_proposal_error"] = semantic_error
         self._finalize_maintenance_trace(
             trace, sessions_start=sessions_start, usage_start=usage_start,
+            provider_offsets=provider_offsets,
         )
 
         typed_decision_by_id = {
@@ -1577,6 +1827,7 @@ class AtomicSkillGraphSystem:
         *,
         sessions_start: int,
         usage_start: int,
+        provider_offsets: Mapping[int, int],
     ) -> None:
         self._attach_external_sessions(
             trace, self._observed_sessions[sessions_start:]
@@ -1584,6 +1835,7 @@ class AtomicSkillGraphSystem:
         usage = self.usage.events[usage_start:]
         trace.llm_usage = [item.to_dict() for item in usage]
         trace.metadata["usage_reconciliation"] = _reconcile_events(usage)
+        self._attach_provider_requests(trace, provider_offsets)
         if self._provider_override is None:
             _require_formal_usage(usage, trace.agent_turns)
         trace.finish()
@@ -1667,14 +1919,17 @@ class AtomicSkillGraphSystem:
                 database_schema_error = str(exc)
             database_schema = False
         try:
+            planner_provider = self._provider("planner")
             completion_parameters = inspect.signature(
-                self._provider("planner").complete
+                planner_provider.complete
             ).parameters
-            provider_native_toolcall = {
-                "messages", "tools", "structured_output_schema",
-            }.issubset(completion_parameters)
+            provider_adapter_interface = (
+                {"messages", "tools"}.issubset(completion_parameters)
+                and "structured_output_schema" not in completion_parameters
+            )
         except Exception:
-            provider_native_toolcall = False
+            planner_provider = None
+            provider_adapter_interface = False
         checks: dict[str, Any] = {
             "schema_version": int(self.config.get("schema_version", 0)) == 3,
             "condition_full": str(
@@ -1685,13 +1940,26 @@ class AtomicSkillGraphSystem:
             "empty_bank": bank_is_empty,
             "bank_protocol": bank_is_empty if requires_empty else True,
             "database_schema": database_schema,
-            "provider_native_toolcall": provider_native_toolcall,
+            "provider_adapter_interface": provider_adapter_interface,
             "model_configured": (
                 True if self._provider_override is not None else
                 str((self.config.get("llm") or {}).get("model", "")).strip()
                 not in {"", "REPLACE_WITH_MODEL_ID"}
             ),
         }
+        if self._provider_override is None and planner_provider is not None:
+            llm = dict(self.config.get("llm") or {})
+            provider_snapshot = planner_provider.snapshot()
+            checks["provider_configuration"] = bool(
+                provider_snapshot.get("dialect") == "deepseek_v4_chat"
+                and str(provider_snapshot.get("base_url", "")).rstrip("/")
+                == "https://api.deepseek.com"
+                and provider_snapshot.get("model") == "deepseek-v4-flash"
+                and provider_snapshot.get("http_token_limit_field") == "max_tokens"
+                and llm.get("dialect") == "deepseek_v4_chat"
+            )
+        else:
+            checks["provider_configuration"] = "injected_or_not_required"
         if database_schema_error:
             checks["database_schema_error"] = database_schema_error
         try:

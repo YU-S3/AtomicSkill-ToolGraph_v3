@@ -257,7 +257,9 @@ def test_trace_store_refuses_to_replace_existing_trace_id(tmp_path: Path) -> Non
         "task-1", "alfworld", "goal", "pick_and_place_simple", "signature-1", {},
     )
     trace = TraceRecord.create(task, {}, {}, {})
-    store.save_atomic(trace)
+    path = store.save_atomic(trace)
+    assert store.save_atomic(trace) == path
+    trace.metadata["mutated_after_save"] = True
     with pytest.raises(FileExistsError):
         store.save_atomic(trace)
 
@@ -339,10 +341,51 @@ def test_pending_attempt_without_new_trace_cannot_be_recovered(tmp_path: Path) -
         attempt_kind="task", sequence=1,
     )
     capture_path = ledger.root / f"{attempt.attempt_id}.capture.json"
-    with pytest.raises(ProtocolError, match="no immutable Trace"):
-        ledger.recover_pending(run_id=manifest.run_id)
+    recovered = ledger.recover_pending(run_id=manifest.run_id)
+    assert recovered[0]["status"] == "unresolved_no_durable_trace"
+    assert recovered[0]["resource_usage_status"] == "unproven"
     assert not capture_path.exists()
-    assert ledger.pending(run_id=manifest.run_id) == (attempt,)
+    assert ledger.pending(run_id=manifest.run_id) == ()
+    assert ledger.unresolved(run_id=manifest.run_id)[0]["attempt_id"] == (
+        attempt.attempt_id
+    )
+    # The quarantined crash is explicit and does not deadlock a retry.
+    retry = ledger.begin(
+        run_id=manifest.run_id, task_id="task-1", task_signature="signature-1",
+        attempt_kind="task", sequence=2,
+    )
+    assert retry.sequence == 2
+    ledger.recover_pending(run_id=manifest.run_id)
+    # It remains fail-closed for formal accounting until external evidence can
+    # prove whether the crashed process issued a provider request.
+    with pytest.raises(ProtocolError, match="provider usage cannot be proven"):
+        ledger.auxiliary_traces(manifest=manifest)
+
+
+def test_trace_can_be_claimed_by_only_one_attempt_across_ledgers(
+    tmp_path: Path,
+) -> None:
+    traces = tmp_path / "traces"
+    first = AttemptTraceLedger(tmp_path / "attempt_history_a", traces)
+    second = AttemptTraceLedger(tmp_path / "attempt_history_b", traces)
+    first_attempt = first.begin(
+        run_id="formal_run", task_id="task-1", task_signature="signature-1",
+        attempt_kind="task", sequence=1,
+    )
+    second_attempt = second.begin(
+        run_id="formal_run", task_id="task-1", task_signature="signature-1",
+        attempt_kind="task", sequence=2,
+    )
+    _write_trace(
+        traces, trace_id="trace_shared", task_id="task-1",
+        task_signature="signature-1", event_id="event-shared", tokens=2,
+        cost=0.02,
+    )
+    assert first.capture(first_attempt, reason="task_exception")["trace_ids"] == [
+        "trace_shared"
+    ]
+    with pytest.raises(ProtocolError, match="already claimed"):
+        second.capture(second_attempt, reason="task_exception")
 
 
 def test_forged_empty_capture_is_rejected(tmp_path: Path) -> None:

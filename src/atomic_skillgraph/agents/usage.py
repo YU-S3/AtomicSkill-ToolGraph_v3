@@ -211,13 +211,10 @@ class AgentBudget:
     max_turns: int
     max_total_tokens: int
     exhaustion_code: str
-    max_visible_tokens_per_turn: int | None = None
 
     def __post_init__(self) -> None:
         if self.max_turns < 0 or self.max_total_tokens < 0:
             raise ValueError("agent budgets must be non-negative")
-        if self.max_visible_tokens_per_turn is not None and self.max_visible_tokens_per_turn <= 0:
-            raise ValueError("max_visible_tokens_per_turn must be positive or None")
         if not self.exhaustion_code:
             raise ValueError("agent budget requires an exhaustion_code")
 
@@ -239,16 +236,6 @@ class BudgetTracker:
     def consume(self, usage: LLMUsage) -> None:
         self.used_turns += usage.call_count
         self.used_total_tokens += usage.total_tokens
-        # ``completion_tokens`` is the only provider-independent output-token
-        # counter.  Reasoning tokens are retained for cost reporting, but must
-        # never alter agent control flow (some providers include them in
-        # completion_tokens and others report them separately).
-        visible_tokens = usage.completion_tokens
-        if (
-            self.budget.max_visible_tokens_per_turn is not None
-            and visible_tokens > self.budget.max_visible_tokens_per_turn
-        ):
-            self._raise("agent visible-token budget exceeded by provider call")
         if self.used_turns > self.budget.max_turns:
             self._raise("agent turn budget exceeded by provider call")
         if self.used_total_tokens > self.budget.max_total_tokens:
@@ -271,7 +258,6 @@ class BudgetTracker:
             "used_total_tokens": self.used_total_tokens,
             "remaining_total_tokens": self.remaining_total_tokens,
             "exhaustion_code": self.budget.exhaustion_code,
-            "max_visible_tokens_per_turn": self.budget.max_visible_tokens_per_turn,
         }
 
     def _raise(self, message: str) -> None:

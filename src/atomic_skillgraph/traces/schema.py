@@ -42,6 +42,24 @@ class AgentTurnRecord:
     provider_metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ProviderRequestRecord:
+    """One sanitized HTTP attempt at the model-provider boundary."""
+
+    request_id: str
+    session_id: str
+    stage: str
+    started_at: float
+    ended_at: float
+    outcome: str
+    http_status: int | None
+    retry_count: int
+    usage_status: str
+    error_code: str
+    sanitized_error: str
+    payload_fingerprint: str
+
+
 @dataclass
 class NativeToolCallRecord:
     call_id: str
@@ -155,6 +173,8 @@ class TraceRecord:
     evidence_event_refs: list[str] = field(default_factory=list)
     runtime_spans: list[RuntimeSpan] = field(default_factory=list)
     llm_usage: list[dict[str, Any]] = field(default_factory=list)
+    provider_requests: list[ProviderRequestRecord] = field(default_factory=list)
+    resource_usage_complete: bool = True
     benchmark_success: bool = False
     node_contract_success: bool = False
     implementation_direct_success: bool = False

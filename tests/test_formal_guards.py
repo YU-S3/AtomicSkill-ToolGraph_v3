@@ -1,21 +1,45 @@
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from atomic_skillgraph.agents.provider import _parse_usage
+from atomic_skillgraph.agents.provider import (
+    AgentProviderError,
+    OpenAICompatibleConfig,
+    OpenAICompatibleProvider,
+    _parse_usage,
+)
+from atomic_skillgraph.agents.provider_probe import (
+    ProviderCapabilityError,
+    ensure_provider_capability,
+)
 from atomic_skillgraph.agents.usage import AgentBudget, BudgetTracker, LLMUsage
 from atomic_skillgraph.core.contracts import ToolAsset
-from atomic_skillgraph.core.errors import ArtifactIntegrityError, BudgetExhausted, FailureLayer
+from atomic_skillgraph.core.errors import (
+    ArtifactIntegrityError,
+    AtomicSkillGraphError,
+    BudgetExhausted,
+    FailureLayer,
+)
 from atomic_skillgraph.core.refs import ToolRef
 from atomic_skillgraph.core.status import ToolStatus
 from atomic_skillgraph.system import AtomicSkillGraphSystem, load_config
 from atomic_skillgraph.runtime.budget import RuntimeBudget
-from experiments.protocol import ProtocolError, hash_code
+from experiments.fakes import FakeHarness, fake_task
+from experiments.protocol import (
+    AttemptTraceRef,
+    ProtocolError,
+    audit_failed_attempt,
+    hash_code,
+)
 from experiments.report import validate_formal_usage
 from experiments.run_v3_frozen_eval import _validate_formal_config as _validate_frozen_config
 from experiments.run_v3_train import _validate_formal_config
+from experiments.run_v3_smoke import _validated_dataflow
 
 
 def _config() -> dict:
@@ -66,13 +90,14 @@ def test_provider_usage_is_required_but_reasoning_may_be_unavailable() -> None:
     assert metadata["reasoning_tokens_status"] == "unavailable"
 
 
-def test_reasoning_metering_never_changes_visible_budget_control_flow() -> None:
-    budget = AgentBudget(2, 100, "runtime_node_token_budget_exhausted", 5)
+def test_reasoning_metering_never_adds_a_visible_token_budget_gate() -> None:
+    budget = AgentBudget(2, 100, "runtime_node_token_budget_exhausted")
     first = BudgetTracker(budget)
     second = BudgetTracker(budget)
     first.consume(LLMUsage(1, 5, 6, reasoning_tokens=0, call_count=1))
     second.consume(LLMUsage(1, 5, 6, reasoning_tokens=5, call_count=1))
     assert first.snapshot() == second.snapshot()
+    assert "max_visible_tokens_per_turn" not in first.snapshot()
 
 
 def test_task_level_dynamic_keeps_global_usage_but_leaves_node_quota() -> None:
@@ -301,3 +326,305 @@ def test_formal_usage_allows_true_zero_llm_and_rejects_partial_metering() -> Non
     }
     with pytest.raises(ValueError, match="unavailable/partial"):
         validate_formal_usage([partial])
+
+
+def test_provider_probe_fails_before_formal_attempt(tmp_path: Path) -> None:
+    output_dir = tmp_path / "formal_output"
+    attempt_root = output_dir / "attempt_history"
+    with pytest.raises(ProviderCapabilityError, match="manifest is missing"):
+        ensure_provider_capability(
+            _config(),
+            output_dir=output_dir,
+            config_hash="config_fixture",
+            code_hash="code_fixture",
+            run_if_missing=False,
+        )
+    assert not attempt_root.exists()
+    assert not list(output_dir.glob("attempt_*.json"))
+
+
+def test_planner_provider_error_persists_failure_trace(tmp_path: Path) -> None:
+    class AuditedFailingProvider:
+        def __init__(self) -> None:
+            self.records = []
+            self.context = {"session_id": "", "stage": ""}
+
+        @property
+        def request_record_count(self):
+            return len(self.records)
+
+        def request_records_since(self, start_index):
+            return tuple(dict(item) for item in self.records[start_index:])
+
+        def set_request_context(self, *, session_id, stage):
+            self.context = {"session_id": session_id, "stage": stage}
+
+        def snapshot(self):
+            return {
+                "provider": "fixture",
+                "model": "failing-provider",
+                "request_record_count": len(self.records),
+            }
+
+        def complete(self, messages, *, tools=None):
+            started = time.time()
+            self.records.append({
+                "request_id": "audit_req_planner_failure",
+                "provider_request_id": "provider_req_planner_failure",
+                **self.context,
+                "started_at": started,
+                "ended_at": time.time(),
+                "outcome": "error",
+                "http_status": 400,
+                "retry_count": 0,
+                "usage_status": "unavailable",
+                "error_code": "provider_invalid_request",
+                "sanitized_error": "HTTP 400 from LLM provider",
+                "payload_fingerprint": "fixture-payload-sha256",
+                "payload_field_names": ["max_tokens", "messages", "model"],
+            })
+            raise AgentProviderError(
+                "provider_invalid_request",
+                "HTTP 400 from LLM provider",
+                http_status=400,
+            )
+
+    config = _system_config(tmp_path / "data_v3")
+    config["trace_data_dir"] = str(tmp_path / "formal_trace_output")
+    provider = AuditedFailingProvider()
+    with AtomicSkillGraphSystem(
+        config, harness=FakeHarness(), provider=provider,
+    ) as system:
+        with pytest.raises(AgentProviderError, match="HTTP 400"):
+            system.run_task(
+                fake_task("planner-provider-failure", "apple_1"),
+                attempt_id="attempt_planner_fixture",
+            )
+        payloads = list(system.traces.iter_payloads())
+
+    assert len(payloads) == 1
+    trace = payloads[0]
+    assert trace["runtime_plan"]["failure_stage"] == "planner"
+    assert trace["metadata"]["attempt_id"] == "attempt_planner_fixture"
+    assert trace["metadata"]["failure"]["error_code"] == "provider_invalid_request"
+    assert trace["infrastructure_failure"] is True
+    assert trace["learning_eligible"] is False
+    assert trace["ended_at"] >= trace["started_at"]
+    assert trace["failures"][0]["attempt_id"] == "attempt_planner_fixture"
+    assert trace["provider_requests"][0]["request_id"] == "provider_req_planner_failure"
+    assert trace["provider_requests"][0]["http_status"] == 400
+    assert trace["provider_requests"][0]["usage_status"] == "unavailable"
+    assert trace["resource_usage_complete"] is False
+
+
+def test_attempt_capture_does_not_mask_primary_error(tmp_path: Path) -> None:
+    attempt = AttemptTraceRef(
+        "attempt_primary_fixture",
+        "run_fixture",
+        "task_fixture",
+        "signature_fixture",
+        "task",
+        1,
+    )
+
+    class BrokenAttemptLedger:
+        def capture(self, _attempt, *, reason):
+            raise RuntimeError(f"capture audit failed: {reason}")
+
+    primary = ValueError("primary execution failure")
+    reraised = None
+    try:
+        try:
+            raise primary
+        except Exception as caught:
+            audit_errors = audit_failed_attempt(
+                primary=caught,
+                attempt=attempt,
+                attempt_ledger=BrokenAttemptLedger(),
+                receipt_root=tmp_path / "receipts",
+                update_state=lambda: (_ for _ in ()).throw(
+                    RuntimeError("state audit failed")
+                ),
+                capture_reason="primary_error",
+            )
+            raise
+    except Exception as caught_again:
+        reraised = caught_again
+
+    assert reraised is primary
+    assert [item["stage"] for item in audit_errors] == ["capture", "state"]
+    receipt = json.loads(
+        (tmp_path / "receipts" / "attempt_primary_fixture.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert receipt["primary_error_type"] == "ValueError"
+    assert receipt["primary_error_message"] == "primary execution failure"
+    assert [item["stage"] for item in receipt["audit_errors"]] == [
+        "capture", "state",
+    ]
+
+
+def test_unavailable_retry_usage_aborts_before_evolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RETRY_USAGE_KEY", "fixture-key")
+
+    class Response:
+        def __init__(self, status, payload, text=""):
+            self.status_code = status
+            self.ok = 200 <= status < 300
+            self._payload = payload
+            self.text = text
+            self.headers = {"x-request-id": f"req_{status}"}
+
+        def json(self):
+            return self._payload
+
+    success = {
+        "id": "response_success",
+        "model": "deepseek-v4-flash",
+        "choices": [{
+            "finish_reason": "stop",
+            "message": {"content": "ok", "reasoning_content": "private"},
+        }],
+        "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
+    }
+    responses = iter([
+        Response(429, {}, "rate limited"),
+        Response(200, success),
+    ])
+    monkeypatch.setattr(
+        "atomic_skillgraph.agents.provider.requests.post",
+        lambda *_args, **_kwargs: next(responses),
+    )
+    provider = OpenAICompatibleProvider(OpenAICompatibleConfig(
+        base_url="https://api.deepseek.com",
+        model="deepseek-v4-flash",
+        api_key_env="RETRY_USAGE_KEY",
+        max_completion_tokens=32768,
+        max_retries=1,
+        retry_backoff_seconds=0,
+        max_retry_after_seconds=0,
+    ))
+    config = _system_config(tmp_path / "data_v3")
+    config["trace_data_dir"] = str(tmp_path / "trace_output")
+    with AtomicSkillGraphSystem(
+        config, harness=FakeHarness(), provider=provider,
+    ) as system:
+        def provider_only_runtime(task, *, mode, trace_builder, attempt_id=""):
+            provider.complete([{"role": "system", "content": "fixture"}])
+            trace_builder.trace.benchmark_success = True
+            trace_builder.trace.learning_eligible = True
+            return trace_builder.finish()
+
+        evolution_called = False
+
+        def forbidden_evolution(*_args, **_kwargs):
+            nonlocal evolution_called
+            evolution_called = True
+            raise AssertionError("evolution must not run with incomplete usage")
+
+        system.orchestrator.run_task = provider_only_runtime
+        system._prepare_evolution = forbidden_evolution
+        with pytest.raises(AtomicSkillGraphError) as error:
+            system.run_task(
+                fake_task("incomplete-usage", "apple_1"),
+                attempt_id="attempt_incomplete_usage",
+            )
+        payloads = list(system.traces.iter_payloads())
+
+    assert getattr(error.value, "code", "") == "provider_usage_missing"
+    assert evolution_called is False
+    assert len(payloads) == 1
+    assert payloads[0]["resource_usage_complete"] is False
+    assert [item["usage_status"] for item in payloads[0]["provider_requests"]] == [
+        "unavailable", "reported",
+    ]
+
+
+def test_real_smoke_dataflow_requires_started_downstream_consumption() -> None:
+    trace = SimpleNamespace(
+        runtime_plan={
+            "occurrences": [
+                {"step_id": "s1", "occurrence_id": "occ_source"},
+                {"step_id": "s2", "occurrence_id": "occ_target"},
+            ],
+            "data_edges": [{
+                "source_step": "s1",
+                "target_step": "s2",
+                "source_role": "held_object",
+                "target_role": "object",
+            }],
+        },
+        binding_changes=[
+            {
+                "occurrence_id": "occ_source",
+                "role": "held_object",
+                "reason": "validated_output_published",
+                "current": {"source": "tool_output", "value": "apple_2"},
+            },
+            {
+                "occurrence_id": "occ_target",
+                "role": "object",
+                "reason": "data_flow",
+                "current": {"source": "data_flow", "value": "apple_2"},
+            },
+        ],
+        implementation_invocations=[],
+        graph_self_sufficient_success=True,
+        task_rescue_required=False,
+    )
+    assert _validated_dataflow(trace) is False
+    trace.implementation_invocations = [{
+        "occurrence_id": "occ_target",
+        "arguments": {"object": "apple_2"},
+        "preflight": {"passed": True},
+        "result": {
+            "started": True,
+            "completed": True,
+            "atomic_effect_passed": True,
+        },
+    }]
+    assert _validated_dataflow(trace) is True
+
+
+def test_evolution_error_finalizes_original_skeleton_as_failure_trace(
+    tmp_path: Path,
+) -> None:
+    config = _system_config(tmp_path / "data_v3")
+    config["trace_data_dir"] = str(tmp_path / "trace_output")
+    with AtomicSkillGraphSystem(
+        config, harness=FakeHarness(), provider=object(),
+    ) as system:
+        def successful_runtime(task, *, mode, trace_builder, attempt_id=""):
+            trace_builder.trace.runtime_plan = {
+                "source": "full_dynamic", "failure_stage": "runtime",
+            }
+            trace_builder.trace.benchmark_success = True
+            trace_builder.trace.learning_eligible = True
+            return trace_builder.finish()
+
+        system.orchestrator.run_task = successful_runtime
+        system.extraction_policy.decide = lambda _trace: SimpleNamespace(
+            should_extract=True, reasons=["fixture"],
+        )
+        system._prepare_evolution = lambda _trace, _task: SimpleNamespace(
+            compiled=[], gap_diagnosis={}, source_composite_ref="",
+        )
+        system._apply_evolution = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("evolution admission failed")
+        )
+        with pytest.raises(RuntimeError, match="evolution admission failed"):
+            system.run_task(
+                fake_task("evolution-failure", "apple_1"),
+                attempt_id="attempt_evolution_failure",
+            )
+        payloads = list(system.traces.iter_payloads())
+
+    assert len(payloads) == 1
+    trace = payloads[0]
+    assert trace["metadata"]["attempt_id"] == "attempt_evolution_failure"
+    assert trace["metadata"]["failure"]["error_type"] == "RuntimeError"
+    assert trace["runtime_plan"]["failure_stage"] == "evolution"
+    assert trace["infrastructure_failure"] is True

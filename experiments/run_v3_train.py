@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from atomic_skillgraph.system import AtomicSkillGraphSystem, load_config
+from atomic_skillgraph.agents.provider_probe import ensure_provider_capability
 
 from .protocol import (
     ALFWORLD_FORMAL_TASK_TYPES,
@@ -20,6 +21,7 @@ from .protocol import (
     RunState,
     TaskCheckpointStore,
     TaskManifest,
+    audit_failed_attempt,
     artifact_audit_snapshot,
     artifact_growth_audit,
     ensure_task_manifest,
@@ -27,6 +29,7 @@ from .protocol import (
     hash_config,
     load_task_report_traces,
     task_signature,
+    validate_deepseek_formal_llm,
     validate_distinct_formal_tasks,
 )
 from .report import (
@@ -62,6 +65,7 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
 
 
 def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
+    validate_deepseek_formal_llm(config)
     experiment = dict(config.get("experiment") or {})
     harness = dict(config.get("harness") or {})
     selection = dict(harness.get("task_selection") or {})
@@ -313,15 +317,15 @@ def _run_final_batch_maintenance(
         if attempt_ledger is not None
         else None
     )
-    checkpoint.create(
-        system.database,
-        run_id=manifest.run_id,
-        task_id=_FINAL_MAINTENANCE_CHECKPOINT_ID,
-        before_digest=before,
-        config_hash=config_digest,
-        code_commit=code_digest,
-    )
     try:
+        checkpoint.create(
+            system.database,
+            run_id=manifest.run_id,
+            task_id=_FINAL_MAINTENANCE_CHECKPOINT_ID,
+            before_digest=before,
+            config_hash=config_digest,
+            code_commit=code_digest,
+        )
         result = system.run_maintenance(
             triggering_task_id=manifest.tasks[-1].task_id,
             milestone="formal_full_30_final_batch",
@@ -422,13 +426,26 @@ def _run_final_batch_maintenance(
         )
         checkpoint.clear()
         return audit
-    except Exception:
+    except Exception as primary:
         # Keep the checkpoint intact.  A same-code --resume restores the exact
         # pre-maintenance bank and reruns this batch; no partial queue mutation
         # can reach freeze.
         if attempt_ledger is not None and maintenance_attempt is not None:
-            attempt_ledger.capture(maintenance_attempt, reason="maintenance_exception")
-        store.mark_run_state(manifest.run_id, RunState.INFRASTRUCTURE_FAILED)
+            audit_failed_attempt(
+                primary=primary,
+                attempt=maintenance_attempt,
+                attempt_ledger=attempt_ledger,
+                receipt_root=system.trace_data_dir / "failure_receipts",
+                update_state=lambda: store.mark_run_state(
+                    manifest.run_id, RunState.INFRASTRUCTURE_FAILED
+                ),
+                capture_reason="maintenance_exception",
+            )
+        else:
+            try:
+                store.mark_run_state(manifest.run_id, RunState.INFRASTRUCTURE_FAILED)
+            except Exception:
+                pass
         raise
 
 
@@ -446,6 +463,21 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
     run_id = str(experiment.get("name", "alfworld_train_full_30"))
     config_digest = hash_config(config_path)
     code_digest = hash_code(REPO_ROOT)
+    capability_manifest = ensure_provider_capability(
+        config,
+        output_dir=output_dir,
+        config_hash=config_digest,
+        code_hash=code_digest,
+        run_if_missing=not resume,
+    )
+    print(json.dumps({
+        "provider_capability_manifest": {
+            "passed": capability_manifest.get("passed"),
+            "provider_fingerprint": capability_manifest.get("provider_fingerprint"),
+            "config_hash": capability_manifest.get("config_hash"),
+            "code_hash": capability_manifest.get("code_hash"),
+        }
+    }, ensure_ascii=False), flush=True)
     attempt_ledger = AttemptTraceLedger(
         output_dir / "attempt_history", output_dir / "traces",
     )
@@ -456,6 +488,13 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
         print(json.dumps({
             "recovered_attempt_trace_captures": recovered_attempts,
         }, ensure_ascii=False), flush=True)
+    unresolved_attempts = attempt_ledger.unresolved(run_id=run_id)
+    if unresolved_attempts:
+        raise ProtocolError(
+            "resume found an attempt with no durable Trace; provider usage is unproven. "
+            "Archive this run and start a fresh run without --resume: "
+            + ", ".join(str(item["attempt_id"]) for item in unresolved_attempts)
+        )
     checkpoint = TaskCheckpointStore(
         output_dir / ".task_checkpoint", _path(config.get("data_dir", ""))
     )
@@ -580,19 +619,21 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 sequence=attempt_sequence,
                 expected_periodic_milestone=expected_periodic_milestone,
             )
-            checkpoint.create(
-                system.database,
-                run_id=run_id,
-                task_id=item.task_id,
-                before_digest=before,
-                config_hash=config_digest,
-                code_commit=code_digest,
-            )
             try:
+                checkpoint.create(
+                    system.database,
+                    run_id=run_id,
+                    task_id=item.task_id,
+                    before_digest=before,
+                    config_hash=config_digest,
+                    code_commit=code_digest,
+                )
                 maintenance_ids_before_task = set(
                     _maintenance_trace_payloads(system)
                 )
-                trace = system.run_task(by_id[item.task_id])
+                trace = system.run_task(
+                    by_id[item.task_id], attempt_id=task_attempt.attempt_id,
+                )
                 attempt_ledger.capture(task_attempt, reason="run_task_returned")
                 maintenance_ids_after_task = set(
                     _maintenance_trace_payloads(system)
@@ -635,18 +676,30 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                     "success": trace.benchmark_success,
                     "trace_id": trace.trace_id,
                 }, ensure_ascii=False), flush=True)
-            except Exception as exc:
-                attempt_ledger.capture(task_attempt, reason="task_exception")
-                row = system.database.execute(
-                    "SELECT state FROM run_tasks WHERE run_id=? AND task_id=?",
-                    (run_id, item.task_id),
-                ).fetchone()
-                if row is not None and row["state"] == "running":
-                    store.mark_task_failed(
-                        run_id, item.task_id, infrastructure=True,
-                        result={"error_type": type(exc).__name__, "error": str(exc)},
-                    )
+            except Exception as primary:
+                def update_failed_state() -> None:
+                    row = system.database.execute(
+                        "SELECT state FROM run_tasks WHERE run_id=? AND task_id=?",
+                        (run_id, item.task_id),
+                    ).fetchone()
+                    if row is not None and row["state"] == "running":
+                        store.mark_task_failed(
+                            run_id, item.task_id, infrastructure=True,
+                            result={
+                                "error_type": type(primary).__name__,
+                                "error": str(primary),
+                            },
+                        )
                     store.mark_run_state(run_id, RunState.INFRASTRUCTURE_FAILED)
+
+                audit_failed_attempt(
+                    primary=primary,
+                    attempt=task_attempt,
+                    attempt_ledger=attempt_ledger,
+                    receipt_root=output_dir / "failure_receipts",
+                    update_state=update_failed_state,
+                    capture_reason="task_exception",
+                )
                 raise
 
         maintenance_audit = _run_final_batch_maintenance(

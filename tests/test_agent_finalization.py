@@ -19,7 +19,7 @@ class _OneCallProvider:
     def snapshot(self) -> dict:
         return {"provider": "fake", "model": "fake"}
 
-    def complete(self, messages, *, tools=None, structured_output_schema=None):
+    def complete(self, messages, *, tools=None):
         self.calls += 1
         return AgentTurn(
             content="",

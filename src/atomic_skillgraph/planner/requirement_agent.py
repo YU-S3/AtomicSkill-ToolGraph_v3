@@ -6,24 +6,25 @@ import json
 from dataclasses import asdict
 from typing import Any
 
+from ..agents.structured_submission import (
+    CAPABILITY_REQUIREMENT_SCHEMA,
+    StructuredSubmissionClient,
+)
 from ..core.contracts import CapabilityRequirement, ParameterSpec, SemanticPredicate, TaskContract
 from ..core.serialization import to_primitive
 
 
 REQUIREMENT_SCHEMA: dict[str, Any] = {
-    "type": "object", "required": ["requirements"], "additionalProperties": False,
-    "properties": {"requirements": {"type": "array", "items": {
-        "type": "object", "required": ["requirement_id", "intent", "desired_effects", "required", "rationale"],
-        "properties": {
-            "requirement_id": {"type": "string"}, "intent": {"type": "string"},
-            "desired_effects": {"type": "array", "items": {"type": "object"}},
-            "expected_inputs": {"type": "array", "items": {"type": "object"}},
-            "expected_outputs": {"type": "array", "items": {"type": "object"}},
-            "precondition_hints": {"type": "array", "items": {"type": "object"}},
-            "semantic_variants": {"type": "array", "items": {"type": "string"}},
-            "required": {"type": "boolean"}, "rationale": {"type": "string"},
-        },
-    }}},
+    "type": "object",
+    "required": ["requirements"],
+    "additionalProperties": False,
+    "properties": {
+        "requirements": {
+            "type": "array",
+            "minItems": 1,
+            "items": CAPABILITY_REQUIREMENT_SCHEMA,
+        }
+    },
 }
 
 
@@ -46,17 +47,10 @@ def _requirement(value: dict[str, Any]) -> CapabilityRequirement:
     )
 
 
-def _turn_json(turn: Any) -> dict[str, Any]:
-    content = str(getattr(turn, "content", "") or "").strip()
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ValueError("Planner structured output was not valid JSON") from exc
-
-
 class RequirementAgent:
     def __init__(self, session: Any) -> None:
         self.session = session
+        self.submissions = StructuredSubmissionClient()
 
     def propose(
         self, task: Any, contract: TaskContract, observation: str,
@@ -66,13 +60,20 @@ class RequirementAgent:
             self.session.set_usage_bucket("planner_p1")
         prompt = (
             "P1 CAPABILITY REQUIREMENTS. Decompose the task into complete, reusable state-transition "
-            "capabilities. Do not prescribe environment actions or invent skills. Return JSON only.\n"
+            "capabilities. Do not prescribe environment actions or invent skills. Call only the "
+            "offered submit tool.\n"
             f"Task goal: {task.goal}\nPolicy observation: {observation}\n"
             f"TaskContract: {json.dumps(to_primitive(contract), ensure_ascii=False)}\n"
             f"Harness profile: {harness_profile}"
         )
-        turn = self.session.next_turn(prompt, structured_output_schema=REQUIREMENT_SCHEMA)
-        return [_requirement(item) for item in _turn_json(turn).get("requirements", [])]
+        submission = self.submissions.request(
+            self.session,
+            prompt=prompt,
+            tool_name="submit_planner_requirements",
+            description="Submit the complete capability requirement proposal.",
+            schema=REQUIREMENT_SCHEMA,
+        )
+        return [_requirement(item) for item in submission.value["requirements"]]
 
     def repair(
         self, task: Any, contract: TaskContract, requirements: list[CapabilityRequirement],
@@ -82,11 +83,18 @@ class RequirementAgent:
             self.session.set_usage_bucket("planner_p1_repair")
         prompt = (
             "P1R REQUIREMENT REPAIR. Coverage is incomplete. Return one complete replacement requirement "
-            "list, not a patch. Composite material is only a hint and is not an oracle. JSON only.\n"
+            "list, not a patch. Composite material is only a hint and is not an oracle. Call only "
+            "the offered submit tool.\n"
             f"Task: {task.goal}\nTaskContract: {json.dumps(to_primitive(contract), ensure_ascii=False)}\n"
             f"requirements_v1: {json.dumps(to_primitive(requirements), ensure_ascii=False)}\n"
             f"search/rejections: {json.dumps(to_primitive(search), ensure_ascii=False)}\n"
             f"related hints: {json.dumps(related_composites, ensure_ascii=False)}"
         )
-        turn = self.session.next_turn(prompt, structured_output_schema=REQUIREMENT_SCHEMA)
-        return [_requirement(item) for item in _turn_json(turn).get("requirements", [])]
+        submission = self.submissions.request(
+            self.session,
+            prompt=prompt,
+            tool_name="submit_planner_requirements",
+            description="Submit the complete replacement capability requirement proposal.",
+            schema=REQUIREMENT_SCHEMA,
+        )
+        return [_requirement(item) for item in submission.value["requirements"]]

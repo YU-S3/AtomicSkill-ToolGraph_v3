@@ -5,20 +5,26 @@ from types import SimpleNamespace
 
 import pytest
 
-from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
+from atomic_skillgraph.core.bindings import (
+    BindingExpression,
+    BindingExprKind,
+    ToolBinding,
+)
 from atomic_skillgraph.core.contracts import (
     AbstractAtomicSkill,
     CapabilityRequirement,
     ContractSource,
     IdentityConstraint,
     IdentityRelation,
+    ImplementationAtom,
     ParameterSpec,
     SemanticPredicate,
     TaskContract,
+    ToolAsset,
 )
-from atomic_skillgraph.core.refs import SkillRef
+from atomic_skillgraph.core.refs import SkillRef, ToolRef
 from atomic_skillgraph.core.serialization import to_primitive
-from atomic_skillgraph.core.status import SkillStatus
+from atomic_skillgraph.core.status import SkillStatus, ToolStatus
 from atomic_skillgraph.evolution.admission import Admission
 from atomic_skillgraph.evolution.aligner import Aligner
 from atomic_skillgraph.evolution.atomicizer import AtomicOccurrenceProposal, Atomicizer
@@ -382,7 +388,8 @@ def test_aligner_does_not_merge_incompatible_atomic_contracts(tmp_path) -> None:
         step="OPEN_THEN_TAKE",
     ))
     assert first != second
-    assert second.version == "1.0.1"
+    assert first.logical_id != second.logical_id
+    assert first.version == second.version == "1.0.0"
     shadow = replace(
         _atomic(
             SkillRef("atomic_shadow", "1.0.0"),
@@ -393,8 +400,86 @@ def test_aligner_does_not_merge_incompatible_atomic_contracts(tmp_path) -> None:
     )
     skills.register_atomic(shadow)
     revived = aligner.align_atomic(replace(shadow, status=SkillStatus.DRAFT))
-    assert revived.version == "1.0.1"
+    assert revived.logical_id != shadow.ref.logical_id
+    assert revived.version == "1.0.0"
     assert skills.get_atomic(revived).status is SkillStatus.CANDIDATE
+    database.close()
+
+
+def test_same_atomic_contract_different_tools_align_same_atomic(tmp_path) -> None:
+    database = StateDatabase(tmp_path / "state.sqlite3")
+    artifacts = ArtifactStore(tmp_path, database)
+    skills = SkillRegistry(artifacts, database)
+    tools = ToolRegistry(artifacts, database)
+    aligner = Aligner(skills, tools)
+
+    first_candidate = _atomic(SkillRef("wording_take", "1.0.0"))
+    second_candidate = replace(
+        first_candidate,
+        ref=SkillRef("renamed_pickup", "1.0.0"),
+        summary="pick up the requested target using another implementation",
+        inputs=[ParameterSpec("target", "string", True, True, "concrete")],
+        outputs=[ParameterSpec("acquired", "entity")],
+        effects=[SemanticPredicate(
+            "agent.holds",
+            {"object": BindingExpression(
+                BindingExprKind.SKILL_INPUT, source_role="target",
+            )},
+        )],
+        failure_modes=[{"wording_only": "different prose"}],
+        guideline={"steps": ["NAVIGATE", "PICKUP_WITH_OTHER_TOOL"]},
+    )
+    atomic_ref = aligner.align_atomic(first_candidate)
+    assert aligner.align_atomic(second_candidate) == atomic_ref
+
+    def candidate_tool(tool_id: str, command: str) -> ToolAsset:
+        return ToolAsset(
+            ToolRef(tool_id, "1.0.0"),
+            command,
+            {"arguments": ["object"]},
+            {"input_roles": ["object"], "output_roles": ["held_object"]},
+            "harness_action",
+            {"action_type": command},
+            [],
+            {"side_effects": ["world_state_change"]},
+            {},
+            {},
+            ToolStatus.CANDIDATE,
+        )
+
+    tool_a = aligner.align_tool(candidate_tool("tool_take", "TAKE"))
+    tool_b = aligner.align_tool(candidate_tool("tool_pickup", "PICKUP"))
+    assert tool_a != tool_b
+
+    def candidate_implementation(
+        logical_id: str, tool_ref: ToolRef, source_role: str,
+    ) -> ImplementationAtom:
+        return ImplementationAtom(
+            SkillRef(logical_id, "1.0.0"),
+            SkillRef("trace_local_atomic", "1.0.0"),
+            [ToolBinding(
+                tool_ref,
+                "execute",
+                {"object": BindingExpression(
+                    BindingExprKind.SKILL_INPUT, source_role=source_role,
+                )},
+            )],
+            [],
+            {"mode": "serial"},
+            {"harness_profiles": ["alfworld_v3"]},
+            {},
+            SkillStatus.CANDIDATE,
+        )
+
+    implementation_a = aligner.align_implementation(
+        candidate_implementation("impl_take", tool_a, "item"), atomic_ref, tool_a,
+    )
+    implementation_b = aligner.align_implementation(
+        candidate_implementation("impl_pickup", tool_b, "target"), atomic_ref, tool_b,
+    )
+    assert implementation_a != implementation_b
+    assert skills.get_implementation(implementation_a).abstract_ref == atomic_ref
+    assert skills.get_implementation(implementation_b).abstract_ref == atomic_ref
     database.close()
 
 

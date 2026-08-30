@@ -34,6 +34,9 @@ ALFWORLD_FORMAL_TASK_TYPES = (
     "pick_cool_then_place_in_recep",
     "pick_two_obj_and_place",
 )
+DEEPSEEK_FORMAL_DIALECT = "deepseek_v4_chat"
+DEEPSEEK_FORMAL_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_FORMAL_MODEL = "deepseek-v4-flash"
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _CODE_SUFFIXES = frozenset(
     {".py", ".toml", ".yaml", ".yml", ".json", ".cfg", ".ini", ".txt", ".lock"}
@@ -70,6 +73,179 @@ class ProtocolError(RuntimeError):
 
 class ManifestExistsError(ProtocolError):
     pass
+
+
+_SECRET_PATTERNS = (
+    re.compile(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;]+"),
+    re.compile(r"(?i)((?:api[_-]?key|token|secret)\s*[:=]\s*)['\"]?[^\s,'\";]+"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
+)
+
+
+def sanitize_error_text(value: Any) -> str:
+    """Keep failure diagnostics useful without persisting provider secrets."""
+
+    text = str(value)
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(
+            (lambda match: match.group(1) + "[REDACTED]")
+            if pattern.groups
+            else "[REDACTED]",
+            text,
+        )
+    return text[:4000]
+
+
+def write_failure_receipt(
+    root: str | Path,
+    *,
+    attempt: "AttemptTraceRef",
+    primary: BaseException,
+    audit_errors: Sequence[Mapping[str, Any]],
+) -> Path:
+    """Create one immutable, sanitized receipt for a failed formal attempt."""
+
+    target = Path(root).resolve() / f"{attempt.attempt_id}.json"
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "attempt_id": attempt.attempt_id,
+        "run_id": attempt.run_id,
+        "task_id": attempt.task_id,
+        "task_signature": attempt.task_signature,
+        "attempt_kind": attempt.attempt_kind,
+        "sequence": attempt.sequence,
+        "primary_error_type": type(primary).__name__,
+        "primary_error_code": sanitize_error_text(getattr(primary, "code", "")),
+        "primary_error_message": sanitize_error_text(primary),
+        "audit_errors": [
+            {
+                "stage": sanitize_error_text(item.get("stage", "")),
+                "error_type": sanitize_error_text(item.get("error_type", "")),
+                "error": sanitize_error_text(item.get("error", "")),
+            }
+            for item in audit_errors
+        ],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return atomic_create_json(target, payload)
+
+
+def audit_failed_attempt(
+    *,
+    primary: BaseException,
+    attempt: "AttemptTraceRef",
+    attempt_ledger: "AttemptTraceLedger",
+    receipt_root: str | Path,
+    update_state: Any,
+    capture_reason: str,
+) -> list[dict[str, str]]:
+    """Best-effort audit cleanup that can never replace ``primary``."""
+
+    audit_errors: list[dict[str, str]] = []
+    try:
+        attempt_ledger.capture(attempt, reason=capture_reason)
+    except Exception as exc:  # deliberately secondary to the caller's primary
+        audit_errors.append({
+            "stage": "capture", "error_type": type(exc).__name__,
+            "error": sanitize_error_text(exc),
+        })
+    try:
+        update_state()
+    except Exception as exc:  # deliberately secondary to the caller's primary
+        audit_errors.append({
+            "stage": "state", "error_type": type(exc).__name__,
+            "error": sanitize_error_text(exc),
+        })
+    try:
+        write_failure_receipt(
+            receipt_root,
+            attempt=attempt,
+            primary=primary,
+            audit_errors=audit_errors,
+        )
+    except Exception as exc:  # receipt failure is reported, never raised
+        audit_errors.append({
+            "stage": "receipt", "error_type": type(exc).__name__,
+            "error": sanitize_error_text(exc),
+        })
+    return audit_errors
+
+
+def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
+    """Fail closed unless a formal run uses the probed DeepSeek V4 dialect."""
+
+    llm = dict(config.get("llm") or {})
+    protocol = dict(llm.get("protocol") or {})
+    expected = {
+        "llm.provider": (llm.get("provider"), "openai_compatible"),
+        "llm.dialect": (llm.get("dialect"), DEEPSEEK_FORMAL_DIALECT),
+        "llm.base_url": (str(llm.get("base_url", "")).rstrip("/"), DEEPSEEK_FORMAL_BASE_URL),
+        "llm.model": (llm.get("model"), DEEPSEEK_FORMAL_MODEL),
+        "llm.protocol.endpoint_path": (protocol.get("endpoint_path"), "/chat/completions"),
+        "llm.protocol.structured_output_transport": (
+            protocol.get("structured_output_transport"), "native_submission_tool"
+        ),
+        "llm.protocol.token_limit_field": (protocol.get("token_limit_field"), "max_tokens"),
+        "llm.protocol.thinking_type": (protocol.get("thinking_type"), "enabled"),
+        "llm.protocol.send_reasoning_effort": (protocol.get("send_reasoning_effort"), True),
+        "llm.protocol.replay_reasoning_content_with_tools": (
+            protocol.get("replay_reasoning_content_with_tools"), True
+        ),
+        "llm.protocol.send_response_format": (protocol.get("send_response_format"), False),
+        "llm.protocol.send_tool_choice": (protocol.get("send_tool_choice"), False),
+        "llm.protocol.send_parallel_tool_calls": (
+            protocol.get("send_parallel_tool_calls"), False
+        ),
+        "llm.protocol.send_temperature": (protocol.get("send_temperature"), False),
+        "llm.protocol.strict_tools": (protocol.get("strict_tools"), False),
+        "llm.protocol.require_usage": (protocol.get("require_usage"), True),
+    }
+    stage_expected = {
+        "planner": {
+            "reasoning_effort": "high", "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300, "max_turns": 4,
+            "max_total_tokens_per_task": 120000,
+        },
+        "runtime": {
+            "reasoning_effort": "high", "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180, "max_total_tokens_per_node": 80000,
+            "max_total_tokens_per_task": 200000, "learned_toolcall_repair_limit": 2,
+            "protocol_repair_limit": 1,
+        },
+        "extractor": {
+            "reasoning_effort": "high", "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600, "max_turns": 2,
+            "max_total_tokens_per_task": 262144,
+        },
+        "evolution_repair": {
+            "reasoning_effort": "high", "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300, "max_turns": 1,
+            "max_total_tokens_per_batch": 120000,
+        },
+    }
+    for stage, fields_expected in stage_expected.items():
+        configured = dict(llm.get(stage) or {})
+        for name, wanted in fields_expected.items():
+            expected[f"llm.{stage}.{name}"] = (configured.get(name), wanted)
+    mismatches = [
+        f"{name}: expected {wanted!r}, got {actual!r}"
+        for name, (actual, wanted) in expected.items()
+        if actual != wanted
+    ]
+    forbidden_config_fields = sorted(
+        f"llm.{stage}.{name}"
+        for stage in ("planner", "runtime", "extractor", "evolution_repair")
+        for name in ("max_visible_tokens", "max_turns_per_node", "max_turns_per_task")
+        if name in dict(llm.get(stage) or {})
+    )
+    if forbidden_config_fields:
+        mismatches.append(
+            "removed hidden/visible token gates are configured: "
+            + ", ".join(forbidden_config_fields)
+        )
+    if mismatches:
+        raise ProtocolError("formal DeepSeek protocol mismatch: " + "; ".join(mismatches))
 
 
 @dataclass(frozen=True)
@@ -1254,6 +1430,7 @@ class AttemptTraceLedger:
             self._validate_baseline_hashes(start)
             self._validate_captured_hashes(start, capture)
             self._validate_periodic_expectation(capture, capture["trace_ids"])
+            self._claim_traces(start, capture["trace_ids"])
             return capture
 
         baseline_hashes = self._validate_baseline_hashes(start)
@@ -1278,6 +1455,7 @@ class AttemptTraceLedger:
                 f"task attempt {attempt.attempt_id} lacks one immutable task Trace"
             )
         self._validate_periodic_expectation(start, captured_ids)
+        self._claim_traces(start, captured_ids)
         capture = {
             "schema_version": SCHEMA_VERSION,
             "attempt_id": attempt.attempt_id,
@@ -1301,6 +1479,11 @@ class AttemptTraceLedger:
         self._ensure_owner(run_id)
         recovered = []
         for attempt in self.pending(run_id=run_id):
+            start = self._read(self._start_path(attempt.attempt_id))
+            baseline = self._validate_baseline_hashes(start)
+            if set(self._trace_hashes()) == set(baseline):
+                recovered.append(self._quarantine_untraced_attempt(start))
+                continue
             recovered.append(self.capture(attempt, reason="resume_recovery"))
         return recovered
 
@@ -1310,7 +1493,34 @@ class AttemptTraceLedger:
             attempt
             for attempt in self._starts(run_id=run_id)
             if not self._capture_path(attempt.attempt_id).is_file()
+            and not self._unresolved_path(attempt.attempt_id).is_file()
         )
+
+    def unresolved(self, *, run_id: str) -> tuple[dict[str, Any], ...]:
+        """Return crash quarantines that deliberately block a formal report.
+
+        A process death after ``begin`` but before a durable Trace cannot prove
+        that no provider request occurred.  Such an attempt must not deadlock
+        all later retries, but it also must not be represented as zero usage.
+        """
+
+        self._ensure_owner(run_id)
+        rows: list[dict[str, Any]] = []
+        if not self.root.is_dir():
+            return ()
+        for path in sorted(self.root.glob("attempt_*.unresolved.json")):
+            payload = self._read(path)
+            if str(payload.get("run_id", "")) != run_id:
+                continue
+            attempt_id = str(payload.get("attempt_id", ""))
+            if path != self._unresolved_path(attempt_id):
+                raise ProtocolError(
+                    f"attempt unresolved filename/identity mismatch: {path}"
+                )
+            start = self._read(self._start_path(attempt_id))
+            self._validate_unresolved(start, payload)
+            rows.append(payload)
+        return tuple(rows)
 
     def auxiliary_traces(
         self,
@@ -1332,6 +1542,13 @@ class AttemptTraceLedger:
                 "formal report has uncaptured attempts: "
                 + ", ".join(item.attempt_id for item in pending)
             )
+        unresolved = self.unresolved(run_id=manifest.run_id)
+        if unresolved:
+            raise ProtocolError(
+                "formal report has unresolved attempts with no durable Trace; "
+                "provider usage cannot be proven: "
+                + ", ".join(str(item["attempt_id"]) for item in unresolved)
+            )
         for attempt in self._starts(run_id=manifest.run_id):
             expected_task = manifest_tasks.get(attempt.task_id)
             if expected_task is None or expected_task.task_signature != attempt.task_signature:
@@ -1344,6 +1561,7 @@ class AttemptTraceLedger:
             self._validate_baseline_hashes(start)
             self._validate_captured_hashes(start, capture)
             self._validate_periodic_expectation(capture, capture["trace_ids"])
+            self._claim_traces(start, capture["trace_ids"])
             for trace_id in capture["trace_ids"]:
                 if trace_id in seen:
                     raise ProtocolError(
@@ -1403,6 +1621,78 @@ class AttemptTraceLedger:
             if not start_path.is_file():
                 raise ProtocolError(f"attempt capture has no immutable start record: {path}")
             self._validate_capture(self._read(start_path), capture)
+        self.unresolved(run_id=run_id)
+
+    def _quarantine_untraced_attempt(
+        self, start: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        attempt_id = str(start["attempt_id"])
+        target = self._unresolved_path(attempt_id)
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "attempt_id": attempt_id,
+            "run_id": str(start["run_id"]),
+            "task_id": str(start["task_id"]),
+            "task_signature": str(start["task_signature"]),
+            "attempt_kind": str(start["attempt_kind"]),
+            "sequence": int(start["sequence"]),
+            "status": "unresolved_no_durable_trace",
+            "resource_usage_status": "unproven",
+            "reason": "resume_recovery_found_no_new_trace",
+            "quarantined_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            atomic_create_json(target, payload)
+        except FileExistsError:
+            existing = self._read(target)
+            self._validate_unresolved(start, existing)
+            return existing
+        return payload
+
+    @staticmethod
+    def _validate_unresolved(
+        start: Mapping[str, Any], payload: Mapping[str, Any],
+    ) -> None:
+        for key in (
+            "schema_version", "attempt_id", "run_id", "task_id",
+            "task_signature", "attempt_kind", "sequence",
+        ):
+            if payload.get(key) != start.get(key):
+                raise ProtocolError(
+                    f"attempt unresolved identity mismatch for "
+                    f"{start.get('attempt_id', '<unknown>')}"
+                )
+        if (
+            payload.get("status") != "unresolved_no_durable_trace"
+            or payload.get("resource_usage_status") != "unproven"
+            or payload.get("reason") != "resume_recovery_found_no_new_trace"
+        ):
+            raise ProtocolError(
+                f"invalid unresolved attempt record: {start.get('attempt_id')}"
+            )
+
+    def _claim_traces(
+        self, owner: Mapping[str, Any], trace_ids: Sequence[str],
+    ) -> None:
+        for trace_id in trace_ids:
+            payload = {
+                "schema_version": SCHEMA_VERSION,
+                "trace_id": trace_id,
+                "run_id": str(owner["run_id"]),
+                "attempt_id": str(owner["attempt_id"]),
+                "task_id": str(owner["task_id"]),
+                "attempt_kind": str(owner["attempt_kind"]),
+            }
+            path = self._claim_path(trace_id)
+            try:
+                atomic_create_json(path, payload)
+            except FileExistsError:
+                existing = self._read(path)
+                if existing != payload:
+                    raise ProtocolError(
+                        f"immutable Trace {trace_id} is already claimed by "
+                        f"another formal attempt"
+                    ) from None
 
     def _trace_hashes(self) -> dict[str, str]:
         return {
@@ -1659,6 +1949,12 @@ class AttemptTraceLedger:
 
     def _capture_path(self, attempt_id: str) -> Path:
         return self.root / f"{attempt_id}.capture.json"
+
+    def _unresolved_path(self, attempt_id: str) -> Path:
+        return self.root / f"{attempt_id}.unresolved.json"
+
+    def _claim_path(self, trace_id: str) -> Path:
+        return self.trace_root / f".{trace_id}.attempt_claim.json"
 
 
 class TaskCheckpointStore:
@@ -1976,8 +2272,12 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
 
 __all__ = [
     "ALFWORLD_FORMAL_TASK_TYPES",
+    "DEEPSEEK_FORMAL_BASE_URL",
+    "DEEPSEEK_FORMAL_DIALECT",
+    "DEEPSEEK_FORMAL_MODEL",
     "AttemptTraceLedger",
     "AttemptTraceRef",
+    "audit_failed_attempt",
     "artifact_audit_snapshot",
     "artifact_growth_audit",
     "load_task_report_traces",
@@ -2002,6 +2302,9 @@ __all__ = [
     "ensure_task_manifest",
     "knowledge_digest",
     "sha256_json",
+    "sanitize_error_text",
     "task_signature",
+    "validate_deepseek_formal_llm",
     "validate_distinct_formal_tasks",
+    "write_failure_receipt",
 ]

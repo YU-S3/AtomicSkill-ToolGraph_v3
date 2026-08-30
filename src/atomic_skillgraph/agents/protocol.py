@@ -1,8 +1,8 @@
 """Provider-independent native tool-call protocol.
 
-The runtime consumes only :class:`NativeToolCall` arguments or JSON that was
-requested with a structured-output schema.  Visible assistant prose and
-provider reasoning fields are deliberately outside the action protocol.
+Only validated :class:`NativeToolCall` arguments cross an Agent boundary.
+DeepSeek reasoning is retained solely in the in-process replay envelope; it is
+never an action channel and is deliberately summarized in audit snapshots.
 """
 
 from __future__ import annotations
@@ -99,10 +99,14 @@ class AgentTurn:
     reasoning_tokens: int | None
     latency_ms: float
     provider_metadata: dict[str, Any] = field(default_factory=dict)
+    reasoning_content: str = ""
+    replay_assistant_message: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.content, str):
             raise TypeError("AgentTurn.content must be a string")
+        if not isinstance(self.reasoning_content, str):
+            raise TypeError("AgentTurn.reasoning_content must be a string")
         self.tool_calls = [
             value if isinstance(value, NativeToolCall) else NativeToolCall(**value)
             for value in self.tool_calls
@@ -122,6 +126,8 @@ class AgentTurn:
             raise ValueError("latency_ms must be non-negative")
         if not isinstance(self.provider_metadata, dict):
             raise TypeError("provider_metadata must be a mapping")
+        if not isinstance(self.replay_assistant_message, dict):
+            raise TypeError("replay_assistant_message must be a mapping")
 
 
 AgentMessage = dict[str, Any]
@@ -136,7 +142,6 @@ class AgentProvider(Protocol):
         messages: list[AgentMessage],
         *,
         tools: list[NativeToolSpec] | None = None,
-        structured_output_schema: dict[str, Any] | None = None,
     ) -> AgentTurn: ...
 
     def snapshot(self) -> dict[str, Any]: ...
@@ -152,8 +157,13 @@ class AgentSession(Protocol):
         user_input: str | None,
         *,
         tools: list[NativeToolSpec] | None = None,
-        structured_output_schema: dict[str, Any] | None = None,
     ) -> AgentTurn: ...
+
+    def acknowledge_tool_result(
+        self,
+        call_id: str,
+        result: dict[str, Any],
+    ) -> None: ...
 
     def submit_tool_result(
         self,
@@ -162,6 +172,8 @@ class AgentSession(Protocol):
         *,
         tools: list[NativeToolSpec] | None = None,
     ) -> AgentTurn: ...
+
+    def finalize_tool_result(self, call_id: str, result: dict[str, Any]) -> None: ...
 
     def snapshot(self) -> dict[str, Any]: ...
 

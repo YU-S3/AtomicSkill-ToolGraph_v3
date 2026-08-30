@@ -37,7 +37,9 @@ class RuntimeOrchestrator:
             token_limits=dict(config.get("token_limits", {})), turn_limits=dict(config.get("turn_limits", {})),
         )
 
-    def _create_context(self, task: HarnessTask, plan: RuntimeLinearPlan) -> TaskRuntimeContext:
+    def create_trace_builder(self, task: HarnessTask, *, attempt_id: str = "") -> TraceBuilder:
+        """Create the immutable-at-finalization skeleton before Planner/API work."""
+
         task_record = TaskRecord(
             task.task_id, task.benchmark, task.goal, task.task_type,
             str(task.metadata.get("task_signature") or task.context.get("game_file") or task.task_id),
@@ -48,16 +50,46 @@ class RuntimeOrchestrator:
                 "split": getattr(self.harness, "split", ""),
             },
         )
-        trace = TraceRecord.create(task_record, to_primitive(plan.task_contract), plan.planner_audit, to_primitive(plan))
-        builder = TraceBuilder(trace)
+        trace = TraceRecord.create(
+            task_record,
+            {},
+            {},
+            {"source": "not_started", "failure_stage": ""},
+        )
+        if attempt_id:
+            trace.metadata["attempt_id"] = attempt_id
+        return TraceBuilder(trace)
+
+    def _create_context(
+        self,
+        task: HarnessTask,
+        plan: RuntimeLinearPlan,
+        builder: TraceBuilder | None = None,
+    ) -> TaskRuntimeContext:
+        builder = builder or self.create_trace_builder(task)
+        if builder.trace.task.task_id != task.task_id:
+            raise ValueError("TraceBuilder task identity does not match Runtime task")
+        builder.trace.task_contract = to_primitive(plan.task_contract)
+        builder.trace.planner_audit = to_primitive(plan.planner_audit)
+        builder.trace.runtime_plan = {
+            **to_primitive(plan),
+            "failure_stage": "runtime",
+        }
         return TaskRuntimeContext.create(task, plan, self.harness, builder, self._budget())
 
     def run_task(
-        self, task: HarnessTask, *, mode: RuntimeMode | str = RuntimeMode.ONLINE,
+        self,
+        task: HarnessTask,
+        *,
+        mode: RuntimeMode | str = RuntimeMode.ONLINE,
+        trace_builder: TraceBuilder | None = None,
+        attempt_id: str = "",
     ) -> TraceRecord:
+        builder = trace_builder or self.create_trace_builder(task, attempt_id=attempt_id)
+        builder.trace.runtime_plan["failure_stage"] = "planner"
         initial_observation = str(task.context.get("initial_observation", ""))
         plan = self.planner.build_plan(task, self.harness, mode=mode, initial_observation=initial_observation)
-        ctx = self._create_context(task, plan)
+        ctx = self._create_context(task, plan, builder)
 
         initial_terminal = self.validation.task.terminal(
             ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
@@ -73,6 +105,7 @@ class RuntimeOrchestrator:
             ctx.trace_builder.trace.infrastructure_failure = result.get("failure_code") in {
                 "infrastructure_failure", "llm_error",
             }
+            ctx.trace_builder.trace.runtime_plan["failure_stage"] = ""
             return ctx.trace_builder.finish()
 
         if initial_terminal.passed:
@@ -205,6 +238,7 @@ class RuntimeOrchestrator:
         if trace.benchmark_success and not terminal.passed:
             trace.metadata["anomaly"] = "benchmark_goal_contract_mismatch"
         trace.metadata["invocation_compile_rejections"] = list(self.invocation_compiler.compile_rejections)
+        trace.runtime_plan["failure_stage"] = ""
         return ctx.trace_builder.finish()
 
     def _latest_atomic_witnesses(self, ctx: TaskRuntimeContext, occurrence_id: str) -> list[str]:

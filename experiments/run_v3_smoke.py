@@ -12,11 +12,27 @@ import sys
 import tempfile
 from pathlib import Path
 
-from atomic_skillgraph.core.serialization import atomic_write_json
+from atomic_skillgraph.agents.provider_probe import (
+    ensure_provider_capability,
+    run_provider_capability_probe,
+)
+from atomic_skillgraph.core.serialization import atomic_write_json, to_primitive
 from atomic_skillgraph.system import AtomicSkillGraphSystem, load_config
 
-from .protocol import RunManifest, TaskManifest, hash_task_manifest, task_signature
-from .report import validate_formal_usage, write_reports
+from .protocol import (
+    RunManifest,
+    TaskManifest,
+    hash_code,
+    hash_config,
+    hash_task_manifest,
+    task_signature,
+    validate_deepseek_formal_llm,
+)
+from .report import (
+    validate_formal_usage,
+    validate_usage_event_persistence,
+    write_reports,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -129,6 +145,41 @@ def run_preflight(config_path: str | Path) -> int:
             return 0 if checks["passed"] else 1
 
 
+def run_provider_probe(config_path: str | Path) -> int:
+    config_path = _path(config_path)
+    config = load_config(config_path)
+    validate_deepseek_formal_llm(config)
+    output = _path(
+        (config.get("experiment") or {}).get(
+            "output_dir", "runs/alfworld_train_full_30"
+        )
+    )
+    try:
+        manifest = run_provider_capability_probe(
+            config,
+            output_dir=output,
+            config_hash=hash_config(config_path),
+            code_hash=hash_code(REPO_ROOT),
+        )
+    except Exception as exc:
+        print(json.dumps({
+            "passed": False,
+            "gate": "deepseek_provider_capability",
+            "error_type": type(exc).__name__,
+            "error_code": str(getattr(exc, "code", "")),
+            "error": str(exc),
+            "output_dir": str(output),
+        }, ensure_ascii=False, indent=2))
+        return 1
+    print(json.dumps({
+        "passed": True,
+        "gate": "deepseek_provider_capability",
+        "output_dir": str(output),
+        "manifest": manifest,
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
 def run_deterministic() -> int:
     command = [
         sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
@@ -151,10 +202,109 @@ def run_deterministic() -> int:
     return 0
 
 
+def _actual_started_direct(trace: object) -> bool:
+    for node in getattr(trace, "node_records", ()):
+        status = getattr(getattr(node, "status", ""), "value", getattr(node, "status", ""))
+        if status not in {
+            "direct_autonomous_success", "direct_agent_prepared_success",
+        }:
+            continue
+        occurrence_id = str(getattr(node, "occurrence_id", ""))
+        invocations = [
+            item for item in getattr(trace, "implementation_invocations", ())
+            if str(getattr(item, "occurrence_id", "")) == occurrence_id
+            and dict(getattr(item, "preflight", {}) or {}).get("passed") is True
+            and dict(getattr(item, "result", {}) or {}).get("started") is True
+            and dict(getattr(item, "result", {}) or {}).get("completed") is True
+        ]
+        tools = [
+            item for item in getattr(trace, "tool_executions", ())
+            if str(getattr(item, "occurrence_id", "")) == occurrence_id
+            and dict(getattr(item, "result", {}) or {}).get("started") is True
+            and dict(getattr(item, "result", {}) or {}).get("completed") is True
+        ]
+        if invocations and tools:
+            return True
+    return False
+
+
+def _validated_dataflow(trace: object) -> bool:
+    plan = dict(getattr(trace, "runtime_plan", {}) or {})
+    changes = [to_primitive(item) for item in getattr(trace, "binding_changes", ())]
+    occurrences = {
+        str(item.get("step_id", "")): str(item.get("occurrence_id", ""))
+        for item in (plan.get("occurrences") or ())
+        if isinstance(item, dict)
+    }
+    invocations = [
+        to_primitive(item)
+        for item in getattr(trace, "implementation_invocations", ())
+    ]
+
+    # A binding-store write alone is not consumption.  Match one declared
+    # edge end-to-end: validator-backed source publication -> target DataFlow
+    # binding -> passed and actually-started downstream Implementation whose
+    # concrete argument contains that same value.
+    consumed_edge = False
+    for edge in plan.get("data_edges") or ():
+        if not isinstance(edge, dict):
+            continue
+        source_occurrence = occurrences.get(str(edge.get("source_step", "")), "")
+        target_occurrence = occurrences.get(str(edge.get("target_step", "")), "")
+        source_role = str(edge.get("source_role", ""))
+        target_role = str(edge.get("target_role", ""))
+        publications = [
+            dict(item.get("current") or {})
+            for item in changes
+            if item.get("reason") == "validated_output_published"
+            and str(item.get("occurrence_id", "")) == source_occurrence
+            and str(item.get("role", "")) == source_role
+        ]
+        for publication in publications:
+            value = publication.get("value")
+            flowed = any(
+                item.get("reason") == "data_flow"
+                and str(item.get("occurrence_id", "")) == target_occurrence
+                and str(item.get("role", "")) == target_role
+                and str(dict(item.get("current") or {}).get("source", "")) == "data_flow"
+                and dict(item.get("current") or {}).get("value") == value
+                for item in changes
+            )
+            downstream_started = any(
+                str(item.get("occurrence_id", "")) == target_occurrence
+                and dict(item.get("preflight") or {}).get("passed") is True
+                and dict(item.get("arguments") or {}).get(target_role) == value
+                and dict(item.get("result") or {}).get("started") is True
+                and dict(item.get("result") or {}).get("completed") is True
+                and dict(item.get("result") or {}).get("atomic_effect_passed") is True
+                for item in invocations
+            )
+            if flowed and downstream_started:
+                consumed_edge = True
+                break
+        if consumed_edge:
+            break
+    return bool(
+        len(occurrences) >= 2
+        and consumed_edge
+        and getattr(trace, "graph_self_sufficient_success", False)
+        and not getattr(trace, "task_rescue_required", False)
+    )
+
+
 def run_real_alfworld(config_path: str | Path) -> int:
-    config = copy.deepcopy(load_config(_path(config_path)))
+    config_path = _path(config_path)
+    config = copy.deepcopy(load_config(config_path))
+    validate_deepseek_formal_llm(config)
     base_output = _path(
         (config.get("experiment") or {}).get("output_dir", "runs/v3_real_smoke")
+    )
+    capability = ensure_provider_capability(
+        config,
+        output_dir=base_output,
+        config_hash=hash_config(config_path),
+        code_hash=hash_code(REPO_ROOT),
+        run_if_missing=False,
     )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     output = base_output / f"run_{stamp}_{os.getpid()}"
@@ -175,19 +325,33 @@ def run_real_alfworld(config_path: str | Path) -> int:
         if not preflight["passed"]:
             print(json.dumps(preflight, ensure_ascii=False, indent=2))
             return 1
-        tasks = system.harness.load_balanced_tasks(["pick_and_place_simple"], 5)
-        if len(tasks) != 5 or len({task_signature(task) for task in tasks}) != 5:
-            raise RuntimeError("real smoke requires five distinct pick-and-place tasks")
+        pick_tasks = system.harness.load_balanced_tasks(["pick_and_place_simple"], 5)
+        multi_tasks = system.harness.load_balanced_tasks(
+            ["pick_heat_then_place_in_recep"], 1,
+        )
+        tasks = [*pick_tasks, *multi_tasks]
+        if len(tasks) != 6 or len({task_signature(task) for task in tasks}) != 6:
+            raise RuntimeError(
+                "real smoke requires 3 cold + 2 unseen warm pick-and-place and 1 heat multi-node task"
+            )
         task_items = tuple(
             TaskManifest(
                 index,
                 task.task_id,
                 task_signature(task),
-                "cold_learning" if index < 3 else "warm_reuse",
+                (
+                    "cold_learning" if index < 3
+                    else "warm_reuse" if index < 5
+                    else "multi_node_dataflow"
+                ),
                 task.benchmark,
                 str(system.harness.split),
                 json.dumps({
-                    "phase": "cold_learning" if index < 3 else "warm_reuse",
+                    "phase": (
+                        "cold_learning" if index < 3
+                        else "warm_reuse" if index < 5
+                        else "multi_node_dataflow"
+                    ),
                     "task_type": task.task_type,
                     "env_index": task.context.get("env_index"),
                     "game_file": task.context.get("game_file", ""),
@@ -201,30 +365,50 @@ def run_real_alfworld(config_path: str | Path) -> int:
             "tasks": [item.to_dict() for item in task_items],
         })
         cold_traces = [system.run_task(task) for task in tasks[:3]]
-        warm_traces = [system.run_task(task) for task in tasks[3:]]
-        traces = [*cold_traces, *warm_traces]
-        artifact_count = int(system.database.execute(
-            "SELECT COUNT(*) AS count FROM artifact_index"
-        ).fetchone()["count"])
-        learned_preflight = any(
-            call.call_kind == "implementation_invocation"
-            and call.preflight_result.get("passed") is True
-            for trace in traces
-            for call in trace.native_tool_calls
+        warm_traces = [system.run_task(task) for task in tasks[3:5]]
+        multi_traces = [system.run_task(tasks[5])]
+        traces = [*cold_traces, *warm_traces, *multi_traces]
+        artifact_counts = {
+            str(row["artifact_kind"]): int(row["count"])
+            for row in system.database.execute(
+                "SELECT artifact_kind,COUNT(*) AS count FROM artifact_index GROUP BY artifact_kind"
+            ).fetchall()
+        }
+        four_layer_assets = all(
+            artifact_counts.get(kind, 0) > 0
+            for kind in ("atomic", "implementation", "tool", "composite")
         )
-        direct_or_completed = any(
-            node.status.value in {
-                "direct_autonomous_success", "direct_agent_prepared_success",
-                "agent_completed_before_invocation",
+        actual_started_direct = any(_actual_started_direct(trace) for trace in warm_traces)
+        dataflow_proven = any(_validated_dataflow(trace) for trace in traces)
+        cold_dynamic_success = any(
+            trace.benchmark_success
+            and trace.runtime_plan.get("source") == "full_dynamic"
+            for trace in cold_traces
+        )
+        unknown_actions = sum(
+            action.action_type == "UNKNOWN"
+            for trace in traces for action in trace.environment_actions
+        )
+        contract_mismatches = sum(
+            failure.code in {
+                "task_contract_mismatch", "benchmark_goal_contract_mismatch",
             }
-            for trace in traces for node in trace.node_records
+            for trace in traces for failure in trace.failures
         )
         passed = (
-            any(trace.benchmark_success for trace in traces)
-            and artifact_count > 0 and learned_preflight and direct_or_completed
+            capability.get("passed") is True
+            and cold_dynamic_success
+            and four_layer_assets
+            and actual_started_direct
+            and dataflow_proven
             and all(not trace.infrastructure_failure for trace in traces)
+            and all(trace.resource_usage_complete for trace in traces)
+            and unknown_actions == 0
+            and contract_mismatches == 0
         )
-        validate_formal_usage(traces)
+        persisted_traces = list(system.traces.iter_payloads())
+        validate_formal_usage(persisted_traces)
+        validate_usage_event_persistence(system.usage.events, persisted_traces)
         write_reports(traces, output / "reports", stem="real_alfworld_smoke")
         result = {
             "passed": passed,
@@ -232,10 +416,16 @@ def run_real_alfworld(config_path: str | Path) -> int:
             "tasks": len(traces),
             "cold_tasks": len(cold_traces),
             "warm_unseen_tasks": len(warm_traces),
+            "multi_node_tasks": len(multi_traces),
             "successes": sum(trace.benchmark_success for trace in traces),
-            "artifact_count": artifact_count,
-            "learned_invocation_preflight": learned_preflight,
-            "started_direct_or_agent_completed": direct_or_completed,
+            "artifact_counts": artifact_counts,
+            "four_layer_assets": four_layer_assets,
+            "cold_dynamic_success": cold_dynamic_success,
+            "actual_started_direct": actual_started_direct,
+            "validated_dataflow": dataflow_proven,
+            "unknown_alfworld_actions": unknown_actions,
+            "won_task_contract_mismatches": contract_mismatches,
+            "provider_capability_passed": capability.get("passed") is True,
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if passed else 1
@@ -245,12 +435,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--preflight", action="store_true")
+    modes.add_argument("--provider-probe", action="store_true")
     modes.add_argument("--deterministic", action="store_true")
     modes.add_argument("--real-alfworld", action="store_true")
     parser.add_argument("--config", default="configs/default.yaml")
     args = parser.parse_args(argv)
     if args.preflight:
         return run_preflight(args.config)
+    if args.provider_probe:
+        return run_provider_probe(args.config)
     if args.deterministic:
         return run_deterministic()
     return run_real_alfworld(args.config)

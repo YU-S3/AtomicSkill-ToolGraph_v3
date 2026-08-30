@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
+from ..agents.structured_submission import StructuredSubmissionClient
 from ..core.refs import canonical_json
 
 
@@ -136,6 +136,7 @@ class EvolutionRepairSession:
 
     def __init__(self, session: Any) -> None:
         self.session = session
+        self.submissions = StructuredSubmissionClient()
         self._used = False
 
     def propose(self, reviews: list[dict[str, Any]]) -> list[EvolutionToolEditProposal]:
@@ -144,8 +145,9 @@ class EvolutionRepairSession:
         if not reviews:
             self._used = True
             return []
-        turn = self.session.next_turn(
-            "Review only the supplied evidence-backed Tool cohorts. Return no proposal "
+        payload = self.submissions.request(
+            self.session,
+            prompt="Review only the supplied evidence-backed Tool cohorts. Return no proposal "
             "when evidence does not justify an edit. Never invent a source replay case, "
             "effect, action, or target reference. source_step_indexes declare the ordered "
             "source-step authority for each candidate. For split they must form disjoint, "
@@ -154,9 +156,10 @@ class EvolutionRepairSession:
             "candidate."
             "\n\nPOLICY_CONTEXT_JSON\n"
             + canonical_json({"reviews": reviews}),
-            structured_output_schema=EVOLUTION_REPAIR_SCHEMA,
-        )
-        payload = json.loads(turn.content)
+            tool_name="submit_evolution_repair",
+            description="Submit the evidence-bounded Tool evolution proposals.",
+            schema=EVOLUTION_REPAIR_SCHEMA,
+        ).value
         self._used = True
         return [
             EvolutionToolEditProposal(

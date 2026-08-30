@@ -1,10 +1,88 @@
-"""Shared action and stage-specific LLM budgets; fallback never resets usage."""
+"""Shared action and stage-specific LLM budgets; fallback never resets usage.
+
+Runtime Agent turns are a protocol budget, not a second action budget.  Keep
+their lower bounds next to the action budget so callers cannot accidentally
+re-introduce a small, hidden turn cap (the historical ``12``-turn failure).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from ..core.errors import BudgetExhausted, FailureLayer
+
+
+PROTOCOL_REPAIR_LIMIT = 1
+TURN_COMPLETION_OVERHEAD = 3
+
+
+def required_runtime_turn_caps(
+    *,
+    global_action_budget: int,
+    node_action_budget: int,
+    learned_toolcall_repair_limit: int,
+    protocol_repair_limit: int = PROTOCOL_REPAIR_LIMIT,
+) -> tuple[int, int]:
+    """Return the minimum ``(node, task)`` Agent turn caps.
+
+    A node may spend its environment actions, repair rejected learned calls,
+    repair the provider protocol, and still needs a small completion margin.
+    A Dynamic/Rescue task has the analogous global-action allowance.
+    """
+
+    values = {
+        "global_action_budget": global_action_budget,
+        "node_action_budget": node_action_budget,
+        "learned_toolcall_repair_limit": learned_toolcall_repair_limit,
+        "protocol_repair_limit": protocol_repair_limit,
+    }
+    for name, value in values.items():
+        if isinstance(value, bool) or int(value) < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+    if int(global_action_budget) <= 0 or int(node_action_budget) <= 0:
+        raise ValueError("action budgets must be positive")
+    node_cap = (
+        int(node_action_budget)
+        + int(learned_toolcall_repair_limit)
+        + int(protocol_repair_limit)
+        + TURN_COMPLETION_OVERHEAD
+    )
+    task_cap = (
+        int(global_action_budget)
+        + int(protocol_repair_limit)
+        + TURN_COMPLETION_OVERHEAD
+    )
+    return node_cap, task_cap
+
+
+def validate_runtime_turn_caps(
+    *,
+    global_action_budget: int,
+    node_action_budget: int,
+    learned_toolcall_repair_limit: int,
+    max_turns_per_node: int,
+    max_turns_per_task: int,
+    protocol_repair_limit: int = PROTOCOL_REPAIR_LIMIT,
+) -> tuple[int, int]:
+    """Fail closed when configured caps cannot cover the action budget."""
+
+    required_node, required_task = required_runtime_turn_caps(
+        global_action_budget=global_action_budget,
+        node_action_budget=node_action_budget,
+        learned_toolcall_repair_limit=learned_toolcall_repair_limit,
+        protocol_repair_limit=protocol_repair_limit,
+    )
+    if isinstance(max_turns_per_node, bool) or int(max_turns_per_node) < required_node:
+        raise ValueError(
+            "max_turns_per_node must cover node_action_budget plus learned/protocol "
+            f"repair and completion overhead (minimum {required_node})"
+        )
+    if isinstance(max_turns_per_task, bool) or int(max_turns_per_task) < required_task:
+        raise ValueError(
+            "max_turns_per_task must cover global_action_budget plus protocol repair "
+            f"and completion overhead (minimum {required_task})"
+        )
+    return int(max_turns_per_node), int(max_turns_per_task)
 
 
 @dataclass

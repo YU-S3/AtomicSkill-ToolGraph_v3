@@ -2,26 +2,124 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 from ..core.contracts import AbstractAtomicSkill, CompositeSkill, ImplementationAtom, ToolAsset
 from ..core.refs import SkillRef, ToolRef, bump_version, content_hash
+from ..core.serialization import to_primitive
 from ..core.status import SkillStatus, ToolStatus
 from ..knowledge.skill_registry import SkillRegistry
 from ..knowledge.tool_registry import ToolRegistry
 
 
+def _atomic_role_occurrences(value: AbstractAtomicSkill, role: str) -> tuple[tuple[str, str, str], ...]:
+    """Describe a role by semantic use, without using its trace-local name."""
+
+    occurrences: list[tuple[str, str, str]] = []
+    for boundary, predicates in (("pre", value.preconditions), ("effect", value.effects)):
+        for predicate in predicates:
+            for argument_name, argument in predicate.args.items():
+                source_role = getattr(argument, "source_role", "")
+                if source_role == role or argument == f"${role}":
+                    occurrences.append((boundary, predicate.predicate.casefold(), str(argument_name)))
+    return tuple(sorted(occurrences))
+
+
+def _normalize_atomic_value(value: Any, role_map: dict[str, str]) -> Any:
+    primitive = to_primitive(value)
+    if isinstance(primitive, str):
+        if primitive in role_map:
+            return role_map[primitive]
+        if primitive.startswith("$") and primitive[1:] in role_map:
+            return "$" + role_map[primitive[1:]]
+        return primitive
+    if isinstance(primitive, list):
+        return [_normalize_atomic_value(item, role_map) for item in primitive]
+    if isinstance(primitive, dict):
+        return {
+            str(key): _normalize_atomic_value(item, role_map)
+            for key, item in primitive.items()
+        }
+    return primitive
+
+
+def _canonical_atomic_contract(value: AbstractAtomicSkill) -> dict[str, Any]:
+    """Return the alpha-normalized semantic identity of an Abstract Atomic.
+
+    Summary/intent wording, guideline action sequences, failure prose,
+    provenance, concrete source instances, and Tool bodies are deliberately
+    outside this identity boundary.
+    """
+
+    described_roles: list[tuple[tuple[Any, ...], str, Any]] = []
+    for boundary, specs in (("input", value.inputs), ("output", value.outputs)):
+        for spec in specs:
+            descriptor = (
+                boundary,
+                str(spec.semantic_type).casefold(),
+                bool(spec.required),
+                bool(spec.runtime_resolvable),
+                str(spec.required_resolution).casefold(),
+                _atomic_role_occurrences(value, spec.name),
+            )
+            described_roles.append((descriptor, spec.name, spec))
+    described_roles.sort(key=lambda item: json.dumps(item[0], sort_keys=True))
+
+    role_map: dict[str, str] = {}
+    boundary_counts = {"input": 0, "output": 0}
+    for descriptor, role, _spec in described_roles:
+        boundary = str(descriptor[0])
+        canonical = f"{boundary}_{boundary_counts[boundary]:03d}"
+        boundary_counts[boundary] += 1
+        role_map[role] = canonical
+
+    def parameter(boundary: str, spec: Any) -> dict[str, Any]:
+        return {
+            "role": role_map[spec.name],
+            "boundary": boundary,
+            "semantic_type": str(spec.semantic_type).casefold(),
+            "required": bool(spec.required),
+            "runtime_resolvable": bool(spec.runtime_resolvable),
+            "required_resolution": str(spec.required_resolution).casefold(),
+        }
+
+    def predicate(item: Any) -> dict[str, Any]:
+        return {
+            "predicate": str(item.predicate).casefold(),
+            "args": {
+                str(name): _normalize_atomic_value(argument, role_map)
+                for name, argument in sorted(item.args.items())
+            },
+            "cardinality": int(item.cardinality),
+            "distinct_by": str(item.distinct_by),
+        }
+
+    def sorted_predicates(items: list[Any]) -> list[dict[str, Any]]:
+        normalized = [predicate(item) for item in items]
+        return sorted(
+            normalized,
+            key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        )
+
+    return {
+        "inputs": sorted(
+            (parameter("input", item) for item in value.inputs),
+            key=lambda item: item["role"],
+        ),
+        "outputs": sorted(
+            (parameter("output", item) for item in value.outputs),
+            key=lambda item: item["role"],
+        ),
+        "preconditions": sorted_predicates(value.preconditions),
+        "effects": sorted_predicates(value.effects),
+        "validator_contract": _normalize_atomic_value(value.validator_spec, role_map),
+    }
+
+
 def _atomic_signature(value: AbstractAtomicSkill) -> str:
-    return content_hash({
-        "inputs": value.inputs,
-        "outputs": value.outputs,
-        "preconditions": value.preconditions,
-        "effects": value.effects,
-        "validator_spec": value.validator_spec,
-        "failure_modes": value.failure_modes,
-        "atomic_boundary": value.guideline,
-    })
+    return content_hash(_canonical_atomic_contract(value))
 
 
 def _tool_signature(value: ToolAsset) -> str:
@@ -126,7 +224,10 @@ class Aligner:
                 # to Candidate; never strand it behind an unusable old version.
                 if existing.status in {SkillStatus.CANDIDATE, SkillStatus.ACTIVE}:
                     return existing.ref
-        ref = self._next_skill_ref(candidate.ref, "atomic")
+        # Do not let whichever trace discovers the capability first leak its
+        # intent wording into the persistent logical identity.
+        identity_ref = SkillRef(f"atomic_{signature[:24]}", "1.0.0")
+        ref = self._next_skill_ref(identity_ref, "atomic")
         admitted = replace(candidate, ref=ref, status=SkillStatus.CANDIDATE)
         self.skills.register_atomic(admitted)
         return ref

@@ -9,6 +9,7 @@ from typing import Any, Callable
 from ..core.bindings import (
     BindingExpression, BindingExprKind, BindingResolution, BindingSource,
     BindingStatus, GroundingConstraint, RuntimeBinding, RuntimeBindingChange,
+    resolution_satisfies,
 )
 from ..core.contracts import ParameterSpec, TaskContract
 from ..core.results import RuntimeLinearPlan, RuntimeOccurrence
@@ -217,6 +218,54 @@ class RuntimeBindingStore:
         result = {role: binding for (owner, role), binding in self._bindings.items() if owner == "__task__"}
         result.update({role: binding for (owner, role), binding in self._bindings.items() if owner == occurrence_id})
         return result
+
+    def runtime_prompt_projection(
+        self,
+        occurrence: RuntimeOccurrence | str,
+        parameters: list[ParameterSpec],
+    ) -> dict[str, Any]:
+        """Separate semantic intent from bindings that are executable now."""
+
+        occurrence_id = occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
+        task_bindings = {
+            role: binding for (owner, role), binding in self._bindings.items()
+            if owner == "__task__"
+        }
+        current = self.snapshot_for_node(occurrence_id)
+        semantic_anchors = {
+            role: binding.value for role, binding in task_bindings.items()
+            if binding.status is BindingStatus.GROUNDED
+        }
+        semantic_anchors.update({
+            role: binding.value for role, binding in current.items()
+            if binding.source is BindingSource.DATA_FLOW
+            and binding.status is BindingStatus.GROUNDED
+        })
+        execution_ready: dict[str, Any] = {}
+        missing: list[str] = []
+        for parameter in parameters:
+            binding = current.get(parameter.name)
+            sufficient = bool(
+                binding is not None
+                and binding.status is BindingStatus.GROUNDED
+                and resolution_satisfies(
+                    binding.resolution, parameter.required_resolution,
+                )
+            )
+            if sufficient:
+                execution_ready[parameter.name] = binding.value
+            elif parameter.required:
+                missing.append(parameter.name)
+        return {
+            "semantic_anchors": semantic_anchors,
+            "execution_ready_bindings": execution_ready,
+            "missing_or_insufficient_bindings": missing,
+        }
+
+    def semantic_anchor(self, role: str) -> RuntimeBinding | None:
+        """Return the immutable task/DataFlow semantic anchor for ``role``."""
+
+        return self._bindings.get(("__task__", str(role)))
 
     def validated_outputs(self, occurrence_id: str) -> dict[str, RuntimeBinding]:
         return {role: binding for (owner, role), binding in self._outputs.items() if owner == occurrence_id}

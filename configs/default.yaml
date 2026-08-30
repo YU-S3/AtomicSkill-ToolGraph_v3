@@ -6,37 +6,57 @@ data_dir: data_v3
 
 llm:
   provider: openai_compatible
-  base_url: "https://openrouter.ai/api/v1"
-  model: "REPLACE_WITH_MODEL_ID"
+  dialect: deepseek_v4_chat
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
   api_key_env: MODEL_API_KEY
   connect_timeout_seconds: 15
-  request_timeout_seconds: 120
   max_retries: 4
   retry_backoff_seconds: 2
   max_retry_after_seconds: 30
+  protocol:
+    endpoint_path: "/chat/completions"
+    structured_output_transport: native_submission_tool
+    token_limit_field: max_tokens
+    thinking_type: enabled
+    send_reasoning_effort: true
+    replay_reasoning_content_with_tools: true
+    send_response_format: false
+    send_tool_choice: false
+    send_parallel_tool_calls: false
+    send_temperature: false
+    strict_tools: false
+    require_usage: true
 
   planner:
     reasoning_effort: high
     max_completion_tokens: 32768
-    max_visible_tokens: 8192
+    request_timeout_seconds: 300
     max_turns: 4
     max_total_tokens_per_task: 120000
 
   runtime:
     reasoning_effort: high
     max_completion_tokens: 32768
-    max_visible_tokens: 4096
-    max_turns_per_node: 12
+    request_timeout_seconds: 180
     max_total_tokens_per_node: 80000
-    max_turns_per_task: 12
-    max_total_tokens_per_task: 80000
+    max_total_tokens_per_task: 200000
     learned_toolcall_repair_limit: 2
+    protocol_repair_limit: 1
 
   extractor:
     reasoning_effort: high
     max_completion_tokens: 131072
-    max_visible_tokens: 32768
+    request_timeout_seconds: 600
     max_turns: 2
+    max_total_tokens_per_task: 262144
+
+  evolution_repair:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
+    max_total_tokens_per_batch: 120000
 
 planner:
   composite_top_k: 5
@@ -49,7 +69,6 @@ planner:
 runtime:
   global_action_budget: 100
   node_action_budget: 35
-  node_agent_turn_budget: 12
   max_implementation_candidates: 3
 
 lifecycle:

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from ..core.refs import SkillRef, canonical_json
+from ..agents.structured_submission import StructuredSubmissionClient
 from .composite_repairs import CompositeSequenceRepairEngine
 from .repair import RepairProposal
 from .typed_repairs import RepairEvidence
@@ -94,6 +94,7 @@ class CompositeSequenceProposalSession:
 
     def __init__(self, session: Any) -> None:
         self.session = session
+        self.submissions = StructuredSubmissionClient()
         self._used = False
 
     def propose(
@@ -105,8 +106,9 @@ class CompositeSequenceProposalSession:
         if not reviews:
             self._used = True
             return []
-        turn = self.session.next_turn(
-            "Review only the supplied code-authoritative Composite structural contexts. "
+        payload = self.submissions.request(
+            self.session,
+            prompt="Review only the supplied code-authoritative Composite structural contexts. "
             "Return at most one decision per review. Use no_change unless the evidence "
             "supports a real control-sequence revision. For propose, return one complete "
             "replacement Composite artifact. Never return or invent target refs, operation "
@@ -115,9 +117,10 @@ class CompositeSequenceProposalSession:
             "original structured transitions and independently replay, PlannerValidate, "
             "and admit the replacement.\n\nPOLICY_CONTEXT_JSON\n"
             + canonical_json({"reviews": [item.prompt_view() for item in reviews]}),
-            structured_output_schema=COMPOSITE_SEQUENCE_DECISION_SCHEMA,
-        )
-        payload = json.loads(turn.content)
+            tool_name="submit_composite_repair",
+            description="Submit the evidence-bounded Composite sequence repair decisions.",
+            schema=COMPOSITE_SEQUENCE_DECISION_SCHEMA,
+        ).value
         decisions = self.parse(payload, reviews)
         self._used = True
         return decisions

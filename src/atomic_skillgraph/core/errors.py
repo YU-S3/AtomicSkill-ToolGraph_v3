@@ -38,6 +38,10 @@ ERROR_CODES = frozenset(
     infrastructure_failure planner_token_budget_exhausted
     runtime_node_token_budget_exhausted runtime_node_action_budget_exhausted
     episode_action_budget_exhausted extractor_token_budget_exhausted""".split()
+    + """provider_capability_mismatch provider_auth_error provider_rate_limit
+    provider_rate_limited provider_timeout provider_transport_error
+    provider_invalid_request provider_invalid_response
+    provider_reasoning_content_missing provider_usage_missing""".split()
 )
 
 

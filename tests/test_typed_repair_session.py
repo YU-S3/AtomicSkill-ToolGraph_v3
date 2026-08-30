@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 
+from atomic_skillgraph.agents import NativeToolCall
 from atomic_skillgraph.core.contracts import AbstractAtomicSkill, ParameterSpec, SemanticPredicate
 from atomic_skillgraph.core.refs import SkillRef
 from atomic_skillgraph.core.serialization import to_primitive
@@ -95,9 +95,15 @@ def test_typed_session_is_one_bounded_turn_and_schema_has_no_evidence_output() -
         def __init__(self):
             self.schema = None
 
-        def next_turn(self, _prompt, *, structured_output_schema):
-            self.schema = structured_output_schema
-            return SimpleNamespace(content=json.dumps({"decisions": []}))
+        def next_turn(self, _prompt, *, tools):
+            self.schema = tools[0].input_schema
+            return SimpleNamespace(tool_calls=[
+                NativeToolCall("call_typed", tools[0].name, {"decisions": []})
+            ])
+
+        def acknowledge_tool_result(self, call_id, result):
+            assert call_id == "call_typed"
+            assert result["accepted"] is True
 
     fake = FakeSession()
     session = TypedRepairProposalSession(fake)

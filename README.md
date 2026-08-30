@@ -74,22 +74,24 @@ python -m pip install -e '.[dev]'
 ```yaml
 llm:
   provider: openai_compatible
-  base_url: "https://openrouter.ai/api/v1"
-  model: "REPLACE_WITH_MODEL_ID"
+  dialect: deepseek_v4_chat
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
   api_key_env: MODEL_API_KEY
 ```
 
 运行真实 API 前：
 
-1. 在要使用的配置文件中填写实际的 OpenAI-compatible `base_url` 和 `model`；
-   所选模型/端点必须原生支持 Chat Completions `tools`、单次 native ToolCall、
-   `response_format.type=json_schema`、完整 `usage` 计量，以及配置中的
-   `reasoning_effort`；静态 preflight 会检查本地 Provider 请求能力、模型配置和
-   API 来源，远端端点的真实协议能力在首次请求时验证，任一不满足都会 fail closed；
+1. 正式配置固定使用 DeepSeek 官方 `https://api.deepseek.com`、
+   `deepseek-v4-flash` 和 `/chat/completions`。控制结构全部通过 native submission
+   ToolCall 交付；正式 payload 使用 `max_tokens`、thinking 和 `reasoning_effort`，
+   不发送 `response_format`、`max_completion_tokens`、`tool_choice`、
+   `parallel_tool_calls` 或 `temperature`；
 2. 把密钥放入 `api_key_env` 指定的环境变量；默认变量名为
    `MODEL_API_KEY`；
-3. train 和 frozen eval 必须使用相同的 provider、base URL、模型和 API key
-   来源，保证实验公平性。
+3. 正式任务开始前必须运行真实 capability probe，证明 structured ToolCall、
+   两轮 `reasoning_content` 原样 replay、Extractor 的 `max_tokens=131072` 以及
+   provider usage 都满足协议；train 和 frozen eval 使用相同的配置与密钥来源。
 
 PowerShell 当前会话：
 
@@ -174,20 +176,32 @@ python -m experiments.run_v3_smoke --deterministic --config configs/default.yaml
 task rescue。验收包括 Trace 完整、Ledger 幂等、token 守恒、started 归因、
 validated output DataFlow、Candidate 在线可用和 frozen digest 不变。
 
-### 3. 真实 ALFWorld smoke
+### 3. DeepSeek provider capability probe
+
+```bash
+python -m experiments.run_v3_smoke --provider-probe --config configs/alfworld_train_full_30.yaml
+```
+
+Probe A/B/C 必须全部通过，产物写入训练输出目录的
+`provider_capability_manifest.json` 和 `provider_probe_trace.json`。产物只保存请求、
+usage、状态和 reasoning 的长度/hash，不保存密钥或 reasoning 全文。
+
+### 4. 真实 ALFWorld smoke
 
 命令：
 
 ```bash
-python -m experiments.run_v3_smoke --real-alfworld --config configs/default.yaml
+python -m experiments.run_v3_smoke --real-alfworld --config configs/alfworld_train_full_30.yaml
 ```
 
-固定开发门禁是 3 个 cold `pick_and_place_simple` train task、2 个未见过的 warm
-同类 task，可选 1 个 heat-then-place 多节点 task。必须至少得到一条成功 Trace、
-一个 Candidate、一次 Learned Invocation preflight，以及一次 started Direct 或明确的
-`agent_completed_before_invocation`；仅“不崩溃”不算通过。
+固定门禁是 3 个 cold `pick_and_place_simple`、2 个未见过的 warm 同类 task，及
+1 个 heat-then-place 多节点 task。warm task 必须有 learned Implementation preflight
+通过、Implementation/Tool 实际 started+completed、Atomic effect 通过，以及
+`direct_autonomous_success` 或 `direct_agent_prepared_success`。多节点任务还必须证明
+validated output 被下游已启动的 Implementation 作为 DataFlow 参数实际消费；
+`agent_completed_before_invocation` 不算 Tool 复用证据。
 
-### 4. Full-30 在线训练
+### 5. Full-30 在线训练
 
 命令：
 
@@ -202,17 +216,21 @@ cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3
 /home/yangchengyu/asg_alfworld_venv/bin/python -m pip install -e '.[dev]'
 export ALFWORLD_DATA=/home/yangchengyu/.cache/alfworld
 read -rsp 'MODEL_API_KEY: ' MODEL_API_KEY && export MODEL_API_KEY && echo
-# 先按“API 填写”一节修改 configs/alfworld_train_full_30.yaml 的 base_url/model
 /home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_smoke --preflight --config configs/alfworld_train_full_30.yaml
+/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_smoke --provider-probe --config configs/alfworld_train_full_30.yaml
+/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_smoke --deterministic --config configs/default.yaml
+/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_smoke --real-alfworld --config configs/alfworld_train_full_30.yaml
 /home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_train --config configs/alfworld_train_full_30.yaml
 ```
+
+旧失败 run 必须先归档；第一次修复后训练是 fresh run，不加 `--resume`。
 
 Runner 必须先固化精确任务 manifest，再从空 v3 bank 按该清单运行。配置中的
 `tasks_per_type: 5`、`total_tasks: 30` 和六个 task type 是正式协议，不能被
 “取前 30 题”替代。fresh bank 检查覆盖全部长期知识表以及 `artifacts/` 下的文件；
 仅有 schema-v3 初始化行和空 artifact 目录才视为真正的空 bank。
 
-### 5. 任务边界 resume
+### 6. 任务边界 resume
 
 命令：
 
@@ -234,7 +252,7 @@ attempt 前 fail closed。
 与 frozen provenance 一致。周期维护和 final maintenance 使用独立、先落盘的 immutable
 maintenance Trace；不会覆盖已保存的 task Trace。
 
-### 6. Frozen held-out 评测
+### 7. Frozen held-out 评测
 
 命令：
 
@@ -291,8 +309,8 @@ token 只按 Provider metadata 计量，不读取 reasoning text，也不把 rea
 
 - `MODEL_API_KEY` 缺失：在启动 Runner 的同一个进程环境中导出变量；不要把 key
   写进 YAML。
-- `model` 仍为 `REPLACE_WITH_MODEL_ID`：在三个正式使用的配置中填入同一个真实
-  model id。
+- Provider 配置被改动：正式训练必须保持 `deepseek_v4_chat`、
+  `https://api.deepseek.com` 和 `deepseek-v4-flash`，并重新运行 capability probe。
 - ALFWorld 初始化失败：检查 `ALFWORLD_DATA` 下是否存在 `logic/` 和
   `json_2.1.1/`，并确认安装了 `.[alfworld]`。
 - Resume 拒绝：不要覆盖旧 run directory；核对 manifest、配置、commit 和 frozen

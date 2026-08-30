@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 
 import pytest
 
+from atomic_skillgraph.agents import NativeToolCall
 from atomic_skillgraph.core.serialization import to_primitive
 from atomic_skillgraph.evolution.composite_repair_session import (
     CompositeSequenceProposalSession,
@@ -92,9 +92,15 @@ def test_composite_session_is_single_turn_and_output_has_no_authority_fields() -
         def __init__(self):
             self.schema = None
 
-        def next_turn(self, _prompt, *, structured_output_schema):
-            self.schema = structured_output_schema
-            return SimpleNamespace(content=json.dumps({"decisions": []}))
+        def next_turn(self, _prompt, *, tools):
+            self.schema = tools[0].input_schema
+            return SimpleNamespace(tool_calls=[
+                NativeToolCall("call_composite", tools[0].name, {"decisions": []})
+            ])
+
+        def acknowledge_tool_result(self, call_id, result):
+            assert call_id == "call_composite"
+            assert result["accepted"] is True
 
     fake = FakeSession()
     session = CompositeSequenceProposalSession(fake)

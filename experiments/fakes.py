@@ -60,14 +60,13 @@ class FakeProviderRequest:
     """Immutable capture of one :class:`AgentProvider.complete` request.
 
     The stored values are defensive copies of exactly the replay-session
-    ``messages``, native ``tools``, and structured-output schema.  A structured
+    ``messages`` and native ``tools``.  A structured
     :class:`FakeReply` may use a request-aware callback when its value depends
     on code-generated authority, such as Extractor E2 occurrence ids.
     """
 
     messages: tuple[dict[str, Any], ...]
     tools: tuple[NativeToolSpec, ...]
-    structured_output_schema: dict[str, Any] | None
 
     @property
     def last_user_input(self) -> str:
@@ -154,12 +153,9 @@ class FakeReply:
         *,
         call_id: str,
         tools: Sequence[NativeToolSpec],
-        structured_output_schema: Mapping[str, Any] | None,
         request: FakeProviderRequest | None = None,
     ) -> AgentTurn:
         if self.tool_name:
-            if structured_output_schema is not None:
-                raise AssertionError("fake ToolCall reply supplied for a structured-output turn")
             name = self.tool_name
             if name == _LEARNED_TOOL:
                 names = [item.name for item in tools if item.name.startswith("invoke_impl_")]
@@ -172,30 +168,46 @@ class FakeReply:
             if name not in offered:
                 raise AssertionError(f"scripted tool {name!r} was not offered: {sorted(offered)!r}")
             arguments = copy.deepcopy(dict(self.arguments))
-            validate_schema_instance(arguments, offered[name].input_schema)
-            calls = [NativeToolCall(call_id, name, arguments)]
-            content = self.content
-            finish_reason = "tool_calls"
         else:
-            if structured_output_schema is None:
-                raise AssertionError("structured fake reply used when a native ToolCall was required")
+            submit_tools = [item for item in tools if item.name.startswith("submit_")]
+            if len(submit_tools) != 1:
+                raise AssertionError(
+                    "structured fake reply requires exactly one offered native submit tool"
+                )
+            name = submit_tools[0].name
             if callable(self.structured_value):
                 if request is None:
                     raise AssertionError("request-aware fake reply requires a provider request")
                 value = self.structured_value(request)
             else:
                 value = self.structured_value
-            value = copy.deepcopy(value)
-            validate_schema_instance(value, dict(structured_output_schema))
-            calls = []
-            content = json.dumps(
-                value,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            )
-            finish_reason = "stop"
+            arguments = copy.deepcopy(value)
+        offered = {item.name: item for item in tools}
+        if name not in offered:
+            raise AssertionError(f"scripted tool {name!r} was not offered: {sorted(offered)!r}")
+        if not isinstance(arguments, dict):
+            raise AssertionError("native fake ToolCall arguments must be an object")
+        validate_schema_instance(arguments, offered[name].input_schema)
+        calls = [NativeToolCall(call_id, name, arguments)]
+        content = self.content
+        finish_reason = "tool_calls"
+        reasoning_content = f"deterministic reasoning for {call_id}"
+        replay = {
+            "role": "assistant",
+            "content": content,
+            "reasoning_content": reasoning_content,
+            "tool_calls": [{
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": json.dumps(
+                        arguments, ensure_ascii=False, sort_keys=True,
+                        separators=(",", ":"), allow_nan=False,
+                    ),
+                },
+            }],
+        }
         return AgentTurn(
             content=content,
             tool_calls=calls,
@@ -214,13 +226,14 @@ class FakeReply:
                 "reasoning_tokens_source": "fixture",
                 "reasoning_tokens_in_completion": True,
             },
+            reasoning_content=reasoning_content,
+            replay_assistant_message=replay,
         )
 
 
 def _capture_provider_request(
     messages: list[dict[str, Any]],
     tools: list[NativeToolSpec] | None,
-    structured_output_schema: dict[str, Any] | None,
 ) -> FakeProviderRequest:
     """Validate and copy the concrete request shape emitted by ReplayAgentSession."""
 
@@ -238,13 +251,15 @@ def _capture_provider_request(
         if role == "tool":
             if not isinstance(message.get("tool_call_id"), str) or not message["tool_call_id"]:
                 raise AssertionError("replay tool message requires tool_call_id")
-            if not isinstance(message.get("name"), str) or not message["name"]:
-                raise AssertionError("replay tool message requires its native tool name")
+            if "name" in message:
+                raise AssertionError("DeepSeek replay tool messages must omit name")
             try:
                 json.loads(message["content"])
             except (TypeError, ValueError) as exc:
                 raise AssertionError("replay tool message content must be JSON") from exc
         if role == "assistant" and "tool_calls" in message:
+            if not isinstance(message.get("reasoning_content"), str):
+                raise AssertionError("DeepSeek assistant ToolCall replay requires reasoning_content")
             native_calls = message["tool_calls"]
             if not isinstance(native_calls, list) or len(native_calls) != 1:
                 raise AssertionError("replay assistant message must contain exactly one native ToolCall")
@@ -279,16 +294,7 @@ def _capture_provider_request(
         if not isinstance(tools, list) or not all(isinstance(item, NativeToolSpec) for item in tools):
             raise AssertionError("fake provider tools must be a list of NativeToolSpec")
         copied_tools = tuple(copy.deepcopy(tools))
-    if structured_output_schema is not None and not isinstance(structured_output_schema, dict):
-        raise AssertionError("fake provider structured_output_schema must be an object or None")
-    if copied_tools and structured_output_schema is not None:
-        raise AssertionError("a provider turn cannot request native tools and structured output together")
-    copied_schema = (
-        None
-        if structured_output_schema is None
-        else copy.deepcopy(structured_output_schema)
-    )
-    return FakeProviderRequest(tuple(copied_messages), copied_tools, copied_schema)
+    return FakeProviderRequest(tuple(copied_messages), copied_tools)
 
 
 class ScriptedAgentProvider:
@@ -334,9 +340,8 @@ class ScriptedAgentProvider:
         messages: list[dict[str, Any]],
         *,
         tools: list[NativeToolSpec] | None = None,
-        structured_output_schema: dict[str, Any] | None = None,
     ) -> AgentTurn:
-        request = _capture_provider_request(messages, tools, structured_output_schema)
+        request = _capture_provider_request(messages, tools)
         if not self._replies:
             raise AssertionError(
                 f"no scripted provider reply remains for stage {self.provider_id!r}"
@@ -347,7 +352,6 @@ class ScriptedAgentProvider:
         return reply.materialize(
             call_id=f"call_{self._safe_id}_{call_index:06d}",
             tools=request.tools,
-            structured_output_schema=request.structured_output_schema,
             request=request,
         )
 
@@ -430,6 +434,7 @@ class ScriptedAgentSession:
         self._turn_index = 0
         self._pending: NativeToolCall | None = None
         self._seen_call_ids: set[str] = set()
+        self._finalized = False
         self._messages: list[dict[str, Any]] = []
         self._tool_results: list[dict[str, Any]] = []
 
@@ -458,13 +463,23 @@ class ScriptedAgentSession:
         user_input: str | None,
         *,
         tools: list[NativeToolSpec] | None = None,
-        structured_output_schema: dict[str, Any] | None = None,
     ) -> AgentTurn:
+        if self._finalized:
+            raise AssertionError("fake AgentSession was finalized")
         if self._pending is not None:
             raise AssertionError("pending fake ToolCall requires submit_tool_result")
         if user_input is not None:
             self._messages.append({"role": "user", "content": str(user_input)})
-        return self._issue(tools or [], structured_output_schema)
+        return self._issue(tools or [])
+
+    def acknowledge_tool_result(self, call_id: str, result: dict[str, Any]) -> None:
+        if self._pending is None or self._pending.call_id != call_id:
+            raise AssertionError("fake acknowledgement does not match the pending ToolCall")
+        self._append_tool_result(call_id, result)
+
+    def finalize_tool_result(self, call_id: str, result: dict[str, Any]) -> None:
+        self.acknowledge_tool_result(call_id, result)
+        self._finalized = True
 
     def submit_tool_result(
         self,
@@ -475,13 +490,7 @@ class ScriptedAgentSession:
     ) -> AgentTurn:
         if self._pending is None or self._pending.call_id != call_id:
             raise AssertionError("fake ToolCall result does not match the pending call")
-        self._tool_results.append(
-            {"call_id": call_id, "tool_name": self._pending.name, "result": copy.deepcopy(result)}
-        )
-        self._messages.append(
-            {"role": "tool", "tool_call_id": call_id, "content": copy.deepcopy(result)}
-        )
-        self._pending = None
+        self._append_tool_result(call_id, result)
 
         # A rejected learned invocation needs an actual repair turn.  A
         # non-terminal environment action also needs another decision.  The
@@ -495,8 +504,24 @@ class ScriptedAgentSession:
             and not bool(result.get("won"))
         )
         if repair or continue_environment:
-            return self._issue(tools or [], None)
+            return self._issue(tools or [])
         return AgentTurn("", [], "stop", 0, 0, 0, 0, 0.0, {"provider": "fake"})
+
+    def _append_tool_result(self, call_id: str, result: dict[str, Any]) -> None:
+        if self._pending is None:
+            raise AssertionError("fake session has no pending ToolCall")
+        self._tool_results.append(
+            {"call_id": call_id, "tool_name": self._pending.name, "result": copy.deepcopy(result)}
+        )
+        self._messages.append({
+            "role": "tool",
+            "tool_call_id": call_id,
+            "content": json.dumps(
+                result, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"), allow_nan=False,
+            ),
+        })
+        self._pending = None
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -513,7 +538,8 @@ class ScriptedAgentSession:
                     "arguments": copy.deepcopy(self._pending.arguments),
                 }
             ),
-            "messages": copy.deepcopy(self._messages),
+            "finalized": self._finalized,
+            "messages": _sanitized_fake_messages(self._messages),
             "tool_results": copy.deepcopy(self._tool_results),
             "remaining_replies": len(self._replies),
             "provider": {"provider": "fake", "model": "deterministic-v3"},
@@ -522,7 +548,6 @@ class ScriptedAgentSession:
     def _issue(
         self,
         tools: Sequence[NativeToolSpec],
-        structured_output_schema: Mapping[str, Any] | None,
     ) -> AgentTurn:
         if not self._replies:
             raise AssertionError(
@@ -533,15 +558,9 @@ class ScriptedAgentSession:
         turn = reply.materialize(
             call_id=call_id,
             tools=tools,
-            structured_output_schema=structured_output_schema,
             request=FakeProviderRequest(
                 tuple(copy.deepcopy(self._messages)),
                 tuple(copy.deepcopy(tools)),
-                (
-                    None
-                    if structured_output_schema is None
-                    else copy.deepcopy(dict(structured_output_schema))
-                ),
             ),
         )
         self._usage_ledger.record_turn(
@@ -552,20 +571,7 @@ class ScriptedAgentSession:
             event_id=f"usage_{self._session_id}_{self._turn_index:03d}",
         )
         self._turn_index += 1
-        self._messages.append(
-            {
-                "role": "assistant",
-                "content": turn.content,
-                "tool_calls": [
-                    {
-                        "call_id": item.call_id,
-                        "name": item.name,
-                        "arguments": copy.deepcopy(item.arguments),
-                    }
-                    for item in turn.tool_calls
-                ],
-            }
-        )
+        self._messages.append(copy.deepcopy(turn.replay_assistant_message))
         if turn.tool_calls:
             call = turn.tool_calls[0]
             if call.call_id in self._seen_call_ids:
@@ -573,6 +579,23 @@ class ScriptedAgentSession:
             self._seen_call_ids.add(call.call_id)
             self._pending = call
         return turn
+
+
+def _sanitized_fake_messages(messages: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    values: list[dict[str, Any]] = []
+    for original in messages:
+        message = copy.deepcopy(dict(original))
+        reasoning = message.pop("reasoning_content", None)
+        if isinstance(reasoning, str):
+            message.update({
+                "reasoning_content_present": bool(reasoning),
+                "reasoning_content_chars": len(reasoning),
+                "reasoning_content_sha256": (
+                    sha256(reasoning.encode("utf-8")).hexdigest() if reasoning else ""
+                ),
+            })
+        values.append(message)
+    return values
 
 
 class FakeAgentFactory:

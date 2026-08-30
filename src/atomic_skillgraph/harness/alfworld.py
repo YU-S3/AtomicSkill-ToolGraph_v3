@@ -54,6 +54,37 @@ def entity_matches(left: Any, right: Any) -> bool:
     return same_entity_family(left, expected)
 
 
+def semantic_value_compatible(
+    *,
+    role: str,
+    concrete_value: Any,
+    semantic_anchor: Any,
+    semantic_type: str,
+) -> bool:
+    """Check a concrete ALFWorld proposal against its semantic task anchor.
+
+    Semantic entity anchors such as ``apple`` accept concrete members such as
+    ``apple_2``.  Concrete anchors preserve identity.  Non-entity scalar
+    values use equality after harmless string normalization.
+    """
+
+    if semantic_anchor is None or semantic_anchor == "":
+        return True
+    kind = str(semantic_type).strip().casefold()
+    entity_roles = {
+        "object", "item", "source", "destination", "location", "station",
+        "tool", "light", "light_source", "held_object", "target_location",
+        "object_location", "container", "receptacle", "appliance",
+    }
+    entity_typed = kind in {
+        "entity", "object", "location", "container", "receptacle",
+        "appliance", "tool", "light", "station",
+    } or str(role).strip().casefold() in entity_roles
+    if entity_typed and isinstance(concrete_value, str) and isinstance(semantic_anchor, str):
+        return entity_matches(concrete_value, semantic_anchor)
+    return concrete_value == semantic_anchor
+
+
 _ACTION_PATTERNS: list[tuple[str, re.Pattern[str], tuple[str, ...]]] = [
     ("TAKE", re.compile(r"^take (.+?) from (.+)$", re.I), ("object", "source")),
     ("PUT", re.compile(r"^put (.+?) in/on (.+)$", re.I), ("object", "destination")),
@@ -269,22 +300,12 @@ class AlfWorldValidatorChannel:
         )
 
     def validate_task_contract(self, contract: TaskContract) -> ValidationResult:
-        if self.won:
-            checks = {f"target_{index}": True for index, _ in enumerate(contract.target_effects)}
-            checks.update({
-                "official_won": True,
-                "cardinality_constraints": True,
-                "identity_constraints": True,
-                "contract_mapped_from_goal": bool(contract.target_effects),
-            })
-            return ValidationResult(
-                "task_contract", all(checks.values()), checks=checks,
-                failure_codes=[] if all(checks.values()) else ["task_contract_mismatch"],
-                witness_refs=[f"alfworld_official_won:r{self.revision}"],
-            )
-
+        # The benchmark win signal is deliberately not consulted here.
+        # TaskValidator combines it with this independent action-derived
+        # contract result at the terminal boundary.
         matches = [self._matching_facts(effect, {}) for effect in contract.target_effects]
         checks = {f"target_{index}": self._matches(effect, {}) for index, effect in enumerate(contract.target_effects)}
+        checks["contract_mapped_from_goal"] = bool(contract.target_effects)
         cardinality_ok = True
         for constraint in contract.cardinality_constraints:
             predicate = str(constraint.get("predicate", ""))
@@ -323,10 +344,17 @@ class AlfWorldValidatorChannel:
                     identity_ok &= bool(set.intersection(*role_sets))
         checks["identity_constraints"] = identity_ok
         passed = bool(contract.target_effects) and all(checks.values())
+        witnesses = []
+        if passed:
+            witnesses = [
+                f"alfworld_action_fact:r{self.revision}:{effect.predicate}:{index}"
+                for index, effect in enumerate(contract.target_effects)
+            ]
         return ValidationResult(
             "task_contract", passed, checks=checks,
             failure_codes=[] if passed else ["task_contract_mismatch"],
             messages=[] if passed else ["task contract is not yet satisfied"],
+            witness_refs=witnesses,
         )
 
 
@@ -532,6 +560,17 @@ class AlfWorldAdapter:
 
     def action_catalog(self) -> list[HarnessActionSpec]:
         return self._catalog.items()
+
+    def semantic_value_compatible(
+        self, *, role: str, concrete_value: Any,
+        semantic_anchor: Any, semantic_type: str,
+    ) -> bool:
+        return semantic_value_compatible(
+            role=role,
+            concrete_value=concrete_value,
+            semantic_anchor=semantic_anchor,
+            semantic_type=semantic_type,
+        )
 
     def execute_action(self, action_id: str, revision: int) -> HarnessActionResult:
         spec = self._catalog.get(action_id, revision)

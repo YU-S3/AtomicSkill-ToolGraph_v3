@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterator
 
-from ..core.serialization import atomic_create_json, read_json
-from .schema import NodeTraceRecord, TaskRecord, TraceRecord
+from ..core.serialization import atomic_create_json, read_json, to_primitive
+from .schema import NodeTraceRecord, ProviderRequestRecord, TaskRecord, TraceRecord
 
 
 class TraceStore:
@@ -21,7 +21,20 @@ class TraceStore:
             raise RuntimeError("trace store is read-only")
         if trace.schema_version != 3:
             raise ValueError("only v3 traces can be persisted")
-        return atomic_create_json(self.root / f"{trace.trace_id}.json", trace)
+        target = self.root / f"{trace.trace_id}.json"
+        try:
+            return atomic_create_json(target, trace)
+        except FileExistsError:
+            # Persistence retries of the exact same finished Trace are safe and
+            # useful after an uncertain filesystem return.  The identity is
+            # nevertheless immutable: even the same in-memory object is
+            # rejected once any field has changed after its first save.
+            if read_json(target) == to_primitive(trace):
+                return target
+            raise FileExistsError(
+                f"immutable Trace identity already exists with different content: "
+                f"{trace.trace_id}"
+            ) from None
 
     save = save_atomic
 
@@ -32,6 +45,9 @@ class TraceStore:
         payload = self.load_payload(trace_id)
         task = TaskRecord(**payload.pop("task"))
         payload["node_records"] = [NodeTraceRecord(**item) for item in payload.get("node_records", [])]
+        payload["provider_requests"] = [
+            ProviderRequestRecord(**item) for item in payload.get("provider_requests", [])
+        ]
         # Governance consumes the stable scalar/list fields. Less common nested
         # record types remain dict payloads after cross-process resume.
         return TraceRecord(task=task, **payload)

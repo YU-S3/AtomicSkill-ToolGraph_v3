@@ -18,6 +18,7 @@ from ..core.serialization import to_primitive
 from ..core.status import SkillStatus
 from ..knowledge.skill_registry import SkillRegistry
 from .repair import RepairProposal, RepairStore
+from .aligner import _atomic_signature
 
 
 Artifact: TypeAlias = AbstractAtomicSkill | ImplementationAtom
@@ -184,14 +185,7 @@ def _semantic(value: Artifact) -> str:
 
 
 def _atomic_contract(value: AbstractAtomicSkill) -> str:
-    return content_hash({
-        "inputs": value.inputs,
-        "outputs": value.outputs,
-        "preconditions": value.preconditions,
-        "effects": value.effects,
-        "validator_spec": value.validator_spec,
-        "failure_modes": value.failure_modes,
-    })
+    return _atomic_signature(value)
 
 
 def _effect_key(value: SemanticPredicate) -> str:

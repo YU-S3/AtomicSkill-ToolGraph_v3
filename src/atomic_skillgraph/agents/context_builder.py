@@ -47,8 +47,11 @@ class ContextBuilder:
         *,
         task_goal: str,
         atomic_contract: Any,
-        certified_bindings: Mapping[str, Any],
-        missing_required_arguments: Iterable[str],
+        certified_bindings: Mapping[str, Any] | None = None,
+        missing_required_arguments: Iterable[str] | None = None,
+        semantic_anchors: Mapping[str, Any] | None = None,
+        execution_ready_bindings: Mapping[str, Any] | None = None,
+        missing_or_insufficient_bindings: Iterable[str] | None = None,
         observation: str,
         action_catalog: Iterable[Any],
         relevant_action_history: Iterable[Any],
@@ -60,11 +63,22 @@ class ContextBuilder:
         ]
         if len(invocations) > 3:
             raise ValueError("RuntimePreparationSession may expose at most 3 implementations")
+        ready = (
+            dict(execution_ready_bindings)
+            if execution_ready_bindings is not None
+            else dict(certified_bindings or {})
+        )
+        missing = (
+            list(missing_or_insufficient_bindings)
+            if missing_or_insufficient_bindings is not None
+            else list(missing_required_arguments or ())
+        )
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
             "current_atomic_contract": _project(atomic_contract, _ATOMIC_RUNTIME_FIELDS),
-            "certified_bindings": _policy_value(dict(certified_bindings)),
-            "missing_required_arguments": [str(value) for value in missing_required_arguments],
+            "semantic_anchors": _policy_value(dict(semantic_anchors or {})),
+            "execution_ready_bindings": _policy_value(ready),
+            "missing_or_insufficient_bindings": [str(value) for value in missing],
             "current_observation": _text(observation, "observation"),
             "current_action_catalog": _compact_catalog(action_catalog),
             "relevant_action_history": _compact_history(relevant_action_history),
@@ -82,18 +96,30 @@ class ContextBuilder:
         *,
         task_goal: str,
         atomic_contract: Any,
-        certified_bindings: Mapping[str, Any],
+        certified_bindings: Mapping[str, Any] | None = None,
+        semantic_anchors: Mapping[str, Any] | None = None,
+        execution_ready_bindings: Mapping[str, Any] | None = None,
+        missing_or_insufficient_bindings: Iterable[str] = (),
         observation: str,
         action_catalog: Iterable[Any],
         relevant_action_history: Iterable[Any],
         remaining_budget: Mapping[str, Any],
     ) -> str:
+        ready = (
+            dict(execution_ready_bindings)
+            if execution_ready_bindings is not None
+            else dict(certified_bindings or {})
+        )
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
             "current_atomic_contract_and_guideline": _project(
                 atomic_contract, _ATOMIC_SEEDED_FIELDS
             ),
-            "certified_bindings": _policy_value(dict(certified_bindings)),
+            "semantic_anchors": _policy_value(dict(semantic_anchors or {})),
+            "execution_ready_bindings": _policy_value(ready),
+            "missing_or_insufficient_bindings": [
+                str(value) for value in missing_or_insufficient_bindings
+            ],
             "current_observation": _text(observation, "observation"),
             "current_action_catalog": _compact_catalog(action_catalog),
             "relevant_real_action_history": _compact_history(relevant_action_history),
@@ -140,7 +166,7 @@ class ContextBuilder:
             "semantic_hints": _policy_value(list(semantic_hints)),
         }
         return _render(
-            "Produce CapabilityRequirements as structured output. Do not claim formal completeness "
+            "Submit CapabilityRequirements with the offered native submit tool. Do not claim formal completeness "
             "beyond the supplied TaskContract authority.",
             payload,
         )
@@ -163,14 +189,14 @@ class ContextBuilder:
         }
         return _render(
             "Propose one strictly linear control sequence and forward data/dependency edges as "
-            "structured output. Code will validate the proposal.",
+            "a native submit tool call. Code will validate the proposal.",
             payload,
         )
 
     def extractor_e1(self, *, canonical_trace: Any) -> str:
         return _render(
-            "Propose reusable Atomic occurrences from this canonical successful trace as structured "
-            "output. State transitions are authoritative; do not infer actions from prose.",
+            "Propose reusable Atomic occurrences from this canonical successful trace with the offered "
+            "native submit tool. State transitions are authoritative; do not infer actions from prose.",
             {"canonical_trace": _policy_value(canonical_trace)},
         )
 
@@ -181,7 +207,7 @@ class ContextBuilder:
         )
         return _render(
             prefix
-            + " Propose the canonical control sequence and edge references as structured output.",
+            + " Propose the canonical control sequence and edge references with the native submit tool.",
             {"canonical_occurrences": _policy_value(list(canonical_occurrences))},
         )
 

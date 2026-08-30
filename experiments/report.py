@@ -70,6 +70,7 @@ REPORT_COLUMNS = (
     "graph_full_completion",
     "learning_eligible",
     "infrastructure_failure",
+    "resource_usage_complete",
     "plan_source",
     "source_composite_ref",
     "planner_outcome",
@@ -170,6 +171,9 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "learning_eligible": _boolean(_field(trace, "learning_eligible", False)),
         "infrastructure_failure": _boolean(
             _field(trace, "infrastructure_failure", False)
+        ),
+        "resource_usage_complete": _boolean(
+            _field(trace, "resource_usage_complete", True)
         ),
         "plan_source": str(plan.get("source", "")),
         "source_composite_ref": plan.get("source_composite_ref") or "",
@@ -618,6 +622,15 @@ def validate_formal_usage(traces: Iterable[Mapping[str, Any] | Any]) -> dict[str
     items = list(traces)
     rows: list[dict[str, Any]] = []
     for trace in items:
+        if _field(trace, "resource_usage_complete", True) is not True:
+            raise ValueError(
+                f"trace {_field(trace, 'trace_id', '<unknown>')} has incomplete provider usage"
+            )
+        for request in _sequence(_field(trace, "provider_requests", [])):
+            if str(_field(request, "usage_status", "unavailable")) != "reported":
+                raise ValueError(
+                    f"trace {_field(trace, 'trace_id', '<unknown>')} has an unaudited provider request"
+                )
         events = [_mapping(item) for item in _sequence(_field(trace, "llm_usage", []))]
         turns = _sequence(_field(trace, "agent_turns", []))
         if not events and turns:

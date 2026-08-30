@@ -16,6 +16,7 @@ from ..core.results import RuntimeLinearPlan, RuntimeOccurrence
 from ..core.serialization import to_primitive
 from ..core.status import RuntimeMode, SkillStatus, ToolStatus
 from .repair import RepairProposal, RepairStore
+from .aligner import _atomic_signature
 from .repair_session import EvolutionToolCandidateProposal, EvolutionToolEditProposal
 from .composite_repair_session import CompositeSequenceReview
 from .trace_replay import build_trace_repair_evidence
@@ -2108,15 +2109,7 @@ def _source_replays(tool: ToolAsset) -> list[dict[str, Any]]:
 
 def _atomic_alignment_contract(atomic: AbstractAtomicSkill) -> str:
     """Code-authoritative §25.1 merge gate (embedding is recall-only)."""
-    return content_hash({
-        "inputs": atomic.inputs,
-        "outputs": atomic.outputs,
-        "preconditions": atomic.preconditions,
-        "effects": atomic.effects,
-        "validator_spec": atomic.validator_spec,
-        "failure_modes": atomic.failure_modes,
-        "atomic_boundary": atomic.guideline,
-    })
+    return _atomic_signature(atomic)
 
 
 def _atomic_merge_evidence(

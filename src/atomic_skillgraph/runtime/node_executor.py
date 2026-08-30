@@ -9,7 +9,7 @@ from typing import Any, Callable
 from ..agents.context_builder import ContextBuilder
 from ..agents.protocol import AgentTurn, NativeToolSpec
 from ..core.bindings import (
-    BindingResolution, BindingSource, BindingStatus, RuntimeBinding,
+    BindingStatus, RuntimeBinding,
 )
 from ..core.errors import AtomicSkillGraphError, FailureLayer
 from ..core.results import ImplementationExecutionResult, NodeExecutionStatus
@@ -21,6 +21,7 @@ from ..traces.schema import (
 from ..validation.engine import ValidationEngine
 from .implementation_runner import ImplementationRunner
 from .invocation_compiler import CompiledInvocation, InvocationCompiler
+from .loop_guard import ActionLoopGuard
 
 
 SessionFactory = Callable[[str, str], Any]
@@ -55,6 +56,7 @@ class NodeExecutor:
         compiled = preferred[0] if preferred else invocations[0]
         preflight = self.invocation_compiler.autonomous_preflight(
             compiled, occurrence, ctx.binding_store, ctx.evidence_store, ctx.world_revision,
+            task_contract=ctx.task_contract,
         )
         if not preflight.passed:
             # Missing runtime-resolvable arguments are Preparation work, not an
@@ -121,10 +123,50 @@ class NodeExecutor:
 
     def _execute_environment_call(
         self, call: Any, session: Any, occurrence: Any | None, ctx: Any,
-        *, span_id: str, origin: str,
+        *, span_id: str, origin: str, loop_guard: ActionLoopGuard,
     ) -> tuple[dict[str, Any], Any]:
         action_id = str(call.arguments["action_id"])
-        spec = next(item for item in ctx.action_catalog if item.action_id == action_id)
+        spec = next(
+            (item for item in ctx.action_catalog if item.action_id == action_id),
+            None,
+        )
+        if spec is None or int(spec.revision) != int(ctx.world_revision):
+            raise AtomicSkillGraphError(
+                "runtime_agent_schema_error",
+                f"stale or unknown environment action_id: {action_id}",
+                layer=FailureLayer.RUNTIME_AGENT,
+            )
+        loop = loop_guard.inspect(
+            action_type=spec.action_type,
+            arguments=spec.arguments,
+            observation=ctx.observation,
+            catalog=ctx.action_catalog,
+        )
+        if loop.blocked:
+            payload = {
+                **loop.tool_result(),
+                "observation": ctx.observation,
+                "done": False,
+                "won": False,
+                "new_revision": ctx.world_revision,
+                "remaining_budget": ctx.budget.snapshot(),
+            }
+            ctx.trace_builder.trace.native_tool_calls.append(NativeToolCallRecord(
+                call.call_id, session.session_id,
+                "" if occurrence is None else occurrence.occurrence_id,
+                call.name, dict(call.arguments), "environment_action",
+                {
+                    "passed": False,
+                    "failure_code": "loop_blocked",
+                    "message": loop.reason,
+                },
+                f"revision:{ctx.world_revision}",
+                sum(
+                    1 for item in ctx.trace_builder.trace.agent_turns
+                    if item.session_id == session.session_id
+                ) - 1,
+            ))
+            return payload, spec
         ctx.budget.consume_action()
         result = ctx.harness.execute_action(action_id, spec.revision)
         record = EnvironmentActionRecord(
@@ -134,28 +176,6 @@ class NodeExecutor:
         ctx.trace_builder.trace.environment_actions.append(record)
         occurrence_id = "" if occurrence is None else occurrence.occurrence_id
         ctx.update_after_action(result, {**to_primitive(record), "occurrence_id": occurrence_id, "origin": origin})
-        # Observed catalog entities are executable evidence, not hidden state.
-        if result.accepted and occurrence is not None:
-            atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
-            input_roles = {item.name: item.semantic_type for item in atomic.inputs}
-            for role, value in spec.arguments.items():
-                mapped_role = role
-                if role == "source" and "source" not in input_roles and "object_location" in input_roles:
-                    mapped_role = "object_location"
-                if role == "destination" and "destination" not in input_roles and "target_location" in input_roles:
-                    mapped_role = "target_location"
-                if mapped_role in input_roles:
-                    evidence = [
-                        item.evidence_id for item in ctx.evidence_store.active(ctx.world_revision)
-                        if item.evidence_type in {"entity_concrete", "validated_tool_output"}
-                        and item.payload.get("value") == value
-                    ]
-                    if not evidence:
-                        continue
-                    ctx.binding_store.commit_grounded(occurrence.occurrence_id, {mapped_role: RuntimeBinding(
-                        mapped_role, value, input_roles[mapped_role], BindingSource.HARNESS_EVIDENCE,
-                        BindingStatus.GROUNDED, BindingResolution.CONCRETE, evidence, ctx.world_revision,
-                    )})
         payload = {
             "accepted": result.accepted, "observation": result.observation, "done": result.done,
             "won": result.won, "new_revision": result.new_revision,
@@ -230,17 +250,22 @@ class NodeExecutor:
         record = self._record_session_start(session, "RuntimePreparationSession", occurrence.occurrence_id, ctx)
         span = ctx.trace_builder.start_span("runtime_preparation", occurrence.occurrence_id)
         atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
-        current = ctx.binding_store.snapshot_for_node(occurrence)
-        missing = [item.name for item in atomic.inputs if item.required and item.name not in current]
+        prompt_bindings = ctx.binding_store.runtime_prompt_projection(
+            occurrence, atomic.inputs,
+        )
+        missing = prompt_bindings["missing_or_insufficient_bindings"]
         prompt = self.context_builder.runtime_node(
             task_goal=ctx.task_goal, atomic_contract=atomic,
-            certified_bindings={name: to_primitive(value) for name, value in current.items() if value.status is BindingStatus.GROUNDED},
-            missing_required_arguments=missing, observation=ctx.observation,
+            semantic_anchors=prompt_bindings["semantic_anchors"],
+            execution_ready_bindings=prompt_bindings["execution_ready_bindings"],
+            missing_or_insufficient_bindings=missing,
+            observation=ctx.observation,
             action_catalog=ctx.action_catalog, relevant_action_history=ctx.relevant_history(occurrence.occurrence_id),
             remaining_budget=ctx.budget.snapshot(), implementation_invocations=[item.spec for item in invocations],
         )
         tools = [self._environment_tool(ctx), *[self._invocation_tool(item) for item in invocations], self._status_tool()]
         preflight_failures = 0
+        loop_guard = ActionLoopGuard()
         try:
             turn = session.next_turn(prompt, tools=tools)
             while True:
@@ -253,7 +278,20 @@ class NodeExecutor:
                     )
                     return self.not_started(occurrence, failure_code="runtime_binding_unresolved")
                 if call.name == "environment_action":
-                    payload, _ = self._execute_environment_call(call, session, occurrence, ctx, span_id=span.span_id, origin="runtime_preparation")
+                    payload, _ = self._execute_environment_call(
+                        call, session, occurrence, ctx,
+                        span_id=span.span_id, origin="runtime_preparation",
+                        loop_guard=loop_guard,
+                    )
+                    if payload.get("loop_blocked"):
+                        tools = [self._environment_tool(ctx), *[self._invocation_tool(item) for item in invocations], self._status_tool()]
+                        if payload.get("fallback_required"):
+                            self._finalize_tool_result(session, call.call_id, payload, tools)
+                            return self.not_started(
+                                occurrence, failure_code="runtime_action_loop_blocked",
+                            )
+                        turn = session.submit_tool_result(call.call_id, payload, tools=tools)
+                        continue
                     effect = self._effect_result(occurrence, ctx, mode="preparation")
                     tools = [self._environment_tool(ctx), *[self._invocation_tool(item) for item in invocations], self._status_tool()]
                     if effect is not None:
@@ -266,6 +304,7 @@ class NodeExecutor:
                     compiled, call_name=call.name, call_id=call.call_id, arguments=call.arguments,
                     occurrence=occurrence, binding_store=ctx.binding_store, evidence_store=ctx.evidence_store,
                     revision=ctx.world_revision,
+                    task_contract=ctx.task_contract,
                 )
                 ctx.trace_builder.trace.native_tool_calls.append(NativeToolCallRecord(
                     call.call_id, session.session_id, occurrence.occurrence_id, call.name, dict(call.arguments),
@@ -315,14 +354,21 @@ class NodeExecutor:
         record = self._record_session_start(session, "SeededSession", occurrence.occurrence_id, ctx)
         span = ctx.trace_builder.start_span("runtime_seeded", occurrence.occurrence_id)
         atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
-        current = ctx.binding_store.snapshot_for_node(occurrence)
+        prompt_bindings = ctx.binding_store.runtime_prompt_projection(
+            occurrence, atomic.inputs,
+        )
         prompt = self.context_builder.seeded_node(
             task_goal=ctx.task_goal, atomic_contract=atomic,
-            certified_bindings={name: to_primitive(value) for name, value in current.items() if value.status is BindingStatus.GROUNDED},
+            semantic_anchors=prompt_bindings["semantic_anchors"],
+            execution_ready_bindings=prompt_bindings["execution_ready_bindings"],
+            missing_or_insufficient_bindings=prompt_bindings[
+                "missing_or_insufficient_bindings"
+            ],
             observation=ctx.observation, action_catalog=ctx.action_catalog,
             relevant_action_history=ctx.relevant_history(occurrence.occurrence_id), remaining_budget=ctx.budget.snapshot(),
         )
         tools = [self._environment_tool(ctx), self._status_tool()]
+        loop_guard = ActionLoopGuard()
         try:
             turn = session.next_turn(prompt, tools=tools)
             while True:
@@ -331,7 +377,22 @@ class NodeExecutor:
                 if call.name == "report_runtime_status":
                     self._finalize_tool_result(session, call.call_id, {"accepted": True}, tools)
                     break
-                payload, _ = self._execute_environment_call(call, session, occurrence, ctx, span_id=span.span_id, origin="runtime_seeded")
+                payload, _ = self._execute_environment_call(
+                    call, session, occurrence, ctx,
+                    span_id=span.span_id, origin="runtime_seeded",
+                    loop_guard=loop_guard,
+                )
+                if payload.get("loop_blocked"):
+                    tools = [self._environment_tool(ctx), self._status_tool()]
+                    if payload.get("fallback_required"):
+                        self._finalize_tool_result(session, call.call_id, payload, tools)
+                        result = self.not_started(
+                            occurrence, failure_code="runtime_action_loop_blocked",
+                        )
+                        result.node_status = NodeExecutionStatus.SEEDED_FAILED
+                        return result
+                    turn = session.submit_tool_result(call.call_id, payload, tools=tools)
+                    continue
                 effect = self._effect_result(occurrence, ctx, mode="seeded")
                 tools = [self._environment_tool(ctx), self._status_tool()]
                 if effect is not None:
@@ -369,6 +430,7 @@ class NodeExecutor:
         tools = [self._environment_tool(ctx), self._status_tool()]
         success = False
         failure_code = ""
+        loop_guard = ActionLoopGuard()
         try:
             terminal = self.validation.task.terminal(
                 ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
@@ -383,7 +445,20 @@ class NodeExecutor:
                     self._finalize_tool_result(session, call.call_id, {"accepted": True}, tools)
                     failure_code = "benchmark_failure"
                     break
-                payload, _ = self._execute_environment_call(call, session, None, ctx, span_id=span.span_id, origin="task_rescue" if rescue else "full_dynamic")
+                payload, _ = self._execute_environment_call(
+                    call, session, None, ctx,
+                    span_id=span.span_id,
+                    origin="task_rescue" if rescue else "full_dynamic",
+                    loop_guard=loop_guard,
+                )
+                if payload.get("loop_blocked"):
+                    tools = [self._environment_tool(ctx), self._status_tool()]
+                    if payload.get("fallback_required"):
+                        self._finalize_tool_result(session, call.call_id, payload, tools)
+                        failure_code = "runtime_action_loop_blocked"
+                        break
+                    turn = session.submit_tool_result(call.call_id, payload, tools=tools)
+                    continue
                 terminal = self.validation.task.terminal(ctx.task_contract, ctx.harness.validator_channel(), payload["won"])
                 tools = [self._environment_tool(ctx), self._status_tool()]
                 if terminal.passed:

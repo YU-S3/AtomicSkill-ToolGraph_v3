@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,6 +35,7 @@ from atomic_skillgraph.planner.pipeline import PlannerPipeline
 from atomic_skillgraph.planner.validator import PlannerValidator
 from atomic_skillgraph.runtime.binding_store import RuntimeBindingStore
 from atomic_skillgraph.runtime.invocation_compiler import InvocationCompiler
+from atomic_skillgraph.runtime.loop_guard import ActionLoopGuard
 from atomic_skillgraph.runtime.orchestrator import RuntimeOrchestrator
 from atomic_skillgraph.runtime.tool_runner import ToolRunner
 from atomic_skillgraph.validation.engine import ValidationEngine
@@ -367,7 +369,7 @@ def test_dependency_roles_accept_documented_effect_precondition_aliases() -> Non
     assert result.checks["edge_roles_valid"] is True
 
 
-def test_planner_rejects_disconnected_occurrence() -> None:
+def test_planner_allows_control_only_linear_occurrences() -> None:
     atomic = _atomic(
         "place",
         inputs=[ParameterSpec("object", "entity")],
@@ -391,8 +393,8 @@ def test_planner_rejects_disconnected_occurrence() -> None:
     result = PlannerValidator(_SkillView(atomic), _NoExistingEdges()).validate(
         plan, mode=RuntimeMode.ONLINE, harness_profile="alfworld_v3"
     )
-    assert result.passed is False
-    assert result.checks["no_disconnected_occurrence"] is False
+    assert result.passed is True
+    assert "no_disconnected_occurrence" not in result.checks
 
 
 def _pick_two_plan(atomic: AbstractAtomicSkill, *, second_source_role: str) -> RuntimeLinearPlan:
@@ -579,8 +581,8 @@ def test_dynamic_tool_result_carries_the_new_action_catalog(tmp_path: Path) -> N
         factory.enqueue(
             "runtime_dynamic",
             [
-                FakeReply.tool("environment_action", {"action_id": "a001"}),
-                FakeReply.tool("environment_action", {"action_id": "a001"}),
+                FakeReply.tool("environment_action", {"action_id": "r000_a001"}),
+                FakeReply.tool("environment_action", {"action_id": "r001_a001"}),
             ],
         )
         runtime = RuntimeOrchestrator(
@@ -598,14 +600,14 @@ def test_dynamic_tool_result_carries_the_new_action_catalog(tmp_path: Path) -> N
             item for item in trace.agent_sessions
             if item.session_type == "DynamicTaskSession"
         )
-        first_result = next(
+        first_result = json.loads(next(
             message["content"] for message in session.snapshot["messages"]
             if message["role"] == "tool"
-        )
+        ))
         assert first_result["new_revision"] == 1
         assert first_result["action_catalog"] == [
             {
-                "action_id": "a001",
+                "action_id": "r001_a001",
                 "action_type": "EXAMINE",
                 "display_text": "examine apple_1",
                 "revision": 1,
@@ -654,12 +656,14 @@ def test_environment_action_never_grounds_from_rejection_or_missing_current_witn
             False, "Nothing happens.", False, False, 0, [spec]
         )
         span = ctx.trace_builder.start_span("probe", occurrence.occurrence_id)
+        loop_guard = ActionLoopGuard()
         runtime.node_executor._execute_environment_call(
             SimpleNamespace(
                 call_id="reject", name="environment_action",
                 arguments={"action_id": spec.action_id},
             ),
             session, occurrence, ctx, span_id=span.span_id, origin="test",
+            loop_guard=loop_guard,
         )
         assert "item" not in ctx.binding_store.snapshot_for_node(occurrence)
 
@@ -672,6 +676,7 @@ def test_environment_action_never_grounds_from_rejection_or_missing_current_witn
                 arguments={"action_id": spec.action_id},
             ),
             session, occurrence, ctx, span_id=span.span_id, origin="test",
+            loop_guard=loop_guard,
         )
         assert "item" not in ctx.binding_store.snapshot_for_node(occurrence)
     finally:

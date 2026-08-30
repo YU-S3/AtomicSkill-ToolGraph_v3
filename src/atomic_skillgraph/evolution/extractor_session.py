@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
 from ..agents.context_builder import ContextBuilder
+from ..agents.structured_submission import (
+    ATOMIC_EXTRACTION_SCHEMA,
+    COMPOSITE_EXTRACTION_SCHEMA,
+    StructuredSubmissionClient,
+)
 from ..core.contracts import SemanticPredicate
 from ..core.serialization import to_primitive
 from .atomicizer import AtomicOccurrenceProposal, CanonicalAtomicOccurrence
@@ -14,28 +18,12 @@ from .atomicizer import AtomicOccurrenceProposal, CanonicalAtomicOccurrence
 
 E1_SCHEMA = {
     "type": "object", "required": ["occurrences"], "additionalProperties": False,
-    "properties": {"occurrences": {"type": "array", "items": {
-        "type": "object", "required": ["phase_id", "intent", "event_start", "event_end", "input_roles", "output_roles", "preconditions", "effects", "rationale"],
-        "properties": {
-            "phase_id": {"type": "string"}, "intent": {"type": "string"},
-            "event_start": {"type": "integer"}, "event_end": {"type": "integer"},
-            "input_roles": {"type": "object"}, "output_roles": {"type": "object"},
-            "preconditions": {"type": "array", "items": {"type": "object"}},
-            "effects": {"type": "array", "items": {"type": "object"}},
-            "rationale": {"type": "string"},
-        },
-    }}},
+    "properties": {"occurrences": {
+        "type": "array", "minItems": 1, "items": ATOMIC_EXTRACTION_SCHEMA,
+    }},
 }
 
-E2_SCHEMA = {
-    "type": "object", "required": ["control_sequence", "existing_edges", "new_edges", "summary", "guideline", "insight"],
-    "properties": {
-        "control_sequence": {"type": "array", "items": {"type": "string"}},
-        "existing_edges": {"type": "array", "items": {"type": "object"}},
-        "new_edges": {"type": "array", "items": {"type": "object"}},
-        "summary": {"type": "string"}, "guideline": {"type": "object"}, "insight": {"type": "object"},
-    },
-}
+E2_SCHEMA = COMPOSITE_EXTRACTION_SCHEMA
 
 
 @dataclass
@@ -59,6 +47,7 @@ class ExtractorSession:
     def __init__(self, session: Any) -> None:
         self.session = session
         self.context = ContextBuilder()
+        self.submissions = StructuredSubmissionClient()
         self._e1_complete = False
         self._e2_complete = False
 
@@ -67,11 +56,13 @@ class ExtractorSession:
             raise RuntimeError("Extractor E1 may run exactly once")
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("extractor_e1")
-        turn = self.session.next_turn(
-            self.context.extractor_e1(canonical_trace=normalized_trace),
-            structured_output_schema=E1_SCHEMA,
-        )
-        payload = json.loads(turn.content)
+        payload = self.submissions.request(
+            self.session,
+            prompt=self.context.extractor_e1(canonical_trace=normalized_trace),
+            tool_name="submit_extractor_atomics",
+            description="Submit the complete Atomic occurrence extraction proposal.",
+            schema=E1_SCHEMA,
+        ).value
         self._e1_complete = True
         return [AtomicOccurrenceProposal(
             phase_id=str(item["phase_id"]), intent=str(item["intent"]),
@@ -104,11 +95,13 @@ class ExtractorSession:
         ]
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("extractor_e2")
-        turn = self.session.next_turn(
-            self.context.extractor_e2(canonical_occurrences=authority),
-            structured_output_schema=E2_SCHEMA,
-        )
-        payload = json.loads(turn.content)
+        payload = self.submissions.request(
+            self.session,
+            prompt=self.context.extractor_e2(canonical_occurrences=authority),
+            tool_name="submit_extractor_composite",
+            description="Submit the complete Composite extraction proposal.",
+            schema=E2_SCHEMA,
+        ).value
         self._e2_complete = True
         return CompositeExtractionProposal(
             [str(item) for item in payload["control_sequence"]], list(payload["existing_edges"]),

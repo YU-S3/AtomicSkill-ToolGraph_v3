@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from atomic_skillgraph.agents import StructuredSubmissionClient
 from atomic_skillgraph.core.bindings import (
     BindingExprKind, BindingExpression, GroundingConstraint,
     GroundingConstraintKind,
@@ -1144,16 +1145,16 @@ def test_atomic_merge_review_requires_equivalence_and_support_for_every_source(
     database.close()
 
 
-def test_atomic_merge_review_does_not_merge_heterogeneous_boundary(tmp_path) -> None:
+def test_atomic_merge_review_ignores_guideline_wording_for_same_contract(tmp_path) -> None:
     database = StateDatabase(tmp_path / "state.sqlite3")
     artifacts = ArtifactStore(tmp_path, database)
     skills = SkillRegistry(artifacts, database)
     tools = ToolRegistry(artifacts, database)
     compiled = ToolCompiler().compile([_take_canonical()])[0]
-    _first, payload1 = _register_atomic_merge_source(
+    first, payload1 = _register_atomic_merge_source(
         skills, tools, compiled, logical_id="take_a", trace_id="trace_a",
     )
-    _second, payload2 = _register_atomic_merge_source(
+    second, payload2 = _register_atomic_merge_source(
         skills, tools, compiled, logical_id="take_b", trace_id="trace_b",
         guideline={"incompatible_boundary": True},
     )
@@ -1165,9 +1166,11 @@ def test_atomic_merge_review_does_not_merge_heterogeneous_boundary(tmp_path) -> 
     reviews = EvolutionMaintenance(RepairStore(database)).build_typed_reviews(
         skills=skills, tools=tools, traces=Traces(), harness_profile="fake_v3",
     )
-    assert not [
+    merge = [
         item for item in reviews if item.eligible_operations == ("merge_atomic",)
     ]
+    assert len(merge) == 1
+    assert set(merge[0].target_refs) == {first, second}
     database.close()
 
 
@@ -1175,14 +1178,21 @@ def test_run_task_does_not_leak_maintenance_budget_state(tmp_path) -> None:
     with AtomicSkillGraphSystem(
         _system_config(tmp_path / "data_v3"), harness=FakeHarness(),
     ) as system:
-        def infrastructure_trace(task, *, mode):
-            trace = TraceRecord.create(
+        def infrastructure_trace(
+            task, *, mode, trace_builder=None, attempt_id="",
+        ):
+            trace = trace_builder.trace if trace_builder is not None else TraceRecord.create(
                 TaskRecord(
                     task.task_id, task.benchmark, task.goal, task.task_type,
                     content_hash(task.goal), task.metadata,
                 ),
                 {}, {}, {"source": "test", "mode": str(mode)},
             )
+            trace.runtime_plan = {
+                "source": "test",
+                "mode": str(mode),
+                "attempt_id": attempt_id,
+            }
             trace.infrastructure_failure = True
             return trace.finish()
 
@@ -1221,9 +1231,12 @@ def test_evolution_producers_share_one_batch_token_cap(tmp_path) -> None:
     ) as system:
         system._evolution_batch_usage_start = len(system.usage.events)
         first = system._evolution_repair_session("maintenance")
-        first.next_turn(
-            "first producer",
-            structured_output_schema={
+        StructuredSubmissionClient().request(
+            first,
+            prompt="first producer",
+            tool_name="submit_batch_probe",
+            description="Submit the batch budget probe.",
+            schema={
                 "type": "object",
                 "required": ["ok"],
                 "additionalProperties": False,
