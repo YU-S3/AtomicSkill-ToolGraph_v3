@@ -38,7 +38,12 @@ class ToolCompiler:
                 occurrence.preconditions, occurrence.effects,
                 {"validator_id": "harness_atomic_effect", "identity_strict": True}, [],
                 {"steps": [item["action_type"] for item in occurrence.action_events]},
-                {"source_trace_ids": [occurrence.source_trace_id]}, SkillStatus.DRAFT,
+                {
+                    "source_trace_ids": [occurrence.source_trace_id],
+                    "not_in_task_composite": bool(
+                        occurrence.metadata.get("not_in_task_composite", False)
+                    ),
+                }, SkillStatus.DRAFT,
             )
             primitive_steps = []
             # The Tool signature carries the whole Atomic input context, not
@@ -84,7 +89,7 @@ class ToolCompiler:
                 }},
                 "primitive_ir", {"steps": primitive_steps, "output_mapping": tool_output_mapping},
                 [{"kind": "source_replay", "trace_id": occurrence.source_trace_id,
-                  "event_range": [occurrence.event_start, occurrence.event_end],
+                  "event_range": [occurrence.event_start, occurrence.event_end_exclusive],
                   "bindings": dict(occurrence.input_bindings),
                   "source_task": dict(occurrence.source_task),
                   "prefix": [

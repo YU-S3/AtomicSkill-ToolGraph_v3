@@ -40,7 +40,7 @@ from experiments.protocol import (
     audit_failed_attempt,
     hash_code,
 )
-from experiments.report import validate_formal_usage
+from experiments.report import summarize_traces, trace_to_row, validate_formal_usage
 from experiments.run_v3_frozen_eval import _validate_formal_config as _validate_frozen_config
 from experiments.run_v3_train import _validate_formal_config
 from experiments.run_v3_smoke import _validated_dataflow
@@ -435,6 +435,12 @@ def test_planner_provider_error_persists_failure_trace(tmp_path: Path) -> None:
     assert trace["provider_requests"][0]["http_status"] == 400
     assert trace["provider_requests"][0]["usage_status"] == "unavailable"
     assert trace["resource_usage_complete"] is False
+    assert trace["metadata"]["provider_request_accounting"] == {
+        "http_attempt_count": 1,
+        "logical_call_count": 1,
+        "transient_retry_count": 0,
+        "unmetered_transport_attempt_count": 1,
+    }
 
 
 def test_attempt_capture_does_not_mask_primary_error(tmp_path: Path) -> None:
@@ -485,7 +491,7 @@ def test_attempt_capture_does_not_mask_primary_error(tmp_path: Path) -> None:
     ]
 
 
-def test_unavailable_retry_usage_aborts_before_evolution(
+def test_transient_retry_then_reported_success_is_one_complete_logical_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RETRY_USAGE_KEY", "fixture-key")
@@ -535,7 +541,7 @@ def test_unavailable_retry_usage_aborts_before_evolution(
         def provider_only_runtime(task, *, mode, trace_builder, attempt_id=""):
             provider.complete([{"role": "system", "content": "fixture"}])
             trace_builder.trace.benchmark_success = True
-            trace_builder.trace.learning_eligible = True
+            trace_builder.trace.learning_eligible = False
             return trace_builder.finish()
 
         evolution_called = False
@@ -547,20 +553,40 @@ def test_unavailable_retry_usage_aborts_before_evolution(
 
         system.orchestrator.run_task = provider_only_runtime
         system._prepare_evolution = forbidden_evolution
-        with pytest.raises(AtomicSkillGraphError) as error:
-            system.run_task(
-                fake_task("incomplete-usage", "apple_1"),
-                attempt_id="attempt_incomplete_usage",
-            )
+        system.run_task(
+            fake_task("logical-retry-usage", "apple_1"),
+            attempt_id="attempt_logical_retry_usage",
+        )
         payloads = list(system.traces.iter_payloads())
 
-    assert getattr(error.value, "code", "") == "provider_usage_missing"
     assert evolution_called is False
     assert len(payloads) == 1
-    assert payloads[0]["resource_usage_complete"] is False
-    assert [item["usage_status"] for item in payloads[0]["provider_requests"]] == [
+    trace = payloads[0]
+    assert trace["resource_usage_complete"] is True
+    requests = trace["provider_requests"]
+    assert [item["usage_status"] for item in requests] == [
         "unavailable", "reported",
     ]
+    assert requests[0]["logical_call_id"] == requests[1]["logical_call_id"]
+    assert [item["attempt_index"] for item in requests] == [1, 2]
+    assert [item["is_terminal_attempt"] for item in requests] == [False, True]
+    assert trace["metadata"]["provider_request_accounting"] == {
+        "http_attempt_count": 2,
+        "logical_call_count": 1,
+        "transient_retry_count": 1,
+        "unmetered_transport_attempt_count": 1,
+    }
+    row = trace_to_row(trace)
+    assert row["http_attempt_count"] == 2
+    assert row["logical_call_count"] == 1
+    assert row["transient_retry_count"] == 1
+    assert row["unmetered_transport_attempt_count"] == 1
+    summary = summarize_traces([row])
+    assert summary["http_attempt_count"] == 2
+    assert summary["logical_call_count"] == 1
+    assert summary["transient_retry_count"] == 1
+    assert summary["unmetered_transport_attempt_count"] == 1
+    assert validate_formal_usage([trace])["task_count"] == 1
 
 
 def test_real_smoke_dataflow_requires_started_downstream_consumption() -> None:

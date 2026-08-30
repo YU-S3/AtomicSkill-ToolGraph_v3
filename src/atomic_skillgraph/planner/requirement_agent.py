@@ -11,6 +11,7 @@ from ..agents.structured_submission import (
     StructuredSubmissionClient,
 )
 from ..core.contracts import CapabilityRequirement, ParameterSpec, SemanticPredicate, TaskContract
+from ..core.errors import AgentProtocolError, AtomicSkillGraphError, FailureLayer
 from ..core.serialization import to_primitive
 
 
@@ -66,14 +67,11 @@ class RequirementAgent:
             f"TaskContract: {json.dumps(to_primitive(contract), ensure_ascii=False)}\n"
             f"Harness profile: {harness_profile}"
         )
-        submission = self.submissions.request(
-            self.session,
-            prompt=prompt,
-            tool_name="submit_planner_requirements",
+        return self._request_requirements(
+            prompt,
+            error_code="planner_requirement_invalid",
             description="Submit the complete capability requirement proposal.",
-            schema=REQUIREMENT_SCHEMA,
         )
-        return [_requirement(item) for item in submission.value["requirements"]]
 
     def repair(
         self, task: Any, contract: TaskContract, requirements: list[CapabilityRequirement],
@@ -90,11 +88,41 @@ class RequirementAgent:
             f"search/rejections: {json.dumps(to_primitive(search), ensure_ascii=False)}\n"
             f"related hints: {json.dumps(related_composites, ensure_ascii=False)}"
         )
-        submission = self.submissions.request(
-            self.session,
-            prompt=prompt,
-            tool_name="submit_planner_requirements",
+        return self._request_requirements(
+            prompt,
+            error_code="planner_requirement_repair_failed",
             description="Submit the complete replacement capability requirement proposal.",
-            schema=REQUIREMENT_SCHEMA,
         )
-        return [_requirement(item) for item in submission.value["requirements"]]
+
+    def _request_requirements(
+        self,
+        prompt: str,
+        *,
+        error_code: str,
+        description: str,
+    ) -> list[CapabilityRequirement]:
+        try:
+            submission = self.submissions.request(
+                self.session,
+                prompt=prompt,
+                tool_name="submit_planner_requirements",
+                description=description,
+                schema=REQUIREMENT_SCHEMA,
+            )
+        except AgentProtocolError as exc:
+            raise AtomicSkillGraphError(
+                error_code,
+                f"Planner requirement proposal protocol validation failed: {exc}",
+                layer=FailureLayer.PLANNER_REQUIREMENT,
+            ) from exc
+        try:
+            return [
+                _requirement(item)
+                for item in submission.value["requirements"]
+            ]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AtomicSkillGraphError(
+                error_code,
+                f"Planner requirement proposal semantic validation failed: {exc}",
+                layer=FailureLayer.PLANNER_REQUIREMENT,
+            ) from exc

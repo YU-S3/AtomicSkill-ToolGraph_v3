@@ -184,11 +184,10 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         "phase_id",
         "intent",
         "event_start",
-        "event_end",
-        "input_roles",
-        "output_roles",
-        "preconditions",
-        "effects",
+        "event_end_exclusive",
+        "selected_effect_refs",
+        "selected_precondition_refs",
+        "output_role_mapping",
         "rationale",
     ],
     "additionalProperties": False,
@@ -200,40 +199,31 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "minimum": 0,
             "description": "Inclusive index of the first selected canonical action event.",
         },
-        "event_end": {
+        "event_end_exclusive": {
             "type": "integer",
             "minimum": 1,
             "description": (
                 "Exclusive index after the last selected event; a single event i uses [i,i+1)."
             ),
         },
-        "input_roles": {
-            "type": "object",
-            "minProperties": 1,
-            "description": (
-                "Non-empty role-to-concrete-value bindings copied exactly from selected action arguments."
-            ),
-        },
-        "output_roles": {
-            "type": "object",
-            "minProperties": 1,
-            "description": (
-                "Published role identities; every value must exactly repeat an input_roles value."
-            ),
-        },
-        "preconditions": {
-            "type": "array",
-            "items": PREDICATE_SCHEMA,
-            "description": "Only facts present in authoritative_before_state_facts.",
-        },
-        "effects": {
+        "selected_effect_refs": {
             "type": "array",
             "minItems": 1,
-            "items": PREDICATE_SCHEMA,
-            "description": (
-                "Only authoritative positive effects or explicitly listed narrow terminal certificates "
-                "of the selected accepted events."
-            ),
+            "uniqueItems": True,
+            "items": NONEMPTY_STRING_SCHEMA,
+            "description": "References copied from selected transition certificates.",
+        },
+        "selected_precondition_refs": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": NONEMPTY_STRING_SCHEMA,
+            "description": "Required-fact references copied from selected certificates.",
+        },
+        "output_role_mapping": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": NONEMPTY_STRING_SCHEMA,
+            "description": "Published role to an argument: or fact: source reference.",
         },
         "rationale": NONEMPTY_STRING_SCHEMA,
     },

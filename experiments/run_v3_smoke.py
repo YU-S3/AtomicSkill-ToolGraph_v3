@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import os
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any, Sequence
 
 from atomic_skillgraph.agents.provider_probe import (
     ensure_provider_capability,
@@ -292,6 +294,240 @@ def _validated_dataflow(trace: object) -> bool:
     )
 
 
+@dataclass
+class _RealSmokeCurriculumResult:
+    cold_traces: list[object] = field(default_factory=list)
+    warm_traces: list[object] = field(default_factory=list)
+    multi_traces: list[object] = field(default_factory=list)
+    diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    candidate_refs_after_cold: list[str] = field(default_factory=list)
+    learned_dataflow_assets: list[dict[str, Any]] = field(default_factory=list)
+    error_code: str = ""
+
+    @property
+    def traces(self) -> list[object]:
+        return [*self.cold_traces, *self.warm_traces, *self.multi_traces]
+
+
+def _artifact_rows(system: AtomicSkillGraphSystem) -> list[dict[str, str]]:
+    rows = system.database.execute(
+        "SELECT artifact_ref,artifact_kind,status FROM artifact_index "
+        "ORDER BY artifact_ref"
+    ).fetchall()
+    return [
+        {
+            "artifact_ref": str(row["artifact_ref"]),
+            "artifact_kind": str(row["artifact_kind"]),
+            "status": str(row["status"]),
+        }
+        for row in rows
+    ]
+
+
+def _artifact_inventory(
+    system: AtomicSkillGraphSystem, *, initial_refs: set[str],
+) -> dict[str, Any]:
+    rows = _artifact_rows(system)
+    learned = [item for item in rows if item["artifact_ref"] not in initial_refs]
+    counts: dict[str, int] = {}
+    candidate_counts: dict[str, int] = {}
+    for item in rows:
+        kind = item["artifact_kind"]
+        counts[kind] = counts.get(kind, 0) + 1
+    for item in learned:
+        if item["status"] == "candidate":
+            kind = item["artifact_kind"]
+            candidate_counts[kind] = candidate_counts.get(kind, 0) + 1
+    return {
+        "counts": dict(sorted(counts.items())),
+        "learned_assets": learned,
+        "learned_refs": sorted(item["artifact_ref"] for item in learned),
+        "candidate_refs": sorted(
+            item["artifact_ref"] for item in learned
+            if item["status"] == "candidate"
+        ),
+        "candidate_counts": dict(sorted(candidate_counts.items())),
+    }
+
+
+def _learned_dataflow_assets(
+    system: AtomicSkillGraphSystem, *, initial_refs: set[str],
+) -> list[dict[str, Any]]:
+    assets: list[dict[str, Any]] = []
+    for row in _artifact_rows(system):
+        if (
+            row["artifact_kind"] != "composite"
+            or row["artifact_ref"] in initial_refs
+            or row["status"] not in {"candidate", "active"}
+        ):
+            continue
+        composite = system.skills.get_composite(row["artifact_ref"])
+        occurrence_count = len(composite.occurrences)
+        data_edge_count = len(composite.data_edges)
+        if occurrence_count < 2 or data_edge_count < 1:
+            continue
+        assets.append({
+            "artifact_ref": row["artifact_ref"],
+            "status": row["status"],
+            "occurrence_count": occurrence_count,
+            "data_edge_count": data_edge_count,
+        })
+    return sorted(assets, key=lambda item: item["artifact_ref"])
+
+
+def _emit_curriculum_diagnostic(diagnostic: dict[str, Any]) -> None:
+    print(json.dumps({
+        "gate": "real_alfworld_curriculum",
+        **diagnostic,
+    }, ensure_ascii=False, sort_keys=True), flush=True)
+
+
+def _trace_diagnostic(trace: object) -> dict[str, Any]:
+    metadata = dict(getattr(trace, "metadata", {}) or {})
+    return {
+        "trace_id": str(getattr(trace, "trace_id", "")),
+        "benchmark_success": bool(getattr(trace, "benchmark_success", False)),
+        "infrastructure_failure": bool(
+            getattr(trace, "infrastructure_failure", False)
+        ),
+        "extraction_policy": to_primitive(
+            getattr(trace, "extraction_policy", {}) or {}
+        ),
+        "extraction": to_primitive(metadata.get("extraction", {})),
+        "extraction_occurrence_rejections": to_primitive(
+            metadata.get("extraction_occurrence_rejections", [])
+        ),
+        "evolution_applied": to_primitive(
+            metadata.get("evolution_applied", {})
+        ),
+        "repair_proposals": to_primitive(
+            metadata.get("repair_proposals", [])
+        ),
+        "failure_codes": sorted({
+            str(getattr(item, "code", ""))
+            for item in getattr(trace, "failures", ())
+            if str(getattr(item, "code", ""))
+        }),
+    }
+
+
+def _run_real_smoke_curriculum(
+    system: AtomicSkillGraphSystem, tasks: Sequence[object],
+) -> _RealSmokeCurriculumResult:
+    """Execute the paid real smoke only when each learned-stage gate is real.
+
+    Stage A inspects persistent extraction output after every cold task.  Stage B
+    is unreachable without a learned Candidate.  Stage C is unreachable without
+    a learned, online-usable Composite that already contains at least two
+    occurrences and an explicit DataFlow edge.
+    """
+
+    if len(tasks) != 6:
+        raise ValueError("real smoke curriculum requires exactly six tasks")
+    result = _RealSmokeCurriculumResult()
+    initial_refs = {item["artifact_ref"] for item in _artifact_rows(system)}
+
+    for index, task in enumerate(tasks[:3], start=1):
+        before_refs = {item["artifact_ref"] for item in _artifact_rows(system)}
+        trace = system.run_task(task)
+        result.cold_traces.append(trace)
+        inventory = _artifact_inventory(system, initial_refs=initial_refs)
+        after_refs = set(inventory["learned_refs"]) | initial_refs
+        diagnostic = {
+            "stage": "A",
+            "event": "cold_task_extraction",
+            "cold_index": index,
+            "task_id": str(getattr(task, "task_id", "")),
+            **_trace_diagnostic(trace),
+            "new_artifact_refs": sorted(after_refs - before_refs),
+            "learned_artifact_refs": inventory["learned_refs"],
+            "learned_assets": inventory["learned_assets"],
+            "candidate_refs": inventory["candidate_refs"],
+            "candidate_counts": inventory["candidate_counts"],
+        }
+        missing_candidate_kinds = sorted(
+            set(("atomic", "implementation", "tool", "composite"))
+            - set(inventory["candidate_counts"])
+        )
+        if missing_candidate_kinds:
+            diagnostic.update({
+                "passed": False,
+                "error_code": "missing_four_layer_candidates_after_cold_task",
+                "missing_candidate_kinds": missing_candidate_kinds,
+            })
+            result.error_code = "missing_four_layer_candidates_after_cold_task"
+            result.diagnostics.append(diagnostic)
+            _emit_curriculum_diagnostic(diagnostic)
+            return result
+        diagnostic["passed"] = True
+        result.diagnostics.append(diagnostic)
+        _emit_curriculum_diagnostic(diagnostic)
+
+    cold_inventory = _artifact_inventory(system, initial_refs=initial_refs)
+    result.candidate_refs_after_cold = list(cold_inventory["candidate_refs"])
+    missing_candidate_kinds = sorted(
+        set(("atomic", "implementation", "tool", "composite"))
+        - set(cold_inventory["candidate_counts"])
+    )
+    stage_b_gate = {
+        "stage": "B",
+        "event": "warm_entry_gate",
+        "passed": not missing_candidate_kinds,
+        "candidate_refs_after_cold": result.candidate_refs_after_cold,
+        "candidate_counts_after_cold": cold_inventory["candidate_counts"],
+        "missing_candidate_kinds": missing_candidate_kinds,
+    }
+    result.diagnostics.append(stage_b_gate)
+    _emit_curriculum_diagnostic(stage_b_gate)
+    if missing_candidate_kinds:
+        result.error_code = "missing_four_layer_candidates_after_cold_stage"
+        return result
+
+    for index, task in enumerate(tasks[3:5], start=1):
+        trace = system.run_task(task)
+        result.warm_traces.append(trace)
+        diagnostic = {
+            "stage": "B",
+            "event": "warm_task_reuse",
+            "warm_index": index,
+            "task_id": str(getattr(task, "task_id", "")),
+            **_trace_diagnostic(trace),
+            "actual_started_direct": _actual_started_direct(trace),
+        }
+        result.diagnostics.append(diagnostic)
+        _emit_curriculum_diagnostic(diagnostic)
+
+    result.learned_dataflow_assets = _learned_dataflow_assets(
+        system, initial_refs=initial_refs,
+    )
+    stage_c_gate = {
+        "stage": "C",
+        "event": "learned_dataflow_entry_gate",
+        "passed": bool(result.learned_dataflow_assets),
+        "learned_dataflow_assets": result.learned_dataflow_assets,
+    }
+    if not result.learned_dataflow_assets:
+        stage_c_gate["error_code"] = "no_learned_dataflow_asset"
+        result.error_code = "no_learned_dataflow_asset"
+    result.diagnostics.append(stage_c_gate)
+    _emit_curriculum_diagnostic(stage_c_gate)
+    if result.error_code:
+        return result
+
+    multi_trace = system.run_task(tasks[5])
+    result.multi_traces.append(multi_trace)
+    diagnostic = {
+        "stage": "C",
+        "event": "multi_node_dataflow",
+        "task_id": str(getattr(tasks[5], "task_id", "")),
+        **_trace_diagnostic(multi_trace),
+        "validated_dataflow": _validated_dataflow(multi_trace),
+    }
+    result.diagnostics.append(diagnostic)
+    _emit_curriculum_diagnostic(diagnostic)
+    return result
+
+
 def run_real_alfworld(config_path: str | Path) -> int:
     config_path = _path(config_path)
     config = copy.deepcopy(load_config(config_path))
@@ -364,10 +600,11 @@ def run_real_alfworld(config_path: str | Path) -> int:
             "task_manifest_hash": hash_task_manifest(task_items),
             "tasks": [item.to_dict() for item in task_items],
         })
-        cold_traces = [system.run_task(task) for task in tasks[:3]]
-        warm_traces = [system.run_task(task) for task in tasks[3:5]]
-        multi_traces = [system.run_task(tasks[5])]
-        traces = [*cold_traces, *warm_traces, *multi_traces]
+        curriculum = _run_real_smoke_curriculum(system, tasks)
+        cold_traces = curriculum.cold_traces
+        warm_traces = curriculum.warm_traces
+        multi_traces = curriculum.multi_traces
+        traces = curriculum.traces
         artifact_counts = {
             str(row["artifact_kind"]): int(row["count"])
             for row in system.database.execute(
@@ -379,7 +616,7 @@ def run_real_alfworld(config_path: str | Path) -> int:
             for kind in ("atomic", "implementation", "tool", "composite")
         )
         actual_started_direct = any(_actual_started_direct(trace) for trace in warm_traces)
-        dataflow_proven = any(_validated_dataflow(trace) for trace in traces)
+        dataflow_proven = any(_validated_dataflow(trace) for trace in multi_traces)
         cold_dynamic_success = any(
             trace.benchmark_success
             and trace.runtime_plan.get("source") == "full_dynamic"
@@ -396,7 +633,8 @@ def run_real_alfworld(config_path: str | Path) -> int:
             for trace in traces for failure in trace.failures
         )
         passed = (
-            capability.get("passed") is True
+            not curriculum.error_code
+            and capability.get("passed") is True
             and cold_dynamic_success
             and four_layer_assets
             and actual_started_direct
@@ -423,6 +661,10 @@ def run_real_alfworld(config_path: str | Path) -> int:
             "cold_dynamic_success": cold_dynamic_success,
             "actual_started_direct": actual_started_direct,
             "validated_dataflow": dataflow_proven,
+            "curriculum_error_code": curriculum.error_code,
+            "curriculum_diagnostics": curriculum.diagnostics,
+            "candidate_refs_after_cold": curriculum.candidate_refs_after_cold,
+            "learned_dataflow_assets": curriculum.learned_dataflow_assets,
             "unknown_alfworld_actions": unknown_actions,
             "won_task_contract_mismatches": contract_mismatches,
             "provider_capability_passed": capability.get("passed") is True,

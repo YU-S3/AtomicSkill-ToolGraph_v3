@@ -1,122 +1,75 @@
-"""Build the state-transition-authoritative extractor view of a TraceRecord."""
+"""Project validator-issued transition certificates into the extractor view."""
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from ..core.serialization import to_primitive
-from .atomicizer import reduce_action_state, terminal_context_effect_certificates
 
 
-def _fact_identity(fact: dict[str, Any]) -> tuple[str, str]:
-    return (
-        str(fact.get("predicate", "")),
-        repr(sorted(dict(fact.get("args") or {}).items())),
-    )
-
-
-def _state_delta(
-    before: list[dict[str, Any]],
-    after: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    before_ids = {_fact_identity(item) for item in before}
-    after_ids = {_fact_identity(item) for item in after}
-    return (
-        [item for item in after if _fact_identity(item) not in before_ids],
-        [item for item in before if _fact_identity(item) not in after_ids],
-    )
-
-
-def _entity_family(value: Any) -> str:
-    if not isinstance(value, str):
-        return ""
-    return re.sub(
-        r"[^a-z0-9]", "",
-        re.sub(r"(?:_|\s)\d+$", "", value.casefold()),
-    )
-
-
-def _terminal_certificate_projection(
-    certificates: list[dict[str, Any]],
-    *,
-    action: dict[str, Any],
-    before_facts: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Attach exact, action/state-derived candidates to narrow certificates."""
-
-    available = [
-        value
-        for value in dict(action.get("arguments") or {}).values()
-        if isinstance(value, str) and value
-    ]
-    available.extend(
-        value
-        for fact in before_facts
-        for value in dict(fact.get("args") or {}).values()
-        if isinstance(value, str) and value
-    )
-    projected: list[dict[str, Any]] = []
-    for certificate in certificates:
-        candidates: dict[str, list[str]] = {}
-        for role, family_value in dict(certificate.get("args") or {}).items():
-            family = _entity_family(family_value)
-            matching = sorted({
-                value for value in available
-                if family and _entity_family(value) == family
-            })
-            if matching:
-                candidates[str(role)] = matching
-        projected.append({
-            **certificate,
-            "concrete_binding_candidates": candidates,
-        })
-    return projected
+def _project_certificate(record: dict[str, Any]) -> dict[str, Any]:
+    certificate = record.get("transition_certificate")
+    if not isinstance(certificate, dict):
+        raise ValueError(
+            f"environment action {record.get('action_id', '')!r} lacks an "
+            "ActionTransitionCertificate"
+        )
+    expected = {
+        "action_id": str(record.get("action_id", "")),
+        "revision_before": int(record.get("revision", -1)),
+        "revision_after": int(record.get("new_revision", -1)),
+        "action_type": str(record.get("action_type", "")),
+        "arguments": dict(record.get("arguments") or {}),
+        "accepted": bool(record.get("accepted")),
+    }
+    for key, value in expected.items():
+        if certificate.get(key) != value:
+            raise ValueError(
+                f"transition certificate {key} does not match action record: "
+                f"{certificate.get(key)!r} != {value!r}"
+            )
+    required_fields = {
+        "before_facts",
+        "positive_effects",
+        "negative_effects",
+        "required_facts",
+        "terminal_effects",
+        "state_changed",
+        "evidence_refs",
+    }
+    missing = sorted(required_fields - set(certificate))
+    if missing:
+        raise ValueError(f"transition certificate missing fields: {missing}")
+    return certificate
 
 
 class TraceNormalizer:
+    """Expose trace chronology without deriving or guessing semantic facts."""
+
     def build(self, trace: Any) -> dict[str, Any]:
-        task_contract = to_primitive(trace.task_contract)
-        actions = []
-        for index, record in enumerate(trace.environment_actions):
-            value = to_primitive(record)
+        actions: list[dict[str, Any]] = []
+        for index, raw_record in enumerate(trace.environment_actions):
+            record = to_primitive(raw_record)
+            certificate = _project_certificate(record)
             actions.append({
-                "event_index": index, "action_id": value["action_id"],
-                "action_type": value["action_type"], "arguments": value["arguments"],
-                "accepted": value["accepted"],
-                "before_revision": value["revision"], "after_revision": value["new_revision"],
-                "done": value["done"], "won": value["won"], "span_id": value["span_id"],
-            })
-        for index, action in enumerate(actions):
-            before = reduce_action_state(actions[:index])
-            after = reduce_action_state(actions[:index + 1])
-            positive, negative = _state_delta(before, after)
-            action.update({
-                # The E1 transport uses the normal Python half-open interval.
-                # AtomicOccurrenceProposal stores the converted inclusive end.
+                "event_index": index,
                 "extractor_event_start": index,
                 "extractor_event_end_exclusive": index + 1,
-                "input_role_candidates": dict(action.get("arguments") or {}),
-                "authoritative_before_state_facts": before,
-                "authoritative_positive_effects": positive,
-                "authoritative_negative_effects": negative,
-                "authoritative_terminal_effect_certificates": (
-                    _terminal_certificate_projection(
-                        terminal_context_effect_certificates(
-                            str(action.get("action_type", "")),
-                            won=bool(action.get("won")),
-                            benchmark_success=bool(trace.benchmark_success),
-                            task_contract=task_contract,
-                        ),
-                        action=action,
-                        before_facts=before,
-                    )
-                ),
+                "action_id": record["action_id"],
+                "action_type": record["action_type"],
+                "arguments": dict(record.get("arguments") or {}),
+                "accepted": bool(record["accepted"]),
+                "state_changed": bool(certificate["state_changed"]),
+                "before_revision": int(record["revision"]),
+                "after_revision": int(record["new_revision"]),
+                "done": bool(record["done"]),
+                "won": bool(record["won"]),
+                "span_id": str(record["span_id"]),
+                "transition_certificate": certificate,
             })
-        spans = [to_primitive(item) for item in trace.runtime_spans if item.learnable]
-        validations = [to_primitive(item) for item in trace.validations]
         return {
-            "trace_id": trace.trace_id, "task_goal": trace.task.goal,
+            "trace_id": trace.trace_id,
+            "task_goal": trace.task.goal,
             "source_task": {
                 "task_id": trace.task.task_id,
                 "task_signature": trace.task.task_signature,
@@ -129,9 +82,19 @@ class TraceNormalizer:
                 },
                 "metadata": dict(trace.task.metadata),
             },
-            "task_contract": task_contract, "benchmark_success": trace.benchmark_success,
-            "actions": actions, "runtime_spans": spans, "validations": validations,
+            "task_contract": to_primitive(trace.task_contract),
+            "benchmark_success": bool(trace.benchmark_success),
+            "actions": actions,
+            "runtime_spans": [
+                to_primitive(item) for item in trace.runtime_spans if item.learnable
+            ],
+            "validations": [to_primitive(item) for item in trace.validations],
             "node_records": [to_primitive(item) for item in trace.node_records],
-            "implementation_invocations": [to_primitive(item) for item in trace.implementation_invocations],
+            "implementation_invocations": [
+                to_primitive(item) for item in trace.implementation_invocations
+            ],
             "tool_executions": [to_primitive(item) for item in trace.tool_executions],
         }
+
+
+__all__ = ["TraceNormalizer"]

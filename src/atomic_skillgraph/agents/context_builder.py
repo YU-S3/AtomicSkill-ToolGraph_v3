@@ -195,41 +195,37 @@ class ContextBuilder:
 
     def extractor_e1(self, *, canonical_trace: Any) -> str:
         return _render(
-            "Propose reusable Atomic occurrences from this canonical successful trace with the offered "
-            "native submit tool. Follow this exact E1 authority contract: event_start is inclusive and "
-            "event_end is EXCLUSIVE, so one event i is [i,i+1). Prefer the smallest non-overlapping "
-            "causal slice, normally one accepted state-changing event. Select only the minimal causal "
-            "chain that establishes the TaskContract; do not turn search/exploration detours into skills. "
-            "A navigation/open event belongs only when it establishes a concrete precondition for a later "
-            "selected causal event. Omit LOOK, INVENTORY, and every "
-            "event for which both authoritative_positive_effects and "
-            "authoritative_terminal_effect_certificates are empty. input_roles must be non-empty, have "
-            "unique concrete values, and copy those values exactly from input_role_candidates or the "
-            "arguments of authoritative state/effect facts in the selected event context; never invent "
-            "agent/player/search/inventory bindings. output_roles must be "
-            "non-empty and each output value must exactly repeat one input value; publish the affected "
-            "object, container, light, or reached location under a reusable output role so later steps "
-            "can consume it. Preconditions may be empty and otherwise must copy exact predicates and "
-            "concrete args from authoritative_before_state_facts at event_start. Effects must copy exact "
-            "predicates and concrete args from authoritative_positive_effects of the selected slice, or "
-            "use the exact predicate of an explicitly listed terminal certificate and choose each effect "
-            "argument only from that role's concrete_binding_candidates; every chosen candidate must also "
-            "be present in input_roles. "
-            "Do not use observation prose, aliases such as agent.holding/object.in_inventory/player.at, "
-            "bare role names, placeholders, or any unlisted fact as evidence. Code validates each proposed "
-            "occurrence independently, rejects invalid proposals, and passes only the validated subset to E2.",
+            "Propose reusable Atomic boundaries from this canonical successful trace with the offered "
+            "native submit tool. event_start is inclusive and event_end_exclusive is exclusive. Prefer "
+            "the smallest boundary that expresses one reusable transition. A proposal may select only "
+            "effect and required-fact references that occur in the ActionTransitionCertificate values "
+            "inside its boundary. Include reusable state-changing transitions even when they may later be "
+            "excluded from the task Composite; code preserves all validated proposals. "
+            "selected_effect_refs must be non-empty. selected_precondition_refs may be empty. "
+            "output_role_mapping publishes reusable result roles. Each source must be either "
+            "argument:<argument_name> for a uniquely valued action argument in the boundary, or "
+            "fact:<fact_ref>:<argument_name> for an argument of a selected effect fact. Do not submit "
+            "concrete bindings, predicates, parameter specifications, or validation evidence: code derives "
+            "those exclusively from the referenced certificates. Do not use observation prose or invent "
+            "references. Code validates proposals independently and resolves overlaps deterministically.",
             {"canonical_trace": _policy_value(canonical_trace)},
         )
 
-    def extractor_e2(self, *, canonical_occurrences: Iterable[Any]) -> str:
+    def extractor_e2(
+        self,
+        *,
+        canonical_occurrences: Iterable[Any],
+        task_contract: Any,
+    ) -> str:
         prefix = (
             "The following canonical occurrences were validated by code and are authoritative. "
             "Discard or correct any conflicting memory from the previous turn."
         )
         return _render(
             prefix
-            + " Propose the canonical control sequence and edge references with the native submit tool. "
-            "Use every authoritative occurrence exactly once in the supplied chronological order. "
+            + " Propose the minimal task-causal control sequence and edge references with the native submit tool. "
+            "Use a chronological subset of the authoritative occurrences, each at most once, and cover the "
+            "supplied task contract. Validated occurrences outside that subset remain reusable Atomic assets. "
             "Copy existing_edges only from known_edge_evidence. Add a new data_flow edge whenever an "
             "earlier output binding value is reused by a later required input, using the exact occurrence "
             "IDs and role names. Each required target role has at most one authoritative producer; when "
@@ -238,7 +234,10 @@ class ContextBuilder:
             "value is edge_type=requires_skill. Do not "
             "invent requires_skill edges merely to represent control order; the control_sequence already "
             "carries order and occurrences need not be edge-connected.",
-            {"canonical_occurrences": _policy_value(list(canonical_occurrences))},
+            {
+                "canonical_occurrences": _policy_value(list(canonical_occurrences)),
+                "task_contract": _policy_value(task_contract),
+            },
         )
 
 

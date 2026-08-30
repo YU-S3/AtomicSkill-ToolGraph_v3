@@ -30,6 +30,7 @@ from atomic_skillgraph.agents import (
     UsageLedger,
 )
 from atomic_skillgraph.core.results import NodeExecutionStatus
+from atomic_skillgraph.core.contracts import SemanticPredicate, TaskContract
 from atomic_skillgraph.core.status import RuntimeMode, SkillStatus, ToolStatus
 from atomic_skillgraph.evolution.admission import Admission
 from atomic_skillgraph.evolution.aligner import Aligner
@@ -193,7 +194,10 @@ def _e1_examine(item: str, *, start: int) -> dict:
         "event_end": start + 1,
         "input_roles": {"item": item},
         "output_roles": {"observed_object": item},
-        "preconditions": [],
+        "preconditions": [{
+            "predicate": "agent.holds",
+            "args": {"object": item},
+        }],
         "effects": [{"predicate": "object.observed", "args": {"object": item}}],
         "rationale": "The accepted EXAMINE transition establishes observation.",
     }
@@ -215,24 +219,110 @@ def _extract_and_register(
     data_edge: bool = False,
 ) -> dict:
     normalized = TraceNormalizer().build(trace)
+
+    def reference_only(raw: dict) -> dict:
+        start = int(raw["event_start"])
+        end = int(raw["event_end"])
+        selected_events = normalized["actions"][start:end]
+        effects = {
+            item["fact_ref"]: item
+            for event in selected_events
+            for item in [
+                *event["transition_certificate"]["positive_effects"],
+                *event["transition_certificate"]["terminal_effects"],
+            ]
+        }
+        required = {
+            item["fact_ref"]: item
+            for event in selected_events
+            for item in event["transition_certificate"]["required_facts"]
+        }
+        selected_effect_refs = [
+            ref for ref, fact in effects.items()
+            if any(
+                fact["predicate"] == wanted["predicate"]
+                and fact["args"] == wanted["args"]
+                for wanted in raw["effects"]
+            )
+        ]
+        selected_precondition_refs = [
+            ref for ref, fact in required.items()
+            if any(
+                fact["predicate"] == wanted["predicate"]
+                and fact["args"] == wanted["args"]
+                for wanted in raw["preconditions"]
+            )
+        ]
+        output_role_mapping = {}
+        for role, value in raw["output_roles"].items():
+            source = next(
+                (
+                    f"fact:{ref}:{argument}"
+                    for ref in selected_effect_refs
+                    for argument, argument_value in effects[ref]["args"].items()
+                    if argument_value == value
+                ),
+                "",
+            )
+            assert source
+            output_role_mapping[role] = source
+        return {
+            "phase_id": raw["phase_id"],
+            "intent": raw["intent"],
+            "event_start": start,
+            "event_end_exclusive": end,
+            "selected_effect_refs": selected_effect_refs,
+            "selected_precondition_refs": selected_precondition_refs,
+            "output_role_mapping": output_role_mapping,
+            "rationale": raw["rationale"],
+        }
+
+    reference_occurrences = [reference_only(item) for item in e1_occurrences]
     session = factory.new_session(
         "extractor",
-        [FakeReply.structured({"occurrences": e1_occurrences})],
+        [FakeReply.structured({"occurrences": reference_occurrences})],
     )
     extractor = ExtractorSession(session)
     proposals = extractor.propose_atomics(normalized)
-    canonical = Atomicizer().validate_and_canonicalize(proposals, normalized)
+    raw_canonical = Atomicizer().validate_and_canonicalize(proposals, normalized)
+    aligner = Aligner(skills, tools)
+    compiled = []
+    canonical = []
+    for item in ToolCompiler().compile(raw_canonical):
+        bundle = aligner.stage_atomic(item.atomic, item.tool, item.implementation)
+        assert bundle.tool is not None and bundle.implementation is not None
+        occurrence = aligner.atomic_canonicalizer.rewrite_canonical_occurrence(
+            item.occurrence, bundle, atomic_ref=bundle.atomic.ref,
+        )
+        canonical.append(occurrence)
+        compiled.append(SimpleNamespace(
+            occurrence=occurrence,
+            atomic=bundle.atomic,
+            tool=bundle.tool,
+            implementation=bundle.implementation,
+        ))
 
     new_edges: list[dict] = []
     if data_edge:
+        shared_value = next(iter(set(canonical[0].output_bindings.values()).intersection(
+            canonical[1].input_bindings.values()
+        )))
+        source_role = next(
+            role for role, value in canonical[0].output_bindings.items()
+            if value == shared_value
+        )
+        target_role = next(
+            role for role, value in canonical[1].input_bindings.items()
+            if value == shared_value
+        )
         new_edges.append(
             {
                 "edge_id": f"edge_{trace.trace_id}_held_to_observe",
                 "edge_type": "data_flow",
                 "source_step": canonical[0].occurrence_id,
                 "target_step": canonical[1].occurrence_id,
-                "source_role": "held_object",
-                "target_role": "item",
+                "source_role": source_role,
+                "target_role": target_role,
             }
         )
     session.enqueue(
@@ -251,12 +341,16 @@ def _extract_and_register(
             }
         )
     )
-    e2 = extractor.propose_composite(canonical, [])
+    e2 = extractor.propose_composite(canonical, [], task_contract)
     assert session.remaining_replies == 0
 
-    compiled = ToolCompiler().compile(canonical)
+    candidate_composite = CompositeBuilder().validate_and_build(
+        e2,
+        canonical,
+        task_contract,
+        contract_matcher=harness.contract_matcher(),
+    )
     admission = Admission(validation.tool)
-    aligner = Aligner(skills, tools)
     atomic_refs = []
     implementation_refs = []
     tool_refs = []
@@ -286,11 +380,6 @@ def _extract_and_register(
         tool_refs.append(tool_ref)
         occurrence_to_atomic[item.occurrence.occurrence_id] = atomic_ref
 
-    candidate_composite = CompositeBuilder().validate_and_build(
-        e2,
-        canonical,
-        task_contract,
-    )
     composite_ref = aligner.align_composite(candidate_composite, occurrence_to_atomic)
     evolution_events = CreditAssigner().assign_evolution(
         trace,
@@ -392,6 +481,7 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
         projection=projection,
     )
     atomic_ref = learned["atomic_refs"][0]
+    atomic_input_role = skills.get_atomic(atomic_ref).inputs[0].name
     implementation_ref = learned["implementation_refs"][0]
     tool_ref = learned["tool_refs"][0]
     composite_ref = learned["composite_ref"]
@@ -408,7 +498,9 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     assert episode2.runtime_plan["source"] == "stored_composite"
     assert episode2.runtime_plan["source_composite_ref"] == str(composite_ref)
     assert episode2.node_records[0].status is NodeExecutionStatus.DIRECT_AUTONOMOUS_SUCCESS
-    assert episode2.node_records[0].validated_outputs == {"held_object": "apple_2"}
+    assert episode2.node_records[0].validated_outputs == {
+        skills.get_atomic(atomic_ref).outputs[0].name: "apple_2"
+    }
     assert episode2.graph_self_sufficient_success is True
     assert episode2.implementation_direct_success is True
     assert episode2.agent_turns == []
@@ -440,7 +532,7 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     factory.enqueue(
         "runtime_preparation",
         [
-            FakeReply.tool("$learned", {"item": "ghost_9"}),
+            FakeReply.tool("$learned", {atomic_input_role: "ghost_9"}),
             FakeReply.tool("report_runtime_status", {"status": "cannot_resolve"}),
         ],
     )
@@ -547,7 +639,9 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     rescued = _extract_and_register(
         trace=episode4,
         task=task4,
-        task_contract=harness.task_contract(task4),
+        task_contract=TaskContract([
+            SemanticPredicate("object.observed", {"object": "mug_1"}),
+        ]),
         e1_occurrences=[_e1_take("mug_1", start=0), _e1_examine("mug_1", start=1)],
         factory=factory,
         skills=skills,
@@ -567,8 +661,8 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
         item.occurrence_id for item in rescued["canonical"]
     ]
     assert len(rescue_composite.data_edges) == 1
-    assert rescue_composite.data_edges[0].source_role == "held_object"
-    assert rescue_composite.data_edges[0].target_role == "item"
+    assert rescue_composite.data_edges[0].source_role == rescued["new_edges"][0]["source_role"]
+    assert rescue_composite.data_edges[0].target_role == rescued["new_edges"][0]["target_role"]
 
     # Every scripted provider call belongs to a real bucket and provider totals
     # reconcile without adding reasoning tokens a second time.

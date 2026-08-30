@@ -20,7 +20,11 @@ from atomic_skillgraph.core.contracts import (
     ToolAsset,
 )
 from atomic_skillgraph.core.edges import ExistingEdgeEvidence, GraphEdge, GraphEdgeType
-from atomic_skillgraph.core.errors import AtomicSkillGraphError, FailureLayer
+from atomic_skillgraph.core.errors import (
+    AgentProtocolError,
+    AtomicSkillGraphError,
+    FailureLayer,
+)
 from atomic_skillgraph.core.refs import SkillRef, ToolRef
 from atomic_skillgraph.core.results import RuntimeLinearPlan, RuntimeOccurrence
 from atomic_skillgraph.core.status import RuntimeMode, SkillStatus, ToolStatus
@@ -730,6 +734,71 @@ def test_untyped_planner_provider_error_is_not_dynamic_fallback(tmp_path: Path) 
                 FakeHarness(),
                 initial_observation="initial",
             )
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize(
+    ("error_type", "message"),
+    [
+        (KeyError, "planner fixture key"),
+        (TypeError, "planner fixture type"),
+        (ValueError, "planner fixture value"),
+    ],
+)
+def test_bare_planner_programming_errors_are_not_dynamic_fallback(
+    tmp_path: Path,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    database, skills, _tools, graph = _empty_runtime(tmp_path)
+    try:
+        skills.register_atomic(_atomic(
+            "unrelated_active_atomic",
+            effects=[SemanticPredicate("unrelated.effect", {"value": "x"})],
+        ))
+
+        class Session:
+            def next_turn(self, *_args, **_kwargs):
+                raise error_type(message)
+
+        planner = PlannerPipeline(skills, graph, lambda *_args: Session())
+        with pytest.raises(error_type, match=message):
+            planner.build_plan(
+                fake_task("planner-programming-error", "apple_1"),
+                FakeHarness(),
+                initial_observation="initial",
+            )
+    finally:
+        database.close()
+
+
+def test_explicit_planner_proposal_error_may_fallback_to_dynamic(
+    tmp_path: Path,
+) -> None:
+    database, skills, _tools, graph = _empty_runtime(tmp_path)
+    try:
+        skills.register_atomic(_atomic(
+            "unrelated_active_atomic",
+            effects=[SemanticPredicate("unrelated.effect", {"value": "x"})],
+        ))
+
+        class Session:
+            def next_turn(self, *_args, **_kwargs):
+                raise AgentProtocolError(
+                    "runtime_agent_schema_error",
+                    "planner proposal failed its explicit schema",
+                    layer=FailureLayer.RUNTIME_AGENT,
+                )
+
+        planner = PlannerPipeline(skills, graph, lambda *_args: Session())
+        plan = planner.build_plan(
+            fake_task("planner-explicit-proposal-error", "apple_1"),
+            FakeHarness(),
+            initial_observation="initial",
+        )
+        assert plan.source == "full_dynamic"
+        assert plan.planner_audit["fallback_reason"] == "planner_requirement_invalid"
     finally:
         database.close()
 

@@ -12,6 +12,7 @@ from ..agents.structured_submission import (
 )
 from ..core.bindings import BindingExpression
 from ..core.contracts import PlannerWorkflowProposal, ProposedEdge, ProposedOccurrence
+from ..core.errors import AgentProtocolError, AtomicSkillGraphError, FailureLayer
 from ..core.refs import SkillRef
 from ..core.serialization import to_primitive
 
@@ -77,13 +78,11 @@ class WorkflowAgent:
             f"Existing edges: {json.dumps(to_primitive(existing_edges), ensure_ascii=False)}\n"
             f"Related hints: {json.dumps(to_primitive(hints), ensure_ascii=False)}"
         )
-        return _proposal(self.submissions.request(
-            self.session,
-            prompt=prompt,
-            tool_name="submit_planner_workflow",
+        return self._request_workflow(
+            prompt,
+            error_code="planner_graph_invalid",
             description="Submit one complete linear Planner workflow proposal.",
-            schema=WORKFLOW_SCHEMA,
-        ).value)
+        )
 
     def repair(self, proposal: PlannerWorkflowProposal, validation: Any, authoritative_contracts: Any, existing_edges: Any) -> PlannerWorkflowProposal:
         if hasattr(self.session, "set_usage_bucket"):
@@ -97,10 +96,38 @@ class WorkflowAgent:
             f"Authoritative contracts: {json.dumps(to_primitive(authoritative_contracts), ensure_ascii=False)}\n"
             f"Existing edges: {json.dumps(to_primitive(existing_edges), ensure_ascii=False)}"
         )
-        return _proposal(self.submissions.request(
-            self.session,
-            prompt=prompt,
-            tool_name="submit_planner_workflow",
+        return self._request_workflow(
+            prompt,
+            error_code="planner_graph_repair_failed",
             description="Submit one complete replacement Planner workflow proposal.",
-            schema=WORKFLOW_SCHEMA,
-        ).value)
+        )
+
+    def _request_workflow(
+        self,
+        prompt: str,
+        *,
+        error_code: str,
+        description: str,
+    ) -> PlannerWorkflowProposal:
+        try:
+            submission = self.submissions.request(
+                self.session,
+                prompt=prompt,
+                tool_name="submit_planner_workflow",
+                description=description,
+                schema=WORKFLOW_SCHEMA,
+            )
+        except AgentProtocolError as exc:
+            raise AtomicSkillGraphError(
+                error_code,
+                f"Planner workflow proposal protocol validation failed: {exc}",
+                layer=FailureLayer.PLANNER_GRAPH,
+            ) from exc
+        try:
+            return _proposal(submission.value)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AtomicSkillGraphError(
+                error_code,
+                f"Planner workflow proposal semantic validation failed: {exc}",
+                layer=FailureLayer.PLANNER_GRAPH,
+            ) from exc

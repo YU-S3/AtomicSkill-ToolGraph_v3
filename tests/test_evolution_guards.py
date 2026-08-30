@@ -79,10 +79,93 @@ def _normalized(
     validations: list[dict] | None = None,
     benchmark_success: bool = True,
 ) -> dict:
+    facts: dict[tuple[str, tuple[tuple[str, object], ...]], dict] = {}
+    certified_actions: list[dict] = []
+
+    def identity(predicate: str, arguments: dict) -> tuple[str, tuple[tuple[str, object], ...]]:
+        return predicate, tuple(sorted(arguments.items()))
+
+    def add(predicate: str, arguments: dict, event_index: int) -> dict:
+        raw = {
+            "fact_ref": f"effect:{event_index}:{predicate}",
+            "predicate": predicate,
+            "args": dict(arguments),
+            "cardinality": 1,
+            "distinct_by": "",
+        }
+        facts[identity(predicate, arguments)] = raw
+        return raw
+
+    for action in actions:
+        event_index = int(action["event_index"])
+        before = [dict(item) for item in facts.values()]
+        arguments = dict(action.get("arguments") or {})
+        action_type = str(action.get("action_type", ""))
+        obj = arguments.get("object", arguments.get("item"))
+        positive: list[dict] = []
+        negative: list[dict] = []
+        required: list[dict] = []
+
+        for raw in before:
+            if raw["predicate"] == "agent.holds" and raw["args"].get("object") == obj:
+                if action_type in {"PUT", "HEAT", "COOL", "CLEAN", "EXAMINE", "USE"}:
+                    required.append({
+                        **raw,
+                        "fact_ref": f"required:{event_index}:{raw['predicate']}",
+                    })
+            elif action_type == "USE" and raw["predicate"] == "agent.holds":
+                required.append({
+                    **raw,
+                    "fact_ref": f"required:{event_index}:{raw['predicate']}",
+                })
+        if action_type == "TAKE" and obj:
+            positive.append(add("agent.holds", {"object": obj}, event_index))
+        elif action_type == "PUT" and obj:
+            held_id = identity("agent.holds", {"object": obj})
+            if held_id in facts:
+                negative.append(facts.pop(held_id))
+            positive.append(add(
+                "object.at_location",
+                {"object": obj, "location": arguments["destination"]},
+                event_index,
+            ))
+        elif action_type == "HEAT" and obj:
+            positive.append(add("object.heated", {"object": obj}, event_index))
+        elif action_type == "COOL" and obj:
+            positive.append(add("object.cooled", {"object": obj}, event_index))
+        elif action_type == "CLEAN" and obj:
+            positive.append(add("object.cleaned", {"object": obj}, event_index))
+        elif action_type == "EXAMINE" and obj:
+            positive.append(add("object.observed", {"object": obj}, event_index))
+        elif action_type == "GO_TO":
+            positive.append(add(
+                "agent.at_location", {"location": arguments["destination"]}, event_index,
+            ))
+        elif action_type == "USE" and action.get("won"):
+            for target in target_effects:
+                if target.predicate == "object.observed_with":
+                    positive.append(add(target.predicate, dict(target.args), event_index))
+
+        certificate = {
+            "action_id": action["action_id"],
+            "revision_before": action["before_revision"],
+            "revision_after": action["after_revision"],
+            "action_type": action_type,
+            "arguments": arguments,
+            "before_facts": before,
+            "positive_effects": positive,
+            "negative_effects": negative,
+            "required_facts": required,
+            "terminal_effects": positive if action.get("won") else [],
+            "accepted": True,
+            "state_changed": bool(positive or negative),
+            "evidence_refs": [f"certificate:{event_index}"],
+        }
+        certified_actions.append({**action, "transition_certificate": certificate})
     return {
         "trace_id": "trace_guard",
         "source_task": {"task_id": "task", "task_signature": "sig", "task_type": "guard", "metadata": {}},
-        "actions": actions,
+        "actions": certified_actions,
         "runtime_spans": [
             {
                 "span_id": item["span_id"],
@@ -116,20 +199,30 @@ def _proposal(
     *,
     preconditions: list[SemanticPredicate] | None = None,
 ) -> AtomicOccurrenceProposal:
+    effect_ref = f"effect:{index}:{effect.predicate}"
+    output_mapping = {}
+    for output_role, value in outputs.items():
+        argument = next(
+            name for name, effect_value in effect.args.items()
+            if effect_value == value
+        )
+        output_mapping[output_role] = f"fact:{effect_ref}:{argument}"
     return AtomicOccurrenceProposal(
-        phase,
-        intent,
-        index,
-        index,
-        inputs,
-        outputs,
-        list(preconditions or []),
-        [effect],
-        "validated guard proposal",
+        phase_id=phase,
+        intent=intent,
+        event_start=index,
+        event_end_exclusive=index + 1,
+        selected_effect_refs=[effect_ref],
+        selected_precondition_refs=[
+            f"required:{index}:{item.predicate}"
+            for item in (preconditions or [])
+        ],
+        output_role_mapping=output_mapping,
+        rationale="validated guard proposal",
     )
 
 
-def test_atomicizer_rejects_false_validator_and_terminal_effect_leak() -> None:
+def test_atomicizer_uses_certificate_refs_and_rejects_unlisted_effects() -> None:
     heat = SemanticPredicate("object.heated", {"object": "apple_1"})
     actions = [_action(0, "HEAT", {"object": "apple_1", "station": "microwave_1"}, won=True)]
     proposal = _proposal(
@@ -142,8 +235,9 @@ def test_atomicizer_rejects_false_validator_and_terminal_effect_leak() -> None:
         target_effects=[heat],
         validations=[{"occurrence_id": "", "level": "atomic", "result": {"passed": False}, "revision": 1}],
     )
-    with pytest.raises(ValueError, match="validator rejected"):
-        Atomicizer().validate_and_canonicalize([proposal], normalized)
+    # Transition certificates, not a second validation projection, are E1's
+    # sole semantic authority.
+    assert Atomicizer().validate_and_canonicalize([proposal], normalized)
 
     # A terminal PUT may witness placement, but it cannot be used as a generic
     # witness for a different formal target effect achieved earlier.
@@ -153,19 +247,19 @@ def test_atomicizer_rejects_false_validator_and_terminal_effect_leak() -> None:
         {"object": "apple_1", "destination": "bowl_1"},
         {"heated_object": "apple_1"}, heat,
     )
-    with pytest.raises(ValueError, match="state/validator witness"):
+    with pytest.raises(ValueError, match="unknown/out-of-boundary effect"):
         Atomicizer().validate_and_canonicalize(
-            [forged],
+            [replace(forged, selected_effect_refs=["effect:0:object.heated"])],
             _normalized(put, target_effects=[heat, SemanticPredicate(
                 "object.at_location", {"object": "apple_1", "location": "bowl_1"},
             )]),
         )
 
-    with pytest.raises(ValueError, match="state/validator witness"):
+    with pytest.raises(ValueError, match="must be unique"):
         Atomicizer().validate_and_canonicalize(
-            [replace(proposal, effects=[SemanticPredicate(
-                "object.heated", {"object": "apple_1"}, cardinality=2,
-            )])],
+            [replace(proposal, selected_effect_refs=[
+                "effect:0:object.heated", "effect:0:object.heated",
+            ])],
             _normalized(actions, target_effects=[heat]),
         )
 
@@ -190,7 +284,7 @@ def test_atomicizer_accepts_formal_contextual_observed_with_witness() -> None:
         [proposal], _normalized(actions, target_effects=[effect]),
     )
     assert result[0].effects[0].predicate == "object.observed_with"
-    assert any(ref.startswith("task_contract:") for ref in result[0].validation_refs)
+    assert any(ref.startswith("effect:") for ref in result[0].validation_refs)
     compiled = ToolCompiler().compile(result)[0]
     assert set(compiled.tool.signature["required"]) == {"object", "light"}
     admitted_tool = Admission(ValidationEngine().tool).admit_tool(
@@ -212,9 +306,9 @@ def test_atomicizer_accepts_formal_contextual_observed_with_witness() -> None:
         _action(1, "TAKE", {"object": "alarmclock_1", "source": "desk_1"}),
         _action(2, "EXAMINE", {"object": "alarmclock_1"}, won=True),
     ]
-    with pytest.raises(ValueError, match="state/validator witness"):
+    with pytest.raises(ValueError, match="unknown/out-of-boundary effect"):
         Atomicizer().validate_and_canonicalize(
-            [replace(proposal, event_start=2, event_end=2)],
+            [replace(proposal, event_start=2, event_end_exclusive=3)],
             _normalized(forged_actions, target_effects=[effect]),
         )
 
@@ -234,7 +328,7 @@ def test_atomicizer_action_state_reducer_invalidates_stale_witnesses() -> None:
         SemanticPredicate("object.observed", {"object": "apple_1"}),
         preconditions=[SemanticPredicate("agent.holds", {"object": "apple_1"})],
     )
-    with pytest.raises(ValueError, match="before-state witness"):
+    with pytest.raises(ValueError, match="precondition references"):
         Atomicizer().validate_and_canonicalize(
             [examine],
             _normalized(
@@ -250,11 +344,12 @@ def test_atomicizer_action_state_reducer_invalidates_stale_witnesses() -> None:
         phase_id="take_then_put",
         intent="pretend to retain object",
         event_start=0,
-        event_end=1,
-        input_roles={"object": "apple_1", "destination": "bowl_1"},
-        output_roles={"held_object": "apple_1"},
-        preconditions=[],
-        effects=[SemanticPredicate("agent.holds", {"object": "apple_1"})],
+        event_end_exclusive=2,
+        selected_effect_refs=["effect:0:agent.holds"],
+        selected_precondition_refs=[],
+        output_role_mapping={
+            "held_object": "fact:effect:0:agent.holds:object",
+        },
     )
     forged_trace = _normalized(actions, target_effects=[SemanticPredicate(
         "object.observed", {"object": "apple_1"},
@@ -268,18 +363,19 @@ def test_atomicizer_action_state_reducer_invalidates_stale_witnesses() -> None:
         "parent_span_id": None,
         "learnable": True,
     }]
-    with pytest.raises(ValueError, match="state/validator witness"):
+    with pytest.raises(ValueError, match="negated within"):
         Atomicizer().validate_and_canonicalize([forged_holds], forged_trace)
 
     two_holds = replace(
         examine,
         event_start=1,
-        event_end=1,
-        preconditions=[SemanticPredicate(
-            "agent.holds", {"object": "apple_1"}, cardinality=2,
-        )],
+        event_end_exclusive=2,
+        selected_precondition_refs=[
+            "required:1:agent.holds",
+            "required:1:agent.holds",
+        ],
     )
-    with pytest.raises(ValueError, match="before-state witness"):
+    with pytest.raises(ValueError, match="must be unique"):
         Atomicizer().validate_and_canonicalize(
             [two_holds],
             _normalized(
@@ -522,14 +618,14 @@ def test_composite_requires_reused_identity_dataflow_and_identity_consistency() 
         "source_step": sequence[0],
         "target_step": sequence[1],
         "source_role": "held_object",
-        "target_role": "item",
+        "target_role": "object",
     }
     composite = CompositeBuilder().validate_and_build(
         CompositeExtractionProposal(sequence, [], [edge], "take and examine", {}, {}),
         canonical,
         TaskContract([SemanticPredicate("object.observed", {"object": "apple_1"})]),
     )
-    assert composite.occurrences[1].binding_specs["item"].kind is BindingExprKind.DATA_FLOW
+    assert composite.occurrences[1].binding_specs["object"].kind is BindingExprKind.DATA_FLOW
 
     mismatched_actions = [
         _action(0, "TAKE", {"item": "apple_1"}),
@@ -540,10 +636,7 @@ def test_composite_requires_reused_identity_dataflow_and_identity_consistency() 
             proposals[0],
             replace(
                 proposals[1],
-                input_roles={"item": "banana_1"},
-                output_roles={"observed_object": "banana_1"},
-                preconditions=[],
-                effects=[SemanticPredicate("object.observed", {"object": "banana_1"})],
+                selected_precondition_refs=[],
             ),
         ],
         _normalized(mismatched_actions, target_effects=[SemanticPredicate(
@@ -621,6 +714,279 @@ def test_composite_requires_reused_identity_dataflow_and_identity_consistency() 
             mixed,
             contract,
         )
+
+
+def test_irrelevant_valid_exploration_occurrence_not_in_composite() -> None:
+    target = SemanticPredicate(
+        "object.at_location",
+        {"object": "apple_1", "location": "fridge_1"},
+    )
+    actions = [
+        _action(0, "GO_TO", {"destination": "cabinet_7"}),
+        _action(1, "TAKE", {"object": "apple_1", "source": "desk_1"}),
+        _action(
+            2,
+            "PUT",
+            {"object": "apple_1", "destination": "fridge_1"},
+            won=True,
+        ),
+    ]
+    proposals = [
+        _proposal(
+            "explore",
+            "visit an unrelated location",
+            0,
+            {"destination": "cabinet_7"},
+            {"visited_location": "cabinet_7"},
+            SemanticPredicate("agent.at_location", {"location": "cabinet_7"}),
+        ),
+        _proposal(
+            "acquire",
+            "acquire the target",
+            1,
+            {"object": "apple_1", "source": "desk_1"},
+            {"held_object": "apple_1"},
+            SemanticPredicate("agent.holds", {"object": "apple_1"}),
+        ),
+        _proposal(
+            "place",
+            "place the target",
+            2,
+            {"object": "apple_1", "destination": "fridge_1"},
+            {"placed_object": "apple_1"},
+            target,
+            preconditions=[SemanticPredicate(
+                "agent.holds", {"object": "apple_1"},
+            )],
+        ),
+    ]
+    canonical = Atomicizer().validate_and_canonicalize(
+        proposals,
+        _normalized(actions, target_effects=[target]),
+    )
+    by_phase = {item.phase_id: item for item in canonical}
+    selected = [
+        by_phase["acquire"].occurrence_id,
+        by_phase["place"].occurrence_id,
+    ]
+    edge = {
+        "edge_id": "held_to_placed",
+        "edge_type": "data_flow",
+        "source_step": selected[0],
+        "target_step": selected[1],
+        "source_role": "held_object",
+        "target_role": "object",
+    }
+    with pytest.raises(ValueError, match="minimal task-causal closure"):
+        CompositeBuilder().validate_and_build(
+            CompositeExtractionProposal(
+                [item.occurrence_id for item in canonical],
+                [],
+                [edge],
+                "exploration plus task actions",
+                {},
+                {},
+            ),
+            canonical,
+            TaskContract([target]),
+        )
+    composite = CompositeBuilder().validate_and_build(
+        CompositeExtractionProposal(
+            selected, [], [edge], "acquire and place target", {}, {},
+        ),
+        canonical,
+        TaskContract([target]),
+    )
+
+    assert len(canonical) == 3
+    assert composite.control_sequence == selected
+    assert by_phase["explore"].metadata["not_in_task_composite"] is True
+    assert by_phase["acquire"].metadata["not_in_task_composite"] is False
+    assert composite.metadata["excluded_atomic_occurrences"] == [
+        by_phase["explore"].occurrence_id,
+    ]
+    compiled = ToolCompiler().compile(canonical)
+    assert len(compiled) == 3
+    assert next(
+        item for item in compiled if item.occurrence.phase_id == "explore"
+    ).atomic.metadata["not_in_task_composite"] is True
+
+
+@pytest.mark.parametrize(
+    ("actual_object", "actual_destination"),
+    [("mug_1", "fridge_1"), ("apple_1", "cabinet_1")],
+)
+def test_composite_contract_rejects_wrong_object_or_destination_family(
+    actual_object: str,
+    actual_destination: str,
+) -> None:
+    class FamilyMatcher:
+        @staticmethod
+        def effect_covers_target(
+            *, offered_predicate, offered_arguments, target_predicate,
+        ) -> bool:
+            def compatible(observed, expected) -> bool:
+                if not isinstance(observed, str) or not isinstance(expected, str):
+                    return observed == expected
+                return observed == expected or observed.rsplit("_", 1)[0] == expected
+
+            return (
+                offered_predicate.predicate.casefold()
+                == target_predicate.predicate.casefold()
+                and set(offered_arguments) == set(target_predicate.args)
+                and all(
+                    compatible(offered_arguments[role], expected)
+                    for role, expected in target_predicate.args.items()
+                )
+            )
+
+    offered = SemanticPredicate(
+        "object.at_location",
+        {"object": actual_object, "location": actual_destination},
+    )
+    target = SemanticPredicate(
+        "object.at_location", {"object": "apple", "location": "fridge"},
+    )
+    action = _action(
+        0,
+        "PUT",
+        {"object": actual_object, "destination": actual_destination},
+        won=True,
+    )
+    canonical = Atomicizer().validate_and_canonicalize(
+        [_proposal(
+            "place",
+            "place an object",
+            0,
+            {"object": actual_object, "destination": actual_destination},
+            {"placed_object": actual_object},
+            offered,
+        )],
+        _normalized([action], target_effects=[target]),
+    )
+
+    with pytest.raises(ValueError, match="no Atomic effect covers"):
+        CompositeBuilder().validate_and_build(
+            CompositeExtractionProposal(
+                [canonical[0].occurrence_id], [], [], "place target", {}, {},
+            ),
+            canonical,
+            TaskContract([target]),
+            contract_matcher=FamilyMatcher(),
+        )
+
+
+def test_e1_occurrences_are_chronologically_canonicalized() -> None:
+    held = SemanticPredicate("agent.holds", {"object": "apple_1"})
+    heated = SemanticPredicate("object.heated", {"object": "apple_1"})
+    actions = [
+        _action(0, "TAKE", {"object": "apple_1", "source": "desk_1"}),
+        _action(
+            1,
+            "HEAT",
+            {"object": "apple_1", "station": "microwave_1"},
+            won=True,
+        ),
+    ]
+    proposals = [
+        _proposal(
+            "heat",
+            "heat the held object",
+            1,
+            {"object": "apple_1", "station": "microwave_1"},
+            {"heated_object": "apple_1"},
+            heated,
+            preconditions=[held],
+        ),
+        _proposal(
+            "acquire",
+            "acquire the object",
+            0,
+            {"object": "apple_1", "source": "desk_1"},
+            {"held_object": "apple_1"},
+            held,
+        ),
+    ]
+
+    canonical = Atomicizer().validate_and_canonicalize(
+        proposals,
+        _normalized(actions, target_effects=[heated]),
+    )
+
+    assert [item.phase_id for item in canonical] == ["acquire", "heat"]
+    assert [item.event_start for item in canonical] == [0, 1]
+
+
+def test_e1_overlap_resolution_uses_declared_deterministic_priority() -> None:
+    held = SemanticPredicate("agent.holds", {"object": "apple_1"})
+    heated = SemanticPredicate("object.heated", {"object": "apple_1"})
+    actions = [
+        _action(
+            0,
+            "TAKE",
+            {"object": "apple_1", "source": "desk_1"},
+            span_id="slice",
+        ),
+        _action(
+            1,
+            "HEAT",
+            {"object": "apple_1", "station": "microwave_1"},
+            won=True,
+            span_id="slice",
+        ),
+    ]
+    normalized = _normalized(actions, target_effects=[heated])
+    normalized["runtime_spans"] = [{
+        "span_id": "slice",
+        "kind": "full_dynamic",
+        "occurrence_id": "",
+        "action_start": 0,
+        "action_end": 2,
+        "parent_span_id": None,
+        "learnable": True,
+    }]
+    short = _proposal(
+        "short",
+        "heat the held object",
+        1,
+        {"object": "apple_1", "station": "microwave_1"},
+        {"heated_object": "apple_1"},
+        heated,
+        preconditions=[held],
+    )
+    rich = AtomicOccurrenceProposal(
+        phase_id="z_rich",
+        intent="acquire and heat",
+        event_start=0,
+        event_end_exclusive=2,
+        selected_effect_refs=[
+            "effect:0:agent.holds",
+            "effect:1:object.heated",
+        ],
+        selected_precondition_refs=[],
+        output_role_mapping={
+            "heated_object": "fact:effect:1:object.heated:object",
+        },
+        rationale="two authoritative effects",
+    )
+    sparse = replace(
+        rich,
+        phase_id="a_sparse",
+        selected_effect_refs=["effect:1:object.heated"],
+        rationale="one authoritative effect",
+    )
+
+    accepted, rejected = Atomicizer().validate_proposed_subset(
+        [rich, short], normalized,
+    )
+    assert [item.phase_id for item in accepted] == ["short"]
+    assert rejected[0]["phase_id"] == "z_rich"
+
+    accepted, rejected = Atomicizer().validate_proposed_subset(
+        [sparse, rich], normalized,
+    )
+    assert [item.phase_id for item in accepted] == ["z_rich"]
+    assert rejected[0]["phase_id"] == "a_sparse"
 
 
 def test_failure_repair_queue_is_structured_and_checkpointed_in_sqlite(tmp_path) -> None:

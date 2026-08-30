@@ -61,6 +61,7 @@ class ToolRunner:
             record = EnvironmentActionRecord(
                 spec.action_id, spec.revision, spec.action_type, dict(spec.arguments), result.accepted,
                 result.observation, result.done, result.won, result.new_revision, span.span_id,
+                to_primitive(result.transition_certificate) if result.transition_certificate else None,
             )
             ctx.trace_builder.trace.environment_actions.append(record)
             ctx.update_after_action(result, {**to_primitive(record), "occurrence_id": occurrence_id, "origin": "tool"})

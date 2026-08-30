@@ -5,6 +5,12 @@ from .failure_processor import FailureProcessor
 from .gap_diagnosis import GapDiagnoser
 from .composite_repairs import CompositeRepairResult, CompositeSequenceRepairEngine
 from .composite_repair_session import CompositeSequenceProposalSession, CompositeSequenceReview
+from .contract_canonicalizer import (
+    AtomicContractCanonicalizer,
+    CanonicalizedAtomicBundle,
+    atomic_contract_signature,
+    canonical_atomic_contract,
+)
 from .maintenance import BatchMaintenanceResult, ExtractionPolicy, EvolutionMaintenance
 from .repair_session import EvolutionRepairSession
 from .typed_repair_session import TypedRepairProposalSession, TypedRepairReview
@@ -17,4 +23,6 @@ __all__ = [
     "TypedRepairProposalSession", "TypedRepairReview",
     "CompositeRepairResult", "CompositeSequenceRepairEngine",
     "CompositeSequenceProposalSession", "CompositeSequenceReview",
+    "AtomicContractCanonicalizer", "CanonicalizedAtomicBundle",
+    "atomic_contract_signature", "canonical_atomic_contract",
 ]

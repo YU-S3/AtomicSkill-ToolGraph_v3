@@ -201,9 +201,11 @@ class OpenAICompatibleProvider:
         )
         diagnostic_secrets = (api_key, *private_replay_values)
         started_all = time.perf_counter()
+        logical_call_id = f"provider_call_{uuid.uuid4().hex}"
         retry_count = 0
         while True:
             audit_id = f"provider_request_{uuid.uuid4().hex}"
+            attempt_index = retry_count + 1
             started_at = time.time()
             try:
                 response = requests.post(
@@ -221,11 +223,18 @@ class OpenAICompatibleProvider:
                 message = _sanitize(
                     f"{type(exc).__name__}: {exc}", secrets=diagnostic_secrets,
                 )
+                will_retry = (
+                    _is_transient_transport_error(exc)
+                    and retry_count < self.config.max_retries
+                )
                 self._append_request_record(
                     audit_id, started_at, "error", None, retry_count, None, code, message,
                     payload_fingerprint, payload_fields, "",
+                    logical_call_id=logical_call_id,
+                    attempt_index=attempt_index,
+                    is_terminal_attempt=not will_retry,
                 )
-                if _is_transient_transport_error(exc) and retry_count < self.config.max_retries:
+                if will_retry:
                     retry_count += 1
                     self._backoff(retry_count)
                     continue
@@ -235,11 +244,18 @@ class OpenAICompatibleProvider:
             if not response.ok:
                 code = _http_error_code(response.status_code, response.text)
                 message = f"HTTP {response.status_code} from LLM provider"
+                will_retry = (
+                    _is_transient_status(response.status_code)
+                    and retry_count < self.config.max_retries
+                )
                 self._append_request_record(
                     audit_id, started_at, "error", response.status_code, retry_count, None,
                     code, message, payload_fingerprint, payload_fields, provider_request_id,
+                    logical_call_id=logical_call_id,
+                    attempt_index=attempt_index,
+                    is_terminal_attempt=not will_retry,
                 )
-                if _is_transient_status(response.status_code) and retry_count < self.config.max_retries:
+                if will_retry:
                     retry_count += 1
                     self._backoff(retry_count, response=response)
                     continue
@@ -254,6 +270,9 @@ class OpenAICompatibleProvider:
                     audit_id, started_at, "error", response.status_code, retry_count, None,
                     "provider_invalid_response", message, payload_fingerprint, payload_fields,
                     provider_request_id,
+                    logical_call_id=logical_call_id,
+                    attempt_index=attempt_index,
+                    is_terminal_attempt=True,
                 )
                 raise AgentProviderError(
                     "provider_invalid_response", message, http_status=response.status_code,
@@ -264,6 +283,9 @@ class OpenAICompatibleProvider:
                     audit_id, started_at, "error", response.status_code, retry_count, None,
                     "provider_invalid_response", message, payload_fingerprint, payload_fields,
                     provider_request_id,
+                    logical_call_id=logical_call_id,
+                    attempt_index=attempt_index,
+                    is_terminal_attempt=True,
                 )
                 raise AgentProviderError("provider_invalid_response", message)
             provider_request_id = _provider_request_id(response, data)
@@ -282,11 +304,17 @@ class OpenAICompatibleProvider:
                     usage_turn if isinstance(usage_turn, AgentTurn) else None,
                     exc.code, _sanitize(str(exc), secrets=diagnostic_secrets), payload_fingerprint,
                     payload_fields, provider_request_id,
+                    logical_call_id=logical_call_id,
+                    attempt_index=attempt_index,
+                    is_terminal_attempt=True,
                 )
                 raise
             self._append_request_record(
                 audit_id, started_at, "success", response.status_code, retry_count, turn, "", "",
                 payload_fingerprint, payload_fields, provider_request_id,
+                logical_call_id=logical_call_id,
+                attempt_index=attempt_index,
+                is_terminal_attempt=True,
             )
             return turn
 
@@ -438,6 +466,10 @@ class OpenAICompatibleProvider:
         payload_fingerprint: str,
         payload_fields: list[str],
         provider_request_id: str,
+        *,
+        logical_call_id: str,
+        attempt_index: int,
+        is_terminal_attempt: bool,
     ) -> None:
         context = getattr(self._request_context, "value", {})
         reasoning = usage.reasoning_content if usage is not None else ""
@@ -452,6 +484,9 @@ class OpenAICompatibleProvider:
             "outcome": outcome,
             "http_status": http_status,
             "retry_count": retry_count,
+            "logical_call_id": logical_call_id,
+            "attempt_index": attempt_index,
+            "is_terminal_attempt": is_terminal_attempt,
             "usage_status": (
                 str(usage.provider_metadata.get("usage_status", "reported"))
                 if usage is not None else "unavailable"

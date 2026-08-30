@@ -95,6 +95,53 @@ class SkillRegistry:
             guideline=payload.get("guideline", {}), metadata=payload.get("metadata", {}), status=status,
         )
 
+    def find_equivalent_atomic(
+        self,
+        candidate: AbstractAtomicSkill,
+        *,
+        statuses: Iterable[SkillStatus | str] = (
+            SkillStatus.CANDIDATE,
+            SkillStatus.ACTIVE,
+        ),
+    ) -> SkillRef | None:
+        """Read-only lookup using the same canonical contract as Aligner.
+
+        This is intentionally an equivalence query, not registration.  It is
+        safe to call while staging E2 authority and cannot create an Artifact
+        row or advance a semantic version.
+        """
+
+        # Local import keeps the knowledge registry independent from the
+        # stateful Aligner while sharing its pure canonical identity function.
+        from ..evolution.contract_canonicalizer import atomic_contract_signature
+
+        allowed = {SkillStatus(value) for value in statuses}
+        signature = atomic_contract_signature(candidate)
+        matches = [
+            atomic
+            for atomic in self.atomics()
+            if atomic.status in allowed
+            and atomic_contract_signature(atomic) == signature
+        ]
+        if not matches:
+            return None
+
+        def version_key(value: AbstractAtomicSkill) -> tuple[int, int, int, int, str]:
+            try:
+                major, minor, patch = (
+                    int(piece) for piece in value.ref.version.split(".")
+                )
+                parsed = (major, minor, patch)
+            except (TypeError, ValueError):
+                parsed = (-1, -1, -1)
+            return (
+                1 if value.status is SkillStatus.ACTIVE else 0,
+                *parsed,
+                str(value.ref),
+            )
+
+        return max(matches, key=version_key).ref
+
     def get_implementation(self, ref: SkillRef | str) -> ImplementationAtom:
         ref = SkillRef.parse(ref)
         payload, status = self._payload(ref, "implementation")

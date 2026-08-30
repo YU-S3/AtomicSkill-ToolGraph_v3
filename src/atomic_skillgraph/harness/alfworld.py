@@ -15,8 +15,14 @@ from ..core.contracts import (
 )
 from ..core.errors import AtomicSkillGraphError, FailureLayer
 from ..core.results import PrimitiveToolStep, ValidationResult
+from ..validation.contract_matcher import ContractMatcher
 from .action_catalog import HarnessActionCatalog
-from .protocol import HarnessActionResult, HarnessActionSpec, HarnessTask
+from .protocol import (
+    HarnessActionResult,
+    HarnessActionSpec,
+    HarnessTask,
+    build_transition_certificate,
+)
 
 
 TASK_TYPE_IDS = {
@@ -117,6 +123,44 @@ def parse_alfworld_action(raw_action: Any) -> tuple[str, dict[str, Any], str, di
     if lowered == "look":
         return "LOOK", {}, text, {"parser": "alfworld_v3"}
     return "UNKNOWN", {}, text, {"parser": "alfworld_v3", "unparsed": True}
+
+
+class AlfWorldContractMatcher:
+    """Value-sensitive goal-family matcher owned by the ALFWorld adapter."""
+
+    def effect_covers_target(
+        self,
+        *,
+        offered_predicate: SemanticPredicate,
+        offered_arguments: dict[str, Any],
+        target_predicate: SemanticPredicate,
+    ) -> bool:
+        if target_predicate.predicate.casefold() != offered_predicate.predicate.casefold():
+            return False
+        if set(target_predicate.args) != set(offered_arguments):
+            return False
+        for role, expected in target_predicate.args.items():
+            observed = offered_arguments.get(role)
+            if isinstance(expected, str) and isinstance(observed, str):
+                if not entity_matches(observed, expected):
+                    return False
+            elif observed != expected:
+                return False
+        return True
+
+    def matches(
+        self,
+        target: SemanticPredicate,
+        offered: SemanticPredicate,
+        offered_args: dict[str, Any],
+    ) -> bool:
+        """Compatibility alias for callers on the previous matcher protocol."""
+
+        return self.effect_covers_target(
+            offered_predicate=offered,
+            offered_arguments=offered_args,
+            target_predicate=target,
+        )
 
 
 class AlfWorldValidatorChannel:
@@ -601,6 +645,7 @@ class AlfWorldAdapter:
 
     def execute_action(self, action_id: str, revision: int) -> HarnessActionResult:
         spec = self._catalog.get(action_id, revision)
+        before_snapshot = self._validator.snapshot()
         try:
             observations, scores, dones, infos = self._env.step([spec.raw_action])
         except Exception as exc:
@@ -612,16 +657,90 @@ class AlfWorldAdapter:
         done = bool(dones[0])
         won_values = infos.get("won", [False])
         won = bool(won_values[0]) if won_values else False
-        accepted = "nothing happens" not in observation.casefold()
+        # A revision-scoped catalog entry is the admission authority.  A
+        # normal env.step return means the admitted action was executed;
+        # observation prose is not a semantic acceptance oracle.
+        accepted = True
         admissible = list(infos.get("admissible_commands", [[]])[0])
         old_revision = self._revision
         self._revision += 1
         catalog = self._catalog.replace(admissible, self._revision)
         self._observation, self._done, self._won = observation, done, won
         self._validator.record(spec, accepted=accepted, revision=self._revision, done=done, won=won)
+        after_snapshot = self._validator.snapshot()
+
+        def fact_identity(raw: dict[str, Any]) -> tuple[str, tuple[tuple[str, Any], ...]]:
+            return (
+                str(raw.get("predicate", "")),
+                tuple(sorted(dict(raw.get("args") or {}).items())),
+            )
+
+        before_facts = list(before_snapshot.get("facts", []))
+        after_facts = list(after_snapshot.get("facts", []))
+        action_values = {
+            normalize_entity(value)
+            for value in spec.arguments.values()
+            if value not in (None, "")
+        }
+        required: set[tuple[str, tuple[tuple[str, Any], ...]]] = set()
+        for fact in before_facts:
+            predicate = str(fact.get("predicate", ""))
+            fact_values = {
+                normalize_entity(value)
+                for value in dict(fact.get("args") or {}).values()
+            }
+            related = bool(action_values.intersection(fact_values))
+            if related and predicate in {
+                "agent.holds",
+                "agent.at_location",
+                "container.open",
+            }:
+                required.add(fact_identity(fact))
+        # This adapter knows that contextual device interaction consumes the
+        # currently held entity even though that entity is not an action arg.
+        if spec.action_type == "USE":
+            required.update(
+                fact_identity(fact)
+                for fact in before_facts
+                if str(fact.get("predicate", "")) == "agent.holds"
+            )
+
+        before_ids = {fact_identity(item) for item in before_facts}
+        terminal: set[tuple[str, tuple[tuple[str, Any], ...]]] = set()
+        if won and self._current_task is not None:
+            for fact in after_facts:
+                fact_id = fact_identity(fact)
+                if fact_id in before_ids:
+                    continue
+                actual_args = dict(fact.get("args") or {})
+                for target in self.task_contract(self._current_task).target_effects:
+                    if str(fact.get("predicate", "")) != target.predicate:
+                        continue
+                    if set(actual_args) != set(target.args):
+                        continue
+                    if all(
+                        entity_matches(actual_args[role], expected)
+                        for role, expected in target.args.items()
+                    ):
+                        terminal.add(fact_id)
+                        break
+        certificate = build_transition_certificate(
+            action_id=spec.action_id,
+            revision_before=old_revision,
+            revision_after=self._revision,
+            action_type=spec.action_type,
+            arguments=dict(spec.arguments),
+            before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+            accepted=accepted,
+            required_fact_identities=required,
+            terminal_fact_identities=terminal,
+            evidence_refs=(f"alfworld_transition:{spec.action_id}:r{self._revision}",),
+        )
         return HarnessActionResult(
             accepted, observation, done, won, self._revision, catalog,
             {"score": float(scores[0]), "previous_revision": old_revision, "action_type": spec.action_type},
+            certificate,
         )
 
     def task_contract(self, task: HarnessTask) -> TaskContract:
@@ -662,6 +781,9 @@ class AlfWorldAdapter:
         if count > 1:
             identity.append(IdentityConstraint("object_1", IdentityRelation.DISTINCT_FROM, "object_2", "task"))
         return TaskContract(effects, cardinality, identity, ContractSource.ADAPTER_DERIVED, 1.0, "alfworld_v3_goal")
+
+    def contract_matcher(self) -> ContractMatcher:
+        return AlfWorldContractMatcher()
 
     def validator_channel(self) -> AlfWorldValidatorChannel:
         return self._validator

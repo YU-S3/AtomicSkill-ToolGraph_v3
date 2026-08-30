@@ -22,15 +22,26 @@ from .workflow_agent import WorkflowAgent
 
 
 def _is_planner_content_failure(exc: Exception) -> bool:
-    """Only malformed Planner content is eligible for Dynamic fallback.
+    """Allow Dynamic fallback only for explicitly attributed Planner content.
 
-    Provider and other unexpected exceptions have no trustworthy Planner-layer
-    attribution, so fail closed and let the experiment runner record an
-    infrastructure failure instead of turning it into a capability gap.
+    Bare Python exceptions are programming/data-integrity failures, not
+    evidence of a capability gap.  They must propagate to the runner instead
+    of being silently converted into Full Dynamic.
     """
-    if isinstance(exc, AtomicSkillGraphError):
-        return exc.layer is not FailureLayer.INFRASTRUCTURE
-    return isinstance(exc, (KeyError, TypeError, ValueError))
+
+    return bool(
+        isinstance(exc, AtomicSkillGraphError)
+        and exc.code in {
+            "planner_requirement_invalid",
+            "planner_requirement_repair_failed",
+            "planner_graph_invalid",
+            "planner_graph_repair_failed",
+        }
+        and exc.layer in {
+            FailureLayer.PLANNER_REQUIREMENT,
+            FailureLayer.PLANNER_GRAPH,
+        }
+    )
 
 
 def _planner_failure_reason(exc: Exception, fallback: str) -> str:
