@@ -49,7 +49,8 @@ class ContextBuilder:
         atomic_contract: Any,
         certified_bindings: Mapping[str, Any] | None = None,
         missing_required_arguments: Iterable[str] | None = None,
-        semantic_anchors: Mapping[str, Any] | None = None,
+        task_semantic_context: Mapping[str, Any] | None = None,
+        current_occurrence_semantic_anchors: Mapping[str, Any] | None = None,
         execution_ready_bindings: Mapping[str, Any] | None = None,
         missing_or_insufficient_bindings: Iterable[str] | None = None,
         observation: str,
@@ -76,7 +77,10 @@ class ContextBuilder:
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
             "current_atomic_contract": _project(atomic_contract, _ATOMIC_RUNTIME_FIELDS),
-            "semantic_anchors": _policy_value(dict(semantic_anchors or {})),
+            "task_semantic_context": _policy_value(dict(task_semantic_context or {})),
+            "current_occurrence_semantic_anchors": _policy_value(
+                dict(current_occurrence_semantic_anchors or {})
+            ),
             "execution_ready_bindings": _policy_value(ready),
             "missing_or_insufficient_bindings": [str(value) for value in missing],
             "current_observation": _text(observation, "observation"),
@@ -86,7 +90,23 @@ class ContextBuilder:
             "allowed_implementation_invocations": invocations,
         }
         return _render(
-            "Prepare and execute only the current Atomic occurrence. Use only native tools; "
+            "Prepare and execute only the current Atomic occurrence. task_semantic_context "
+            "describes the whole-task goal; only current_occurrence_semantic_anchors constrains "
+            "learned invocation arguments. Stored Atomic summaries and learned-implementation "
+            "descriptions may retain literal entity examples from the episode that produced the "
+            "reusable skill. Use their relational intent only as non-authoritative exploration "
+            "guidance; never treat those literal names as current bindings or require them to exist. "
+            "Resolve missing unanchored arguments by "
+            "instantiating that relational intent with task_semantic_context and current environment "
+            "evidence; do not copy a same-named task field or the task's final destination merely "
+            "because its name or type matches. Explore first when the required current relation is "
+            "not yet evidenced. This prohibition applies only to roles absent from "
+            "current_occurrence_semantic_anchors. When a role is explicitly anchored there, ground a "
+            "compatible concrete current entity for that anchor, including when it is the task's final "
+            "destination. For a learned invocation, copy canonical values exactly from the latest "
+            "public catalog arguments: current_action_catalog.arguments initially, then "
+            "action_catalog.arguments in environment tool results; display_text is "
+            "only human-readable. Use only native tools; "
             "never encode an action in prose.",
             payload,
         )
@@ -97,7 +117,8 @@ class ContextBuilder:
         task_goal: str,
         atomic_contract: Any,
         certified_bindings: Mapping[str, Any] | None = None,
-        semantic_anchors: Mapping[str, Any] | None = None,
+        task_semantic_context: Mapping[str, Any] | None = None,
+        current_occurrence_semantic_anchors: Mapping[str, Any] | None = None,
         execution_ready_bindings: Mapping[str, Any] | None = None,
         missing_or_insufficient_bindings: Iterable[str] = (),
         observation: str,
@@ -115,7 +136,10 @@ class ContextBuilder:
             "current_atomic_contract_and_guideline": _project(
                 atomic_contract, _ATOMIC_SEEDED_FIELDS
             ),
-            "semantic_anchors": _policy_value(dict(semantic_anchors or {})),
+            "task_semantic_context": _policy_value(dict(task_semantic_context or {})),
+            "current_occurrence_semantic_anchors": _policy_value(
+                dict(current_occurrence_semantic_anchors or {})
+            ),
             "execution_ready_bindings": _policy_value(ready),
             "missing_or_insufficient_bindings": [
                 str(value) for value in missing_or_insufficient_bindings
@@ -126,8 +150,21 @@ class ContextBuilder:
             "remaining_budget": _policy_value(dict(remaining_budget)),
         }
         return _render(
-            "Solve only the current Atomic occurrence with environment_action. This is a fresh "
-            "Seeded session and contains no failed Tool body or failed Implementation mapping.",
+            "Solve only the current Atomic occurrence with environment_action. "
+            "task_semantic_context describes the whole-task goal; only "
+            "current_occurrence_semantic_anchors constrains this occurrence. Stored Atomic summaries "
+            "and guidelines may retain literal entity examples from the episode that produced the "
+            "reusable skill. Use their relational intent only as non-authoritative exploration "
+            "guidance; never treat those literal names as current bindings or require them to exist. "
+            "Resolve missing unanchored arguments by "
+            "instantiating that relational intent with task_semantic_context and current environment "
+            "evidence; do not copy a same-named task field or the task's final destination merely "
+            "because its name or type matches. Explore first when the required current relation is "
+            "not yet evidenced. This prohibition applies only to roles absent from "
+            "current_occurrence_semantic_anchors. When a role is explicitly anchored there, ground a "
+            "compatible concrete current entity for that anchor, including when it is the task's final "
+            "destination. This is a fresh Seeded session and contains no failed Tool body or "
+            "failed Implementation mapping.",
             payload,
         )
 
@@ -310,6 +347,7 @@ def _compact_catalog(values: Iterable[Any]) -> list[dict[str, Any]]:
         compact = {
             "action_id": action_id,
             "action_type": str(mapping.get("action_type", "")),
+            "arguments": _policy_value(dict(mapping.get("arguments") or {})),
             "display_text": str(mapping.get("display_text", "")),
             "revision": mapping.get("revision"),
         }

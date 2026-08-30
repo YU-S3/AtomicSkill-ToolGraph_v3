@@ -181,15 +181,17 @@ class NodeExecutor:
             "won": result.won, "new_revision": result.new_revision,
             # A revision changes the meaning of action ids.  The next Agent
             # turn receives the complete new policy-facing catalog.  Keep the
-            # replay representation compact: action_id is revision-scoped,
-            # new_revision is carried above, and display_text supplies the
-            # only action semantics the Agent needs to select that opaque id.
-            # Full typed arguments remain in TaskContext, GroundingEvidence,
-            # and the canonical EnvironmentActionRecord.
+            # replay representation compact while preserving the same public,
+            # canonical affordance fields exposed in the initial policy
+            # context.  Learned invocation arguments must remain copyable
+            # after exploration advances the world revision.
             "action_catalog": [
                 {
                     "action_id": item.action_id,
+                    "action_type": item.action_type,
+                    "arguments": dict(item.arguments),
                     "display_text": item.display_text,
+                    "revision": item.revision,
                 }
                 for item in result.catalog
             ],
@@ -258,7 +260,10 @@ class NodeExecutor:
         missing = prompt_bindings["missing_or_insufficient_bindings"]
         prompt = self.context_builder.runtime_node(
             task_goal=ctx.task_goal, atomic_contract=atomic,
-            semantic_anchors=prompt_bindings["semantic_anchors"],
+            task_semantic_context=prompt_bindings["task_semantic_context"],
+            current_occurrence_semantic_anchors=prompt_bindings[
+                "occurrence_semantic_anchors"
+            ],
             execution_ready_bindings=prompt_bindings["execution_ready_bindings"],
             missing_or_insufficient_bindings=missing,
             observation=ctx.observation,
@@ -361,7 +366,10 @@ class NodeExecutor:
         )
         prompt = self.context_builder.seeded_node(
             task_goal=ctx.task_goal, atomic_contract=atomic,
-            semantic_anchors=prompt_bindings["semantic_anchors"],
+            task_semantic_context=prompt_bindings["task_semantic_context"],
+            current_occurrence_semantic_anchors=prompt_bindings[
+                "occurrence_semantic_anchors"
+            ],
             execution_ready_bindings=prompt_bindings["execution_ready_bindings"],
             missing_or_insufficient_bindings=prompt_bindings[
                 "missing_or_insufficient_bindings"

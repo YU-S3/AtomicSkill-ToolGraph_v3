@@ -48,6 +48,21 @@ def _predicate_resolved_args(
     return result
 
 
+def _identity_input_for_output(
+    occurrence: CanonicalAtomicOccurrence,
+    output_role: str,
+) -> str | None:
+    """Return the unique input that carries an output's concrete identity."""
+
+    output_value = occurrence.output_bindings.get(output_role)
+    matches = [
+        input_role
+        for input_role, input_value in occurrence.input_bindings.items()
+        if input_value == output_value
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _contract_covered(
     contract: TaskContract, canonical: list[CanonicalAtomicOccurrence],
     matcher: ContractMatcher,
@@ -214,9 +229,8 @@ class CompositeBuilder:
                 incoming_roles.add(target)
 
         task_values = dict(task_bindings or {})
-        bindings_by_occurrence: dict[str, dict[str, BindingExpression]] = {}
+        task_anchor_by_input: dict[tuple[str, str], str] = {}
         for occurrence_id, occurrence in by_id.items():
-            task_aliases: dict[str, str] = {}
             for target in contract.target_effects:
                 for effect in occurrence.effects:
                     arguments = _predicate_resolved_args(effect, occurrence)
@@ -233,38 +247,81 @@ class CompositeBuilder:
                             and offered_value.kind is BindingExprKind.SKILL_INPUT
                         ):
                             continue
+                        input_role = offered_value.source_role
+                        if input_role not in occurrence.input_bindings:
+                            input_role = _identity_input_for_output(
+                                occurrence, offered_value.source_role,
+                            )
+                        if input_role is None:
+                            continue
+                        task_role: str | None = None
                         if (
                             isinstance(target_value, BindingExpression)
                             and target_value.kind is BindingExprKind.SKILL_INPUT
                         ):
-                            task_aliases[offered_value.source_role] = (
-                                target_value.source_role
-                            )
+                            task_role = target_value.source_role
+                        else:
+                            matching_task_roles = [
+                                role for role, value in task_values.items()
+                                if value == target_value
+                            ]
+                            if argument_name in matching_task_roles:
+                                task_role = argument_name
+                            elif len(matching_task_roles) == 1:
+                                task_role = matching_task_roles[0]
+                        if task_role is None:
                             continue
-                        matching_task_roles = [
-                            role for role, value in task_values.items()
-                            if value == target_value
-                        ]
-                        if argument_name in matching_task_roles:
-                            task_aliases[offered_value.source_role] = argument_name
-                        elif len(matching_task_roles) == 1:
-                            task_aliases[offered_value.source_role] = (
-                                matching_task_roles[0]
+                        key = (occurrence_id, input_role)
+                        previous = task_anchor_by_input.get(key)
+                        if previous is not None and previous != task_role:
+                            raise ValueError(
+                                "conflicting Task anchors cover one occurrence input"
                             )
-            bindings_by_occurrence[occurrence_id] = {
-                role: BindingExpression(
-                    BindingExprKind.SKILL_INPUT,
-                    source_role=task_aliases.get(role, role),
+                        task_anchor_by_input[key] = task_role
+
+        data_edges = [
+            edge for edge in edges if edge.edge_type is GraphEdgeType.DATA_FLOW
+        ]
+        changed = True
+        while changed:
+            changed = False
+            for edge in reversed(data_edges):
+                target_task_role = task_anchor_by_input.get(
+                    (edge.target_step, edge.target_role)
                 )
-                for role in occurrence.input_bindings
-            }
-        for edge in edges:
-            if edge.edge_type is GraphEdgeType.DATA_FLOW:
-                bindings_by_occurrence[edge.target_step][edge.target_role] = BindingExpression(
-                    BindingExprKind.DATA_FLOW,
-                    source_role=edge.source_role,
-                    source_step=edge.source_step,
+                if target_task_role is None:
+                    continue
+                source_input_role = _identity_input_for_output(
+                    by_id[edge.source_step], edge.source_role,
                 )
+                if source_input_role is None:
+                    continue
+                key = (edge.source_step, source_input_role)
+                previous = task_anchor_by_input.get(key)
+                if previous is not None and previous != target_task_role:
+                    raise ValueError(
+                        "conflicting Task anchors propagated through DataFlow"
+                    )
+                if previous is None:
+                    task_anchor_by_input[key] = target_task_role
+                    changed = True
+
+        bindings_by_occurrence: dict[str, dict[str, BindingExpression]] = {
+            occurrence_id: {} for occurrence_id in by_id
+        }
+        for edge in data_edges:
+            bindings_by_occurrence[edge.target_step][edge.target_role] = BindingExpression(
+                BindingExprKind.DATA_FLOW,
+                source_role=edge.source_role,
+                source_step=edge.source_step,
+            )
+        for (occurrence_id, input_role), task_role in task_anchor_by_input.items():
+            if input_role in bindings_by_occurrence[occurrence_id]:
+                continue
+            bindings_by_occurrence[occurrence_id][input_role] = BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role=task_role,
+            )
         for target_id in proposal.control_sequence:
             target_position = position[target_id]
             target = by_id[target_id]
@@ -277,17 +334,45 @@ class CompositeBuilder:
                 if not parameter.required:
                     continue
                 expression = bindings_by_occurrence[target_id].get(parameter.name)
-                if expression is None:
-                    raise ValueError(f"E2 required input has no binding: {target_id}.{parameter.name}")
                 matching_sources = [
                     (source_id, role)
                     for (source_id, role), value in earlier_outputs.items()
                     if value == target.input_bindings.get(parameter.name)
                 ]
-                if matching_sources and expression.kind is not BindingExprKind.DATA_FLOW:
+                if matching_sources and (
+                    expression is None
+                    or expression.kind is not BindingExprKind.DATA_FLOW
+                ):
                     raise ValueError(
                         f"E2 reused required input must have explicit DataFlow: {target_id}.{parameter.name}"
                     )
+                if expression is None:
+                    if parameter.runtime_resolvable:
+                        continue
+                    raise ValueError(
+                        "required non-runtime input has no authority: "
+                        f"{target_id}.{parameter.name}"
+                    )
+        binding_origins: dict[str, dict[str, dict[str, str]]] = {}
+        for occurrence_id, occurrence in by_id.items():
+            origins: dict[str, dict[str, str]] = {}
+            specs = {item.name: item for item in occurrence.input_specs}
+            for role, parameter in specs.items():
+                expression = bindings_by_occurrence[occurrence_id].get(role)
+                if expression is not None and expression.kind is BindingExprKind.DATA_FLOW:
+                    origins[role] = {
+                        "kind": "data_flow",
+                        "source_step": expression.source_step,
+                        "source_role": expression.source_role,
+                    }
+                elif expression is not None and expression.kind is BindingExprKind.SKILL_INPUT:
+                    origins[role] = {
+                        "kind": "task",
+                        "source_role": expression.source_role,
+                    }
+                elif parameter.runtime_resolvable:
+                    origins[role] = {"kind": "runtime"}
+            binding_origins[occurrence_id] = origins
         occurrences = [
             CompositeOccurrence(
                 step_id=occurrence_id,
@@ -318,7 +403,10 @@ class CompositeBuilder:
                 "self_sufficiency_required": True,
                 "task_contract_covered": True,
             },
-            {"source_trace_ids": sorted({item.source_trace_id for item in canonical})}, SkillStatus.CANDIDATE,
+            {
+                "source_trace_ids": sorted({item.source_trace_id for item in canonical}),
+                "binding_origins": binding_origins,
+            }, SkillStatus.CANDIDATE,
         )
 
     def _edge(

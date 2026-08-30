@@ -231,7 +231,7 @@ class InvocationCompiler:
             compatibility = getattr(self.harness, "semantic_value_compatible", None)
             for role, value in arguments.items():
                 parameter = by_parameter.get(role)
-                anchor_binding = binding_store.semantic_anchor(role) or current.get(role)
+                anchor_binding = binding_store.semantic_anchor_for(occurrence, role)
                 if parameter is None or anchor_binding is None:
                     continue
                 if callable(compatibility):

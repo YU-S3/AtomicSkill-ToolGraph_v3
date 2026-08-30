@@ -6,7 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
+from atomic_skillgraph.core.bindings import (
+    BindingExpression, BindingExprKind, BindingSource,
+)
 from atomic_skillgraph.core.contracts import (
     AbstractAtomicSkill,
     CompositeOccurrence,
@@ -570,6 +572,8 @@ def test_dataflow_expression_resolves_step_id_to_occurrence_owner() -> None:
     store.publish_validated_outputs(source, {"held": "apple_1"}, ["validator:witness"], 1)
     store.resolve_occurrence_specs(target, 1)
     assert store.snapshot_for_node(target)["item"].value == "apple_1"
+    assert store.snapshot_for_node(target)["item"].source is BindingSource.DATA_FLOW
+    assert store.semantic_anchor_for(target, "item") is not None
 
 
 def _empty_runtime(tmp_path: Path):
@@ -617,7 +621,10 @@ def test_dynamic_tool_result_carries_the_new_action_catalog(tmp_path: Path) -> N
         assert first_result["action_catalog"] == [
             {
                 "action_id": "r001_a001",
+                "action_type": "EXAMINE",
+                "arguments": {"item": "apple_1"},
                 "display_text": "examine apple_1",
+                "revision": 1,
             }
         ]
         assert "r000_a001" not in {

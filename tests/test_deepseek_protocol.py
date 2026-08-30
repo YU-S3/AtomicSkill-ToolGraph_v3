@@ -338,20 +338,57 @@ def test_context_builder_separates_grounding_authorities() -> None:
     payload_text = ContextBuilder().runtime_node(
         task_goal="put apple in fridge",
         atomic_contract={"summary": "place", "inputs": [], "outputs": []},
-        semantic_anchors={"object": "apple", "destination": "fridge"},
+        task_semantic_context={"object": "apple", "destination": "fridge"},
+        current_occurrence_semantic_anchors={"object": "apple"},
         execution_ready_bindings={"held_object": "apple_2"},
         missing_or_insufficient_bindings=["destination"],
         observation="holding apple_2",
-        action_catalog=[],
+        action_catalog=[{
+            "action_id": "r000_a001",
+            "action_type": "GO_TO",
+            "arguments": {"destination": "coffeetable_1"},
+            "display_text": "go to coffeetable 1",
+            "revision": 0,
+        }],
         relevant_action_history=[],
         remaining_budget={"actions": 10},
         implementation_invocations=[],
     )
     payload = json.loads(payload_text.split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1])
-    assert payload["semantic_anchors"] == {"object": "apple", "destination": "fridge"}
+    assert payload["task_semantic_context"] == {
+        "object": "apple", "destination": "fridge",
+    }
+    assert payload["current_occurrence_semantic_anchors"] == {"object": "apple"}
+    assert "semantic_anchors" not in payload
+    assert payload["current_action_catalog"][0]["arguments"] == {
+        "destination": "coffeetable_1",
+    }
+    assert "copy canonical values exactly" in payload_text
+    assert "action_catalog.arguments in environment tool results" in payload_text
+    assert "literal entity examples" in payload_text
+    assert "never treat those literal names as current bindings" in payload_text
+    assert "the task's final destination" in payload_text
+    assert "applies only to roles absent" in payload_text
+    assert "When a role is explicitly anchored there" in payload_text
     assert payload["execution_ready_bindings"] == {"held_object": "apple_2"}
     assert payload["missing_or_insufficient_bindings"] == ["destination"]
     assert "certified_bindings" not in payload
+
+    seeded_text = ContextBuilder().seeded_node(
+        task_goal="put apple in fridge",
+        atomic_contract={"summary": "move to old desk", "inputs": [], "outputs": []},
+        task_semantic_context={"object": "apple", "destination": "fridge"},
+        current_occurrence_semantic_anchors={},
+        execution_ready_bindings={},
+        missing_or_insufficient_bindings=["destination"],
+        observation="in a new room",
+        action_catalog=[],
+        relevant_action_history=[],
+        remaining_budget={"actions": 10},
+    )
+    assert "literal entity examples" in seeded_text
+    assert "never treat those literal names as current bindings" in seeded_text
+    assert "When a role is explicitly anchored there" in seeded_text
 
 
 def test_deepseek_payload_has_thinking_and_reasoning_effort() -> None:

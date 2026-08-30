@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from atomic_skillgraph.core.bindings import (
+    BindingExpression,
+    BindingExprKind,
     BindingResolution,
     BindingSource,
     BindingStatus,
@@ -189,7 +191,11 @@ def _compiled_invocation() -> tuple[CompiledInvocation, RuntimeOccurrence]:
         {"mode": "serial"},
     )
     occurrence = RuntimeOccurrence(
-        "s1", "occ1", atomic_ref, [], {}, [implementation_ref], atomic.effects,
+        "s1", "occ1", atomic_ref, [], {
+            "object": BindingExpression(
+                BindingExprKind.SKILL_INPUT, source_role="object",
+            ),
+        }, [implementation_ref], atomic.effects,
     )
     return CompiledInvocation(spec, atomic, implementation, []), occurrence
 
@@ -204,6 +210,7 @@ def test_wrong_semantic_family_rejected_before_tool_start() -> None:
     compiler = InvocationCompiler(Skills(), SimpleNamespace(), AlfWorldAdapter())
     bindings = RuntimeBindingStore()
     bindings.bind_task_value("object", "apple", "entity", 0)
+    bindings.resolve_occurrence_specs(occurrence, 0)
     evidence = GroundingEvidenceStore()
     evidence.replace_action_catalog(
         [
@@ -246,10 +253,59 @@ def test_wrong_semantic_family_rejected_before_tool_start() -> None:
     assert accepted.normalized_arguments["object"] == "apple_2"
 
 
+def test_unanchored_destination_does_not_use_global_task_destination() -> None:
+    compiled, occurrence = _compiled_invocation()
+    compiled.atomic.inputs[0].name = "destination"
+    compiled.spec.input_schema["required"] = ["destination"]
+    compiled.spec.input_schema["properties"] = {
+        "destination": {"type": "string"},
+    }
+    occurrence.binding_specs = {}
+
+    class Skills:
+        def get_implementation(self, _ref):
+            return compiled.implementation
+
+    compiler = InvocationCompiler(Skills(), SimpleNamespace(), AlfWorldAdapter())
+    bindings = RuntimeBindingStore()
+    bindings.bind_task_value("destination", "sidetable", "entity", 0)
+    evidence = GroundingEvidenceStore()
+    evidence.replace_action_catalog([
+        HarnessActionSpec(
+            "r000_a001", 0, "GO_TO", {"destination": "cabinet_3"},
+            "go to cabinet 3", "go to cabinet 3", {},
+        ),
+    ], 0)
+
+    result = compiler.preflight(
+        compiled,
+        call_name=compiled.spec.name,
+        call_id="call_source",
+        arguments={"destination": "cabinet_3"},
+        occurrence=occurrence,
+        binding_store=bindings,
+        evidence_store=evidence,
+        revision=0,
+    )
+
+    assert result.passed is True
+    assert bindings.semantic_anchor_for(occurrence, "destination") is None
+    assert result.normalized_arguments["destination"] == "cabinet_3"
+
+
 def test_runtime_prompt_binding_categories_check_resolution() -> None:
     store = RuntimeBindingStore()
     store.bind_task_value("object", "apple", "entity", 0)
     store.bind_task_value("destination", "fridge", "entity", 0)
+    occurrence = RuntimeOccurrence(
+        "s1", "occ1", SkillRef("anchor_projection", "1.0.0"), [],
+        {
+            "object": BindingExpression(
+                BindingExprKind.SKILL_INPUT, source_role="object",
+            ),
+        }, [], [],
+    )
+    store.resolve_occurrence_specs(occurrence, 0)
     store.commit_grounded("occ1", {
         "held_object": RuntimeBinding(
             "held_object", "apple_2", "entity",
@@ -272,7 +328,8 @@ def test_runtime_prompt_binding_categories_check_resolution() -> None:
         ],
     )
     assert projection == {
-        "semantic_anchors": {"object": "apple", "destination": "fridge"},
+        "task_semantic_context": {"object": "apple", "destination": "fridge"},
+        "occurrence_semantic_anchors": {"object": "apple"},
         "execution_ready_bindings": {"held_object": "apple_2"},
         "missing_or_insufficient_bindings": ["object", "destination"],
     }
@@ -327,7 +384,10 @@ def test_environment_action_does_not_auto_commit_binding() -> None:
         loop_guard=ActionLoopGuard(),
     )
     assert len(changes) == initial_change_count
-    assert bindings.snapshot_for_node("occ1")["item"].resolution is BindingResolution.SEMANTIC
+    assert bindings.snapshot_for_node("occ1") == {}
+    assert bindings.runtime_prompt_projection("occ1", [
+        ParameterSpec("item", "entity", required_resolution="concrete"),
+    ])["task_semantic_context"] == {"item": "apple_1"}
     assert ctx.budget.used_global_actions == 1
     assert trace.environment_actions[0].action_id == "r000_a001"
     assert trace.environment_actions[0].revision == 0

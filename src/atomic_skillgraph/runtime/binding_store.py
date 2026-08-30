@@ -141,8 +141,13 @@ class RuntimeBindingStore:
             binding = self.resolve_expression(occurrence.occurrence_id, expression)
             if binding is None:
                 continue
+            source = (
+                BindingSource.DATA_FLOW
+                if expression.kind is BindingExprKind.DATA_FLOW
+                else binding.source
+            )
             self._set(occurrence.occurrence_id, RuntimeBinding(
-                role, binding.value, binding.semantic_type, binding.source,
+                role, binding.value, binding.semantic_type, source,
                 binding.status, binding.resolution, list(binding.evidence_refs), revision,
             ), "binding_expression")
 
@@ -215,9 +220,11 @@ class RuntimeBindingStore:
 
     def snapshot_for_node(self, occurrence: RuntimeOccurrence | str) -> dict[str, RuntimeBinding]:
         occurrence_id = occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
-        result = {role: binding for (owner, role), binding in self._bindings.items() if owner == "__task__"}
-        result.update({role: binding for (owner, role), binding in self._bindings.items() if owner == occurrence_id})
-        return result
+        return {
+            role: binding
+            for (owner, role), binding in self._bindings.items()
+            if owner == occurrence_id
+        }
 
     def runtime_prompt_projection(
         self,
@@ -232,15 +239,15 @@ class RuntimeBindingStore:
             if owner == "__task__"
         }
         current = self.snapshot_for_node(occurrence_id)
-        semantic_anchors = {
+        task_semantic_context = {
             role: binding.value for role, binding in task_bindings.items()
             if binding.status is BindingStatus.GROUNDED
         }
-        semantic_anchors.update({
+        occurrence_anchors = {
             role: binding.value for role, binding in current.items()
-            if binding.source is BindingSource.DATA_FLOW
+            if binding.source in {BindingSource.TASK, BindingSource.DATA_FLOW}
             and binding.status is BindingStatus.GROUNDED
-        })
+        }
         execution_ready: dict[str, Any] = {}
         missing: list[str] = []
         for parameter in parameters:
@@ -257,15 +264,28 @@ class RuntimeBindingStore:
             elif parameter.required:
                 missing.append(parameter.name)
         return {
-            "semantic_anchors": semantic_anchors,
+            "task_semantic_context": task_semantic_context,
+            "occurrence_semantic_anchors": occurrence_anchors,
             "execution_ready_bindings": execution_ready,
             "missing_or_insufficient_bindings": missing,
         }
 
-    def semantic_anchor(self, role: str) -> RuntimeBinding | None:
-        """Return the immutable task/DataFlow semantic anchor for ``role``."""
+    def semantic_anchor_for(
+        self,
+        occurrence: RuntimeOccurrence | str,
+        role: str,
+    ) -> RuntimeBinding | None:
+        """Return an explicitly projected Task/DataFlow anchor for one input."""
 
-        return self._bindings.get(("__task__", str(role)))
+        occurrence_id = (
+            occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
+        )
+        binding = self._bindings.get((occurrence_id, str(role)))
+        if binding is None or binding.status is not BindingStatus.GROUNDED:
+            return None
+        if binding.source not in {BindingSource.TASK, BindingSource.DATA_FLOW}:
+            return None
+        return binding
 
     def validated_outputs(self, occurrence_id: str) -> dict[str, RuntimeBinding]:
         return {role: binding for (owner, role), binding in self._outputs.items() if owner == occurrence_id}
