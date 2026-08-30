@@ -618,11 +618,24 @@ class AlfWorldAdapter:
         self._revision = 0
         self._done = self._won = False
         self._validator.reset()
-        catalog = self._catalog.replace(admissible, self._revision)
+        catalog = self._replace_action_catalog(admissible, self._revision)
         return HarnessActionResult(True, observation, False, False, self._revision, catalog, {"reset": True})
 
     def action_catalog(self) -> list[HarnessActionSpec]:
         return self._catalog.items()
+
+    def _replace_action_catalog(
+        self, admissible: list[Any], revision: int,
+    ) -> list[HarnessActionSpec]:
+        # TextWorld advertises meta commands such as ``help`` alongside task
+        # actions.  The formal runtime can execute only commands represented
+        # by the typed v3 boundary, so do not publish unparsed UNKNOWN entries
+        # as selectable native-tool arguments.
+        supported = [
+            raw for raw in admissible
+            if parse_alfworld_action(raw)[0] != "UNKNOWN"
+        ]
+        return self._catalog.replace(supported, revision)
 
     def semantic_value_compatible(
         self, *, role: str, concrete_value: Any,
@@ -652,7 +665,7 @@ class AlfWorldAdapter:
         admissible = list(infos.get("admissible_commands", [[]])[0])
         old_revision = self._revision
         self._revision += 1
-        catalog = self._catalog.replace(admissible, self._revision)
+        catalog = self._replace_action_catalog(admissible, self._revision)
         self._observation, self._done, self._won = observation, done, won
         self._validator.record(spec, accepted=accepted, revision=self._revision, done=done, won=won)
         return HarnessActionResult(

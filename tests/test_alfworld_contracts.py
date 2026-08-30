@@ -145,3 +145,15 @@ def test_slice_is_structured_at_adapter_boundary() -> None:
     action_type, arguments, _, _ = parse_alfworld_action("slice apple 1 with knife 1")
     assert action_type == "SLICE"
     assert arguments == {"object": "apple_1", "tool": "knife_1"}
+
+
+def test_adapter_does_not_publish_untyped_meta_commands() -> None:
+    adapter = AlfWorldAdapter(split="train")
+
+    catalog = adapter._replace_action_catalog(
+        ["help", "look", "go to desk 1"], revision=0,
+    )
+
+    assert [item.action_type for item in catalog] == ["LOOK", "GO_TO"]
+    assert [item.raw_action for item in catalog] == ["look", "go to desk 1"]
+    assert all(item.action_type != "UNKNOWN" for item in catalog)
