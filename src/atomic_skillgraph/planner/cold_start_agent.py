@@ -7,7 +7,6 @@ from typing import Any
 
 from ..agents.structured_submission import (
     BINDING_EXPRESSION_SCHEMA,
-    PREDICATE_SCHEMA,
     PROPOSED_EDGE_SCHEMA,
     StructuredSubmissionClient,
 )
@@ -18,7 +17,6 @@ from ..core.contracts import (
     ColdStartPlanProposal,
     ColdStartPlanStep,
     ProposedEdge,
-    SemanticPredicate,
 )
 from ..core.errors import AgentProtocolError, FailureLayer, PlannerProposalError
 from ..core.serialization import to_primitive
@@ -31,7 +29,7 @@ COLD_START_PLAN_STEP_SCHEMA: dict[str, Any] = {
     "required": [
         "step_id", "requirement_instance_ids", "candidate_source",
         "candidate_ref", "execution_mode", "binding_specs",
-        "repeat_role_bindings", "expected_effects",
+        "repeat_role_bindings",
     ],
     "additionalProperties": False,
     "properties": {
@@ -55,9 +53,6 @@ COLD_START_PLAN_STEP_SCHEMA: dict[str, Any] = {
         },
         "repeat_role_bindings": {
             "type": "object", "additionalProperties": _NONEMPTY,
-        },
-        "expected_effects": {
-            "type": "array", "items": PREDICATE_SCHEMA,
         },
     },
 }
@@ -112,21 +107,16 @@ Uncovered steps must be marked unresolved/dynamic.
 Failure Experiences are negative examples. Do not copy their failed method;
 use them only to avoid a previously observed unrecovered divergence.
 
+Do not restate or invent candidate Effects. Candidate Atomic contracts are
+code-authoritative and Runtime will derive executable expected effects directly
+from the selected candidate.
+
 Cover every RequirementInstance exactly once in the high-level plan. Preserve
 RepeatBlock serial order, distinct-role requirements, and shared-role
 requirements. The same candidate ref may appear in different unique steps.
 
 Do not invent requirements, candidates, ToolCalls, concrete entity locations,
 or existing edges. Call only the offered native submission tool."""
-
-
-def _predicate(value: dict[str, Any]) -> SemanticPredicate:
-    return SemanticPredicate(
-        str(value["predicate"]),
-        dict(value.get("args", {})),
-        int(value.get("cardinality", 1)),
-        str(value.get("distinct_by", "")),
-    )
 
 
 def cold_start_plan_from_dict(value: dict[str, Any]) -> ColdStartPlanProposal:
@@ -147,7 +137,10 @@ def cold_start_plan_from_dict(value: dict[str, Any]) -> ColdStartPlanProposal:
                 str(key): str(raw)
                 for key, raw in item.get("repeat_role_bindings", {}).items()
             },
-            expected_effects=[_predicate(raw) for raw in item.get("expected_effects", [])],
+            # Internal compatibility projection only.  C1 cannot author
+            # executable Effect authority; Runtime derives it from the
+            # admitted candidate Atomic contract.
+            expected_effects=[],
         )
         for item in value.get("steps", [])
     ]

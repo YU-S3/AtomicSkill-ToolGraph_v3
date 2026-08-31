@@ -1289,20 +1289,23 @@ def _v31_method_metrics(
         _mapping(item)
         for item in _sequence(requirement_expansion.get("instances", []))
     ]
+    repeat_step_ids = {
+        str(step_id)
+        for raw in _sequence(plan.get("repeat_constraints", []))
+        for iteration in _sequence(
+            _mapping(raw).get("iteration_steps", [])
+        )
+        for step_id in _sequence(iteration)
+        if str(step_id)
+    }
+    runtime_occurrences = [
+        _mapping(item)
+        for item in _sequence(plan.get("occurrences", []))
+    ]
     repeated_occurrences = sum(
-        bool(str(item.get("repeat_block_id", "")))
-        or _integer(item.get("repeat_index", -1)) >= 0
-        for item in instances
+        str(occurrence.get("step_id", "")) in repeat_step_ids
+        for occurrence in runtime_occurrences
     )
-    if not instances:
-        repeated_step_ids = {
-            str(step_id)
-            for raw in _sequence(plan.get("repeat_constraints", []))
-            for iteration in _sequence(_mapping(raw).get("iteration_steps", []))
-            for step_id in _sequence(iteration)
-            if str(step_id)
-        }
-        repeated_occurrences = len(repeated_step_ids)
 
     cold_plan = _mapping(_field(trace, "cold_start_plan", None))
     cold_proposal = _mapping(cold_plan.get("proposal", {}))

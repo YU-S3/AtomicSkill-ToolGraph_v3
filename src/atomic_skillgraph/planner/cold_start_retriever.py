@@ -10,7 +10,12 @@ from typing import Any
 
 from ..core.contracts import CapabilityRequirement, TaskContract
 from ..core.serialization import to_primitive
-from .multiplicity import RequirementExpansion, RequirementInstance, normalize_task_contract
+from .multiplicity import (
+    RequirementExpansion,
+    RequirementInstance,
+    normalize_task_contract,
+    requirement_instance_shape_id,
+)
 
 
 @dataclass(frozen=True)
@@ -27,10 +32,10 @@ class ProvisionalAtomicCandidate:
 class FailureExperienceView:
     experience_id: str
     status: str
-    requirement_instance_ids: tuple[str, ...]
-    validated_prefix_step_ids: tuple[str, ...]
+    requirement_shape_ids: tuple[str, ...]
+    validated_prefix_shape_ids: tuple[str, ...]
     first_unrecovered_divergence: dict[str, Any]
-    remaining_requirement_instance_ids: tuple[str, ...]
+    remaining_requirement_shape_ids: tuple[str, ...]
     negative_suffix_summary: dict[str, Any]
     avoid_pattern_codes: tuple[str, ...]
     support_count: int
@@ -218,14 +223,33 @@ class FailureExperienceRetriever:
             task_contract, harness_profile, requirement_expansion,
         )
         active = {"observed", "confirmed"}
-        remaining = {item.instance_id for item in requirement_expansion.instances}
+        current_shape_ids = {
+            requirement_instance_shape_id(
+                item,
+                requirement_expansion,
+                task_contract,
+            )
+            for item in requirement_expansion.instances
+        }
         ranked: list[tuple[int, int, int, str, Any]] = []
         for record in self.store.list_failure_experiences(statuses=active):
             status = str(getattr(getattr(record, "status", ""), "value", getattr(record, "status", "")))
             if record.cluster_signature != signature or record.harness_profile != harness_profile:
                 continue
             support = len(set(getattr(record, "support_trace_ids", ())))
-            overlap = len(remaining & set(getattr(record, "remaining_requirement_instance_ids", ())))
+            metadata = dict(getattr(record, "metadata", {}) or {})
+            raw_remaining_shapes = metadata.get(
+                "remaining_requirement_shape_ids", (),
+            )
+            record_remaining_shape_ids = (
+                set(map(str, raw_remaining_shapes))
+                if (
+                    metadata.get("semantic_shape_version") == 1
+                    and isinstance(raw_remaining_shapes, (list, tuple))
+                )
+                else set()
+            )
+            overlap = len(current_shape_ids & record_remaining_shape_ids)
             ranked.append((1 if status == "confirmed" else 0, support, overlap, str(record.experience_id), record))
         ranked.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3]))
         limit = self.top_k if top_k is None else int(top_k)
@@ -233,10 +257,25 @@ class FailureExperienceRetriever:
             FailureExperienceView(
                 experience_id=str(record.experience_id),
                 status=str(getattr(getattr(record, "status", ""), "value", getattr(record, "status", ""))),
-                requirement_instance_ids=tuple(record.requirement_instance_ids),
-                validated_prefix_step_ids=tuple(record.validated_prefix_step_ids),
+                requirement_shape_ids=tuple(map(
+                    str,
+                    dict(record.metadata or {}).get(
+                        "requirement_shape_ids", (),
+                    ),
+                )),
+                validated_prefix_shape_ids=tuple(map(
+                    str,
+                    dict(record.metadata or {}).get(
+                        "validated_prefix_shape_ids", (),
+                    ),
+                )),
                 first_unrecovered_divergence=dict(_portable_value(record.first_unrecovered_divergence)),
-                remaining_requirement_instance_ids=tuple(record.remaining_requirement_instance_ids),
+                remaining_requirement_shape_ids=tuple(map(
+                    str,
+                    dict(record.metadata or {}).get(
+                        "remaining_requirement_shape_ids", (),
+                    ),
+                )),
                 negative_suffix_summary=dict(_portable_value(record.negative_suffix_summary)),
                 avoid_pattern_codes=tuple(record.avoid_pattern_codes),
                 support_count=len(set(record.support_trace_ids)),

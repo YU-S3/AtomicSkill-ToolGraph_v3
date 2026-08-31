@@ -8,13 +8,16 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from ..core.bindings import BindingExpression
 from ..core.contracts import (
     CapabilityRequirement,
+    ParameterSpec,
     PlannerRequirementBundle,
     RepeatBlock,
     SemanticPredicate,
     TaskContract,
 )
+from ..core.refs import content_hash
 from ..core.results import ValidationResult
 from ..core.serialization import to_primitive
 
@@ -218,6 +221,27 @@ class RequirementBundleValidator:
             messages.append(str(exc))
             codes.append("planner_requirement_multiplicity_invalid")
 
+        repeat_unit_constraint_ids = {
+            constraint_id
+            for constraint_id, constraint in constraints.items()
+            if str(constraint.get("composition_mode", "")) == "repeat_unit"
+        }
+        block_basis_ids = [
+            str(block.basis_constraint_id)
+            for block in blocks
+        ]
+        basis_ids_unique = len(block_basis_ids) == len(set(block_basis_ids))
+        repeat_unit_constraints_materialized = (
+            checks["task_contract_normalized"]
+            and basis_ids_unique
+            and set(block_basis_ids) == repeat_unit_constraint_ids
+        )
+        checks["repeat_unit_constraints_materialized_once"] = (
+            repeat_unit_constraints_materialized
+        )
+        if not repeat_unit_constraints_materialized:
+            codes.append("planner_repeat_block_invalid")
+
         supported_counts = True
         modes_valid = True
         basis_effect_covered = True
@@ -377,13 +401,214 @@ def repeat_block_for_instance(
     ), None)
 
 
+def _requirement_role_occurrences(
+    requirement: CapabilityRequirement,
+    role: str,
+) -> tuple[tuple[str, str, str], ...]:
+    """Describe a requirement role by its formal predicate wiring."""
+
+    occurrences: list[tuple[str, str, str]] = []
+    for boundary, predicates in (
+        ("pre", requirement.precondition_hints),
+        ("effect", requirement.desired_effects),
+    ):
+        for predicate in predicates:
+            for argument_name, raw in predicate.args.items():
+                expression: BindingExpression | None = None
+                if isinstance(raw, BindingExpression):
+                    expression = raw
+                elif isinstance(raw, dict) and "kind" in raw:
+                    try:
+                        expression = BindingExpression.from_dict(raw)
+                    except (KeyError, TypeError, ValueError):
+                        expression = None
+                source_role = expression.source_role if expression is not None else ""
+                if source_role == role or raw == f"${role}":
+                    occurrences.append((
+                        boundary,
+                        predicate.predicate.casefold(),
+                        str(argument_name),
+                    ))
+    return tuple(sorted(occurrences))
+
+
+def _requirement_parameter_descriptor(
+    requirement: CapabilityRequirement,
+    spec: ParameterSpec,
+) -> tuple[Any, ...]:
+    return (
+        str(spec.semantic_type).casefold(),
+        bool(spec.required),
+        bool(spec.runtime_resolvable),
+        str(spec.required_resolution).casefold(),
+        _requirement_role_occurrences(requirement, spec.name),
+    )
+
+
+def _requirement_boundary_role_map(
+    requirement: CapabilityRequirement,
+    specs: list[ParameterSpec],
+    prefix: str,
+) -> dict[str, str]:
+    described = [
+        (_requirement_parameter_descriptor(requirement, spec), spec.name)
+        for spec in specs
+    ]
+    described.sort(key=lambda item: (
+        _canonical_json(item[0]),
+        item[1],
+    ))
+    return {
+        original: f"{prefix}_{index:03d}"
+        for index, (_descriptor, original) in enumerate(described)
+    }
+
+
+def _requirement_source_role(raw: Any) -> str:
+    expression: BindingExpression | None = None
+    if isinstance(raw, BindingExpression):
+        expression = raw
+    elif isinstance(raw, dict) and "kind" in raw:
+        try:
+            expression = BindingExpression.from_dict(raw)
+        except (KeyError, TypeError, ValueError):
+            expression = None
+    if expression is not None:
+        return str(expression.source_role)
+    if isinstance(raw, str) and raw.startswith("$"):
+        return raw[1:]
+    return ""
+
+
+def _canonical_requirement_predicate(
+    predicate: SemanticPredicate,
+    role_map: dict[str, str],
+) -> dict[str, Any]:
+    # Predicate argument names are formal semantics.  Values are represented
+    # only through alpha-normalized boundary roles; concrete task instances
+    # and Planner-local spellings never enter a cross-task shape.
+    args = {
+        str(argument_name): {
+            "source_role": role_map.get(_requirement_source_role(raw), ""),
+        }
+        for argument_name, raw in sorted(
+            predicate.args.items(), key=lambda item: str(item[0]),
+        )
+    }
+    return {
+        "predicate": predicate.predicate.casefold(),
+        "args": args,
+        "cardinality": int(predicate.cardinality),
+        "distinct_by": str(predicate.distinct_by),
+    }
+
+
+def canonical_requirement_shape(
+    requirement: CapabilityRequirement,
+) -> dict[str, Any]:
+    """Return an alpha-normalized semantic Requirement shape.
+
+    Free-text intent/rationale, Planner IDs, and concrete source-task values
+    are deliberately excluded so equivalent independent tasks share identity.
+    """
+
+    input_map = _requirement_boundary_role_map(
+        requirement, requirement.expected_inputs, "input",
+    )
+    output_map = _requirement_boundary_role_map(
+        requirement, requirement.expected_outputs, "output",
+    )
+    # Input roles take precedence if an old fixture reuses one spelling on
+    # both boundaries; this remains deterministic and contains no raw alias.
+    role_map = {**output_map, **input_map}
+
+    def parameter_shape(spec: ParameterSpec, mapping: dict[str, str]) -> dict[str, Any]:
+        return {
+            "role": mapping[spec.name],
+            "semantic_type": str(spec.semantic_type).casefold(),
+            "required": bool(spec.required),
+            "runtime_resolvable": bool(spec.runtime_resolvable),
+            "required_resolution": str(spec.required_resolution).casefold(),
+        }
+
+    inputs = [parameter_shape(spec, input_map) for spec in requirement.expected_inputs]
+    outputs = [parameter_shape(spec, output_map) for spec in requirement.expected_outputs]
+    inputs.sort(key=_canonical_json)
+    outputs.sort(key=_canonical_json)
+    preconditions = [
+        _canonical_requirement_predicate(predicate, role_map)
+        for predicate in requirement.precondition_hints
+    ]
+    effects = [
+        _canonical_requirement_predicate(predicate, role_map)
+        for predicate in requirement.desired_effects
+    ]
+    preconditions.sort(key=_canonical_json)
+    effects.sort(key=_canonical_json)
+    return {
+        "inputs": inputs,
+        "outputs": outputs,
+        "preconditions": preconditions,
+        "effects": effects,
+        "required": bool(requirement.required),
+    }
+
+
+def requirement_instance_semantic_shape(
+    instance: RequirementInstance,
+    expansion: RequirementExpansion,
+    contract: TaskContract,
+) -> dict[str, Any]:
+    block = repeat_block_for_instance(expansion, instance)
+    if block is None:
+        repeat_shape: dict[str, Any] = {"repeated": False}
+    else:
+        basis = normalized_constraints(contract)[block.basis_constraint_id]
+        repeat_shape = {
+            "repeated": True,
+            "count": int(block.count),
+            "repeat_index": int(instance.repeat_index),
+            "position_in_iteration": list(
+                block.ordered_requirement_ids
+            ).index(instance.template_requirement_id),
+            "basis": {
+                "predicate": str(basis["predicate"]).casefold(),
+                "count": int(basis["count"]),
+                "distinct_by": str(basis.get("distinct_by", "")),
+                "shared_roles": sorted(map(
+                    str, basis.get("shared_roles", ()),
+                )),
+                "composition_mode": str(
+                    basis.get("composition_mode", ""),
+                ),
+            },
+        }
+    return {
+        "requirement": canonical_requirement_shape(instance.requirement),
+        "repeat": repeat_shape,
+    }
+
+
+def requirement_instance_shape_id(
+    instance: RequirementInstance,
+    expansion: RequirementExpansion,
+    contract: TaskContract,
+) -> str:
+    return content_hash(requirement_instance_semantic_shape(
+        instance, expansion, contract,
+    ))
+
+
 __all__ = [
     "RequirementBundleValidator",
     "RequirementExpansion",
     "RequirementInstance",
     "RequirementMultiplicityCompiler",
     "TaskContractNormalizer",
+    "canonical_requirement_shape",
     "normalize_task_contract",
     "normalized_constraints",
     "repeat_block_for_instance",
+    "requirement_instance_semantic_shape",
+    "requirement_instance_shape_id",
 ]

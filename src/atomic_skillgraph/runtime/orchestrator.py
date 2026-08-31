@@ -8,7 +8,6 @@ from ..core.contracts import ColdStartCandidateSource
 from ..core.edges import GraphEdge, GraphEdgeType
 from ..core.refs import SkillRef
 from ..core.results import (
-    ImplementationExecutionResult,
     NodeExecutionStatus,
     RuntimeLinearPlan,
     RuntimeOccurrence,
@@ -415,7 +414,7 @@ class RuntimeOrchestrator:
                 requirement_ids=list(step.requirement_instance_ids),
                 binding_specs=dict(step.binding_specs),
                 implementation_candidates=implementation_refs,
-                expected_effects=list(step.expected_effects or atomic.effects),
+                expected_effects=list(atomic.effects),
                 requirement_instance_ids=list(step.requirement_instance_ids),
                 repeat_role_bindings=dict(step.repeat_role_bindings),
             ))
@@ -474,53 +473,6 @@ class RuntimeOrchestrator:
                 value,
                 witness_refs,
             )
-
-    def _commit_verified_repeat_effect(
-        self,
-        ctx: TaskRuntimeContext,
-        occurrence: RuntimeOccurrence,
-        result: ImplementationExecutionResult,
-    ) -> tuple[bool, str]:
-        """Close the repeat transaction after a verified Direct effect.
-
-        Fresh Seeded/already-satisfied routes commit in
-        ``_complete_from_current_effect`` already.  A Direct implementation
-        validates its Atomic Effect in ``ImplementationRunner``; committing
-        again is idempotent for the former routes and closes the latter route
-        without allowing cold-start execution to bypass RepeatBlock rules.
-        """
-
-        if not result.atomic_effect_passed:
-            return False, result.failure_code
-        values = {
-            role: binding.value
-            for role, binding in ctx.binding_store.snapshot_for_node(
-                occurrence,
-            ).items()
-        }
-        values.update({
-            role: binding.value
-            for role, binding in result.realized_bindings.items()
-        })
-        values.update(dict(result.validated_outputs))
-        report = ctx.binding_store.commit_repeat_bindings(
-            occurrence.step_id,
-            values,
-            effect_passed=True,
-        )
-        ctx.trace_builder.trace.validations.append(ValidationRecord(
-            occurrence.occurrence_id,
-            "runtime_repeat_commit",
-            to_primitive(report),
-            ctx.world_revision,
-        ))
-        if report.passed:
-            return True, ""
-        return False, (
-            report.failure_codes[0]
-            if report.failure_codes
-            else "runtime_repetition_distinctness_violation"
-        )
 
     def _run_verified_cold_step(
         self,
@@ -598,20 +550,14 @@ class RuntimeOrchestrator:
             seeded = self.node_executor.run_seeded_fresh(occurrence, ctx)
             node.seeded_result = to_primitive(seeded)
             final = seeded
-        effect_passed, repeat_failure = self._commit_verified_repeat_effect(
-            ctx,
-            occurrence,
-            final,
-        )
-        if not effect_passed:
+        if not final.atomic_effect_passed:
             node.status = (
                 NodeExecutionStatus.SEEDED_FAILED
                 if node.seeded_result
                 else NodeExecutionStatus.DIRECT_FAILED
             )
             underlying_failure = (
-                repeat_failure
-                or final.failure_code
+                final.failure_code
                 or "cold_start_verified_step_failed"
             )
             node.failure = {

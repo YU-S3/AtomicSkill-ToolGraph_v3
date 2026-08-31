@@ -263,7 +263,7 @@ def test_report_preserves_new_buckets_and_derives_v31_metrics() -> None:
     expected_metrics = {
         "repeat_block_count": 1,
         "expanded_requirement_instance_count": 3,
-        "repeated_atomic_occurrence_count": 2,
+        "repeated_atomic_occurrence_count": 0,
         "cold_start_trigger_count": 1,
         "cold_start_plan_valid_count": 1,
         "cold_start_scaffold_step_count": 3,
@@ -296,3 +296,67 @@ def test_report_preserves_new_buckets_and_derives_v31_metrics() -> None:
     summary = summarize_traces([row])
     for name in V31_METHOD_METRICS:
         assert summary[name] == row[name]
+
+
+def test_report_does_not_infer_repeated_atomic_occurrences_from_requirement_ir() -> None:
+    trace = _trace()
+    trace.requirement_expansion = {
+        "instances": [
+            {
+                "instance_id": "repeat::0::unit",
+                "repeat_block_id": "repeat",
+                "repeat_index": 0,
+            },
+            {
+                "instance_id": "repeat::1::unit",
+                "repeat_block_id": "repeat",
+                "repeat_index": 1,
+            },
+        ]
+    }
+    trace.runtime_plan = {
+        "source": "full_dynamic",
+        "occurrences": [],
+        "repeat_constraints": [],
+    }
+
+    row = trace_to_row(trace)
+    assert row["expanded_requirement_instance_count"] == 2
+    assert row["repeated_atomic_occurrence_count"] == 0
+
+
+def test_report_counts_only_real_repeated_runtime_occurrences() -> None:
+    trace = _trace()
+    trace.requirement_expansion = {
+        "instances": [
+            {
+                "instance_id": "repeat::0::unit",
+                "repeat_block_id": "repeat",
+                "repeat_index": 0,
+            },
+            {
+                "instance_id": "repeat::1::unit",
+                "repeat_block_id": "repeat",
+                "repeat_index": 1,
+            },
+        ]
+    }
+    trace.runtime_plan = {
+        "source": "atomic_composition",
+        "occurrences": [
+            {"step_id": "repeat-step-0"},
+            {"step_id": "repeat-step-1"},
+            {"step_id": "non-repeat-step"},
+        ],
+        "repeat_constraints": [{
+            "block_id": "repeat",
+            "iteration_steps": [
+                ["repeat-step-0"],
+                ["repeat-step-1"],
+            ],
+        }],
+    }
+
+    row = trace_to_row(trace)
+    assert row["expanded_requirement_instance_count"] == 2
+    assert row["repeated_atomic_occurrence_count"] == 2

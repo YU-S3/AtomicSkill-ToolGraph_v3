@@ -326,6 +326,12 @@ class NodeExecutor:
             repeat_effect_values,
             effect_passed=True,
         )
+        ctx.trace_builder.trace.validations.append(ValidationRecord(
+            occurrence.occurrence_id,
+            "runtime_repeat_commit",
+            to_primitive(repeat_commit),
+            ctx.world_revision,
+        ))
         if not repeat_commit.passed:
             raise AtomicSkillGraphError(
                 repeat_commit.failure_codes[0],

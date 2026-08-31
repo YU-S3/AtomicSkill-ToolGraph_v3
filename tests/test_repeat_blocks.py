@@ -4,12 +4,17 @@ from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
-from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
+from atomic_skillgraph.core.bindings import (
+    BindingExpression,
+    BindingExprKind,
+    ToolBinding,
+)
 from atomic_skillgraph.core.contracts import (
     AbstractAtomicSkill,
     CapabilityRequirement,
     CompositeOccurrence,
     CompositeSkill,
+    ImplementationAtom,
     ParameterSpec,
     PlannerRequirementBundle,
     PlannerWorkflowProposal,
@@ -18,8 +23,15 @@ from atomic_skillgraph.core.contracts import (
     SemanticPredicate,
     TaskContract,
 )
-from atomic_skillgraph.core.refs import SkillRef
-from atomic_skillgraph.core.results import RuntimeRepeatConstraint
+from atomic_skillgraph.core.refs import SkillRef, ToolRef
+from atomic_skillgraph.core.results import (
+    ImplementationInvocationSpec,
+    RuntimeLinearPlan,
+    RuntimeOccurrence,
+    RuntimeRepeatConstraint,
+    ToolExecutionResult,
+    ValidationResult,
+)
 from atomic_skillgraph.core.status import RuntimeMode, SkillStatus
 from atomic_skillgraph.governance.lifecycle import CandidateUsePolicy
 from atomic_skillgraph.planner.compiler import PlanCompiler
@@ -30,6 +42,12 @@ from atomic_skillgraph.planner.multiplicity import (
 )
 from atomic_skillgraph.planner.validator import PlannerValidator
 from atomic_skillgraph.runtime.binding_store import RuntimeBindingStore
+from atomic_skillgraph.runtime.evidence_store import GroundingEvidenceStore
+from atomic_skillgraph.runtime.implementation_runner import ImplementationRunner
+from atomic_skillgraph.runtime.invocation_compiler import (
+    CompiledInvocation,
+    InvocationCompiler,
+)
 
 
 def _input(role: str) -> BindingExpression:
@@ -247,6 +265,55 @@ def _proposal(
             for item in steps
         },
     )
+
+
+def test_repeat_unit_constraint_requires_exactly_one_repeat_block() -> None:
+    contract, bundle, _acquire, _place = _delivery_fixture()
+    aggregate_place = replace(
+        bundle.requirements[1],
+        desired_effects=[replace(
+            bundle.requirements[1].desired_effects[0],
+            cardinality=2,
+        )],
+    )
+    missing = RequirementBundleValidator().validate(
+        PlannerRequirementBundle(
+            requirements=[aggregate_place],
+            repeat_blocks=[],
+        ),
+        contract,
+        max_repeat_count=4,
+        max_runtime_occurrences=16,
+    )
+    assert missing.passed is False
+    assert missing.checks["aggregate_task_contract_coverage"] is True
+    assert missing.checks["repeat_unit_constraints_materialized_once"] is False
+    assert "planner_repeat_block_invalid" in missing.failure_codes
+
+    duplicate = RequirementBundleValidator().validate(
+        PlannerRequirementBundle(
+            requirements=list(bundle.requirements),
+            repeat_blocks=[
+                bundle.repeat_blocks[0],
+                replace(bundle.repeat_blocks[0], block_id="repeat_delivery_again"),
+            ],
+        ),
+        contract,
+        max_repeat_count=4,
+        max_runtime_occurrences=16,
+    )
+    assert duplicate.passed is False
+    assert duplicate.checks["repeat_unit_constraints_materialized_once"] is False
+    assert "planner_repeat_block_invalid" in duplicate.failure_codes
+
+    valid = RequirementBundleValidator().validate(
+        bundle,
+        contract,
+        max_repeat_count=4,
+        max_runtime_occurrences=16,
+    )
+    assert valid.passed is True
+    assert valid.checks["repeat_unit_constraints_materialized_once"] is True
 
 
 def test_single_and_multi_node_repeat_blocks_expand_stably() -> None:
@@ -500,6 +567,234 @@ def test_failed_effect_never_commits_repeat_values() -> None:
         effect_passed=True,
     )
     assert later.passed is True
+
+
+def test_normal_runtime_direct_repeat_commit_is_not_cold_start_only() -> None:
+    atomic = _atomic(
+        "place_repeat_direct",
+        inputs=("object", "destination"),
+        effects=(SemanticPredicate(
+            "object.at_location",
+            {
+                "object": _input("object"),
+                "location": _input("destination"),
+            },
+        ),),
+    )
+    implementation_ref = SkillRef("place_repeat_direct_impl", "1.0.0")
+    tool_ref = ToolRef("place_repeat_direct_tool", "1.0.0")
+    implementation = ImplementationAtom(
+        ref=implementation_ref,
+        abstract_ref=atomic.ref,
+        tool_bindings=[ToolBinding(
+            tool_ref,
+            "place",
+            {
+                "object": _input("object"),
+                "destination": _input("destination"),
+            },
+            0,
+        )],
+        grounding_constraints=[],
+        execution_policy={"mode": "serial"},
+        compatibility={"harness_profiles": ["repeat_test"]},
+        quality={"preferred": True},
+        status=SkillStatus.ACTIVE,
+        metadata={"canonical_intent": "place_repeat_unit"},
+    )
+    spec = ImplementationInvocationSpec(
+        name="invoke_impl_place_repeat_unit",
+        implementation_ref=implementation.ref,
+        atomic_ref=atomic.ref,
+        description="place one repeat unit",
+        input_schema={
+            "type": "object",
+            "required": ["object", "destination"],
+            "additionalProperties": False,
+            "properties": {
+                "object": {"type": "string"},
+                "destination": {"type": "string"},
+            },
+        },
+        grounding_constraints=[],
+        tool_refs=[tool_ref],
+        execution_policy={"mode": "serial"},
+    )
+    compiled = CompiledInvocation(
+        spec,
+        atomic,
+        implementation,
+        [SimpleNamespace(ref=tool_ref)],
+    )
+    occurrences = [
+        RuntimeOccurrence(
+            step_id=f"place_{index}",
+            occurrence_id=f"occ_place_{index}",
+            node_ref=atomic.ref,
+            requirement_ids=[],
+            binding_specs={
+                "object": _input("object"),
+                "destination": _input("destination"),
+            },
+            implementation_candidates=[implementation.ref],
+            expected_effects=list(atomic.effects),
+        )
+        for index in range(2)
+    ]
+    repeat_constraint = RuntimeRepeatConstraint(
+        block_id="repeat_delivery",
+        count=2,
+        iteration_steps=(("place_0",), ("place_1",)),
+        distinct_roles=("object",),
+        shared_roles=("destination",),
+        step_role_bindings={
+            "place_0": {
+                "object": "object",
+                "destination": "destination",
+            },
+            "place_1": {
+                "object": "object",
+                "destination": "destination",
+            },
+        },
+    )
+    plan = RuntimeLinearPlan(
+        task_id="normal_repeat_direct",
+        source="atomic_composition",
+        source_composite_ref=None,
+        occurrences=occurrences,
+        control_sequence=["place_0", "place_1"],
+        data_edges=[],
+        dependency_edges=[],
+        task_contract=TaskContract(),
+        planner_audit={},
+        repeat_constraints=[repeat_constraint],
+    )
+    assert plan.source == "atomic_composition"
+
+    binding_store = RuntimeBindingStore()
+    binding_store.configure_repeat_constraints(plan.repeat_constraints)
+    binding_store.bind_task_value("object", "apple_1", "entity", 0)
+    binding_store.bind_task_value(
+        "destination", "countertop_1", "entity", 0,
+    )
+    for occurrence in plan.occurrences:
+        binding_store.resolve_occurrence_specs(occurrence, 0)
+    arguments = {"object": "apple_1", "destination": "countertop_1"}
+    preflight_compiler = InvocationCompiler(
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+    first_preflight = preflight_compiler.prepare_arguments(
+        compiled,
+        call_name=spec.name,
+        call_id="call_first",
+        arguments=arguments,
+        occurrence=plan.occurrence("place_0"),
+        binding_store=binding_store,
+        evidence_store=GroundingEvidenceStore(),
+        revision=0,
+        arguments_are_agent_proposals=False,
+    )
+    assert first_preflight.passed is True
+
+    class _AtomicValidator:
+        @staticmethod
+        def validate(*_args: Any, **_kwargs: Any) -> ValidationResult:
+            return ValidationResult.ok("atomic", effect_satisfied=True)
+
+    class _TraceBuilder:
+        def __init__(self) -> None:
+            self.trace = SimpleNamespace(
+                validations=[],
+                implementation_invocations=[],
+            )
+
+        @staticmethod
+        def start_span(*_args: Any, **_kwargs: Any) -> Any:
+            return SimpleNamespace(span_id="span_direct_repeat")
+
+        @staticmethod
+        def finish_span(*_args: Any, **_kwargs: Any) -> None:
+            return None
+
+    class _ToolRunner:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def run(
+            self,
+            tool: Any,
+            _arguments: dict[str, Any],
+            _ctx: Any,
+            **_kwargs: Any,
+        ) -> ToolExecutionResult:
+            self.calls += 1
+            return ToolExecutionResult(
+                tool_ref=str(tool.ref),
+                preflight_passed=True,
+                started=True,
+                completed=True,
+                state_changed=True,
+                executed_step_count=1,
+                failure_step_index=None,
+                partial_effects=[],
+                output_candidates={},
+                before_revision=0,
+                after_revision=1,
+            )
+
+    runner = ImplementationRunner(SimpleNamespace(
+        atomic=_AtomicValidator(),
+        tool=SimpleNamespace(),
+    ))
+    tool_runner = _ToolRunner()
+    runner.tool_runner = tool_runner
+    trace_builder = _TraceBuilder()
+    ctx = SimpleNamespace(
+        trace_builder=trace_builder,
+        binding_store=binding_store,
+        harness=SimpleNamespace(
+            validator_channel=lambda: SimpleNamespace(),
+        ),
+        world_revision=1,
+    )
+    first = runner.run(
+        compiled,
+        first_preflight,
+        plan.occurrence("place_0"),
+        ctx,
+        agent_prepared=False,
+    )
+    assert first.started is True
+    assert first.atomic_effect_passed is True
+    assert binding_store.repeat_state.committed_distinct_values == {
+        "repeat_delivery::object": {0: "apple_1"},
+    }
+    repeat_commits = [
+        item for item in trace_builder.trace.validations
+        if item.level == "runtime_repeat_commit"
+    ]
+    assert len(repeat_commits) == 1
+    assert repeat_commits[0].result["passed"] is True
+
+    second_preflight = preflight_compiler.prepare_arguments(
+        compiled,
+        call_name=spec.name,
+        call_id="call_second",
+        arguments=arguments,
+        occurrence=plan.occurrence("place_1"),
+        binding_store=binding_store,
+        evidence_store=GroundingEvidenceStore(),
+        revision=1,
+        arguments_are_agent_proposals=False,
+    )
+    assert second_preflight.passed is False
+    assert second_preflight.failure_code == (
+        "runtime_repetition_distinctness_violation"
+    )
+    assert tool_runner.calls == 1
 
 
 class _CompositeSkills(_Skills):

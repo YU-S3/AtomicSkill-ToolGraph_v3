@@ -109,6 +109,34 @@ class ImplementationRunner:
             occurrence.occurrence_id, "atomic", to_primitive(atomic_validation), ctx.world_revision,
         ))
         atomic_passed = bool(started and atomic_validation.passed)
+        if atomic_passed:
+            repeat_values = {
+                **dict(atomic_values),
+                **{
+                    item.role: item.value
+                    for item in preflight.binding_updates
+                },
+                **dict(output_candidates),
+            }
+            repeat_commit = ctx.binding_store.commit_repeat_bindings(
+                occurrence.step_id,
+                repeat_values,
+                effect_passed=True,
+            )
+            ctx.trace_builder.trace.validations.append(ValidationRecord(
+                occurrence.occurrence_id,
+                "runtime_repeat_commit",
+                to_primitive(repeat_commit),
+                ctx.world_revision,
+            ))
+            if not repeat_commit.passed:
+                atomic_passed = False
+                failure_layer = "runtime_binding"
+                failure_code = (
+                    repeat_commit.failure_codes[0]
+                    if repeat_commit.failure_codes
+                    else "runtime_repetition_distinctness_violation"
+                )
         if completed and not atomic_passed and not failure_code:
             failure_layer, failure_code = "atomic", "atomic_effect_violation"
         validated_outputs = output_candidates if atomic_passed else {}

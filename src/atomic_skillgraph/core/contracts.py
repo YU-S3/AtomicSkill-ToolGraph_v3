@@ -280,7 +280,7 @@ class ColdStartPlanStep:
     execution_mode: ColdStartExecutionMode
     binding_specs: dict[str, BindingExpression]
     repeat_role_bindings: dict[str, str]
-    expected_effects: list[SemanticPredicate]
+    expected_effects: list[SemanticPredicate] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.candidate_source = ColdStartCandidateSource(self.candidate_source)

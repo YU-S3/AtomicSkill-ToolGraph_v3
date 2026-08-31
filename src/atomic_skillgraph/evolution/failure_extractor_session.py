@@ -132,8 +132,14 @@ FAILURE_EXTRACTION_SCHEMA: dict[str, Any] = {
         "validated_plan_prefix": {
             "type": "array", "uniqueItems": True, "items": _NONEMPTY,
         },
-        "negative_method_suffix": {"type": "object"},
-        "reusable_failure_summary": {"type": "object"},
+        "negative_method_suffix": {
+            "type": "object",
+            "minProperties": 1,
+        },
+        "reusable_failure_summary": {
+            "type": "object",
+            "minProperties": 1,
+        },
     },
 }
 
@@ -261,6 +267,9 @@ class FailureExtractorSession:
             "F2 FAILURE ASSET EXTRACTION. Propose only portable provisional Atomic contracts from independently validated "
             "real Effect spans and one non-executable negative method summary. Do not output a Composite, Implementation, "
             "Tool, source action script, or concrete source entity/location. Call only the offered submission tool.\n"
+            "A failed task may contain no reusable local Atomic Effect. In that case submit provisional_atomics as an "
+            "empty array and still provide the portable negative Failure Experience summary. Do not invent a local "
+            "Atomic only to make the list non-empty.\n"
             f"Code-validated F1: {json.dumps(to_primitive(validated_alignment), ensure_ascii=False)}\n"
             f"Authoritative trace: {json.dumps(to_primitive(authoritative_trace), ensure_ascii=False)}\n"
             f"TaskContract: {json.dumps(to_primitive(task_contract), ensure_ascii=False)}"

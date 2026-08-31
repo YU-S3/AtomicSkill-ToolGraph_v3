@@ -909,7 +909,17 @@ class AtomicSkillGraphSystem:
                 if prepared.f1_validation else {}
             ),
             f2_proposal=(
-                to_primitive(prepared.f2_validation.proposal)
+                {
+                    "proposal": to_primitive(
+                        prepared.f2_validation.proposal
+                    ),
+                    "provisional_rejections": list(
+                        prepared.f2_validation.provisional_rejections
+                    ),
+                    "failure_experience_accepted": bool(
+                        prepared.f2_validation.failure_experience_accepted
+                    ),
+                }
                 if prepared.f2_validation else {}
             ),
             provisional_refs=[],

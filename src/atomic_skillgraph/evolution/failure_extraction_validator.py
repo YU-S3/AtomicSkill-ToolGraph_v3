@@ -21,6 +21,7 @@ from ..knowledge.failure_knowledge_store import (
     provisional_ref_for,
 )
 from ..planner.cold_start_retriever import task_cluster_signature
+from ..planner.multiplicity import requirement_instance_shape_id
 from .atomicizer import AtomicOccurrenceProposal
 from .contract_canonicalizer import (
     AtomicContractCanonicalizer,
@@ -71,6 +72,8 @@ class FailureExtractionValidation:
     proposal: FailureExtractionProposal
     result: ValidationResult
     source_replays: dict[str, dict[str, Any]]
+    provisional_rejections: list[dict[str, Any]]
+    failure_experience_accepted: bool
 
 
 @dataclass(frozen=True)
@@ -114,8 +117,10 @@ class PreparedFailureExtraction:
     def accepted(self) -> bool:
         return (
             not self.rejection
-            and self.f2_validation is not None
-            and self.f2_validation.result.passed
+            and (
+                bool(self.provisional_records)
+                or self.failure_experience is not None
+            )
         )
 
     def commit(self, store: Any) -> tuple[list[str], list[str]]:
@@ -299,7 +304,7 @@ class FailureAssetRecordBuilder:
         self,
         alignment: FailurePlanAlignment,
         validation: FailureExtractionValidation,
-    ) -> tuple[list[ProvisionalAtomicRecord], FailureExperience]:
+    ) -> tuple[list[ProvisionalAtomicRecord], FailureExperience | None]:
         records: list[ProvisionalAtomicRecord] = []
         for item in validation.proposal.provisional_atomics:
             compiled = self.source_replay.compiled_for(item)
@@ -344,15 +349,39 @@ class FailureAssetRecordBuilder:
                 },
             ))
 
-        requirement_ids = tuple(
-            str(item.instance_id)
+        if not validation.failure_experience_accepted:
+            return records, None
+
+        instances_by_id = {
+            str(item.instance_id): item
             for item in getattr(self.requirement_expansion, "instances", ())
+        }
+        requirement_ids = tuple(
+            instances_by_id
         )
         remaining = tuple(map(str, alignment.remaining_requirement_instance_ids))
         if not requirement_ids or not remaining:
             raise ValueError(
                 "validated failure extraction requires non-empty requirement instances"
             )
+        missing_instance_ids = set(remaining) - set(instances_by_id)
+        if missing_instance_ids:
+            raise ValueError(
+                "validated failure extraction references unknown RequirementInstances: "
+                + ", ".join(sorted(missing_instance_ids))
+            )
+        shape_id_by_instance = {
+            instance_id: requirement_instance_shape_id(
+                instance,
+                self.requirement_expansion,
+                self.task_contract,
+            )
+            for instance_id, instance in instances_by_id.items()
+        }
+        remaining_shape_ids = [
+            shape_id_by_instance[instance_id]
+            for instance_id in remaining
+        ]
         divergence = dict(alignment.first_unrecovered_divergence)
         kind = str(divergence.get("kind") or "other")
         plan_steps = {
@@ -360,17 +389,47 @@ class FailureAssetRecordBuilder:
             for item in getattr(self.cold_start_plan, "steps", ())
         }
         failed_step = plan_steps.get(str(divergence.get("step_id") or ""))
+        failed_step_instance_ids = tuple(map(
+            str,
+            getattr(failed_step, "requirement_instance_ids", ()),
+        ))
+        unknown_failed_ids = set(failed_step_instance_ids) - set(instances_by_id)
+        if unknown_failed_ids:
+            raise ValueError(
+                "failed cold-start step references unknown RequirementInstances: "
+                + ", ".join(sorted(unknown_failed_ids))
+            )
+        failed_step_shape_ids = sorted(
+            shape_id_by_instance[instance_id]
+            for instance_id in failed_step_instance_ids
+        )
+        validated_prefix_shape_ids: list[str] = []
+        for step_id in validation.proposal.validated_plan_prefix:
+            step = plan_steps.get(str(step_id))
+            if step is None:
+                raise ValueError(
+                    f"validated failure prefix references unknown plan step: {step_id}"
+                )
+            for instance_id in map(
+                str, getattr(step, "requirement_instance_ids", ()),
+            ):
+                if instance_id not in shape_id_by_instance:
+                    raise ValueError(
+                        "validated failure prefix references unknown "
+                        f"RequirementInstance: {instance_id}"
+                    )
+                validated_prefix_shape_ids.append(
+                    shape_id_by_instance[instance_id]
+                )
         divergence_payload = {
-            "remaining_requirement_instance_ids": list(remaining),
             "kind": kind,
-            "failed_step_requirement_shape": sorted(
-                map(str, getattr(failed_step, "requirement_instance_ids", ()))
-            ),
-            "repeat_index_shape": sorted(
-                value.split("::")[-2]
-                for value in remaining
-                if len(value.split("::")) >= 3
-            ),
+            "remaining_requirement_shape_ids": remaining_shape_ids,
+            "failed_step_requirement_shape_ids": failed_step_shape_ids,
+            "repeat_index_shape": [
+                int(instances_by_id[instance_id].repeat_index)
+                for instance_id in remaining
+                if instances_by_id[instance_id].repeat_block_id
+            ],
         }
         cluster = task_cluster_signature(
             self.task_contract,
@@ -416,6 +475,14 @@ class FailureAssetRecordBuilder:
             metadata={
                 "origin": "failure_extractor_f2",
                 "source_task_id": str(self.trace.task.task_id),
+                "semantic_shape_version": 1,
+                "requirement_shape_ids": [
+                    shape_id_by_instance[instance_id]
+                    for instance_id in requirement_ids
+                ],
+                "validated_prefix_shape_ids": validated_prefix_shape_ids,
+                "remaining_requirement_shape_ids": remaining_shape_ids,
+                "failed_step_requirement_shape_ids": failed_step_shape_ids,
             },
         )
         return records, experience
@@ -544,6 +611,10 @@ class FailurePlanAlignmentValidator:
     ) -> tuple[FailurePlanAlignment | None, ValidationResult]:
         sequence = list(cold_start_plan.control_sequence)
         position = {step_id: index for index, step_id in enumerate(sequence)}
+        plan_steps = {
+            str(step.step_id): step
+            for step in getattr(cold_start_plan, "steps", ())
+        }
         action_count = len(trace.environment_actions)
         witnesses = _authoritative_witnesses(trace)
         by_step: dict[str, PlanStepAlignment] = {}
@@ -591,6 +662,24 @@ class FailurePlanAlignmentValidator:
             and (divergence_event is None or int(divergence_event) >= prefix_end)
         )
 
+        remaining_step_ids = sequence[len(claimed_prefix):]
+        plan_steps_complete = all(
+            step_id in plan_steps for step_id in remaining_step_ids
+        )
+        authoritative_remaining = (
+            [
+                str(instance_id)
+                for step_id in remaining_step_ids
+                for instance_id in plan_steps[step_id].requirement_instance_ids
+            ]
+            if plan_steps_complete else []
+        )
+        remaining_valid = (
+            plan_steps_complete
+            and list(alignment.remaining_requirement_instance_ids)
+            == authoritative_remaining
+        )
+
         valid_spans: list[dict[str, Any]] = []
         for span in alignment.candidate_progress_spans:
             start, end = int(span["event_start"]), int(span["event_end"])
@@ -609,12 +698,15 @@ class FailurePlanAlignmentValidator:
                 continue
             valid_spans.append(copy.deepcopy(span))
 
+        rejected_span_count = (
+            len(alignment.candidate_progress_spans) - len(valid_spans)
+        )
         checks = {
             "step_ids_and_ranges_valid": valid_ranges and bool(by_step),
             "event_ranges_chronological": chronological,
             "matched_prefix_authoritative": prefix_valid,
             "first_divergence_after_prefix": divergence_after_prefix,
-            "candidate_progress_spans_authoritative": bool(valid_spans),
+            "remaining_requirement_instances_authoritative": remaining_valid,
         }
         passed = all(checks.values())
         result = ValidationResult(
@@ -622,6 +714,10 @@ class FailurePlanAlignmentValidator:
             passed=passed,
             checks=checks,
             failure_codes=[] if passed else ["failure_extractor_alignment_invalid"],
+            messages=(
+                [f"candidate_progress_span_rejected:{rejected_span_count}"]
+                if rejected_span_count else []
+            ),
         )
         if not passed:
             return None, result
@@ -630,7 +726,7 @@ class FailurePlanAlignmentValidator:
             step_alignments=[by_step[step_id] for step_id in sequence if step_id in by_step],
             matched_prefix_step_ids=claimed_prefix,
             first_unrecovered_divergence=divergence,
-            remaining_requirement_instance_ids=list(alignment.remaining_requirement_instance_ids),
+            remaining_requirement_instance_ids=authoritative_remaining,
             candidate_progress_spans=valid_spans,
         )
         return cleaned, result
@@ -655,14 +751,22 @@ class FailureAssetValidator:
         }
         accepted: list[FailureAtomicProposal] = []
         replay_results: dict[str, dict[str, Any]] = {}
-        atomic_valid = True
-        valid_atomic_count = 0
-        replay_valid = True
+        provisional_rejections: list[dict[str, Any]] = []
         seen_phases: set[str] = set()
         used_ranges: set[tuple[int, int]] = set()
-        portability_valid = _portable(proposal.negative_method_suffix) and _portable(
-            proposal.reusable_failure_summary
-        )
+        experience_checks = {
+            "portable_failure_summary": (
+                _portable(proposal.negative_method_suffix)
+                and _portable(proposal.reusable_failure_summary)
+                and bool(proposal.negative_method_suffix)
+                and bool(proposal.reusable_failure_summary)
+            ),
+            "validated_prefix_unchanged": (
+                proposal.validated_plan_prefix
+                == alignment.matched_prefix_step_ids
+            ),
+        }
+        failure_experience_accepted = all(experience_checks.values())
         for item in proposal.provisional_atomics:
             atomic = item.atomic_proposal
             phase_id = str(atomic.get("phase_id", ""))
@@ -695,39 +799,42 @@ class FailureAssetValidator:
                     set(atomic.get("input_roles", {}).values())
                 )
             )
-            atomic_valid &= valid
             if not valid:
+                provisional_rejections.append({
+                    "phase_id": phase_id,
+                    "code": "failure_extractor_atomic_invalid",
+                })
                 continue
-            valid_atomic_count += 1
             replay = source_replay(item)
             replay_payload = replay if isinstance(replay, dict) else {"passed": bool(replay)}
             replay_passed = replay_payload.get("passed") is True
-            replay_valid &= replay_passed
+            if not replay_passed:
+                provisional_rejections.append({
+                    "phase_id": phase_id,
+                    "code": "provisional_source_replay_failed",
+                })
+                continue
             portable = True if portability_check is None else bool(portability_check(item))
-            portability_valid &= portable
-            if replay_passed and portable:
-                accepted.append(item)
-                replay_results[str(atomic.get("phase_id", len(replay_results)))] = replay_payload
+            if not portable:
+                provisional_rejections.append({
+                    "phase_id": phase_id,
+                    "code": "failure_experience_portability_rejected",
+                })
+                continue
+            accepted.append(item)
+            replay_results[phase_id] = replay_payload
 
+        any_failure_asset_admitted = (
+            failure_experience_accepted or bool(accepted)
+        )
         checks = {
-            "atomic_spans_authoritative": atomic_valid and valid_atomic_count > 0,
-            "source_replay_passed": replay_valid and bool(replay_results),
-            "portable_failure_assets": portability_valid,
-            "validated_prefix_unchanged": (
-                proposal.validated_plan_prefix == alignment.matched_prefix_step_ids
-            ),
+            **experience_checks,
+            "provisional_candidates_filtered": True,
+            "at_least_one_failure_asset_admitted": any_failure_asset_admitted,
             "no_composite_or_tool_output": True,
         }
-        passed = all(checks.values())
-        codes: list[str] = []
-        if not checks["atomic_spans_authoritative"]:
-            codes.append("failure_extractor_atomic_invalid")
-        if not checks["source_replay_passed"]:
-            codes.append("provisional_source_replay_failed")
-        if not checks["portable_failure_assets"]:
-            codes.append("failure_experience_portability_rejected")
         cleaned = FailureExtractionProposal(
-            provisional_atomics=accepted if passed else [],
+            provisional_atomics=accepted,
             validated_plan_prefix=list(proposal.validated_plan_prefix),
             negative_method_suffix=copy.deepcopy(proposal.negative_method_suffix),
             reusable_failure_summary=copy.deepcopy(proposal.reusable_failure_summary),
@@ -735,10 +842,18 @@ class FailureAssetValidator:
         return FailureExtractionValidation(
             proposal=cleaned,
             result=ValidationResult(
-                level="failure_extractor_f2", passed=passed, checks=checks,
-                failure_codes=codes,
+                level="failure_extractor_f2",
+                passed=any_failure_asset_admitted,
+                checks=checks,
+                failure_codes=(
+                    []
+                    if any_failure_asset_admitted
+                    else ["failure_extractor_atomic_invalid"]
+                ),
             ),
             source_replays=replay_results,
+            provisional_rejections=provisional_rejections,
+            failure_experience_accepted=failure_experience_accepted,
         )
 
 
