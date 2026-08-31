@@ -918,6 +918,8 @@ def test_unexpected_evolution_prepare_error_propagates_for_checkpoint_rollback(
             {}, {}, {"source": "full_dynamic"},
         )
         trace.benchmark_success = True
+        trace.task_contract_success = True
+        trace.strict_task_success = True
         trace.learning_eligible = True
         system.orchestrator.run_task = lambda *_args, **_kwargs: trace
         system.failure_processor.localize = lambda _trace: []

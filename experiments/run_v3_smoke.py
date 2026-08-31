@@ -418,6 +418,12 @@ def run_real_alfworld(config_path: str | Path) -> int:
             "warm_unseen_tasks": len(warm_traces),
             "multi_node_tasks": len(multi_traces),
             "successes": sum(trace.benchmark_success for trace in traces),
+            "strict_task_successes": sum(
+                trace.strict_task_success for trace in traces
+            ),
+            "learning_eligible_successes": sum(
+                trace.learning_eligible for trace in traces
+            ),
             "artifact_counts": artifact_counts,
             "four_layer_assets": four_layer_assets,
             "cold_dynamic_success": cold_dynamic_success,

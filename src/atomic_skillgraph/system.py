@@ -39,6 +39,7 @@ from .evolution.composite_builder import CompositeBuilder
 from .evolution.composite_repair_session import CompositeSequenceProposalSession
 from .evolution.composite_repairs import CompositeSequenceRepairEngine
 from .evolution.extractor_session import ExtractorSession
+from .evolution.evidence import EvolutionEvidenceAccumulator
 from .evolution.failure_processor import FailureProcessor
 from .evolution.gap_diagnosis import GapDiagnoser
 from .evolution.maintenance import (
@@ -47,10 +48,21 @@ from .evolution.maintenance import (
     ExtractionPolicy,
     _composite_plan,
 )
+from .evolution.portability import (
+    occurrence_terms,
+    relevant_known_atomic_contracts,
+    resolve_capability_label_group,
+    source_forbidden_terms,
+    validate_portability,
+)
 from .evolution.repair import RepairProposal, RepairStore
 from .evolution.repair_session import EvolutionRepairSession
 from .evolution.trace_replay import TraceRepairExecutor
-from .evolution.tool_compiler import CompiledKnowledge, ToolCompiler
+from .evolution.tool_compiler import (
+    CompiledKnowledge,
+    ToolCompiler,
+    rewrite_capability_labels,
+)
 from .evolution.trace_normalizer import TraceNormalizer
 from .evolution.typed_repair_session import TypedRepairProposalSession
 from .evolution.typed_repairs import TypedRepairEngine
@@ -70,7 +82,7 @@ from .harness.protocol import HarnessTask
 from .knowledge import ArtifactStore, GraphStore, SkillRegistry, StateDatabase, ToolRegistry
 from .planner import PlannerPipeline
 from .runtime.invocation_compiler import InvocationCompiler
-from .runtime.orchestrator import RuntimeOrchestrator
+from .runtime.orchestrator import RuntimeOrchestrator, refresh_learning_eligibility
 from .runtime.budget import required_runtime_turn_caps, validate_runtime_turn_caps
 from .traces import (
     AgentSessionRecord,
@@ -508,7 +520,11 @@ class AtomicSkillGraphSystem:
                 else self._runtime_turn_caps[0]
             ),
             max_tokens=int(cfg.get(token_name, cfg.get("max_total_tokens_per_node", 80000))),
-            exhaustion_code="runtime_node_token_budget_exhausted",
+            exhaustion_code=(
+                "runtime_task_token_budget_exhausted"
+                if session_kind == "runtime_dynamic"
+                else "runtime_node_token_budget_exhausted"
+            ),
         )
 
     def _extractor_session(self, task_id: str) -> _SessionProxy:
@@ -626,6 +642,7 @@ class AtomicSkillGraphSystem:
         # must stop before Extractor/Evolution or credit can mutate knowledge.
         self._attach_provider_requests(trace, provider_offsets)
         self._require_resource_usage_complete(trace)
+        refresh_learning_eligibility(trace)
         trace.runtime_plan["failure_stage"] = "evolution"
         self.failure_processor.localize(trace)
         decision = self.extraction_policy.decide(trace)
@@ -637,7 +654,6 @@ class AtomicSkillGraphSystem:
         if (
             run_mode is RuntimeMode.ONLINE
             and not trace.infrastructure_failure
-            and trace.benchmark_success
             and trace.learning_eligible
             and decision.should_extract
         ):
@@ -663,7 +679,7 @@ class AtomicSkillGraphSystem:
         if run_mode is RuntimeMode.ONLINE:
             if trace.infrastructure_failure:
                 trace.metadata["evolution_branch"] = "infrastructure_neutral"
-            elif trace.benchmark_success and trace.learning_eligible:
+            elif trace.learning_eligible:
                 trace.metadata["evolution_branch"] = "success"
                 source_composite_ref = str(
                     trace.runtime_plan.get("source_composite_ref") or ""
@@ -717,6 +733,7 @@ class AtomicSkillGraphSystem:
         trace.metadata["usage_reconciliation"] = _reconcile_events(task_usage)
         self._attach_provider_requests(trace, provider_offsets)
         self._require_resource_usage_complete(trace)
+        refresh_learning_eligibility(trace)
         if self._provider_override is None:
             _require_formal_usage(task_usage, trace.agent_turns)
 
@@ -734,7 +751,7 @@ class AtomicSkillGraphSystem:
         if run_mode is RuntimeMode.ONLINE:
             if trace.infrastructure_failure:
                 pass
-            elif trace.benchmark_success and trace.learning_eligible:
+            elif trace.learning_eligible:
                 if prepared is not None:
                     applied = self._apply_evolution(prepared, trace, task)
                     trace.metadata["evolution_applied"] = {
@@ -766,7 +783,7 @@ class AtomicSkillGraphSystem:
         self.traces.save_atomic(trace)
 
         if run_mode is RuntimeMode.ONLINE:
-            if trace.benchmark_success:
+            if trace.learning_eligible:
                 self._online_successes += 1
             if not trace.infrastructure_failure:
                 # Runtime credit remains Trace-first: the immutable evidence
@@ -928,7 +945,15 @@ class AtomicSkillGraphSystem:
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
         normalized = self.normalizer.build(trace)
         extractor = ExtractorSession(self._extractor_session(task.task_id))
-        proposals = extractor.propose_atomics(normalized)
+        known_atomic_contracts = relevant_known_atomic_contracts(
+            normalized,
+            self.skills,
+            limit=20,
+        )
+        proposals = extractor.propose_atomics(
+            normalized,
+            known_atomic_contracts,
+        )
         contract = self.harness.task_contract(task)
         matcher_factory = getattr(self.harness, "contract_matcher", None)
         matcher = (
@@ -936,16 +961,36 @@ class AtomicSkillGraphSystem:
             if callable(matcher_factory)
             else ExactContractMatcher()
         )
-        canonical, occurrence_rejections = self.atomicizer.validate_proposed_subset(
-            proposals, normalized,
-        )
+        try:
+            canonical, occurrence_rejections = (
+                self.atomicizer.validate_proposed_subset(
+                    proposals, normalized,
+                )
+            )
+        except ValueError:
+            trace.metadata["extractor_quality"] = {
+                "extractor_e1_proposal_count": len(proposals),
+                "extractor_e1_validated_occurrence_count": 0,
+                "extractor_e1_rejection_count": len(proposals),
+                "known_atomic_contract_payload_count": len(
+                    known_atomic_contracts
+                ),
+            }
+            raise
+        quality = {
+            "extractor_e1_proposal_count": len(proposals),
+            "extractor_e1_validated_occurrence_count": len(canonical),
+            "extractor_e1_rejection_count": len(occurrence_rejections),
+            "known_atomic_contract_payload_count": len(
+                known_atomic_contracts
+            ),
+        }
         if occurrence_rejections:
             trace.metadata["extraction_occurrence_rejections"] = occurrence_rejections
 
         # Compile and canonicalize roles before E2.  Staging is read-only but
         # resolves the exact persistent Atomic refs that graph evidence uses.
-        staged_compiled: list[CompiledKnowledge] = []
-        staged_occurrences = []
+        provisional: list[CompiledKnowledge] = []
         for item in self.tool_compiler.compile(canonical):
             bundle = self.aligner.stage_atomic(
                 item.atomic,
@@ -958,13 +1003,77 @@ class AtomicSkillGraphSystem:
                 bundle,
                 atomic_ref=bundle.atomic.ref,
             )
-            staged_occurrences.append(occurrence)
-            staged_compiled.append(CompiledKnowledge(
+            provisional.append(CompiledKnowledge(
                 occurrence,
                 bundle.atomic,
                 bundle.tool,
                 bundle.implementation,
             ))
+
+        # Resolve one label per final staged Atomic ref.  This also makes two
+        # alpha-equivalent occurrences in the same batch share a name before
+        # either candidate has been registered.
+        candidates_by_ref: dict[str, list[CompiledKnowledge]] = {}
+        for item in provisional:
+            ref = str(item.atomic.ref)
+            candidates_by_ref.setdefault(ref, []).append(item)
+        labels: dict[str, Any] = {}
+        portability_context: dict[str, tuple[set[str], set[str]]] = {}
+        for ref, candidates in sorted(candidates_by_ref.items()):
+            portability_context[ref] = (
+                set().union(*(
+                    occurrence_terms(item.occurrence)
+                    for item in candidates
+                )),
+                set().union(*(
+                    source_forbidden_terms(item.occurrence)
+                    for item in candidates
+                )),
+            )
+            try:
+                persisted = self.skills.get_atomic(candidates[0].atomic.ref)
+            except KeyError:
+                persisted = None
+            labels[ref] = resolve_capability_label_group(
+                (
+                    (item.occurrence, item.atomic)
+                    for item in candidates
+                ),
+                existing_atomic=persisted,
+            )
+        staged_compiled = [
+            rewrite_capability_labels(item, labels[str(item.atomic.ref)])
+            for item in provisional
+        ]
+        staged_occurrences = [item.occurrence for item in staged_compiled]
+        quality.update({
+            "portable_intent_pass_count": sum(
+                validate_portability(
+                    item.occurrence.intent,
+                    episode_terms=portability_context[
+                        str(item.atomic.ref)
+                    ][0],
+                    additional_forbidden_terms=portability_context[
+                        str(item.atomic.ref)
+                    ][1],
+                    require_intent=True,
+                ).passed
+                for item in provisional
+            ),
+            "portable_intent_fallback_count": sum(
+                labels[str(item.atomic.ref)].source == "contract_fallback"
+                for item in provisional
+            ),
+            "known_contract_name_reuse_count": sum(
+                label.source == "existing_contract"
+                for label in labels.values()
+            ),
+            "new_canonical_intent_count": sum(
+                label.source != "existing_contract"
+                for label in labels.values()
+            ),
+        })
+        trace.metadata["extractor_quality"] = quality
         existing = self.graph.existing_edges(
             [str(item.proposed_ref) for item in staged_occurrences],
             mode=RuntimeMode.ONLINE,
@@ -981,6 +1090,38 @@ class AtomicSkillGraphSystem:
             ),
         )
         compiled = staged_compiled
+        label_violations = 0
+        for item in compiled:
+            terms = occurrence_terms(item.occurrence)
+            extra = source_forbidden_terms(item.occurrence)
+            label_violations += sum(
+                not validate_portability(
+                    value,
+                    episode_terms=terms,
+                    additional_forbidden_terms=extra,
+                    require_intent=require_intent,
+                ).passed
+                for value, require_intent in (
+                    (item.occurrence.intent, True),
+                    (item.atomic.summary, False),
+                    (item.atomic.guideline, False),
+                    (item.tool.summary, False),
+                    (
+                        item.implementation.metadata.get(
+                            "semantic_description", "",
+                        ),
+                        False,
+                    ),
+                )
+            )
+        label_violations += int(
+            composite.metadata.get(
+                "artifact_label_concrete_term_violation_count", 0,
+            )
+        )
+        quality["artifact_label_concrete_term_violation_count"] = (
+            label_violations
+        )
         diagnosis = self.gap_diagnoser.diagnose(
             trace, [item.atomic for item in compiled],
         )
@@ -999,9 +1140,15 @@ class AtomicSkillGraphSystem:
         atomic_refs = []
         implementation_refs = []
         tool_refs = []
-        validated: dict[str, bool] = {}
+        evidence = EvolutionEvidenceAccumulator()
         by_occurrence: dict[str, Any] = {}
+        quality = dict(trace.metadata.get("extractor_quality") or {})
+        atomic_reuse_count = 0
+        atomic_new_count = 0
         for item in prepared.compiled:
+            atomic_alignment = self.aligner.resolve_atomic(item.atomic)
+            atomic_reuse_count += int(atomic_alignment.reused)
+            atomic_new_count += int(not atomic_alignment.reused)
             atomic_ref = self.aligner.align_atomic(item.atomic)
             admitted_tool = self.admission.admit_tool(
                 item.tool,
@@ -1065,10 +1212,47 @@ class AtomicSkillGraphSystem:
             tool_refs.append(tool_ref)
             implementation_refs.append(implementation_ref)
             by_occurrence[item.occurrence.occurrence_id] = atomic_ref
-            validated[str(atomic_ref)] = True
-            validated[str(tool_ref)] = bool(tool_alignment.admitted)
-            validated[str(implementation_ref)] = (
+            occurrence_id = item.occurrence.occurrence_id
+            evidence.record(
+                str(atomic_ref),
+                "atomic",
+                occurrence_id=occurrence_id,
+                passed=True,
+                reason="deterministic_contract_validation_passed",
+            )
+            evidence.record(
+                str(tool_ref),
+                "tool",
+                occurrence_id=occurrence_id,
+                passed=bool(tool_alignment.admitted),
+                reason=(
+                    "tool_admission_passed"
+                    if tool_alignment.admitted
+                    else "tool_admission_failed"
+                ),
+                metadata={
+                    "operation": tool_alignment.operation,
+                    "admission_failures": list(
+                        tool_alignment.admission_failures
+                    ),
+                },
+            )
+            implementation_passed = (
                 admitted_implementation.status is SkillStatus.CANDIDATE
+            )
+            evidence.record(
+                str(implementation_ref),
+                "implementation",
+                occurrence_id=occurrence_id,
+                passed=implementation_passed,
+                reason=(
+                    "implementation_admission_passed"
+                    if implementation_passed
+                    else "implementation_admission_failed"
+                ),
+                metadata={
+                    "status": admitted_implementation.status.value,
+                },
             )
             self._add_structural_edge(
                 str(implementation_ref), str(atomic_ref), GlobalRelationType.IMPLEMENTS,
@@ -1086,8 +1270,28 @@ class AtomicSkillGraphSystem:
             if prepared.source_composite_ref
             else ""
         )
+        composite_refs_before = {
+            str(item) for item in self.skills.list_refs("composite")
+        }
         composite_ref = self.aligner.align_composite(prepared.composite, by_occurrence)
-        validated[str(composite_ref)] = True
+        quality.update({
+            "atomic_alignment_reuse_count": atomic_reuse_count,
+            "atomic_new_contract_count": atomic_new_count,
+            "composite_alignment_reuse_count": int(
+                str(composite_ref) in composite_refs_before
+            ),
+        })
+        trace.metadata["extractor_quality"] = quality
+        evidence.record(
+            str(composite_ref),
+            "composite",
+            occurrence_id="composite",
+            passed=True,
+            reason="deterministic_graph_validation_passed",
+            metadata={
+                "component_occurrence_ids": sorted(by_occurrence),
+            },
+        )
         if prepared.source_composite_ref and str(composite_ref) != prepared.source_composite_ref:
             self._add_structural_edge(
                 str(composite_ref),
@@ -1106,24 +1310,23 @@ class AtomicSkillGraphSystem:
                 trace.trace_id, occurrence_id=occurrence_id,
             )
 
-        assets = (
-            [(str(ref), "atomic") for ref in atomic_refs]
-            + [(str(ref), "implementation") for ref in implementation_refs]
-            + [(str(ref), "tool") for ref in tool_refs]
-            + [(str(composite_ref), "composite")]
-        )
         attempts = tuple(
             CreditAttempt(
-                artifact_ref=ref,
-                artifact_kind=kind,
+                artifact_ref=state.artifact_ref,
+                artifact_kind=state.artifact_kind,
                 occurrence_id="evolution",
-                attempt_id=f"evolution:{ref}",
+                attempt_id=(
+                    f"evolution:{state.artifact_kind}:{state.artifact_ref}"
+                ),
                 sequence_no=index,
                 proposed=True,
-                validated=validated.get(ref, False),
-                metadata={"source": "extractor_admission"},
+                validated=state.validated_any,
+                metadata={
+                    "source": "extractor_admission",
+                    **state.metadata(),
+                },
             )
-            for index, (ref, kind) in enumerate(assets)
+            for index, state in enumerate(evidence.assets())
         )
         events = self.credit.assign(CreditTrace(
             trace.task.task_id, trace.trace_id, attempts
@@ -1134,7 +1337,7 @@ class AtomicSkillGraphSystem:
             "implementation_refs": implementation_refs,
             "tool_refs": tool_refs,
             "composite_ref": composite_ref,
-            "composite_validated": validated[str(composite_ref)],
+            "composite_validated": True,
         }
 
     def _composite_rescue_operation(

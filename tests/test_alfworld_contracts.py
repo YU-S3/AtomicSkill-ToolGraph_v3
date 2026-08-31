@@ -123,22 +123,81 @@ def test_atomic_effect_requires_concrete_binding_and_current_fact() -> None:
     assert not channel.validate_atomic_effect({"effects": [effect], "bindings": {"object": "egg_2"}}).passed
 
 
-def test_look_witness_comes_from_use_while_holding_target() -> None:
+def test_look_witness_is_derived_from_current_conjunctive_state() -> None:
     channel = AlfWorldValidatorChannel()
-    _record(channel, 1, "USE", object="desklamp_1")
-    assert not any(item["predicate"] == "object.observed_with" for item in channel.snapshot()["facts"])
-    _record(channel, 2, "USE", object="desklamp_1")  # turn it back off
-    _record(channel, 3, "TAKE", object="book_1", source="desk_1")
+    _record(channel, 1, "GO_TO", destination="desk_1")
+    _record(channel, 2, "TAKE", object="book_1", source="desk_1")
+    _record(channel, 3, "USE", object="desklamp_1")
+
+    expected = {
+        "predicate": "object.observed_with",
+        "args": {"light": "desklamp_1", "object": "book_1"},
+    }
+    assert expected in channel.snapshot()["facts"]  # TAKE -> USE
+
     _record(channel, 4, "USE", object="desklamp_1")
+    assert expected not in channel.snapshot()["facts"]  # light off
+    _record(channel, 5, "USE", object="desklamp_1")
+    _record(channel, 6, "PUT", object="book_1", destination="desk_1")
+    assert expected not in channel.snapshot()["facts"]  # no longer held
+
+
+def test_look_witness_is_order_independent_and_location_scoped() -> None:
+    channel = AlfWorldValidatorChannel()
+    expected = {
+        "predicate": "object.observed_with",
+        "args": {"light": "desklamp_1", "object": "book_1"},
+    }
+    _record(channel, 1, "GO_TO", destination="desk_1")
+    _record(channel, 2, "USE", object="desklamp_1")
+    _record(channel, 3, "TAKE", object="book_1", source="desk_1")
+    assert expected in channel.snapshot()["facts"]  # USE -> TAKE
+
+    _record(channel, 4, "GO_TO", destination="cabinet_1")
+    assert expected not in channel.snapshot()["facts"]
+    _record(channel, 5, "GO_TO", destination="desk_1")
+    assert expected in channel.snapshot()["facts"]
+    _record(channel, 6, "USE", object="desklamp_1")
+    assert expected not in channel.snapshot()["facts"]
+
+
+def test_look_witness_does_not_cross_light_location() -> None:
+    channel = AlfWorldValidatorChannel()
+    _record(channel, 1, "GO_TO", destination="desk_1")
+    _record(channel, 2, "USE", object="desklamp_1")
+    _record(channel, 3, "GO_TO", destination="cabinet_1")
+    _record(channel, 4, "TAKE", object="book_1", source="cabinet_1")
+    assert not any(
+        item["predicate"] == "object.observed_with"
+        for item in channel.snapshot()["facts"]
+    )
+
+
+def test_official_won_never_synthesizes_look_witness() -> None:
+    channel = AlfWorldValidatorChannel()
+    channel.record(
+        _spec("USE", object="desklamp_1"),
+        accepted=True,
+        revision=1,
+        done=True,
+        won=True,
+    )
+    assert channel.won is True
+    assert not any(
+        item["predicate"] == "object.observed_with"
+        for item in channel.snapshot()["facts"]
+    )
+
+
+def test_toggle_on_uses_the_same_location_derived_look_semantics() -> None:
+    channel = AlfWorldValidatorChannel()
+    _record(channel, 1, "GO_TO", destination="desk_1")
+    _record(channel, 2, "TOGGLE_ON", object="desklamp_1")
+    _record(channel, 3, "TAKE", object="book_1", source="desk_1")
     assert {
         "predicate": "object.observed_with",
         "args": {"light": "desklamp_1", "object": "book_1"},
     } in channel.snapshot()["facts"]
-    _record(channel, 5, "USE", object="desklamp_1")
-    assert not any(item["predicate"] == "object.observed_with" for item in channel.snapshot()["facts"])
-
-    _record(channel, 6, "EXAMINE", object="book_1")
-    assert not any(item["predicate"] == "object.observed_with" for item in channel.snapshot()["facts"])
 
 
 def test_slice_is_structured_at_adapter_boundary() -> None:

@@ -176,8 +176,8 @@ class AlfWorldValidatorChannel:
         self._containers_closed: set[str] = set()
         self._lights_on: set[str] = set()
         self._lights_off: set[str] = set()
+        self._light_locations: dict[str, str] = {}
         self._observed: set[str] = set()
-        self._observed_with: set[tuple[str, str]] = set()
         self._agent_location = ""
 
     def reset(self) -> None:
@@ -192,8 +192,8 @@ class AlfWorldValidatorChannel:
         self._containers_closed.clear()
         self._lights_on.clear()
         self._lights_off.clear()
+        self._light_locations.clear()
         self._observed.clear()
-        self._observed_with.clear()
         self._agent_location = ""
 
     def _rebuild_facts(self) -> None:
@@ -221,8 +221,21 @@ class AlfWorldValidatorChannel:
             add("light.off", light=light)
         for obj in self._observed:
             add("object.observed", object=obj)
-        for obj, light in self._observed_with:
-            add("object.observed_with", object=obj, light=light)
+        # The look-at goal is a final-state conjunction, not an action-order
+        # witness.  Derive it from current base state so TAKE -> USE and
+        # USE -> TAKE have identical semantics, and so leaving, putting, or
+        # switching the light off invalidates the fact immediately.
+        for held_object in self._held:
+            for light in self._lights_on:
+                if (
+                    self._agent_location
+                    and self._light_locations.get(light) == self._agent_location
+                ):
+                    add(
+                        "object.observed_with",
+                        object=held_object,
+                        light=light,
+                    )
         self._facts = facts
 
     def record(self, spec: HarnessActionSpec, *, accepted: bool, revision: int, done: bool, won: bool) -> None:
@@ -268,6 +281,8 @@ class AlfWorldValidatorChannel:
             if obj:
                 self._lights_off.discard(obj)
                 self._lights_on.add(obj)
+                if self._agent_location:
+                    self._light_locations[obj] = self._agent_location
         elif spec.action_type == "TOGGLE_OFF":
             if obj:
                 self._lights_on.discard(obj)
@@ -282,14 +297,11 @@ class AlfWorldValidatorChannel:
                 if obj in self._lights_on:
                     self._lights_on.discard(obj)
                     self._lights_off.add(obj)
-                    self._observed_with = {
-                        pair for pair in self._observed_with if pair[1] != obj
-                    }
                 else:
                     self._lights_off.discard(obj)
                     self._lights_on.add(obj)
-                    for held_object in self._held:
-                        self._observed_with.add((held_object, obj))
+                    if self._agent_location:
+                        self._light_locations[obj] = self._agent_location
         elif spec.action_type == "EXAMINE":
             if obj:
                 self._observed.add(obj)

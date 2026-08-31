@@ -128,10 +128,23 @@ class RuntimeBudget:
         token_limit = self.token_limits.get(bucket)
         turn_limit = self.turn_limits.get(bucket)
         if token_limit is not None and tokens > token_limit:
-            prefix = "planner" if bucket.startswith("planner") else "extractor" if bucket.startswith("extractor") else "runtime_node"
+            prefix = (
+                "planner"
+                if bucket.startswith("planner")
+                else "extractor"
+                if bucket.startswith("extractor")
+                else "runtime_task"
+                if bucket == "runtime_dynamic"
+                else "runtime_node"
+            )
             raise BudgetExhausted(f"{prefix}_token_budget_exhausted", f"{bucket} token budget exhausted", layer=FailureLayer.RUNTIME_AGENT)
         if turn_limit is not None and used_turns > turn_limit:
-            raise BudgetExhausted("runtime_node_token_budget_exhausted", f"{bucket} turn budget exhausted", layer=FailureLayer.RUNTIME_AGENT)
+            code = (
+                "runtime_task_token_budget_exhausted"
+                if bucket == "runtime_dynamic"
+                else "runtime_node_token_budget_exhausted"
+            )
+            raise BudgetExhausted(code, f"{bucket} turn budget exhausted", layer=FailureLayer.RUNTIME_AGENT)
         self.used_tokens[bucket] = tokens
         self.used_turns[bucket] = used_turns
 

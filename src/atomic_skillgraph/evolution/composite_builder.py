@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Mapping
 
 from ..core.bindings import BindingExpression, BindingExprKind
@@ -14,7 +13,15 @@ from ..core.refs import SkillRef, content_hash
 from ..core.status import SkillStatus
 from ..validation.contract_matcher import ContractMatcher, ExactContractMatcher
 from .atomicizer import CanonicalAtomicOccurrence
+from .contract_canonicalizer import composite_structure_payload
 from .extractor_session import CompositeExtractionProposal
+from .portability import (
+    composite_fallback_summary,
+    occurrence_terms,
+    portable_guideline_fallback,
+    source_forbidden_terms,
+    validate_portability,
+)
 
 
 def _types_compatible(
@@ -382,30 +389,88 @@ class CompositeBuilder:
             )
             for occurrence_id in proposal.control_sequence
         ]
-        logical = re.sub(r"[^a-z0-9]+", "_", proposal.summary.casefold()).strip("_")[:40]
-        signature = content_hash({
-            "sequence": proposal.control_sequence,
-            "refs": [str(by_id[item].proposed_ref) for item in proposal.control_sequence],
-            "edges": [
-                (edge.edge_type.value, edge.source_step, edge.target_step, edge.source_role, edge.target_role)
-                for edge in edges
+        canonical_intents = [
+            by_id[item].intent for item in proposal.control_sequence
+        ]
+        concrete_terms = set().union(*(
+            occurrence_terms(by_id[item])
+            for item in proposal.control_sequence
+        ))
+        source_terms = set().union(*(
+            source_forbidden_terms(by_id[item])
+            for item in proposal.control_sequence
+        ))
+        validator_spec = {
+            "canonical_sequence": True,
+            "self_sufficiency_required": True,
+            "task_contract_covered": True,
+        }
+        structure = composite_structure_payload(
+            occurrences=occurrences,
+            control_sequence=list(proposal.control_sequence),
+            data_edges=[
+                edge for edge in edges
+                if edge.edge_type is GraphEdgeType.DATA_FLOW
             ],
-            "contract": contract,
-        })[:12]
+            dependency_edges=[
+                edge for edge in edges
+                if edge.edge_type is GraphEdgeType.REQUIRES_SKILL
+            ],
+            goal_contract=contract,
+            validator_spec=validator_spec,
+        )
+        signature = content_hash(structure)
+        summary_result = validate_portability(
+            proposal.summary,
+            episode_terms=concrete_terms,
+            additional_forbidden_terms=source_terms,
+        )
+        guideline_result = validate_portability(
+            proposal.guideline,
+            episode_terms=concrete_terms,
+            additional_forbidden_terms=source_terms,
+        )
+        summary = (
+            proposal.summary
+            if summary_result.passed
+            else composite_fallback_summary(
+                canonical_intents,
+                structure_digest=signature,
+            )
+        )
+        guideline = (
+            proposal.guideline
+            if guideline_result.passed
+            else portable_guideline_fallback(canonical_intents)
+        )
+        final_label_violations = sum((
+            not validate_portability(
+                summary,
+                episode_terms=concrete_terms,
+                additional_forbidden_terms=source_terms,
+            ).passed,
+            not validate_portability(
+                guideline,
+                episode_terms=concrete_terms,
+                additional_forbidden_terms=source_terms,
+            ).passed,
+        ))
         return CompositeSkill(
-            SkillRef(f"composite_{logical}_{signature}", "1.0.0"), proposal.summary,
+            SkillRef(f"composite_{signature[:24]}", "1.0.0"), summary,
             occurrences, list(proposal.control_sequence),
             [edge for edge in edges if edge.edge_type is GraphEdgeType.DATA_FLOW],
             [edge for edge in edges if edge.edge_type is GraphEdgeType.REQUIRES_SKILL],
-            contract, proposal.guideline, proposal.insight,
-            {
-                "canonical_sequence": True,
-                "self_sufficiency_required": True,
-                "task_contract_covered": True,
-            },
+            contract, guideline, proposal.insight,
+            validator_spec,
             {
                 "source_trace_ids": sorted({item.source_trace_id for item in canonical}),
                 "binding_origins": binding_origins,
+                "ordered_canonical_intents": canonical_intents,
+                "summary_portability_fallback": not summary_result.passed,
+                "guideline_portability_fallback": not guideline_result.passed,
+                "artifact_label_concrete_term_violation_count": (
+                    final_label_violations
+                ),
             }, SkillStatus.CANDIDATE,
         )
 

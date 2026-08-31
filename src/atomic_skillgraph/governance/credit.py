@@ -217,12 +217,17 @@ class CreditAssigner:
         assets.extend((str(ref), "tool") for ref in tool_refs)
         if composite_ref is not None:
             assets.append((str(composite_ref), "composite"))
+        # This compatibility API has no per-occurrence outcome payload, so all
+        # supplied assets are admitted.  It must still preserve the invariant
+        # that one trace emits at most one proposal/admission pair per
+        # (artifact kind, ref).
+        assets = list(dict.fromkeys(assets))
         attempts = tuple(
             CreditAttempt(
                 artifact_ref=artifact_ref,
                 artifact_kind=kind,
                 occurrence_id="evolution",
-                attempt_id=f"evolution:{artifact_ref}",
+                attempt_id=f"evolution:{kind}:{artifact_ref}",
                 sequence_no=index,
                 proposed=True,
                 validated=True,
@@ -499,7 +504,11 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         elif bool(_field(trace, "graph_self_sufficient_success", False)):
             composite_outcome = CreditOutcome.SELF_SUFFICIENT_SUCCESS
         elif bool(_field(trace, "benchmark_success", False)) and not bool(
-            _field(trace, "learning_eligible", False)
+            _field(
+                trace,
+                "task_contract_success",
+                _field(trace, "learning_eligible", False),
+            )
         ):
             composite_outcome = CreditOutcome.CONTRACT_MISMATCH
             composite_layer = FailureLayer.TASK_CONTRACT.value

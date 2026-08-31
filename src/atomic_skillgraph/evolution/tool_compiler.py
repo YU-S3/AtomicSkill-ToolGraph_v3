@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ..core.bindings import (
@@ -14,6 +14,7 @@ from ..core.contracts import AbstractAtomicSkill, ImplementationAtom, ToolAsset
 from ..core.refs import SkillRef, ToolRef
 from ..core.status import SkillStatus, ToolStatus
 from .atomicizer import CanonicalAtomicOccurrence
+from .portability import CanonicalCapabilityLabel
 
 
 @dataclass
@@ -22,6 +23,52 @@ class CompiledKnowledge:
     atomic: AbstractAtomicSkill
     tool: ToolAsset
     implementation: ImplementationAtom
+
+
+def rewrite_capability_labels(
+    compiled: CompiledKnowledge,
+    label: CanonicalCapabilityLabel,
+) -> CompiledKnowledge:
+    """Return a pre-registration bundle with one portable semantic label."""
+
+    atomic = replace(
+        compiled.atomic,
+        summary=label.display_summary,
+        guideline={
+            **dict(compiled.atomic.guideline or {}),
+            "canonical_intent": label.canonical_intent,
+        },
+        metadata={
+            **dict(compiled.atomic.metadata or {}),
+            "canonical_intent": label.canonical_intent,
+            "canonical_label_source": label.source,
+        },
+    )
+    tool = replace(
+        compiled.tool,
+        summary=f"Primitive executable for {label.display_summary}",
+        metadata={
+            **dict(compiled.tool.metadata or {}),
+            "canonical_intent": label.canonical_intent,
+            "semantic_description": label.display_summary,
+            "canonical_label_source": label.source,
+        },
+    )
+    implementation = replace(
+        compiled.implementation,
+        metadata={
+            **dict(compiled.implementation.metadata or {}),
+            "canonical_intent": label.canonical_intent,
+            "semantic_description": label.display_summary,
+            "canonical_label_source": label.source,
+        },
+    )
+    return CompiledKnowledge(
+        replace(compiled.occurrence, intent=label.canonical_intent),
+        atomic,
+        tool,
+        implementation,
+    )
 
 
 def _role_for_value(value: Any, bindings: dict[str, Any]) -> str | None:

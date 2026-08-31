@@ -56,6 +56,20 @@ _FAILED_NODE_STATUSES = frozenset(
     {"failed_not_started", "direct_failed", "seeded_failed"}
 )
 
+EXTRACTOR_QUALITY_METRICS = (
+    "extractor_e1_proposal_count",
+    "extractor_e1_validated_occurrence_count",
+    "extractor_e1_rejection_count",
+    "portable_intent_pass_count",
+    "portable_intent_fallback_count",
+    "known_contract_name_reuse_count",
+    "new_canonical_intent_count",
+    "atomic_alignment_reuse_count",
+    "atomic_new_contract_count",
+    "composite_alignment_reuse_count",
+    "artifact_label_concrete_term_violation_count",
+)
+
 REPORT_COLUMNS = (
     "trace_id",
     "schema_version",
@@ -64,6 +78,8 @@ REPORT_COLUMNS = (
     "benchmark",
     "task_type",
     "benchmark_success",
+    "task_contract_success",
+    "strict_task_success",
     "node_contract_success",
     "implementation_direct_success",
     "graph_self_sufficient_success",
@@ -77,6 +93,9 @@ REPORT_COLUMNS = (
     "planner_fallback_reason",
     "planner_requirement_repair_used",
     "planner_graph_repair_used",
+    "planner_atomic_full_coverage",
+    "planner_p2_used",
+    "planner_p1r_reason_distribution",
     "confirmed_capability_gap",
     "full_dynamic",
     "task_rescue_required",
@@ -114,6 +133,9 @@ REPORT_COLUMNS = (
     "duration_ms",
     "cost_usd",
     "failure_codes",
+    "task_token_budget_exhausted_count",
+    "node_token_budget_exhausted_count",
+    *EXTRACTOR_QUALITY_METRICS,
     "artifact_growth",
     "artifact_lifecycle",
 )
@@ -133,6 +155,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
     planner = _mapping(_field(trace, "planner_audit", {}))
     plan = _mapping(_field(trace, "runtime_plan", {}))
     metadata = _mapping(_field(trace, "metadata", {}))
+    quality = _mapping(metadata.get("extractor_quality", {}))
     nodes = [_mapping(item) for item in _sequence(_field(trace, "node_records", []))]
     statuses = [_enum_value(item.get("status", "not_started")) for item in nodes]
 
@@ -148,6 +171,22 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
     started_at = _number(_field(trace, "started_at", 0.0), 0.0)
     ended_at = _number(_field(trace, "ended_at", 0.0), 0.0)
 
+    benchmark_success = _boolean(
+        _field(trace, "benchmark_success", False)
+    )
+    task_contract_raw = _field(trace, "task_contract_success", None)
+    task_contract_success = (
+        benchmark_success
+        if task_contract_raw is None
+        else _boolean(task_contract_raw)
+    )
+    strict_raw = _field(trace, "strict_task_success", None)
+    strict_task_success = (
+        benchmark_success and task_contract_success
+        if strict_raw is None
+        else _boolean(strict_raw)
+    )
+    failure_codes = _failure_codes(trace, nodes, invocations, executions)
     row: dict[str, Any] = {
         "trace_id": str(_field(trace, "trace_id", "")),
         "schema_version": _integer(_field(trace, "schema_version", 0)),
@@ -155,7 +194,9 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "task_signature": str(task.get("task_signature", "")),
         "benchmark": str(task.get("benchmark", "")),
         "task_type": str(task.get("task_type", "")),
-        "benchmark_success": _boolean(_field(trace, "benchmark_success", False)),
+        "benchmark_success": benchmark_success,
+        "task_contract_success": task_contract_success,
+        "strict_task_success": strict_task_success,
         "node_contract_success": _boolean(
             _field(trace, "node_contract_success", False)
         ),
@@ -185,6 +226,18 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         or _has_value(planner.get("atomic_search_p1r")),
         "planner_graph_repair_used": _has_value(planner.get("workflow_p2r"))
         or _has_value(planner.get("validation_p2r")),
+        "planner_atomic_full_coverage": _planner_atomic_full_coverage(
+            planner
+        ),
+        "planner_p2_used": (
+            _has_value(planner.get("workflow_p2"))
+            or _integer(
+                _mapping(usage["by_bucket"].get("planner_p2", {})).get(
+                    "call_count", 0,
+                )
+            ) > 0
+        ),
+        "planner_p1r_reason_distribution": _planner_p1r_reasons(planner),
         "confirmed_capability_gap": _confirmed_capability_gap(trace, metadata),
         "full_dynamic": str(plan.get("source", "")) == "full_dynamic",
         "task_rescue_required": _boolean(
@@ -246,7 +299,17 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
             else 0.0
         ),
         "cost_usd": _trace_cost(trace, metadata, usage["events"]),
-        "failure_codes": _failure_codes(trace, nodes, invocations, executions),
+        "failure_codes": failure_codes,
+        "task_token_budget_exhausted_count": int(
+            "runtime_task_token_budget_exhausted" in failure_codes
+        ),
+        "node_token_budget_exhausted_count": int(
+            "runtime_node_token_budget_exhausted" in failure_codes
+        ),
+        **{
+            name: _integer(quality.get(name, 0))
+            for name in EXTRACTOR_QUALITY_METRICS
+        },
         "artifact_growth": _first_present(
             metadata, "artifact_growth", "artifact_growth_snapshot", default={}
         ),
@@ -292,6 +355,14 @@ def summarize_traces(
         row for row in task_rows
         if _boolean(row.get("benchmark_success", False))
     ]
+    strict = [
+        row for row in task_rows
+        if _boolean(row.get("strict_task_success", False))
+    ]
+    learning = [
+        row for row in task_rows
+        if _boolean(row.get("learning_eligible", False))
+    ]
     completed_nodes = sum(
         _integer(row.get("completed_node_count", 0)) for row in task_rows
     )
@@ -322,12 +393,28 @@ def summarize_traces(
         ]
         by_bucket[bucket] = _sum_usage(bucket_items)
 
+    p1r_reason_distribution: dict[str, int] = {}
+    for row in task_rows:
+        for reason, count in _mapping(
+            row.get("planner_p1r_reason_distribution", {})
+        ).items():
+            p1r_reason_distribution[str(reason)] = (
+                p1r_reason_distribution.get(str(reason), 0)
+                + _integer(count)
+            )
+
     return {
         "schema_version": 3,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "task_count": task_count,
         "solved_task_count": len(solved),
+        "official_alfworld_won_count": len(solved),
+        "strict_task_success_count": len(strict),
+        "learning_eligible_success_count": len(learning),
         "benchmark_success_rate": _rate(len(solved), task_count),
+        "official_alfworld_won_rate": _rate(len(solved), task_count),
+        "strict_task_success_rate": _rate(len(strict), task_count),
+        "learning_eligible_success_rate": _rate(len(learning), task_count),
         "graph_self_sufficient_success_rate": _rate(
             sum(
                 _boolean(row.get("graph_self_sufficient_success"))
@@ -393,6 +480,31 @@ def summarize_traces(
                 for row in task_rows
             ),
             task_count,
+        ),
+        "task_token_budget_exhausted_count": sum(
+            _integer(row.get("task_token_budget_exhausted_count", 0))
+            for row in task_rows
+        ),
+        "node_token_budget_exhausted_count": sum(
+            _integer(row.get("node_token_budget_exhausted_count", 0))
+            for row in task_rows
+        ),
+        **{
+            name: sum(
+                _integer(row.get(name, 0)) for row in task_rows
+            )
+            for name in EXTRACTOR_QUALITY_METRICS
+        },
+        "planner_atomic_full_coverage_count": sum(
+            _boolean(row.get("planner_atomic_full_coverage"))
+            for row in task_rows
+        ),
+        "planner_p2_count": sum(
+            _boolean(row.get("planner_p2_used"))
+            for row in task_rows
+        ),
+        "planner_p1r_reason_distribution": dict(
+            sorted(p1r_reason_distribution.items())
         ),
         "planned_node_count": planned_nodes,
         "completed_node_count": completed_nodes,
@@ -487,8 +599,9 @@ def render_markdown(
     lines = [f"# {title}", "", "## Outcome", ""]
     outcome = (
         ("Tasks", summary.get("task_count")),
-        ("Solved", summary.get("solved_task_count")),
-        ("Benchmark success", _percent(summary.get("benchmark_success_rate"))),
+        ("Official ALFWorld won", _percent(summary.get("official_alfworld_won_rate"))),
+        ("Strict TaskContract success", _percent(summary.get("strict_task_success_rate"))),
+        ("Learning-eligible success", _percent(summary.get("learning_eligible_success_rate"))),
         (
             "Graph self-sufficient success",
             _percent(summary.get("graph_self_sufficient_success_rate")),
@@ -514,8 +627,21 @@ def render_markdown(
             _percent(summary.get("planner_requirement_repair_rate")),
         ),
         ("Planner graph repair", _percent(summary.get("planner_graph_repair_rate"))),
+        ("Planner Atomic full coverage", summary.get("planner_atomic_full_coverage_count")),
+        ("Planner P2", summary.get("planner_p2_count")),
+        ("Task token exhaustion", summary.get("task_token_budget_exhausted_count")),
+        ("Node token exhaustion", summary.get("node_token_budget_exhausted_count")),
     )
     lines.extend(_markdown_pairs(nodes))
+    lines.extend(["", "## Extractor and knowledge quality", ""])
+    quality = tuple(
+        (name, summary.get(name, 0))
+        for name in EXTRACTOR_QUALITY_METRICS
+    ) + ((
+        "planner_p1r_reason_distribution",
+        _canonical_json(summary.get("planner_p1r_reason_distribution", {})),
+    ),)
+    lines.extend(_markdown_pairs(quality))
     lines.extend(["", "## Token, latency, and cost", ""])
     accounting = (
         ("Total tokens", summary.get("total_tokens")),
@@ -558,14 +684,16 @@ def render_markdown(
 
     lines.extend(["", "## Per-task results", ""])
     lines.append(
-        "| Task | Success | Plan | Graph self-sufficient | Rescue | Tokens | LLM latency ms | Cost USD |"
+        "| Task | Official won | Strict | Learning | Plan | Graph self-sufficient | Rescue | Tokens | LLM latency ms | Cost USD |"
     )
-    lines.append("|---|:---:|---|:---:|:---:|---:|---:|---:|")
+    lines.append("|---|:---:|:---:|:---:|---|:---:|:---:|---:|---:|---:|")
     for row in rows:
         lines.append(
-            "| {} | {} | {} | {} | {} | {} | {} | {} |".format(
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
                 _markdown_cell(row.get("task_id", "")),
                 _yes_no(row.get("benchmark_success")),
+                _yes_no(row.get("strict_task_success")),
+                _yes_no(row.get("learning_eligible")),
                 _markdown_cell(row.get("plan_source", "")),
                 _yes_no(row.get("graph_self_sufficient_success")),
                 _yes_no(row.get("task_rescue_required")),
@@ -909,6 +1037,54 @@ def _preflight_passed(invocation: Mapping[str, Any]) -> bool:
         return _boolean(result["preflight_passed"])
     # No preflight information is not evidence of a rejection.
     return True
+
+
+def _planner_atomic_full_coverage(planner: Mapping[str, Any]) -> bool:
+    rows = _sequence(
+        planner.get("atomic_search_p1r")
+        or planner.get("atomic_search_p1")
+        or []
+    )
+    required = [
+        _mapping(item)
+        for item in rows
+        if _mapping(_mapping(item).get("requirement", {})).get(
+            "required", True,
+        )
+    ]
+    return bool(required) and all(
+        _boolean(item.get("covered", False)) for item in required
+    )
+
+
+def _planner_p1r_reasons(planner: Mapping[str, Any]) -> dict[str, int]:
+    if not (
+        _has_value(planner.get("requirements_p1r"))
+        or _has_value(planner.get("atomic_search_p1r"))
+    ):
+        return {}
+    counts: dict[str, int] = {}
+    rows = _sequence(planner.get("atomic_search_p1") or [])
+    for raw in rows:
+        row = _mapping(raw)
+        if _boolean(row.get("covered", False)):
+            continue
+        reasons: list[str] = []
+        for rejection in _sequence(row.get("rejection_reasons", [])):
+            value = _mapping(rejection)
+            for key in ("code", "reason"):
+                if value.get(key):
+                    reasons.append(str(value[key]))
+            reasons.extend(
+                str(item)
+                for item in _sequence(value.get("reasons", []))
+                if item
+            )
+        if not reasons:
+            reasons = ["coverage_incomplete"]
+        for reason in sorted(set(reasons)):
+            counts[reason] = counts.get(reason, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _confirmed_capability_gap(trace: Any, metadata: Mapping[str, Any]) -> bool:

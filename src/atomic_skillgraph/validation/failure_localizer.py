@@ -11,6 +11,8 @@ from ..core.errors import FailureEnvelope, FailureLayer
 _LAYER_BY_CODE = {
     "runtime_agent_schema_error": FailureLayer.RUNTIME_AGENT,
     "runtime_agent_multiple_tool_calls": FailureLayer.RUNTIME_AGENT,
+    "runtime_task_token_budget_exhausted": FailureLayer.RUNTIME_AGENT,
+    "runtime_node_token_budget_exhausted": FailureLayer.RUNTIME_AGENT,
     "runtime_binding_unresolved": FailureLayer.RUNTIME_BINDING,
     "runtime_binding_not_concrete": FailureLayer.RUNTIME_BINDING,
     "runtime_relation_not_grounded": FailureLayer.RUNTIME_BINDING,
@@ -25,6 +27,7 @@ _LAYER_BY_CODE = {
     "data_flow_error": FailureLayer.DATA_FLOW,
     "composite_self_sufficiency_failure": FailureLayer.COMPOSITE,
     "task_contract_mismatch": FailureLayer.TASK_CONTRACT,
+    "benchmark_goal_contract_mismatch": FailureLayer.TASK_CONTRACT,
     "benchmark_failure": FailureLayer.BENCHMARK,
     "llm_error": FailureLayer.INFRASTRUCTURE,
     "infrastructure_failure": FailureLayer.INFRASTRUCTURE,

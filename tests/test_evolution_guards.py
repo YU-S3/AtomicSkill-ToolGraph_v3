@@ -171,16 +171,17 @@ def test_atomicizer_rejects_false_validator_and_terminal_effect_leak() -> None:
         )
 
 
-def test_atomicizer_accepts_formal_contextual_observed_with_witness() -> None:
+def test_atomicizer_accepts_state_derived_observed_with_witness() -> None:
     actions = [
-        _action(0, "TAKE", {"object": "alarmclock_1", "source": "desk_1"}),
-        _action(1, "USE", {"object": "desklamp_1"}, won=True),
+        _action(0, "GO_TO", {"destination": "desk_1"}),
+        _action(1, "TAKE", {"object": "alarmclock_1", "source": "desk_1"}),
+        _action(2, "USE", {"object": "desklamp_1"}, won=True),
     ]
     effect = SemanticPredicate(
         "object.observed_with", {"object": "alarmclock_1", "light": "desklamp_1"},
     )
     proposal = _proposal(
-        "observe", "observe object under light", 1,
+        "observe", "observe object under light", 2,
         {"object": "alarmclock_1", "light": "desklamp_1"},
         {"observed_object": "alarmclock_1"}, effect,
         preconditions=[
@@ -191,7 +192,7 @@ def test_atomicizer_accepts_formal_contextual_observed_with_witness() -> None:
         [proposal], _normalized(actions, target_effects=[effect]),
     )
     assert result[0].effects[0].predicate == "object.observed_with"
-    assert any(ref.startswith("task_contract:") for ref in result[0].validation_refs)
+    assert any(ref.startswith("action:a2:") for ref in result[0].validation_refs)
     compiled = ToolCompiler().compile(result)[0]
     assert set(compiled.tool.signature["required"]) == {"object", "light"}
     admitted_tool = Admission(ValidationEngine().tool).admit_tool(

@@ -51,14 +51,21 @@ class ExtractorSession:
         self._e1_complete = False
         self._e2_complete = False
 
-    def propose_atomics(self, normalized_trace: dict[str, Any]) -> list[AtomicOccurrenceProposal]:
+    def propose_atomics(
+        self,
+        normalized_trace: dict[str, Any],
+        known_atomic_contracts: list[Any] | tuple[Any, ...] = (),
+    ) -> list[AtomicOccurrenceProposal]:
         if self._e1_complete:
             raise RuntimeError("Extractor E1 may run exactly once")
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("extractor_e1")
         payload = self.submissions.request(
             self.session,
-            prompt=self.context.extractor_e1(canonical_trace=normalized_trace),
+            prompt=self.context.extractor_e1(
+                canonical_trace=normalized_trace,
+                known_atomic_contracts=known_atomic_contracts,
+            ),
             tool_name="submit_extractor_atomics",
             description="Submit the complete Atomic occurrence extraction proposal.",
             schema=E1_SCHEMA,

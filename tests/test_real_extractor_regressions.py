@@ -60,17 +60,21 @@ def _observed_with_trace() -> tuple[TraceRecord, TaskContract]:
     trace.benchmark_success = True
     trace.environment_actions = [
         EnvironmentActionRecord(
-            "r000_a001", 0, "TAKE",
-            {"object": "alarmclock_1", "source": "desk_1"},
-            True, "observation text is not extractor authority", False, False, 1, "span",
+            "r000_a001", 0, "GO_TO", {"destination": "desk_1"},
+            True, "location evidence", False, False, 1, "span",
         ),
         EnvironmentActionRecord(
-            "r001_a001", 1, "USE", {"object": "desklamp_1"},
-            True, "terminal prose is not extractor authority", True, True, 2, "span",
+            "r001_a001", 1, "TAKE",
+            {"object": "alarmclock_1", "source": "desk_1"},
+            True, "observation text is not extractor authority", False, False, 2, "span",
+        ),
+        EnvironmentActionRecord(
+            "r002_a001", 2, "USE", {"object": "desklamp_1"},
+            True, "terminal prose is not extractor authority", True, True, 3, "span",
         ),
     ]
     trace.runtime_spans = [RuntimeSpan(
-        "span", "full_dynamic", "", 0, 2, None, True,
+        "span", "full_dynamic", "", 0, 3, None, True,
     )]
     return trace, contract
 
@@ -80,8 +84,8 @@ def _e1_occurrences() -> list[dict]:
         {
             "phase_id": "take_target",
             "intent": "take target object",
-            "event_start": 0,
-            "event_end": 1,
+            "event_start": 1,
+            "event_end": 2,
             "input_roles": {
                 "object": "alarmclock_1",
                 "source": "desk_1",
@@ -97,8 +101,8 @@ def _e1_occurrences() -> list[dict]:
         {
             "phase_id": "observe_under_light",
             "intent": "observe held object under the light",
-            "event_start": 1,
-            "event_end": 2,
+            "event_start": 2,
+            "event_end": 3,
             "input_roles": {
                 "target_object": "alarmclock_1",
                 "light": "desklamp_1",
@@ -115,18 +119,18 @@ def _e1_occurrences() -> list[dict]:
                     "light": "desklamp_1",
                 },
             }],
-            "rationale": "Terminal USE has the narrow TaskContract certificate.",
+            "rationale": "Current held/light/location state establishes the relation.",
         },
     ]
 
 
-def test_real_trace_authority_half_open_e1_and_terminal_certificate() -> None:
+def test_real_trace_authority_half_open_e1_and_state_derived_effect() -> None:
     trace, contract = _observed_with_trace()
     normalized = TraceNormalizer().build(trace)
 
-    take, use = normalized["actions"]
+    _go_to, take, use = normalized["actions"]
     assert "observation" not in take
-    assert (take["extractor_event_start"], take["extractor_event_end_exclusive"]) == (0, 1)
+    assert (take["extractor_event_start"], take["extractor_event_end_exclusive"]) == (1, 2)
     assert take["input_role_candidates"] == {
         "object": "alarmclock_1",
         "source": "desk_1",
@@ -139,16 +143,15 @@ def test_real_trace_authority_half_open_e1_and_terminal_certificate() -> None:
         and item["args"] == {"object": "alarmclock_1"}
         for item in use["authoritative_before_state_facts"]
     )
-    assert use["authoritative_terminal_effect_certificates"] == [{
-        "predicate": "object.observed_with",
-        "args": {"object": "alarmclock", "light": "desklamp"},
-        "cardinality": 1,
-        "distinct_by": "",
-        "concrete_binding_candidates": {
-            "object": ["alarmclock_1"],
-            "light": ["desklamp_1"],
-        },
-    }]
+    assert use["authoritative_terminal_effect_certificates"] == []
+    assert any(
+        item["predicate"] == "object.observed_with"
+        and item["args"] == {
+            "object": "alarmclock_1",
+            "light": "desklamp_1",
+        }
+        for item in use["authoritative_positive_effects"]
+    )
 
     provider = ScriptedAgentProvider([
         FakeReply.structured({"occurrences": _e1_occurrences()}),
@@ -160,7 +163,7 @@ def test_real_trace_authority_half_open_e1_and_terminal_certificate() -> None:
         usage_bucket="extractor_e1",
     ))
     proposals = extractor.propose_atomics(normalized)
-    assert [(item.event_start, item.event_end) for item in proposals] == [(0, 0), (1, 1)]
+    assert [(item.event_start, item.event_end) for item in proposals] == [(1, 1), (2, 2)]
     canonical = Atomicizer().validate_and_canonicalize(proposals, normalized)
     assert canonical[-1].effects[0].predicate == "object.observed_with"
     assert to_primitive(contract.target_effects) == normalized["task_contract"]["target_effects"]

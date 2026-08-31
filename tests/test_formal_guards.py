@@ -667,6 +667,8 @@ def test_evolution_error_finalizes_original_skeleton_as_failure_trace(
                 "source": "full_dynamic", "failure_stage": "runtime",
             }
             trace_builder.trace.benchmark_success = True
+            trace_builder.trace.task_contract_success = True
+            trace_builder.trace.strict_task_success = True
             trace_builder.trace.learning_eligible = True
             return trace_builder.finish()
 

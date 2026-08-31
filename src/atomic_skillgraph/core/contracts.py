@@ -111,6 +111,7 @@ class ImplementationAtom:
     compatibility: dict[str, Any]
     quality: dict[str, Any]
     status: SkillStatus = SkillStatus.DRAFT
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.status = SkillStatus(self.status)

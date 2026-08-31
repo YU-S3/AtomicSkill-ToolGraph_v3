@@ -93,9 +93,7 @@ class ContextBuilder:
             "Prepare and execute only the current Atomic occurrence. task_semantic_context "
             "describes the whole-task goal; only current_occurrence_semantic_anchors constrains "
             "learned invocation arguments. Stored Atomic summaries and learned-implementation "
-            "descriptions may retain literal entity examples from the episode that produced the "
-            "reusable skill. Use their relational intent only as non-authoritative exploration "
-            "guidance; never treat those literal names as current bindings or require them to exist. "
+            "descriptions are portable semantic guidance, never current bindings or evidence. "
             "Resolve missing unanchored arguments by "
             "instantiating that relational intent with task_semantic_context and current environment "
             "evidence; do not copy a same-named task field or the task's final destination merely "
@@ -155,9 +153,7 @@ class ContextBuilder:
             "Solve only the current Atomic occurrence with environment_action. "
             "task_semantic_context describes the whole-task goal; only "
             "current_occurrence_semantic_anchors constrains this occurrence. Stored Atomic summaries "
-            "and guidelines may retain literal entity examples from the episode that produced the "
-            "reusable skill. Use their relational intent only as non-authoritative exploration "
-            "guidance; never treat those literal names as current bindings or require them to exist. "
+            "and guidelines are portable semantic guidance, never current bindings or evidence. "
             "Resolve missing unanchored arguments by "
             "instantiating that relational intent with task_semantic_context and current environment "
             "evidence; do not copy a same-named task field or the task's final destination merely "
@@ -232,51 +228,135 @@ class ContextBuilder:
             payload,
         )
 
-    def extractor_e1(self, *, canonical_trace: Any) -> str:
+    def extractor_e1(
+        self,
+        *,
+        canonical_trace: Any,
+        known_atomic_contracts: Iterable[Any] = (),
+    ) -> str:
         return _render(
-            "Propose reusable Atomic occurrences from this canonical successful trace with the offered "
-            "native submit tool. Follow this exact E1 authority contract: event_start is inclusive and "
-            "event_end is EXCLUSIVE, so one event i is [i,i+1). Prefer the smallest non-overlapping "
-            "causal slice, normally one accepted state-changing event. Select only the minimal causal "
-            "chain that establishes the TaskContract; do not turn search/exploration detours into skills. "
-            "A navigation/open event belongs only when it establishes a concrete precondition for a later "
-            "selected causal event. Omit LOOK, INVENTORY, and every "
-            "event for which both authoritative_positive_effects and "
-            "authoritative_terminal_effect_certificates are empty. input_roles must be non-empty, have "
-            "unique concrete values, and copy those values exactly from input_role_candidates or the "
-            "arguments of authoritative state/effect facts in the selected event context; never invent "
-            "agent/player/search/inventory bindings. output_roles must be "
-            "non-empty and each output value must exactly repeat one input value; publish the affected "
-            "object, container, light, or reached location under a reusable output role so later steps "
-            "can consume it. Preconditions may be empty and otherwise must copy exact predicates and "
-            "concrete args from authoritative_before_state_facts at event_start. Effects must copy exact "
-            "predicates and concrete args from authoritative_positive_effects of the selected slice, or "
-            "use the exact predicate of an explicitly listed terminal certificate and choose each effect "
-            "argument only from that role's concrete_binding_candidates; every chosen candidate must also "
-            "be present in input_roles. "
-            "Do not use observation prose, aliases such as agent.holding/object.in_inventory/player.at, "
-            "bare role names, placeholders, or any unlisted fact as evidence. Code validates each proposed "
-            "occurrence independently, rejects invalid proposals, and passes only the validated subset to E2.",
-            {"canonical_trace": _policy_value(canonical_trace)},
+            """Propose the smallest sufficient set of reusable Atomic capability occurrences
+from the supplied code-authoritative successful trace.
+
+The trace is the only factual authority. Do not assume a benchmark taxonomy,
+task type, operation catalogue, or predefined workflow.
+
+An Atomic occurrence is one independently meaningful and independently
+verifiable state transition with:
+- one coherent reusable intent;
+- explicit external input/output identities;
+- a minimal causal accepted-event slice;
+- at least one authoritative positive Effect or narrow terminal certificate.
+
+Use state-transition evidence rather than action wording as authority.
+
+Do not extract:
+- pure observation with no authoritative transition;
+- search or exploration detours;
+- repeated checks;
+- failed attempts;
+- loops;
+- recovery actions;
+unless an accepted event in that slice is causally necessary to replay the
+verified primary transition.
+
+A setup/helper action belongs inside an occurrence only when it is necessary
+to replay the occurrence's core transition. A durable independently useful
+transition should remain a separate occurrence. Do not merge distinct
+effect-producing boundaries merely to reduce the number of occurrences.
+
+intent requirements:
+- concise lower_snake_case;
+- describes exactly one reusable transition;
+- remains correct after replacing every concrete entity with another entity
+  having the same semantic role;
+- contains no instance identifier;
+- contains no source-episode object, location, receptacle, device, or task
+  wording;
+- contains no sequence of multiple intents.
+
+If known_atomic_contracts contains an equivalent validated contract, reuse its
+canonical_intent. Otherwise propose a new portable intent.
+
+All episode-specific values belong only in input_roles/output_roles.
+Never copy a concrete value into intent, rationale intended as a long-term
+summary, or any reusable guideline.
+
+event_start is inclusive and event_end is exclusive.
+Ranges must be ordered and non-overlapping.
+
+input_roles:
+- non-empty;
+- unique role-to-concrete-value bindings;
+- values copied exactly from authoritative candidates in the selected slice.
+
+output_roles:
+- non-empty;
+- each output value must equal one input value;
+- publish only identities made available by the verified transition.
+
+preconditions:
+- may be empty;
+- include only facts semantically necessary for the core transition;
+- copy only code-authoritative before-state facts.
+
+effects:
+- non-empty;
+- copy only code-authoritative positive Effects or explicitly supplied narrow
+  terminal certificates;
+- never infer a fact from observation prose.
+
+Code will independently validate every proposal. Invalid proposals are
+discarded and cannot change the persistent graph.
+
+Call the offered native submission tool exactly once.""",
+            {
+                "canonical_trace": _policy_value(canonical_trace),
+                "known_atomic_contracts": _policy_value(
+                    list(known_atomic_contracts)
+                ),
+            },
         )
 
     def extractor_e2(self, *, canonical_occurrences: Iterable[Any]) -> str:
-        prefix = (
-            "The following canonical occurrences were validated by code and are authoritative. "
-            "Discard or correct any conflicting memory from the previous turn."
-        )
         return _render(
-            prefix
-            + " Propose the canonical control sequence and edge references with the native submit tool. "
-            "Use every authoritative occurrence exactly once in the supplied chronological order. "
-            "Copy existing_edges only from known_edge_evidence. Add a new data_flow edge whenever an "
-            "earlier output binding value is reused by a later required input, using the exact occurrence "
-            "IDs and role names. Each required target role has at most one authoritative producer; when "
-            "multiple earlier outputs carry the same binding identity, select only the nearest preceding "
-            "producer in control_sequence and do not add duplicate producers. The only dependency wire "
-            "value is edge_type=requires_skill. Do not "
-            "invent requires_skill edges merely to represent control order; the control_sequence already "
-            "carries order and occurrences need not be edge-connected.",
+            """The Composite represents the minimal reusable causal method, not a narration
+of the source episode.
+
+Use only the code-authoritative occurrences. Discard or correct any
+conflicting memory from the previous turn. Use every authoritative occurrence
+exactly once in the supplied chronological order.
+
+Do not describe:
+- the benchmark;
+- the task family;
+- the number of validated nodes;
+- source-episode entity names;
+- validation mechanics such as "canonical control sequence".
+
+summary:
+- concise;
+- reusable across entity substitutions;
+- describes the capability composition, not the source task sentence.
+
+guideline:
+- contains only reusable ordering, dependency, and parameter-flow guidance;
+- contains no concrete entity or location.
+
+insight:
+- may explain why the composition is reusable;
+- may not invent facts or dependencies.
+
+Existing edges must be copied only from known_edge_evidence using their real
+IDs and exact semantics. New data-flow edges require exact binding-identity
+reuse, exact occurrence IDs, and exact role names. Each required target role
+has at most one producer; if multiple preceding outputs have the same binding
+identity, select only the nearest one. The only dependency wire value is
+edge_type=requires_skill. Do not create requires_skill solely to express
+temporal order; control_sequence already carries order and occurrences need
+not be edge-connected.
+
+Call the offered native submission tool exactly once.""",
             {"canonical_occurrences": _policy_value(list(canonical_occurrences))},
         )
 

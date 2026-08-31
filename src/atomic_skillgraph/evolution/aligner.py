@@ -16,6 +16,7 @@ from .contract_canonicalizer import (
     aligned_role_maps,
     atomic_contract_signature,
     canonical_atomic_contract,
+    composite_structure_payload,
 )
 
 
@@ -55,53 +56,14 @@ def _implementation_signature(value: ImplementationAtom) -> str:
 
 def _composite_signature(value: CompositeSkill) -> str:
     """Hash workflow semantics without trace-local occurrence/edge identifiers."""
-    by_step = {item.step_id: item for item in value.occurrences}
-    position = {step_id: index for index, step_id in enumerate(value.control_sequence)}
-
-    def expression(raw: Any) -> Any:
-        kind = getattr(raw, "kind", None)
-        source_step = getattr(raw, "source_step", "")
-        return {
-            "kind": getattr(kind, "value", kind),
-            "source_role": getattr(raw, "source_role", ""),
-            "source_step": position.get(source_step, source_step),
-            "constant": getattr(raw, "constant", None),
-            "transform_id": getattr(raw, "transform_id", ""),
-        }
-
-    occurrences = []
-    for step_id in value.control_sequence:
-        occurrence = by_step[step_id]
-        occurrences.append({
-            "node_ref": str(occurrence.node_ref),
-            "bindings": {
-                role: expression(binding)
-                for role, binding in sorted(occurrence.binding_specs.items())
-            },
-        })
-
-    def edge(raw: Any) -> dict[str, Any]:
-        return {
-            "edge_type": raw.edge_type.value,
-            "source": position[raw.source_step],
-            "target": position[raw.target_step],
-            "source_role": raw.source_role,
-            "target_role": raw.target_role,
-        }
-
-    return content_hash({
-        "occurrences": occurrences,
-        "data_edges": sorted(
-            (edge(item) for item in value.data_edges),
-            key=lambda item: (item["source"], item["target"], item["source_role"], item["target_role"]),
-        ),
-        "dependency_edges": sorted(
-            (edge(item) for item in value.dependency_edges),
-            key=lambda item: (item["source"], item["target"], item["source_role"], item["target_role"]),
-        ),
-        "contract": value.goal_contract,
-        "validator_spec": value.validator_spec,
-    })
+    return content_hash(composite_structure_payload(
+        occurrences=value.occurrences,
+        control_sequence=value.control_sequence,
+        data_edges=value.data_edges,
+        dependency_edges=value.dependency_edges,
+        goal_contract=value.goal_contract,
+        validator_spec=value.validator_spec,
+    ))
 
 
 def _version_key(version: str) -> tuple[int, int, int]:
@@ -220,7 +182,9 @@ class Aligner:
                     }
                 ):
                     return existing.ref
-        ref = self._next_tool_ref(candidate.ref)
+        ref = self._next_tool_ref(
+            ToolRef(f"tool_{signature[:24]}", "1.0.0")
+        )
         self.tools.register(replace(candidate, ref=ref))
         return ref
 
@@ -236,7 +200,10 @@ class Aligner:
             # Admission failure is itself immutable diagnostic knowledge, but
             # never a validated discovery.  Preserve the SHADOW Tool and keep
             # its paired Implementation on the same non-usable version.
-            ref = self._next_tool_ref(candidate.ref)
+            signature = _tool_signature(candidate)
+            ref = self._next_tool_ref(
+                ToolRef(f"tool_{signature[:24]}", "1.0.0")
+            )
             rejected = replace(candidate, ref=ref, status=ToolStatus.SHADOW)
             self.tools.register(rejected)
             return ToolAlignmentResult(
@@ -258,7 +225,9 @@ class Aligner:
             }
         ]
         if not matches:
-            ref = self._next_tool_ref(candidate.ref)
+            ref = self._next_tool_ref(
+                ToolRef(f"tool_{signature[:24]}", "1.0.0")
+            )
             self.tools.register(replace(candidate, ref=ref))
             return ToolAlignmentResult(ref, operation="discover")
         existing = sorted(
@@ -326,7 +295,10 @@ class Aligner:
                     and existing.status not in {SkillStatus.CANDIDATE, SkillStatus.ACTIVE}
                 ):
                     return existing.ref
-        ref = self._next_skill_ref(candidate.ref, "implementation")
+        ref = self._next_skill_ref(
+            SkillRef(f"impl_{signature[:24]}", "1.0.0"),
+            "implementation",
+        )
         self.skills.register_implementation(replace(candidate, ref=ref))
         return ref
 
@@ -341,7 +313,10 @@ class Aligner:
                     and existing.status not in {SkillStatus.CANDIDATE, SkillStatus.ACTIVE}
                 ):
                     return existing.ref
-        ref = self._next_skill_ref(candidate.ref, "composite")
+        ref = self._next_skill_ref(
+            SkillRef(f"composite_{signature[:24]}", "1.0.0"),
+            "composite",
+        )
         self.skills.register_composite(replace(candidate, ref=ref))
         return ref
 

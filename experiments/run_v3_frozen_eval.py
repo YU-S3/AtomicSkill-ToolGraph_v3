@@ -375,6 +375,9 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                         raise ProtocolError("frozen evaluation changed long-term knowledge")
                     result = {
                         "benchmark_success": trace.benchmark_success,
+                        "task_contract_success": trace.task_contract_success,
+                        "strict_task_success": trace.strict_task_success,
+                        "learning_eligible": trace.learning_eligible,
                         "graph_self_sufficient_success": trace.graph_self_sufficient_success,
                         "infrastructure_failure": trace.infrastructure_failure,
                         "knowledge_digest_before": digest_before,
@@ -393,7 +396,10 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                         run_id, item.task_id, trace_id=trace.trace_id, result=result
                     )
                     print(json.dumps({
-                        "task": item.task_id, "success": trace.benchmark_success,
+                        "task": item.task_id,
+                        "official_alfworld_won": trace.benchmark_success,
+                        "strict_task_success": trace.strict_task_success,
+                        "learning_eligible": trace.learning_eligible,
                         "trace_id": trace.trace_id,
                     }, ensure_ascii=False), flush=True)
                 except Exception as primary:

@@ -1208,6 +1208,9 @@ class ManifestStore:
                     "knowledge_digest_before",
                     "knowledge_digest_after",
                     "benchmark_success",
+                    "task_contract_success",
+                    "strict_task_success",
+                    "learning_eligible",
                     "graph_self_sufficient_success",
                     "infrastructure_failure",
                 }:
@@ -1825,7 +1828,10 @@ class AttemptTraceLedger:
             raise ProtocolError(
                 f"task attempt {owner.get('attempt_id')} lacks one immutable task Trace"
             )
-        if task_traces[0].get("benchmark_success") is not True:
+        if not bool(task_traces[0].get(
+            "strict_task_success",
+            task_traces[0].get("benchmark_success", False),
+        )):
             return
         matches = [
             payload for payload in payloads

@@ -175,6 +175,7 @@ def _compiled_invocation() -> tuple[CompiledInvocation, RuntimeOccurrence]:
         {"harness_profiles": ["alfworld_v3"]},
         {},
         SkillStatus.ACTIVE,
+        {"canonical_intent": "navigate_to_source"},
     )
     spec = ImplementationInvocationSpec(
         "invoke_impl_place_semantic_object",
@@ -219,6 +220,7 @@ def test_compiled_invocation_uses_short_opaque_native_name() -> None:
         {"harness_profiles": ["alfworld_v3"]},
         {},
         SkillStatus.ACTIVE,
+        {"canonical_intent": "navigate_to_source"},
     )
 
     spec = InvocationCompiler(
@@ -226,7 +228,7 @@ def test_compiled_invocation_uses_short_opaque_native_name() -> None:
     ).compile(atomic, implementation, [], {})
 
     assert re.fullmatch(r"invoke_impl_[A-Za-z0-9_-]{1,24}_[0-9a-f]{12}", spec.name)
-    assert spec.name.startswith("invoke_impl_navigate_to_the_source_l_")
+    assert spec.name.startswith("invoke_impl_navigate_to_source_")
     assert len(spec.name) <= 49
     assert implementation_ref.logical_id not in spec.name
 

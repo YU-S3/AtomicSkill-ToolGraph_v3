@@ -17,6 +17,33 @@ from .node_executor import NodeExecutor
 from .task_context import TaskRuntimeContext
 
 
+def refresh_learning_eligibility(trace: TraceRecord) -> None:
+    trace.learning_eligible = bool(
+        trace.strict_task_success
+        and trace.resource_usage_complete
+        and not trace.infrastructure_failure
+    )
+
+
+def apply_terminal_outcome(
+    trace: TraceRecord,
+    terminal_result: Any,
+    validator_channel: Any,
+) -> None:
+    """Apply the one authoritative task-outcome definition to every route."""
+
+    trace.benchmark_success = bool(getattr(validator_channel, "won", False))
+    trace.task_contract_success = bool(
+        dict(getattr(terminal_result, "checks", {}) or {}).get(
+            "task_contract", False,
+        )
+    )
+    trace.strict_task_success = bool(
+        trace.benchmark_success and trace.task_contract_success
+    )
+    refresh_learning_eligibility(trace)
+
+
 class RuntimeOrchestrator:
     def __init__(
         self, planner: PlannerPipeline, harness: HarnessAdapter,
@@ -96,16 +123,23 @@ class RuntimeOrchestrator:
         )
         if plan.source == "full_dynamic":
             result = self.node_executor.run_dynamic(ctx)
-            ctx.trace_builder.trace.benchmark_success = bool(result["success"])
-            ctx.trace_builder.trace.node_contract_success = False
-            ctx.trace_builder.trace.graph_self_sufficient_success = False
-            ctx.trace_builder.trace.graph_full_completion = False
-            ctx.trace_builder.trace.learning_eligible = bool(result["success"])
-            ctx.trace_builder.trace.metadata["dynamic_result"] = result
-            ctx.trace_builder.trace.infrastructure_failure = result.get("failure_code") in {
+            trace = ctx.trace_builder.trace
+            trace.node_contract_success = False
+            trace.graph_self_sufficient_success = False
+            trace.graph_full_completion = False
+            trace.metadata["dynamic_result"] = result
+            trace.infrastructure_failure = result.get("failure_code") in {
                 "infrastructure_failure", "llm_error",
             }
-            ctx.trace_builder.trace.runtime_plan["failure_stage"] = ""
+            terminal = self.validation.task.terminal(
+                ctx.task_contract,
+                ctx.harness.validator_channel(),
+                bool(getattr(ctx.harness.validator_channel(), "won", False)),
+            )
+            apply_terminal_outcome(
+                trace, terminal, ctx.harness.validator_channel(),
+            )
+            trace.runtime_plan["failure_stage"] = ""
             return ctx.trace_builder.finish()
 
         if initial_terminal.passed:
@@ -227,7 +261,6 @@ class RuntimeOrchestrator:
             )
 
         trace = ctx.trace_builder.trace
-        trace.benchmark_success = bool(getattr(ctx.harness.validator_channel(), "won", False))
         trace.node_contract_success = bool(trace.node_records) and all(
             node.status not in {NodeExecutionStatus.NOT_STARTED, NodeExecutionStatus.FAILED_NOT_STARTED,
                                 NodeExecutionStatus.DIRECT_FAILED, NodeExecutionStatus.SEEDED_FAILED}
@@ -247,8 +280,10 @@ class RuntimeOrchestrator:
         )
         trace.validations.append(ValidationRecord("", "composite", to_primitive(composite), ctx.world_revision))
         trace.graph_self_sufficient_success = composite.passed
-        trace.learning_eligible = bool(trace.benchmark_success and terminal.passed)
-        if trace.benchmark_success and not terminal.passed:
+        apply_terminal_outcome(
+            trace, terminal, ctx.harness.validator_channel(),
+        )
+        if trace.benchmark_success and not trace.task_contract_success:
             trace.metadata["anomaly"] = "benchmark_goal_contract_mismatch"
         trace.metadata["invocation_compile_rejections"] = list(self.invocation_compiler.compile_rejections)
         trace.runtime_plan["failure_stage"] = ""

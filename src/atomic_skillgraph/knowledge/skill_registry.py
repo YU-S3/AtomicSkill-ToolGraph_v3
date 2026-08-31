@@ -151,6 +151,7 @@ class SkillRegistry:
             grounding_constraints=[GroundingConstraint(**item) for item in payload.get("grounding_constraints", [])],
             execution_policy=payload.get("execution_policy", {}), compatibility=payload.get("compatibility", {}),
             quality=payload.get("quality", {}), status=status,
+            metadata=payload.get("metadata", {}),
         )
 
     def get_composite(self, ref: SkillRef | str) -> CompositeSkill:

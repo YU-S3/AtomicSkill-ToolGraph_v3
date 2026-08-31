@@ -166,9 +166,32 @@ class FailureProcessor:
                 recoverable=True,
             )
 
-        if trace.benchmark_success and not trace.learning_eligible:
+        task_level_results = (
+            (
+                "full_dynamic",
+                dict(trace.metadata.get("dynamic_result") or {}),
+            ),
+            (
+                "task_rescue",
+                dict(trace.metadata.get("task_rescue") or {}),
+            ),
+        )
+        task_level_codes = {
+            str(result.get("failure_code") or "")
+            for _attempt_id, result in task_level_results
+            if result.get("failure_code")
+        }
+        if (
+            trace.benchmark_success
+            and not bool(getattr(
+                trace,
+                "task_contract_success",
+                trace.learning_eligible,
+            ))
+            and "benchmark_goal_contract_mismatch" not in task_level_codes
+        ):
             add(
-                code="task_contract_mismatch",
+                code="benchmark_goal_contract_mismatch",
                 occurrence_id="",
                 attempt_id="task_contract",
                 started=False,
@@ -177,18 +200,19 @@ class FailureProcessor:
                 recoverable=True,
             )
 
-        dynamic = dict(trace.metadata.get("dynamic_result") or {})
-        dynamic_code = str(dynamic.get("failure_code") or "")
-        if dynamic_code:
+        for attempt_id, result in task_level_results:
+            code = str(result.get("failure_code") or "")
+            if not code:
+                continue
             add(
-                code=dynamic_code,
+                code=code,
                 occurrence_id="",
-                attempt_id="full_dynamic",
+                attempt_id=attempt_id,
                 started=bool(trace.environment_actions),
-                layer=_layer("", dynamic_code),
+                layer=_layer(result.get("failure_layer"), code),
                 recoverable=not trace.infrastructure_failure,
             )
-        elif not trace.benchmark_success and not trace.infrastructure_failure and not failures:
+        if not trace.benchmark_success and not trace.infrastructure_failure and not failures:
             add(
                 code="benchmark_failure",
                 occurrence_id="",

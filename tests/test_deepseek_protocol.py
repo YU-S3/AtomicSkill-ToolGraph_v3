@@ -415,8 +415,8 @@ def test_context_builder_separates_grounding_authorities() -> None:
     }
     assert "copy canonical values exactly" in payload_text
     assert "action_catalog.arguments in environment tool results" in payload_text
-    assert "literal entity examples" in payload_text
-    assert "never treat those literal names as current bindings" in payload_text
+    assert "portable semantic guidance" in payload_text
+    assert "never current bindings or evidence" in payload_text
     assert "the task's final destination" in payload_text
     assert "applies only to roles absent" in payload_text
     assert "When a role is explicitly anchored there" in payload_text
@@ -442,8 +442,8 @@ def test_context_builder_separates_grounding_authorities() -> None:
         relevant_action_history=[],
         remaining_budget={"actions": 10},
     )
-    assert "literal entity examples" in seeded_text
-    assert "never treat those literal names as current bindings" in seeded_text
+    assert "portable semantic guidance" in seeded_text
+    assert "never current bindings or evidence" in seeded_text
     assert "When a role is explicitly anchored there" in seeded_text
 
 

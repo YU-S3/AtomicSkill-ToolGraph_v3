@@ -157,6 +157,7 @@ def _implementation(value: ImplementationAtom | Mapping[str, Any]) -> Implementa
         compatibility=dict(value.get("compatibility") or {}),
         quality=dict(value.get("quality") or {}),
         status=SkillStatus(value.get("status", SkillStatus.DRAFT)),
+        metadata=dict(value.get("metadata") or {}),
     )
 
 

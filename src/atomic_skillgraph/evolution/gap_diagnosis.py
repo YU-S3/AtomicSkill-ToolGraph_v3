@@ -44,7 +44,14 @@ class GapDiagnoser:
         self.skills = skills
 
     def diagnose(self, trace: Any, extracted_atomics: list[Any]) -> dict[str, Any]:
-        if trace.runtime_plan.get("source") != "full_dynamic" or not trace.benchmark_success:
+        strict_success = bool(
+            getattr(trace, "strict_task_success", False)
+            or (
+                getattr(trace, "benchmark_success", False)
+                and getattr(trace, "learning_eligible", True)
+            )
+        )
+        if trace.runtime_plan.get("source") != "full_dynamic" or not strict_success:
             return {}
         audit = dict(trace.planner_audit or {})
         search_rows = list(audit.get("atomic_search_p1r") or audit.get("atomic_search_p1") or [])

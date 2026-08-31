@@ -63,13 +63,20 @@ class ExtractionPolicy:
 
     def decide(self, trace: Any) -> ExtractionDecision:
         reasons: list[str] = []
+        strict_success = bool(
+            getattr(trace, "strict_task_success", False)
+            or (
+                getattr(trace, "benchmark_success", False)
+                and getattr(trace, "learning_eligible", False)
+            )
+        )
         if (
             self.extract_full_dynamic_success
             and trace.runtime_plan.get("source") == "full_dynamic"
-            and trace.benchmark_success
+            and strict_success
         ):
             reasons.append("full_dynamic_success")
-        if self.extract_task_rescue_success and trace.task_rescue_required and trace.benchmark_success:
+        if self.extract_task_rescue_success and trace.task_rescue_required and strict_success:
             reasons.append("task_rescue_success")
         if self.extract_novel_seeded_success and any(node.status == "seeded_success" for node in trace.node_records):
             known = {span.occurrence_id for span in trace.runtime_spans if span.kind == "tool"}
@@ -86,7 +93,7 @@ class ExtractionPolicy:
             reasons.append("unaligned_runtime_span")
         if (
             not self.skip_stable_direct_success
-            and trace.benchmark_success
+            and strict_success
             and trace.implementation_direct_success
             and not reasons
         ):
@@ -97,6 +104,19 @@ class ExtractionPolicy:
         decision = self.decide(trace)
         trace.extraction_policy = {"should_extract": decision.should_extract, "reasons": decision.reasons}
         return decision.should_extract
+
+
+def _persisted_strict_success(payload: dict[str, Any]) -> bool:
+    """Read dual-outcome traces and retain read compatibility with old runs."""
+
+    if "strict_task_success" in payload:
+        return bool(payload.get("strict_task_success"))
+    if "task_contract_success" in payload:
+        return bool(
+            payload.get("benchmark_success")
+            and payload.get("task_contract_success")
+        )
+    return bool(payload.get("benchmark_success", False))
 
 
 class EvolutionMaintenance:
@@ -1825,7 +1845,7 @@ class EvolutionMaintenance:
             })
             for trace_id in supporting_trace_ids:
                 payload = payload_by_trace[trace_id]
-                if not bool(payload.get("benchmark_success", False)):
+                if not _persisted_strict_success(payload):
                     continue
                 case = _composite_fresh_replay_case(
                     payload,
@@ -2154,7 +2174,7 @@ def _atomic_merge_evidence(
             if (
                 str(payload.get("trace_id", "")) != trace_id
                 or str(persisted_task.get("task_id", "")) != task_id
-                or payload.get("benchmark_success") is not True
+                or not _persisted_strict_success(payload)
             ):
                 continue
             task = {

@@ -67,39 +67,6 @@ _ACTION_EFFECTS: dict[str, tuple[tuple[str, dict[str, tuple[str, ...]]], ...]] =
 
 # Contextual goal facts that the ALFWorld validator certifies at terminal but
 # that cannot be reconstructed from the final action arguments alone.
-_TERMINAL_CONTEXT_EFFECT_ACTIONS = {
-    # ALFWorld's look-at-object-in-light terminal primitive is ``use <lamp>``
-    # while holding the target object.  EXAMINE is a different, single-object
-    # effect and must not certify this two-entity relation.
-    "object.observed_with": frozenset({"USE"}),
-}
-
-
-def terminal_context_effect_certificates(
-    action_type: str,
-    *,
-    won: bool,
-    benchmark_success: bool,
-    task_contract: Mapping[str, Any],
-) -> list[dict[str, Any]]:
-    """Project only TaskContract effects certified by a terminal primitive."""
-
-    if not won or not benchmark_success:
-        return []
-    result: list[dict[str, Any]] = []
-    for raw in task_contract.get("target_effects", []):
-        predicate = str(raw.get("predicate", ""))
-        if action_type not in _TERMINAL_CONTEXT_EFFECT_ACTIONS.get(predicate, ()):
-            continue
-        result.append({
-            "predicate": predicate,
-            "args": dict(raw.get("args") or {}),
-            "cardinality": int(raw.get("cardinality", 1)),
-            "distinct_by": str(raw.get("distinct_by", "")),
-        })
-    return result
-
-
 def _semantic_type(role: str, value: Any) -> str:
     if isinstance(value, bool):
         return "boolean"
@@ -190,6 +157,8 @@ def reduce_action_state(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
 
     facts: dict[tuple[str, tuple[tuple[str, Any], ...]], dict[str, Any]] = {}
+    agent_location: Any = None
+    light_locations: dict[Any, Any] = {}
 
     def key(predicate: str, arguments: dict[str, Any]) -> tuple[str, tuple[tuple[str, Any], ...]]:
         return predicate, tuple(sorted(arguments.items()))
@@ -213,6 +182,42 @@ def reduce_action_state(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             ),
             "event_index": int(event.get("event_index", index)),
         }
+
+    def rebuild_observed_with(event: dict[str, Any], index: int) -> None:
+        held = {
+            dict(items).get("object")
+            for predicate, items in facts
+            if predicate == "agent.holds"
+        }
+        lights_on = {
+            dict(items).get("light")
+            for predicate, items in facts
+            if predicate == "light.on"
+        }
+        desired = {
+            key("object.observed_with", {"object": obj, "light": light})
+            for obj in held
+            for light in lights_on
+            if (
+                obj is not None
+                and light is not None
+                and agent_location is not None
+                and light_locations.get(light) == agent_location
+            )
+        }
+        current = {
+            fact_key for fact_key in facts
+            if fact_key[0] == "object.observed_with"
+        }
+        for stale in current - desired:
+            facts.pop(stale, None)
+        for novel in desired - current:
+            add(
+                "object.observed_with",
+                dict(novel[1]),
+                event,
+                index,
+            )
 
     for index, event in enumerate(events):
         if not event.get("accepted"):
@@ -250,6 +255,7 @@ def reduce_action_state(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 if fact_key[0] == "agent.at_location":
                     facts.pop(fact_key, None)
             if destination is not None:
+                agent_location = destination
                 add("agent.at_location", {"location": destination}, event, index)
         elif action in {"OPEN", "CLOSE"} and obj is not None:
             current = "container.open" if action == "OPEN" else "container.closed"
@@ -261,11 +267,21 @@ def reduce_action_state(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             opposite = "light.off" if action == "TOGGLE_ON" else "light.on"
             discard(opposite, light=obj)
             add(current, {"light": obj}, event, index)
+            if action == "TOGGLE_ON" and agent_location is not None:
+                light_locations[obj] = agent_location
+        elif action == "USE" and obj is not None:
+            on_key = key("light.on", {"light": obj})
+            if on_key in facts:
+                discard("light.on", light=obj)
+                add("light.off", {"light": obj}, event, index)
+            else:
+                discard("light.off", light=obj)
+                add("light.on", {"light": obj}, event, index)
+                if agent_location is not None:
+                    light_locations[obj] = agent_location
         elif action == "EXAMINE" and obj is not None:
             add("object.observed", {"object": obj}, event, index)
-        # USE has context-dependent toggle/observation semantics.  It is
-        # intentionally not guessed here; validated terminal TaskContract
-        # evidence handles object.observed_with below.
+        rebuild_observed_with(event, index)
 
     return sorted(
         facts.values(),
@@ -274,42 +290,6 @@ def reduce_action_state(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             tuple(sorted(dict(item["args"]).items())),
         ),
     )
-
-
-def _formal_terminal_facts(
-    selected: list[dict[str, Any]], normalized_trace: dict[str, Any], bindings: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Expose only formally certified terminal effects, never prose observations.
-
-    Some ALFWorld goals (notably ``object.observed_with``) depend on context
-    accumulated before the final USE and therefore cannot be reconstructed
-    from that action's arguments alone.  The official terminal ``won`` signal
-    plus the formal TaskContract is the authoritative witness for those facts.
-    """
-    facts: list[dict[str, Any]] = []
-    contract = dict(normalized_trace.get("task_contract") or {})
-    for raw in terminal_context_effect_certificates(
-        str(selected[-1].get("action_type", "")),
-        won=bool(selected[-1].get("won")),
-        benchmark_success=bool(normalized_trace.get("benchmark_success")),
-        task_contract=contract,
-    ):
-        predicate = str(raw["predicate"])
-        arguments = {
-            name: _resolve(value, bindings)
-            for name, value in dict(raw.get("args") or {}).items()
-        }
-        if arguments and all(value is not None and value != "" for value in arguments.values()):
-            facts.append({
-                "predicate": predicate,
-                "args": arguments,
-                "witness_ref": (
-                    f"task_contract:{normalized_trace.get('trace_id', '')}:"
-                    f"revision:{selected[-1].get('after_revision', '')}"
-                ),
-                "semantic_family": True,
-            })
-    return facts
 
 
 def _normalized_state_facts(
@@ -461,7 +441,6 @@ class Atomicizer:
                 key="after_state_facts",
                 revision=int(selected[-1].get("after_revision", 0)),
             )
-            effect_facts += _formal_terminal_facts(selected, normalized_trace, bindings)
             unused_witnesses = set(range(len(effect_facts)))
             effect_witness_indexes: list[int] = []
             for effect in proposal.effects:

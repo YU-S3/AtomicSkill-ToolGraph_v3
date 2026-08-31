@@ -601,12 +601,36 @@ class NodeExecutor:
         success = False
         failure_code = ""
         loop_guard = ActionLoopGuard()
+
+        def outcome(terminal: Any) -> dict[str, Any]:
+            benchmark_won = bool(
+                getattr(ctx.harness.validator_channel(), "won", False)
+            )
+            task_contract_success = bool(
+                dict(getattr(terminal, "checks", {}) or {}).get(
+                    "task_contract", False,
+                )
+            )
+            strict_success = bool(
+                benchmark_won and task_contract_success
+            )
+            return {
+                "benchmark_won": benchmark_won,
+                "task_contract_success": task_contract_success,
+                "strict_success": strict_success,
+                # Compatibility alias; unlike the old result, its exact
+                # strict meaning is now explicit beside both components.
+                "success": strict_success,
+                "failure_code": failure_code,
+                "rescue": rescue,
+            }
+
         try:
             terminal = self.validation.task.terminal(
                 ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
             )
             if terminal.passed:
-                return {"success": True, "failure_code": "", "rescue": rescue}
+                return outcome(terminal)
             turn = session.next_turn(prompt, tools=tools)
             while True:
                 self._record_turn(session, turn, ctx)
@@ -647,4 +671,13 @@ class NodeExecutor:
         finally:
             ctx.trace_builder.finish_span(span.span_id)
             self._finish_session(session_record, session)
-        return {"success": success, "failure_code": failure_code, "rescue": rescue}
+        terminal = self.validation.task.terminal(
+            ctx.task_contract,
+            ctx.harness.validator_channel(),
+            bool(getattr(ctx.harness.validator_channel(), "won", False)),
+        )
+        result = outcome(terminal)
+        # Guard against a future validator implementation accidentally
+        # diverging from the loop's strict completion flag.
+        result["success"] = result["strict_success"]
+        return result

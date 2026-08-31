@@ -301,6 +301,178 @@ def atomic_contract_signature(atomic: AbstractAtomicSkill) -> str:
     return content_hash(canonical_atomic_contract(atomic))
 
 
+def task_contract_coverage_shape(contract: Any) -> dict[str, Any]:
+    """Canonicalize TaskContract coverage while anonymizing episode values.
+
+    Composite identity needs predicate/cardinality/identity structure and
+    cross-effect co-reference, but not the source episode's object or location
+    family.  String argument values therefore become stable equality tokens;
+    typed binding expressions retain their structural role semantics.
+    """
+
+    payload = dict(to_primitive(contract) or {})
+    identities: dict[str, str] = {}
+
+    def concrete_identity(value: Any) -> dict[str, str]:
+        key = json.dumps(
+            to_primitive(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        token = identities.setdefault(
+            key,
+            f"value_{len(identities):03d}",
+        )
+        return {"identity": token}
+
+    def argument_shape(value: Any) -> Any:
+        expression = _as_expression(value)
+        if expression is not None:
+            return {
+                "kind": expression.kind.value,
+                "source_role": str(expression.source_role),
+                "source_step": str(expression.source_step),
+                "constant": (
+                    concrete_identity(expression.constant)
+                    if expression.kind is BindingExprKind.CONSTANT
+                    else None
+                ),
+                "transform_id": str(expression.transform_id),
+            }
+        if isinstance(value, str):
+            return concrete_identity(value)
+        if isinstance(value, Mapping):
+            return {
+                str(key): argument_shape(item)
+                for key, item in sorted(value.items())
+            }
+        if isinstance(value, (list, tuple)):
+            return [argument_shape(item) for item in value]
+        # Numeric and boolean constants can carry semantic meaning and are not
+        # episode entity names, so preserve them.
+        return to_primitive(value)
+
+    raw_effects = [
+        dict(item) for item in payload.get("target_effects", [])
+    ]
+    raw_effects.sort(key=lambda item: (
+        str(item.get("predicate", "")).casefold(),
+        tuple(sorted(map(str, dict(item.get("args") or {})))),
+        int(item.get("cardinality", 1)),
+        str(item.get("distinct_by", "")),
+    ))
+    effects = [
+        {
+            "predicate": str(item.get("predicate", "")).casefold(),
+            "args": {
+                str(name): argument_shape(value)
+                for name, value in sorted(
+                    dict(item.get("args") or {}).items()
+                )
+            },
+            "cardinality": int(item.get("cardinality", 1)),
+            "distinct_by": str(item.get("distinct_by", "")),
+        }
+        for item in raw_effects
+    ]
+
+    def sorted_rows(name: str) -> list[Any]:
+        rows = [to_primitive(item) for item in payload.get(name, [])]
+        return sorted(
+            rows,
+            key=lambda item: json.dumps(
+                item,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
+
+    return {
+        "target_effects": effects,
+        "cardinality_constraints": sorted_rows(
+            "cardinality_constraints"
+        ),
+        "identity_constraints": sorted_rows("identity_constraints"),
+        "source": str(payload.get("source", "")),
+        "validator_id": str(payload.get("validator_id", "")),
+    }
+
+
+def composite_structure_payload(
+    *,
+    occurrences: list[CompositeOccurrence],
+    control_sequence: list[str],
+    data_edges: list[GraphEdge],
+    dependency_edges: list[GraphEdge],
+    goal_contract: Any,
+    validator_spec: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return the single persistent/display structural Composite payload."""
+
+    by_step = {item.step_id: item for item in occurrences}
+    position = {
+        step_id: index for index, step_id in enumerate(control_sequence)
+    }
+
+    def expression(raw: Any) -> Any:
+        resolved = _as_expression(raw)
+        if resolved is None:
+            return to_primitive(raw)
+        return {
+            "kind": resolved.kind.value,
+            "source_role": resolved.source_role,
+            "source_step": position.get(
+                resolved.source_step,
+                resolved.source_step,
+            ),
+            "constant": to_primitive(resolved.constant),
+            "transform_id": resolved.transform_id,
+        }
+
+    occurrence_payload = []
+    for step_id in control_sequence:
+        occurrence = by_step[step_id]
+        occurrence_payload.append({
+            "node_ref": str(occurrence.node_ref),
+            "bindings": {
+                role: expression(binding)
+                for role, binding in sorted(
+                    occurrence.binding_specs.items()
+                )
+            },
+        })
+
+    def edge(raw: GraphEdge) -> dict[str, Any]:
+        return {
+            "edge_type": raw.edge_type.value,
+            "source": position[raw.source_step],
+            "target": position[raw.target_step],
+            "source_role": raw.source_role,
+            "target_role": raw.target_role,
+        }
+
+    def edges(items: list[GraphEdge]) -> list[dict[str, Any]]:
+        return sorted(
+            (edge(item) for item in items),
+            key=lambda item: (
+                item["source"],
+                item["target"],
+                item["source_role"],
+                item["target_role"],
+            ),
+        )
+
+    return {
+        "occurrences": occurrence_payload,
+        "data_edges": edges(data_edges),
+        "dependency_edges": edges(dependency_edges),
+        "contract": task_contract_coverage_shape(goal_contract),
+        "validator_spec": to_primitive(dict(validator_spec)),
+    }
+
+
 def aligned_role_maps(
     candidate: AbstractAtomicSkill,
     persisted: AbstractAtomicSkill,

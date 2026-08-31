@@ -648,6 +648,9 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 after = system.knowledge_digest()
                 result = {
                     "benchmark_success": trace.benchmark_success,
+                    "task_contract_success": trace.task_contract_success,
+                    "strict_task_success": trace.strict_task_success,
+                    "learning_eligible": trace.learning_eligible,
                     "graph_self_sufficient_success": trace.graph_self_sufficient_success,
                     "infrastructure_failure": trace.infrastructure_failure,
                     "knowledge_digest_before": before,
@@ -673,7 +676,9 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 checkpoint.clear()
                 print(json.dumps({
                     "task": item.task_id,
-                    "success": trace.benchmark_success,
+                    "official_alfworld_won": trace.benchmark_success,
+                    "strict_task_success": trace.strict_task_success,
+                    "learning_eligible": trace.learning_eligible,
                     "trace_id": trace.trace_id,
                 }, ensure_ascii=False), flush=True)
             except Exception as primary:

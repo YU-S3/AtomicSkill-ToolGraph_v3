@@ -176,6 +176,8 @@ class TraceRecord:
     provider_requests: list[ProviderRequestRecord] = field(default_factory=list)
     resource_usage_complete: bool = True
     benchmark_success: bool = False
+    task_contract_success: bool = False
+    strict_task_success: bool = False
     node_contract_success: bool = False
     implementation_direct_success: bool = False
     graph_self_sufficient_success: bool = False

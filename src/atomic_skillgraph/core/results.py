@@ -170,6 +170,8 @@ class TaskOutcome:
     task_id: str
     trace_id: str
     benchmark_success: bool
+    task_contract_success: bool
+    strict_task_success: bool
     node_contract_success: bool
     implementation_direct_success: bool
     graph_self_sufficient_success: bool

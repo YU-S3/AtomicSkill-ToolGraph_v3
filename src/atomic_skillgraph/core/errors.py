@@ -36,7 +36,7 @@ ERROR_CODES = frozenset(
     composite_self_sufficiency_failure task_contract_mismatch
     benchmark_goal_contract_mismatch benchmark_failure action_cycle llm_error
     infrastructure_failure planner_token_budget_exhausted
-    runtime_node_token_budget_exhausted runtime_node_action_budget_exhausted
+    runtime_task_token_budget_exhausted runtime_node_token_budget_exhausted runtime_node_action_budget_exhausted
     episode_action_budget_exhausted extractor_token_budget_exhausted""".split()
     + """provider_capability_mismatch provider_auth_error provider_rate_limit
     provider_rate_limited provider_timeout provider_transport_error

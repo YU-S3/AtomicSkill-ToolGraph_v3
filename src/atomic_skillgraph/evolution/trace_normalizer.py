@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from ..core.serialization import to_primitive
-from .atomicizer import reduce_action_state, terminal_context_effect_certificates
+from .atomicizer import reduce_action_state
 
 
 def _fact_identity(fact: dict[str, Any]) -> tuple[str, str]:
@@ -100,18 +100,9 @@ class TraceNormalizer:
                 "authoritative_before_state_facts": before,
                 "authoritative_positive_effects": positive,
                 "authoritative_negative_effects": negative,
-                "authoritative_terminal_effect_certificates": (
-                    _terminal_certificate_projection(
-                        terminal_context_effect_certificates(
-                            str(action.get("action_type", "")),
-                            won=bool(action.get("won")),
-                            benchmark_success=bool(trace.benchmark_success),
-                            task_contract=task_contract,
-                        ),
-                        action=action,
-                        before_facts=before,
-                    )
-                ),
+                # Reserved for adapter-provided, state-derived certificates.
+                # Official ``won`` is never used to synthesize a semantic fact.
+                "authoritative_terminal_effect_certificates": [],
             })
         spans = [to_primitive(item) for item in trace.runtime_spans if item.learnable]
         validations = [to_primitive(item) for item in trace.validations]

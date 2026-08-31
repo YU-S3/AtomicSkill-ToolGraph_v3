@@ -22,6 +22,7 @@ from ..core.results import ImplementationInvocationSpec, ToolCallPreflightResult
 from ..core.status import RuntimeMode, skill_status_usable, tool_status_usable
 from ..knowledge.skill_registry import SkillRegistry
 from ..knowledge.tool_registry import ToolRegistry
+from ..evolution.portability import contract_label, validate_portability
 from .binding_store import RuntimeBindingStore
 from .evidence_store import GroundingEvidenceStore
 
@@ -119,18 +120,32 @@ class InvocationCompiler:
         # for a second, derivable tool name.  The bounded semantic prefix plus
         # stable digest is at most 49 characters and remains unique for the
         # invocation candidates exposed in one turn.
-        raw_name_id = implementation.ref.logical_id
-        if raw_name_id.casefold().startswith("impl_"):
-            raw_name_id = raw_name_id[5:]
-        name_id = re.sub(r"[^A-Za-z0-9_-]", "_", raw_name_id)[:24].strip("_-")
+        canonical_intent = str(
+            dict(implementation.metadata or {}).get("canonical_intent")
+            or dict(atomic.metadata or {}).get("canonical_intent")
+            or ""
+        )
+        if not validate_portability(
+            canonical_intent,
+            require_intent=True,
+        ).passed:
+            canonical_intent = contract_label(atomic.effects, atomic.outputs)
+        name_id = re.sub(
+            r"[^A-Za-z0-9_-]", "_", canonical_intent,
+        )[:24].strip("_-")
         if not name_id:
             name_id = "implementation"
         name_digest = hashlib.sha256(
             str(implementation.ref).encode("utf-8")
         ).hexdigest()[:12]
+        description = str(
+            dict(implementation.metadata or {}).get("semantic_description")
+            or canonical_intent.replace("_", " ")
+        )
         return ImplementationInvocationSpec(
             name=f"invoke_impl_{name_id}_{name_digest}", implementation_ref=implementation.ref,
-            atomic_ref=atomic.ref, description=f"Execute learned implementation for: {atomic.summary}",
+            atomic_ref=atomic.ref,
+            description=f"Execute learned implementation for: {description}",
             input_schema={"type": "object", "properties": properties, "required": required, "additionalProperties": False},
             grounding_constraints=list(implementation.grounding_constraints),
             tool_refs=[item.tool_ref for item in sorted(implementation.tool_bindings, key=lambda item: item.order)],
