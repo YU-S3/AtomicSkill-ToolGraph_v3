@@ -28,7 +28,12 @@ from .agents import (
     structured_provider_turn_cap,
 )
 from .core.edges import GlobalGraphEdge, GlobalRelationType
-from .core.errors import AtomicSkillGraphError, FailureEnvelope, FailureLayer
+from .core.errors import (
+    AgentProtocolError,
+    AtomicSkillGraphError,
+    FailureEnvelope,
+    FailureLayer,
+)
 from .core.refs import content_hash
 from .core.serialization import atomic_write_json, to_primitive
 from .core.status import RuntimeMode, SkillStatus
@@ -663,11 +668,14 @@ class AtomicSkillGraphSystem:
                     "prepared": True,
                     "atomic_occurrence_count": len(prepared.compiled),
                 }
-            except ValueError as exc:
-                # Extractor proposals may be semantically rejected by the
-                # deterministic Atomic/Composite validators.  Infrastructure,
-                # persistence, programming, and unexpected errors propagate so
-                # the runner can roll back the task checkpoint.
+            except (AgentProtocolError, ValueError) as exc:
+                # Extractor proposals may be rejected either by the native
+                # submission protocol or by deterministic Atomic/Composite
+                # validators.  Both are model-content rejections: discard the
+                # staged Evolution and preserve the completed task Trace.
+                # Infrastructure, persistence, programming, and unexpected
+                # errors still propagate so the runner rolls back the task
+                # checkpoint.
                 trace.metadata["extraction"] = {
                     "prepared": False,
                     "error_type": type(exc).__name__,

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from atomic_skillgraph.agents import StructuredSubmissionClient
+from atomic_skillgraph.agents import AgentProviderError, StructuredSubmissionClient
 from atomic_skillgraph.core.bindings import (
     BindingExprKind, BindingExpression, GroundingConstraint,
     GroundingConstraintKind,
@@ -14,7 +14,9 @@ from atomic_skillgraph.core.contracts import (
     CompositeOccurrence, CompositeSkill, SemanticPredicate,
 )
 from atomic_skillgraph.core.edges import GraphEdge, GraphEdgeType, GlobalRelationType
-from atomic_skillgraph.core.errors import FailureEnvelope, FailureLayer
+from atomic_skillgraph.core.errors import (
+    AgentProtocolError, FailureEnvelope, FailureLayer,
+)
 from atomic_skillgraph.core.refs import SkillRef, ToolRef, content_hash
 from atomic_skillgraph.core.results import ValidationResult
 from atomic_skillgraph.core.serialization import to_primitive
@@ -908,8 +910,15 @@ def test_stable_replacement_emits_superseded_credit_and_suppresses_old_version(
         ) == ()
 
 
-def test_unexpected_evolution_prepare_error_propagates_for_checkpoint_rollback(
-    tmp_path,
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("database fault"),
+        AgentProviderError("provider_timeout", "provider timed out"),
+    ],
+)
+def test_non_content_evolution_prepare_error_propagates_for_checkpoint_rollback(
+    tmp_path, error,
 ) -> None:
     with AtomicSkillGraphSystem(_system_config(tmp_path / "data_v3")) as system:
         task = HarnessTask("task", "goal", "fake", "pick")
@@ -928,11 +937,70 @@ def test_unexpected_evolution_prepare_error_propagates_for_checkpoint_rollback(
         )
 
         def fail_prepare(*_args, **_kwargs):
-            raise RuntimeError("database fault")
+            raise error
 
         system._prepare_evolution = fail_prepare
-        with pytest.raises(RuntimeError, match="database fault"):
+        with pytest.raises(type(error), match=str(error)):
             system.run_task(task)
+
+
+def test_extractor_protocol_rejection_discards_evolution_but_preserves_task(
+    tmp_path,
+) -> None:
+    with AtomicSkillGraphSystem(_system_config(tmp_path / "data_v3")) as system:
+        task = HarnessTask("task", "goal", "fake", "pick")
+
+        def successful_runtime(
+            _task, *, mode, trace_builder, attempt_id="",
+        ):
+            trace = trace_builder.trace
+            trace.runtime_plan = {
+                "source": "full_dynamic", "failure_stage": "runtime",
+            }
+            trace.benchmark_success = True
+            trace.task_contract_success = True
+            trace.strict_task_success = True
+            trace.learning_eligible = True
+            return trace_builder.finish()
+
+        system.orchestrator.run_task = successful_runtime
+        system.failure_processor.localize = lambda _trace: []
+        system.extraction_policy.decide = lambda _trace: SimpleNamespace(
+            should_extract=True, reasons=["full_dynamic_success"],
+        )
+
+        def reject_extractor(*_args, **_kwargs):
+            raise AgentProtocolError(
+                "runtime_agent_schema_error",
+                "malformed E2 native submission",
+                layer=FailureLayer.RUNTIME_AGENT,
+            )
+
+        system._prepare_evolution = reject_extractor
+        result = system.run_task(task)
+
+        assert result.benchmark_success is True
+        assert result.strict_task_success is True
+        assert result.learning_eligible is True
+        assert result.metadata["evolution_branch"] == "success"
+        assert result.metadata["extraction"] == {
+            "prepared": False,
+            "error_type": "AgentProtocolError",
+            "error_code": "runtime_agent_schema_error",
+            "error": "malformed E2 native submission",
+        }
+        assert "evolution_applied" not in result.metadata
+        assert system.skills.list_refs("atomic") == []
+        assert system.skills.list_refs("implementation") == []
+        assert system.skills.list_refs("composite") == []
+        assert system.tools.list_refs() == []
+        assert system.graph.edges() == []
+        assert system.database.execute(
+            "SELECT COUNT(*) FROM evidence_events"
+        ).fetchone()[0] == 0
+        assert result.resource_usage_complete is True
+        assert result.metadata["usage_reconciliation"]["token_mismatch"] == 0
+        assert len(list(system.traces.iter_payloads())) == 1
 
 
 def test_implementation_preflight_failure_builds_replay_but_agent_error_does_not(
