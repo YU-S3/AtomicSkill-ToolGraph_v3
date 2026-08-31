@@ -44,13 +44,23 @@ _RUNTIME_KINDS = {
     "runtime_preparation",
     "runtime_seeded",
     "runtime_dynamic",
+    "runtime_provisional_seeded",
+    "runtime_dynamic_cold_start_continuation",
 }
 _INITIAL_BUCKET = {
     "planner": UsageBucket.PLANNER_P1,
+    "cold_start_c1": UsageBucket.COLD_START_C1,
+    "cold_start_c1_repair": UsageBucket.COLD_START_C1_REPAIR,
     "runtime_preparation": UsageBucket.RUNTIME_PREPARATION,
     "runtime_seeded": UsageBucket.RUNTIME_SEEDED,
     "runtime_dynamic": UsageBucket.RUNTIME_DYNAMIC,
+    "runtime_provisional_seeded": UsageBucket.RUNTIME_PROVISIONAL_SEEDED,
+    "runtime_dynamic_cold_start_continuation": (
+        UsageBucket.RUNTIME_DYNAMIC_COLD_START_CONTINUATION
+    ),
     "extractor": UsageBucket.EXTRACTOR_E1,
+    "failure_extractor_f1": UsageBucket.FAILURE_EXTRACTOR_F1,
+    "failure_extractor_f2": UsageBucket.FAILURE_EXTRACTOR_F2,
 }
 _PROVIDER_STAGES = (
     "planner",
@@ -59,6 +69,14 @@ _PROVIDER_STAGES = (
     "runtime_dynamic",
     "extractor",
 )
+_PROVIDER_STAGE_ALIASES = {
+    "cold_start_c1": "planner",
+    "cold_start_c1_repair": "planner",
+    "runtime_provisional_seeded": "runtime_seeded",
+    "runtime_dynamic_cold_start_continuation": "runtime_dynamic",
+    "failure_extractor_f1": "extractor",
+    "failure_extractor_f2": "extractor",
+}
 
 
 @dataclass(frozen=True)
@@ -392,7 +410,8 @@ class FakeProviderSet(MappingABC[str, ScriptedAgentProvider]):
             self.enqueue(stage, replies)
 
     def __getitem__(self, stage: str) -> ScriptedAgentProvider:
-        return self._providers[stage]
+        canonical = _PROVIDER_STAGE_ALIASES.get(str(stage), str(stage))
+        return self._providers[canonical]
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._providers)
@@ -402,7 +421,7 @@ class FakeProviderSet(MappingABC[str, ScriptedAgentProvider]):
 
     def provider(self, stage: str) -> ScriptedAgentProvider:
         try:
-            return self._providers[str(stage)]
+            return self[str(stage)]
         except KeyError as exc:
             raise KeyError(f"unknown fake provider stage: {stage!r}") from exc
 
@@ -633,7 +652,11 @@ class FakeAgentFactory:
         return session
 
     def __call__(self, first: Any, second: Any) -> ScriptedAgentSession:
-        session_kind = first if isinstance(first, str) and first in _RUNTIME_KINDS else "planner"
+        session_kind = (
+            first
+            if isinstance(first, str) and first in _INITIAL_BUCKET
+            else "planner"
+        )
         try:
             replies = self._scripts[session_kind].popleft()
         except IndexError as exc:
@@ -1410,6 +1433,23 @@ def knowledge_digest(database: Any) -> str:
             "projection_name,last_event_rowid",
             "projection_name",
         ),
+        "provisional_artifacts": (
+            "provisional_ref,contract_signature,canonical_intent,status,"
+            "harness_profile,content_hash,source_trace_id,source_task_id,"
+            "promoted_refs_json,schema_version,created_at,updated_at",
+            "provisional_ref",
+        ),
+        "failure_experiences": (
+            "experience_id,cluster_signature,divergence_signature,status,"
+            "harness_profile,content_hash,support_count,resolved_count,"
+            "schema_version,created_at,updated_at",
+            "experience_id",
+        ),
+        "cold_start_evidence": (
+            "event_id,task_id,trace_id,subject_ref,subject_kind,event_type,"
+            "sequence_no,metadata_json",
+            "event_id",
+        ),
     }
     tables = {
         table: [list(row) for row in database.execute(
@@ -1423,6 +1463,15 @@ def knowledge_digest(database: Any) -> str:
     files: list[dict[str, str]] = []
     if artifact_root.exists():
         for path in sorted(item for item in artifact_root.rglob("*") if item.is_file()):
+            files.append(
+                {
+                    "path": path.relative_to(data_dir).as_posix(),
+                    "sha256": sha256(path.read_bytes()).hexdigest(),
+                }
+            )
+    failure_root = data_dir / "failure_knowledge"
+    if failure_root.exists():
+        for path in sorted(item for item in failure_root.rglob("*") if item.is_file()):
             files.append(
                 {
                     "path": path.relative_to(data_dir).as_posix(),

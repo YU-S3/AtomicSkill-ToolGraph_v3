@@ -46,9 +46,11 @@ def _proposal(payload: dict[str, Any]) -> PlannerWorkflowProposal:
         steps.append(ProposedOccurrence(
             step_id=str(item["step_id"]), occurrence_id=str(item.get("occurrence_id", item["step_id"])),
             node_ref=SkillRef.parse(item["node_ref"] if isinstance(item["node_ref"], str) else SkillRef.from_dict(item["node_ref"])),
-            requirement_ids=[str(value) for value in item.get("requirement_ids", [])],
+            requirement_ids=[str(value) for value in item.get("requirement_instance_ids", [])],
             binding_specs={name: BindingExpression.from_dict(value) for name, value in item.get("binding_specs", {}).items()},
             expected_effects=[],
+            requirement_instance_ids=[str(value) for value in item.get("requirement_instance_ids", [])],
+            repeat_role_bindings={str(key): str(value) for key, value in item.get("repeat_role_bindings", {}).items()},
         ))
     return PlannerWorkflowProposal(
         steps=steps, control_sequence=[str(item) for item in payload.get("control_sequence", [])],
@@ -72,6 +74,13 @@ class WorkflowAgent:
             "sequence. Data/dependency edges may fan in/out but must point forward. Mark every new edge "
             "origin=planner_proposed and every reused edge origin=existing_active with its real id. "
             "Call only the offered submit tool.\n"
+            "The same supplied Atomic ref may appear in multiple steps. Every step and\n"
+            "occurrence_id must remain unique.\n\n"
+            "Cover every RequirementInstance, not only every requirement template.\n"
+            "For RepeatBlocks, preserve the declared serial order within each iteration.\n"
+            "Use repeat_role_bindings to map block roles to the selected Atomic roles.\n"
+            "Do not invent additional repetitions or collapse distinct instances into one\n"
+            "occurrence.\n"
             f"Task: {task.goal}\nContract: {json.dumps(to_primitive(contract), ensure_ascii=False)}\n"
             f"Requirements: {json.dumps(to_primitive(requirements), ensure_ascii=False)}\n"
             f"Candidates: {json.dumps(to_primitive(candidates), ensure_ascii=False)}\n"

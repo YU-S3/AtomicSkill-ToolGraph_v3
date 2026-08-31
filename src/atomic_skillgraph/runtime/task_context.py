@@ -12,6 +12,7 @@ from ..traces.schema import TraceBuilder
 from .binding_store import RuntimeBindingStore
 from .budget import RuntimeBudget
 from .evidence_store import GroundingEvidenceStore
+from .task_progress import TaskProgressTracker
 
 
 @dataclass
@@ -35,6 +36,7 @@ class TaskRuntimeContext:
     harness: HarnessAdapter
     task: HarnessTask
     budget: RuntimeBudget
+    task_progress: TaskProgressTracker
     plan_failed: bool = False
     task_rescue_used: bool = False
 
@@ -52,12 +54,21 @@ class TaskRuntimeContext:
             })
         )
         binding_store.seed_task_bindings(task, plan.task_contract, reset.new_revision)
+        binding_store.configure_repeat_constraints(plan.repeat_constraints)
         evidence_store.replace_action_catalog(reset.catalog, reset.new_revision)
-        return cls(
+        progress = TaskProgressTracker(
+            plan.task_contract,
+            harness.validator_channel(),
+            trace_builder=trace_builder,
+        )
+        context = cls(
             task.task_id, task.goal, plan.task_contract, plan, 0, reset.new_revision,
             reset.observation, reset.catalog, [], binding_store, evidence_store, {},
-            budget.global_action_budget, 0, budget.token_limits, trace_builder, harness, task, budget,
+            budget.global_action_budget, 0, budget.token_limits, trace_builder,
+            harness, task, budget, progress,
         )
+        progress.record("task_reset")
+        return context
 
     def update_after_action(self, result: Any, record: dict[str, Any]) -> None:
         old_revision = self.world_revision
@@ -68,6 +79,7 @@ class TaskRuntimeContext:
         self.used_actions = self.budget.used_global_actions
         self.binding_store.invalidate_revision(self.world_revision)
         self.evidence_store.replace_action_catalog(self.action_catalog, self.world_revision)
+        self.task_progress.record("environment_action")
 
     def relevant_history(self, occurrence_id: str) -> list[dict[str, Any]]:
         return [item for item in self.action_history if item.get("occurrence_id") in {"", occurrence_id}]

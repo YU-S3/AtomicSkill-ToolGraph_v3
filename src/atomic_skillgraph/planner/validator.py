@@ -13,6 +13,7 @@ from ..core.results import RuntimeLinearPlan, ValidationResult
 from ..core.status import RuntimeMode, skill_status_usable
 from ..knowledge.graph_store import GraphStore
 from ..knowledge.skill_registry import SkillRegistry
+from .multiplicity import RequirementExpansion
 
 
 _STRING_LIKE_TYPES = {"entity", "object", "string", "str"}
@@ -278,14 +279,323 @@ def _contract_structures_well_formed(plan: RuntimeLinearPlan) -> bool:
             count = int(constraint.get("count", 0))
         except (AttributeError, TypeError, ValueError):
             return False
-        if not str(constraint.get("role", "")).strip() or count <= 0:
+        predicate = str(constraint.get("predicate", "")).strip()
+        distinct_by = str(
+            constraint.get("distinct_by") or constraint.get("role") or ""
+        ).strip()
+        composition_mode = str(
+            constraint.get("composition_mode")
+            or ("repeat_unit" if count > 1 else "atomic")
+        )
+        if not predicate or count <= 0:
             return False
-        if count > 1 and not str(constraint.get("distinct_by", "")).strip():
+        if count > 1 and not distinct_by:
+            return False
+        if composition_mode not in {"atomic", "repeat_unit"}:
+            return False
+        if composition_mode == "repeat_unit" and count < 2:
             return False
     return all(
         str(item.left_role).strip() and str(item.right_role).strip()
         for item in contract.identity_constraints
     )
+
+
+def _occurrence_instance_ids(occurrence: Any) -> list[str]:
+    return list(
+        getattr(occurrence, "requirement_instance_ids", None)
+        or getattr(occurrence, "requirement_ids", ())
+    )
+
+
+def _atomic_role_names(atomic: Any) -> set[str]:
+    roles = {
+        item.name
+        for item in [*getattr(atomic, "inputs", ()), *getattr(atomic, "outputs", ())]
+    }
+    for predicate in [
+        *getattr(atomic, "preconditions", ()),
+        *getattr(atomic, "effects", ()),
+    ]:
+        roles.update(map(str, predicate.args))
+    return roles
+
+
+def _parameter_types(value: Any) -> dict[str, str]:
+    return {
+        item.name: item.semantic_type
+        for item in [
+            *getattr(value, "expected_inputs", ()),
+            *getattr(value, "expected_outputs", ()),
+        ]
+    }
+
+
+def _atomic_parameter_types(value: Any) -> dict[str, str]:
+    return {
+        item.name: item.semantic_type
+        for item in [
+            *getattr(value, "inputs", ()),
+            *getattr(value, "outputs", ()),
+        ]
+    }
+
+
+def _repeat_instance_validation(
+    plan: RuntimeLinearPlan,
+    expansion: RequirementExpansion,
+    atomics: dict[str, Any],
+    position: dict[str, int],
+    instance_candidates: dict[str, set[str]] | None,
+) -> tuple[dict[str, bool], list[str]]:
+    """Validate instance authority and serial RepeatBlock structure.
+
+    The function is deliberately a proof checker over supplied IR.  It never
+    fills missing coverage, selects a candidate, or changes model-authored
+    order/role mappings.
+    """
+
+    checks: dict[str, bool] = {}
+    codes: list[str] = []
+    by_instance = {
+        item.instance_id: item
+        for item in expansion.instances
+    }
+    by_block = {
+        item.block_id: item
+        for item in expansion.repeat_blocks
+    }
+    claims: dict[str, list[str]] = {
+        instance_id: [] for instance_id in by_instance
+    }
+    instance_lists_unique = True
+    known_instances_only = True
+    every_occurrence_attributed = True
+    candidate_authority = True
+    repeat_role_maps = True
+    repeat_role_types = True
+    occurrence_one_iteration = True
+    nonrepeat_role_maps_empty = True
+
+    # Track which block roles are observable in each iteration.  Runtime can
+    # enforce only roles that P2 maps onto real Atomic boundary/effect roles.
+    mapped_roles_by_iteration: dict[tuple[str, int], set[str]] = {}
+
+    for occurrence in plan.occurrences:
+        instance_ids = _occurrence_instance_ids(occurrence)
+        every_occurrence_attributed &= bool(instance_ids)
+        instance_lists_unique &= len(instance_ids) == len(set(instance_ids))
+        known = [
+            by_instance[instance_id]
+            for instance_id in instance_ids
+            if instance_id in by_instance
+        ]
+        known_instances_only &= len(known) == len(instance_ids)
+        for instance_id in instance_ids:
+            if instance_id in claims:
+                claims[instance_id].append(occurrence.step_id)
+            if instance_candidates is not None:
+                candidates = instance_candidates.get(instance_id, set())
+                allowed = {
+                    str(getattr(candidate, "atomic_ref", candidate))
+                    for candidate in candidates
+                }
+                candidate_authority &= str(occurrence.node_ref) in allowed
+
+        repeat_instances = [
+            item for item in known if item.repeat_block_id
+        ]
+        repeat_owners = {
+            (item.repeat_block_id, item.repeat_index)
+            for item in repeat_instances
+        }
+        occurrence_one_iteration &= len(repeat_owners) <= 1
+        role_bindings = dict(
+            getattr(occurrence, "repeat_role_bindings", {}) or {}
+        )
+        if not repeat_instances:
+            nonrepeat_role_maps_empty &= not role_bindings
+            continue
+
+        block_id, repeat_index = next(iter(repeat_owners))
+        block = by_block.get(block_id)
+        atomic = atomics.get(occurrence.step_id)
+        if block is None or atomic is None:
+            repeat_role_maps = False
+            continue
+        allowed_block_roles = {
+            *block.distinct_roles,
+            *block.shared_roles,
+        }
+        atomic_roles = _atomic_role_names(atomic)
+        repeat_role_maps &= (
+            set(role_bindings).issubset(allowed_block_roles)
+            and all(
+                bool(block_role)
+                and bool(atomic_role)
+                and atomic_role in atomic_roles
+                for block_role, atomic_role in role_bindings.items()
+            )
+        )
+        mapped_roles_by_iteration.setdefault(
+            (block_id, repeat_index), set(),
+        ).update(role_bindings)
+
+        atomic_types = _atomic_parameter_types(atomic)
+        for instance in repeat_instances:
+            requirement_types = _parameter_types(instance.requirement)
+            for block_role, atomic_role in role_bindings.items():
+                required_type = requirement_types.get(block_role, "")
+                offered_type = atomic_types.get(atomic_role, "")
+                if required_type and offered_type:
+                    repeat_role_types &= _semantic_types_compatible(
+                        required_type, offered_type,
+                    )
+
+    required_coverage = True
+    repeat_exact_coverage = True
+    for instance in expansion.instances:
+        covered = claims.get(instance.instance_id, [])
+        if instance.requirement.required:
+            required_coverage &= bool(covered)
+        if instance.repeat_block_id:
+            repeat_exact_coverage &= len(covered) == 1
+
+    audit = plan.planner_audit.get("requirement_coverage", {})
+    audit_instance_coverage = isinstance(audit, dict)
+    if audit_instance_coverage:
+        audit_instance_coverage &= set(audit).issubset(by_instance)
+        for instance in expansion.instances:
+            if not instance.requirement.required:
+                continue
+            claimed = audit.get(instance.instance_id)
+            audit_instance_coverage &= (
+                isinstance(claimed, list)
+                and len(claimed) == len(set(claimed))
+                and set(claimed) == set(claims[instance.instance_id])
+            )
+
+    serial_order = True
+    all_iteration_roles_mapped = True
+    expected_iteration_steps: dict[str, tuple[tuple[str, ...], ...]] = {}
+    for block in expansion.repeat_blocks:
+        iterations: list[tuple[str, ...]] = []
+        previous_last = -1
+        expected_roles = {
+            *block.distinct_roles,
+            *block.shared_roles,
+        }
+        for repeat_index in range(block.count):
+            steps: list[str] = []
+            member_positions: list[int] = []
+            for requirement_id in block.ordered_requirement_ids:
+                instance_id = (
+                    f"{block.block_id}::{repeat_index}::"
+                    f"{requirement_id}"
+                )
+                covered = sorted(
+                    claims.get(instance_id, ()),
+                    key=lambda step_id: (
+                        position.get(step_id, 10**9), step_id,
+                    ),
+                )
+                steps.extend(covered)
+                member_positions.extend(
+                    position.get(step_id, 10**9)
+                    for step_id in covered
+                )
+            iterations.append(tuple(steps))
+            if len(member_positions) != len(
+                block.ordered_requirement_ids
+            ):
+                serial_order = False
+            elif any(
+                left >= right
+                for left, right in zip(
+                    member_positions, member_positions[1:]
+                )
+            ):
+                serial_order = False
+            elif member_positions and member_positions[0] <= previous_last:
+                serial_order = False
+            if member_positions:
+                previous_last = member_positions[-1]
+            all_iteration_roles_mapped &= expected_roles.issubset(
+                mapped_roles_by_iteration.get(
+                    (block.block_id, repeat_index), set(),
+                )
+            )
+        expected_iteration_steps[block.block_id] = tuple(iterations)
+
+    runtime_constraints = {
+        item.block_id: item for item in plan.repeat_constraints
+    }
+    repeat_constraint_integrity = (
+        len(runtime_constraints) == len(plan.repeat_constraints)
+        and set(runtime_constraints) == set(by_block)
+    )
+    by_step = {item.step_id: item for item in plan.occurrences}
+    for block_id, block in by_block.items():
+        constraint = runtime_constraints.get(block_id)
+        if constraint is None:
+            repeat_constraint_integrity = False
+            continue
+        expected_steps = expected_iteration_steps.get(block_id, ())
+        expected_step_bindings = {
+            step_id: dict(by_step[step_id].repeat_role_bindings)
+            for iteration in expected_steps
+            for step_id in iteration
+            if step_id in by_step
+        }
+        repeat_constraint_integrity &= (
+            constraint.count == block.count
+            and tuple(constraint.iteration_steps) == expected_steps
+            and tuple(constraint.distinct_roles) == tuple(block.distinct_roles)
+            and tuple(constraint.shared_roles) == tuple(block.shared_roles)
+            and dict(constraint.step_role_bindings)
+            == expected_step_bindings
+        )
+
+    checks.update({
+        "requirement_instance_lists_unique": instance_lists_unique,
+        "requirement_instances_known": known_instances_only,
+        "every_occurrence_has_requirement_instance": every_occurrence_attributed,
+        "required_requirement_instances_covered": required_coverage,
+        "repeat_requirement_instances_exactly_once": repeat_exact_coverage,
+        "requirement_instance_candidate_authority": candidate_authority,
+        "requirement_instance_audit_consistent": audit_instance_coverage,
+        "repeat_occurrence_single_iteration": occurrence_one_iteration,
+        "repeat_serial_order": serial_order,
+        "repeat_role_bindings_valid": repeat_role_maps,
+        "repeat_role_semantic_types_compatible": repeat_role_types,
+        "repeat_iteration_roles_mapped": all_iteration_roles_mapped,
+        "nonrepeat_role_bindings_empty": nonrepeat_role_maps_empty,
+        "runtime_repeat_constraints_match": repeat_constraint_integrity,
+    })
+    if not all((
+        instance_lists_unique,
+        known_instances_only,
+        every_occurrence_attributed,
+        required_coverage,
+        repeat_exact_coverage,
+        candidate_authority,
+        audit_instance_coverage,
+    )):
+        codes.append("planner_requirement_instance_uncovered")
+    if not all((
+        occurrence_one_iteration,
+        serial_order,
+        repeat_constraint_integrity,
+    )):
+        codes.append("planner_repeat_block_invalid")
+    if not all((
+        repeat_role_maps,
+        repeat_role_types,
+        all_iteration_roles_mapped,
+        nonrepeat_role_maps_empty,
+    )):
+        codes.append("planner_repeat_role_invalid")
+    return checks, list(dict.fromkeys(codes))
 
 
 def _identity_cardinality_preserved(
@@ -365,6 +675,8 @@ class PlannerValidator:
         required_requirement_ids: list[str] | None = None,
         requirement_candidates: dict[str, set[str]] | None = None,
         harness_profile: str = "",
+        expansion: RequirementExpansion | None = None,
+        instance_candidates: dict[str, set[str]] | None = None,
     ) -> ValidationResult:
         checks: dict[str, bool] = {}
         errors: list[str] = []
@@ -372,14 +684,28 @@ class PlannerValidator:
 
         by_step = {item.step_id: item for item in plan.occurrences}
         checks["occurrence_limit"] = 0 < len(by_step) == len(plan.occurrences) <= self.max_occurrences
+        occurrence_ids = [
+            item.occurrence_id for item in plan.occurrences
+        ]
+        checks["occurrence_ids_unique"] = (
+            bool(occurrence_ids)
+            and len(occurrence_ids) == len(set(occurrence_ids))
+        )
         checks["control_sequence_complete_unique"] = (
             len(plan.control_sequence) == len(by_step)
             and len(set(plan.control_sequence)) == len(plan.control_sequence)
             and set(plan.control_sequence) == set(by_step)
         )
-        if not checks["occurrence_limit"] or not checks["control_sequence_complete_unique"]:
+        if (
+            not checks["occurrence_limit"]
+            or not checks["occurrence_ids_unique"]
+            or not checks["control_sequence_complete_unique"]
+        ):
             errors.append("planner_graph_invalid")
-            messages.append("control sequence must contain every occurrence exactly once")
+            messages.append(
+                "step/occurrence ids must be unique and the control sequence "
+                "must contain every occurrence exactly once"
+            )
         position = {step: index for index, step in enumerate(plan.control_sequence)}
 
         refs_ok = True
@@ -524,6 +850,17 @@ class PlannerValidator:
         checks["requirement_coverage"] = requirement_coverage
         if required_requirement_ids and not checks["requirement_coverage"]:
             errors.append("planner_requirement_uncovered")
+
+        if expansion is not None:
+            repeat_checks, repeat_codes = _repeat_instance_validation(
+                plan,
+                expansion,
+                atomics,
+                position,
+                instance_candidates,
+            )
+            checks.update(repeat_checks)
+            errors.extend(repeat_codes)
 
         offered_effects, task_role_usage = _project_plan_effects(plan, atomics)
         checks["task_contract_effect_coverage"] = _effects_cover_occurrences(

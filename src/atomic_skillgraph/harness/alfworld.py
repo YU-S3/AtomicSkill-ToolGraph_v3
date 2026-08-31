@@ -1106,8 +1106,12 @@ class AlfWorldAdapter:
                 "object.observed_with", {"object": target_object, "light": light_source},
             ))
         cardinality = ([{
-            "predicate": "object.at_location", "role": "object",
-            "count": count, "distinct_by": "object",
+            "constraint_id": "cc_object_at_location_distinct_object",
+            "predicate": "object.at_location",
+            "count": count,
+            "distinct_by": "object",
+            "shared_roles": ["location"],
+            "composition_mode": "repeat_unit",
         }] if count > 1 else [])
         identity: list[IdentityConstraint] = []
         if task.task_type in {

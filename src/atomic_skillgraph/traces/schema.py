@@ -22,6 +22,13 @@ class TaskRecord:
 
 
 @dataclass
+class TaskProgressRecord:
+    revision: int
+    source: str
+    snapshot: dict[str, Any]
+
+
+@dataclass
 class AgentSessionRecord:
     session_id: str
     session_type: str
@@ -150,6 +157,41 @@ class NodeTraceRecord:
 
 
 @dataclass
+class ColdStartPlanRecord:
+    plan_id: str
+    proposal: dict[str, Any]
+    validation: dict[str, Any]
+    repair_used: bool
+    executable_step_ids: list[str]
+    first_unresolved_step_id: str
+
+
+@dataclass
+class ColdStartStepRecord:
+    step_id: str
+    candidate_source: str
+    candidate_ref: str
+    execution_mode: str
+    outcome: str
+    local_effect_passed: bool
+    action_start: int
+    action_end: int
+    progress_before: str
+    progress_after: str
+    failure_code: str
+
+
+@dataclass
+class FailureExtractionRecord:
+    f1_alignment: dict[str, Any]
+    f1_validation: dict[str, Any]
+    f2_proposal: dict[str, Any]
+    provisional_refs: list[str]
+    failure_experience_ids: list[str]
+    rejection: dict[str, Any]
+
+
+@dataclass
 class TraceRecord:
     trace_id: str
     schema_version: int
@@ -174,6 +216,14 @@ class TraceRecord:
     runtime_spans: list[RuntimeSpan] = field(default_factory=list)
     llm_usage: list[dict[str, Any]] = field(default_factory=list)
     provider_requests: list[ProviderRequestRecord] = field(default_factory=list)
+    requirement_bundle: dict[str, Any] = field(default_factory=dict)
+    requirement_expansion: dict[str, Any] = field(default_factory=dict)
+    task_progress_records: list[TaskProgressRecord] = field(default_factory=list)
+    cold_start_plan: ColdStartPlanRecord | None = None
+    cold_start_steps: list[ColdStartStepRecord] = field(default_factory=list)
+    failure_extraction: FailureExtractionRecord | None = None
+    provisional_promotions: list[dict[str, Any]] = field(default_factory=list)
+    cold_start_assisted_success: bool = False
     resource_usage_complete: bool = True
     benchmark_success: bool = False
     task_contract_success: bool = False
@@ -197,6 +247,7 @@ class TraceRecord:
             trace_id=f"trace_{uuid.uuid4().hex}", schema_version=3, task=task,
             task_contract=task_contract, planner_audit=planner_audit,
             runtime_plan=runtime_plan, started_at=time.time(),
+            metadata={"method_patch": "3.1"},
         )
 
     def finish(self) -> "TraceRecord":

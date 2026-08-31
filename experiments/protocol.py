@@ -597,7 +597,7 @@ def hash_knowledge(
     artifact_root = data_dir if data_dir.name == "artifacts" else data_dir / "artifacts"
     if artifact_root.is_dir():
         roots.append(artifact_root)
-    for name in ("indexes", "query_index"):
+    for name in ("indexes", "query_index", "failure_knowledge"):
         candidate = data_dir / name
         if candidate.is_dir():
             roots.append(candidate)
@@ -2012,12 +2012,13 @@ class TaskCheckpointStore:
                 getattr(database, "connection", database).backup(target)
             finally:
                 target.close()
-            source_artifacts = self.data_dir / "artifacts"
-            checkpoint_artifacts = temporary / "artifacts"
-            if source_artifacts.is_dir():
-                shutil.copytree(source_artifacts, checkpoint_artifacts)
-            else:
-                checkpoint_artifacts.mkdir()
+            for name in ("artifacts", "failure_knowledge"):
+                source_root = self.data_dir / name
+                checkpoint_root = temporary / name
+                if source_root.is_dir():
+                    shutil.copytree(source_root, checkpoint_root)
+                else:
+                    checkpoint_root.mkdir()
             files = _file_hashes(temporary, exclude={"checkpoint_manifest.json"})
             _atomic_write_json(temporary / "checkpoint_manifest.json", {
                 "schema_version": SCHEMA_VERSION,
@@ -2083,34 +2084,50 @@ class TaskCheckpointStore:
     def _restore(self) -> None:
         checkpoint_database = self.root / "state.sqlite3"
         checkpoint_artifacts = self.root / "artifacts"
-        if not checkpoint_database.is_file() or not checkpoint_artifacts.is_dir():
+        checkpoint_failure_knowledge = self.root / "failure_knowledge"
+        if (
+            not checkpoint_database.is_file()
+            or not checkpoint_artifacts.is_dir()
+            or not checkpoint_failure_knowledge.is_dir()
+        ):
             raise ProtocolError("task checkpoint is incomplete")
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        restore_artifacts = Path(tempfile.mkdtemp(
-            prefix=".artifacts.restore-", dir=self.data_dir
-        ))
-        # mkdtemp creates the root; copy the checkpoint contents into it.
-        shutil.copytree(checkpoint_artifacts, restore_artifacts, dirs_exist_ok=True)
+        restore_roots: dict[str, Path] = {}
+        for name, checkpoint_root in (
+            ("artifacts", checkpoint_artifacts),
+            ("failure_knowledge", checkpoint_failure_knowledge),
+        ):
+            restore_root = Path(tempfile.mkdtemp(
+                prefix=f".{name}.restore-", dir=self.data_dir
+            ))
+            # mkdtemp creates the root; copy checkpoint contents into it.
+            shutil.copytree(checkpoint_root, restore_root, dirs_exist_ok=True)
+            restore_roots[name] = restore_root
         restore_database = self.data_dir / f".state.restore-{os.getpid()}.sqlite3"
         shutil.copy2(checkpoint_database, restore_database)
-        live_artifacts = self.data_dir / "artifacts"
-        displaced = self.data_dir / f".artifacts.displaced-{os.getpid()}"
+        displaced_roots: dict[str, Path] = {}
         try:
-            if displaced.exists():
-                shutil.rmtree(displaced)
-            if live_artifacts.exists():
-                os.replace(live_artifacts, displaced)
-            os.replace(restore_artifacts, live_artifacts)
+            for name in ("artifacts", "failure_knowledge"):
+                live_root = self.data_dir / name
+                displaced = self.data_dir / f".{name}.displaced-{os.getpid()}"
+                if displaced.exists():
+                    shutil.rmtree(displaced)
+                if live_root.exists():
+                    os.replace(live_root, displaced)
+                    displaced_roots[name] = displaced
+                os.replace(restore_roots[name], live_root)
             for suffix in ("-wal", "-shm"):
                 (self.data_dir / f"state.sqlite3{suffix}").unlink(missing_ok=True)
             os.replace(restore_database, self.data_dir / "state.sqlite3")
-            shutil.rmtree(displaced, ignore_errors=True)
+            for displaced in displaced_roots.values():
+                shutil.rmtree(displaced, ignore_errors=True)
             self.clear()
         except Exception:
             # Keep the immutable checkpoint.  Recovery is idempotent and can
             # be attempted again after the external filesystem issue is fixed.
             restore_database.unlink(missing_ok=True)
-            shutil.rmtree(restore_artifacts, ignore_errors=True)
+            for restore_root in restore_roots.values():
+                shutil.rmtree(restore_root, ignore_errors=True)
             raise
 
     def clear(self) -> None:
@@ -2157,6 +2174,23 @@ def _knowledge_table_rows(connection: Any) -> dict[str, list[list[Any]]]:
         "projection_checkpoints": (
             "projection_name,last_event_rowid",
             "projection_name",
+        ),
+        "provisional_artifacts": (
+            "provisional_ref,contract_signature,canonical_intent,status,"
+            "harness_profile,content_hash,source_trace_id,source_task_id,"
+            "promoted_refs_json,schema_version,created_at,updated_at",
+            "provisional_ref",
+        ),
+        "failure_experiences": (
+            "experience_id,cluster_signature,divergence_signature,status,"
+            "harness_profile,content_hash,support_count,resolved_count,"
+            "schema_version,created_at,updated_at",
+            "experience_id",
+        ),
+        "cold_start_evidence": (
+            "event_id,task_id,trace_id,subject_ref,subject_kind,event_type,"
+            "sequence_no,metadata_json",
+            "event_id",
         ),
     }
     existing = {

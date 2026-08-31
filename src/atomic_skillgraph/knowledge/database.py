@@ -10,6 +10,10 @@ from typing import Any, Iterator
 
 
 SCHEMA_VERSION = 3
+STATE_PATCH_LEVEL = "3.1"
+STATE_PATCH_MISMATCH = (
+    "state_patch_mismatch: v3.1 requires a fresh knowledge bank"
+)
 
 _REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
     "metadata": ("key", "value"),
@@ -40,6 +44,22 @@ _REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
         "code_commit", "knowledge_milestone", "state", "attempt_count",
         "trace_id", "result_json",
     ),
+    "provisional_artifacts": (
+        "provisional_ref", "contract_signature", "canonical_intent",
+        "status", "harness_profile", "content_hash", "file_path",
+        "source_trace_id", "source_task_id", "promoted_refs_json",
+        "schema_version", "created_at", "updated_at",
+    ),
+    "failure_experiences": (
+        "experience_id", "cluster_signature", "divergence_signature",
+        "status", "harness_profile", "content_hash", "file_path",
+        "support_count", "resolved_count", "schema_version",
+        "created_at", "updated_at",
+    ),
+    "cold_start_evidence": (
+        "event_id", "task_id", "trace_id", "subject_ref",
+        "subject_kind", "event_type", "sequence_no", "metadata_json",
+    ),
 }
 
 _REQUIRED_PRIMARY_KEYS: dict[str, tuple[str, ...]] = {
@@ -52,6 +72,29 @@ _REQUIRED_PRIMARY_KEYS: dict[str, tuple[str, ...]] = {
     "graph_edges": ("edge_id",),
     "run_manifests": ("run_id",),
     "run_tasks": ("run_id", "task_id"),
+    "provisional_artifacts": ("provisional_ref",),
+    "failure_experiences": ("experience_id",),
+    "cold_start_evidence": ("event_id",),
+}
+
+_REQUIRED_INDEXES: dict[str, tuple[str, tuple[str, ...], bool]] = {
+    "provisional_contract_status": (
+        "provisional_artifacts", ("contract_signature", "status"), False,
+    ),
+    "failure_experience_cluster_status": (
+        "failure_experiences", ("cluster_signature", "status"), False,
+    ),
+}
+
+_REQUIRED_UNIQUE_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "evidence_events": ((
+        "trace_id", "attempt_id", "artifact_ref", "event_type",
+        "sequence_no",
+    ),),
+    "failure_experiences": (("cluster_signature", "divergence_signature"),),
+    "cold_start_evidence": ((
+        "trace_id", "subject_ref", "event_type", "sequence_no",
+    ),),
 }
 
 DDL = """
@@ -139,6 +182,56 @@ CREATE TABLE IF NOT EXISTS run_tasks (
     result_json TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY(run_id, task_id)
 );
+
+CREATE TABLE IF NOT EXISTS provisional_artifacts (
+    provisional_ref TEXT PRIMARY KEY,
+    contract_signature TEXT NOT NULL,
+    canonical_intent TEXT NOT NULL,
+    status TEXT NOT NULL,
+    harness_profile TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    source_trace_id TEXT NOT NULL,
+    source_task_id TEXT NOT NULL,
+    promoted_refs_json TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS provisional_contract_status
+    ON provisional_artifacts(contract_signature, status);
+
+CREATE TABLE IF NOT EXISTS failure_experiences (
+    experience_id TEXT PRIMARY KEY,
+    cluster_signature TEXT NOT NULL,
+    divergence_signature TEXT NOT NULL,
+    status TEXT NOT NULL,
+    harness_profile TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    support_count INTEGER NOT NULL,
+    resolved_count INTEGER NOT NULL,
+    schema_version INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(cluster_signature, divergence_signature)
+);
+
+CREATE INDEX IF NOT EXISTS failure_experience_cluster_status
+    ON failure_experiences(cluster_signature, status);
+
+CREATE TABLE IF NOT EXISTS cold_start_evidence (
+    event_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    subject_ref TEXT NOT NULL,
+    subject_kind TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    sequence_no INTEGER NOT NULL,
+    metadata_json TEXT NOT NULL,
+    UNIQUE(trace_id, subject_ref, event_type, sequence_no)
+);
 """
 
 
@@ -150,9 +243,13 @@ class StateDatabase:
         if not readonly:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = self._open()
-        if not readonly and not existed:
-            self.initialize()
-        self.validate_integrity()
+        try:
+            if not readonly and not existed:
+                self.initialize()
+            self.validate_integrity()
+        except Exception:
+            self._connection.close()
+            raise
 
     def _open(self) -> sqlite3.Connection:
         if self.readonly:
@@ -177,18 +274,31 @@ class StateDatabase:
             "INSERT OR IGNORE INTO metadata(key, value) VALUES('schema_version', ?)",
             (str(SCHEMA_VERSION),),
         )
+        self._connection.execute(
+            "INSERT OR IGNORE INTO metadata(key, value) "
+            "VALUES('state_patch_level', ?)",
+            (STATE_PATCH_LEVEL,),
+        )
         self._connection.commit()
 
     def _validate_version(self) -> None:
         try:
-            row = self._connection.execute(
-                "SELECT value FROM metadata WHERE key='schema_version'"
-            ).fetchone()
-        except sqlite3.OperationalError as exc:
-            raise RuntimeError("state database is not an AtomicSkillGraph v3 database") from exc
-        if row is None or int(row["value"]) != SCHEMA_VERSION:
-            actual = None if row is None else row["value"]
-            raise RuntimeError(f"unsupported state schema {actual!r}; v3 requires schema_version=3")
+            rows = self._connection.execute(
+                "SELECT key,value FROM metadata "
+                "WHERE key IN ('schema_version','state_patch_level')"
+            ).fetchall()
+        except (sqlite3.DatabaseError, sqlite3.OperationalError) as exc:
+            raise RuntimeError(STATE_PATCH_MISMATCH) from exc
+        metadata = {str(row["key"]): str(row["value"]) for row in rows}
+        try:
+            schema_matches = int(metadata.get("schema_version", "")) == SCHEMA_VERSION
+        except ValueError:
+            schema_matches = False
+        if (
+            not schema_matches
+            or metadata.get("state_patch_level") != STATE_PATCH_LEVEL
+        ):
+            raise RuntimeError(STATE_PATCH_MISMATCH)
 
     def _validate_schema(self) -> None:
         rows = self._connection.execute(
@@ -197,10 +307,7 @@ class StateDatabase:
         available = {str(row["name"]) for row in rows}
         missing_tables = sorted(set(_REQUIRED_COLUMNS) - available)
         if missing_tables:
-            raise RuntimeError(
-                "state database is missing required v3 tables: "
-                + ", ".join(missing_tables)
-            )
+            raise RuntimeError(STATE_PATCH_MISMATCH)
         for table, required in _REQUIRED_COLUMNS.items():
             table_info = self._connection.execute(
                 f'PRAGMA table_info("{table}")'
@@ -208,39 +315,50 @@ class StateDatabase:
             columns = {str(row["name"]) for row in table_info}
             missing_columns = sorted(set(required) - columns)
             if missing_columns:
-                raise RuntimeError(
-                    f"state database table {table} is missing required columns: "
-                    + ", ".join(missing_columns)
-                )
+                raise RuntimeError(STATE_PATCH_MISMATCH)
             primary_key = tuple(
                 str(row["name"])
                 for row in sorted(table_info, key=lambda item: int(item["pk"]))
                 if int(row["pk"]) > 0
             )
             if primary_key != _REQUIRED_PRIMARY_KEYS[table]:
-                raise RuntimeError(
-                    f"state database table {table} has invalid primary key: "
-                    f"expected {_REQUIRED_PRIMARY_KEYS[table]}, got {primary_key}"
-                )
+                raise RuntimeError(STATE_PATCH_MISMATCH)
 
-        index_rows = self._connection.execute(
-            "PRAGMA index_list('evidence_events')"
-        ).fetchall()
-        unique_event_keys = {
-            tuple(
+        for index_name, (table, columns, unique) in _REQUIRED_INDEXES.items():
+            index_rows = self._connection.execute(
+                f'PRAGMA index_list("{table}")'
+            ).fetchall()
+            row = next(
+                (item for item in index_rows if str(item["name"]) == index_name),
+                None,
+            )
+            if row is None or bool(row["unique"]) is not unique:
+                raise RuntimeError(STATE_PATCH_MISMATCH)
+            actual = tuple(
                 str(item["name"])
                 for item in self._connection.execute(
-                    f'PRAGMA index_info("{row["name"]}")'
+                    f'PRAGMA index_info("{index_name}")'
                 ).fetchall()
             )
-            for row in index_rows
-            if bool(row["unique"])
-        }
-        required_unique = (
-            "trace_id", "attempt_id", "artifact_ref", "event_type", "sequence_no",
-        )
-        if required_unique not in unique_event_keys:
-            raise RuntimeError("state database lacks the v3 EvidenceEvent uniqueness constraint")
+            if actual != columns:
+                raise RuntimeError(STATE_PATCH_MISMATCH)
+
+        for table, required_keys in _REQUIRED_UNIQUE_KEYS.items():
+            index_rows = self._connection.execute(
+                f'PRAGMA index_list("{table}")'
+            ).fetchall()
+            available_keys = {
+                tuple(
+                    str(item["name"])
+                    for item in self._connection.execute(
+                        f'PRAGMA index_info("{row["name"]}")'
+                    ).fetchall()
+                )
+                for row in index_rows
+                if bool(row["unique"])
+            }
+            if any(key not in available_keys for key in required_keys):
+                raise RuntimeError(STATE_PATCH_MISMATCH)
 
     def validate_integrity(self) -> None:
         """Fail closed on corruption, version drift, or incomplete v3 schema."""

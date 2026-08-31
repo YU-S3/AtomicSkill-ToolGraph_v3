@@ -172,6 +172,40 @@ class CapabilityRequirement:
     rationale: str
 
 
+@dataclass(frozen=True)
+class RepeatBlock:
+    """A contract-backed serial repetition of one reusable requirement unit."""
+
+    block_id: str
+    count: int
+    ordered_requirement_ids: tuple[str, ...]
+    distinct_roles: tuple[str, ...]
+    shared_roles: tuple[str, ...]
+    basis_constraint_id: str
+    basis_role_map: dict[str, str]
+    execution_policy: str = "serial"
+    rationale: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "ordered_requirement_ids", tuple(self.ordered_requirement_ids))
+        object.__setattr__(self, "distinct_roles", tuple(self.distinct_roles))
+        object.__setattr__(self, "shared_roles", tuple(self.shared_roles))
+        object.__setattr__(self, "basis_role_map", dict(self.basis_role_map))
+
+
+@dataclass
+class PlannerRequirementBundle:
+    requirements: list[CapabilityRequirement]
+    repeat_blocks: list[RepeatBlock] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.requirements = list(self.requirements)
+        self.repeat_blocks = [
+            value if isinstance(value, RepeatBlock) else RepeatBlock(**value)
+            for value in self.repeat_blocks
+        ]
+
+
 @dataclass
 class AtomicCandidate:
     atomic_ref: SkillRef
@@ -196,6 +230,11 @@ class ProposedOccurrence:
     requirement_ids: list[str]
     binding_specs: dict[str, BindingExpression]
     expected_effects: list[SemanticPredicate] = field(default_factory=list)
+    # ``requirement_ids`` is retained as a read-only compatibility projection
+    # for v3 deterministic fixtures.  New Planner submissions use the two
+    # fields below and the compiler copies instance ids into that projection.
+    requirement_instance_ids: list[str] = field(default_factory=list)
+    repeat_role_bindings: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -220,15 +259,54 @@ class PlannerWorkflowProposal:
     sequence_origin: str = "planner_proposed_sequence"
 
 
+class ColdStartCandidateSource(str, Enum):
+    VERIFIED = "verified"
+    PROVISIONAL = "provisional"
+    UNRESOLVED = "unresolved"
+
+
+class ColdStartExecutionMode(str, Enum):
+    DIRECT_OR_SEEDED = "direct_or_seeded"
+    SEEDED_ONLY = "seeded_only"
+    DYNAMIC = "dynamic"
+
+
+@dataclass
+class ColdStartPlanStep:
+    step_id: str
+    requirement_instance_ids: list[str]
+    candidate_source: ColdStartCandidateSource
+    candidate_ref: str
+    execution_mode: ColdStartExecutionMode
+    binding_specs: dict[str, BindingExpression]
+    repeat_role_bindings: dict[str, str]
+    expected_effects: list[SemanticPredicate]
+
+    def __post_init__(self) -> None:
+        self.candidate_source = ColdStartCandidateSource(self.candidate_source)
+        self.execution_mode = ColdStartExecutionMode(self.execution_mode)
+
+
+@dataclass
+class ColdStartPlanProposal:
+    plan_id: str
+    steps: list[ColdStartPlanStep]
+    control_sequence: list[str]
+    data_edges: list[ProposedEdge]
+    dependency_edges: list[ProposedEdge]
+    requirement_coverage: dict[str, list[str]]
+    referenced_failure_experience_ids: list[str]
+
+
 @dataclass
 class PlannerAudit:
     composite_candidates: list[dict[str, Any]] = field(default_factory=list)
     composite_rejections: list[dict[str, Any]] = field(default_factory=list)
     selected_composite: str | None = None
-    requirements_p1: list[dict[str, Any]] = field(default_factory=list)
+    requirements_p1: dict[str, Any] = field(default_factory=dict)
     atomic_search_p1: dict[str, Any] = field(default_factory=dict)
     related_composite_hints: list[dict[str, Any]] = field(default_factory=list)
-    requirements_p1r: list[dict[str, Any]] = field(default_factory=list)
+    requirements_p1r: dict[str, Any] = field(default_factory=dict)
     atomic_search_p1r: dict[str, Any] = field(default_factory=dict)
     workflow_p2: dict[str, Any] = field(default_factory=dict)
     validation_p2: dict[str, Any] = field(default_factory=dict)
@@ -236,3 +314,11 @@ class PlannerAudit:
     validation_p2r: dict[str, Any] = field(default_factory=dict)
     final_outcome: str = ""
     fallback_reason: str = ""
+    requirement_validation_p1: dict[str, Any] = field(default_factory=dict)
+    requirement_validation_final: dict[str, Any] = field(default_factory=dict)
+    requirement_expansion: dict[str, Any] = field(default_factory=dict)
+    cold_start_retrieval: dict[str, Any] = field(default_factory=dict)
+    cold_start_plan: dict[str, Any] = field(default_factory=dict)
+    cold_start_validation: dict[str, Any] = field(default_factory=dict)
+    cold_start_repair: dict[str, Any] = field(default_factory=dict)
+    cold_start_repair_validation: dict[str, Any] = field(default_factory=dict)

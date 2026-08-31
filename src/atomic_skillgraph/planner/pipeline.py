@@ -20,10 +20,17 @@ from ..core.status import RuntimeMode
 from ..knowledge.graph_store import GraphStore
 from ..knowledge.skill_registry import SkillRegistry
 from .atomic_retriever import AtomicRetriever
+from .cold_start_agent import ColdStartPlanner
+from .cold_start_validator import ColdStartPlanValidator
 from .compiler import PlanCompiler
 from .composite_retriever import CompositeRetriever
 from .related_composite import RelatedCompositeHintFinder
 from .requirement_agent import RequirementAgent
+from .multiplicity import (
+    RequirementBundleValidator,
+    RequirementMultiplicityCompiler,
+    normalize_task_contract,
+)
 from .validator import PlannerValidator
 from .workflow_agent import WorkflowAgent
 
@@ -75,7 +82,14 @@ class PlannerPipeline:
     def __init__(
         self, skills: SkillRegistry, graph: GraphStore, session_factory: Callable[[Any, Any], Any],
         *, composite_top_k: int = 5, atomic_top_k: int = 3, max_atomic_top_k: int = 5,
-        max_occurrences: int = 16, candidate_policy: Any | None = None,
+        max_occurrences: int = 16, max_repeat_count: int = 4,
+        candidate_policy: Any | None = None,
+        cold_start_enabled: bool = False,
+        provisional_retriever: Any | None = None,
+        failure_experience_retriever: Any | None = None,
+        cold_start_session_factory: Callable[[Any, Any], Any] | None = None,
+        scaffold_max_steps: int = 8,
+        cold_start_repair_limit: int = 1,
     ) -> None:
         self.skills, self.graph, self.session_factory = skills, graph, session_factory
         self.composite_retriever = CompositeRetriever(
@@ -88,13 +102,25 @@ class PlannerPipeline:
         self.related = RelatedCompositeHintFinder(skills)
         self.compiler = PlanCompiler(skills)
         self.validator = PlannerValidator(skills, graph, max_occurrences=max_occurrences)
+        self.requirement_validator = RequirementBundleValidator()
+        self.multiplicity_compiler = RequirementMultiplicityCompiler()
+        self.max_occurrences = int(max_occurrences)
+        self.max_repeat_count = int(max_repeat_count)
+        self.cold_start_enabled = bool(cold_start_enabled)
+        self.provisional_retriever = provisional_retriever
+        self.failure_experience_retriever = failure_experience_retriever
+        self.cold_start_session_factory = cold_start_session_factory or session_factory
+        self.cold_start_validator = ColdStartPlanValidator()
+        self.scaffold_max_steps = int(scaffold_max_steps)
+        if int(cold_start_repair_limit) != 1:
+            raise ValueError("v3.1 permits exactly one C1R cold-start repair")
 
     def build_plan(
         self, task: Any, harness: Any, *, mode: RuntimeMode | str = RuntimeMode.ONLINE,
         initial_observation: str = "",
     ) -> RuntimeLinearPlan:
         mode = RuntimeMode(mode)
-        contract = harness.task_contract(task)
+        contract = normalize_task_contract(harness.task_contract(task))
         audit = PlannerAudit()
 
         p0 = self.composite_retriever.retrieve_complete(
@@ -112,13 +138,13 @@ class PlannerPipeline:
                 return plan
             audit.composite_rejections.append({"composite_ref": str(composite.ref), "reasons": report.failure_codes})
 
-        # With no usable Composite and no usable Atomic there is no retrieval
-        # evidence for P1/P1R to inspect.  The formal protocol routes directly
-        # to Dynamic and records why; later tasks stop taking this shortcut as
-        # soon as successful extraction admits online-usable Candidates.
+        # Frozen and explicitly cold-start-disabled compatibility runs retain
+        # the old empty-bank shortcut.  v3.1 online cold start must still run
+        # P1 so C1 and a later Failure Extractor have high-level authority.
         if (
             not self.skills.list_refs("composite", mode=mode)
             and not self.skills.list_refs("atomic", mode=mode)
+            and (mode is RuntimeMode.FROZEN or not self.cold_start_enabled)
         ):
             audit.final_outcome = "full_dynamic"
             audit.fallback_reason = "empty_knowledge_bank"
@@ -133,7 +159,7 @@ class PlannerPipeline:
         requirement_agent = RequirementAgent(session)
         workflow_agent = WorkflowAgent(session)
         try:
-            requirements = requirement_agent.propose(task, contract, initial_observation, harness.profile_name)
+            bundle = requirement_agent.propose(task, contract, initial_observation, harness.profile_name)
         except Exception as exc:
             if not _is_planner_content_failure(exc):
                 raise
@@ -145,22 +171,35 @@ class PlannerPipeline:
                 task.task_id, contract, reason=audit.fallback_reason,
                 audit=to_primitive(audit),
             )
-        audit.requirements_p1 = to_primitive(requirements)
-        search = self.atomic_retriever.retrieve(
-            requirements, mode=mode, harness_profile=harness.profile_name, task_id=task.task_id
+        audit.requirements_p1 = to_primitive(bundle)
+        validation = self.requirement_validator.validate(
+            bundle, contract,
+            max_repeat_count=self.max_repeat_count,
+            max_runtime_occurrences=self.max_occurrences,
         )
-        audit.atomic_search_p1 = to_primitive(search.results)
+        audit.requirement_validation_p1 = to_primitive(validation)
         hints: list[dict[str, Any]] = []
-        if not search.full_coverage:
-            hints = self.related.find(search, mode=mode)
-            audit.related_composite_hints = hints
+        search = None
+        repaired = False
+        if validation.passed:
+            expansion = self.multiplicity_compiler.expand(bundle, contract)
+            search = self.atomic_retriever.retrieve_multiplicity(
+                expansion, mode=mode, harness_profile=harness.profile_name,
+                task_id=task.task_id,
+            )
+            audit.atomic_search_p1 = to_primitive(search.template_results)
+            if not search.full_coverage:
+                hints = self.related.find(search, mode=mode)
+                audit.related_composite_hints = hints
+        if not validation.passed or (search is not None and not search.full_coverage):
             try:
-                requirements = requirement_agent.repair(task, contract, requirements, search.results, hints)
-                audit.requirements_p1r = to_primitive(requirements)
-                search = self.atomic_retriever.retrieve(
-                    requirements, mode=mode, harness_profile=harness.profile_name, task_id=task.task_id
+                bundle = requirement_agent.repair(
+                    task, contract, bundle,
+                    [] if search is None else search.template_results,
+                    hints, validation=validation,
                 )
-                audit.atomic_search_p1r = to_primitive(search.results)
+                repaired = True
+                audit.requirements_p1r = to_primitive(bundle)
             except Exception as exc:
                 if not _is_planner_content_failure(exc):
                     raise
@@ -169,28 +208,239 @@ class PlannerPipeline:
                     exc, "planner_requirement_repair_failed",
                 )
                 return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=to_primitive(audit))
-        if not search.full_coverage:
+        validation = self.requirement_validator.validate(
+            bundle, contract,
+            max_repeat_count=self.max_repeat_count,
+            max_runtime_occurrences=self.max_occurrences,
+        )
+        audit.requirement_validation_final = to_primitive(validation)
+        if not validation.passed:
             audit.final_outcome = "full_dynamic"
-            audit.fallback_reason = "planner_requirement_uncovered"
+            audit.fallback_reason = "planner_requirement_multiplicity_invalid"
             return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=to_primitive(audit))
 
-        existing_edges = self.graph.existing_edges(search.refs, mode=mode)
-        requirement_candidates = {
-            result.requirement.requirement_id: {
-                str(candidate.atomic_ref) for candidate in result.candidates
+        expansion = self.multiplicity_compiler.expand(bundle, contract)
+        audit.requirement_expansion = to_primitive(expansion)
+        search = self.atomic_retriever.retrieve_multiplicity(
+            expansion, mode=mode, harness_profile=harness.profile_name,
+            task_id=task.task_id,
+        )
+        if repaired:
+            audit.atomic_search_p1r = to_primitive(search.template_results)
+
+        if not search.full_coverage:
+            if mode is RuntimeMode.FROZEN or not self.cold_start_enabled:
+                audit.final_outcome = "full_dynamic"
+                audit.fallback_reason = "planner_requirement_uncovered"
+                return RuntimeLinearPlan.full_dynamic(
+                    task.task_id, contract, reason=audit.fallback_reason,
+                    audit=to_primitive(audit),
+                )
+            if self.provisional_retriever is None or self.failure_experience_retriever is None:
+                raise RuntimeError("online cold start is enabled but failure-side retrievers are not constructed")
+            provisional = self.provisional_retriever.retrieve(
+                search.missing_instances,
+                harness_profile=harness.profile_name,
+            )
+            experiences = self.failure_experience_retriever.retrieve(
+                contract, expansion, harness_profile=harness.profile_name,
+            )
+            audit.cold_start_retrieval = {
+                "missing_instance_ids": [item.instance_id for item in search.missing_instances],
+                "provisional_candidates": to_primitive(provisional),
+                "failure_experiences": to_primitive(experiences),
             }
-            for result in search.results
+            c1_session = self.cold_start_session_factory(task, contract)
+            cold_agent = ColdStartPlanner(c1_session)
+            verified_candidates = search.instance_candidates
+            try:
+                cold_proposal = cold_agent.propose(
+                    task=task,
+                    task_contract=contract,
+                    requirement_expansion=expansion,
+                    verified_candidates=verified_candidates,
+                    provisional_candidates=provisional,
+                    failure_experiences=experiences,
+                    observation=initial_observation,
+                )
+                audit.cold_start_plan = to_primitive(cold_proposal)
+                verified_refs = {
+                    key: {str(item.atomic_ref) for item in values}
+                    for key, values in verified_candidates.items()
+                }
+                provisional_refs = {
+                    key: {str(item.provisional_ref) for item in values}
+                    for key, values in provisional.items()
+                }
+                candidate_roles: dict[str, set[str]] = {}
+                candidate_required_inputs: dict[str, set[str]] = {}
+                candidate_runtime_resolvable_roles: dict[str, set[str]] = {}
+                candidate_output_roles: dict[str, set[str]] = {}
+                for ref in search.refs:
+                    atomic = self.skills.get_atomic(ref)
+                    candidate_roles[str(ref)] = {
+                        item.name for item in (*atomic.inputs, *atomic.outputs)
+                    }
+                    candidate_required_inputs[str(ref)] = {
+                        item.name for item in atomic.inputs if item.required
+                    }
+                    candidate_runtime_resolvable_roles[str(ref)] = {
+                        item.name
+                        for item in atomic.inputs
+                        if item.runtime_resolvable
+                    }
+                    candidate_output_roles[str(ref)] = {
+                        item.name for item in atomic.outputs
+                    }
+                for values in provisional.values():
+                    for item in values:
+                        inputs = [
+                            value
+                            for value in item.atomic_contract.get("inputs", ())
+                            if isinstance(value, dict)
+                        ]
+                        outputs = [
+                            value
+                            for value in item.atomic_contract.get("outputs", ())
+                            if isinstance(value, dict)
+                        ]
+                        candidate_roles[item.provisional_ref] = {
+                            str(value.get("name", ""))
+                            for value in (*inputs, *outputs)
+                            if str(value.get("name", ""))
+                        }
+                        candidate_required_inputs[item.provisional_ref] = {
+                            str(value.get("name", ""))
+                            for value in inputs
+                            if bool(value.get("required", True))
+                            and str(value.get("name", ""))
+                        }
+                        candidate_runtime_resolvable_roles[
+                            item.provisional_ref
+                        ] = {
+                            str(value.get("name", ""))
+                            for value in inputs
+                            if bool(value.get("runtime_resolvable", False))
+                            and str(value.get("name", ""))
+                        }
+                        candidate_output_roles[item.provisional_ref] = {
+                            str(value.get("name", ""))
+                            for value in outputs
+                            if str(value.get("name", ""))
+                        }
+                task_roles = {
+                    str(role)
+                    for source in (
+                        task.context.get("semantic_bindings", {}),
+                        task.context.get("goal_roles", {}),
+                    )
+                    if isinstance(source, dict)
+                    for role in source
+                }
+                cold_validation = self.cold_start_validator.validate(
+                    cold_proposal, expansion,
+                    verified_candidates=verified_refs,
+                    provisional_candidates=provisional_refs,
+                    failure_experience_ids={item.experience_id for item in experiences},
+                    candidate_roles=candidate_roles,
+                    candidate_required_inputs=candidate_required_inputs,
+                    candidate_runtime_resolvable_roles=(
+                        candidate_runtime_resolvable_roles
+                    ),
+                    candidate_output_roles=candidate_output_roles,
+                    task_roles=task_roles,
+                    scaffold_max_steps=self.scaffold_max_steps,
+                )
+                audit.cold_start_validation = to_primitive(cold_validation)
+                if not cold_validation.passed:
+                    cold_proposal = cold_agent.repair(
+                        cold_proposal, cold_validation,
+                        requirement_expansion=expansion,
+                        verified_candidates=verified_candidates,
+                        provisional_candidates=provisional,
+                        failure_experiences=experiences,
+                    )
+                    audit.cold_start_repair = to_primitive(cold_proposal)
+                    cold_validation = self.cold_start_validator.validate(
+                        cold_proposal, expansion,
+                        verified_candidates=verified_refs,
+                        provisional_candidates=provisional_refs,
+                        failure_experience_ids={item.experience_id for item in experiences},
+                        candidate_roles=candidate_roles,
+                        candidate_required_inputs=candidate_required_inputs,
+                        candidate_runtime_resolvable_roles=(
+                            candidate_runtime_resolvable_roles
+                        ),
+                        candidate_output_roles=candidate_output_roles,
+                        task_roles=task_roles,
+                        scaffold_max_steps=self.scaffold_max_steps,
+                    )
+                    audit.cold_start_repair_validation = to_primitive(cold_validation)
+            except Exception as exc:
+                if not _is_planner_content_failure(exc):
+                    raise
+                audit.final_outcome = "full_dynamic"
+                audit.fallback_reason = "cold_start_plan_invalid"
+                return RuntimeLinearPlan.full_dynamic(
+                    task.task_id, contract, reason=audit.fallback_reason,
+                    audit=to_primitive(audit),
+                )
+            if not cold_validation.passed:
+                audit.final_outcome = "full_dynamic"
+                audit.fallback_reason = "cold_start_plan_invalid"
+                return RuntimeLinearPlan.full_dynamic(
+                    task.task_id, contract, reason=audit.fallback_reason,
+                    audit=to_primitive(audit),
+                )
+            scaffold = self.cold_start_validator.scaffold(
+                cold_proposal,
+                candidate_roles=candidate_roles,
+                candidate_required_inputs=candidate_required_inputs,
+                candidate_runtime_resolvable_roles=(
+                    candidate_runtime_resolvable_roles
+                ),
+                candidate_output_roles=candidate_output_roles,
+                task_roles=task_roles,
+            )
+            if not scaffold.executable_step_ids:
+                audit.final_outcome = "full_dynamic"
+                audit.fallback_reason = "cold_start_executable_prefix_empty"
+                plan = RuntimeLinearPlan.full_dynamic(
+                    task.task_id, contract, reason=audit.fallback_reason,
+                    audit=to_primitive(audit),
+                )
+                plan.cold_start_plan = cold_proposal
+                plan.cold_start_scaffold = to_primitive(scaffold)
+                return plan
+            plan = RuntimeLinearPlan.cold_start(
+                task.task_id, contract, proposal=cold_proposal,
+                scaffold=to_primitive(scaffold), audit=to_primitive(audit),
+            )
+            plan.repeat_constraints = self.compiler._repeat_constraints(
+                cold_proposal, expansion,
+            )
+            return plan
+
+        existing_edges = self.graph.existing_edges(search.refs, mode=mode)
+        instance_candidates = {
+            instance_id: {str(candidate.atomic_ref) for candidate in candidates}
+            for instance_id, candidates in search.instance_candidates.items()
         }
         try:
-            proposal = workflow_agent.propose(task, contract, requirements, search.candidates, existing_edges, hints)
+            proposal = workflow_agent.propose(task, contract, expansion, search.candidates, existing_edges, hints)
             audit.workflow_p2 = to_primitive(proposal)
             supplied_refs = {str(ref) for ref in search.refs}
             _require_supplied_atomic_refs(proposal, supplied_refs)
-            plan = self.compiler.compile(proposal, task, contract, mode=mode, audit=to_primitive(audit))
-            required_ids = [item.requirement_id for item in requirements if item.required]
+            plan = self.compiler.compile(
+                proposal, task, contract, mode=mode, audit=to_primitive(audit),
+                expansion=expansion,
+            )
+            required_ids = [
+                item.instance_id for item in expansion.instances if item.requirement.required
+            ]
             report = self.validator.validate(
                 plan, mode=mode, required_requirement_ids=required_ids, harness_profile=harness.profile_name,
-                requirement_candidates=requirement_candidates,
+                expansion=expansion, instance_candidates=instance_candidates,
             )
             audit.validation_p2 = to_primitive(report)
             if not report.passed:
@@ -198,10 +448,13 @@ class PlannerPipeline:
                 proposal = workflow_agent.repair(proposal, report, authoritative, existing_edges)
                 audit.workflow_p2r = to_primitive(proposal)
                 _require_supplied_atomic_refs(proposal, supplied_refs)
-                plan = self.compiler.compile(proposal, task, contract, mode=mode, audit=to_primitive(audit))
+                plan = self.compiler.compile(
+                    proposal, task, contract, mode=mode, audit=to_primitive(audit),
+                    expansion=expansion,
+                )
                 report = self.validator.validate(
                     plan, mode=mode, required_requirement_ids=required_ids, harness_profile=harness.profile_name,
-                    requirement_candidates=requirement_candidates,
+                    expansion=expansion, instance_candidates=instance_candidates,
                 )
                 audit.validation_p2r = to_primitive(report)
             if not report.passed:

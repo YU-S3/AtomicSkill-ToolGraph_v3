@@ -136,6 +136,62 @@ class NodeExecutor:
                 f"stale or unknown environment action_id: {action_id}",
                 layer=FailureLayer.RUNTIME_AGENT,
             )
+        if occurrence is not None:
+            repeat_values = {
+                role: binding.value
+                for role, binding in ctx.binding_store.snapshot_for_node(
+                    occurrence,
+                ).items()
+                if binding.status is BindingStatus.GROUNDED
+            }
+            repeat_values.update(dict(spec.arguments))
+            # RuntimeOccurrence always carries step_id.  A small number of
+            # adapter-level callers use the historical occurrence-shaped
+            # object that only exposes occurrence_id; retain that boundary
+            # compatibility without weakening repeat preflight for real plans.
+            repeat_step_id = str(
+                getattr(
+                    occurrence,
+                    "step_id",
+                    getattr(occurrence, "occurrence_id", ""),
+                )
+            )
+            repeat_preflight = ctx.binding_store.preflight_repeat_bindings(
+                repeat_step_id, repeat_values,
+            )
+            if not repeat_preflight.passed:
+                code = (
+                    repeat_preflight.failure_codes[0]
+                    if repeat_preflight.failure_codes
+                    else "runtime_repetition_distinctness_violation"
+                )
+                payload = {
+                    "loop_blocked": True,
+                    "fallback_required": True,
+                    "error": code,
+                    "observation": ctx.observation,
+                    "done": False,
+                    "won": False,
+                    "new_revision": ctx.world_revision,
+                    "remaining_budget": ctx.budget.snapshot(),
+                }
+                ctx.trace_builder.trace.native_tool_calls.append(
+                    NativeToolCallRecord(
+                        call.call_id,
+                        session.session_id,
+                        occurrence.occurrence_id,
+                        call.name,
+                        dict(call.arguments),
+                        "environment_action",
+                        to_primitive(repeat_preflight),
+                        f"revision:{ctx.world_revision}",
+                        sum(
+                            1 for item in ctx.trace_builder.trace.agent_turns
+                            if item.session_id == session.session_id
+                        ) - 1,
+                    )
+                )
+                return payload, spec
         loop = loop_guard.inspect(
             action_type=spec.action_type,
             arguments=spec.arguments,
@@ -212,8 +268,9 @@ class NodeExecutor:
         mode: str,
         preferred_values: list[Any],
         provisional_bindings: list[RuntimeBinding] = (),
+        atomic_override: Any | None = None,
     ) -> ImplementationExecutionResult | None:
-        atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
+        atomic = atomic_override or self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
         bindings = ctx.binding_store.snapshot_for_node(occurrence)
         bindings.update({
             item.role: item
@@ -241,6 +298,22 @@ class NodeExecutor:
         )
         if not resolution.passed:
             return None
+        repeat_effect_values = {
+            **dict(resolution.resolved_bindings),
+            **dict(resolution.output_candidates),
+        }
+        repeat_preflight = ctx.binding_store.preflight_repeat_bindings(
+            occurrence.step_id,
+            repeat_effect_values,
+        )
+        ctx.trace_builder.trace.validations.append(ValidationRecord(
+            occurrence.occurrence_id,
+            "runtime_repeat_preflight",
+            to_primitive(repeat_preflight),
+            ctx.world_revision,
+        ))
+        if not repeat_preflight.passed:
+            return None
         committed = ctx.binding_store.commit_atomic_effect_witnesses(
             occurrence.occurrence_id,
             resolution.resolved_bindings,
@@ -248,6 +321,17 @@ class NodeExecutor:
             resolution.witness_refs,
             ctx.world_revision,
         )
+        repeat_commit = ctx.binding_store.commit_repeat_bindings(
+            occurrence.step_id,
+            repeat_effect_values,
+            effect_passed=True,
+        )
+        if not repeat_commit.passed:
+            raise AtomicSkillGraphError(
+                repeat_commit.failure_codes[0],
+                "validated Atomic Effect could not commit RepeatBlock bindings",
+                layer=FailureLayer.RUNTIME_BINDING,
+            )
         ctx.trace_builder.trace.validations.append(ValidationRecord(
             occurrence.occurrence_id,
             "atomic",
@@ -589,14 +673,47 @@ class NodeExecutor:
         result.node_status = NodeExecutionStatus.SEEDED_FAILED
         return result
 
-    def run_dynamic(self, ctx: Any, *, rescue: bool = False) -> dict[str, Any]:
-        session = self.session_factory("runtime_dynamic", "__task__")
-        session_record = self._record_session_start(session, "DynamicTaskSession", "", ctx)
-        span = ctx.trace_builder.start_span("task_rescue" if rescue else "full_dynamic", "", learnable=True)
+    def run_dynamic(
+        self,
+        ctx: Any,
+        *,
+        rescue: bool = False,
+        cold_start_continuation: bool = False,
+        continuation_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        session_kind = (
+            "runtime_dynamic_cold_start_continuation"
+            if cold_start_continuation
+            else "runtime_dynamic"
+        )
+        session = self.session_factory(session_kind, "__task__")
+        session_record = self._record_session_start(
+            session,
+            "ColdStartDynamicContinuationSession"
+            if cold_start_continuation
+            else "DynamicTaskSession",
+            "", ctx,
+        )
+        span_kind = (
+            "cold_start_dynamic_continuation"
+            if cold_start_continuation
+            else "task_rescue" if rescue else "full_dynamic"
+        )
+        span = ctx.trace_builder.start_span(span_kind, "", learnable=True)
         prompt = self.context_builder.dynamic_task(
             task_goal=ctx.task_goal, observation=ctx.observation, action_catalog=ctx.action_catalog,
             relevant_action_history=ctx.action_history, remaining_budget=ctx.budget.snapshot(),
         )
+        if cold_start_continuation:
+            import json
+            prompt += (
+                "\n\nCOLD_START_CONTINUATION_CONTEXT_JSON\n"
+                + json.dumps(
+                    to_primitive(continuation_context or {}),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
         tools = [self._environment_tool(ctx), self._status_tool()]
         success = False
         failure_code = ""
@@ -623,6 +740,7 @@ class NodeExecutor:
                 "success": strict_success,
                 "failure_code": failure_code,
                 "rescue": rescue,
+                "cold_start_continuation": cold_start_continuation,
             }
 
         try:
@@ -642,7 +760,11 @@ class NodeExecutor:
                 payload, _ = self._execute_environment_call(
                     call, session, None, ctx,
                     span_id=span.span_id,
-                    origin="task_rescue" if rescue else "full_dynamic",
+                    origin=(
+                        "cold_start_dynamic_continuation"
+                        if cold_start_continuation
+                        else "task_rescue" if rescue else "full_dynamic"
+                    ),
                     loop_guard=loop_guard,
                 )
                 if payload.get("loop_blocked"):

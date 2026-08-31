@@ -1,6 +1,7 @@
 # AtomicSkillGraph v3 base configuration.
 # API secrets are never valid configuration values: only api_key_env is read.
 schema_version: 3
+method_patch: "3.1"
 
 data_dir: data_v3
 
@@ -64,7 +65,20 @@ planner:
   max_atomic_top_k: 5
   requirement_repair_limit: 1
   graph_repair_limit: 1
+  max_repeat_count: 4
   max_runtime_occurrences: 16
+  cold_start_c1_repair_limit: 1
+
+cold_start:
+  enabled: true
+  provisional_top_k_per_requirement: 3
+  failure_experience_top_k: 2
+  scaffold_max_steps: 8
+  failure_extractor_enabled: true
+  source_replay_required: true
+  provisional_suppress_consecutive_failures: 3
+  promotion_requires_strict_task_success: true
+  experience_confirm_independent_tasks: 2
 
 runtime:
   global_action_budget: 100

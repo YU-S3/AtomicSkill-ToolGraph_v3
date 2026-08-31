@@ -46,6 +46,14 @@ from .evolution.composite_repairs import CompositeSequenceRepairEngine
 from .evolution.extractor_session import ExtractorSession
 from .evolution.evidence import EvolutionEvidenceAccumulator
 from .evolution.failure_processor import FailureProcessor
+from .evolution.failure_extraction_validator import (
+    FailureAssetRecordBuilder,
+    FailureAtomicSourceReplay,
+    FailureExtractionCoordinator,
+    FailureExtractionEligibility,
+    PreparedFailureExtraction,
+)
+from .evolution.failure_extractor_session import FailureExtractorSession
 from .evolution.gap_diagnosis import GapDiagnoser
 from .evolution.maintenance import (
     BatchMaintenanceResult,
@@ -69,6 +77,11 @@ from .evolution.tool_compiler import (
     rewrite_capability_labels,
 )
 from .evolution.trace_normalizer import TraceNormalizer
+from .evolution.provisional_promotion import (
+    PreparedPromotion,
+    ProvisionalPromotionCompiler,
+    commit_prepared_promotion,
+)
 from .evolution.typed_repair_session import TypedRepairProposalSession
 from .evolution.typed_repairs import TypedRepairEngine
 from .governance import (
@@ -84,14 +97,30 @@ from .governance import (
 )
 from .harness.alfworld import AlfWorldAdapter
 from .harness.protocol import HarnessTask
-from .knowledge import ArtifactStore, GraphStore, SkillRegistry, StateDatabase, ToolRegistry
+from .knowledge import (
+    ArtifactStore,
+    FailureKnowledgeStore,
+    GraphStore,
+    SkillRegistry,
+    StateDatabase,
+    ToolRegistry,
+)
+from .knowledge.database import STATE_PATCH_LEVEL
 from .planner import PlannerPipeline
+from .planner.cold_start_agent import cold_start_plan_from_dict
+from .planner.cold_start_retriever import (
+    FailureExperienceRetriever,
+    ProvisionalAtomicRetriever,
+)
+from .planner.requirement_agent import requirement_bundle_from_dict
+from .runtime.cold_start_executor import ProvisionalTrialResult
 from .runtime.invocation_compiler import InvocationCompiler
 from .runtime.orchestrator import RuntimeOrchestrator, refresh_learning_eligibility
 from .runtime.budget import required_runtime_turn_caps, validate_runtime_turn_caps
 from .traces import (
     AgentSessionRecord,
     AgentTurnRecord,
+    FailureExtractionRecord,
     ProviderRequestRecord,
     TaskRecord,
     TraceBuilder,
@@ -138,6 +167,9 @@ _LONG_TERM_KNOWLEDGE_TABLES = (
     "evidence_events",
     "lifecycle_projection",
     "projection_checkpoints",
+    "provisional_artifacts",
+    "failure_experiences",
+    "cold_start_evidence",
 )
 
 
@@ -155,6 +187,10 @@ def load_config(source: str | Path | Mapping[str, Any]) -> dict[str, Any]:
         config["_config_path"] = str(config_path)
     if int(config.get("schema_version", 0)) != 3:
         raise ValueError("AtomicSkillGraph v3 requires schema_version: 3")
+    method_patch = str(config.get("method_patch", "3.1"))
+    if method_patch != "3.1":
+        raise ValueError("AtomicSkillGraph v3 requires method_patch: \"3.1\"")
+    config["method_patch"] = method_patch
     llm = dict(config.get("llm") or {})
     if str(llm.get("provider", "openai_compatible")) != "openai_compatible":
         raise ValueError("v3 currently supports provider: openai_compatible only")
@@ -204,6 +240,40 @@ def load_config(source: str | Path | Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("v3 permits exactly one P1R requirement repair")
     if int(planner.get("graph_repair_limit", 1)) != 1:
         raise ValueError("v3 permits exactly one P2R graph repair")
+    if int(planner.get("cold_start_c1_repair_limit", 1)) != 1:
+        raise ValueError("v3.1 permits exactly one C1R cold-start repair")
+    max_repeat_count = planner.get("max_repeat_count", 4)
+    if isinstance(max_repeat_count, bool) or int(max_repeat_count) != 4:
+        raise ValueError("v3.1 planner.max_repeat_count must be 4")
+    if isinstance(planner.get("max_runtime_occurrences", 16), bool) or int(
+        planner.get("max_runtime_occurrences", 16)
+    ) != 16:
+        raise ValueError("v3.1 planner.max_runtime_occurrences must remain 16")
+    cold_start = dict(config.get("cold_start") or {})
+    enabled = cold_start.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("cold_start.enabled must be boolean")
+    expected_cold_start = {
+        "provisional_top_k_per_requirement": 3,
+        "failure_experience_top_k": 2,
+        "scaffold_max_steps": 8,
+        "failure_extractor_enabled": True,
+        "source_replay_required": True,
+        "provisional_suppress_consecutive_failures": 3,
+        "promotion_requires_strict_task_success": True,
+        "experience_confirm_independent_tasks": 2,
+    }
+    if cold_start:
+        for key, expected in expected_cold_start.items():
+            value = cold_start.get(key, expected)
+            if isinstance(expected, bool):
+                if value is not expected:
+                    raise ValueError(f"cold_start.{key} must be {str(expected).lower()}")
+            elif isinstance(value, bool) or int(value) != expected:
+                raise ValueError(f"cold_start.{key} must be {expected}")
+    runtime_mode = str((config.get("experiment") or {}).get("runtime_mode", "online"))
+    if runtime_mode == "frozen" and enabled:
+        raise ValueError("frozen config must set cold_start.enabled: false")
     return config
 
 
@@ -274,6 +344,8 @@ class AtomicSkillGraphSystem:
                 raise ValueError("frozen config must forbid long-term knowledge writes")
             if experiment_config.get("freeze_skills") is not True:
                 raise ValueError("frozen config must set freeze_skills: true")
+            if bool((self.config.get("cold_start") or {}).get("enabled", False)):
+                raise ValueError("frozen config must set cold_start.enabled: false")
         self.mode = RuntimeMode.FROZEN if self.readonly else RuntimeMode.ONLINE
         config_path = Path(self.config.get("_config_path", Path.cwd() / "config.yaml"))
         self.repo_root = config_path.parent.parent if "_config_path" in self.config else Path.cwd()
@@ -302,6 +374,42 @@ class AtomicSkillGraphSystem:
         self.skills = SkillRegistry(self.artifacts, self.database)
         self.tools = ToolRegistry(self.artifacts, self.database)
         self.graph = GraphStore(self.database, self.skills)
+        cold_start_config = dict(self.config.get("cold_start") or {})
+        self.cold_start_enabled = bool(
+            cold_start_config.get("enabled", False)
+            and not self.readonly
+        )
+        self.failure_knowledge: FailureKnowledgeStore | None = (
+            FailureKnowledgeStore(
+                self.data_dir,
+                self.database,
+                experience_confirm_independent_tasks=int(
+                    cold_start_config.get(
+                        "experience_confirm_independent_tasks", 2,
+                    )
+                ),
+            )
+            if self.cold_start_enabled
+            else None
+        )
+        self.provisional_retriever = (
+            ProvisionalAtomicRetriever(
+                self.failure_knowledge,
+                top_k=int(cold_start_config.get(
+                    "provisional_top_k_per_requirement", 3,
+                )),
+            )
+            if self.failure_knowledge is not None
+            else None
+        )
+        self.failure_experience_retriever = (
+            FailureExperienceRetriever(
+                self.failure_knowledge,
+                top_k=int(cold_start_config.get("failure_experience_top_k", 2)),
+            )
+            if self.failure_knowledge is not None
+            else None
+        )
         self.traces = TraceStore(self.trace_data_dir, readonly=False)
         self.validation = ValidationEngine()
         self.usage = UsageLedger()
@@ -363,7 +471,16 @@ class AtomicSkillGraphSystem:
             atomic_top_k=int(planner_config.get("atomic_top_k_per_requirement", 3)),
             max_atomic_top_k=int(planner_config.get("max_atomic_top_k", 5)),
             max_occurrences=int(planner_config.get("max_runtime_occurrences", 16)),
+            max_repeat_count=int(planner_config.get("max_repeat_count", 4)),
             candidate_policy=self.candidate_policy,
+            cold_start_enabled=self.cold_start_enabled,
+            provisional_retriever=self.provisional_retriever,
+            failure_experience_retriever=self.failure_experience_retriever,
+            cold_start_session_factory=self._cold_start_session,
+            scaffold_max_steps=int(cold_start_config.get("scaffold_max_steps", 8)),
+            cold_start_repair_limit=int(
+                planner_config.get("cold_start_c1_repair_limit", 1)
+            ),
         )
         self.invocation_compiler = InvocationCompiler(
             self.skills, self.tools, self.harness, mode=self.mode,
@@ -404,6 +521,7 @@ class AtomicSkillGraphSystem:
             self.validation,
             self._runtime_session,
             runtime_config=runtime_config,
+            failure_knowledge=self.failure_knowledge,
         )
         extraction_config = dict(self.config.get("extraction") or {})
         self.extraction_policy = ExtractionPolicy(**{
@@ -424,6 +542,27 @@ class AtomicSkillGraphSystem:
         self.composite_builder = CompositeBuilder()
         self.failure_processor = FailureProcessor(self.validation.failure_localizer)
         self.gap_diagnoser = GapDiagnoser(self.skills)
+        self.failure_extraction_coordinator: FailureExtractionCoordinator | None = (
+            FailureExtractionCoordinator()
+            if (
+                self.cold_start_enabled
+                and bool(cold_start_config.get("failure_extractor_enabled", True))
+            )
+            else None
+        )
+        self.provisional_promotion_compiler: ProvisionalPromotionCompiler | None = (
+            ProvisionalPromotionCompiler(
+                normalizer=self.normalizer,
+                atomicizer=self.atomicizer,
+                tool_compiler=self.tool_compiler,
+                admission=self.admission,
+                harness=self.harness,
+            )
+            if self.cold_start_enabled else None
+        )
+        self.provisional_suppress_consecutive_failures = int(
+            cold_start_config.get("provisional_suppress_consecutive_failures", 3)
+        )
         self.repair_store = None if self.readonly else RepairStore(self.database)
         self.evolution_maintenance = (
             None if self.readonly else EvolutionMaintenance(self.repair_store)
@@ -507,27 +646,55 @@ class AtomicSkillGraphSystem:
             semantic_max_turns=semantic_max_turns,
         )
 
+    def _cold_start_session(self, task: HarnessTask, _contract: Any) -> _SessionProxy:
+        cfg = self._stage_config("planner")
+        # C1 + the sole C1R are independent from P1/P2 and use a fresh
+        # Planner conversation while retaining the frozen Planner budget.
+        semantic_max_turns = 2
+        return self._new_session(
+            stage="planner",
+            bucket=UsageBucket.COLD_START_C1,
+            session_type="ColdStartPlannerSession",
+            occurrence_id="",
+            task_id=task.task_id,
+            max_turns=structured_provider_turn_cap(semantic_max_turns),
+            max_tokens=int(cfg.get("max_total_tokens_per_task", 120000)),
+            exhaustion_code="planner_token_budget_exhausted",
+            semantic_max_turns=semantic_max_turns,
+        )
+
     def _runtime_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:
         cfg = self._stage_config("runtime")
         bucket = UsageBucket(session_kind)
-        token_name = "max_total_tokens_per_task" if session_kind == "runtime_dynamic" else "max_total_tokens_per_node"
+        task_level = session_kind in {
+            "runtime_dynamic", "runtime_dynamic_cold_start_continuation",
+        }
+        token_name = "max_total_tokens_per_task" if task_level else "max_total_tokens_per_node"
         return self._new_session(
-            stage=session_kind, bucket=bucket,
+            stage=(
+                "runtime_dynamic"
+                if session_kind == "runtime_dynamic_cold_start_continuation"
+                else "runtime_seeded"
+                if session_kind == "runtime_provisional_seeded"
+                else session_kind
+            ), bucket=bucket,
             session_type={
                 "runtime_preparation": "RuntimePreparationSession",
                 "runtime_seeded": "SeededSession",
                 "runtime_dynamic": "DynamicTaskSession",
+                "runtime_provisional_seeded": "ProvisionalSeededSession",
+                "runtime_dynamic_cold_start_continuation": "ColdStartDynamicContinuationSession",
             }[session_kind],
             occurrence_id=occurrence_id, task_id=self._current_task_id,
             max_turns=(
                 self._runtime_turn_caps[1]
-                if session_kind == "runtime_dynamic"
+                if task_level
                 else self._runtime_turn_caps[0]
             ),
             max_tokens=int(cfg.get(token_name, cfg.get("max_total_tokens_per_node", 80000))),
             exhaustion_code=(
                 "runtime_task_token_budget_exhausted"
-                if session_kind == "runtime_dynamic"
+                if task_level
                 else "runtime_node_token_budget_exhausted"
             ),
         )
@@ -540,6 +707,24 @@ class AtomicSkillGraphSystem:
             session_type="ExtractorSession", occurrence_id="", task_id=task_id,
             max_turns=structured_provider_turn_cap(semantic_max_turns),
             max_tokens=int(cfg.get("max_total_tokens_per_task", cfg.get("max_completion_tokens", 131072) * 2)),
+            exhaustion_code="extractor_token_budget_exhausted",
+            semantic_max_turns=semantic_max_turns,
+        )
+
+    def _failure_extractor_session(self, task_id: str) -> _SessionProxy:
+        cfg = self._stage_config("extractor")
+        # F1 and F2 share this exact conversation.  FailureExtractorSession
+        # switches the ledger bucket between the two semantic turns.
+        semantic_max_turns = 2
+        return self._new_session(
+            stage="extractor", bucket=UsageBucket.FAILURE_EXTRACTOR_F1,
+            session_type="FailureExtractorSession", occurrence_id="",
+            task_id=task_id,
+            max_turns=structured_provider_turn_cap(semantic_max_turns),
+            max_tokens=int(cfg.get(
+                "max_total_tokens_per_task",
+                cfg.get("max_completion_tokens", 131072) * 2,
+            )),
             exhaustion_code="extractor_token_budget_exhausted",
             semantic_max_turns=semantic_max_turns,
         )
@@ -578,6 +763,187 @@ class AtomicSkillGraphSystem:
             semantic_max_turns=semantic_max_turns,
         )
 
+    @staticmethod
+    def _provisional_trials(trace: TraceRecord) -> list[ProvisionalTrialResult]:
+        trials: list[ProvisionalTrialResult] = []
+        seen_steps: set[str] = set()
+        for raw in trace.metadata.get("provisional_trials", ()):
+            if not isinstance(raw, Mapping):
+                raise TypeError("provisional trial Trace payload must be a mapping")
+            action_span = tuple(map(int, raw.get("action_span", ())))
+            if len(action_span) != 2:
+                raise ValueError("provisional trial action_span must contain two indexes")
+            trial = ProvisionalTrialResult(
+                provisional_ref=str(raw["provisional_ref"]),
+                step_id=str(raw["step_id"]),
+                local_effect_passed=bool(raw["local_effect_passed"]),
+                progress_before_digest=str(raw["progress_before_digest"]),
+                progress_after_digest=str(raw["progress_after_digest"]),
+                action_span=action_span,
+                witness_refs=list(map(str, raw.get("witness_refs", ()))),
+                failure_code=str(raw.get("failure_code", "")),
+                resolved_bindings=dict(raw.get("resolved_bindings") or {}),
+            )
+            if trial.step_id in seen_steps:
+                raise ValueError("a cold-start step may record only one provisional trial")
+            seen_steps.add(trial.step_id)
+            trials.append(trial)
+        return trials
+
+    def _cold_start_authority(
+        self,
+        trace: TraceRecord,
+        task: HarnessTask,
+    ) -> tuple[Any, Any, Any]:
+        if trace.cold_start_plan is None:
+            raise ValueError("failure extraction requires a ColdStartPlan record")
+        contract = self.harness.task_contract(task)
+        bundle = requirement_bundle_from_dict(dict(trace.requirement_bundle))
+        expansion = self.planner.multiplicity_compiler.expand(bundle, contract)
+        proposal = cold_start_plan_from_dict(
+            dict(trace.cold_start_plan.proposal)
+        )
+        if to_primitive(expansion) != dict(trace.requirement_expansion):
+            raise RuntimeError(
+                "Trace RequirementExpansion does not match the frozen P1 bundle"
+            )
+        return contract, expansion, proposal
+
+    def _cold_candidate_contract_views(self, proposal: Any) -> list[dict[str, Any]]:
+        views: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for step in proposal.steps:
+            source = str(getattr(step.candidate_source, "value", step.candidate_source))
+            ref = str(step.candidate_ref)
+            key = (source, ref)
+            if key in seen:
+                continue
+            seen.add(key)
+            if source == "verified":
+                atomic = self.skills.get_atomic(ref)
+                contract = {
+                    "summary": atomic.summary,
+                    "inputs": atomic.inputs,
+                    "outputs": atomic.outputs,
+                    "preconditions": atomic.preconditions,
+                    "effects": atomic.effects,
+                    "validator_spec": atomic.validator_spec,
+                }
+            elif source == "provisional":
+                if self.failure_knowledge is None:
+                    raise RuntimeError(
+                        "Provisional C1 step exists without failure-side storage"
+                    )
+                contract = to_primitive(
+                    self.failure_knowledge.provisional_candidate_view(ref)
+                )
+            else:
+                contract = {
+                    "expected_effects": to_primitive(step.expected_effects),
+                    "unresolved": True,
+                }
+            views.append({
+                "candidate_source": source,
+                "candidate_ref": ref,
+                "contract": to_primitive(contract),
+            })
+        return views
+
+    def _prepare_failure_extraction(
+        self,
+        trace: TraceRecord,
+        task: HarnessTask,
+        *,
+        run_mode: RuntimeMode,
+    ) -> PreparedFailureExtraction | None:
+        valid_plan = bool(
+            trace.cold_start_plan is not None
+            and dict(trace.cold_start_plan.validation).get("passed") is True
+        )
+        eligibility = FailureExtractionEligibility(
+            cold_start_enabled=self.cold_start_enabled,
+            valid_cold_start_plan=valid_plan,
+            strict_task_success=trace.strict_task_success,
+            infrastructure_failure=trace.infrastructure_failure,
+            runtime_mode=run_mode.value,
+        )
+        if self.failure_extraction_coordinator is None or not eligibility.passed:
+            return None
+        contract, expansion, proposal = self._cold_start_authority(trace, task)
+        source_replay = FailureAtomicSourceReplay(
+            trace=trace,
+            task=task,
+            normalizer=self.normalizer,
+            atomicizer=self.atomicizer,
+            tool_compiler=self.tool_compiler,
+            admission=self.admission,
+            harness=self.harness,
+        )
+        record_builder = FailureAssetRecordBuilder(
+            source_replay,
+            task_contract=contract,
+            requirement_expansion=expansion,
+            cold_start_plan=proposal,
+            trace=trace,
+            harness_profile=str(self.harness.profile_name),
+        )
+        prepared = self.failure_extraction_coordinator.prepare(
+            eligibility=eligibility,
+            extractor=FailureExtractorSession(
+                self._failure_extractor_session(task.task_id)
+            ),
+            task_contract=contract,
+            requirement_expansion=expansion,
+            cold_start_plan=proposal,
+            trace=trace,
+            task_progress=trace.task_progress_records,
+            failures=trace.failures,
+            candidate_contracts=self._cold_candidate_contract_views(proposal),
+            source_replay=source_replay,
+            record_builder=record_builder,
+        )
+        trace.failure_extraction = FailureExtractionRecord(
+            f1_alignment=to_primitive(prepared.alignment) if prepared.alignment else {},
+            f1_validation=(
+                to_primitive(prepared.f1_validation)
+                if prepared.f1_validation else {}
+            ),
+            f2_proposal=(
+                to_primitive(prepared.f2_validation.proposal)
+                if prepared.f2_validation else {}
+            ),
+            provisional_refs=[],
+            failure_experience_ids=[],
+            rejection=copy.deepcopy(prepared.rejection),
+        )
+        return prepared
+
+    def _prepare_provisional_promotions(
+        self,
+        trace: TraceRecord,
+        task: HarnessTask,
+        trials: list[ProvisionalTrialResult],
+    ) -> list[PreparedPromotion]:
+        if (
+            self.provisional_promotion_compiler is None
+            or self.failure_knowledge is None
+            or not trace.strict_task_success
+        ):
+            return []
+        prepared = self.provisional_promotion_compiler.prepare(
+            trace,
+            [item for item in trials if item.local_effect_passed],
+            provisional_lookup=self.failure_knowledge.get_provisional,
+            task=task,
+        )
+        trace.provisional_promotions.extend({
+            "provisional_ref": item.provisional_ref,
+            "status": "rejected",
+            "code": item.code,
+            "detail": item.detail,
+        } for item in self.provisional_promotion_compiler.last_rejections)
+        return prepared
+
     def run_task(
         self,
         task: HarnessTask,
@@ -594,6 +960,10 @@ class AtomicSkillGraphSystem:
         self.invocation_compiler.mode = run_mode
         usage_start = len(self.usage.events)
         sessions_start = len(self._observed_sessions)
+        failure_side_read_start = (
+            self.failure_knowledge.failure_side_read_count
+            if self.failure_knowledge is not None else 0
+        )
         trace_builder = self.orchestrator.create_trace_builder(
             task, attempt_id=attempt_id,
         )
@@ -606,6 +976,7 @@ class AtomicSkillGraphSystem:
                 usage_start=usage_start,
                 sessions_start=sessions_start,
                 provider_offsets=provider_offsets,
+                failure_side_read_start=failure_side_read_start,
             )
         except Exception as primary:
             try:
@@ -616,6 +987,7 @@ class AtomicSkillGraphSystem:
                     usage_start=usage_start,
                     sessions_start=sessions_start,
                     provider_offsets=provider_offsets,
+                    failure_side_read_start=failure_side_read_start,
                 )
             except Exception as audit_error:
                 if hasattr(primary, "add_note"):
@@ -636,6 +1008,7 @@ class AtomicSkillGraphSystem:
         usage_start: int,
         sessions_start: int,
         provider_offsets: dict[int, int],
+        failure_side_read_start: int,
     ) -> TraceRecord:
 
         trace = self.orchestrator.run_task(
@@ -650,6 +1023,16 @@ class AtomicSkillGraphSystem:
         refresh_learning_eligibility(trace)
         trace.runtime_plan["failure_stage"] = "evolution"
         self.failure_processor.localize(trace)
+        provisional_trials = self._provisional_trials(trace)
+        prepared_failure = self._prepare_failure_extraction(
+            trace, task, run_mode=run_mode,
+        )
+        # Promotion staging is independent of the normal success Extractor
+        # and intentionally happens first.  It recompiles only current-task
+        # successful trial spans and never constructs a Composite.
+        prepared_promotions = self._prepare_provisional_promotions(
+            trace, task, provisional_trials,
+        )
         decision = self.extraction_policy.decide(trace)
         trace.extraction_policy = {
             "should_extract": bool(decision.should_extract and run_mode is RuntimeMode.ONLINE),
@@ -752,6 +1135,20 @@ class AtomicSkillGraphSystem:
         )
         trace.evidence_event_refs = [event.event_id for event in runtime_events]
 
+        failure_metrics, promotion_events = self._commit_failure_side_task_evidence(
+            trace,
+            task,
+            trials=provisional_trials,
+            promotions=prepared_promotions,
+            failure_extraction=prepared_failure,
+            run_mode=run_mode,
+        )
+        self._finalize_v31_metrics(
+            trace,
+            failure_side_read_start=failure_side_read_start,
+            counters=failure_metrics,
+        )
+
         # Extractor validation and Evolution admission are part of this task's
         # terminal outcome.  Complete them before publishing the immutable
         # success Trace so an exception is persisted on the original skeleton
@@ -788,18 +1185,295 @@ class AtomicSkillGraphSystem:
                 self.evolution_maintenance.commit_repairs(repair_proposals)
 
         trace.runtime_plan["failure_stage"] = ""
+        self._finalize_v31_metrics(
+            trace,
+            failure_side_read_start=failure_side_read_start,
+            counters=failure_metrics,
+        )
         self.traces.save_atomic(trace)
 
         if run_mode is RuntimeMode.ONLINE:
             if trace.learning_eligible:
                 self._online_successes += 1
             if not trace.infrastructure_failure:
-                # Runtime credit remains Trace-first: the immutable evidence
-                # source exists before its append-only ledger projections.
-                self._commit_evidence(runtime_events)
+                # Runtime and provisional-promotion credit remain Trace-first:
+                # the immutable evidence source already names every event id
+                # before one append-only ledger transaction publishes them.
+                self._commit_evidence([*runtime_events, *promotion_events])
             self._maybe_run_maintenance()
             self._persist_maintenance_state()
         return trace
+
+    def _apply_prepared_promotion(
+        self,
+        prepared: PreparedPromotion,
+        trace: TraceRecord,
+        task: HarnessTask,
+    ) -> tuple[tuple[str, str, str], list[Any]]:
+        compiled = prepared.compiled
+        atomic_ref = self.aligner.align_atomic(compiled.atomic)
+        tool_alignment = self.aligner.align_tool_with_replays(
+            compiled.tool,
+            admission=self.admission,
+            replay=lambda tool, case: bool(
+                self.harness.replay_tool(task, tool, case)
+            ),
+        )
+        if not tool_alignment.admitted:
+            raise RuntimeError(
+                "prepared provisional promotion failed registry Tool admission"
+            )
+        tool_ref = tool_alignment.ref
+        implementation_ref = self.aligner.align_implementation(
+            compiled.implementation, atomic_ref, tool_ref,
+        )
+        self._add_structural_edge(
+            str(implementation_ref), str(atomic_ref),
+            GlobalRelationType.IMPLEMENTS, trace.trace_id,
+        )
+        self._add_structural_edge(
+            str(implementation_ref), str(tool_ref),
+            GlobalRelationType.CONTAINS, trace.trace_id,
+        )
+        if (
+            tool_alignment.operation == "add_replay"
+            and tool_alignment.source_ref is not None
+            and str(tool_alignment.source_ref) != str(tool_ref)
+        ):
+            self._add_structural_edge(
+                str(tool_ref), str(tool_alignment.source_ref),
+                GlobalRelationType.DERIVED_FROM, trace.trace_id,
+                evolution_operation="add_replay",
+            )
+
+        actual_refs = (
+            str(atomic_ref), str(implementation_ref), str(tool_ref),
+        )
+        attempts = tuple(
+            CreditAttempt(
+                artifact_ref=ref,
+                artifact_kind=kind,
+                occurrence_id=f"promotion::{prepared.provisional_ref}",
+                attempt_id=(
+                    f"promotion:{kind}:{prepared.provisional_ref}:{ref}"
+                ),
+                sequence_no=index,
+                proposed=True,
+                validated=True,
+                metadata={
+                    "source": "provisional_promotion",
+                    "provisional_ref": prepared.provisional_ref,
+                    "action_span": list(prepared.action_span),
+                },
+            )
+            for index, (kind, ref) in enumerate(zip(
+                ("atomic", "implementation", "tool"), actual_refs,
+            ))
+        )
+        evidence = self.credit.assign(CreditTrace(
+            trace.task.task_id, trace.trace_id, attempts,
+        ))
+        return actual_refs, evidence
+
+    def _commit_failure_side_task_evidence(
+        self,
+        trace: TraceRecord,
+        task: HarnessTask,
+        *,
+        trials: list[ProvisionalTrialResult],
+        promotions: list[PreparedPromotion],
+        failure_extraction: PreparedFailureExtraction | None,
+        run_mode: RuntimeMode,
+    ) -> tuple[dict[str, int], list[Any]]:
+        counters = {
+            "provisional_created_count": 0,
+            "provisional_trial_ready_count": 0,
+            "provisional_trial_supported_count": 0,
+            "provisional_promoted_count": 0,
+            "provisional_suppressed_count": 0,
+            "failure_experience_observed_count": 0,
+            "failure_experience_confirmed_count": 0,
+            "failure_experience_resolved_count": 0,
+        }
+        if run_mode is not RuntimeMode.ONLINE:
+            return counters, []
+        store = self.failure_knowledge
+        if store is None:
+            if trials or promotions or failure_extraction is not None:
+                raise RuntimeError(
+                    "cold-start evidence exists without failure-side storage"
+                )
+            return counters, []
+
+        promotion_events: list[Any] = []
+
+        # Record the real Seeded attempt before PROMOTED.  A promoted record
+        # is terminal and deliberately cannot accept trial evidence later.
+        for trial in trials:
+            before = store.get_provisional(trial.provisional_ref)
+            start, end = trial.action_span
+            after = store.record_provisional_trial(
+                trial.provisional_ref,
+                task_id=task.task_id,
+                trace_id=trace.trace_id,
+                started=end > start,
+                local_effect_passed=trial.local_effect_passed,
+                strict_task_success=trace.strict_task_success,
+                infrastructure_failure=trace.infrastructure_failure,
+                provider_or_protocol_failure=(
+                    trial.failure_code
+                    == "provisional_provider_or_protocol_failure"
+                ),
+                suppress_after=self.provisional_suppress_consecutive_failures,
+                metadata={
+                    "step_id": trial.step_id,
+                    "action_span": list(trial.action_span),
+                    "witness_refs": list(trial.witness_refs),
+                    "failure_code": trial.failure_code,
+                },
+            )
+            if after.status is not before.status:
+                status = after.status.value
+                trace.provisional_promotions.append({
+                    "provisional_ref": trial.provisional_ref,
+                    "status": status,
+                    "source": "current_task_trial",
+                    "step_id": trial.step_id,
+                })
+                if status == "trial_supported":
+                    counters["provisional_trial_supported_count"] += 1
+                elif status == "suppressed":
+                    counters["provisional_suppressed_count"] += 1
+
+        for prepared in promotions:
+            actual_refs, evidence = self._apply_prepared_promotion(
+                prepared, trace, task,
+            )
+            promoted = commit_prepared_promotion(
+                prepared,
+                store=store,
+                verified_refs=actual_refs,
+            )
+            promotion_events.extend(evidence)
+            trace.evidence_event_refs.extend(
+                item.event_id for item in evidence
+            )
+            trace.provisional_promotions.append({
+                "provisional_ref": prepared.provisional_ref,
+                "status": promoted.status.value,
+                "promoted_verified_refs": list(
+                    promoted.promoted_verified_refs
+                ),
+                "action_span": list(prepared.action_span),
+                "source": "current_strict_success_trial",
+            })
+            counters["provisional_promoted_count"] += 1
+
+        if failure_extraction is not None and failure_extraction.accepted:
+            prior_provisional: dict[str, Any | None] = {}
+            for record in failure_extraction.provisional_records:
+                try:
+                    prior_provisional[record.provisional_ref] = (
+                        store.get_provisional(record.provisional_ref)
+                    )
+                except KeyError:
+                    prior_provisional[record.provisional_ref] = None
+            prior_experience = None
+            if failure_extraction.failure_experience is not None:
+                experience_id = failure_extraction.failure_experience.experience_id
+                try:
+                    prior_experience = store.get_failure_experience(experience_id)
+                except KeyError:
+                    prior_experience = None
+            provisional_refs, experience_ids = failure_extraction.commit(store)
+            if trace.failure_extraction is None:
+                raise RuntimeError("accepted failure extraction has no Trace record")
+            trace.failure_extraction.provisional_refs = list(provisional_refs)
+            trace.failure_extraction.failure_experience_ids = list(experience_ids)
+            for ref in provisional_refs:
+                if prior_provisional.get(ref) is not None:
+                    continue
+                current = store.get_provisional(ref)
+                trace.provisional_promotions.append({
+                    "provisional_ref": ref,
+                    "status": current.status.value,
+                    "source": "failure_extractor_f2",
+                })
+                counters["provisional_created_count"] += 1
+                if current.status.value == "trial_ready":
+                    counters["provisional_trial_ready_count"] += 1
+            for experience_id in experience_ids:
+                current = store.get_failure_experience(experience_id)
+                if prior_experience is None:
+                    counters["failure_experience_observed_count"] += int(
+                        current.status.value == "observed"
+                    )
+                elif (
+                    prior_experience.status.value != "confirmed"
+                    and current.status.value == "confirmed"
+                ):
+                    counters["failure_experience_confirmed_count"] += 1
+
+        # A successful task resolves only an experience actually referenced
+        # by its admitted plan and only when no scaffold step reproduced a
+        # divergence.  Dynamic rescue after a failed cold step is insufficient.
+        can_resolve = bool(
+            trace.strict_task_success
+            and trace.cold_start_plan is not None
+            and trace.cold_start_steps
+            and all(not item.failure_code for item in trace.cold_start_steps)
+        )
+        if can_resolve:
+            referenced = list(map(
+                str,
+                dict(trace.cold_start_plan.proposal).get(
+                    "referenced_failure_experience_ids", (),
+                ),
+            ))
+            for experience_id in referenced:
+                before = store.get_failure_experience(experience_id)
+                after = store.resolve_failure_experience(
+                    experience_id,
+                    task_id=task.task_id,
+                    trace_id=trace.trace_id,
+                    metadata={
+                        "cold_start_plan_id": trace.cold_start_plan.plan_id,
+                        "divergence_recurred": False,
+                    },
+                )
+                if (
+                    before.status.value != "resolved"
+                    and after.status.value == "resolved"
+                ):
+                    counters["failure_experience_resolved_count"] += 1
+        return counters, promotion_events
+
+    def _finalize_v31_metrics(
+        self,
+        trace: TraceRecord,
+        *,
+        failure_side_read_start: int,
+        counters: Mapping[str, int] | None = None,
+    ) -> None:
+        selected = 0
+        if trace.cold_start_plan is not None:
+            selected = sum(
+                str(item.get("candidate_source", "")) == "provisional"
+                for item in dict(trace.cold_start_plan.proposal).get("steps", ())
+                if isinstance(item, Mapping)
+            )
+        current_reads = (
+            self.failure_knowledge.failure_side_read_count
+            if self.failure_knowledge is not None else 0
+        )
+        metrics = trace.metadata.setdefault("v31_metrics", {})
+        metrics.update({
+            **dict(counters or {}),
+            "failure_side_read_count": max(
+                0, int(current_reads) - int(failure_side_read_start),
+            ),
+            "provisional_selected_count": int(selected),
+        })
 
     def _provider_instances(self) -> list[Any]:
         values: list[Any] = list(self._provider_cache.values())
@@ -897,6 +1571,7 @@ class AtomicSkillGraphSystem:
         usage_start: int,
         sessions_start: int,
         provider_offsets: Mapping[int, int],
+        failure_side_read_start: int,
     ) -> None:
         trace = builder.trace
         if self.traces.exists(trace.trace_id):
@@ -928,6 +1603,10 @@ class AtomicSkillGraphSystem:
         trace.llm_usage = [event.to_dict() for event in usage]
         trace.metadata["usage_reconciliation"] = _reconcile_events(usage)
         self._attach_provider_requests(trace, provider_offsets)
+        self._finalize_v31_metrics(
+            trace,
+            failure_side_read_start=failure_side_read_start,
+        )
         failure_id = "failure_" + content_hash({
             "trace_id": trace.trace_id,
             "attempt_id": attempt_id,
@@ -2195,6 +2874,13 @@ class AtomicSkillGraphSystem:
             provider_adapter_interface = False
         checks: dict[str, Any] = {
             "schema_version": int(self.config.get("schema_version", 0)) == 3,
+            "method_patch": str(self.config.get("method_patch", "")) == "3.1",
+            "state_patch_level": (
+                database_schema
+                and self.database.execute(
+                    "SELECT value FROM metadata WHERE key='state_patch_level'"
+                ).fetchone()["value"] == STATE_PATCH_LEVEL
+            ),
             "condition_full": str(
                 self.config.get("condition")
                 or (self.config.get("experiment") or {}).get("condition")
@@ -2210,6 +2896,27 @@ class AtomicSkillGraphSystem:
                 not in {"", "REPLACE_WITH_MODEL_ID"}
             ),
         }
+        failure_side_read_count = (
+            int(self.failure_knowledge.failure_side_read_count)
+            if self.failure_knowledge is not None
+            else 0
+        )
+        checks["failure_side_read_count"] = failure_side_read_count
+        checks["provisional_selected_count"] = 0
+        if self.readonly:
+            checks["frozen_cold_start_disabled"] = not self.cold_start_enabled
+            checks["frozen_failure_components_absent"] = all((
+                self.failure_knowledge is None,
+                self.provisional_retriever is None,
+                self.failure_experience_retriever is None,
+                getattr(self, "failure_extractor", None) is None,
+                getattr(self.planner, "provisional_retriever", None) is None,
+                getattr(self.planner, "failure_experience_retriever", None) is None,
+            ))
+            checks["frozen_failure_side_zero_read"] = failure_side_read_count == 0
+            checks["frozen_provisional_zero_selected"] = (
+                checks["provisional_selected_count"] == 0
+            )
         if self._provider_override is None and planner_provider is not None:
             llm = dict(self.config.get("llm") or {})
             provider_snapshot = planner_provider.snapshot()
@@ -2231,6 +2938,15 @@ class AtomicSkillGraphSystem:
         except Exception as exc:
             checks["artifact_integrity"] = False
             checks["artifact_integrity_error"] = str(exc)
+        if self.failure_knowledge is not None:
+            try:
+                self.failure_knowledge.verify_all()
+                checks["failure_knowledge_integrity"] = True
+            except Exception as exc:
+                checks["failure_knowledge_integrity"] = False
+                checks["failure_knowledge_integrity_error"] = str(exc)
+        else:
+            checks["failure_knowledge_integrity"] = "injected_or_not_required"
         if require_api_key and self._provider_override is None:
             try:
                 self._provider("planner").config.resolve_api_key()
@@ -2261,7 +2977,12 @@ class AtomicSkillGraphSystem:
         checks["passed"] = all(
             value is True or value == "injected_or_not_required"
             for key, value in checks.items()
-            if key not in {"empty_bank", "harness_task_count"} and not key.endswith("_error")
+            if key not in {
+                "empty_bank",
+                "harness_task_count",
+                "failure_side_read_count",
+                "provisional_selected_count",
+            } and not key.endswith("_error")
         )
         return checks
 
@@ -2271,13 +2992,17 @@ class AtomicSkillGraphSystem:
         Run/task bookkeeping and traces are experiment outputs, so they do not
         participate in this check.  Every table and file that contributes
         long-term executable/evolution knowledge does.  The database-created
-        schema-version metadata row is the sole allowed metadata entry.
+        schema-version and v3.1 patch-level rows are the sole allowed metadata
+        entries.
         """
         metadata = [
             (str(row["key"]), str(row["value"]))
             for row in self.database.rows("SELECT key,value FROM metadata ORDER BY key")
         ]
-        if metadata != [("schema_version", "3")]:
+        if metadata != [
+            ("schema_version", "3"),
+            ("state_patch_level", STATE_PATCH_LEVEL),
+        ]:
             return False
         for table in _LONG_TERM_KNOWLEDGE_TABLES:
             if self.database.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None:
@@ -2285,6 +3010,12 @@ class AtomicSkillGraphSystem:
         if self.artifacts.root.exists() and any(
             path.is_file() or path.is_symlink()
             for path in self.artifacts.root.rglob("*")
+        ):
+            return False
+        failure_root = self.data_dir / "failure_knowledge"
+        if failure_root.exists() and any(
+            path.is_file() or path.is_symlink()
+            for path in failure_root.rglob("*")
         ):
             return False
         return True
@@ -2312,6 +3043,23 @@ class AtomicSkillGraphSystem:
             "projection_checkpoints": (
                 "projection_name,last_event_rowid", "projection_name"
             ),
+            "provisional_artifacts": (
+                "provisional_ref,contract_signature,canonical_intent,status,"
+                "harness_profile,content_hash,source_trace_id,source_task_id,"
+                "promoted_refs_json,schema_version,created_at,updated_at",
+                "provisional_ref",
+            ),
+            "failure_experiences": (
+                "experience_id,cluster_signature,divergence_signature,status,"
+                "harness_profile,content_hash,support_count,resolved_count,"
+                "schema_version,created_at,updated_at",
+                "experience_id",
+            ),
+            "cold_start_evidence": (
+                "event_id,task_id,trace_id,subject_ref,subject_kind,event_type,"
+                "sequence_no,metadata_json",
+                "event_id",
+            ),
         }
         table_records: dict[str, list[list[Any]]] = {}
         for table, (columns, order) in specs.items():
@@ -2325,6 +3073,15 @@ class AtomicSkillGraphSystem:
         data_dir = Path(self.artifacts.data_dir)
         if self.artifacts.root.exists():
             for path in sorted(item for item in self.artifacts.root.rglob("*") if item.is_file()):
+                files.append({
+                    "path": path.relative_to(data_dir).as_posix(),
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                })
+        failure_root = data_dir / "failure_knowledge"
+        if failure_root.exists():
+            for path in sorted(
+                item for item in failure_root.rglob("*") if item.is_file()
+            ):
                 files.append({
                     "path": path.relative_to(data_dir).as_posix(),
                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -2355,12 +3112,22 @@ class AtomicSkillGraphSystem:
             raise FileExistsError(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         self.artifacts.verify_all()
+        if self.failure_knowledge is not None:
+            self.failure_knowledge.verify_all()
         digest = self.knowledge_digest()
         temporary = Path(tempfile.mkdtemp(
             prefix=f".{destination.name}.tmp-", dir=destination.parent
         ))
         try:
             shutil.copytree(self.artifacts.root, temporary / "artifacts")
+            source_failure_root = self.data_dir / "failure_knowledge"
+            if source_failure_root.is_dir():
+                shutil.copytree(
+                    source_failure_root,
+                    temporary / "failure_knowledge",
+                )
+            else:
+                (temporary / "failure_knowledge").mkdir()
             target_database = temporary / "state.sqlite3"
             target_connection = sqlite3.connect(target_database)
             self.database.connection.backup(target_connection)
@@ -2380,10 +3147,30 @@ class AtomicSkillGraphSystem:
                     "UPDATE artifact_index SET file_path=? WHERE artifact_ref=?",
                     (str(final_path), row["artifact_ref"]),
                 )
+            for table, key_column in (
+                ("provisional_artifacts", "provisional_ref"),
+                ("failure_experiences", "experience_id"),
+            ):
+                for row in target_connection.execute(
+                    f"SELECT {key_column},file_path FROM {table}"
+                ).fetchall():
+                    source = Path(row["file_path"]).resolve()
+                    try:
+                        relative = source.relative_to(source_failure_root.resolve())
+                    except ValueError as exc:
+                        raise RuntimeError(
+                            "failure knowledge index points outside failure_knowledge"
+                        ) from exc
+                    final_path = destination / "failure_knowledge" / relative
+                    target_connection.execute(
+                        f"UPDATE {table} SET file_path=? WHERE {key_column}=?",
+                        (str(final_path), row[key_column]),
+                    )
             target_connection.commit()
             target_connection.close()
             atomic_write_json(temporary / "freeze_manifest.json", {
                 "schema_version": 3,
+                "state_patch_level": STATE_PATCH_LEVEL,
                 "created_at": time.time(),
                 "knowledge_digest": digest,
                 "source_data_dir": str(self.data_dir),

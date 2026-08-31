@@ -31,6 +31,7 @@ from .protocol import (
     validate_distinct_formal_tasks,
 )
 from .report import (
+    validate_frozen_v31_guards,
     validate_formal_usage,
     validate_usage_event_persistence,
     write_reports,
@@ -68,7 +69,18 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     experiment = dict(config.get("experiment") or {})
     harness = dict(config.get("harness") or {})
     selection = dict(harness.get("task_selection") or {})
+    planner = dict(config.get("planner") or {})
+    cold_start = dict(config.get("cold_start") or {})
     expected = {
+        "method_patch": (config.get("method_patch"), "3.1"),
+        "planner.max_repeat_count": (planner.get("max_repeat_count"), 4),
+        "planner.max_runtime_occurrences": (
+            planner.get("max_runtime_occurrences"), 16
+        ),
+        "planner.cold_start_c1_repair_limit": (
+            planner.get("cold_start_c1_repair_limit"), 1
+        ),
+        "cold_start": (cold_start, {"enabled": False}),
         "experiment.name": (experiment.get("name"), "alfworld_frozen_eval_60"),
         "experiment.condition": (experiment.get("condition"), "full"),
         "experiment.freeze_skills": (experiment.get("freeze_skills"), True),
@@ -437,6 +449,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 excluded_trace_ids=task_trace_ids,
             )
             resource_traces = [*traces, *attempt_usage_traces]
+            frozen_v31_guards = validate_frozen_v31_guards(traces)
             validate_formal_usage(resource_traces)
             usage_coverage = validate_usage_event_persistence(
                 system.usage.events,
@@ -444,6 +457,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             )
             print(json.dumps({
                 "usage_trace_coverage": usage_coverage,
+                "frozen_v31_guards": frozen_v31_guards,
             }, ensure_ascii=False), flush=True)
             write_reports(
                 traces, output_dir / "reports", stem="frozen_eval_60",

@@ -142,7 +142,24 @@ def test_manifests_are_deeply_stable_and_hash_semantics_are_deterministic(
                     "{}",
                 ),
             )
-        assert hash_knowledge(data_dir, database=database) != original_knowledge_hash
+        after_evidence_hash = hash_knowledge(data_dir, database=database)
+        assert after_evidence_hash != original_knowledge_hash
+        failure_payload = (
+            data_dir / "failure_knowledge" / "provisional" / "probe.json"
+        )
+        failure_payload.parent.mkdir(parents=True)
+        failure_payload.write_text('{"kind":"provisional_atomic"}', encoding="utf-8")
+        after_failure_file_hash = hash_knowledge(data_dir, database=database)
+        assert after_failure_file_hash != after_evidence_hash
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO cold_start_evidence VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    "cold-event", "task-1", "trace-1", "provisional:probe",
+                    "provisional_atomic", "observed", 0, "{}",
+                ),
+            )
+        assert hash_knowledge(data_dir, database=database) != after_failure_file_hash
     finally:
         database.close()
 
@@ -358,6 +375,9 @@ def test_task_checkpoint_rolls_back_partial_knowledge_before_resume(tmp_path: Pa
     artifact = data_dir / "artifacts" / "probe.json"
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text('{"stage":"before"}', encoding="utf-8")
+    failure_payload = data_dir / "failure_knowledge" / "provisional" / "probe.json"
+    failure_payload.parent.mkdir(parents=True, exist_ok=True)
+    failure_payload.write_text('{"stage":"before"}', encoding="utf-8")
     checkpoint = TaskCheckpointStore(tmp_path / "run" / ".task_checkpoint", data_dir)
     checkpoint.create(
         database,
@@ -372,6 +392,7 @@ def test_task_checkpoint_rolls_back_partial_knowledge_before_resume(tmp_path: Pa
             "INSERT INTO metadata(key,value) VALUES(?,?)", ("partial-write", "present")
         )
     artifact.write_text('{"stage":"partial"}', encoding="utf-8")
+    failure_payload.write_text('{"stage":"partial"}', encoding="utf-8")
     database.close()
 
     assert checkpoint.recover_if_present(
@@ -389,6 +410,7 @@ def test_task_checkpoint_rolls_back_partial_knowledge_before_resume(tmp_path: Pa
             (manifest.run_id, "task-1"),
         ).fetchone()["state"] == "running"
     assert artifact.read_text(encoding="utf-8") == '{"stage":"before"}'
+    assert failure_payload.read_text(encoding="utf-8") == '{"stage":"before"}'
     assert not checkpoint.root.exists()
 
 

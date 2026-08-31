@@ -126,7 +126,8 @@ PROPOSED_OCCURRENCE_SCHEMA: dict[str, Any] = {
         "step_id",
         "occurrence_id",
         "node_ref",
-        "requirement_ids",
+        "requirement_instance_ids",
+        "repeat_role_bindings",
         "binding_specs",
     ],
     "additionalProperties": False,
@@ -136,11 +137,15 @@ PROPOSED_OCCURRENCE_SCHEMA: dict[str, Any] = {
         "node_ref": {
             "oneOf": [NONEMPTY_STRING_SCHEMA, SKILL_REF_SCHEMA],
         },
-        "requirement_ids": {
+        "requirement_instance_ids": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": True,
             "items": NONEMPTY_STRING_SCHEMA,
+        },
+        "repeat_role_bindings": {
+            "type": "object",
+            "additionalProperties": NONEMPTY_STRING_SCHEMA,
         },
         "binding_specs": {
             "type": "object",

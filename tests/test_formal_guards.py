@@ -201,6 +201,28 @@ def test_code_hash_ignores_mutable_run_outputs(tmp_path: Path) -> None:
             ("lifecycle", 0),
         ),
         (
+            "INSERT INTO provisional_artifacts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "provisional:probe", "signature", "probe", "discovered",
+                "fake_v3", "hash", "missing", "trace", "task", "[]",
+                3, 0.0, 0.0,
+            ),
+        ),
+        (
+            "INSERT INTO failure_experiences VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "experience", "cluster", "divergence", "observed", "fake_v3",
+                "hash", "missing", 1, 0, 3, 0.0, 0.0,
+            ),
+        ),
+        (
+            "INSERT INTO cold_start_evidence VALUES(?,?,?,?,?,?,?,?)",
+            (
+                "cold-event", "task", "trace", "provisional:probe",
+                "provisional_atomic", "observed", 0, "{}",
+            ),
+        ),
+        (
             "INSERT INTO metadata VALUES(?,?)",
             ("online_success_count", "0"),
         ),
@@ -264,7 +286,10 @@ def test_existing_incomplete_database_schema_fails_closed_at_startup(tmp_path: P
         assert checks["database_schema"] is False
         assert checks["passed"] is False
 
-    with pytest.raises(RuntimeError, match="missing required v3 tables"):
+    with pytest.raises(
+        RuntimeError,
+        match=r"state_patch_mismatch: v3\.1 requires a fresh knowledge bank",
+    ):
         AtomicSkillGraphSystem(_system_config(data_dir))
 
 
@@ -287,6 +312,11 @@ def test_formal_train_max_task_attempts_config_is_strict_positive_integer() -> N
     with pytest.raises(ProtocolError, match="trace_data_dir"):
         _validate_formal_config(changed, output_dir)
 
+    changed = load_config(config_path)
+    changed["cold_start"]["undocumented_option"] = True
+    with pytest.raises(ProtocolError, match="cold_start"):
+        _validate_formal_config(changed, output_dir)
+
 
 def test_formal_frozen_max_task_attempts_config_is_strict_positive_integer() -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -301,6 +331,11 @@ def test_formal_frozen_max_task_attempts_config_is_strict_positive_integer() -> 
         changed["experiment"]["max_task_attempts"] = invalid
         with pytest.raises(ProtocolError, match="max_task_attempts"):
             _validate_frozen_config(changed, output_dir)
+
+    changed = load_config(config_path)
+    changed["cold_start"]["failure_extractor_enabled"] = False
+    with pytest.raises(ProtocolError, match="cold_start"):
+        _validate_frozen_config(changed, output_dir)
 
     changed = load_config(config_path)
     changed["trace_data_dir"] = str(output_dir / "different-trace-root")

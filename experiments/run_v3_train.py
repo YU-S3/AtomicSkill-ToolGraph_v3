@@ -69,7 +69,53 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     experiment = dict(config.get("experiment") or {})
     harness = dict(config.get("harness") or {})
     selection = dict(harness.get("task_selection") or {})
+    planner = dict(config.get("planner") or {})
+    cold_start = dict(config.get("cold_start") or {})
     expected = {
+        "method_patch": (config.get("method_patch"), "3.1"),
+        "planner.max_repeat_count": (planner.get("max_repeat_count"), 4),
+        "planner.max_runtime_occurrences": (
+            planner.get("max_runtime_occurrences"), 16
+        ),
+        "planner.cold_start_c1_repair_limit": (
+            planner.get("cold_start_c1_repair_limit"), 1
+        ),
+        "cold_start": (cold_start, {
+            "enabled": True,
+            "provisional_top_k_per_requirement": 3,
+            "failure_experience_top_k": 2,
+            "scaffold_max_steps": 8,
+            "failure_extractor_enabled": True,
+            "source_replay_required": True,
+            "provisional_suppress_consecutive_failures": 3,
+            "promotion_requires_strict_task_success": True,
+            "experience_confirm_independent_tasks": 2,
+        }),
+        "cold_start.enabled": (cold_start.get("enabled"), True),
+        "cold_start.provisional_top_k_per_requirement": (
+            cold_start.get("provisional_top_k_per_requirement"), 3
+        ),
+        "cold_start.failure_experience_top_k": (
+            cold_start.get("failure_experience_top_k"), 2
+        ),
+        "cold_start.scaffold_max_steps": (
+            cold_start.get("scaffold_max_steps"), 8
+        ),
+        "cold_start.failure_extractor_enabled": (
+            cold_start.get("failure_extractor_enabled"), True
+        ),
+        "cold_start.source_replay_required": (
+            cold_start.get("source_replay_required"), True
+        ),
+        "cold_start.provisional_suppress_consecutive_failures": (
+            cold_start.get("provisional_suppress_consecutive_failures"), 3
+        ),
+        "cold_start.promotion_requires_strict_task_success": (
+            cold_start.get("promotion_requires_strict_task_success"), True
+        ),
+        "cold_start.experience_confirm_independent_tasks": (
+            cold_start.get("experience_confirm_independent_tasks"), 2
+        ),
         "experiment.name": (experiment.get("name"), "alfworld_train_full_30"),
         "experiment.condition": (experiment.get("condition"), "full"),
         "experiment.freeze_skills": (experiment.get("freeze_skills"), False),

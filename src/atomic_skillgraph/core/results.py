@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any
 
 from .bindings import GroundingConstraint, RuntimeBinding
-from .contracts import SemanticPredicate, TaskContract
+from .contracts import ColdStartPlanProposal, SemanticPredicate, TaskContract
 from .edges import GraphEdge
 from .refs import SkillRef, ToolRef
 
@@ -55,6 +55,18 @@ class RuntimeOccurrence:
     implementation_candidates: list[SkillRef]
     expected_effects: list[SemanticPredicate]
     status: str = "not_started"
+    requirement_instance_ids: list[str] = field(default_factory=list)
+    repeat_role_bindings: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RuntimeRepeatConstraint:
+    block_id: str
+    count: int
+    iteration_steps: tuple[tuple[str, ...], ...]
+    distinct_roles: tuple[str, ...]
+    shared_roles: tuple[str, ...]
+    step_role_bindings: dict[str, dict[str, str]]
 
 
 @dataclass
@@ -68,6 +80,9 @@ class RuntimeLinearPlan:
     dependency_edges: list[GraphEdge]
     task_contract: TaskContract
     planner_audit: dict[str, Any]
+    repeat_constraints: list[RuntimeRepeatConstraint] = field(default_factory=list)
+    cold_start_plan: ColdStartPlanProposal | None = None
+    cold_start_scaffold: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def full_dynamic(
@@ -78,6 +93,23 @@ class RuntimeLinearPlan:
         details.setdefault("final_outcome", "full_dynamic")
         details.setdefault("fallback_reason", reason)
         return cls(task_id, "full_dynamic", None, [], [], [], [], contract, details)
+
+    @classmethod
+    def cold_start(
+        cls,
+        task_id: str,
+        contract: TaskContract,
+        *,
+        proposal: ColdStartPlanProposal,
+        scaffold: dict[str, Any],
+        audit: dict[str, Any],
+    ) -> "RuntimeLinearPlan":
+        details = dict(audit)
+        details["final_outcome"] = "cold_start"
+        return cls(
+            task_id, "cold_start", None, [], [], [], [], contract, details,
+            [], proposal, dict(scaffold),
+        )
 
     def occurrence(self, step_id: str) -> RuntimeOccurrence:
         for occurrence in self.occurrences:

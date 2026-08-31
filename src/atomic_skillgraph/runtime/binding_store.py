@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import re
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
 from ..core.bindings import (
@@ -12,11 +13,30 @@ from ..core.bindings import (
     resolution_satisfies,
 )
 from ..core.contracts import ParameterSpec, TaskContract
-from ..core.results import RuntimeLinearPlan, RuntimeOccurrence
+from ..core.results import (
+    RuntimeLinearPlan,
+    RuntimeOccurrence,
+    RuntimeRepeatConstraint,
+    ValidationResult,
+)
 
 
 def _looks_concrete(value: Any) -> bool:
     return bool(isinstance(value, str) and re.search(r"(?:_|\s)\d+$", value.strip()))
+
+
+@dataclass
+class RepeatBindingState:
+    """Effect-committed repetition values for one task only.
+
+    Keys are ``<block_id>::<block_role>`` so independent RepeatBlocks that
+    use a common semantic role cannot contaminate one another.
+    """
+
+    committed_distinct_values: dict[str, dict[int, Any]] = field(
+        default_factory=dict,
+    )
+    committed_shared_values: dict[str, Any] = field(default_factory=dict)
 
 
 class RuntimeBindingStore:
@@ -31,6 +51,223 @@ class RuntimeBindingStore:
         # explicit instead of relying on the two identifiers being equal.
         self._step_to_occurrence: dict[str, str] = {}
         self._on_change = on_change
+        self.repeat_state = RepeatBindingState()
+        self._repeat_constraints: dict[str, RuntimeRepeatConstraint] = {}
+        self._repeat_step_owner: dict[
+            str, tuple[RuntimeRepeatConstraint, int]
+        ] = {}
+
+    @staticmethod
+    def _repeat_key(block_id: str, block_role: str) -> str:
+        return f"{block_id}::{block_role}"
+
+    def configure_repeat_constraints(
+        self,
+        constraints: list[RuntimeRepeatConstraint]
+        | tuple[RuntimeRepeatConstraint, ...],
+    ) -> None:
+        """Install one validated plan's repeat constraints and reset state."""
+
+        by_block: dict[str, RuntimeRepeatConstraint] = {}
+        by_step: dict[str, tuple[RuntimeRepeatConstraint, int]] = {}
+        for constraint in constraints:
+            if (
+                not constraint.block_id
+                or constraint.block_id in by_block
+                or constraint.count < 2
+                or len(constraint.iteration_steps) != constraint.count
+                or set(constraint.distinct_roles)
+                & set(constraint.shared_roles)
+            ):
+                raise ValueError("invalid RuntimeRepeatConstraint")
+            declared_steps = {
+                step_id
+                for iteration in constraint.iteration_steps
+                for step_id in iteration
+            }
+            if set(constraint.step_role_bindings) != declared_steps:
+                raise ValueError(
+                    "repeat step_role_bindings must cover exactly declared steps"
+                )
+            allowed_roles = {
+                *constraint.distinct_roles,
+                *constraint.shared_roles,
+            }
+            if any(
+                not set(bindings).issubset(allowed_roles)
+                or any(not str(value) for value in bindings.values())
+                for bindings in constraint.step_role_bindings.values()
+            ):
+                raise ValueError("invalid repeat step role mapping")
+            for repeat_index, iteration in enumerate(
+                constraint.iteration_steps
+            ):
+                if not iteration:
+                    raise ValueError("repeat iteration cannot be empty")
+                for step_id in iteration:
+                    if not step_id or step_id in by_step:
+                        raise ValueError(
+                            "a runtime step may belong to only one repeat iteration"
+                        )
+                    by_step[step_id] = (constraint, repeat_index)
+            by_block[constraint.block_id] = constraint
+        self._repeat_constraints = by_block
+        self._repeat_step_owner = by_step
+        self.repeat_state = RepeatBindingState()
+
+    def _repeat_values(
+        self,
+        step_id: str,
+        values: dict[str, Any],
+        *,
+        require_complete: bool,
+    ) -> tuple[
+        RuntimeRepeatConstraint | None,
+        int,
+        dict[str, Any],
+        list[str],
+    ]:
+        owner = self._repeat_step_owner.get(step_id)
+        if owner is None:
+            return None, -1, {}, []
+        constraint, repeat_index = owner
+        mappings = constraint.step_role_bindings.get(step_id, {})
+        missing = [
+            atomic_role
+            for atomic_role in mappings.values()
+            if atomic_role not in values
+        ] if require_complete else []
+        projected = {
+            block_role: values[atomic_role]
+            for block_role, atomic_role in mappings.items()
+            if atomic_role in values
+        }
+        return constraint, repeat_index, projected, missing
+
+    def preflight_repeat_bindings(
+        self,
+        step_id: str,
+        values: dict[str, Any],
+    ) -> ValidationResult:
+        """Check proposed concrete values against earlier effect commits."""
+
+        constraint, repeat_index, projected, _ = self._repeat_values(
+            step_id,
+            values,
+            require_complete=False,
+        )
+        if constraint is None:
+            return ValidationResult.ok(
+                "runtime_repeat", repeat_step_or_unconstrained=True,
+            )
+        for block_role in constraint.distinct_roles:
+            if block_role not in projected:
+                continue
+            key = self._repeat_key(constraint.block_id, block_role)
+            committed = self.repeat_state.committed_distinct_values.get(
+                key, {},
+            )
+            value = projected[block_role]
+            if repeat_index in committed and committed[repeat_index] != value:
+                return ValidationResult.fail(
+                    "runtime_repeat",
+                    "runtime_repetition_distinctness_violation",
+                    "one repeat iteration proposed conflicting values for "
+                    f"{block_role}",
+                    repeat_distinct_values_valid=False,
+                )
+            if any(
+                index != repeat_index and previous == value
+                for index, previous in committed.items()
+            ):
+                return ValidationResult.fail(
+                    "runtime_repeat",
+                    "runtime_repetition_distinctness_violation",
+                    "a distinct repeat role reused an earlier iteration value",
+                    repeat_distinct_values_valid=False,
+                )
+        for block_role in constraint.shared_roles:
+            if block_role not in projected:
+                continue
+            key = self._repeat_key(constraint.block_id, block_role)
+            if (
+                key in self.repeat_state.committed_shared_values
+                and self.repeat_state.committed_shared_values[key]
+                != projected[block_role]
+            ):
+                return ValidationResult.fail(
+                    "runtime_repeat",
+                    "runtime_repetition_shared_value_violation",
+                    "a shared repeat role changed across iterations",
+                    repeat_shared_values_valid=False,
+                )
+        return ValidationResult.ok(
+            "runtime_repeat",
+            repeat_distinct_values_valid=True,
+            repeat_shared_values_valid=True,
+        )
+
+    def commit_repeat_bindings(
+        self,
+        step_id: str,
+        values: dict[str, Any],
+        *,
+        effect_passed: bool,
+    ) -> ValidationResult:
+        """Commit values atomically, and only after an Atomic Effect passes."""
+
+        if not effect_passed:
+            return ValidationResult.ok(
+                "runtime_repeat",
+                failed_effect_left_repeat_state_unchanged=True,
+            )
+        constraint, repeat_index, projected, missing = self._repeat_values(
+            step_id,
+            values,
+            require_complete=True,
+        )
+        if constraint is None:
+            return ValidationResult.ok(
+                "runtime_repeat", repeat_step_or_unconstrained=True,
+            )
+        if missing:
+            return ValidationResult.fail(
+                "runtime_repeat",
+                "runtime_binding_unresolved",
+                "effect-success repeat commit lacks mapped Atomic roles: "
+                + ", ".join(sorted(missing)),
+                repeat_commit_values_complete=False,
+            )
+        preflight = self.preflight_repeat_bindings(step_id, values)
+        if not preflight.passed:
+            return preflight
+
+        distinct_updates: list[tuple[str, int, Any]] = []
+        shared_updates: list[tuple[str, Any]] = []
+        for block_role in constraint.distinct_roles:
+            if block_role in projected:
+                distinct_updates.append((
+                    self._repeat_key(constraint.block_id, block_role),
+                    repeat_index,
+                    copy.deepcopy(projected[block_role]),
+                ))
+        for block_role in constraint.shared_roles:
+            if block_role in projected:
+                shared_updates.append((
+                    self._repeat_key(constraint.block_id, block_role),
+                    copy.deepcopy(projected[block_role]),
+                ))
+        # Apply only after every check passes, preserving transactionality.
+        for key, index, value in distinct_updates:
+            self.repeat_state.committed_distinct_values.setdefault(
+                key, {},
+            )[index] = value
+        for key, value in shared_updates:
+            self.repeat_state.committed_shared_values.setdefault(key, value)
+        return ValidationResult.ok(
+            "runtime_repeat",
+            repeat_effect_values_committed=True,
+        )
 
     def register_transform(self, transform_id: str, function: Callable[[Any], Any]) -> None:
         if not transform_id or transform_id in self._transforms:

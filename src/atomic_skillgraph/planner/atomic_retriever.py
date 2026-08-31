@@ -11,6 +11,7 @@ from ..core.contracts import (
 from ..core.status import RuntimeMode, SkillStatus
 from ..knowledge.query import atomic_contract_compatible, lexical_similarity
 from ..knowledge.skill_registry import SkillRegistry
+from .multiplicity import RequirementExpansion
 
 
 @dataclass
@@ -28,6 +29,41 @@ class AtomicSearchBatch:
     @property
     def refs(self) -> list[str]:
         return sorted({str(candidate.atomic_ref) for result in self.results for candidate in result.candidates})
+
+
+@dataclass
+class MultiplicityAwareAtomicSearch:
+    template_results: list[RequirementSearchResult]
+    instance_candidates: dict[str, list[AtomicCandidate]]
+    expansion: RequirementExpansion
+
+    @property
+    def full_coverage(self) -> bool:
+        return all(
+            bool(self.instance_candidates.get(instance.instance_id))
+            for instance in self.expansion.instances
+            if instance.requirement.required
+        )
+
+    @property
+    def candidates(self) -> dict[str, list[AtomicCandidate]]:
+        return dict(self.instance_candidates)
+
+    @property
+    def refs(self) -> list[str]:
+        return sorted({
+            str(candidate.atomic_ref)
+            for values in self.instance_candidates.values()
+            for candidate in values
+        })
+
+    @property
+    def missing_instances(self) -> list[Any]:
+        return [
+            instance for instance in self.expansion.instances
+            if instance.requirement.required
+            and not self.instance_candidates.get(instance.instance_id)
+        ]
 
 
 class AtomicRetriever:
@@ -89,3 +125,32 @@ class AtomicRetriever:
             candidates = [AtomicCandidate(item.ref, score, ["contract_compatible"], True) for score, _, item in recalled[: self.top_k]]
             results.append(RequirementSearchResult(requirement, candidates, bool(candidates) or not requirement.required, rejected))
         return AtomicSearchBatch(results)
+
+    def retrieve_multiplicity(
+        self,
+        expansion: RequirementExpansion,
+        *,
+        mode: RuntimeMode | str,
+        harness_profile: str,
+        task_id: str = "",
+    ) -> MultiplicityAwareAtomicSearch:
+        batch = self.retrieve(
+            list(expansion.templates),
+            mode=mode,
+            harness_profile=harness_profile,
+            task_id=task_id,
+        )
+        by_template = {
+            result.requirement.requirement_id: list(result.candidates)
+            for result in batch.results
+        }
+        return MultiplicityAwareAtomicSearch(
+            template_results=batch.results,
+            instance_candidates={
+                instance.instance_id: list(
+                    by_template.get(instance.template_requirement_id, ())
+                )
+                for instance in expansion.instances
+            },
+            expansion=expansion,
+        )

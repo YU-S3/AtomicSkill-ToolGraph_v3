@@ -304,6 +304,25 @@ class InvocationCompiler:
                         "runtime_binding", "runtime_identity_constraint_mismatch",
                         "Agent proposal violates occurrence identity/cardinality constraints",
                     )
+        repeat_values = {
+            role: binding.value
+            for role, binding in current.items()
+            if binding.status is BindingStatus.GROUNDED
+        }
+        repeat_values.update(arguments)
+        repeat_preflight = binding_store.preflight_repeat_bindings(
+            occurrence.step_id, repeat_values,
+        )
+        if not repeat_preflight.passed:
+            code = (
+                repeat_preflight.failure_codes[0]
+                if repeat_preflight.failure_codes
+                else "runtime_repetition_distinctness_violation"
+            )
+            return fail(
+                "runtime_binding", code,
+                "Invocation arguments violate an effect-committed RepeatBlock binding",
+            )
         grounded: dict[str, RuntimeBinding] = {}
         matched: list[str] = []
         if arguments_are_agent_proposals:

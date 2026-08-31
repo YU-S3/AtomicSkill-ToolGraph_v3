@@ -24,11 +24,17 @@ USAGE_BUCKETS = (
     "planner_p1_repair",
     "planner_p2",
     "planner_p2_repair",
+    "cold_start_c1",
+    "cold_start_c1_repair",
     "runtime_preparation",
     "runtime_seeded",
     "runtime_dynamic",
+    "runtime_provisional_seeded",
+    "runtime_dynamic_cold_start_continuation",
     "extractor_e1",
     "extractor_e2",
+    "failure_extractor_f1",
+    "failure_extractor_f2",
     "evolution_repair",
     "unattributed",
 )
@@ -68,6 +74,48 @@ EXTRACTOR_QUALITY_METRICS = (
     "atomic_new_contract_count",
     "composite_alignment_reuse_count",
     "artifact_label_concrete_term_violation_count",
+)
+
+V31_METHOD_METRICS = (
+    "repeat_block_count",
+    "expanded_requirement_instance_count",
+    "repeated_atomic_occurrence_count",
+    "runtime_distinctness_rejection_count",
+    "runtime_shared_value_rejection_count",
+    "cold_start_trigger_count",
+    "cold_start_plan_valid_count",
+    "cold_start_scaffold_step_count",
+    "cold_start_verified_step_success_count",
+    "provisional_trial_count",
+    "provisional_local_success_count",
+    "provisional_local_failure_count",
+    "cold_start_assisted_success_count",
+    "runtime_dynamic_cold_start_continuation_count",
+    "failure_extractor_f1_count",
+    "failure_extractor_f2_count",
+    "provisional_created_count",
+    "provisional_trial_ready_count",
+    "provisional_trial_supported_count",
+    "provisional_promoted_count",
+    "provisional_suppressed_count",
+    "failure_experience_observed_count",
+    "failure_experience_confirmed_count",
+    "failure_experience_resolved_count",
+    "failure_experience_retrieval_count",
+    "verified_atomic_full_coverage_count",
+    "planner_p2_count",
+    "p0_exact_contract_rejection_count",
+    "failure_side_read_count",
+    "provisional_selected_count",
+)
+
+_FROZEN_FORBIDDEN_COLD_START_BUCKETS = (
+    "cold_start_c1",
+    "cold_start_c1_repair",
+    "runtime_provisional_seeded",
+    "runtime_dynamic_cold_start_continuation",
+    "failure_extractor_f1",
+    "failure_extractor_f2",
 )
 
 REPORT_COLUMNS = (
@@ -135,6 +183,7 @@ REPORT_COLUMNS = (
     "failure_codes",
     "task_token_budget_exhausted_count",
     "node_token_budget_exhausted_count",
+    *V31_METHOD_METRICS,
     *EXTRACTOR_QUALITY_METRICS,
     "artifact_growth",
     "artifact_lifecycle",
@@ -187,6 +236,25 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         else _boolean(strict_raw)
     )
     failure_codes = _failure_codes(trace, nodes, invocations, executions)
+    planner_atomic_full_coverage = _planner_atomic_full_coverage(planner)
+    planner_p2_used = (
+        _has_value(planner.get("workflow_p2"))
+        or _integer(
+            _mapping(usage["by_bucket"].get("planner_p2", {})).get(
+                "call_count", 0,
+            )
+        ) > 0
+    )
+    v31_metrics = _v31_method_metrics(
+        trace,
+        planner=planner,
+        plan=plan,
+        metadata=metadata,
+        usage=usage,
+        failure_codes=failure_codes,
+        planner_atomic_full_coverage=planner_atomic_full_coverage,
+        planner_p2_used=planner_p2_used,
+    )
     row: dict[str, Any] = {
         "trace_id": str(_field(trace, "trace_id", "")),
         "schema_version": _integer(_field(trace, "schema_version", 0)),
@@ -226,17 +294,8 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         or _has_value(planner.get("atomic_search_p1r")),
         "planner_graph_repair_used": _has_value(planner.get("workflow_p2r"))
         or _has_value(planner.get("validation_p2r")),
-        "planner_atomic_full_coverage": _planner_atomic_full_coverage(
-            planner
-        ),
-        "planner_p2_used": (
-            _has_value(planner.get("workflow_p2"))
-            or _integer(
-                _mapping(usage["by_bucket"].get("planner_p2", {})).get(
-                    "call_count", 0,
-                )
-            ) > 0
-        ),
+        "planner_atomic_full_coverage": planner_atomic_full_coverage,
+        "planner_p2_used": planner_p2_used,
         "planner_p1r_reason_distribution": _planner_p1r_reasons(planner),
         "confirmed_capability_gap": _confirmed_capability_gap(trace, metadata),
         "full_dynamic": str(plan.get("source", "")) == "full_dynamic",
@@ -306,6 +365,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "node_token_budget_exhausted_count": int(
             "runtime_node_token_budget_exhausted" in failure_codes
         ),
+        **v31_metrics,
         **{
             name: _integer(quality.get(name, 0))
             for name in EXTRACTOR_QUALITY_METRICS
@@ -493,14 +553,16 @@ def summarize_traces(
             name: sum(
                 _integer(row.get(name, 0)) for row in task_rows
             )
+            for name in V31_METHOD_METRICS
+        },
+        **{
+            name: sum(
+                _integer(row.get(name, 0)) for row in task_rows
+            )
             for name in EXTRACTOR_QUALITY_METRICS
         },
         "planner_atomic_full_coverage_count": sum(
             _boolean(row.get("planner_atomic_full_coverage"))
-            for row in task_rows
-        ),
-        "planner_p2_count": sum(
-            _boolean(row.get("planner_p2_used"))
             for row in task_rows
         ),
         "planner_p1r_reason_distribution": dict(
@@ -642,6 +704,11 @@ def render_markdown(
         _canonical_json(summary.get("planner_p1r_reason_distribution", {})),
     ),)
     lines.extend(_markdown_pairs(quality))
+    lines.extend(["", "## v3.1 method patch", ""])
+    lines.extend(_markdown_pairs(tuple(
+        (name, summary.get(name, 0))
+        for name in V31_METHOD_METRICS
+    )))
     lines.extend(["", "## Token, latency, and cost", ""])
     accounting = (
         ("Total tokens", summary.get("total_tokens")),
@@ -834,6 +901,46 @@ def validate_usage_event_persistence(
     }
 
 
+def validate_frozen_v31_guards(
+    traces: Iterable[Mapping[str, Any] | Any],
+) -> dict[str, int]:
+    """Reject failure-side reads, provisional selection, or cold token use."""
+
+    rows = [trace_to_row(trace) for trace in traces]
+    failure_side_reads = sum(
+        _nonnegative_integer(row.get("failure_side_read_count", 0))
+        for row in rows
+    )
+    provisional_selected = sum(
+        _nonnegative_integer(row.get("provisional_selected_count", 0))
+        for row in rows
+    )
+    cold_start_calls = 0
+    for row in rows:
+        by_bucket = _mapping(row.get("usage_by_bucket", {}))
+        cold_start_calls += sum(
+            _nonnegative_integer(
+                _mapping(by_bucket.get(bucket, {})).get("call_count", 0)
+            )
+            for bucket in _FROZEN_FORBIDDEN_COLD_START_BUCKETS
+        )
+    if failure_side_reads:
+        raise ValueError(
+            "frozen v3.1 report has non-zero failure_side_read_count"
+        )
+    if provisional_selected:
+        raise ValueError(
+            "frozen v3.1 report has non-zero provisional_selected_count"
+        )
+    if cold_start_calls:
+        raise ValueError("frozen v3.1 report contains cold-start token buckets")
+    return {
+        "failure_side_read_count": 0,
+        "provisional_selected_count": 0,
+        "cold_start_provider_call_count": 0,
+    }
+
+
 generate_reports = write_reports
 
 
@@ -951,10 +1058,30 @@ def _session_bucket_map(trace: Any) -> dict[str, str]:
         "RuntimePreparationSession": "runtime_preparation",
         "SeededSession": "runtime_seeded",
         "DynamicTaskSession": "runtime_dynamic",
+        "ColdStartPlannerSession": "cold_start_c1",
+        "ColdStartSession": "cold_start_c1",
+        "ProvisionalSeededSession": "runtime_provisional_seeded",
+        "DynamicColdStartContinuationSession": (
+            "runtime_dynamic_cold_start_continuation"
+        ),
+        "ColdStartDynamicContinuationSession": (
+            "runtime_dynamic_cold_start_continuation"
+        ),
+        "FailureExtractorSession": "failure_extractor_f1",
     }
     for raw in _sequence(_field(trace, "agent_sessions", [])):
         session = _mapping(raw)
-        bucket = type_map.get(str(session.get("session_type", "")))
+        snapshot = _mapping(session.get("snapshot", {}))
+        declared = str(
+            snapshot.get("usage_bucket")
+            or session.get("usage_bucket")
+            or ""
+        )
+        bucket = (
+            declared
+            if declared in USAGE_BUCKETS
+            else type_map.get(str(session.get("session_type", "")))
+        )
         if bucket:
             mapping[str(session.get("session_id", ""))] = bucket
     return mapping
@@ -1104,6 +1231,309 @@ def _confirmed_capability_gap(trace: Any, metadata: Mapping[str, Any]) -> bool:
         metadata.get("gap_classification"),
     )
     return any(value == "confirmed_capability_gap" for value in candidates)
+
+
+def _v31_method_metrics(
+    trace: Any,
+    *,
+    planner: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    usage: Mapping[str, Any],
+    failure_codes: Sequence[str],
+    planner_atomic_full_coverage: bool,
+    planner_p2_used: bool,
+) -> dict[str, int]:
+    """Derive frozen v3.1 counters only from structured Trace authority.
+
+    Runtime components may publish an exact counter either directly in Trace
+    metadata or in one of the scoped metric mappings below.  Those explicit
+    values take precedence.  The fallbacks cover facts represented directly by
+    the v3.1 Trace fields and never parse observations or free-form messages.
+    """
+
+    explicit_sources = (
+        metadata,
+        _mapping(metadata.get("v31_metrics", {})),
+        _mapping(metadata.get("method_metrics", {})),
+        _mapping(metadata.get("cold_start_metrics", {})),
+        _mapping(metadata.get("failure_extractor_metrics", {})),
+        _mapping(metadata.get("failure_knowledge_metrics", {})),
+    )
+
+    def value(name: str, derived: int | bool = 0) -> int:
+        for source in explicit_sources:
+            if name in source:
+                return _nonnegative_integer(source[name])
+        return _nonnegative_integer(derived)
+
+    requirement_bundle = _mapping(_field(trace, "requirement_bundle", {}))
+    if not requirement_bundle:
+        requirement_bundle = _mapping(
+            planner.get("requirements_p1r")
+            or planner.get("requirements_p1")
+            or {}
+        )
+    requirement_expansion = _mapping(
+        _field(trace, "requirement_expansion", {})
+    )
+    if not requirement_expansion:
+        requirement_expansion = _mapping(
+            planner.get("requirement_expansion", {})
+        )
+    repeat_blocks = _sequence(
+        requirement_bundle.get("repeat_blocks")
+        or requirement_expansion.get("repeat_blocks")
+    )
+    instances = [
+        _mapping(item)
+        for item in _sequence(requirement_expansion.get("instances", []))
+    ]
+    repeated_occurrences = sum(
+        bool(str(item.get("repeat_block_id", "")))
+        or _integer(item.get("repeat_index", -1)) >= 0
+        for item in instances
+    )
+    if not instances:
+        repeated_step_ids = {
+            str(step_id)
+            for raw in _sequence(plan.get("repeat_constraints", []))
+            for iteration in _sequence(_mapping(raw).get("iteration_steps", []))
+            for step_id in _sequence(iteration)
+            if str(step_id)
+        }
+        repeated_occurrences = len(repeated_step_ids)
+
+    cold_plan = _mapping(_field(trace, "cold_start_plan", None))
+    cold_proposal = _mapping(cold_plan.get("proposal", {}))
+    cold_validation = _mapping(cold_plan.get("validation", {}))
+    if not cold_proposal:
+        cold_proposal = _mapping(
+            planner.get("cold_start_repair")
+            or planner.get("cold_start_plan")
+            or {}
+        )
+    if not cold_validation:
+        cold_validation = _mapping(
+            planner.get("cold_start_repair_validation")
+            or planner.get("cold_start_validation")
+            or {}
+        )
+    cold_steps = [
+        _mapping(item)
+        for item in _sequence(_field(trace, "cold_start_steps", []))
+    ]
+
+    def candidate_source(step: Mapping[str, Any]) -> str:
+        return str(step.get("candidate_source", "")).casefold()
+
+    provisional_steps = [
+        step for step in cold_steps
+        if (
+            "provisional" in candidate_source(step)
+            or str(step.get("execution_mode", "")).casefold()
+            == "provisional_seeded"
+        )
+    ]
+    verified_steps = [
+        step for step in cold_steps
+        if "verified" in candidate_source(step)
+        and "provisional" not in candidate_source(step)
+    ]
+    planned_steps = [
+        _mapping(item) for item in _sequence(cold_proposal.get("steps", []))
+    ]
+    planned_provisional_steps = [
+        step for step in planned_steps
+        if "provisional" in candidate_source(step)
+    ]
+
+    failure_extraction = _mapping(
+        _field(trace, "failure_extraction", None)
+    )
+    provisional_refs = {
+        str(item)
+        for item in _sequence(failure_extraction.get("provisional_refs", []))
+        if str(item)
+    }
+    failure_experience_ids = {
+        str(item)
+        for item in _sequence(
+            failure_extraction.get("failure_experience_ids", [])
+        )
+        if str(item)
+    }
+    promotions = [
+        _mapping(item)
+        for item in _sequence(_field(trace, "provisional_promotions", []))
+    ]
+
+    def lifecycle_status(item: Mapping[str, Any]) -> str:
+        return str(
+            item.get("status")
+            or item.get("outcome")
+            or item.get("new_status")
+            or ""
+        ).casefold()
+
+    trial_ready = sum(lifecycle_status(item) == "trial_ready" for item in promotions)
+    trial_supported = sum(
+        lifecycle_status(item) == "trial_supported" for item in promotions
+    )
+    promoted = sum(
+        lifecycle_status(item) == "promoted"
+        or bool(_sequence(item.get("promoted_verified_refs", [])))
+        for item in promotions
+    )
+    suppressed = sum(
+        lifecycle_status(item) == "suppressed" for item in promotions
+    )
+
+    retrieval = _mapping(planner.get("cold_start_retrieval", {}))
+    retrieved_experience_refs = {
+        str(_mapping(item).get("experience_id") or item)
+        for key in (
+            "failure_experiences",
+            "retrieved_failure_experiences",
+            "failure_experience_candidates",
+        )
+        for item in (
+            _sequence(cold_proposal.get(key, []))
+            or _sequence(retrieval.get(key, []))
+        )
+        if str(_mapping(item).get("experience_id") or item)
+    }
+    retrieved_experience_refs.update(
+        str(step.get("candidate_ref", ""))
+        for step in cold_steps
+        if "failure_experience" in candidate_source(step)
+        and str(step.get("candidate_ref", ""))
+    )
+
+    sessions = [
+        _mapping(item)
+        for item in _sequence(_field(trace, "agent_sessions", []))
+    ]
+    continuation_sessions = sum(
+        "cold_start_continuation" in str(
+            session.get("session_type")
+            or session.get("session_kind")
+            or _mapping(session.get("snapshot", {})).get("session_kind")
+            or ""
+        ).casefold()
+        for session in sessions
+    )
+    continuation_bucket = _mapping(
+        _mapping(usage.get("by_bucket", {})).get(
+            "runtime_dynamic_cold_start_continuation", {}
+        )
+    )
+    if continuation_sessions == 0 and _integer(
+        continuation_bucket.get("call_count", 0)
+    ) > 0:
+        continuation_sessions = 1
+
+    f1_calls = _integer(
+        _mapping(_mapping(usage.get("by_bucket", {})).get(
+            "failure_extractor_f1", {}
+        )).get("call_count", 0)
+    )
+    f2_calls = _integer(
+        _mapping(_mapping(usage.get("by_bucket", {})).get(
+            "failure_extractor_f2", {}
+        )).get("call_count", 0)
+    )
+
+    trace_failures = [
+        _mapping(item) for item in _sequence(_field(trace, "failures", []))
+    ]
+
+    def failure_count(*codes: str) -> int:
+        wanted = set(codes)
+        count = sum(str(item.get("code", "")) in wanted for item in trace_failures)
+        return count or int(any(code in failure_codes for code in wanted))
+
+    p0_rejections = _sequence(
+        planner.get("p0_exact_contract_rejections", [])
+    )
+    if not p0_rejections:
+        p0_rejections = _sequence(planner.get("exact_contract_rejections", []))
+    if not p0_rejections:
+        p0_rejections = [
+            item
+            for raw in _sequence(planner.get("composite_rejections", []))
+            if "goal_contract_exact_mismatch" in {
+                str(reason) for reason in _sequence(_mapping(raw).get("reasons", []))
+            }
+            for item in [raw]
+        ]
+
+    plan_source = str(plan.get("source", "")).casefold()
+    cold_triggered = bool(
+        cold_plan
+        or cold_proposal
+        or retrieval
+        or cold_steps
+        or "cold_start" in plan_source
+    )
+    cold_plan_valid = bool(cold_proposal) and _boolean(
+        cold_validation.get("passed", cold_validation.get("valid", False))
+    )
+
+    derived = {
+        "repeat_block_count": len(repeat_blocks),
+        "expanded_requirement_instance_count": len(instances),
+        "repeated_atomic_occurrence_count": repeated_occurrences,
+        "runtime_distinctness_rejection_count": failure_count(
+            "runtime_repetition_distinctness_violation",
+            "provisional_repetition_distinctness_violation",
+        ),
+        "runtime_shared_value_rejection_count": failure_count(
+            "runtime_repetition_shared_value_violation",
+            "provisional_repetition_shared_value_violation",
+        ),
+        "cold_start_trigger_count": int(cold_triggered),
+        "cold_start_plan_valid_count": int(cold_plan_valid),
+        "cold_start_scaffold_step_count": len(cold_steps),
+        "cold_start_verified_step_success_count": sum(
+            _boolean(step.get("local_effect_passed", False))
+            for step in verified_steps
+        ),
+        "provisional_trial_count": len(provisional_steps),
+        "provisional_local_success_count": sum(
+            _boolean(step.get("local_effect_passed", False))
+            for step in provisional_steps
+        ),
+        "provisional_local_failure_count": sum(
+            not _boolean(step.get("local_effect_passed", False))
+            for step in provisional_steps
+        ),
+        "cold_start_assisted_success_count": int(_boolean(
+            _field(trace, "cold_start_assisted_success", False)
+        )),
+        "runtime_dynamic_cold_start_continuation_count": continuation_sessions,
+        "failure_extractor_f1_count": f1_calls,
+        "failure_extractor_f2_count": f2_calls,
+        "provisional_created_count": len(provisional_refs),
+        "provisional_trial_ready_count": trial_ready,
+        "provisional_trial_supported_count": trial_supported,
+        "provisional_promoted_count": promoted,
+        "provisional_suppressed_count": suppressed,
+        "failure_experience_observed_count": len(failure_experience_ids),
+        "failure_experience_confirmed_count": 0,
+        "failure_experience_resolved_count": 0,
+        "failure_experience_retrieval_count": len(retrieved_experience_refs),
+        "verified_atomic_full_coverage_count": int(
+            planner_atomic_full_coverage
+        ),
+        "planner_p2_count": int(planner_p2_used),
+        "p0_exact_contract_rejection_count": len(p0_rejections),
+        "failure_side_read_count": 0,
+        "provisional_selected_count": max(
+            len(provisional_steps), len(planned_provisional_steps)
+        ),
+    }
+    return {name: value(name, derived[name]) for name in V31_METHOD_METRICS}
 
 
 def _trace_cost(
@@ -1360,11 +1790,13 @@ __all__ = [
     "REPORT_COLUMNS",
     "ReportPaths",
     "USAGE_BUCKETS",
+    "V31_METHOD_METRICS",
     "build_report_rows",
     "generate_reports",
     "render_markdown",
     "summarize_traces",
     "trace_to_row",
+    "validate_frozen_v31_guards",
     "validate_formal_usage",
     "validate_usage_event_persistence",
     "write_csv",

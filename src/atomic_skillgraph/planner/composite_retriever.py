@@ -6,8 +6,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.contracts import CompositeSkill, TaskContract
-from ..core.status import RuntimeMode
-from ..knowledge.query import lexical_similarity, task_contract_compatible
+from ..core.status import RuntimeMode, SkillStatus
+from ..knowledge.query import (
+    complete_composite_contract_compatible,
+    lexical_similarity,
+)
 from ..knowledge.skill_registry import SkillRegistry
 
 
@@ -31,25 +34,95 @@ class CompositeRetriever:
         result = CompositeRetrieval()
         ranked: list[tuple[float, str, CompositeSkill]] = []
         composites = self.skills.composites(mode=mode)
-        active_available = any(str(item.status.value) == "active" for item in composites)
-        for composite in composites:
+
+        def structural_reasons(composite: CompositeSkill) -> list[str]:
             reasons: list[str] = []
             occurrence_ids = {item.step_id for item in composite.occurrences}
-            if len(composite.control_sequence) != len(occurrence_ids) or set(composite.control_sequence) != occurrence_ids:
+            if (
+                len(composite.control_sequence) != len(occurrence_ids)
+                or set(composite.control_sequence) != occurrence_ids
+                or len(occurrence_ids) != len(composite.occurrences)
+            ):
                 reasons.append("canonical_sequence_incomplete")
-            if not task_contract_compatible(contract, composite.goal_contract):
-                reasons.append("goal_contract_incompatible")
+            runtime_occurrence_ids = [
+                item.occurrence_id for item in composite.occurrences
+            ]
+            if len(set(runtime_occurrence_ids)) != len(runtime_occurrence_ids):
+                reasons.append("canonical_occurrence_ids_not_unique")
+            position = {
+                step_id: index for index, step_id in enumerate(composite.control_sequence)
+            }
+            if any(
+                edge.source_step not in position
+                or edge.target_step not in position
+                or position[edge.source_step] >= position[edge.target_step]
+                for edge in composite.data_edges + composite.dependency_edges
+            ):
+                reasons.append("canonical_edges_invalid")
+            if any(
+                edge.origin == "planner_proposed"
+                for edge in composite.data_edges + composite.dependency_edges
+            ):
+                reasons.append("unvalidated_temporary_edge")
+            return reasons
+
+        def exact_compatible(composite: CompositeSkill) -> bool:
+            profiles = composite.metadata.get("harness_profiles") or []
+            return (
+                complete_composite_contract_compatible(
+                    contract, composite.goal_contract,
+                )
+                and (not profiles or harness_profile in profiles)
+                and not structural_reasons(composite)
+            )
+
+        compatible_active_available = any(
+            item.status is SkillStatus.ACTIVE and exact_compatible(item)
+            for item in composites
+        )
+        bootstrap_candidate_ref = ""
+        if mode is RuntimeMode.ONLINE and not compatible_active_available:
+            bootstrap_candidates = [
+                (
+                    lexical_similarity(
+                        getattr(task, "goal", ""),
+                        f"{item.summary} {item.guideline}",
+                    ),
+                    str(item.ref),
+                )
+                for item in composites
+                if item.status is SkillStatus.CANDIDATE
+                and exact_compatible(item)
+            ]
+            if bootstrap_candidates:
+                bootstrap_candidates.sort(key=lambda item: (-item[0], item[1]))
+                bootstrap_candidate_ref = bootstrap_candidates[0][1]
+        for composite in composites:
+            reasons = structural_reasons(composite)
+            if not complete_composite_contract_compatible(
+                contract, composite.goal_contract,
+            ):
+                reasons.append("goal_contract_exact_mismatch")
             for occurrence in composite.occurrences:
                 self.skills.get_atomic(occurrence.node_ref)
             profiles = composite.metadata.get("harness_profiles") or []
             if profiles and harness_profile not in profiles:
                 reasons.append("harness_incompatible")
-            if any(edge.origin == "planner_proposed" for edge in composite.data_edges + composite.dependency_edges):
-                reasons.append("unvalidated_temporary_edge")
-            if self.candidate_policy is not None and not self.candidate_policy.allows(
+            is_bootstrap_candidate = bool(
+                composite.status is SkillStatus.CANDIDATE
+                and mode is RuntimeMode.ONLINE
+                and not compatible_active_available
+            )
+            if (
+                is_bootstrap_candidate
+                and str(composite.ref) != bootstrap_candidate_ref
+            ):
+                reasons.append("candidate_bootstrap_not_top1")
+            elif self.candidate_policy is not None and not self.candidate_policy.allows(
                 artifact_ref=str(composite.ref), artifact_kind="composite", status=composite.status,
                 mode=mode, task_id=str(getattr(task, "task_id", "unknown_task")),
-                reliable_active_available=active_available,
+                reliable_active_available=compatible_active_available,
+                explicit_exploration=is_bootstrap_candidate,
             ):
                 reasons.append("candidate_exploration_quota")
             score = lexical_similarity(getattr(task, "goal", ""), f"{composite.summary} {composite.guideline}")

@@ -10,21 +10,63 @@ from ..agents.structured_submission import (
     CAPABILITY_REQUIREMENT_SCHEMA,
     StructuredSubmissionClient,
 )
-from ..core.contracts import CapabilityRequirement, ParameterSpec, SemanticPredicate, TaskContract
+from ..core.contracts import (
+    CapabilityRequirement,
+    ParameterSpec,
+    PlannerRequirementBundle,
+    RepeatBlock,
+    SemanticPredicate,
+    TaskContract,
+)
 from ..core.errors import AgentProtocolError, FailureLayer, PlannerProposalError
 from ..core.serialization import to_primitive
 
 
 REQUIREMENT_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "required": ["requirements"],
+    "required": ["requirements", "repeat_blocks"],
     "additionalProperties": False,
     "properties": {
         "requirements": {
             "type": "array",
             "minItems": 1,
             "items": CAPABILITY_REQUIREMENT_SCHEMA,
-        }
+        },
+        "repeat_blocks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "block_id", "count", "ordered_requirement_ids",
+                    "distinct_roles", "shared_roles", "basis_constraint_id",
+                    "basis_role_map", "execution_policy", "rationale",
+                ],
+                "additionalProperties": False,
+                "properties": {
+                    "block_id": {"type": "string", "minLength": 1},
+                    "count": {"type": "integer", "minimum": 2, "maximum": 4},
+                    "ordered_requirement_ids": {
+                        "type": "array", "minItems": 1, "uniqueItems": True,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "distinct_roles": {
+                        "type": "array", "uniqueItems": True,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "shared_roles": {
+                        "type": "array", "uniqueItems": True,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "basis_constraint_id": {"type": "string", "minLength": 1},
+                    "basis_role_map": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string", "minLength": 1},
+                    },
+                    "execution_policy": {"type": "string", "enum": ["serial"]},
+                    "rationale": {"type": "string"},
+                },
+            },
+        },
     },
 }
 
@@ -48,6 +90,35 @@ def _requirement(value: dict[str, Any]) -> CapabilityRequirement:
     )
 
 
+def requirement_bundle_from_dict(value: dict[str, Any]) -> PlannerRequirementBundle:
+    """Reconstruct the frozen P1 bundle from its structured Trace form."""
+
+    return PlannerRequirementBundle(
+        requirements=[
+            _requirement(item) for item in value["requirements"]
+        ],
+        repeat_blocks=[
+            RepeatBlock(
+                block_id=str(item["block_id"]),
+                count=int(item["count"]),
+                ordered_requirement_ids=tuple(map(
+                    str, item["ordered_requirement_ids"],
+                )),
+                distinct_roles=tuple(map(str, item["distinct_roles"])),
+                shared_roles=tuple(map(str, item["shared_roles"])),
+                basis_constraint_id=str(item["basis_constraint_id"]),
+                basis_role_map={
+                    str(key): str(raw)
+                    for key, raw in item["basis_role_map"].items()
+                },
+                execution_policy=str(item["execution_policy"]),
+                rationale=str(item.get("rationale", "")),
+            )
+            for item in value["repeat_blocks"]
+        ],
+    )
+
+
 class RequirementAgent:
     def __init__(self, session: Any) -> None:
         self.session = session
@@ -56,13 +127,23 @@ class RequirementAgent:
     def propose(
         self, task: Any, contract: TaskContract, observation: str,
         harness_profile: str,
-    ) -> list[CapabilityRequirement]:
+    ) -> PlannerRequirementBundle:
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("planner_p1")
         prompt = (
             "P1 CAPABILITY REQUIREMENTS. Decompose the task into complete, reusable state-transition "
             "capabilities. Do not prescribe environment actions or invent skills. Call only the "
             "offered submit tool.\n"
+            "Represent reusable unit capabilities, not aggregate monolithic skills.\n\n"
+            "When the TaskContract requires the same unit effect for multiple distinct\n"
+            "identities, return one unit capability requirement and a RepeatBlock.\n"
+            "A RepeatBlock may contain one requirement or an ordered small group of\n"
+            "requirements. Do not duplicate the requirement definitions themselves.\n\n"
+            "Repeat count, distinct roles, and shared roles must be grounded in the supplied\n"
+            "TaskContract cardinality and identity constraints. Do not infer a repeat count\n"
+            "from task wording when no formal contract constraint supports it.\n\n"
+            "The block order describes one reusable iteration. P2 will instantiate the\n"
+            "block multiple times and may reuse the same Atomic ref in different steps.\n"
             f"Task goal: {task.goal}\nPolicy observation: {observation}\n"
             f"TaskContract: {json.dumps(to_primitive(contract), ensure_ascii=False)}\n"
             f"Harness profile: {harness_profile}"
@@ -74,18 +155,21 @@ class RequirementAgent:
         )
 
     def repair(
-        self, task: Any, contract: TaskContract, requirements: list[CapabilityRequirement],
+        self, task: Any, contract: TaskContract, requirements: PlannerRequirementBundle,
         search: list[Any], related_composites: list[dict[str, Any]],
-    ) -> list[CapabilityRequirement]:
+        validation: Any | None = None,
+    ) -> PlannerRequirementBundle:
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("planner_p1_repair")
         prompt = (
             "P1R REQUIREMENT REPAIR. Coverage is incomplete. Return one complete replacement requirement "
-            "list, not a patch. Composite material is only a hint and is not an oracle. Call only "
+            "bundle (requirements and repeat_blocks), not a patch. Composite material is only a hint and is not an oracle. "
+            "Represent reusable unit capabilities and ground every repetition in the TaskContract. Call only "
             "the offered submit tool.\n"
             f"Task: {task.goal}\nTaskContract: {json.dumps(to_primitive(contract), ensure_ascii=False)}\n"
             f"requirements_v1: {json.dumps(to_primitive(requirements), ensure_ascii=False)}\n"
             f"search/rejections: {json.dumps(to_primitive(search), ensure_ascii=False)}\n"
+            f"bundle validation: {json.dumps(to_primitive(validation), ensure_ascii=False)}\n"
             f"related hints: {json.dumps(related_composites, ensure_ascii=False)}"
         )
         return self._request_requirements(
@@ -100,7 +184,7 @@ class RequirementAgent:
         *,
         error_code: str,
         description: str,
-    ) -> list[CapabilityRequirement]:
+    ) -> PlannerRequirementBundle:
         try:
             submission = self.submissions.request(
                 self.session,
@@ -116,10 +200,7 @@ class RequirementAgent:
                 layer=FailureLayer.PLANNER_REQUIREMENT,
             ) from exc
         try:
-            return [
-                _requirement(item)
-                for item in submission.value["requirements"]
-            ]
+            return requirement_bundle_from_dict(submission.value)
         except (KeyError, TypeError, ValueError) as exc:
             raise PlannerProposalError(
                 error_code,

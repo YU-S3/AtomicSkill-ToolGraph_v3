@@ -1,6 +1,7 @@
 # Fixed held-out evaluation of the frozen bank produced by full-30 training.
 # Frozen evaluation may write eval traces/metrics, but never long-term knowledge.
 schema_version: 3
+method_patch: "3.1"
 
 data_dir: runs/alfworld_train_full_30/frozen/data_v3
 
@@ -64,7 +65,12 @@ planner:
   max_atomic_top_k: 5
   requirement_repair_limit: 1
   graph_repair_limit: 1
+  max_repeat_count: 4
   max_runtime_occurrences: 16
+  cold_start_c1_repair_limit: 1
+
+cold_start:
+  enabled: false
 
 runtime:
   global_action_budget: 100
