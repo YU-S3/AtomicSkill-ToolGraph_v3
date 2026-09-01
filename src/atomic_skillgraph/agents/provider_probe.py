@@ -457,7 +457,11 @@ def _probe_reasoning_replay(provider: Any) -> tuple[dict[str, Any], list[dict[st
         and first_assistant_snapshots[0].get("reasoning_content_chars")
         == len(first.reasoning_content)
     )
-    if not first.reasoning_content or not second.reasoning_content or not exact_hash_replayed:
+    # Probe B proves that the first assistant envelope is replayed verbatim in
+    # the second request.  DeepSeek may legitimately emit no new reasoning for
+    # the terminal tool call, so the second response's reasoning_content is an
+    # audit observation rather than a replay invariant.
+    if not first.reasoning_content or not exact_hash_replayed:
         raise ProviderCapabilityError("Probe B did not preserve reasoning_content verbatim")
     request_count = int(getattr(provider, "request_record_count", 0)) - request_start
     provider_turn_count = int(snapshot.get("turn_count", 0))
@@ -489,7 +493,7 @@ def _probe_reasoning_replay(provider: Any) -> tuple[dict[str, Any], list[dict[st
         ],
         "reasoning_content_replayed_verbatim": exact_hash_replayed,
         "first_reasoning_content_sha256": first_hash,
-        "second_reasoning_content_present": True,
+        "second_reasoning_content_present": bool(second.reasoning_content),
     }, [event.to_dict() for event in ledger.events]
 
 

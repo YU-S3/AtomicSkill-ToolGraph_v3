@@ -830,6 +830,51 @@ def test_provider_capability_probe_is_exact_and_stored_gate_is_fail_closed(
         )
 
 
+def test_provider_probe_accepts_empty_terminal_reasoning_after_exact_replay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_DEEPSEEK_KEY", "secret-fixture-key")
+    responses = iter([
+        _Response(_success("probe_a", "submit_probe"), request_id="req_a"),
+        _Response(_success("probe_b1", "probe_step_one"), request_id="req_b1"),
+        _Response(
+            _success("probe_b2", "probe_step_two", reasoning=""),
+            request_id="req_b2",
+        ),
+        _Response(
+            _success("probe_c", "submit_extractor_probe"), request_id="req_c",
+        ),
+    ])
+    payloads: list[dict[str, Any]] = []
+
+    def post(_url, *, headers, json, timeout):
+        payloads.append(json)
+        return next(responses)
+
+    monkeypatch.setattr("atomic_skillgraph.agents.provider.requests.post", post)
+    manifest = run_provider_capability_probe(
+        _capability_config(),
+        output_dir=tmp_path,
+        config_hash="config_fixture",
+        code_hash="code_fixture",
+    )
+
+    assert manifest["passed"] is True
+    trace = json.loads(
+        (tmp_path / "provider_probe_trace.json").read_text(encoding="utf-8")
+    )
+    replay = trace["probes"]["reasoning_replay"]
+    assert replay["reasoning_content_replayed_verbatim"] is True
+    assert replay["second_reasoning_content_present"] is False
+    first_reasoning = next(
+        message["reasoning_content"]
+        for message in payloads[2]["messages"]
+        if message["role"] == "assistant"
+    )
+    assert first_reasoning == "provider-private-reasoning"
+
+
 def test_provider_capability_probe_audits_repaired_b_turn_separately(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
