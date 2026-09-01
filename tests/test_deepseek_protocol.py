@@ -15,7 +15,12 @@ from atomic_skillgraph.agents import (
     UsageLedger,
     structured_provider_turn_cap,
 )
-from atomic_skillgraph.core.errors import AgentProtocolError, BudgetExhausted
+from atomic_skillgraph.core.errors import (
+    AgentProtocolError,
+    BudgetExhausted,
+    FailureEnvelope,
+    FailureLayer,
+)
 from atomic_skillgraph.agents.provider import (
     AgentProviderError,
     OpenAICompatibleConfig,
@@ -26,6 +31,20 @@ from atomic_skillgraph.agents.provider_probe import (
     ensure_provider_capability,
     run_provider_capability_probe,
 )
+from atomic_skillgraph.core.contracts import (
+    CapabilityRequirement,
+    ColdStartCandidateSource,
+    ColdStartExecutionMode,
+    ColdStartPlanProposal,
+    ColdStartPlanStep,
+    ParameterSpec,
+    PlannerRequirementBundle,
+)
+from atomic_skillgraph.core.serialization import to_primitive
+from atomic_skillgraph.system import AtomicSkillGraphSystem
+from atomic_skillgraph.traces.schema import ColdStartPlanRecord
+from experiments.fakes import FakeHarness, fake_task
+from experiments.report import trace_to_row
 
 
 class _Response:
@@ -169,6 +188,259 @@ def test_deepseek_payload_uses_max_tokens(
     assert record["reasoning_content_chars"] == len(turn.reasoning_content)
     assert "provider-private-reasoning" not in json.dumps(record)
     assert "secret-fixture-key" not in json.dumps(record)
+
+
+def test_http200_usage_persists_when_extractor_budget_rejects_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_DEEPSEEK_KEY", "secret-fixture-key")
+    payload = _success("call_over_cap", "submit_probe")
+    payload["usage"] = {
+        "prompt_tokens": 200000,
+        "completion_tokens": 70000,
+        "total_tokens": 270000,
+        "completion_tokens_details": {"reasoning_tokens": 60000},
+    }
+
+    def post(_url, *, headers, json, timeout):
+        return _Response(payload, request_id="req_over_cap")
+
+    monkeypatch.setattr("atomic_skillgraph.agents.provider.requests.post", post)
+    provider = OpenAICompatibleProvider(_config(max_completion_tokens=131072))
+    ledger = UsageLedger()
+    session = ReplayAgentSession(
+        provider,
+        system_prompt="failure extractor",
+        usage_ledger=ledger,
+        usage_bucket="failure_extractor_f1",
+        budget=AgentBudget(
+            structured_provider_turn_cap(1),
+            262144,
+            "extractor_token_budget_exhausted",
+        ),
+        semantic_max_turns=1,
+        session_id="failure-f1-over-cap",
+    )
+
+    with pytest.raises(BudgetExhausted) as exhausted:
+        StructuredSubmissionClient().request(
+            session,
+            prompt="bounded failure alignment input",
+            tool_name="submit_probe",
+            description="submit",
+            schema=_tool().input_schema,
+        )
+
+    assert exhausted.value.code == "extractor_token_budget_exhausted"
+    assert len(ledger.events) == 1
+    event = ledger.events[0]
+    assert event.session_id == "failure-f1-over-cap"
+    assert event.usage.prompt_tokens == 200000
+    assert event.usage.completion_tokens == 70000
+    assert event.usage.reasoning_tokens == 60000
+    assert event.usage.total_tokens == 270000
+    assert event.usage.latency_ms >= 0
+    assert provider.request_records[0]["outcome"] == "success"
+    assert provider.request_records[0]["usage_status"] == "reported"
+    assert provider.request_records[0]["usage"] == {
+        "prompt_tokens": 200000,
+        "completion_tokens": 70000,
+        "total_tokens": 270000,
+        "reasoning_tokens": 60000,
+    }
+    budget = session.snapshot()["budget"]
+    assert budget["used_total_tokens"] == 270000
+    assert budget["remaining_total_tokens"] == 0
+
+
+def test_failed_task_preserves_http200_failure_extractor_overcap_audit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gate E: learning rejection cannot roll back outcome or provider usage."""
+
+    monkeypatch.setenv("TEST_DEEPSEEK_KEY", "secret-fixture-key")
+    payload = _success("call_failure_f1_over_cap", "submit_failure_alignment")
+    payload["usage"] = {
+        "prompt_tokens": 200000,
+        "completion_tokens": 70000,
+        "total_tokens": 270000,
+        "completion_tokens_details": {"reasoning_tokens": 60000},
+    }
+
+    def post(_url, *, headers, json, timeout):
+        return _Response(payload, request_id="req_failure_f1_over_cap")
+
+    monkeypatch.setattr("atomic_skillgraph.agents.provider.requests.post", post)
+    provider = OpenAICompatibleProvider(
+        _config(max_completion_tokens=131072)
+    )
+    harness = FakeHarness()
+    task = fake_task("failed-over-cap", "apple_1")
+    config = {
+        "schema_version": 3,
+        "data_dir": str(tmp_path / "data_v3"),
+        "llm": {
+            "provider": "openai_compatible",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "api_key_env": "TEST_DEEPSEEK_KEY",
+            "extractor": {
+                "max_completion_tokens": 131072,
+                "max_total_tokens_per_task": 262144,
+            },
+        },
+        "experiment": {
+            "condition": "full",
+            "runtime_mode": "online",
+            "freeze_skills": False,
+            "output_dir": str(tmp_path / "run"),
+        },
+        "cold_start": {
+            "enabled": True,
+            "failure_extractor_enabled": True,
+        },
+    }
+    with AtomicSkillGraphSystem(
+        config,
+        harness=harness,
+        provider={"extractor": provider, "default": provider},
+    ) as system:
+        contract = harness.task_contract(task)
+        requirement = CapabilityRequirement(
+            "req_hold",
+            "hold the target item",
+            list(contract.target_effects),
+            [ParameterSpec("item", "entity", runtime_resolvable=True)],
+            [],
+            [],
+            [],
+            True,
+            "the task requires the target item to be held",
+        )
+        bundle = PlannerRequirementBundle([requirement], [])
+        expansion = system.planner.multiplicity_compiler.expand(bundle, contract)
+        instance_id = expansion.instances[0].instance_id
+        proposal = ColdStartPlanProposal(
+            "cold-failure-over-cap",
+            [ColdStartPlanStep(
+                "unresolved-hold",
+                [instance_id],
+                ColdStartCandidateSource.UNRESOLVED,
+                "",
+                ColdStartExecutionMode.DYNAMIC,
+                {},
+                {},
+                [],
+            )],
+            ["unresolved-hold"],
+            [],
+            [],
+            {instance_id: ["unresolved-hold"]},
+            [],
+        )
+
+        def failed_runtime(
+            _task, *, mode, trace_builder, attempt_id="",
+        ):
+            trace = trace_builder.trace
+            trace.task_contract = to_primitive(contract)
+            trace.requirement_bundle = to_primitive(bundle)
+            trace.requirement_expansion = to_primitive(expansion)
+            trace.runtime_plan = {
+                "source": "full_dynamic",
+                "failure_stage": "runtime",
+            }
+            trace.cold_start_plan = ColdStartPlanRecord(
+                proposal.plan_id,
+                to_primitive(proposal),
+                {"passed": True},
+                False,
+                [],
+                "unresolved-hold",
+            )
+            trace.benchmark_success = False
+            trace.task_contract_success = False
+            trace.strict_task_success = False
+            trace.learning_eligible = False
+            trace.infrastructure_failure = False
+            trace.failures = [FailureEnvelope(
+                "failure-runtime-budget",
+                FailureLayer.RUNTIME_AGENT,
+                "runtime_task_token_budget_exhausted",
+                task.task_id,
+                trace.trace_id,
+                "",
+                "runtime",
+                True,
+                message="runtime task budget exhausted",
+            )]
+            return trace_builder.finish()
+
+        system.orchestrator.run_task = failed_runtime
+        system.failure_processor.localize = lambda _trace: []
+        system.extraction_policy.decide = lambda _trace: type(
+            "Decision", (), {"should_extract": False, "reasons": ["task_failed"]}
+        )()
+        assert system.evolution_maintenance is not None
+        system.evolution_maintenance.prepare_failure_repairs = (
+            lambda *_args, **_kwargs: []
+        )
+
+        result = system.run_task(task)
+
+        assert result.benchmark_success is False
+        assert result.strict_task_success is False
+        assert result.infrastructure_failure is False
+        assert result.failure_extraction is not None
+        assert result.failure_extraction.rejection == {
+            "code": "failure_extractor_budget_exhausted",
+            "stage": "f1",
+            "source_code": "extractor_token_budget_exhausted",
+        }
+        f1_events = [
+            event for event in result.llm_usage
+            if event["bucket"] == "failure_extractor_f1"
+        ]
+        assert len(f1_events) == 1
+        assert f1_events[0]["prompt_tokens"] == 200000
+        assert f1_events[0]["completion_tokens"] == 70000
+        assert f1_events[0]["reasoning_tokens"] == 60000
+        assert f1_events[0]["total_tokens"] == 270000
+        assert f1_events[0]["latency_ms"] >= 0
+        assert len(result.provider_requests) == 1
+        assert result.provider_requests[0].request_id == "req_failure_f1_over_cap"
+        assert result.provider_requests[0].usage_status == "reported"
+        sessions = [
+            item for item in result.agent_sessions
+            if item.session_type == "FailureExtractorF1Session"
+        ]
+        assert len(sessions) == 1
+        exhausted = sessions[0].snapshot["budget"]
+        assert exhausted["used_total_tokens"] == 270000
+        assert exhausted["remaining_total_tokens"] == 0
+        assert provider.request_records[0]["usage"] == {
+            "prompt_tokens": 200000,
+            "completion_tokens": 70000,
+            "total_tokens": 270000,
+            "reasoning_tokens": 60000,
+        }
+        metrics = result.metadata["failure_extractor_metrics"]
+        assert metrics["failure_extractor_f1_tokens"] == 270000
+        assert metrics["failure_extractor_f1_provider_call_count"] == 1
+        assert (
+            metrics[
+                "failure_extractor_usage_persisted_after_rejection_count"
+            ]
+            == 1
+        )
+        row = trace_to_row(result)
+        assert row["failure_extractor_usage_persisted_after_rejection_count"] == 1
+        persisted = list(system.traces.iter_payloads())
+        assert len(persisted) == 1
+        assert persisted[0]["failure_extraction"]["rejection"] == (
+            result.failure_extraction.rejection
+        )
 
 
 def test_reasoning_content_is_replayed_across_tool_turns(

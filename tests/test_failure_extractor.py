@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from atomic_skillgraph.agents import LLMUsage, UsageBucket, UsageEvent, UsageLedger
 from atomic_skillgraph.evolution.failure_extraction_validator import (
     FailureAssetRecordBuilder,
     FailureAssetValidator,
@@ -18,9 +19,15 @@ from atomic_skillgraph.evolution.failure_extraction_validator import (
 from atomic_skillgraph.evolution.failure_extractor_session import (
     FailureAtomicProposal,
     FailureExtractionProposal,
+    FailureExtractorBudgetUnavailable,
     FailureExtractorSession,
+    FailureExtractorSessionAllocation,
     FailurePlanAlignment,
     PlanStepAlignment,
+)
+from atomic_skillgraph.evolution.failure_extraction_view import (
+    FailureAlignmentView,
+    FailureAssetExtractionView,
 )
 from atomic_skillgraph.core.contracts import (
     CapabilityRequirement,
@@ -30,6 +37,7 @@ from atomic_skillgraph.core.contracts import (
     SemanticPredicate,
     TaskContract,
 )
+from atomic_skillgraph.core.errors import BudgetExhausted, FailureLayer
 from atomic_skillgraph.core.serialization import to_primitive
 from atomic_skillgraph.evolution.admission import Admission
 from atomic_skillgraph.evolution.atomicizer import Atomicizer
@@ -45,6 +53,7 @@ from atomic_skillgraph.planner.multiplicity import (
     RequirementExpansion,
     RequirementInstance,
 )
+from atomic_skillgraph.system import AtomicSkillGraphSystem
 from atomic_skillgraph.traces.schema import (
     EnvironmentActionRecord,
     RuntimeSpan,
@@ -58,8 +67,10 @@ from atomic_skillgraph.validation.tool_validator import ToolValidator
 class _SubmissionQueue:
     def __init__(self, values: list[dict]) -> None:
         self.values = list(values)
+        self.sessions: list[object] = []
 
-    def request(self, *_args, **_kwargs):
+    def request(self, session, **_kwargs):
+        self.sessions.append(session)
         return SimpleNamespace(value=self.values.pop(0))
 
 
@@ -131,36 +142,107 @@ def _extraction_payload() -> dict:
     }
 
 
-def test_f1_and_f2_are_exactly_two_turns_in_the_same_session() -> None:
-    raw = _BucketSession()
-    extractor = FailureExtractorSession(raw)
+def test_f1_and_f2_use_fresh_sessions() -> None:
+    f1 = _BucketSession()
+    f2 = _BucketSession()
+    extractor = FailureExtractorSession(
+        f1,
+        lambda: FailureExtractorSessionAllocation(f2, 1000),
+    )
     extractor.submissions = _SubmissionQueue([
         _alignment_payload(), _extraction_payload(),
     ])
 
     alignment = extractor.align(
-        task_contract={}, requirement_expansion={}, cold_start_plan={},
-        trace_events=[], task_progress=[], failures=[], candidate_contracts=[],
+        alignment_view={},
     )
     proposal = extractor.extract(
-        validated_alignment=alignment,
-        authoritative_trace=[],
-        task_contract={},
+        asset_view={},
     )
 
-    assert raw.buckets == ["failure_extractor_f1", "failure_extractor_f2"]
+    assert extractor.submissions.sessions == [f1, f2]
+    assert extractor.f1_session_id == ""
+    assert extractor.f2_session_id == ""
     assert proposal.provisional_atomics[0].progress_relation == "consumed_prerequisite"
     with pytest.raises(RuntimeError, match="F1 may run exactly once"):
-        extractor.align(
-            task_contract={}, requirement_expansion={}, cold_start_plan={},
-            trace_events=[], task_progress=[], failures=[], candidate_contracts=[],
-        )
+        extractor.align(alignment_view={})
     with pytest.raises(RuntimeError, match="may run exactly once"):
-        extractor.extract(
-            validated_alignment=alignment,
-            authoritative_trace=[],
-            task_contract={},
-        )
+        extractor.extract(asset_view={})
+
+
+def test_system_allocates_f2_only_from_authoritative_f1_usage() -> None:
+    system = object.__new__(AtomicSkillGraphSystem)
+    system.config = {
+        "llm": {
+            "extractor": {
+                "max_completion_tokens": 131072,
+                "max_total_tokens_per_task": 262144,
+            },
+        },
+    }
+    system.usage = UsageLedger()
+    created: list[dict] = []
+
+    def new_session(**kwargs):
+        created.append(dict(kwargs))
+        return SimpleNamespace(session_id=f"fresh-{len(created)}")
+
+    system._new_session = new_session
+    f1 = system._failure_extractor_f1_session("task")
+    assert f1.session_id == "fresh-1"
+    assert created[-1]["bucket"] is UsageBucket.FAILURE_EXTRACTOR_F1
+    assert created[-1]["max_tokens"] == 262144
+    assert created[-1]["semantic_max_turns"] == 1
+
+    for index, total in enumerate((100000, 20000)):
+        system.usage.append(UsageEvent(
+            event_id=f"usage-{index}",
+            session_id=f1.session_id,
+            turn_index=index,
+            bucket=UsageBucket.FAILURE_EXTRACTOR_F1,
+            usage=LLMUsage(
+                prompt_tokens=total - 1000,
+                completion_tokens=1000,
+                total_tokens=total,
+                reasoning_tokens=500,
+                call_count=1,
+                latency_ms=1.0,
+            ),
+        ))
+
+    allocation = system._failure_extractor_f2_allocation(
+        "task", f1.session_id,
+    )
+    assert allocation.remaining_tokens == 142144
+    assert allocation.session is not f1
+    assert created[-1]["bucket"] is UsageBucket.FAILURE_EXTRACTOR_F2
+    assert created[-1]["max_tokens"] == 142144
+    assert created[-1]["semantic_max_turns"] == 1
+
+    exhausted = object.__new__(AtomicSkillGraphSystem)
+    exhausted.config = system.config
+    exhausted.usage = UsageLedger()
+    exhausted.usage.append(UsageEvent(
+        event_id="usage-exhausted",
+        session_id="f1-exhausted",
+        turn_index=0,
+        bucket=UsageBucket.FAILURE_EXTRACTOR_F1,
+        usage=LLMUsage(
+            prompt_tokens=200000,
+            completion_tokens=62144,
+            total_tokens=262144,
+            reasoning_tokens=60000,
+            call_count=1,
+            latency_ms=1.0,
+        ),
+    ))
+    exhausted._new_session = lambda **_kwargs: pytest.fail(
+        "F2 provider session must not be created with zero remaining budget"
+    )
+    no_budget = exhausted._failure_extractor_f2_allocation(
+        "task", "f1-exhausted",
+    )
+    assert no_budget == FailureExtractorSessionAllocation(None, 0)
 
 
 def _trace() -> SimpleNamespace:
@@ -243,6 +325,42 @@ def test_f1_keeps_later_independent_effect_span_after_first_divergence() -> None
         "step_id": "acquire", "event_start": 0, "event_end": 1,
         "effect_witness_refs": ["effect:w1"],
     }]
+
+
+def test_f1_deduplicates_overlapping_candidate_spans_before_f2() -> None:
+    trace = _trace()
+    trace.environment_actions = [
+        SimpleNamespace(accepted=True, revision=index, new_revision=index + 1)
+        for index in range(100)
+    ]
+    alignment = _alignment()
+    span = {
+        "step_id": "acquire", "event_start": 10, "event_end": 13,
+        "effect_witness_refs": ["effect:w1"],
+    }
+    alignment.candidate_progress_spans = [
+        span,
+        dict(span),
+        {
+            "step_id": "place", "event_start": 12, "event_end": 15,
+            "effect_witness_refs": ["effect:w1"],
+        },
+    ]
+
+    cleaned, result = FailurePlanAlignmentValidator().validate(
+        alignment,
+        cold_start_plan=_cold_plan(),
+        trace=trace,
+    )
+
+    assert result.passed
+    assert result.messages == ["candidate_progress_span_rejected:2"]
+    assert cleaned is not None
+    assert cleaned.candidate_progress_spans == [span]
+    assert sum(
+        int(item["event_end"]) - int(item["event_start"])
+        for item in cleaned.candidate_progress_spans
+    ) == 3
 
 
 def test_f1_allows_no_progress_span_and_uses_authoritative_remaining_suffix() -> None:
@@ -401,6 +519,144 @@ def test_rejected_provisional_does_not_discard_valid_failure_experience() -> Non
             _proposal(), alignment=_alignment(), trace=_trace(),
             source_replay=programming_error,
         )
+
+
+def _coordinator_prepare(extractor, *, record_builder=None):
+    class DefaultRecordBuilder:
+        def build(self, *_args):
+            return [], SimpleNamespace(experience_id="failure-exp")
+
+    return FailureExtractionCoordinator().prepare(
+        eligibility=FailureExtractionEligibility(
+            True, True, False, False, "online",
+        ),
+        extractor=extractor,
+        task_contract={},
+        requirement_expansion={},
+        cold_start_plan=_cold_plan(),
+        trace=_trace(),
+        task_progress=[],
+        failures=[],
+        candidate_contracts=[],
+        source_replay=lambda _item: {"passed": False},
+        record_builder=record_builder or DefaultRecordBuilder(),
+    )
+
+
+def test_coordinator_passes_compact_f1_and_f2_views_and_keeps_diagnostics() -> None:
+    class Extractor:
+        def __init__(self) -> None:
+            self.seen_alignment_view = None
+            self.seen_asset_view = None
+            self._diagnostics = {"f1": 1}
+
+        @property
+        def diagnostics(self):
+            return dict(self._diagnostics)
+
+        def align(self, *, alignment_view):
+            self.seen_alignment_view = alignment_view
+            return _alignment()
+
+        def extract(self, *, asset_view):
+            self.seen_asset_view = asset_view
+            self._diagnostics["f2"] = 1
+            proposal = _proposal()
+            proposal.provisional_atomics = []
+            return proposal
+
+    extractor = Extractor()
+    prepared = _coordinator_prepare(extractor)
+
+    assert isinstance(extractor.seen_alignment_view, FailureAlignmentView)
+    assert isinstance(extractor.seen_asset_view, FailureAssetExtractionView)
+    assert prepared.accepted
+    assert prepared.diagnostics == {"f1": 1, "f2": 1}
+
+
+@pytest.mark.parametrize("stage", ["f1", "f2"])
+def test_coordinator_isolates_only_extractor_token_budget(stage: str) -> None:
+    class Extractor:
+        diagnostics = {"prompt_chars": 123}
+
+        def align(self, *, alignment_view):
+            assert isinstance(alignment_view, FailureAlignmentView)
+            if stage == "f1":
+                raise BudgetExhausted(
+                    "extractor_token_budget_exhausted",
+                    "F1 provider call exceeded its allocation",
+                    layer=FailureLayer.RUNTIME_AGENT,
+                )
+            return _alignment()
+
+        def extract(self, *, asset_view):
+            assert isinstance(asset_view, FailureAssetExtractionView)
+            raise BudgetExhausted(
+                "extractor_token_budget_exhausted",
+                "F2 provider call exceeded its allocation",
+                layer=FailureLayer.RUNTIME_AGENT,
+            )
+
+    prepared = _coordinator_prepare(Extractor())
+
+    assert not prepared.accepted
+    assert prepared.rejection == {
+        "code": "failure_extractor_budget_exhausted",
+        "stage": stage,
+        "source_code": "extractor_token_budget_exhausted",
+    }
+    assert prepared.diagnostics == {
+        "prompt_chars": 123,
+        "failure_extractor_budget_exhausted_count": 1,
+    }
+    assert (prepared.alignment is not None) is (stage == "f2")
+
+
+def test_coordinator_does_not_swallow_other_budget_or_program_errors() -> None:
+    class OtherBudget:
+        diagnostics = {}
+
+        def align(self, *, alignment_view):
+            raise BudgetExhausted(
+                "runtime_task_token_budget_exhausted",
+                "not an extractor allocation",
+                layer=FailureLayer.RUNTIME_AGENT,
+            )
+
+    with pytest.raises(BudgetExhausted) as budget:
+        _coordinator_prepare(OtherBudget())
+    assert budget.value.code == "runtime_task_token_budget_exhausted"
+
+    class ProgrammingError:
+        diagnostics = {}
+
+        def align(self, *, alignment_view):
+            raise RuntimeError("provider usage persistence corrupted")
+
+    with pytest.raises(RuntimeError, match="usage persistence corrupted"):
+        _coordinator_prepare(ProgrammingError())
+
+
+def test_coordinator_records_f2_not_started_when_no_budget_remains() -> None:
+    class Extractor:
+        diagnostics = {"failure_extractor_skipped_after_budget_count": 1}
+
+        def align(self, *, alignment_view):
+            return _alignment()
+
+        def extract(self, *, asset_view):
+            raise FailureExtractorBudgetUnavailable()
+
+    prepared = _coordinator_prepare(Extractor())
+
+    assert prepared.rejection == {
+        "code": "failure_extractor_budget_exhausted",
+        "stage": "f2_not_started_no_remaining_budget",
+        "source_code": "extractor_token_budget_exhausted",
+    }
+    assert prepared.diagnostics[
+        "failure_extractor_skipped_after_budget_count"
+    ] == 1
 
 
 def test_failure_extractor_eligibility_is_strict_and_online_only() -> None:

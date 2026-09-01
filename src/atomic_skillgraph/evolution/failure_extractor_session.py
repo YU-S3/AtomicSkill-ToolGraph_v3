@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from ..agents.structured_submission import (
     ATOMIC_EXTRACTION_SCHEMA,
     StructuredSubmissionClient,
 )
-from ..core.errors import AgentProtocolError, FailureLayer, PlannerProposalError
+from ..core.errors import (
+    AgentProtocolError,
+    BudgetExhausted,
+    FailureLayer,
+    PlannerProposalError,
+)
 from ..core.serialization import to_primitive
 
 
@@ -179,6 +184,35 @@ class FailureExtractionProposal:
     reusable_failure_summary: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class FailureExtractorSessionAllocation:
+    """One fresh F2 conversation allocation derived from UsageLedger.
+
+    This is deliberately not a token ledger.  ``remaining_tokens`` is a
+    read-only allocation snapshot calculated by the System from authoritative
+    provider usage already stored in the shared UsageLedger.
+    """
+
+    session: Any | None
+    remaining_tokens: int
+
+    def __post_init__(self) -> None:
+        if self.remaining_tokens < 0:
+            raise ValueError("Failure Extractor remaining_tokens must be non-negative")
+
+
+class FailureExtractorBudgetUnavailable(BudgetExhausted):
+    """No F2 provider call may start after F1 consumed the task budget."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "extractor_token_budget_exhausted",
+            "Failure Extractor F2 has no remaining task-level token budget",
+            layer=FailureLayer.RUNTIME_AGENT,
+        )
+        self.failure_extractor_stage = "f2_not_started_no_remaining_budget"
+
+
 def _alignment(value: dict[str, Any]) -> FailurePlanAlignment:
     return FailurePlanAlignment(
         alignment_id=str(value["alignment_id"]),
@@ -211,41 +245,57 @@ def _extraction(value: dict[str, Any]) -> FailureExtractionProposal:
 
 
 class FailureExtractorSession:
-    def __init__(self, session: Any) -> None:
-        self.session = session
+    def __init__(
+        self,
+        f1_session: Any,
+        f2_session_factory: Callable[[], FailureExtractorSessionAllocation],
+    ) -> None:
+        self.f1_session = f1_session
+        self.f2_session_factory = f2_session_factory
+        self.f2_session: Any | None = None
         self.submissions = StructuredSubmissionClient()
         self._f1_complete = False
         self._f2_complete = False
+        self._diagnostics: dict[str, int] = {}
+
+    @property
+    def f1_session_id(self) -> str:
+        return str(getattr(self.f1_session, "session_id", ""))
+
+    @property
+    def f2_session_id(self) -> str:
+        return str(getattr(self.f2_session, "session_id", ""))
+
+    @property
+    def diagnostics(self) -> dict[str, int]:
+        return dict(self._diagnostics)
 
     def align(
         self,
         *,
-        task_contract: Any,
-        requirement_expansion: Any,
-        cold_start_plan: Any,
-        trace_events: Any,
-        task_progress: Any,
-        failures: Any,
-        candidate_contracts: Any,
+        alignment_view: Any,
     ) -> FailurePlanAlignment:
         if self._f1_complete:
             raise RuntimeError("Failure Extractor F1 may run exactly once")
-        if hasattr(self.session, "set_usage_bucket"):
-            self.session.set_usage_bucket("failure_extractor_f1")
+        payload = to_primitive(alignment_view)
         prompt = (
             "F1 PLAN-TRACE ALIGNMENT. Identify the first unrecovered divergence from the supplied plan, not the first\n"
             "low-level error. Later actions are not automatically invalid; a later span may\n"
             "still establish an independent reusable Effect. Call only the offered submission tool.\n"
-            f"TaskContract: {json.dumps(to_primitive(task_contract), ensure_ascii=False)}\n"
-            f"RequirementExpansion: {json.dumps(to_primitive(requirement_expansion), ensure_ascii=False)}\n"
-            f"ColdStartPlan: {json.dumps(to_primitive(cold_start_plan), ensure_ascii=False)}\n"
-            f"Structured events: {json.dumps(to_primitive(trace_events), ensure_ascii=False)}\n"
-            f"TaskProgress: {json.dumps(to_primitive(task_progress), ensure_ascii=False)}\n"
-            f"Failure envelopes: {json.dumps(to_primitive(failures), ensure_ascii=False)}\n"
-            f"Candidate contract views: {json.dumps(to_primitive(candidate_contracts), ensure_ascii=False)}"
+            f"FailureAlignmentView: {json.dumps(payload, ensure_ascii=False)}"
         )
+        self._diagnostics.update({
+            "failure_extractor_f1_input_event_count": len(
+                dict(payload).get("execution_events", [])
+            ),
+            "failure_extractor_f1_prompt_chars": len(prompt),
+            "failure_extractor_f1_prompt_bytes": len(prompt.encode("utf-8")),
+        })
         result = _alignment(self._request(
-            prompt, "submit_failure_plan_alignment", FAILURE_ALIGNMENT_SCHEMA,
+            self.f1_session,
+            prompt,
+            "submit_failure_plan_alignment",
+            FAILURE_ALIGNMENT_SCHEMA,
         ))
         self._f1_complete = True
         return result
@@ -253,16 +303,23 @@ class FailureExtractorSession:
     def extract(
         self,
         *,
-        validated_alignment: FailurePlanAlignment,
-        authoritative_trace: Any,
-        task_contract: Any,
+        asset_view: Any,
     ) -> FailureExtractionProposal:
         if not self._f1_complete or self._f2_complete:
             raise RuntimeError(
                 "Failure Extractor F2 requires one completed F1 and may run exactly once"
             )
-        if hasattr(self.session, "set_usage_bucket"):
-            self.session.set_usage_bucket("failure_extractor_f2")
+        allocation = self.f2_session_factory()
+        self._diagnostics[
+            "failure_extractor_remaining_budget_before_f2"
+        ] = int(allocation.remaining_tokens)
+        if allocation.session is None or allocation.remaining_tokens == 0:
+            self._diagnostics[
+                "failure_extractor_skipped_after_budget_count"
+            ] = 1
+            raise FailureExtractorBudgetUnavailable()
+        self.f2_session = allocation.session
+        payload = to_primitive(asset_view)
         prompt = (
             "F2 FAILURE ASSET EXTRACTION. Propose only portable provisional Atomic contracts from independently validated "
             "real Effect spans and one non-executable negative method summary. Do not output a Composite, Implementation, "
@@ -270,20 +327,36 @@ class FailureExtractorSession:
             "A failed task may contain no reusable local Atomic Effect. In that case submit provisional_atomics as an "
             "empty array and still provide the portable negative Failure Experience summary. Do not invent a local "
             "Atomic only to make the list non-empty.\n"
-            f"Code-validated F1: {json.dumps(to_primitive(validated_alignment), ensure_ascii=False)}\n"
-            f"Authoritative trace: {json.dumps(to_primitive(authoritative_trace), ensure_ascii=False)}\n"
-            f"TaskContract: {json.dumps(to_primitive(task_contract), ensure_ascii=False)}"
+            f"FailureAssetExtractionView: {json.dumps(payload, ensure_ascii=False)}"
         )
+        spans = list(dict(payload).get("candidate_progress_spans", []))
+        self._diagnostics.update({
+            "failure_extractor_f2_span_count": len(spans),
+            "failure_extractor_f2_source_event_count": sum(
+                len(dict(span).get("accepted_events", [])) for span in spans
+            ),
+            "failure_extractor_f2_prompt_chars": len(prompt),
+            "failure_extractor_f2_prompt_bytes": len(prompt.encode("utf-8")),
+        })
         result = _extraction(self._request(
-            prompt, "submit_failure_assets", FAILURE_EXTRACTION_SCHEMA,
+            self.f2_session,
+            prompt,
+            "submit_failure_assets",
+            FAILURE_EXTRACTION_SCHEMA,
         ))
         self._f2_complete = True
         return result
 
-    def _request(self, prompt: str, tool_name: str, schema: dict[str, Any]) -> dict[str, Any]:
+    def _request(
+        self,
+        session: Any,
+        prompt: str,
+        tool_name: str,
+        schema: dict[str, Any],
+    ) -> dict[str, Any]:
         try:
             return self.submissions.request(
-                self.session,
+                session,
                 prompt=prompt,
                 tool_name=tool_name,
                 description="Submit the complete failure-side analysis for this stage.",
@@ -300,5 +373,7 @@ class FailureExtractorSession:
 __all__ = [
     "FAILURE_ALIGNMENT_SCHEMA", "FAILURE_EXTRACTION_SCHEMA",
     "FailureAtomicProposal", "FailureExtractionProposal",
-    "FailureExtractorSession", "FailurePlanAlignment", "PlanStepAlignment",
+    "FailureExtractorBudgetUnavailable", "FailureExtractorSession",
+    "FailureExtractorSessionAllocation", "FailurePlanAlignment",
+    "PlanStepAlignment",
 ]

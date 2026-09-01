@@ -139,6 +139,24 @@ R21_RUNTIME_METRICS = (
     "replay_history_action_count",
 )
 
+R22_FAILURE_EXTRACTOR_METRICS = (
+    "failure_extractor_f1_input_event_count",
+    "failure_extractor_f1_prompt_chars",
+    "failure_extractor_f1_prompt_bytes",
+    "failure_extractor_f1_tokens",
+    "failure_extractor_f2_span_count",
+    "failure_extractor_f2_source_event_count",
+    "failure_extractor_f2_prompt_chars",
+    "failure_extractor_f2_prompt_bytes",
+    "failure_extractor_f2_tokens",
+    "failure_extractor_budget_exhausted_count",
+    "failure_extractor_skipped_after_budget_count",
+    "failure_extractor_f1_provider_call_count",
+    "failure_extractor_f2_provider_call_count",
+    "failure_extractor_usage_persisted_after_rejection_count",
+    "failure_extractor_remaining_budget_before_f2",
+)
+
 _FROZEN_FORBIDDEN_COLD_START_BUCKETS = (
     "cold_start_c1",
     "cold_start_c1_repair",
@@ -224,6 +242,7 @@ REPORT_COLUMNS = (
     "runtime_reasoning_tokens",
     "runtime_reasoning_share",
     "runtime_token_decomposition",
+    *R22_FAILURE_EXTRACTOR_METRICS,
     *V31_METHOD_METRICS,
     *EXTRACTOR_QUALITY_METRICS,
     "extraction_attempted",
@@ -309,6 +328,9 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         planner_p2_used=planner_p2_used,
     )
     extraction = _extraction_diagnostic(trace, metadata, quality, usage)
+    failure_extractor = _failure_extractor_diagnostic(
+        trace, metadata=metadata, usage=usage,
+    )
     runtime_failure = _runtime_failure_diagnostic(
         trace,
         plan=plan,
@@ -444,6 +466,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
             "runtime_node_token_budget_exhausted" in failure_codes
         ),
         **r21_runtime,
+        **failure_extractor,
         **v31_metrics,
         **{
             name: _integer(quality.get(name, 0))
@@ -674,6 +697,10 @@ def summarize_traces(
         **{
             name: sum(_integer(row.get(name, 0)) for row in task_rows)
             for name in R21_RUNTIME_METRICS
+        },
+        **{
+            name: sum(_integer(row.get(name, 0)) for row in task_rows)
+            for name in R22_FAILURE_EXTRACTOR_METRICS
         },
         "replay_full_catalog_count_at_last_request": max(
             (
@@ -914,6 +941,11 @@ def render_markdown(
     lines.extend(_markdown_pairs(tuple(
         (name, summary.get(name, 0))
         for name in V31_METHOD_METRICS
+    )))
+    lines.extend(["", "## R2.2 Failure Extractor diagnostics", ""])
+    lines.extend(_markdown_pairs(tuple(
+        (name, summary.get(name, 0))
+        for name in R22_FAILURE_EXTRACTOR_METRICS
     )))
     lines.extend(["", "## R2.1 Runtime decision and replay", ""])
     lines.extend(_markdown_pairs(tuple(
@@ -1586,6 +1618,92 @@ def _atomic_contract_mismatch_reasons(
             for code in sorted(codes & _ATOMIC_MISMATCH_CODES):
                 counts[code] = counts.get(code, 0) + 1
     return dict(sorted(counts.items()))
+
+
+def _failure_extractor_diagnostic(
+    trace: Any,
+    *,
+    metadata: Mapping[str, Any],
+    usage: Mapping[str, Any],
+) -> dict[str, int]:
+    """Project R2.2 diagnostics without creating a second usage authority.
+
+    Input-size and allocation facts are emitted by the bounded view/session
+    producer.  Provider calls and tokens always come from the normalized
+    provider-reported usage buckets.  Exhaustion is counted only from the
+    formal failure-extraction rejection, never from a numeric cap comparison.
+    """
+
+    metrics = _mapping(metadata.get("failure_extractor_metrics", {}))
+    failure_extraction = _mapping(_field(trace, "failure_extraction", {}))
+    rejection = _mapping(failure_extraction.get("rejection", {}))
+
+    def metric(name: str) -> int:
+        if name in metrics:
+            return _nonnegative_integer(metrics[name])
+        return _nonnegative_integer(metadata.get(name, 0))
+
+    by_bucket = _mapping(usage.get("by_bucket", {}))
+    f1_usage = _mapping(by_bucket.get("failure_extractor_f1", {}))
+    f2_usage = _mapping(by_bucket.get("failure_extractor_f2", {}))
+    f1_calls = _nonnegative_integer(f1_usage.get("call_count", 0))
+    f2_calls = _nonnegative_integer(f2_usage.get("call_count", 0))
+    f1_tokens = _nonnegative_integer(f1_usage.get("total_tokens", 0))
+    f2_tokens = _nonnegative_integer(f2_usage.get("total_tokens", 0))
+
+    rejection_code = str(rejection.get("code", ""))
+    rejection_stage = str(rejection.get("stage", ""))
+    budget_exhausted = rejection_code == "failure_extractor_budget_exhausted"
+    skipped_after_budget = bool(
+        budget_exhausted
+        and rejection_stage == "f2_not_started_no_remaining_budget"
+    )
+    if rejection_stage.startswith("f1"):
+        rejected_usage_persisted = f1_calls > 0
+    elif rejection_stage == "f2_not_started_no_remaining_budget":
+        rejected_usage_persisted = f1_calls > 0
+    elif rejection_stage.startswith("f2"):
+        rejected_usage_persisted = f2_calls > 0
+    else:
+        rejected_usage_persisted = f1_calls + f2_calls > 0
+
+    return {
+        "failure_extractor_f1_input_event_count": metric(
+            "failure_extractor_f1_input_event_count"
+        ),
+        "failure_extractor_f1_prompt_chars": metric(
+            "failure_extractor_f1_prompt_chars"
+        ),
+        "failure_extractor_f1_prompt_bytes": metric(
+            "failure_extractor_f1_prompt_bytes"
+        ),
+        "failure_extractor_f1_tokens": f1_tokens,
+        "failure_extractor_f2_span_count": metric(
+            "failure_extractor_f2_span_count"
+        ),
+        "failure_extractor_f2_source_event_count": metric(
+            "failure_extractor_f2_source_event_count"
+        ),
+        "failure_extractor_f2_prompt_chars": metric(
+            "failure_extractor_f2_prompt_chars"
+        ),
+        "failure_extractor_f2_prompt_bytes": metric(
+            "failure_extractor_f2_prompt_bytes"
+        ),
+        "failure_extractor_f2_tokens": f2_tokens,
+        "failure_extractor_budget_exhausted_count": int(budget_exhausted),
+        "failure_extractor_skipped_after_budget_count": int(
+            skipped_after_budget
+        ),
+        "failure_extractor_f1_provider_call_count": f1_calls,
+        "failure_extractor_f2_provider_call_count": f2_calls,
+        "failure_extractor_usage_persisted_after_rejection_count": int(
+            budget_exhausted and rejected_usage_persisted
+        ),
+        "failure_extractor_remaining_budget_before_f2": metric(
+            "failure_extractor_remaining_budget_before_f2"
+        ),
+    }
 
 
 def _extraction_diagnostic(
@@ -2781,6 +2899,7 @@ def _replace_with_retry(source: Path, target: Path) -> None:
 __all__ = [
     "REPORT_COLUMNS",
     "R21_RUNTIME_METRICS",
+    "R22_FAILURE_EXTRACTOR_METRICS",
     "ReportPaths",
     "USAGE_BUCKETS",
     "V31_METHOD_METRICS",

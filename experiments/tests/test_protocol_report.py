@@ -771,6 +771,145 @@ def test_r2_planner_extractor_and_runtime_diagnostics_are_structured(
     assert "runtime_node_token_budget_exhausted" in markdown
 
 
+def test_r22_failure_extractor_diagnostics_use_formal_rejection_and_usage(
+    tmp_path: Path,
+) -> None:
+    exhausted_f2 = _trace_two()
+    exhausted_f2["trace_id"] = "trace-r22-f2"
+    exhausted_f2["task"]["task_id"] = "task-r22-f2"
+    exhausted_f2["llm_usage"] = [
+        {
+            "bucket": "failure_extractor_f1",
+            "prompt_tokens": 90000,
+            "completion_tokens": 30000,
+            "total_tokens": 120000,
+            "reasoning_tokens": 20000,
+            "call_count": 1,
+            "latency_ms": 20.0,
+        },
+        {
+            "bucket": "failure_extractor_f2",
+            "prompt_tokens": 140000,
+            "completion_tokens": 10000,
+            "total_tokens": 150000,
+            "reasoning_tokens": 8000,
+            "call_count": 1,
+            "latency_ms": 30.0,
+        },
+    ]
+    exhausted_f2["metadata"] = {
+        "episode_total_tokens": 270000,
+        "failure_extractor_metrics": {
+            "failure_extractor_f1_input_event_count": 12,
+            "failure_extractor_f1_prompt_chars": 4000,
+            "failure_extractor_f1_prompt_bytes": 4200,
+            "failure_extractor_f1_tokens": 999999,
+            "failure_extractor_f1_provider_call_count": 99,
+            "failure_extractor_f2_span_count": 3,
+            "failure_extractor_f2_source_event_count": 7,
+            "failure_extractor_f2_prompt_chars": 2500,
+            "failure_extractor_f2_prompt_bytes": 2700,
+            "failure_extractor_f2_tokens": 999999,
+            "failure_extractor_f2_provider_call_count": 99,
+            "failure_extractor_remaining_budget_before_f2": 142144,
+        },
+    }
+    exhausted_f2["failure_extraction"] = {
+        "rejection": {
+            "code": "failure_extractor_budget_exhausted",
+            "stage": "f2",
+            "source_code": "extractor_token_budget_exhausted",
+        },
+    }
+
+    exhausted_row = trace_to_row(exhausted_f2)
+    assert exhausted_row["failure_extractor_f1_input_event_count"] == 12
+    assert exhausted_row["failure_extractor_f1_prompt_chars"] == 4000
+    assert exhausted_row["failure_extractor_f1_prompt_bytes"] == 4200
+    assert exhausted_row["failure_extractor_f1_tokens"] == 120000
+    assert exhausted_row["failure_extractor_f2_span_count"] == 3
+    assert exhausted_row["failure_extractor_f2_source_event_count"] == 7
+    assert exhausted_row["failure_extractor_f2_prompt_chars"] == 2500
+    assert exhausted_row["failure_extractor_f2_prompt_bytes"] == 2700
+    assert exhausted_row["failure_extractor_f2_tokens"] == 150000
+    assert exhausted_row["failure_extractor_f1_provider_call_count"] == 1
+    assert exhausted_row["failure_extractor_f2_provider_call_count"] == 1
+    assert exhausted_row["failure_extractor_budget_exhausted_count"] == 1
+    assert exhausted_row["failure_extractor_skipped_after_budget_count"] == 0
+    assert (
+        exhausted_row[
+            "failure_extractor_usage_persisted_after_rejection_count"
+        ]
+        == 1
+    )
+    assert (
+        exhausted_row["failure_extractor_remaining_budget_before_f2"]
+        == 142144
+    )
+
+    skipped_f2 = copy.deepcopy(exhausted_f2)
+    skipped_f2["trace_id"] = "trace-r22-skipped"
+    skipped_f2["task"]["task_id"] = "task-r22-skipped"
+    skipped_f2["llm_usage"] = [exhausted_f2["llm_usage"][0]]
+    skipped_f2["metadata"]["episode_total_tokens"] = 120000
+    skipped_f2["metadata"]["failure_extractor_metrics"][
+        "failure_extractor_remaining_budget_before_f2"
+    ] = 0
+    skipped_f2["failure_extraction"]["rejection"][
+        "stage"
+    ] = "f2_not_started_no_remaining_budget"
+    skipped_row = trace_to_row(skipped_f2)
+    assert skipped_row["failure_extractor_f2_tokens"] == 0
+    assert skipped_row["failure_extractor_f2_provider_call_count"] == 0
+    assert skipped_row["failure_extractor_budget_exhausted_count"] == 1
+    assert skipped_row["failure_extractor_skipped_after_budget_count"] == 1
+    assert (
+        skipped_row[
+            "failure_extractor_usage_persisted_after_rejection_count"
+        ]
+        == 1
+    )
+
+    exact_cap = copy.deepcopy(skipped_f2)
+    exact_cap["trace_id"] = "trace-r22-exact-cap"
+    exact_cap["task"]["task_id"] = "task-r22-exact-cap"
+    exact_cap["llm_usage"][0] = {
+        **exact_cap["llm_usage"][0],
+        "prompt_tokens": 250000,
+        "completion_tokens": 12144,
+        "total_tokens": 262144,
+    }
+    exact_cap["metadata"]["episode_total_tokens"] = 262144
+    exact_cap["failure_extraction"] = {"rejection": {}}
+    exact_row = trace_to_row(exact_cap)
+    assert exact_row["failure_extractor_f1_tokens"] == 262144
+    assert exact_row["failure_extractor_budget_exhausted_count"] == 0
+    assert exact_row["failure_extractor_skipped_after_budget_count"] == 0
+    assert (
+        exact_row[
+            "failure_extractor_usage_persisted_after_rejection_count"
+        ]
+        == 0
+    )
+
+    summary = summarize_traces([exhausted_row, skipped_row, exact_row])
+    assert summary["failure_extractor_f1_tokens"] == 502144
+    assert summary["failure_extractor_f2_tokens"] == 150000
+    assert summary["failure_extractor_f1_provider_call_count"] == 3
+    assert summary["failure_extractor_f2_provider_call_count"] == 1
+    assert summary["failure_extractor_budget_exhausted_count"] == 2
+    assert summary["failure_extractor_skipped_after_budget_count"] == 1
+    assert (
+        summary["failure_extractor_usage_persisted_after_rejection_count"]
+        == 2
+    )
+    markdown = write_reports(
+        [exhausted_f2, skipped_f2, exact_cap], tmp_path, stem="r22",
+    ).markdown.read_text(encoding="utf-8")
+    assert "R2.2 Failure Extractor diagnostics" in markdown
+    assert "failure_extractor_usage_persisted_after_rejection_count" in markdown
+
+
 def test_failed_runtime_diagnostic_uses_temporal_trace_authority() -> None:
     trace = _trace_two()
     trace["runtime_plan"] = {

@@ -31,6 +31,7 @@ from .core.edges import GlobalGraphEdge, GlobalRelationType
 from .core.errors import (
     AgentProtocolError,
     AtomicSkillGraphError,
+    BudgetExhausted,
     FailureEnvelope,
     FailureLayer,
 )
@@ -60,7 +61,10 @@ from .evolution.failure_extraction_validator import (
     FailureExtractionEligibility,
     PreparedFailureExtraction,
 )
-from .evolution.failure_extractor_session import FailureExtractorSession
+from .evolution.failure_extractor_session import (
+    FailureExtractorSession,
+    FailureExtractorSessionAllocation,
+)
 from .evolution.gap_diagnosis import GapDiagnoser
 from .evolution.maintenance import (
     BatchMaintenanceResult,
@@ -718,23 +722,53 @@ class AtomicSkillGraphSystem:
             semantic_max_turns=semantic_max_turns,
         )
 
-    def _failure_extractor_session(self, task_id: str) -> _SessionProxy:
+    def _failure_extractor_token_cap(self) -> int:
         cfg = self._stage_config("extractor")
-        # F1 and F2 share this exact conversation.  FailureExtractorSession
-        # switches the ledger bucket between the two semantic turns.
-        semantic_max_turns = 2
+        return int(cfg.get(
+            "max_total_tokens_per_task",
+            cfg.get("max_completion_tokens", 131072) * 2,
+        ))
+
+    def _failure_extractor_f1_session(self, task_id: str) -> _SessionProxy:
+        # F1 and F2 are deliberately separate conversations.  The only shared
+        # resource is the task-level cap, reconstructed from UsageLedger after
+        # F1 rather than from a second mutable counter.
+        semantic_max_turns = 1
         return self._new_session(
             stage="extractor", bucket=UsageBucket.FAILURE_EXTRACTOR_F1,
-            session_type="FailureExtractorSession", occurrence_id="",
+            session_type="FailureExtractorF1Session", occurrence_id="",
             task_id=task_id,
             max_turns=structured_provider_turn_cap(semantic_max_turns),
-            max_tokens=int(cfg.get(
-                "max_total_tokens_per_task",
-                cfg.get("max_completion_tokens", 131072) * 2,
-            )),
+            max_tokens=self._failure_extractor_token_cap(),
             exhaustion_code="extractor_token_budget_exhausted",
             semantic_max_turns=semantic_max_turns,
         )
+
+    def _failure_extractor_f2_allocation(
+        self,
+        task_id: str,
+        f1_session_id: str,
+    ) -> FailureExtractorSessionAllocation:
+        used = sum(
+            event.usage.total_tokens
+            for event in self.usage.events
+            if event.session_id == f1_session_id
+            and event.bucket is UsageBucket.FAILURE_EXTRACTOR_F1
+        )
+        remaining = max(0, self._failure_extractor_token_cap() - used)
+        if remaining == 0:
+            return FailureExtractorSessionAllocation(None, 0)
+        semantic_max_turns = 1
+        session = self._new_session(
+            stage="extractor", bucket=UsageBucket.FAILURE_EXTRACTOR_F2,
+            session_type="FailureExtractorF2Session", occurrence_id="",
+            task_id=task_id,
+            max_turns=structured_provider_turn_cap(semantic_max_turns),
+            max_tokens=remaining,
+            exhaustion_code="extractor_token_budget_exhausted",
+            semantic_max_turns=semantic_max_turns,
+        )
+        return FailureExtractorSessionAllocation(session, remaining)
 
     def _evolution_repair_session(self, task_id: str) -> _SessionProxy:
         cfg = self._stage_config("evolution_repair")
@@ -905,11 +939,17 @@ class AtomicSkillGraphSystem:
             trace=trace,
             harness_profile=str(self.harness.profile_name),
         )
+        f1_session = self._failure_extractor_f1_session(task.task_id)
+        f1_session_id = str(f1_session.session_id)
+        extractor = FailureExtractorSession(
+            f1_session,
+            lambda: self._failure_extractor_f2_allocation(
+                task.task_id, f1_session_id,
+            ),
+        )
         prepared = self.failure_extraction_coordinator.prepare(
             eligibility=eligibility,
-            extractor=FailureExtractorSession(
-                self._failure_extractor_session(task.task_id)
-            ),
+            extractor=extractor,
             task_contract=contract,
             requirement_expansion=expansion,
             cold_start_plan=proposal,
@@ -919,6 +959,57 @@ class AtomicSkillGraphSystem:
             candidate_contracts=self._cold_candidate_contract_views(proposal),
             source_replay=source_replay,
             record_builder=record_builder,
+        )
+        f1_events = [
+            event for event in self.usage.events
+            if event.session_id == extractor.f1_session_id
+            and event.bucket is UsageBucket.FAILURE_EXTRACTOR_F1
+        ]
+        f2_events = [
+            event for event in self.usage.events
+            if extractor.f2_session_id
+            and event.session_id == extractor.f2_session_id
+            and event.bucket is UsageBucket.FAILURE_EXTRACTOR_F2
+        ]
+        rejection_code = str(prepared.rejection.get("code") or "")
+        rejection_stage = str(prepared.rejection.get("stage") or "")
+        if rejection_stage.startswith("f1"):
+            rejected_usage_persisted = bool(f1_events)
+        elif rejection_stage == "f2_not_started_no_remaining_budget":
+            rejected_usage_persisted = bool(f1_events)
+        elif rejection_stage.startswith("f2"):
+            rejected_usage_persisted = bool(f2_events)
+        else:
+            rejected_usage_persisted = bool(f1_events or f2_events)
+        failure_extractor_metrics = dict(prepared.diagnostics)
+        failure_extractor_metrics.update({
+            # These four values are snapshots of the authoritative UsageLedger,
+            # not an independently updated token/call counter.
+            "failure_extractor_f1_tokens": sum(
+                event.usage.total_tokens for event in f1_events
+            ),
+            "failure_extractor_f2_tokens": sum(
+                event.usage.total_tokens for event in f2_events
+            ),
+            "failure_extractor_f1_provider_call_count": sum(
+                event.usage.call_count for event in f1_events
+            ),
+            "failure_extractor_f2_provider_call_count": sum(
+                event.usage.call_count for event in f2_events
+            ),
+            "failure_extractor_budget_exhausted_count": int(
+                rejection_code == "failure_extractor_budget_exhausted"
+            ),
+            "failure_extractor_usage_persisted_after_rejection_count": int(
+                rejection_code == "failure_extractor_budget_exhausted"
+                and rejected_usage_persisted
+            ),
+        })
+        failure_extractor_metrics.setdefault(
+            "failure_extractor_skipped_after_budget_count", 0,
+        )
+        trace.metadata["failure_extractor_metrics"] = (
+            failure_extractor_metrics
         )
         trace.failure_extraction = FailureExtractionRecord(
             f1_alignment=to_primitive(prepared.alignment) if prepared.alignment else {},
@@ -1094,14 +1185,20 @@ class AtomicSkillGraphSystem:
                     "error_type": "",
                     "error": "",
                 }
-            except (AgentProtocolError, ValueError) as exc:
+            except (AgentProtocolError, ValueError, BudgetExhausted) as exc:
                 # Extractor proposals may be rejected either by the native
                 # submission protocol or by deterministic Atomic/Composite
-                # validators.  Both are model-content rejections: discard the
-                # staged Evolution and preserve the completed task Trace.
+                # validators.  The Extractor's own configured token exhaustion
+                # is likewise a learning-only rejection: discard staged
+                # Evolution and preserve the completed task Trace.
                 # Infrastructure, persistence, programming, and unexpected
                 # errors still propagate so the runner rolls back the task
                 # checkpoint.
+                if (
+                    isinstance(exc, BudgetExhausted)
+                    and exc.code != "extractor_token_budget_exhausted"
+                ):
+                    raise
                 current = dict(trace.metadata.get("extraction") or {})
                 stage = str(
                     getattr(exc, "stage", "")
@@ -1125,6 +1222,7 @@ class AtomicSkillGraphSystem:
                     "attempted": True,
                     "stage": stage,
                     "prepared": False,
+                    "applied": False,
                     "error_type": type(exc).__name__,
                     "error_code": error_code,
                     "error": self._sanitize_failure_message(exc),

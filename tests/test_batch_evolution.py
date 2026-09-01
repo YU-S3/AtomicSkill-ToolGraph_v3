@@ -15,7 +15,7 @@ from atomic_skillgraph.core.contracts import (
 )
 from atomic_skillgraph.core.edges import GraphEdge, GraphEdgeType, GlobalRelationType
 from atomic_skillgraph.core.errors import (
-    AgentProtocolError, FailureEnvelope, FailureLayer,
+    AgentProtocolError, BudgetExhausted, FailureEnvelope, FailureLayer,
 )
 from atomic_skillgraph.core.refs import SkillRef, ToolRef, content_hash
 from atomic_skillgraph.core.results import ValidationResult
@@ -916,6 +916,11 @@ def test_stable_replacement_emits_superseded_credit_and_suppresses_old_version(
     [
         RuntimeError("database fault"),
         AgentProviderError("provider_timeout", "provider timed out"),
+        BudgetExhausted(
+            "runtime_task_token_budget_exhausted",
+            "runtime task budget exhausted",
+            layer=FailureLayer.RUNTIME_AGENT,
+        ),
     ],
 )
 def test_non_content_evolution_prepare_error_propagates_for_checkpoint_rollback(
@@ -988,6 +993,7 @@ def test_extractor_protocol_rejection_discards_evolution_but_preserves_task(
             "attempted": True,
             "stage": "e2",
             "prepared": False,
+            "applied": False,
             "error_type": "ExtractionContentError",
             "error_code": "extractor_e2_schema_rejected",
             "error": "malformed E2 native submission",
@@ -1004,6 +1010,57 @@ def test_extractor_protocol_rejection_discards_evolution_but_preserves_task(
         assert result.resource_usage_complete is True
         assert result.metadata["usage_reconciliation"]["token_mismatch"] == 0
         assert len(list(system.traces.iter_payloads())) == 1
+
+
+def test_success_extractor_token_exhaustion_is_learning_only(
+    tmp_path,
+) -> None:
+    with AtomicSkillGraphSystem(_system_config(tmp_path / "data_v3")) as system:
+        task = HarnessTask("task", "goal", "fake", "pick")
+
+        def successful_runtime(
+            _task, *, mode, trace_builder, attempt_id="",
+        ):
+            trace = trace_builder.trace
+            trace.runtime_plan = {
+                "source": "full_dynamic", "failure_stage": "runtime",
+            }
+            trace.benchmark_success = True
+            trace.task_contract_success = True
+            trace.strict_task_success = True
+            trace.learning_eligible = True
+            return trace_builder.finish()
+
+        system.orchestrator.run_task = successful_runtime
+        system.failure_processor.localize = lambda _trace: []
+        system.extraction_policy.decide = lambda _trace: SimpleNamespace(
+            should_extract=True, reasons=["full_dynamic_success"],
+        )
+
+        def exhaust_extractor(*_args, **_kwargs):
+            raise BudgetExhausted(
+                "extractor_token_budget_exhausted",
+                "extractor budget exceeded by provider call",
+                layer=FailureLayer.RUNTIME_AGENT,
+            )
+
+        system._prepare_evolution = exhaust_extractor
+        result = system.run_task(task)
+
+        assert result.benchmark_success is True
+        assert result.strict_task_success is True
+        assert result.infrastructure_failure is False
+        assert result.metadata["evolution_branch"] == "success"
+        assert result.metadata["extraction"] == {
+            "attempted": True,
+            "stage": "e1",
+            "prepared": False,
+            "applied": False,
+            "error_type": "BudgetExhausted",
+            "error_code": "extractor_token_budget_exhausted",
+            "error": "extractor budget exceeded by provider call",
+        }
+        assert "evolution_applied" not in result.metadata
 
 
 def test_implementation_preflight_failure_builds_replay_but_agent_error_does_not(

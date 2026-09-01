@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import copy
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..core.contracts import SemanticPredicate
-from ..core.errors import PlannerProposalError
+from ..core.errors import BudgetExhausted, PlannerProposalError
 from ..core.refs import content_hash
 from ..core.results import ValidationResult
 from ..core.serialization import to_primitive
@@ -34,6 +34,7 @@ from .failure_extractor_session import (
     FailurePlanAlignment,
     PlanStepAlignment,
 )
+from .failure_extraction_view import FailureExtractionViewBuilder
 from .portability import resolve_capability_label
 from .tool_compiler import CompiledKnowledge, rewrite_capability_labels
 
@@ -112,6 +113,7 @@ class PreparedFailureExtraction:
     provisional_records: list[ProvisionalAtomicRecord]
     failure_experience: FailureExperience | None
     rejection: dict[str, Any]
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
     @property
     def accepted(self) -> bool:
@@ -489,15 +491,17 @@ class FailureAssetRecordBuilder:
 
 
 class FailureExtractionCoordinator:
-    """Run F1/F2 in one session and stage knowledge only after both validate."""
+    """Run bounded F1/F2 extraction and stage only code-validated assets."""
 
     def __init__(
         self,
         alignment_validator: "FailurePlanAlignmentValidator" | None = None,
         asset_validator: "FailureAssetValidator" | None = None,
+        view_builder: FailureExtractionViewBuilder | None = None,
     ) -> None:
         self.alignment_validator = alignment_validator or FailurePlanAlignmentValidator()
         self.asset_validator = asset_validator or FailureAssetValidator()
+        self.view_builder = view_builder or FailureExtractionViewBuilder()
 
     def prepare(
         self,
@@ -515,23 +519,65 @@ class FailureExtractionCoordinator:
         record_builder: FailureAssetRecordBuilder,
         portability_check: Callable[[FailureAtomicProposal], bool] | None = None,
     ) -> PreparedFailureExtraction:
-        if not eligibility.passed:
+        def diagnostics(**updates: Any) -> dict[str, Any]:
+            values = dict(getattr(extractor, "diagnostics", {}) or {})
+            values.update(updates)
+            return values
+
+        def prepared(
+            alignment: FailurePlanAlignment | None,
+            f1_validation: ValidationResult | None,
+            f2_validation: FailureExtractionValidation | None,
+            provisional_records: list[ProvisionalAtomicRecord],
+            failure_experience: FailureExperience | None,
+            rejection: dict[str, Any],
+            *,
+            diagnostic_updates: dict[str, Any] | None = None,
+        ) -> PreparedFailureExtraction:
             return PreparedFailureExtraction(
+                alignment,
+                f1_validation,
+                f2_validation,
+                provisional_records,
+                failure_experience,
+                rejection,
+                diagnostics(**dict(diagnostic_updates or {})),
+            )
+
+        if not eligibility.passed:
+            return prepared(
                 None, None, None, [], None,
                 {"code": "failure_extractor_not_eligible"},
             )
+        alignment_view = self.view_builder.build_alignment(
+            trace=trace,
+            task_contract=task_contract,
+            requirement_expansion=requirement_expansion,
+            cold_start_plan=cold_start_plan,
+            candidate_contract_views=candidate_contracts,
+        )
         try:
             proposed_alignment = extractor.align(
-                task_contract=task_contract,
-                requirement_expansion=requirement_expansion,
-                cold_start_plan=cold_start_plan,
-                trace_events=trace,
-                task_progress=task_progress,
-                failures=failures,
-                candidate_contracts=candidate_contracts,
+                alignment_view=alignment_view,
+            )
+        except BudgetExhausted as exc:
+            if exc.code != "extractor_token_budget_exhausted":
+                raise
+            return prepared(
+                None, None, None, [], None,
+                {
+                    "code": "failure_extractor_budget_exhausted",
+                    "stage": str(
+                        getattr(exc, "failure_extractor_stage", "") or "f1"
+                    ),
+                    "source_code": exc.code,
+                },
+                diagnostic_updates={
+                    "failure_extractor_budget_exhausted_count": 1,
+                },
             )
         except PlannerProposalError as exc:
-            return PreparedFailureExtraction(
+            return prepared(
                 None, None, None, [], None,
                 {"code": exc.code, "message": str(exc), "stage": "f1"},
             )
@@ -541,7 +587,7 @@ class FailureExtractionCoordinator:
             trace=trace,
         )
         if alignment is None or not f1_result.passed:
-            return PreparedFailureExtraction(
+            return prepared(
                 None, f1_result, None, [], None,
                 {
                     "code": "failure_extractor_alignment_invalid",
@@ -549,14 +595,34 @@ class FailureExtractionCoordinator:
                     "failure_codes": list(f1_result.failure_codes),
                 },
             )
+        asset_view = self.view_builder.build_assets(
+            trace=trace,
+            alignment_view=alignment_view,
+            validated_alignment=alignment,
+            task_contract=task_contract,
+        )
         try:
             proposal = extractor.extract(
-                validated_alignment=alignment,
-                authoritative_trace=trace,
-                task_contract=task_contract,
+                asset_view=asset_view,
+            )
+        except BudgetExhausted as exc:
+            if exc.code != "extractor_token_budget_exhausted":
+                raise
+            return prepared(
+                alignment, f1_result, None, [], None,
+                {
+                    "code": "failure_extractor_budget_exhausted",
+                    "stage": str(
+                        getattr(exc, "failure_extractor_stage", "") or "f2"
+                    ),
+                    "source_code": exc.code,
+                },
+                diagnostic_updates={
+                    "failure_extractor_budget_exhausted_count": 1,
+                },
             )
         except PlannerProposalError as exc:
-            return PreparedFailureExtraction(
+            return prepared(
                 alignment, f1_result, None, [], None,
                 {"code": exc.code, "message": str(exc), "stage": "f2"},
             )
@@ -568,7 +634,7 @@ class FailureExtractionCoordinator:
             portability_check=portability_check,
         )
         if not f2_result.result.passed:
-            return PreparedFailureExtraction(
+            return prepared(
                 alignment, f1_result, f2_result, [], None,
                 {
                     "code": (
@@ -587,7 +653,7 @@ class FailureExtractionCoordinator:
             # (portable labels, remaining suffixes, contract identity).  Such
             # rejection is not a database/program failure and must leave the
             # failed task Trace intact with zero failure-side writes.
-            return PreparedFailureExtraction(
+            return prepared(
                 alignment, f1_result, f2_result, [], None,
                 {
                     "code": "failure_extractor_atomic_invalid",
@@ -595,7 +661,7 @@ class FailureExtractionCoordinator:
                     "message": str(exc),
                 },
             )
-        return PreparedFailureExtraction(
+        return prepared(
             alignment, f1_result, f2_result,
             provisional, experience, {},
         )
@@ -681,9 +747,17 @@ class FailurePlanAlignmentValidator:
         )
 
         valid_spans: list[dict[str, Any]] = []
+        # F2 must remain a bounded projection of the original execution, even
+        # when F1 repeats the same candidate range or proposes overlapping
+        # ranges.  Only fully validated, pairwise-disjoint spans are retained;
+        # later duplicates/overlaps are ordinary model-content rejections.
+        occupied_event_indexes: set[int] = set()
         for span in alignment.candidate_progress_spans:
             start, end = int(span["event_start"]), int(span["event_end"])
             if not (0 <= start < end <= action_count):
+                continue
+            event_indexes = set(range(start, end))
+            if not event_indexes.isdisjoint(occupied_event_indexes):
                 continue
             actions = trace.environment_actions[start:end]
             if not any(
@@ -697,6 +771,7 @@ class FailurePlanAlignmentValidator:
             if str(span.get("step_id", "")) not in position:
                 continue
             valid_spans.append(copy.deepcopy(span))
+            occupied_event_indexes.update(event_indexes)
 
         rejected_span_count = (
             len(alignment.candidate_progress_spans) - len(valid_spans)
