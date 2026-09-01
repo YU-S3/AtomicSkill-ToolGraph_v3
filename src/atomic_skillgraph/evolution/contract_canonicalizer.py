@@ -24,6 +24,7 @@ from ..core.contracts import (
 )
 from ..core.edges import GraphEdge
 from ..core.refs import SkillRef, content_hash
+from ..core.semantic_types import normalize_semantic_type
 from ..core.serialization import to_primitive
 
 
@@ -84,7 +85,7 @@ def _parameter_descriptor(
     spec: ParameterSpec,
 ) -> tuple[Any, ...]:
     return (
-        str(spec.semantic_type).casefold(),
+        normalize_semantic_type(spec.semantic_type),
         bool(spec.required),
         bool(spec.runtime_resolvable),
         str(spec.required_resolution).casefold(),
@@ -201,7 +202,11 @@ def _rewrite_parameter(
     spec: ParameterSpec,
     role_map: Mapping[str, str],
 ) -> ParameterSpec:
-    return replace(spec, name=role_map.get(spec.name, spec.name))
+    return replace(
+        spec,
+        name=role_map.get(spec.name, spec.name),
+        semantic_type=normalize_semantic_type(spec.semantic_type),
+    )
 
 
 def _rewrite_schema_roles(
@@ -237,7 +242,7 @@ def _identity_payload(
         return {
             "role": boundary_map[spec.name],
             "boundary": boundary,
-            "semantic_type": str(spec.semantic_type).casefold(),
+            "semantic_type": normalize_semantic_type(spec.semantic_type),
             "required": bool(spec.required),
             "runtime_resolvable": bool(spec.runtime_resolvable),
             "required_resolution": str(spec.required_resolution).casefold(),

@@ -14,8 +14,6 @@ from atomic_skillgraph.core.contracts import (
     CompositeOccurrence,
     CompositeSkill,
     ContractSource,
-    IdentityConstraint,
-    IdentityRelation,
     ParameterSpec,
     SemanticPredicate,
     TaskContract,
@@ -29,7 +27,11 @@ from atomic_skillgraph.core.errors import (
     PlannerGraphValidationError,
 )
 from atomic_skillgraph.core.refs import SkillRef, ToolRef
-from atomic_skillgraph.core.results import RuntimeLinearPlan, RuntimeOccurrence
+from atomic_skillgraph.core.results import (
+    RuntimeLinearPlan,
+    RuntimeOccurrence,
+    RuntimeRepeatConstraint,
+)
 from atomic_skillgraph.core.status import RuntimeMode, SkillStatus, ToolStatus
 from atomic_skillgraph.harness.protocol import HarnessActionSpec
 from atomic_skillgraph.harness.protocol import HarnessActionResult
@@ -137,7 +139,7 @@ def test_planner_rejects_nonexistent_dataflow_role_and_forged_coverage() -> None
     )
     target = _atomic(
         "target",
-        inputs=[ParameterSpec("item", "string")],
+        inputs=[ParameterSpec("item", "entity")],
         effects=[SemanticPredicate("object.at_location", {})],
     )
     edge = GraphEdge(
@@ -171,7 +173,7 @@ def test_planner_coverage_cannot_claim_atomic_from_another_candidate_set() -> No
     )
     target = _atomic(
         "target",
-        inputs=[ParameterSpec("item", "string")],
+        inputs=[ParameterSpec("item", "entity")],
         effects=[SemanticPredicate("object.at_location", {})],
     )
     edge = GraphEdge(
@@ -203,7 +205,7 @@ def test_planner_requires_dataflow_expression_to_match_explicit_edge() -> None:
     )
     target = _atomic(
         "target",
-        inputs=[ParameterSpec("item", "string")],
+        inputs=[ParameterSpec("item", "entity")],
         effects=[SemanticPredicate("object.at_location", {})],
     )
     edge = GraphEdge(
@@ -438,19 +440,32 @@ def _pick_two_plan(atomic: AbstractAtomicSkill, *, second_source_role: str) -> R
                 cardinality=2, distinct_by="object",
             )],
             [{
+                "constraint_id": "cc_pick_two",
                 "predicate": "object.at_location", "role": "object",
                 "count": 2, "distinct_by": "object",
+                "shared_roles": [],
+                "composition_mode": "repeat_unit",
             }],
-            [IdentityConstraint(
-                "object_1", IdentityRelation.DISTINCT_FROM, "object_2", "task"
-            )],
+            [],
             ContractSource.ADAPTER_DERIVED,
         ),
         {},
+        [RuntimeRepeatConstraint(
+            block_id="pick_two",
+            basis_constraint_id="cc_pick_two",
+            count=2,
+            iteration_steps=(("s1",), ("s2",)),
+            distinct_roles=("object",),
+            shared_roles=(),
+            step_role_bindings={
+                "s1": {"object": "object"},
+                "s2": {"object": "object"},
+            },
+        )],
     )
 
 
-def test_pick_two_aggregates_occurrences_and_requires_distinct_sources() -> None:
+def test_pick_two_aggregates_occurrences_from_formal_repeat_authority() -> None:
     effect = SemanticPredicate(
         "object.at_location",
         {"object": BindingExpression(BindingExprKind.SKILL_INPUT, source_role="object")},
@@ -468,13 +483,27 @@ def test_pick_two_aggregates_occurrences_and_requires_distinct_sources() -> None
     assert valid.checks["task_contract_effect_coverage"] is True
     assert valid.checks["identity_cardinality_preserved"] is True
 
-    aliased = validator.validate(
+    # Static proof trusts the validated RuntimeRepeatConstraint rather than
+    # synthetic task-role spellings. Runtime preflight enforces concrete
+    # distinctness across the two iterations.
+    same_raw_source = validator.validate(
         _pick_two_plan(atomic, second_source_role="object_1"),
         mode=RuntimeMode.ONLINE, harness_profile="alfworld_v3",
     )
-    assert aliased.passed is False
-    assert aliased.checks["task_contract_effect_coverage"] is False
-    assert aliased.checks["identity_cardinality_preserved"] is False
+    assert same_raw_source.passed is True
+    assert same_raw_source.checks["task_contract_effect_coverage"] is True
+
+    missing_authority_plan = _pick_two_plan(
+        atomic, second_source_role="object_2",
+    )
+    missing_authority_plan.repeat_constraints = []
+    missing_authority = validator.validate(
+        missing_authority_plan,
+        mode=RuntimeMode.ONLINE,
+        harness_profile="alfworld_v3",
+    )
+    assert missing_authority.passed is False
+    assert "planner_repeat_block_invalid" in missing_authority.failure_codes
 
 
 def test_existing_edge_id_cannot_be_reused_with_different_roles() -> None:

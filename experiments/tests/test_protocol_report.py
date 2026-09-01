@@ -630,8 +630,16 @@ def test_report_rows_summary_and_all_three_output_formats(tmp_path: Path) -> Non
     assert summary["tokens_per_solved_task"] == 30.0
     assert summary["cost_usd"] is None
     assert summary["cost_usd_per_solved_task"] is None
+    assert summary["artifact_growth"] == {}
+    assert summary["artifact_lifecycle"] == {}
 
-    paths = write_reports(traces, tmp_path, stem="heldout")
+    paths = write_reports(
+        traces,
+        tmp_path,
+        stem="heldout",
+        run_artifact_growth={"delta": {"artifact_total": 2}},
+        run_artifact_lifecycle={"artifact_index": {"total": 2}},
+    )
     records = [
         json.loads(line)
         for line in paths.jsonl.read_text(encoding="utf-8").splitlines()
@@ -657,6 +665,214 @@ def test_unknown_usage_bucket_is_audited_as_unattributed() -> None:
     row = trace_to_row(trace)
     assert row["unattributed_total_tokens"] == 40
     assert row["token_mismatch"] == 0
+
+
+def test_r2_planner_extractor_and_runtime_diagnostics_are_structured(
+    tmp_path: Path,
+) -> None:
+    trace = _trace_two()
+    trace["planner_audit"] = {
+        "composite_rejections": [
+            {"stage": "retrieval_contract", "reasons": ["goal_contract_exact_mismatch"]},
+            {"stage": "plan_validation", "reasons": ["planner_repeat_block_invalid"]},
+        ],
+        "atomic_search_p1": [{
+            "rejection_reasons": [{
+                "compatibility": {
+                    "failure_codes": ["atomic_required_input_type_unavailable"],
+                },
+            }],
+        }],
+        "atomic_search_p1r": [{
+            "rejection_reasons": [{
+                "compatibility": {
+                    "failure_codes": ["atomic_effect_predicate_missing"],
+                },
+            }],
+        }],
+    }
+    trace["runtime_plan"] = {"source": "stored_composite", "control_sequence": ["step-1"]}
+    trace["failures"] = [{"code": "runtime_node_token_budget_exhausted"}]
+    trace["node_records"] = [{
+        "occurrence_id": "occ-1",
+        "step_id": "step-1",
+        "atomic_ref": "skill://atomic_probe@1.0.0",
+        "status": "seeded_failed",
+        "direct_result": {"atomic_effect_passed": False},
+        "seeded_result": {"unresolved_roles": ["destination"]},
+        "failure": {"code": "runtime_node_token_budget_exhausted"},
+    }]
+    trace["agent_sessions"] = [{
+        "session_id": "seeded-1",
+        "session_type": "SeededNodeSession",
+        "occurrence_id": "occ-1",
+    }]
+    trace["agent_turns"] = [{"session_id": "seeded-1"}]
+    trace["runtime_spans"] = [{
+        "kind": "seeded",
+        "occurrence_id": "occ-1",
+        "action_start": 2,
+        "action_end": 4,
+    }]
+    trace["task_progress_records"] = [{
+        "revision": 3,
+        "snapshot": {"revision": 3, "progress_digest": "progress-3"},
+    }]
+    trace["environment_actions"] = [{
+        "accepted": True,
+        "new_revision": 4,
+    }]
+    trace["metadata"] = {
+        "extraction": {
+            "attempted": True,
+            "stage": "e2",
+            "prepared": False,
+            "applied": False,
+            "error_code": "extractor_e2_new_edge_selection_invalid",
+            "e1_proposed": 2,
+            "e1_validated": 2,
+            "e1_rejected": 0,
+            "e1_contract_coverage_passed": True,
+            "e2_attempted": True,
+            "e2_selected_existing_edges": 1,
+            "e2_selected_new_edges": 0,
+        },
+    }
+
+    row = trace_to_row(trace)
+    assert row["p0_rejection_stage_distribution"] == {
+        "plan_validation": 1,
+        "retrieval_contract": 1,
+    }
+    assert row["atomic_contract_mismatch_reason_distribution_p1"] == {
+        "atomic_required_input_type_unavailable": 1,
+    }
+    assert row["atomic_contract_mismatch_reason_distribution_p1r"] == {
+        "atomic_effect_predicate_missing": 1,
+    }
+    assert row["extraction_stage"] == "e2"
+    assert row["e1_contract_coverage_passed"] is True
+    diagnostic = row["runtime_failure_diagnostic"]
+    assert diagnostic["exhaustion_scope"] == "node"
+    assert diagnostic["occurrence_id"] == "occ-1"
+    assert diagnostic["seeded"]["turn_count"] == 1
+    assert diagnostic["seeded"]["environment_action_count"] == 2
+    assert diagnostic["binding"]["unresolved_roles"] == ["destination"]
+    assert diagnostic["progress"]["actions_since_last_progress_change"] == 1
+
+    summary = summarize_traces([row])
+    assert summary["extractor_e2_content_rejection_count"] == 1
+    assert summary["p0_rejection_stage_distribution"]["plan_validation"] == 1
+    markdown = write_reports([trace], tmp_path, stem="diagnostic").markdown.read_text(
+        encoding="utf-8"
+    )
+    assert "Extraction diagnostics" in markdown
+    assert "Failed task diagnostics" in markdown
+    assert "runtime_node_token_budget_exhausted" in markdown
+
+
+def test_failed_runtime_diagnostic_uses_temporal_trace_authority() -> None:
+    trace = _trace_two()
+    trace["runtime_plan"] = {
+        "source": "stored_composite",
+        "control_sequence": ["step-2"],
+    }
+    trace["failures"] = [
+        {
+            "code": "runtime_semantic_anchor_mismatch",
+            "occurrence_id": "occ-1",
+            "artifact_refs": ["skill://atomic_old@1.0.0"],
+        },
+        {
+            "code": "runtime_relation_not_grounded",
+            "occurrence_id": "occ-2",
+            "artifact_refs": ["skill://atomic_target@1.0.0"],
+        },
+    ]
+    # A recoverable failure may belong to a node that later completed.  The
+    # last FailureEnvelope still supplies temporal occurrence authority when
+    # there is no terminal failed NodeTraceRecord.
+    trace["node_records"] = [{
+        "occurrence_id": "occ-2",
+        "step_id": "step-2",
+        "atomic_ref": "skill://atomic_target@1.0.0",
+        "status": "direct_autonomous_success",
+        "direct_result": {"atomic_effect_passed": True},
+        "seeded_result": {},
+        "failure": {},
+    }]
+    trace["binding_changes"] = [
+        {
+            "occurrence_id": "occ-2",
+            "role": "station",
+            "current": {
+                "status": "grounded",
+                "value": "microwave_1",
+            },
+        },
+        {
+            "occurrence_id": "occ-2",
+            "role": "destination",
+            "current": {"status": "grounded", "value": "table_1"},
+        },
+        {
+            "occurrence_id": "occ-2",
+            "role": "station",
+            "current": {
+                "status": "invalidated",
+                "value": "microwave_1",
+            },
+        },
+    ]
+    trace["task_progress_records"] = [
+        {
+            "revision": 1,
+            "snapshot": {"revision": 2, "progress_digest": "progress-1"},
+        },
+        {
+            "revision": 2,
+            "snapshot": {"revision": 19, "progress_digest": "progress-2"},
+        },
+    ]
+    trace["environment_actions"] = [
+        {"accepted": True, "new_revision": 18},
+        {"accepted": True, "new_revision": 19},
+        {"accepted": True, "new_revision": 20},
+    ]
+
+    diagnostic = trace_to_row(trace)["runtime_failure_diagnostic"]
+    assert diagnostic["occurrence_id"] == "occ-2"
+    assert diagnostic["atomic_ref"] == "skill://atomic_target@1.0.0"
+    assert diagnostic["last_runtime_failure_code"] == (
+        "runtime_relation_not_grounded"
+    )
+    assert diagnostic["binding"] == {
+        "resolved_roles": ["destination"],
+        "unresolved_roles": ["station"],
+    }
+    assert diagnostic["progress"]["last_progress_digest"] == "progress-2"
+    assert diagnostic["progress"]["actions_since_last_progress_change"] == 1
+
+
+def test_strict_success_recoverable_failures_are_not_failed_diagnostics(
+    tmp_path: Path,
+) -> None:
+    trace = _trace_one()
+    trace["strict_task_success"] = True
+    trace["failures"] = [{
+        "code": "runtime_relation_not_grounded",
+        "occurrence_id": "occ-recovered",
+    }]
+
+    row = trace_to_row(trace)
+    assert row["failure_codes"] == ["runtime_relation_not_grounded"]
+    assert row["runtime_failure_diagnostic"] == {}
+    summary = summarize_traces([row])
+    assert summary["failed_task_diagnostics"] == []
+    markdown = write_reports(
+        [trace], tmp_path, stem="strict_recovered",
+    ).markdown.read_text(encoding="utf-8")
+    assert "Failed task diagnostics" not in markdown
 
 
 def _formal_usage_trace(trace_id: str, event_id: str) -> dict[str, object]:

@@ -789,29 +789,58 @@ class AlfWorldValidatorChannel:
             cardinality_ok &= len({item.get(role, "") for item in candidates if item.get(role)}) >= count
         checks["cardinality_constraints"] = cardinality_ok
 
+        def role_values(role: str) -> set[str]:
+            return {
+                str(witness[role])
+                for target, target_matches in zip(
+                    contract.target_effects, matches,
+                )
+                if role in target.args
+                for witness in target_matches
+                if witness.get(role) not in (None, "")
+            }
+
+        def per_effect_role_values(role: str) -> list[set[str]]:
+            return [
+                {
+                    str(witness[role])
+                    for witness in target_matches
+                    if witness.get(role) not in (None, "")
+                }
+                for target, target_matches in zip(
+                    contract.target_effects, matches,
+                )
+                if role in target.args
+            ]
+
         identity_ok = True
         for constraint in contract.identity_constraints:
-            if constraint.relation is IdentityRelation.DISTINCT_FROM:
-                # The adapter uses object_1/object_2 to make the pick-two
-                # obligation explicit; the actual witnesses are certified by
-                # the corresponding distinct_by cardinality constraint.
-                object_values = {
-                    item.get("object", "") for effect_matches in matches for item in effect_matches
-                    if item.get("object")
-                }
-                identity_ok &= len(object_values) >= 2
+            left_values = role_values(constraint.left_role)
+            right_values = role_values(constraint.right_role)
+            if constraint.relation is IdentityRelation.SAME_AS:
+                if constraint.left_role == constraint.right_role:
+                    related = per_effect_role_values(
+                        constraint.left_role,
+                    )
+                    identity_ok &= bool(
+                        related
+                        and all(related)
+                        and set.intersection(*related)
+                    )
+                else:
+                    identity_ok &= bool(
+                        left_values and right_values
+                        and left_values & right_values
+                    )
             elif constraint.left_role == constraint.right_role:
-                # Reusing one logical role across transformation and placement
-                # means at least one concrete object must witness every effect
-                # that carries that role.
-                role = constraint.left_role
-                role_sets: list[set[str]] = []
-                for effect, effect_matches in zip(contract.target_effects, matches):
-                    if role not in effect.args:
-                        continue
-                    role_sets.append({item.get(role, "") for item in effect_matches if item.get(role)})
-                if len(role_sets) > 1:
-                    identity_ok &= bool(set.intersection(*role_sets))
+                # Same-role multiplicity belongs exclusively to the formal
+                # cardinality ``distinct_by`` authority.
+                identity_ok = False
+            else:
+                identity_ok &= bool(
+                    left_values and right_values
+                    and left_values.isdisjoint(right_values)
+                )
         checks["identity_constraints"] = identity_ok
         passed = bool(contract.target_effects) and all(checks.values())
         witnesses = []
@@ -1119,8 +1148,6 @@ class AlfWorldAdapter:
             "pick_cool_then_place_in_recep",
         }:
             identity.append(IdentityConstraint("object", IdentityRelation.SAME_AS, "object", "task"))
-        if count > 1:
-            identity.append(IdentityConstraint("object_1", IdentityRelation.DISTINCT_FROM, "object_2", "task"))
         return TaskContract(effects, cardinality, identity, ContractSource.ADAPTER_DERIVED, 1.0, "alfworld_v3_goal")
 
     def contract_matcher(self) -> ContractMatcher:

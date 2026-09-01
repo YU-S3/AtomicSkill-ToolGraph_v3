@@ -119,6 +119,35 @@ def requirement_bundle_from_dict(value: dict[str, Any]) -> PlannerRequirementBun
     )
 
 
+def _p1r_search_context(search: list[Any]) -> list[dict[str, Any]]:
+    """Project full retrieval audit into the bounded P1R-facing surface."""
+
+    context: list[dict[str, Any]] = []
+    for item in search:
+        requirement = getattr(item, "requirement", None)
+        if isinstance(item, dict):
+            requirement = item.get("requirement")
+            covered = bool(item.get("covered", False))
+            repair_hints = item.get("repair_hints") or []
+        else:
+            covered = bool(getattr(item, "covered", False))
+            repair_hints = getattr(item, "repair_hints", ()) or ()
+        if isinstance(requirement, dict):
+            requirement_id = str(requirement.get("requirement_id", ""))
+        else:
+            requirement_id = str(getattr(
+                requirement,
+                "requirement_id",
+                "",
+            ))
+        context.append({
+            "requirement_id": requirement_id,
+            "covered": covered,
+            "repair_hints": to_primitive(list(repair_hints)),
+        })
+    return context
+
+
 class RequirementAgent:
     def __init__(self, session: Any) -> None:
         self.session = session
@@ -173,13 +202,25 @@ class RequirementAgent:
             "bundle (requirements and repeat_blocks), not a patch. Composite material is only a hint and is not an oracle. "
             "Represent reusable unit capabilities and ground every repetition in the TaskContract. Call only "
             "the offered submit tool.\n"
+            "Rejected Atomic candidates may include sanitized interface hints.\n"
+            "Use these hints only to understand the interface of already verified reusable capabilities.\n"
+            "Do not change the Requirement merely to force a match.\n"
+            "A repaired Requirement must still faithfully describe the TaskContract-required state transition.\n"
+            "expected_inputs describe the semantic contract of the reusable transition. Do not promote every "
+            "environment action argument, navigation detail, source location, or execution convenience into "
+            "a required capability input.\n"
+            "A generic verified Atomic input type 'entity' may satisfy a more specific symbolic entity subtype "
+            "when deterministic type compatibility says so.\n"
+            "If a near-match Atomic still cannot represent the required Effect, keep the requirement "
+            "semantically correct and allow it to remain uncovered.\n"
             "The replacement bundle must materialize every formal repeat_unit constraint "
             "exactly once. Do not remove a required RepeatBlock merely to make aggregate "
             "coverage pass. Every member desired effect for the repeat basis must retain "
             "unit cardinality 1.\n"
             f"Task: {task.goal}\nTaskContract: {json.dumps(to_primitive(contract), ensure_ascii=False)}\n"
             f"requirements_v1: {json.dumps(to_primitive(requirements), ensure_ascii=False)}\n"
-            f"search/rejections: {json.dumps(to_primitive(search), ensure_ascii=False)}\n"
+            "search coverage/sanitized hints: "
+            f"{json.dumps(_p1r_search_context(search), ensure_ascii=False)}\n"
             f"bundle validation: {json.dumps(to_primitive(validation), ensure_ascii=False)}\n"
             f"related hints: {json.dumps(related_composites, ensure_ascii=False)}"
         )

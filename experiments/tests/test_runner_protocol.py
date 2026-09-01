@@ -159,6 +159,47 @@ class _MaintenanceSystem:
         return _BatchResult(self.pending_count, maintenance_trace_id=trace_id)
 
 
+class _LifecycleOnlyMaintenanceSystem(_MaintenanceSystem):
+    """Fake a final batch that changes lifecycle, never artifact identity."""
+
+    def run_maintenance(self, **kwargs: object) -> _BatchResult:
+        result = super().run_maintenance(**kwargs)
+        projection = {
+            "artifact_ref": "skill://atomic_probe@1.0.0",
+            "artifact_kind": "atomic",
+            "event_counts": {"admitted": 1, "proposed": 1},
+            "last_event_rowid": 2,
+        }
+        with self.database.transaction() as connection:
+            connection.execute(
+                "UPDATE artifact_index SET status='active' WHERE artifact_ref=?",
+                ("skill://atomic_probe@1.0.0",),
+            )
+            connection.execute(
+                "INSERT INTO evidence_events(event_id,schema_version,task_id,trace_id,"
+                "occurrence_id,attempt_id,sequence_no,artifact_ref,artifact_kind,event_type,"
+                "failure_layer,confidence,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "event-2", 3, "task-1", "maintenance-trace", "maintenance",
+                    "maintenance-attempt", 0, "skill://atomic_probe@1.0.0",
+                    "atomic", "admitted", "", 1.0, "{}",
+                ),
+            )
+            connection.execute(
+                "UPDATE lifecycle_projection SET projection_json=?,last_event_rowid=2 "
+                "WHERE artifact_ref=?",
+                (
+                    json.dumps(projection, sort_keys=True),
+                    "skill://atomic_probe@1.0.0",
+                ),
+            )
+            connection.execute(
+                "UPDATE projection_checkpoints SET last_event_rowid=2 "
+                "WHERE projection_name='lifecycle_v3'"
+            )
+        return result
+
+
 def _completed_single_task_run(
     tmp_path: Path,
 ) -> tuple[StateDatabase, ManifestStore, RunManifest, TaskCheckpointStore]:
@@ -166,6 +207,7 @@ def _completed_single_task_run(
     database = StateDatabase(data_dir / "state.sqlite3")
     store = ManifestStore(tmp_path, database)
     task = TaskManifest(0, "task-1", "signature-1", "initial:empty")
+    run_initial = artifact_audit_snapshot(database)
     manifest = RunManifest.create(
         run_id="formal-run",
         phase="train",
@@ -173,10 +215,53 @@ def _completed_single_task_run(
         code_commit="code-hash",
         knowledge_digest="empty",
         tasks=(task,),
+        metadata={
+            "initial_artifact_snapshot": run_initial,
+            "initial_artifact_snapshot_digest": run_initial["snapshot_digest"],
+        },
     )
     store.persist_before_run(manifest)
     store.mark_run_state(manifest.run_id, RunState.RUNNING)
     store.mark_task_running(manifest.run_id, task.task_id)
+    # Simulate assets learned earlier in the run: the final task itself has no
+    # growth, while the authoritative run boundary remains empty -> one.
+    with database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO artifact_index(artifact_ref,artifact_kind,logical_id,version,"
+            "content_hash,status,file_path,schema_version) VALUES(?,?,?,?,?,?,?,?)",
+            (
+                "skill://atomic_probe@1.0.0", "atomic", "atomic_probe", "1.0.0",
+                "content-hash", "candidate", str(tmp_path / "artifact.json"), 3,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO evidence_events(event_id,schema_version,task_id,trace_id,"
+            "occurrence_id,attempt_id,sequence_no,artifact_ref,artifact_kind,event_type,"
+            "failure_layer,confidence,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "event-1", 3, "earlier-task", "earlier-trace", "occ-1", "attempt-1", 0,
+                "skill://atomic_probe@1.0.0", "atomic", "proposed", "", 1.0, "{}",
+            ),
+        )
+        projection = {
+            "artifact_ref": "skill://atomic_probe@1.0.0",
+            "artifact_kind": "atomic",
+            "event_counts": {"proposed": 1},
+            "last_event_rowid": 1,
+        }
+        connection.execute(
+            "INSERT INTO lifecycle_projection(artifact_ref,projection_json,last_event_rowid) "
+            "VALUES(?,?,?)",
+            (
+                "skill://atomic_probe@1.0.0",
+                json.dumps(projection, sort_keys=True),
+                1,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO projection_checkpoints(projection_name,last_event_rowid) "
+            "VALUES('lifecycle_v3',1)"
+        )
     artifact_snapshot = artifact_audit_snapshot(database)
     store.mark_task_completed(
         manifest.run_id,
@@ -215,6 +300,11 @@ def test_final_batch_maintenance_updates_digest_and_clears_checkpoint(
         assert audit["pending_count"] == 0
         assert audit["knowledge_digest_before"] == "pre-maintenance"
         assert audit["knowledge_digest_after"] == "post-maintenance"
+        assert audit["maintenance_artifact_growth"]["delta"]["artifact_total"] == 0
+        assert audit["run_artifact_growth"]["before"]["artifact_index"]["total"] == 0
+        assert audit["run_artifact_growth"]["after"]["artifact_index"]["total"] == 1
+        assert audit["run_artifact_growth"]["delta"]["artifact_total"] == 1
+        assert audit["run_artifact_lifecycle"]["artifact_index"]["total"] == 1
         assert system.maintenance_calls == [{
             "triggering_task_id": "task-1",
             "milestone": "formal_full_30_final_batch",
@@ -226,6 +316,8 @@ def test_final_batch_maintenance_updates_digest_and_clears_checkpoint(
         ).fetchone()
         assert json.loads(row["result_json"])["knowledge_digest_after"] == "post-maintenance"
         persisted = json.loads(row["result_json"])
+        assert persisted["artifact_growth"]["delta"]["artifact_total"] == 0
+        assert persisted["artifact_growth"]["before"] == persisted["artifact_growth"]["after"]
         assert persisted["final_batch_maintenance_history"] == [
             persisted["final_batch_maintenance"]
         ]
@@ -253,6 +345,61 @@ def test_final_batch_maintenance_updates_digest_and_clears_checkpoint(
             "task": {"task_id": "task-1"},
             "metadata": {"immutable_trace_field": True},
         }
+    finally:
+        database.close()
+
+
+def test_final_batch_maintenance_can_change_only_lifecycle_scope(
+    tmp_path: Path,
+) -> None:
+    database, store, manifest, checkpoint = _completed_single_task_run(tmp_path)
+    try:
+        system = _LifecycleOnlyMaintenanceSystem(database)
+        audit = _run_final_batch_maintenance(
+            system,  # type: ignore[arg-type]
+            store,
+            checkpoint,
+            manifest,
+            config_digest=manifest.config_hash,
+            code_digest=manifest.code_commit,
+        )
+
+        maintenance_growth = audit["maintenance_artifact_growth"]
+        assert maintenance_growth["delta"]["artifact_total"] == 0
+        assert maintenance_growth["delta"]["artifact_by_kind"] == {
+            "atomic": 0,
+        }
+        assert maintenance_growth["delta"]["artifact_by_kind_status"] == {
+            "atomic": {"active": 1, "candidate": -1},
+        }
+        assert maintenance_growth["delta"]["lifecycle_projection_total"] == 0
+        assert maintenance_growth["delta"]["lifecycle_event_counts"] == {
+            "admitted": 1,
+            "proposed": 0,
+        }
+
+        run_growth = audit["run_artifact_growth"]
+        assert run_growth["before"]["artifact_index"]["total"] == 0
+        assert run_growth["after"]["artifact_index"]["total"] == 1
+        assert run_growth["delta"]["artifact_total"] == 1
+        assert run_growth["after"]["artifact_index"]["by_kind_status"] == {
+            "atomic": {"active": 1},
+        }
+        assert audit["run_artifact_lifecycle"]["lifecycle_projection"][
+            "event_counts"
+        ] == {"admitted": 1, "proposed": 1}
+
+        row = database.execute(
+            "SELECT result_json FROM run_tasks WHERE run_id=? AND task_id=?",
+            (manifest.run_id, manifest.tasks[-1].task_id),
+        ).fetchone()
+        persisted = json.loads(row["result_json"])
+        # Final maintenance advances run authority without rewriting the
+        # completed task's original transaction-local growth/lifecycle scope.
+        assert persisted["artifact_growth"]["delta"]["artifact_total"] == 0
+        assert persisted["artifact_lifecycle"]["artifact_index"][
+            "by_kind_status"
+        ] == {"atomic": {"candidate": 1}}
     finally:
         database.close()
 
@@ -314,6 +461,9 @@ def test_crash_resume_appends_final_maintenance_history_and_reports_both(
             config_digest=manifest.config_hash,
             code_digest=manifest.code_commit,
         )
+        assert first["run_artifact_growth"]["before"]["artifact_index"]["total"] == 0
+        assert second["run_artifact_growth"]["before"]["artifact_index"]["total"] == 0
+        assert second["run_artifact_growth"]["delta"]["artifact_total"] == 1
         row = database.execute(
             "SELECT result_json FROM run_tasks WHERE run_id=? AND task_id=?",
             (manifest.run_id, manifest.tasks[-1].task_id),
@@ -374,11 +524,14 @@ def test_crash_resume_appends_final_maintenance_history_and_reports_both(
         paths = write_reports(
             [task_trace], tmp_path / "reports", stem="resume",
             auxiliary_usage_traces=selected,
+            run_artifact_growth=second["run_artifact_growth"],
+            run_artifact_lifecycle=second["run_artifact_lifecycle"],
         )
         assert len(paths.jsonl.read_text(encoding="utf-8").splitlines()) == 1
-        assert "| evolution_repair | 2 | 6 | 4 | 10 |" in paths.markdown.read_text(
-            encoding="utf-8"
-        )
+        markdown = paths.markdown.read_text(encoding="utf-8")
+        assert "| evolution_repair | 2 | 6 | 4 | 10 |" in markdown
+        assert "Artifact growth and lifecycle" in markdown
+        assert '"artifact_total": 1' in markdown
         assert first["maintenance_trace_id"] != second["maintenance_trace_id"]
     finally:
         database.close()

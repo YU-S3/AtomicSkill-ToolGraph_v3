@@ -136,7 +136,12 @@ class PlannerPipeline:
             report = self.validator.validate(plan, mode=mode, harness_profile=harness.profile_name)
             if report.passed:
                 return plan
-            audit.composite_rejections.append({"composite_ref": str(composite.ref), "reasons": report.failure_codes})
+            audit.composite_rejections.append({
+                "composite_ref": str(composite.ref),
+                "stage": "plan_validation",
+                "reasons": list(report.failure_codes),
+                "checks": dict(report.checks),
+            })
 
         # Frozen and explicitly cold-start-disabled compatibility runs retain
         # the old empty-bank shortcut.  v3.1 online cold start must still run
@@ -416,8 +421,10 @@ class PlannerPipeline:
                 task.task_id, contract, proposal=cold_proposal,
                 scaffold=to_primitive(scaffold), audit=to_primitive(audit),
             )
-            plan.repeat_constraints = self.compiler._repeat_constraints(
+            plan.repeat_constraints = (
+                self.compiler.repeat_compiler.from_requirement_expansion(
                 cold_proposal, expansion,
+                )
             )
             return plan
 

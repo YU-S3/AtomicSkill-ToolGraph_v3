@@ -84,6 +84,12 @@ V31_METHOD_METRICS = (
     "runtime_shared_value_rejection_count",
     "cold_start_trigger_count",
     "cold_start_plan_valid_count",
+    "cold_start_c1_validation_pass_count",
+    "cold_start_executable_prefix_nonempty_count",
+    "cold_start_executable_prefix_empty_count",
+    "cold_start_admitted_prefix_step_count",
+    "cold_start_executed_scaffold_step_count",
+    "cold_start_continuation_only_count",
     "cold_start_scaffold_step_count",
     "cold_start_verified_step_success_count",
     "provisional_trial_count",
@@ -93,6 +99,7 @@ V31_METHOD_METRICS = (
     "runtime_dynamic_cold_start_continuation_count",
     "failure_extractor_f1_count",
     "failure_extractor_f2_count",
+    "failure_extractor_eligible_count",
     "provisional_created_count",
     "provisional_trial_ready_count",
     "provisional_trial_supported_count",
@@ -144,6 +151,9 @@ REPORT_COLUMNS = (
     "planner_atomic_full_coverage",
     "planner_p2_used",
     "planner_p1r_reason_distribution",
+    "p0_rejection_stage_distribution",
+    "atomic_contract_mismatch_reason_distribution_p1",
+    "atomic_contract_mismatch_reason_distribution_p1r",
     "confirmed_capability_gap",
     "full_dynamic",
     "task_rescue_required",
@@ -181,10 +191,23 @@ REPORT_COLUMNS = (
     "duration_ms",
     "cost_usd",
     "failure_codes",
+    "runtime_failure_diagnostic",
     "task_token_budget_exhausted_count",
     "node_token_budget_exhausted_count",
     *V31_METHOD_METRICS,
     *EXTRACTOR_QUALITY_METRICS,
+    "extraction_attempted",
+    "extraction_stage",
+    "extraction_prepared",
+    "extraction_applied",
+    "extraction_error_code",
+    "e1_proposed",
+    "e1_validated",
+    "e1_rejected",
+    "e1_contract_coverage_passed",
+    "e2_attempted",
+    "e2_selected_existing_edges",
+    "e2_selected_new_edges",
     "artifact_growth",
     "artifact_lifecycle",
 )
@@ -255,6 +278,15 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         planner_atomic_full_coverage=planner_atomic_full_coverage,
         planner_p2_used=planner_p2_used,
     )
+    extraction = _extraction_diagnostic(trace, metadata, quality, usage)
+    runtime_failure = _runtime_failure_diagnostic(
+        trace,
+        plan=plan,
+        nodes=nodes,
+        invocations=invocations,
+        failure_codes=failure_codes,
+        strict_task_success=strict_task_success,
+    )
     row: dict[str, Any] = {
         "trace_id": str(_field(trace, "trace_id", "")),
         "schema_version": _integer(_field(trace, "schema_version", 0)),
@@ -297,6 +329,13 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "planner_atomic_full_coverage": planner_atomic_full_coverage,
         "planner_p2_used": planner_p2_used,
         "planner_p1r_reason_distribution": _planner_p1r_reasons(planner),
+        "p0_rejection_stage_distribution": _p0_rejection_stages(planner),
+        "atomic_contract_mismatch_reason_distribution_p1": (
+            _atomic_contract_mismatch_reasons(planner, "atomic_search_p1")
+        ),
+        "atomic_contract_mismatch_reason_distribution_p1r": (
+            _atomic_contract_mismatch_reasons(planner, "atomic_search_p1r")
+        ),
         "confirmed_capability_gap": _confirmed_capability_gap(trace, metadata),
         "full_dynamic": str(plan.get("source", "")) == "full_dynamic",
         "task_rescue_required": _boolean(
@@ -359,6 +398,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         ),
         "cost_usd": _trace_cost(trace, metadata, usage["events"]),
         "failure_codes": failure_codes,
+        "runtime_failure_diagnostic": runtime_failure,
         "task_token_budget_exhausted_count": int(
             "runtime_task_token_budget_exhausted" in failure_codes
         ),
@@ -370,6 +410,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
             name: _integer(quality.get(name, 0))
             for name in EXTRACTOR_QUALITY_METRICS
         },
+        **extraction,
         "artifact_growth": _first_present(
             metadata, "artifact_growth", "artifact_growth_snapshot", default={}
         ),
@@ -392,6 +433,8 @@ def summarize_traces(
     traces_or_rows: Iterable[Mapping[str, Any] | Any],
     *,
     auxiliary_usage_traces: Iterable[Mapping[str, Any] | Any] = (),
+    run_artifact_growth: Mapping[str, Any] | None = None,
+    run_artifact_lifecycle: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Aggregate all v3 design metrics without hiding zero denominators."""
 
@@ -462,6 +505,31 @@ def summarize_traces(
                 p1r_reason_distribution.get(str(reason), 0)
                 + _integer(count)
             )
+
+    def merged_distribution(key: str) -> dict[str, int]:
+        merged: dict[str, int] = {}
+        for row in task_rows:
+            for name, count in _mapping(row.get(key, {})).items():
+                merged[str(name)] = merged.get(str(name), 0) + _integer(count)
+        return dict(sorted(merged.items()))
+
+    p0_stage_distribution = merged_distribution(
+        "p0_rejection_stage_distribution"
+    )
+    atomic_mismatch_p1 = merged_distribution(
+        "atomic_contract_mismatch_reason_distribution_p1"
+    )
+    atomic_mismatch_p1r = merged_distribution(
+        "atomic_contract_mismatch_reason_distribution_p1r"
+    )
+    atomic_mismatch_all = dict(atomic_mismatch_p1)
+    for name, count in atomic_mismatch_p1r.items():
+        atomic_mismatch_all[name] = atomic_mismatch_all.get(name, 0) + count
+    strict_dynamic = [
+        row for row in task_rows
+        if _boolean(row.get("strict_task_success"))
+        and _boolean(row.get("full_dynamic"))
+    ]
 
     return {
         "schema_version": 3,
@@ -568,6 +636,34 @@ def summarize_traces(
         "planner_p1r_reason_distribution": dict(
             sorted(p1r_reason_distribution.items())
         ),
+        "p0_rejection_stage_distribution": p0_stage_distribution,
+        "atomic_contract_mismatch_reason_distribution": dict(
+            sorted(atomic_mismatch_all.items())
+        ),
+        "atomic_contract_mismatch_reason_distribution_p1": atomic_mismatch_p1,
+        "atomic_contract_mismatch_reason_distribution_p1r": atomic_mismatch_p1r,
+        "strict_dynamic_success_count": len(strict_dynamic),
+        "strict_dynamic_success_extraction_prepared_count": sum(
+            _boolean(row.get("extraction_prepared")) for row in strict_dynamic
+        ),
+        "strict_dynamic_success_extraction_applied_count": sum(
+            _boolean(row.get("extraction_applied")) for row in strict_dynamic
+        ),
+        "extractor_e1_contract_coverage_failure_count": sum(
+            row.get("e1_contract_coverage_passed") is False
+            or str(row.get("extraction_error_code", ""))
+            == "extractor_e1_task_contract_coverage_incomplete"
+            for row in task_rows
+        ),
+        "extractor_e2_content_rejection_count": sum(
+            str(row.get("extraction_error_code", "")).startswith("extractor_e2_")
+            for row in task_rows
+        ),
+        "failed_task_diagnostics": [
+            dict(row.get("runtime_failure_diagnostic") or {})
+            for row in task_rows
+            if _has_value(row.get("runtime_failure_diagnostic"))
+        ],
         "planned_node_count": planned_nodes,
         "completed_node_count": completed_nodes,
         "total_tokens": total_tokens,
@@ -611,8 +707,11 @@ def summarize_traces(
             for row in resource_rows
         ),
         "usage_by_bucket": by_bucket,
-        "artifact_growth": _last_nonempty(rows, "artifact_growth"),
-        "artifact_lifecycle": _last_nonempty(rows, "artifact_lifecycle"),
+        # Task rows retain task-local snapshots.  Run-level evidence must be
+        # supplied explicitly by the formal runner from immutable Manifest
+        # authority; the reporter never guesses it from the last task.
+        "artifact_growth": dict(run_artifact_growth or {}),
+        "artifact_lifecycle": dict(run_artifact_lifecycle or {}),
     }
 
 
@@ -699,10 +798,45 @@ def render_markdown(
     quality = tuple(
         (name, summary.get(name, 0))
         for name in EXTRACTOR_QUALITY_METRICS
-    ) + ((
-        "planner_p1r_reason_distribution",
-        _canonical_json(summary.get("planner_p1r_reason_distribution", {})),
-    ),)
+    ) + (
+        (
+            "planner_p1r_reason_distribution",
+            _canonical_json(summary.get("planner_p1r_reason_distribution", {})),
+        ),
+        (
+            "p0_rejection_stage_distribution",
+            _canonical_json(summary.get("p0_rejection_stage_distribution", {})),
+        ),
+        (
+            "atomic_contract_mismatch_reason_distribution_p1",
+            _canonical_json(summary.get(
+                "atomic_contract_mismatch_reason_distribution_p1", {}
+            )),
+        ),
+        (
+            "atomic_contract_mismatch_reason_distribution_p1r",
+            _canonical_json(summary.get(
+                "atomic_contract_mismatch_reason_distribution_p1r", {}
+            )),
+        ),
+        ("strict_dynamic_success_count", summary.get("strict_dynamic_success_count", 0)),
+        (
+            "strict_dynamic_success_extraction_prepared_count",
+            summary.get("strict_dynamic_success_extraction_prepared_count", 0),
+        ),
+        (
+            "strict_dynamic_success_extraction_applied_count",
+            summary.get("strict_dynamic_success_extraction_applied_count", 0),
+        ),
+        (
+            "extractor_e1_contract_coverage_failure_count",
+            summary.get("extractor_e1_contract_coverage_failure_count", 0),
+        ),
+        (
+            "extractor_e2_content_rejection_count",
+            summary.get("extractor_e2_content_rejection_count", 0),
+        ),
+    )
     lines.extend(_markdown_pairs(quality))
     lines.extend(["", "## v3.1 method patch", ""])
     lines.extend(_markdown_pairs(tuple(
@@ -769,6 +903,68 @@ def render_markdown(
                 _display(row.get("cost_usd")),
             )
         )
+
+    extraction_rows = [
+        row for row in rows if _boolean(row.get("extraction_attempted"))
+    ]
+    if extraction_rows:
+        lines.extend(["", "## Extraction diagnostics", ""])
+        lines.append(
+            "| Task | Stage | Prepared | Applied | Error | E1 proposed | E1 valid | E1 rejected | E1 coverage | E2 attempted | Existing edges | New edges |"
+        )
+        lines.append("|---|---|:---:|:---:|---|---:|---:|---:|:---:|:---:|---:|---:|")
+        for row in extraction_rows:
+            coverage = row.get("e1_contract_coverage_passed")
+            lines.append(
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                    _markdown_cell(row.get("task_id", "")),
+                    _markdown_cell(row.get("extraction_stage", "")),
+                    _yes_no(row.get("extraction_prepared")),
+                    _yes_no(row.get("extraction_applied")),
+                    _markdown_cell(row.get("extraction_error_code", "")),
+                    row.get("e1_proposed", 0),
+                    row.get("e1_validated", 0),
+                    row.get("e1_rejected", 0),
+                    "n/a" if coverage is None else _yes_no(coverage),
+                    _yes_no(row.get("e2_attempted")),
+                    row.get("e2_selected_existing_edges", 0),
+                    row.get("e2_selected_new_edges", 0),
+                )
+            )
+
+    failed = [
+        _mapping(row.get("runtime_failure_diagnostic", {}))
+        for row in rows
+        if _has_value(row.get("runtime_failure_diagnostic"))
+    ]
+    if failed:
+        lines.extend(["", "## Failed task diagnostics", ""])
+        lines.append(
+            "| Task | Plan | Exhaustion | Occurrence | Atomic | Last failure | Prep turns/actions | Seeded turns/actions | Unresolved roles | Progress snapshots/actions since change |"
+        )
+        lines.append("|---|---|---|---|---|---|---:|---:|---|---:|")
+        for item in failed:
+            preparation = _mapping(item.get("preparation", {}))
+            seeded = _mapping(item.get("seeded", {}))
+            binding = _mapping(item.get("binding", {}))
+            progress = _mapping(item.get("progress", {}))
+            lines.append(
+                "| {} | {} | {} | {} | {} | {} | {}/{} | {}/{} | {} | {}/{} |".format(
+                    _markdown_cell(item.get("task_id", "")),
+                    _markdown_cell(item.get("plan_source", "")),
+                    _markdown_cell(item.get("exhaustion_scope", "none")),
+                    _markdown_cell(item.get("occurrence_id", "")),
+                    _markdown_cell(item.get("atomic_ref", "")),
+                    _markdown_cell(item.get("last_runtime_failure_code", "")),
+                    preparation.get("turn_count", 0),
+                    preparation.get("environment_action_count", 0),
+                    seeded.get("turn_count", 0),
+                    seeded.get("environment_action_count", 0),
+                    _markdown_cell(",".join(map(str, _sequence(binding.get("unresolved_roles", []))))),
+                    progress.get("progress_snapshot_count", 0),
+                    progress.get("actions_since_last_progress_change", 0),
+                )
+            )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -791,6 +987,8 @@ def write_reports(
     stem: str = "v3_results",
     title: str = "AtomicSkillGraph v3 Experiment Report",
     auxiliary_usage_traces: Iterable[Mapping[str, Any] | Any] = (),
+    run_artifact_growth: Mapping[str, Any] | None = None,
+    run_artifact_lifecycle: Mapping[str, Any] | None = None,
 ) -> ReportPaths:
     """Emit task rows plus resource summaries from auxiliary immutable traces."""
 
@@ -799,6 +997,8 @@ def write_reports(
     rows = [trace_to_row(trace) for trace in traces]
     summary = summarize_traces(
         rows, auxiliary_usage_traces=auxiliary_usage_traces,
+        run_artifact_growth=run_artifact_growth,
+        run_artifact_lifecycle=run_artifact_lifecycle,
     )
     root = Path(output_dir)
     paths = ReportPaths(
@@ -1214,6 +1414,339 @@ def _planner_p1r_reasons(planner: Mapping[str, Any]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _p0_rejection_stages(planner: Mapping[str, Any]) -> dict[str, int]:
+    """Count deterministic P0 rejections at their actual decision boundary."""
+
+    rows = _sequence(planner.get("composite_rejections", []))
+    if not rows:
+        rows = _sequence(
+            planner.get("p0_exact_contract_rejections")
+            or planner.get("exact_contract_rejections")
+            or []
+        )
+    counts: dict[str, int] = {}
+    for raw in rows:
+        item = _mapping(raw)
+        stage = str(item.get("stage", ""))
+        if not stage:
+            reasons = {str(value) for value in _sequence(item.get("reasons", []))}
+            if reasons & {"canonical_sequence_incomplete", "canonical_occurrence_ids_not_unique", "canonical_edges_invalid", "unvalidated_temporary_edge"}:
+                stage = "retrieval_structure"
+            elif reasons & {"candidate_bootstrap_not_top1", "candidate_exploration_quota"}:
+                stage = "lifecycle_policy"
+            elif "goal_contract_exact_mismatch" in reasons:
+                stage = "retrieval_contract"
+            else:
+                stage = "legacy_unstaged"
+        counts[stage] = counts.get(stage, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+_ATOMIC_MISMATCH_CODES = frozenset({
+    "atomic_effect_predicate_missing",
+    "atomic_effect_argument_role_missing",
+    "atomic_effect_cardinality_insufficient",
+    "atomic_required_input_type_unavailable",
+})
+
+
+def _atomic_contract_mismatch_reasons(
+    planner: Mapping[str, Any], search_key: str,
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for raw_result in _sequence(planner.get(search_key, [])):
+        result = _mapping(raw_result)
+        for raw_rejection in _sequence(result.get("rejection_reasons", [])):
+            rejection = _mapping(raw_rejection)
+            compatibility = _mapping(
+                rejection.get("compatibility")
+                or rejection.get("contract_diagnosis")
+                or {}
+            )
+            codes = {
+                str(value)
+                for source in (rejection, compatibility)
+                for value in _sequence(source.get("failure_codes", []))
+            }
+            codes.update(
+                str(value)
+                for value in _sequence(rejection.get("reasons", []))
+                if str(value) in _ATOMIC_MISMATCH_CODES
+            )
+            for code in sorted(codes & _ATOMIC_MISMATCH_CODES):
+                counts[code] = counts.get(code, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _extraction_diagnostic(
+    trace: Any,
+    metadata: Mapping[str, Any],
+    quality: Mapping[str, Any],
+    usage: Mapping[str, Any],
+) -> dict[str, Any]:
+    extraction = _mapping(metadata.get("extraction", {}))
+    applied_payload = _mapping(metadata.get("evolution_applied", {}))
+    policy = _mapping(_field(trace, "extraction_policy", {}))
+    e2_usage = _mapping(
+        _mapping(usage.get("by_bucket", {})).get("extractor_e2", {})
+    )
+    attempted = _boolean(
+        extraction.get("attempted", policy.get("should_extract", False))
+    )
+    prepared = _boolean(extraction.get("prepared", False))
+    applied = _boolean(extraction.get("applied", bool(applied_payload)))
+    stage = str(extraction.get("stage", ""))
+    if not stage:
+        stage = "applied" if applied else "prepared" if prepared else ""
+    proposed = _integer(extraction.get(
+        "e1_proposed",
+        quality.get("extractor_e1_proposal_count", 0),
+    ))
+    validated = _integer(extraction.get(
+        "e1_validated",
+        quality.get("extractor_e1_validated_occurrence_count", 0),
+    ))
+    rejected = _integer(extraction.get(
+        "e1_rejected",
+        quality.get("extractor_e1_rejection_count", 0),
+    ))
+    coverage_value = extraction.get("e1_contract_coverage_passed")
+    coverage = None if coverage_value is None else _boolean(coverage_value)
+    e2_attempted = _boolean(extraction.get(
+        "e2_attempted",
+        _integer(e2_usage.get("call_count", 0)) > 0,
+    ))
+    return {
+        "extraction_attempted": attempted,
+        "extraction_stage": stage,
+        "extraction_prepared": prepared,
+        "extraction_applied": applied,
+        "extraction_error_code": str(extraction.get("error_code", "")),
+        "e1_proposed": proposed,
+        "e1_validated": validated,
+        "e1_rejected": rejected,
+        "e1_contract_coverage_passed": coverage,
+        "e2_attempted": e2_attempted,
+        "e2_selected_existing_edges": _integer(
+            extraction.get("e2_selected_existing_edges", 0)
+        ),
+        "e2_selected_new_edges": _integer(
+            extraction.get("e2_selected_new_edges", 0)
+        ),
+    }
+
+
+def _runtime_failure_diagnostic(
+    trace: Any,
+    *,
+    plan: Mapping[str, Any],
+    nodes: Sequence[Mapping[str, Any]],
+    invocations: Sequence[Mapping[str, Any]],
+    failure_codes: Sequence[str],
+    strict_task_success: bool,
+) -> dict[str, Any]:
+    """Derive attribution from existing Trace facts; never change Runtime state."""
+
+    # Recoverable preflight/runtime failures remain useful Trace evidence even
+    # when the task ultimately succeeds.  They must not turn a successful task
+    # into a row in the report's failed-task diagnostic section.
+    if strict_task_success:
+        return {}
+    trace_failures = [
+        _mapping(item) for item in _sequence(_field(trace, "failures", []))
+    ]
+    last_trace_failure = next(
+        (
+            item for item in reversed(trace_failures)
+            if str(item.get("code") or item.get("failure_code") or "")
+        ),
+        {},
+    )
+    failed_statuses = _FAILED_NODE_STATUSES | {"not_started"}
+    node = next(
+        (
+            item for item in reversed(nodes)
+            if _enum_value(item.get("status", "")) in failed_statuses
+            or _has_value(item.get("failure"))
+        ),
+        {},
+    )
+    failure_occurrence_id = str(last_trace_failure.get("occurrence_id", ""))
+    if not node and failure_occurrence_id:
+        node = next(
+            (
+                item for item in reversed(nodes)
+                if str(item.get("occurrence_id", "")) == failure_occurrence_id
+            ),
+            {},
+        )
+    occurrence_id = str(
+        node.get("occurrence_id", "") or failure_occurrence_id
+    )
+    atomic_ref = str(node.get("atomic_ref", ""))
+    if not atomic_ref:
+        atomic_ref = next(
+            (
+                str(value)
+                for value in reversed(
+                    _sequence(last_trace_failure.get("artifact_refs", []))
+                )
+                if str(value).startswith("skill://atomic")
+            ),
+            "",
+        )
+    node_invocations = [
+        item for item in invocations
+        if not occurrence_id or str(item.get("occurrence_id", "")) == occurrence_id
+    ]
+    direct_result = _mapping(node.get("direct_result", {}))
+    seeded_result = _mapping(node.get("seeded_result", {}))
+    direct_codes: set[str] = set()
+    for value in [direct_result, *node_invocations]:
+        _collect_codes(value, direct_codes)
+
+    sessions = [
+        _mapping(item) for item in _sequence(_field(trace, "agent_sessions", []))
+    ]
+    turns = [
+        _mapping(item) for item in _sequence(_field(trace, "agent_turns", []))
+    ]
+    spans = [
+        _mapping(item) for item in _sequence(_field(trace, "runtime_spans", []))
+    ]
+
+    def session_diagnostic(label: str) -> dict[str, Any]:
+        selected = [
+            item for item in sessions
+            if label in str(item.get("session_type", "")).casefold()
+            and (not occurrence_id or str(item.get("occurrence_id", "")) == occurrence_id)
+        ]
+        ids = {str(item.get("session_id", "")) for item in selected}
+        action_count = sum(
+            max(0, _integer(span.get("action_end", 0)) - _integer(span.get("action_start", 0)))
+            for span in spans
+            if label in str(span.get("kind", "")).casefold()
+            and (not occurrence_id or str(span.get("occurrence_id", "")) == occurrence_id)
+        )
+        return {
+            "entered": bool(selected),
+            "turn_count": sum(str(item.get("session_id", "")) in ids for item in turns),
+            "environment_action_count": action_count,
+        }
+
+    binding_changes = [
+        _mapping(item) for item in _sequence(_field(trace, "binding_changes", []))
+        if not occurrence_id or str(_mapping(item).get("occurrence_id", "")) == occurrence_id
+    ]
+    latest_binding_by_role: dict[str, dict[str, Any]] = {}
+    for item in binding_changes:
+        role = str(item.get("role", ""))
+        if role:
+            latest_binding_by_role[role] = _mapping(item.get("current", {}))
+    resolved_roles = sorted(
+        role
+        for role, current in latest_binding_by_role.items()
+        if str(current.get("status", "")).casefold() == "grounded"
+        and current.get("value") not in (None, "")
+    )
+    explicit_unresolved_roles = {
+        str(role)
+        for source in (direct_result, seeded_result, _mapping(node.get("failure", {})))
+        for role in _sequence(source.get("unresolved_roles", []))
+        if str(role)
+    }
+    unresolved_roles = sorted(
+        explicit_unresolved_roles
+        | {
+            role
+            for role, current in latest_binding_by_role.items()
+            if str(current.get("status", "")).casefold() != "grounded"
+            or current.get("value") in (None, "")
+        }
+    )
+
+    progress = [
+        _mapping(item) for item in _sequence(_field(trace, "task_progress_records", []))
+    ]
+    last_digest = ""
+    last_progress_world_revision = -1
+    prior_digest: str | None = None
+    for item in progress:
+        snapshot = _mapping(item.get("snapshot", {}))
+        digest = str(snapshot.get("progress_digest", ""))
+        if digest != prior_digest:
+            # The record revision is the progress ledger's own counter.  Only
+            # snapshot.revision shares authority with EnvironmentActionRecord
+            # new_revision.  Retain the outer value solely for legacy fixtures
+            # that predate snapshot revision persistence.
+            last_progress_world_revision = _integer(
+                snapshot.get("revision", item.get("revision", -1))
+            )
+            prior_digest = digest
+        last_digest = digest
+    actions_since_change = sum(
+        _boolean(_mapping(item).get("accepted", False))
+        and _integer(_mapping(item).get("new_revision", -1))
+        > last_progress_world_revision
+        for item in _sequence(_field(trace, "environment_actions", []))
+    )
+
+    node_failure = _mapping(node.get("failure", {}))
+    last_failure = str(
+        last_trace_failure.get("code")
+        or last_trace_failure.get("failure_code")
+        or node_failure.get("code")
+        or node_failure.get("failure_code")
+        or (failure_codes[-1] if failure_codes else "")
+    )
+    exhaustion_scope = (
+        "task" if "runtime_task_token_budget_exhausted" in failure_codes
+        else "node" if "runtime_node_token_budget_exhausted" in failure_codes
+        else "none"
+    )
+    preparation = session_diagnostic("preparation")
+    seeded = session_diagnostic("seeded")
+    return {
+        "task_id": str(_mapping(_field(trace, "task", {})).get("task_id", "")),
+        "plan_source": str(plan.get("source", "")),
+        "failure_codes": list(failure_codes),
+        "exhaustion_scope": exhaustion_scope,
+        "occurrence_id": occurrence_id,
+        "atomic_ref": atomic_ref,
+        "direct": {
+            "preflight_rejected_count": sum(
+                not _preflight_passed(item) for item in node_invocations
+            ),
+            "started": any(
+                _boolean(_mapping(item.get("result", {})).get("started", False))
+                for item in node_invocations
+            ),
+            "atomic_effect_passed": _boolean(
+                direct_result.get("atomic_effect_passed", False)
+            ) or any(
+                _boolean(_mapping(item.get("result", {})).get("atomic_effect_passed", False))
+                for item in node_invocations
+            ),
+            "failure_codes": sorted(direct_codes),
+        },
+        "preparation": {
+            "turn_count": preparation["turn_count"],
+            "environment_action_count": preparation["environment_action_count"],
+        },
+        "seeded": seeded,
+        "binding": {
+            "resolved_roles": resolved_roles,
+            "unresolved_roles": unresolved_roles,
+        },
+        "progress": {
+            "progress_snapshot_count": len(progress),
+            "last_progress_digest": last_digest,
+            "actions_since_last_progress_change": actions_since_change,
+        },
+        "last_runtime_failure_code": last_failure,
+    }
+
+
 def _confirmed_capability_gap(trace: Any, metadata: Mapping[str, Any]) -> bool:
     direct = _first_present(
         metadata,
@@ -1482,6 +2015,18 @@ def _v31_method_metrics(
     cold_plan_valid = bool(cold_proposal) and _boolean(
         cold_validation.get("passed", cold_validation.get("valid", False))
     )
+    executable_step_ids = [
+        str(item)
+        for item in _sequence(cold_plan.get("executable_step_ids", []))
+        if str(item)
+    ]
+    executable_prefix_nonempty = cold_plan_valid and bool(executable_step_ids)
+    executable_prefix_empty = cold_plan_valid and not executable_step_ids
+    continuation_only = bool(
+        executable_prefix_empty
+        and plan_source == "full_dynamic"
+        and cold_plan
+    )
 
     derived = {
         "repeat_block_count": len(repeat_blocks),
@@ -1497,6 +2042,16 @@ def _v31_method_metrics(
         ),
         "cold_start_trigger_count": int(cold_triggered),
         "cold_start_plan_valid_count": int(cold_plan_valid),
+        "cold_start_c1_validation_pass_count": int(cold_plan_valid),
+        "cold_start_executable_prefix_nonempty_count": int(
+            executable_prefix_nonempty
+        ),
+        "cold_start_executable_prefix_empty_count": int(
+            executable_prefix_empty
+        ),
+        "cold_start_admitted_prefix_step_count": len(executable_step_ids),
+        "cold_start_executed_scaffold_step_count": len(cold_steps),
+        "cold_start_continuation_only_count": int(continuation_only),
         "cold_start_scaffold_step_count": len(cold_steps),
         "cold_start_verified_step_success_count": sum(
             _boolean(step.get("local_effect_passed", False))
@@ -1517,6 +2072,11 @@ def _v31_method_metrics(
         "runtime_dynamic_cold_start_continuation_count": continuation_sessions,
         "failure_extractor_f1_count": f1_calls,
         "failure_extractor_f2_count": f2_calls,
+        # Eligibility is written by the failure-extraction coordinator from
+        # its code-owned predicate.  Never infer it from whether F1 happened.
+        "failure_extractor_eligible_count": int(_boolean(
+            metadata.get("failure_extractor_eligible", False)
+        )),
         "provisional_created_count": len(provisional_refs),
         "provisional_trial_ready_count": trial_ready,
         "provisional_trial_supported_count": trial_supported,

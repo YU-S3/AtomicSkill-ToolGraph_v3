@@ -6,10 +6,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.contracts import (
-    AtomicCandidate, CapabilityRequirement, RequirementSearchResult,
+    AbstractAtomicSkill,
+    AtomicCandidate,
+    AtomicContractCompatibilityReport,
+    CapabilityRequirement,
+    RequirementSearchResult,
 )
+from ..core.semantic_types import normalize_semantic_type
 from ..core.status import RuntimeMode, SkillStatus
-from ..knowledge.query import atomic_contract_compatible, lexical_similarity
+from ..knowledge.query import (
+    diagnose_atomic_contract_compatibility,
+    lexical_similarity,
+)
 from ..knowledge.skill_registry import SkillRegistry
 from .multiplicity import RequirementExpansion
 
@@ -77,6 +85,78 @@ class AtomicRetriever:
         self.utility_lookup = utility_lookup or (lambda _ref: 0.0)
         self.candidate_policy = candidate_policy
 
+    @staticmethod
+    def _compatibility_view(
+        report: AtomicContractCompatibilityReport,
+    ) -> dict[str, Any]:
+        return {
+            "effects_passed": report.effects_passed,
+            "inputs_passed": report.inputs_passed,
+            "failure_codes": list(report.failure_codes),
+            "missing_required_input_types": list(
+                report.missing_required_input_types
+            ),
+        }
+
+    @classmethod
+    def _repair_hint(
+        cls,
+        atomic: AbstractAtomicSkill,
+        report: AtomicContractCompatibilityReport,
+    ) -> dict[str, Any]:
+        """Expose only a sanitized Verified Atomic interface to P1R."""
+
+        return {
+            "atomic_ref": str(atomic.ref),
+            "compatibility": cls._compatibility_view(report),
+            "contract_view": {
+                "inputs": [
+                    {
+                        "name": str(item.name),
+                        "semantic_type": normalize_semantic_type(
+                            item.semantic_type
+                        ),
+                        "required": bool(item.required),
+                        "runtime_resolvable": bool(item.runtime_resolvable),
+                        "required_resolution": str(item.required_resolution),
+                    }
+                    for item in atomic.inputs
+                ],
+                "outputs": [
+                    {
+                        "name": str(item.name),
+                        "semantic_type": normalize_semantic_type(
+                            item.semantic_type
+                        ),
+                    }
+                    for item in atomic.outputs
+                ],
+                "effects": [
+                    {
+                        "predicate": str(item.predicate),
+                        "args": {
+                            str(role): "<role>"
+                            for role in sorted(map(str, item.args))
+                        },
+                        "cardinality": int(item.cardinality),
+                        "distinct_by": str(item.distinct_by),
+                    }
+                    for item in atomic.effects
+                ],
+            },
+        }
+
+    @staticmethod
+    def _matched_required_effect_count(
+        report: AtomicContractCompatibilityReport,
+    ) -> int:
+        return sum(
+            detail.offered_predicate_found
+            and not detail.missing_argument_roles
+            and detail.cardinality_sufficient
+            for detail in report.effect_details
+        )
+
     def retrieve(
         self, requirements: list[CapabilityRequirement], *, mode: RuntimeMode | str,
         harness_profile: str, task_id: str = "",
@@ -86,27 +166,57 @@ class AtomicRetriever:
         for requirement in requirements:
             recalled: list[tuple[float, str, Any]] = []
             rejected: list[dict[str, Any]] = []
+            repair_candidates: list[
+                tuple[int, int, float, str, dict[str, Any]]
+            ] = []
+            assessed = [
+                (
+                    atomic,
+                    diagnose_atomic_contract_compatibility(
+                        requirement,
+                        atomic,
+                    ),
+                )
+                for atomic in atomics
+            ]
             contract_compatible = [
-                atomic for atomic in atomics
-                if atomic_contract_compatible(requirement, atomic)
-                and not (atomic.metadata.get("harness_profiles") or [])
-                or (
-                    atomic_contract_compatible(requirement, atomic)
-                    and harness_profile in (atomic.metadata.get("harness_profiles") or [])
+                atomic for atomic, diagnosis in assessed
+                if diagnosis.passed
+                and (
+                    not (atomic.metadata.get("harness_profiles") or [])
+                    or harness_profile in (
+                        atomic.metadata.get("harness_profiles") or []
+                    )
                 )
             ]
             active_available = any(item.status is SkillStatus.ACTIVE for item in contract_compatible)
-            for atomic in atomics:
+            for atomic, diagnosis in assessed:
                 text = " ".join([requirement.intent, *requirement.semantic_variants])
                 score = lexical_similarity(text, f"{atomic.summary} {atomic.guideline}")
                 profiles = atomic.metadata.get("harness_profiles") or []
                 reasons: list[str] = []
-                if not atomic_contract_compatible(requirement, atomic):
+                if not diagnosis.passed:
                     reasons.append("effect_or_io_contract_mismatch")
                 if profiles and harness_profile not in profiles:
                     reasons.append("harness_incompatible")
                 if reasons:
-                    rejected.append({"atomic_ref": str(atomic.ref), "reasons": reasons, "recall_score": score})
+                    rejection = {
+                        "atomic_ref": str(atomic.ref),
+                        "reasons": reasons,
+                        "recall_score": score,
+                    }
+                    if not diagnosis.passed:
+                        rejection["compatibility"] = self._compatibility_view(
+                            diagnosis
+                        )
+                        repair_candidates.append((
+                            -self._matched_required_effect_count(diagnosis),
+                            len(diagnosis.missing_required_input_types),
+                            -score,
+                            str(atomic.ref),
+                            self._repair_hint(atomic, diagnosis),
+                        ))
+                    rejected.append(rejection)
                     continue
                 if self.candidate_policy is not None and not self.candidate_policy.allows(
                     artifact_ref=str(atomic.ref), artifact_kind="atomic", status=atomic.status,
@@ -122,8 +232,17 @@ class AtomicRetriever:
                 status_bonus = 0.05 if atomic.status is SkillStatus.ACTIVE else 0.0
                 recalled.append((score + 0.1 * utility + status_bonus, str(atomic.ref), atomic))
             recalled.sort(key=lambda item: (-item[0], item[1]))
+            repair_candidates.sort(key=lambda item: item[:4])
             candidates = [AtomicCandidate(item.ref, score, ["contract_compatible"], True) for score, _, item in recalled[: self.top_k]]
-            results.append(RequirementSearchResult(requirement, candidates, bool(candidates) or not requirement.required, rejected))
+            results.append(RequirementSearchResult(
+                requirement=requirement,
+                candidates=candidates,
+                covered=bool(candidates) or not requirement.required,
+                rejection_reasons=rejected,
+                repair_hints=[
+                    item[4] for item in repair_candidates[: self.top_k]
+                ],
+            ))
         return AtomicSearchBatch(results)
 
     def retrieve_multiplicity(

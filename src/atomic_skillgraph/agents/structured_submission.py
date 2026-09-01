@@ -247,23 +247,24 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
 COMPOSITE_EXTRACTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": [
-        "control_sequence",
-        "existing_edges",
-        "new_edges",
+        "selected_existing_edge_ids",
+        "selected_new_edge_candidate_ids",
         "summary",
         "guideline",
         "insight",
     ],
     "additionalProperties": False,
     "properties": {
-        "control_sequence": {
+        "selected_existing_edge_ids": {
             "type": "array",
-            "minItems": 1,
             "uniqueItems": True,
             "items": NONEMPTY_STRING_SCHEMA,
         },
-        "existing_edges": {"type": "array", "items": PROPOSED_EDGE_SCHEMA},
-        "new_edges": {"type": "array", "items": PROPOSED_EDGE_SCHEMA},
+        "selected_new_edge_candidate_ids": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": NONEMPTY_STRING_SCHEMA,
+        },
         "summary": NONEMPTY_STRING_SCHEMA,
         "guideline": {"type": "object"},
         "insight": {"type": "object"},

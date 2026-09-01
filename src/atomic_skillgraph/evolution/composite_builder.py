@@ -6,14 +6,16 @@ from typing import Any, Mapping
 
 from ..core.bindings import BindingExpression, BindingExprKind
 from ..core.contracts import (
-    CompositeOccurrence, CompositeSkill, IdentityRelation, SemanticPredicate, TaskContract,
+    CompositeOccurrence, CompositeSkill, SemanticPredicate, TaskContract,
 )
 from ..core.edges import ExistingEdgeEvidence, GraphEdge, GraphEdgeType
 from ..core.refs import SkillRef, content_hash
+from ..core.semantic_types import semantic_types_compatible
 from ..core.status import SkillStatus
 from ..validation.contract_matcher import ContractMatcher, ExactContractMatcher
 from .atomicizer import CanonicalAtomicOccurrence
 from .contract_canonicalizer import composite_structure_payload
+from .extraction_authority import contract_coverage_report
 from .extractor_session import CompositeExtractionProposal
 from .portability import (
     composite_fallback_summary,
@@ -22,22 +24,6 @@ from .portability import (
     source_forbidden_terms,
     validate_portability,
 )
-
-
-def _types_compatible(
-    source: str, target: str, *, source_role: str = "", target_role: str = "",
-) -> bool:
-    if source == target:
-        return True
-    entity_types = {"entity", "object"}
-    if source in entity_types and target in entity_types:
-        return True
-    entity_roles = ("object", "item", "entity", "location", "source", "destination", "station", "light", "tool")
-    return {source, target} == {"entity", "string"} and any(
-        token in role.casefold()
-        for role in (source_role, target_role)
-        for token in entity_roles
-    )
 
 
 def _predicate_resolved_args(
@@ -70,86 +56,6 @@ def _identity_input_for_output(
     return matches[0] if len(matches) == 1 else None
 
 
-def _contract_covered(
-    contract: TaskContract, canonical: list[CanonicalAtomicOccurrence],
-    matcher: ContractMatcher,
-) -> bool:
-    if not contract.target_effects:
-        return False
-    offered = [
-        (effect, occurrence, _predicate_resolved_args(effect, occurrence))
-        for occurrence in canonical
-        for effect in occurrence.effects
-    ]
-    matches_by_target: list[list[tuple[SemanticPredicate, CanonicalAtomicOccurrence, dict[str, Any]]]] = []
-    for target in contract.target_effects:
-        compatible = [
-            (effect, occurrence, arguments)
-            for effect, occurrence, arguments in offered
-            if matcher.covers(target, effect, arguments)
-        ]
-        if sum(max(1, int(effect.cardinality)) for effect, _, _ in compatible) < max(1, int(target.cardinality)):
-            return False
-        if target.distinct_by:
-            values = {
-                arguments.get(target.distinct_by)
-                for _, _, arguments in compatible
-                if arguments.get(target.distinct_by) is not None
-            }
-            if len(values) < max(1, int(target.cardinality)):
-                return False
-        matches_by_target.append(compatible)
-    matched_offered = [
-        item
-        for matches in matches_by_target
-        for item in matches
-    ]
-    for rule in contract.cardinality_constraints:
-        predicate = str(rule.get("predicate", ""))
-        count = int(rule.get("count", 1))
-        role = str(rule.get("distinct_by") or rule.get("role") or "")
-        matching = [
-            item for item in matched_offered
-            if item[0].predicate.casefold() == predicate.casefold()
-        ]
-        if sum(max(1, int(item[0].cardinality)) for item in matching) < count:
-            return False
-        if role and len({item[2].get(role) for item in matching if item[2].get(role) is not None}) < count:
-            return False
-    for constraint in contract.identity_constraints:
-        if constraint.relation is IdentityRelation.SAME_AS:
-            if constraint.left_role == constraint.right_role:
-                witness_sets = [
-                    {item[2][constraint.left_role] for item in matches if constraint.left_role in item[2]}
-                    for matches in matches_by_target
-                ]
-                witness_sets = [values for values in witness_sets if values]
-                if len(witness_sets) > 1 and not set.intersection(*witness_sets):
-                    return False
-            else:
-                left = {item[2][constraint.left_role] for item in matched_offered if constraint.left_role in item[2]}
-                right = {item[2][constraint.right_role] for item in matched_offered if constraint.right_role in item[2]}
-                if not left or not right or not left.intersection(right):
-                    return False
-        elif constraint.relation is IdentityRelation.DISTINCT_FROM:
-            left = {item[2][constraint.left_role] for item in matched_offered if constraint.left_role in item[2]}
-            right = {item[2][constraint.right_role] for item in matched_offered if constraint.right_role in item[2]}
-            if left and right:
-                if not any(left_value != right_value for left_value in left for right_value in right):
-                    return False
-            else:
-                distinct_values = {
-                    item[2].get(target.distinct_by)
-                    for target, matches in zip(contract.target_effects, matches_by_target)
-                    if target.distinct_by
-                    for item in matches
-                    if item[2].get(target.distinct_by) is not None
-                }
-                if len(distinct_values) < 2:
-                    return False
-    return True
-
-
 class CompositeBuilder:
     def validate_and_build(
         self, proposal: CompositeExtractionProposal,
@@ -173,7 +79,8 @@ class CompositeBuilder:
                 "E2 control sequence must equal the canonical chronological order"
             )
         matcher = contract_matcher or ExactContractMatcher()
-        if not _contract_covered(contract, canonical, matcher):
+        coverage = contract_coverage_report(contract, canonical, matcher)
+        if not coverage.passed:
             raise ValueError("E2 canonical occurrences do not cover the authoritative TaskContract")
 
         edges: list[GraphEdge] = []
@@ -534,11 +441,9 @@ class CompositeBuilder:
                 != target.input_bindings.get(edge.target_role)
             ):
                 raise ValueError("E2 DataFlow violates concrete binding identity")
-            if not _types_compatible(
-                source_outputs[edge.source_role].semantic_type,
+            if not semantic_types_compatible(
                 target_inputs[edge.target_role].semantic_type,
-                source_role=edge.source_role,
-                target_role=edge.target_role,
+                source_outputs[edge.source_role].semantic_type,
             ):
                 raise ValueError("E2 DataFlow semantic types are incompatible")
         elif bool(edge.source_role) != bool(edge.target_role):

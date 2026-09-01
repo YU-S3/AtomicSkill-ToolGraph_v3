@@ -10,33 +10,15 @@ from ..core.bindings import BindingExprKind, BindingExpression
 from ..core.edges import GraphEdgeType
 from ..core.contracts import IdentityRelation
 from ..core.results import RuntimeLinearPlan, ValidationResult
+from ..core.semantic_types import (
+    normalize_semantic_type,
+    semantic_types_compatible,
+)
 from ..core.status import RuntimeMode, skill_status_usable
 from ..knowledge.graph_store import GraphStore
 from ..knowledge.skill_registry import SkillRegistry
-from .multiplicity import RequirementExpansion
-
-
-_STRING_LIKE_TYPES = {"entity", "object", "string", "str"}
-_NUMBER_LIKE_TYPES = {"integer", "int", "number", "float"}
-_ARRAY_LIKE_TYPES = {"array", "list"}
-_OBJECT_LIKE_TYPES = {"object_map", "dict", "mapping"}
-
-
-def _type_family(value: str) -> str:
-    normalized = str(value).strip().casefold()
-    if normalized in _STRING_LIKE_TYPES:
-        return "string_like"
-    if normalized in _NUMBER_LIKE_TYPES:
-        return "number_like"
-    if normalized in _ARRAY_LIKE_TYPES:
-        return "array_like"
-    if normalized in _OBJECT_LIKE_TYPES:
-        return "object_like"
-    return normalized
-
-
-def _semantic_types_compatible(source: str, target: str) -> bool:
-    return bool(source and target and _type_family(source) == _type_family(target))
+from .multiplicity import RequirementExpansion, normalized_constraints
+from .repeat_constraints import formal_repeat_role, unit_effect_role_mappings
 
 
 def _predicate_shape_compatible(required: Any, offered: Any) -> bool:
@@ -72,6 +54,34 @@ def _project_plan_effects(
     output_memo: dict[tuple[str, str], str] = {}
     resolving_inputs: set[tuple[str, str]] = set()
     task_role_usage: dict[str, set[str]] = {}
+    repeat_role_source: dict[tuple[str, str], str] = {}
+    ambiguous_repeat_sources: set[tuple[str, str]] = set()
+    for constraint in plan.repeat_constraints:
+        basis_id = str(constraint.basis_constraint_id)
+        for repeat_index, iteration in enumerate(
+            constraint.iteration_steps,
+        ):
+            for step_id in iteration:
+                for block_role, atomic_role in constraint.step_role_bindings.get(
+                    step_id, {},
+                ).items():
+                    if block_role in constraint.distinct_roles:
+                        symbol = (
+                            f"repeat:{basis_id}:{block_role}:"
+                            f"{repeat_index}"
+                        )
+                    elif block_role in constraint.shared_roles:
+                        symbol = f"repeat:{basis_id}:{block_role}:shared"
+                    else:
+                        continue
+                    key = (step_id, atomic_role)
+                    previous = repeat_role_source.get(key)
+                    if previous is not None and previous != symbol:
+                        ambiguous_repeat_sources.add(key)
+                    else:
+                        repeat_role_source[key] = symbol
+    for key in ambiguous_repeat_sources:
+        repeat_role_source.pop(key, None)
 
     def constant_symbol(value: Any) -> str:
         return f"constant:{type(value).__name__}:{value!r}"
@@ -92,6 +102,9 @@ def _project_plan_effects(
 
     def input_symbol(step_id: str, role: str) -> str | None:
         key = (step_id, role)
+        repeat_symbol = repeat_role_source.get(key)
+        if repeat_symbol is not None:
+            return repeat_symbol
         if key in input_memo:
             return input_memo[key]
         if key in resolving_inputs:
@@ -132,6 +145,9 @@ def _project_plan_effects(
 
     def output_symbol(step_id: str, role: str) -> str:
         key = (step_id, role)
+        repeat_symbol = repeat_role_source.get(key)
+        if repeat_symbol is not None:
+            return repeat_symbol
         if key in output_memo:
             return output_memo[key]
         opaque = f"output:{step_id}:{role}"
@@ -341,6 +357,204 @@ def _atomic_parameter_types(value: Any) -> dict[str, str]:
     }
 
 
+def validate_runtime_repeat_contract(
+    plan: RuntimeLinearPlan,
+    atomics: dict[str, Any],
+) -> ValidationResult:
+    """Prove Runtime repeat authority against the normalized TaskContract.
+
+    This check applies to every plan source.  In particular, P0 has no
+    RequirementExpansion, so the Runtime constraint itself is the only
+    deterministic bridge between a Stored Composite and formal multiplicity.
+    """
+
+    checks: dict[str, bool] = {}
+    try:
+        formal = normalized_constraints(plan.task_contract)
+        checks["runtime_repeat_task_contract_normalized"] = True
+    except (TypeError, ValueError):
+        formal = {}
+        checks["runtime_repeat_task_contract_normalized"] = False
+    formal_repeat = {
+        constraint_id: value
+        for constraint_id, value in formal.items()
+        if value.get("composition_mode") == "repeat_unit"
+    }
+    runtime = list(plan.repeat_constraints)
+    basis_ids = [str(item.basis_constraint_id) for item in runtime]
+    block_ids = [str(item.block_id) for item in runtime]
+    checks["runtime_repeat_basis_authority"] = (
+        all(basis_ids)
+        and len(basis_ids) == len(set(basis_ids))
+        and len(runtime) == len(formal_repeat)
+        and set(basis_ids) == set(formal_repeat)
+    ) if runtime or formal_repeat else True
+    checks["runtime_repeat_block_ids_unique"] = (
+        all(block_ids) and len(block_ids) == len(set(block_ids))
+    ) if runtime else True
+    checks["nonrepeat_contract_has_no_runtime_repeat"] = bool(
+        formal_repeat or not runtime
+    )
+
+    count_matches = True
+    declared_roles_valid = True
+    iteration_structure = True
+    step_membership_unique = True
+    step_bindings_complete = True
+    mapped_roles_exist = True
+    mapped_role_types_valid = True
+    unit_effect_witnessed = True
+    formal_role_authority = True
+    formal_roles_declared = True
+    globally_owned_steps: set[str] = set()
+
+    for constraint in runtime:
+        basis = formal_repeat.get(str(constraint.basis_constraint_id))
+        if basis is None:
+            count_matches = False
+            unit_effect_witnessed = False
+            formal_role_authority = False
+            formal_roles_declared = False
+            continue
+        try:
+            formal_count = int(basis.get("count", 0))
+        except (TypeError, ValueError):
+            formal_count = 0
+        count_matches &= (
+            int(constraint.count) == formal_count
+            and formal_count >= 2
+        )
+        distinct_roles = set(map(str, constraint.distinct_roles))
+        shared_roles = set(map(str, constraint.shared_roles))
+        declared_roles_valid &= bool(
+            distinct_roles.isdisjoint(shared_roles)
+            and all(distinct_roles | shared_roles)
+        )
+        iteration_structure &= (
+            len(constraint.iteration_steps) == int(constraint.count)
+            and all(constraint.iteration_steps)
+        )
+        flattened = [
+            step_id
+            for iteration in constraint.iteration_steps
+            for step_id in iteration
+        ]
+        step_membership_unique &= (
+            len(flattened) == len(set(flattened))
+            and not (set(flattened) & globally_owned_steps)
+            and set(flattened).issubset(atomics)
+        )
+        globally_owned_steps.update(flattened)
+        step_bindings_complete &= (
+            set(constraint.step_role_bindings) == set(flattened)
+        )
+
+        for step_id, role_map in constraint.step_role_bindings.items():
+            atomic = atomics.get(step_id)
+            boundary_types = (
+                _atomic_parameter_types(atomic) if atomic is not None else {}
+            )
+            declared_roles_valid &= set(role_map).issubset(
+                distinct_roles | shared_roles,
+            )
+            for block_role, atomic_role in role_map.items():
+                mapped_roles_exist &= bool(
+                    block_role and atomic_role
+                    and atomic_role in boundary_types
+                )
+                mapped_role_types_valid &= bool(
+                    atomic_role in boundary_types
+                    and normalize_semantic_type(
+                        boundary_types.get(atomic_role, ""),
+                    )
+                )
+
+        predicate = str(basis.get("predicate", ""))
+        predicate_roles = {
+            str(role)
+            for effect in plan.task_contract.target_effects
+            if effect.predicate.casefold() == predicate.casefold()
+            for role in effect.args
+        }
+        formal_distinct = str(basis.get("distinct_by", ""))
+        formal_shared = set(map(str, basis.get("shared_roles", ())))
+        formal_roles_declared &= (
+            (not formal_distinct or formal_distinct in distinct_roles)
+            and formal_shared.issubset(shared_roles)
+        )
+        for iteration in constraint.iteration_steps:
+            iteration_witness = False
+            iteration_authority = False
+            aggregate_present = False
+            for step_id in iteration:
+                atomic = atomics.get(step_id)
+                if atomic is None:
+                    continue
+                mappings, has_aggregate = unit_effect_role_mappings(
+                    atomic, predicate, predicate_roles,
+                )
+                aggregate_present |= has_aggregate
+                if len(mappings) != 1:
+                    continue
+                iteration_witness = True
+                formal_to_atomic = mappings[0]
+                runtime_to_atomic = constraint.step_role_bindings.get(
+                    step_id, {},
+                )
+
+                def runtime_roles_cover(
+                    formal_role: str,
+                    runtime_roles: set[str],
+                ) -> bool:
+                    expected_atomic = formal_to_atomic.get(formal_role, "")
+                    return bool(expected_atomic) and any(
+                        runtime_to_atomic.get(runtime_role)
+                        == expected_atomic
+                        for runtime_role in runtime_roles
+                    )
+
+                distinct_covered = (
+                    not formal_distinct
+                    or runtime_roles_cover(
+                        formal_distinct, distinct_roles,
+                    )
+                )
+                shared_covered = all(
+                    runtime_roles_cover(role, shared_roles)
+                    for role in formal_shared
+                )
+                if distinct_covered and shared_covered:
+                    iteration_authority = True
+            unit_effect_witnessed &= (
+                iteration_witness and not aggregate_present
+            )
+            formal_role_authority &= iteration_authority
+
+    checks.update({
+        "runtime_repeat_counts_match_contract": count_matches,
+        "runtime_repeat_declared_roles_valid": declared_roles_valid,
+        "runtime_repeat_iteration_structure_valid": iteration_structure,
+        "runtime_repeat_step_membership_unique": step_membership_unique,
+        "runtime_repeat_step_bindings_complete": step_bindings_complete,
+        "runtime_repeat_mapped_atomic_roles_exist": mapped_roles_exist,
+        "runtime_repeat_mapped_role_types_valid": mapped_role_types_valid,
+        "runtime_repeat_unit_effect_witnessed": unit_effect_witnessed,
+        "runtime_repeat_formal_roles_declared": formal_roles_declared,
+        "runtime_repeat_formal_role_authority": formal_role_authority,
+    })
+    passed = all(checks.values())
+    return ValidationResult(
+        level="planner_runtime_repeat",
+        passed=passed,
+        checks=checks,
+        failure_codes=[] if passed else ["planner_repeat_block_invalid"],
+        messages=[] if passed else [
+            "Runtime repeat constraints do not prove the TaskContract "
+            "repeat_unit authority",
+        ],
+    )
+
+
 def _repeat_instance_validation(
     plan: RuntimeLinearPlan,
     expansion: RequirementExpansion,
@@ -448,7 +662,7 @@ def _repeat_instance_validation(
                 required_type = requirement_types.get(block_role, "")
                 offered_type = atomic_types.get(atomic_role, "")
                 if required_type and offered_type:
-                    repeat_role_types &= _semantic_types_compatible(
+                    repeat_role_types &= semantic_types_compatible(
                         required_type, offered_type,
                     )
 
@@ -542,16 +756,29 @@ def _repeat_instance_validation(
             continue
         expected_steps = expected_iteration_steps.get(block_id, ())
         expected_step_bindings = {
-            step_id: dict(by_step[step_id].repeat_role_bindings)
+            step_id: {
+                formal_repeat_role(block, block_role): atomic_role
+                for block_role, atomic_role in dict(
+                    by_step[step_id].repeat_role_bindings,
+                ).items()
+            }
             for iteration in expected_steps
             for step_id in iteration
             if step_id in by_step
         }
         repeat_constraint_integrity &= (
             constraint.count == block.count
+            and constraint.basis_constraint_id
+            == block.basis_constraint_id
             and tuple(constraint.iteration_steps) == expected_steps
-            and tuple(constraint.distinct_roles) == tuple(block.distinct_roles)
-            and tuple(constraint.shared_roles) == tuple(block.shared_roles)
+            and tuple(constraint.distinct_roles) == tuple(
+                formal_repeat_role(block, role)
+                for role in block.distinct_roles
+            )
+            and tuple(constraint.shared_roles) == tuple(
+                formal_repeat_role(block, role)
+                for role in block.shared_roles
+            )
             and dict(constraint.step_role_bindings)
             == expected_step_bindings
         )
@@ -767,7 +994,7 @@ class PlannerValidator:
                 else:
                     source_type = source_spec.semantic_type
                     target_type = target_spec.semantic_type
-                    if not _semantic_types_compatible(source_type, target_type):
+                    if not semantic_types_compatible(source_type, target_type):
                         edge_semantic_types = False
             elif (
                 source_atomic is None
@@ -793,9 +1020,9 @@ class PlannerValidator:
                 elif expected_type is GraphEdgeType.DATA_FLOW and any(known.semantic_types):
                     known_source, known_target = known.semantic_types
                     if (
-                        known_source and not _semantic_types_compatible(known_source, source_type)
+                        known_source and not semantic_types_compatible(known_source, source_type)
                     ) or (
-                        known_target and not _semantic_types_compatible(known_target, target_type)
+                        known_target and not semantic_types_compatible(known_target, target_type)
                     ):
                         existing_valid = False
         checks["edges_forward_only"] = forward
@@ -861,6 +1088,10 @@ class PlannerValidator:
             )
             checks.update(repeat_checks)
             errors.extend(repeat_codes)
+
+        runtime_repeat = validate_runtime_repeat_contract(plan, atomics)
+        checks.update(runtime_repeat.checks)
+        errors.extend(runtime_repeat.failure_codes)
 
         offered_effects, task_role_usage = _project_plan_effects(plan, atomics)
         checks["task_contract_effect_coverage"] = _effects_cover_occurrences(

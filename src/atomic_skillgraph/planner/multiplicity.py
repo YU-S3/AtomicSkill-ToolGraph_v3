@@ -54,6 +54,28 @@ class TaskContractNormalizer:
     def normalize(self, contract: TaskContract) -> TaskContract:
         if not isinstance(contract, TaskContract):
             raise TypeError("TaskContractNormalizer requires a TaskContract")
+        target_roles = {
+            str(role)
+            for effect in contract.target_effects
+            for role in effect.args
+        }
+        for constraint in contract.identity_constraints:
+            if (
+                constraint.left_role not in target_roles
+                or constraint.right_role not in target_roles
+            ):
+                raise ValueError(
+                    "TaskContract identity constraints must reference "
+                    "declared target roles"
+                )
+            if (
+                constraint.relation.value == "distinct_from"
+                and constraint.left_role == constraint.right_role
+            ):
+                raise ValueError(
+                    "same-role distinctness must use a cardinality "
+                    "constraint distinct_by role"
+                )
         raw_constraints = [dict(value) for value in contract.cardinality_constraints]
         declared_predicates = {
             str(value.get("predicate", "")).casefold() for value in raw_constraints

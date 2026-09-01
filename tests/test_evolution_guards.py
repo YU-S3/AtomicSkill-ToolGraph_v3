@@ -513,7 +513,7 @@ def test_composite_requires_reused_identity_dataflow_and_identity_consistency() 
         ),
         _proposal(
             "examine", "examine held item", 1,
-            {"item": "apple_1"}, {"observed_object": "apple_1"},
+            {"object": "apple_1"}, {"observed_object": "apple_1"},
             SemanticPredicate("object.observed", {"object": "apple_1"}),
             preconditions=[SemanticPredicate("agent.holds", {"object": "apple_1"})],
         ),
@@ -539,14 +539,14 @@ def test_composite_requires_reused_identity_dataflow_and_identity_consistency() 
         "source_step": sequence[0],
         "target_step": sequence[1],
         "source_role": "held_object",
-        "target_role": "item",
+        "target_role": "object",
     }
     composite = CompositeBuilder().validate_and_build(
         CompositeExtractionProposal(sequence, [], [edge], "take and examine", {}, {}),
         canonical,
         TaskContract([SemanticPredicate("object.observed", {"object": "apple_1"})]),
     )
-    assert composite.occurrences[1].binding_specs["item"].kind is BindingExprKind.DATA_FLOW
+    assert composite.occurrences[1].binding_specs["object"].kind is BindingExprKind.DATA_FLOW
 
     mismatched_actions = [
         _action(0, "TAKE", {"item": "apple_1"}),
@@ -557,7 +557,7 @@ def test_composite_requires_reused_identity_dataflow_and_identity_consistency() 
             proposals[0],
             replace(
                 proposals[1],
-                input_roles={"item": "banana_1"},
+                input_roles={"object": "banana_1"},
                 output_roles={"observed_object": "banana_1"},
                 preconditions=[],
                 effects=[SemanticPredicate("object.observed", {"object": "banana_1"})],

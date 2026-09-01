@@ -6,9 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.contracts import CompositeSkill, TaskContract
+from ..core.serialization import to_primitive
 from ..core.status import RuntimeMode, SkillStatus
 from ..knowledge.query import (
-    complete_composite_contract_compatible,
+    complete_composite_contract_diagnosis,
     lexical_similarity,
 )
 from ..knowledge.skill_registry import SkillRegistry
@@ -69,9 +70,9 @@ class CompositeRetriever:
         def exact_compatible(composite: CompositeSkill) -> bool:
             profiles = composite.metadata.get("harness_profiles") or []
             return (
-                complete_composite_contract_compatible(
+                complete_composite_contract_diagnosis(
                     contract, composite.goal_contract,
-                )
+                ).passed
                 and (not profiles or harness_profile in profiles)
                 and not structural_reasons(composite)
             )
@@ -98,16 +99,19 @@ class CompositeRetriever:
                 bootstrap_candidates.sort(key=lambda item: (-item[0], item[1]))
                 bootstrap_candidate_ref = bootstrap_candidates[0][1]
         for composite in composites:
-            reasons = structural_reasons(composite)
-            if not complete_composite_contract_compatible(
+            contract_diagnosis = complete_composite_contract_diagnosis(
                 contract, composite.goal_contract,
-            ):
-                reasons.append("goal_contract_exact_mismatch")
+            )
+            contract_reasons: list[str] = []
+            if not contract_diagnosis.passed:
+                contract_reasons.append("goal_contract_exact_mismatch")
+            structure_reasons = structural_reasons(composite)
             for occurrence in composite.occurrences:
                 self.skills.get_atomic(occurrence.node_ref)
             profiles = composite.metadata.get("harness_profiles") or []
             if profiles and harness_profile not in profiles:
-                reasons.append("harness_incompatible")
+                contract_reasons.append("harness_incompatible")
+            lifecycle_reasons: list[str] = []
             is_bootstrap_candidate = bool(
                 composite.status is SkillStatus.CANDIDATE
                 and mode is RuntimeMode.ONLINE
@@ -117,19 +121,35 @@ class CompositeRetriever:
                 is_bootstrap_candidate
                 and str(composite.ref) != bootstrap_candidate_ref
             ):
-                reasons.append("candidate_bootstrap_not_top1")
+                lifecycle_reasons.append("candidate_bootstrap_not_top1")
             elif self.candidate_policy is not None and not self.candidate_policy.allows(
                 artifact_ref=str(composite.ref), artifact_kind="composite", status=composite.status,
                 mode=mode, task_id=str(getattr(task, "task_id", "unknown_task")),
                 reliable_active_available=compatible_active_available,
                 explicit_exploration=is_bootstrap_candidate,
             ):
-                reasons.append("candidate_exploration_quota")
+                lifecycle_reasons.append("candidate_exploration_quota")
+            reasons = [
+                *contract_reasons,
+                *structure_reasons,
+                *lifecycle_reasons,
+            ]
             score = lexical_similarity(getattr(task, "goal", ""), f"{composite.summary} {composite.guideline}")
             item = {"composite_ref": str(composite.ref), "score": score}
             result.audit_candidates.append(item)
             if reasons:
-                result.rejections.append({**item, "reasons": reasons})
+                if contract_reasons:
+                    stage = "retrieval_contract"
+                elif structure_reasons:
+                    stage = "retrieval_structure"
+                else:
+                    stage = "lifecycle_policy"
+                rejection = {**item, "stage": stage, "reasons": reasons}
+                if stage == "retrieval_contract":
+                    rejection["contract_diagnosis"] = to_primitive(
+                        contract_diagnosis
+                    )
+                result.rejections.append(rejection)
             else:
                 ranked.append((score, str(composite.ref), composite))
         ranked.sort(key=lambda item: (-item[0], item[1]))

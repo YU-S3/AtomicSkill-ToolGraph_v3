@@ -214,12 +214,42 @@ class AtomicCandidate:
     contract_match: bool = True
 
 
+@dataclass(frozen=True)
+class PredicateCompatibilityDetail:
+    required_predicate: str
+    offered_predicate_found: bool
+    required_argument_roles: tuple[str, ...]
+    missing_argument_roles: tuple[str, ...]
+    required_cardinality: int
+    best_offered_cardinality: int
+    cardinality_sufficient: bool
+
+
+@dataclass(frozen=True)
+class RequiredInputCompatibility:
+    required_name: str
+    required_semantic_type: str
+    compatible_offered_roles: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AtomicContractCompatibilityReport:
+    passed: bool
+    effects_passed: bool
+    inputs_passed: bool
+    effect_details: tuple[PredicateCompatibilityDetail, ...]
+    input_details: tuple[RequiredInputCompatibility, ...]
+    missing_required_input_types: tuple[str, ...]
+    failure_codes: tuple[str, ...]
+
+
 @dataclass
 class RequirementSearchResult:
     requirement: CapabilityRequirement
     candidates: list[AtomicCandidate]
     covered: bool
     rejection_reasons: list[dict[str, Any]]
+    repair_hints: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

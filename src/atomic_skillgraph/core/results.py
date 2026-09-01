@@ -67,6 +67,7 @@ class RuntimeRepeatConstraint:
     distinct_roles: tuple[str, ...]
     shared_roles: tuple[str, ...]
     step_role_bindings: dict[str, dict[str, str]]
+    basis_constraint_id: str = ""
 
 
 @dataclass

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
-from atomic_skillgraph.core.contracts import SemanticPredicate
+from atomic_skillgraph.core.contracts import (
+    IdentityConstraint,
+    IdentityRelation,
+    SemanticPredicate,
+    TaskContract,
+)
 from atomic_skillgraph.harness.alfworld import (
     AlfWorldAdapter,
     AlfWorldValidatorChannel,
@@ -62,12 +67,78 @@ def test_pick_two_contract_requires_two_distinct_placement_witnesses() -> None:
     assert not one.passed
     assert not one.checks["target_0"]
     assert not one.checks["cardinality_constraints"]
-    assert not one.checks["identity_constraints"]
+    # Same-role multiplicity is fully owned by the cardinality constraint;
+    # no synthetic object_1/object_2 identity roles are emitted.
+    assert one.checks["identity_constraints"]
 
     _record(channel, 3, "TAKE", object="remotecontrol_2", source="shelf_1")
     _record(channel, 4, "PUT", object="remotecontrol_2", destination="armchair_1")
     two = channel.validate_task_contract(contract)
     assert two.passed
+
+
+def test_generic_same_role_identity_requires_a_joint_effect_witness() -> None:
+    contract = TaskContract(
+        target_effects=[
+            SemanticPredicate("object.heated", {"object": ""}),
+            SemanticPredicate(
+                "object.at_location",
+                {"object": "", "location": "countertop"},
+            ),
+        ],
+        identity_constraints=[IdentityConstraint(
+            "object", IdentityRelation.SAME_AS, "object", "task",
+        )],
+    )
+    mismatched = AlfWorldValidatorChannel()
+    _record(
+        mismatched, 1, "HEAT", object="egg_1", station="microwave_1",
+    )
+    _record(
+        mismatched, 2, "PUT", object="egg_2", destination="countertop_1",
+    )
+    report = mismatched.validate_task_contract(contract)
+    assert report.checks["target_0"] is True
+    assert report.checks["target_1"] is True
+    assert report.checks["identity_constraints"] is False
+
+    matched = AlfWorldValidatorChannel()
+    _record(matched, 1, "HEAT", object="egg_1", station="microwave_1")
+    _record(
+        matched, 2, "PUT", object="egg_1", destination="countertop_1",
+    )
+    assert matched.validate_task_contract(contract).passed is True
+
+
+def test_generic_different_role_identity_uses_role_witness_sets() -> None:
+    same_value = TaskContract(
+        target_effects=[
+            SemanticPredicate("container.open", {"container": ""}),
+            SemanticPredicate("light.on", {"light": ""}),
+        ],
+        identity_constraints=[IdentityConstraint(
+            "container", IdentityRelation.SAME_AS, "light", "task",
+        )],
+    )
+    channel = AlfWorldValidatorChannel()
+    _record(channel, 1, "OPEN", object="box_1")
+    _record(channel, 2, "TOGGLE_ON", object="box_1")
+    assert channel.validate_task_contract(same_value).passed is True
+
+    distinct = TaskContract(
+        target_effects=list(same_value.target_effects),
+        identity_constraints=[IdentityConstraint(
+            "container", IdentityRelation.DISTINCT_FROM, "light", "task",
+        )],
+    )
+    assert channel.validate_task_contract(distinct).checks[
+        "identity_constraints"
+    ] is False
+
+    other = AlfWorldValidatorChannel()
+    _record(other, 1, "OPEN", object="box_1")
+    _record(other, 2, "TOGGLE_ON", object="lamp_1")
+    assert other.validate_task_contract(distinct).passed is True
 
 
 def test_state_facts_replace_stale_holds_and_locations() -> None:

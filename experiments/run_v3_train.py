@@ -28,6 +28,7 @@ from .protocol import (
     hash_code,
     hash_config,
     load_task_report_traces,
+    sha256_json,
     task_signature,
     validate_deepseek_formal_llm,
     validate_distinct_formal_tasks,
@@ -208,6 +209,27 @@ def _verify_resume_knowledge(
         raise ProtocolError(
             f"resume knowledge mismatch: expected {expected}, current {current_digest}"
         )
+
+
+def _run_initial_artifact_snapshot(manifest: RunManifest) -> dict[str, Any]:
+    """Return the immutable run-start artifact authority from the manifest."""
+
+    metadata = manifest.metadata
+    snapshot = metadata.get("initial_artifact_snapshot")
+    digest = str(metadata.get("initial_artifact_snapshot_digest", ""))
+    if not isinstance(snapshot, dict) or not snapshot or not digest:
+        raise ProtocolError(
+            "formal train manifest lacks its initial artifact snapshot authority"
+        )
+    declared = str(snapshot.get("snapshot_digest", ""))
+    unsigned = dict(snapshot)
+    unsigned.pop("snapshot_digest", None)
+    if not declared or sha256_json(unsigned) != declared or digest != declared:
+        raise ProtocolError("initial artifact snapshot digest mismatch")
+    artifact_index = snapshot.get("artifact_index")
+    if not isinstance(artifact_index, dict) or int(artifact_index.get("total", -1)) != 0:
+        raise ProtocolError("formal Full-30 initial artifact snapshot must be empty")
+    return dict(snapshot)
 
 
 def _git_revision() -> str:
@@ -405,11 +427,8 @@ def _run_final_batch_maintenance(
             last_result = json.loads(str(result_row["result_json"]))
         except json.JSONDecodeError as exc:
             raise ProtocolError("final completed task result is invalid JSON") from exc
-        prior_growth = dict(last_result.get("artifact_growth") or {})
-        original_before = prior_growth.get("before")
-        if not isinstance(original_before, dict):
-            raise ProtocolError("final completed task lacks pre-task artifact snapshot")
-        final_task_growth = artifact_growth_audit(original_before, artifact_after)
+        run_initial = _run_initial_artifact_snapshot(manifest)
+        run_growth = artifact_growth_audit(run_initial, artifact_after)
         maintenance_growth = artifact_growth_audit(artifact_before, artifact_after)
         audit = {
             "knowledge_digest_before": before,
@@ -422,8 +441,9 @@ def _run_final_batch_maintenance(
             "maintenance_trace_id": str(
                 getattr(result, "maintenance_trace_id", "") or ""
             ),
-            "artifact_growth": maintenance_growth,
-            "artifact_lifecycle": artifact_after,
+            "maintenance_artifact_growth": maintenance_growth,
+            "run_artifact_growth": run_growth,
+            "run_artifact_lifecycle": artifact_after,
         }
         raw_history = last_result.get("final_batch_maintenance_history") or []
         if not isinstance(raw_history, list) or any(
@@ -464,8 +484,6 @@ def _run_final_batch_maintenance(
             expected_digest=before,
             new_digest=after,
             result_updates={
-                "artifact_growth": final_task_growth,
-                "artifact_lifecycle": artifact_after,
                 "final_batch_maintenance": audit,
                 "final_batch_maintenance_history": maintenance_history,
             },
@@ -600,6 +618,11 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             _verify_resume_knowledge(store, manifest, current_digest)
         else:
             initial_digest = current_digest
+            initial_artifact_snapshot = artifact_audit_snapshot(system.database)
+            if int(initial_artifact_snapshot["artifact_index"]["total"]) != 0:
+                raise ProtocolError(
+                    "fresh Full-30 run-start artifact snapshot must be empty"
+                )
             task_items = _task_manifests(
                 tasks, str(system.harness.split), initial_digest
             )
@@ -617,10 +640,15 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                     "tasks_per_type": per_type,
                     "total_tasks": expected_total,
                     "git_revision": _git_revision(),
+                    "initial_artifact_snapshot": initial_artifact_snapshot,
+                    "initial_artifact_snapshot_digest": (
+                        initial_artifact_snapshot["snapshot_digest"]
+                    ),
                 },
             )
             store.persist_before_run(manifest)
 
+        _run_initial_artifact_snapshot(manifest)
         ensure_task_manifest(
             _path(experiment.get("task_manifest_path", "")), manifest
         )
@@ -810,6 +838,8 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             task_traces, output_dir / "reports", stem="train_full_30",
             title="AtomicSkillGraph v3 ALFWorld Full-30 Train",
             auxiliary_usage_traces=[*maintenance_traces, *attempt_usage_traces],
+            run_artifact_growth=maintenance_audit["run_artifact_growth"],
+            run_artifact_lifecycle=maintenance_audit["run_artifact_lifecycle"],
         )
         frozen_dir = _path(
             experiment.get("frozen_snapshot_dir", "runs/alfworld_train_full_30/frozen/data_v3")

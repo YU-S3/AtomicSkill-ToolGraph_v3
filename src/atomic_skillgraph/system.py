@@ -43,7 +43,14 @@ from .evolution.atomicizer import Atomicizer
 from .evolution.composite_builder import CompositeBuilder
 from .evolution.composite_repair_session import CompositeSequenceProposalSession
 from .evolution.composite_repairs import CompositeSequenceRepairEngine
-from .evolution.extractor_session import ExtractorSession
+from .evolution.extraction_authority import (
+    contract_coverage_report,
+    extraction_coverage_authority,
+)
+from .evolution.extractor_session import (
+    ExtractionContentError,
+    ExtractorSession,
+)
 from .evolution.evidence import EvolutionEvidenceAccumulator
 from .evolution.failure_processor import FailureProcessor
 from .evolution.failure_extraction_validator import (
@@ -867,6 +874,17 @@ class AtomicSkillGraphSystem:
             infrastructure_failure=trace.infrastructure_failure,
             runtime_mode=run_mode.value,
         )
+        trace.metadata["failure_extractor_eligible"] = bool(
+            eligibility.passed
+        )
+        trace.metadata["failure_extractor_eligibility"] = {
+            "cold_start_enabled": eligibility.cold_start_enabled,
+            "valid_cold_start_plan": eligibility.valid_cold_start_plan,
+            "strict_task_success": eligibility.strict_task_success,
+            "infrastructure_failure": eligibility.infrastructure_failure,
+            "runtime_mode": str(eligibility.runtime_mode),
+            "passed": eligibility.passed,
+        }
         if self.failure_extraction_coordinator is None or not eligibility.passed:
             return None
         contract, expansion, proposal = self._cold_start_authority(trace, task)
@@ -1055,11 +1073,26 @@ class AtomicSkillGraphSystem:
             and trace.learning_eligible
             and decision.should_extract
         ):
+            trace.metadata["extraction"] = {
+                "attempted": True,
+                "stage": "e1",
+                "prepared": False,
+                "error_code": "",
+                "error_type": "",
+                "error": "",
+            }
             try:
                 prepared = self._prepare_evolution(trace, task)
                 trace.metadata["extraction"] = {
+                    **dict(trace.metadata.get("extraction") or {}),
+                    "attempted": True,
+                    "stage": "prepared",
                     "prepared": True,
+                    "applied": False,
                     "atomic_occurrence_count": len(prepared.compiled),
+                    "error_code": "",
+                    "error_type": "",
+                    "error": "",
                 }
             except (AgentProtocolError, ValueError) as exc:
                 # Extractor proposals may be rejected either by the native
@@ -1069,11 +1102,32 @@ class AtomicSkillGraphSystem:
                 # Infrastructure, persistence, programming, and unexpected
                 # errors still propagate so the runner rolls back the task
                 # checkpoint.
+                current = dict(trace.metadata.get("extraction") or {})
+                stage = str(
+                    getattr(exc, "stage", "")
+                    or current.get("stage")
+                    or "e1"
+                )
+                error_code = str(
+                    getattr(exc, "error_code", "")
+                    or getattr(exc, "code", "")
+                )
+                if error_code == "runtime_agent_schema_error":
+                    error_code = f"extractor_{stage}_schema_rejected"
+                if not error_code:
+                    error_code = (
+                        "extractor_e1_occurrence_rejected"
+                        if stage == "e1"
+                        else "extractor_e2_composite_validation_failed"
+                    )
                 trace.metadata["extraction"] = {
+                    **current,
+                    "attempted": True,
+                    "stage": stage,
                     "prepared": False,
                     "error_type": type(exc).__name__,
-                    "error_code": str(getattr(exc, "code", "")),
-                    "error": str(exc),
+                    "error_code": error_code,
+                    "error": self._sanitize_failure_message(exc),
                 }
 
         repair_proposals = []
@@ -1169,6 +1223,13 @@ class AtomicSkillGraphSystem:
             elif trace.learning_eligible:
                 if prepared is not None:
                     applied = self._apply_evolution(prepared, trace, task)
+                    trace.metadata["extraction"] = {
+                        **dict(trace.metadata.get("extraction") or {}),
+                        "attempted": True,
+                        "stage": "applied",
+                        "prepared": True,
+                        "applied": True,
+                    }
                     trace.metadata["evolution_applied"] = {
                         "atomic_refs": [str(item) for item in applied["atomic_refs"]],
                         "implementation_refs": [
@@ -1642,6 +1703,21 @@ class AtomicSkillGraphSystem:
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
         normalized = self.normalizer.build(trace)
         extractor = ExtractorSession(self._extractor_session(task.task_id))
+        contract = self.harness.task_contract(task)
+        matcher_factory = getattr(self.harness, "contract_matcher", None)
+        matcher = (
+            matcher_factory()
+            if callable(matcher_factory)
+            else ExactContractMatcher()
+        )
+        witness_authority = extraction_coverage_authority(
+            normalized,
+            contract,
+            matcher,
+        )
+        trace.metadata["extractor_coverage_authority"] = to_primitive(
+            witness_authority
+        )
         known_atomic_contracts = relevant_known_atomic_contracts(
             normalized,
             self.skills,
@@ -1650,13 +1726,7 @@ class AtomicSkillGraphSystem:
         proposals = extractor.propose_atomics(
             normalized,
             known_atomic_contracts,
-        )
-        contract = self.harness.task_contract(task)
-        matcher_factory = getattr(self.harness, "contract_matcher", None)
-        matcher = (
-            matcher_factory()
-            if callable(matcher_factory)
-            else ExactContractMatcher()
+            to_primitive(witness_authority),
         )
         try:
             canonical, occurrence_rejections = (
@@ -1664,16 +1734,28 @@ class AtomicSkillGraphSystem:
                     proposals, normalized,
                 )
             )
-        except ValueError:
+        except ValueError as exc:
             trace.metadata["extractor_quality"] = {
                 "extractor_e1_proposal_count": len(proposals),
                 "extractor_e1_validated_occurrence_count": 0,
                 "extractor_e1_rejection_count": len(proposals),
+                "extractor_e1_contract_coverage_passed": False,
                 "known_atomic_contract_payload_count": len(
                     known_atomic_contracts
                 ),
             }
-            raise
+            trace.metadata["extraction"] = {
+                **dict(trace.metadata.get("extraction") or {}),
+                "e1_proposed": len(proposals),
+                "e1_validated": 0,
+                "e1_rejected": len(proposals),
+                "e1_contract_coverage_passed": False,
+            }
+            raise ExtractionContentError(
+                "e1",
+                "extractor_e1_occurrence_rejected",
+                str(exc),
+            ) from exc
         quality = {
             "extractor_e1_proposal_count": len(proposals),
             "extractor_e1_validated_occurrence_count": len(canonical),
@@ -1684,6 +1766,27 @@ class AtomicSkillGraphSystem:
         }
         if occurrence_rejections:
             trace.metadata["extraction_occurrence_rejections"] = occurrence_rejections
+
+        coverage = contract_coverage_report(contract, canonical, matcher)
+        trace.metadata["extractor_contract_coverage"] = to_primitive(
+            coverage
+        )
+        quality["extractor_e1_contract_coverage_passed"] = coverage.passed
+        trace.metadata["extractor_quality"] = quality
+        trace.metadata["extraction"] = {
+            **dict(trace.metadata.get("extraction") or {}),
+            "e1_proposed": len(proposals),
+            "e1_validated": len(canonical),
+            "e1_rejected": len(occurrence_rejections),
+            "e1_contract_coverage_passed": coverage.passed,
+        }
+        if not coverage.passed:
+            raise ExtractionContentError(
+                "e1",
+                "extractor_e1_task_contract_coverage_incomplete",
+                "validated E1 occurrences do not cover the authoritative "
+                "TaskContract: " + ", ".join(coverage.failure_codes),
+            )
 
         # Compile and canonicalize roles before E2.  Staging is read-only but
         # resolves the exact persistent Atomic refs that graph evidence uses.
@@ -1775,17 +1878,54 @@ class AtomicSkillGraphSystem:
             [str(item.proposed_ref) for item in staged_occurrences],
             mode=RuntimeMode.ONLINE,
         )
-        composite_proposal = extractor.propose_composite(staged_occurrences, existing)
-        composite = self.composite_builder.validate_and_build(
-            composite_proposal,
+        trace.metadata["extraction"] = {
+            **dict(trace.metadata.get("extraction") or {}),
+            "attempted": True,
+            "stage": "e2",
+            "prepared": False,
+            "e2_attempted": True,
+        }
+        quality["extractor_e2_attempted"] = True
+        composite_proposal = extractor.propose_composite(
             staged_occurrences,
-            contract,
-            existing_edge_evidence=existing,
+            existing,
             contract_matcher=matcher,
-            task_bindings=dict(
-                task.context.get("semantic_bindings") or {}
-            ),
         )
+        quality.update({
+            "extractor_e2_selected_existing_edge_count": len(
+                composite_proposal.existing_edges
+            ),
+            "extractor_e2_selected_new_edge_count": len(
+                composite_proposal.new_edges
+            ),
+        })
+        trace.metadata["extraction"] = {
+            **dict(trace.metadata.get("extraction") or {}),
+            "e2_selected_existing_edges": len(
+                composite_proposal.existing_edges
+            ),
+            "e2_selected_new_edges": len(
+                composite_proposal.new_edges
+            ),
+        }
+        try:
+            composite = self.composite_builder.validate_and_build(
+                composite_proposal,
+                staged_occurrences,
+                contract,
+                existing_edge_evidence=existing,
+                contract_matcher=matcher,
+                task_bindings=dict(
+                    task.context.get("semantic_bindings") or {}
+                ),
+            )
+        except ValueError as exc:
+            raise ExtractionContentError(
+                "e2",
+                "extractor_e2_composite_validation_failed",
+                str(exc),
+            ) from exc
+        trace.metadata["extractor_quality"] = quality
         compiled = staged_compiled
         label_violations = 0
         for item in compiled:

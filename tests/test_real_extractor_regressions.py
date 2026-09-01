@@ -174,18 +174,18 @@ def test_e2_authority_exposes_binding_identity_and_accepts_dataflow() -> None:
     normalized = TraceNormalizer().build(trace)
 
     def e2_reply(request):
-        authority = request.policy_context["canonical_occurrences"]
+        candidates = request.policy_context["new_edge_candidates"]
+        data_flow = next(
+            item for item in candidates
+            if item["edge_type"] == "data_flow"
+            and item["source_role"] == "held_object"
+            and item["target_role"] == "target_object"
+        )
         return {
-            "control_sequence": [item["occurrence_id"] for item in authority],
-            "existing_edges": [],
-            "new_edges": [{
-                "edge_id": "held_to_observed_target",
-                "edge_type": "data_flow",
-                "source_step": authority[0]["occurrence_id"],
-                "target_step": authority[1]["occurrence_id"],
-                "source_role": "held_object",
-                "target_role": "target_object",
-            }],
+            "selected_existing_edge_ids": [],
+            "selected_new_edge_candidate_ids": [
+                data_flow["candidate_id"]
+            ],
             "summary": "take then observe target under light",
             "guideline": {},
             "insight": {},
@@ -211,6 +211,9 @@ def test_e2_authority_exposes_binding_identity_and_accepts_dataflow() -> None:
         authority[0]["output_binding_identities"]["held_object"]
         == authority[1]["input_binding_identities"]["target_object"]
     )
+    assert provider.requests[1].policy_context[
+        "canonical_control_sequence"
+    ] == [item["occurrence_id"] for item in authority]
     composite = CompositeBuilder().validate_and_build(
         proposal, canonical, contract,
         contract_matcher=AlfWorldContractMatcher(),

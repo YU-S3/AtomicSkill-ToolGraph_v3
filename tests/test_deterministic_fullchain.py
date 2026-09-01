@@ -191,7 +191,10 @@ def _e1_examine(item: str, *, start: int) -> dict:
         "intent": "observe held item",
         "event_start": start,
         "event_end": start + 1,
-        "input_roles": {"item": item},
+        # This role is deliberately an explicit symbolic entity.  The strict
+        # R2 semantic authority must not rely on the retired entity/string
+        # compatibility heuristic when constructing the DataFlow candidate.
+        "input_roles": {"target_object": item},
         "output_roles": {"observed_object": item},
         "preconditions": [],
         "effects": [{"predicate": "object.observed", "args": {"object": item}}],
@@ -240,38 +243,30 @@ def _extract_and_register(
         ))
     canonical = staged_occurrences
 
-    new_edges: list[dict] = []
-    if data_edge:
-        new_edges.append(
-            {
-                "edge_id": f"edge_{trace.trace_id}_held_to_observe",
-                "edge_type": "data_flow",
-                "source_step": canonical[0].occurrence_id,
-                "target_step": canonical[1].occurrence_id,
-                "source_role": next(iter(canonical[0].output_bindings)),
-                "target_role": next(
-                    role for role, value in canonical[1].input_bindings.items()
-                    if value in canonical[0].output_bindings.values()
-                ),
-            }
-        )
+    def e2_reply(request):
+        candidates = request.policy_context["new_edge_candidates"]
+        selected = [
+            item["candidate_id"]
+            for item in candidates
+            if data_edge and item["edge_type"] == "data_flow"
+        ]
+        return {
+            "selected_existing_edge_ids": [],
+            "selected_new_edge_candidate_ids": selected,
+            "summary": (
+                "take then observe target item"
+                if len(canonical) > 1
+                else "take target item"
+            ),
+            "guideline": {"canonical": True},
+            "insight": {"source": "deterministic_fullchain"},
+        }
+
     session.enqueue(
-        FakeReply.structured(
-            {
-                "control_sequence": [item.occurrence_id for item in canonical],
-                "existing_edges": [],
-                "new_edges": new_edges,
-                "summary": (
-                    "take then observe target item"
-                    if len(canonical) > 1
-                    else "take target item"
-                ),
-                "guideline": {"canonical": True},
-                "insight": {"source": "deterministic_fullchain"},
-            }
-        )
+        FakeReply.structured(e2_reply)
     )
     e2 = extractor.propose_composite(canonical, [])
+    new_edges = list(e2.new_edges)
     assert session.remaining_replies == 0
 
     admission = Admission(validation.tool)

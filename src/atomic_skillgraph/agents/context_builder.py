@@ -233,6 +233,7 @@ class ContextBuilder:
         *,
         canonical_trace: Any,
         known_atomic_contracts: Iterable[Any] = (),
+        required_task_contract_witnesses: Any = (),
     ) -> str:
         return _render(
             """Propose the smallest sufficient set of reusable Atomic capability occurrences
@@ -309,23 +310,50 @@ effects:
 Code will independently validate every proposal. Invalid proposals are
 discarded and cannot change the persistent graph.
 
+This is a strict-success learning trace. The code-authoritative target witness
+section identifies TaskContract effects already proven by accepted,
+state-derived facts. Your complete proposal must preserve enough valid causal
+transitions for the validated occurrences to collectively cover every supplied
+target witness. Do not invent an Effect merely because the TaskContract
+requires it; use only the supplied witness facts and their causal event slices.
+When a witness is state-derived from earlier accepted transitions, select a
+minimal occurrence slice whose declared Effect is exactly that authoritative
+positive fact. Search/navigation detours remain non-learnable unless causally
+required inside that occurrence.
+
 Call the offered native submission tool exactly once.""",
             {
                 "canonical_trace": _policy_value(canonical_trace),
                 "known_atomic_contracts": _policy_value(
                     list(known_atomic_contracts)
                 ),
+                "required_task_contract_witnesses": _policy_value(
+                    required_task_contract_witnesses
+                ),
             },
         )
 
-    def extractor_e2(self, *, canonical_occurrences: Iterable[Any]) -> str:
+    def extractor_e2(
+        self,
+        *,
+        canonical_occurrences: Iterable[Any],
+        canonical_control_sequence: Iterable[str],
+        known_existing_edge_evidence: Iterable[Any] = (),
+        new_edge_candidates: Iterable[Any] = (),
+    ) -> str:
         return _render(
             """The Composite represents the minimal reusable causal method, not a narration
 of the source episode.
 
 Use only the code-authoritative occurrences. Discard or correct any
-conflicting memory from the previous turn. Use every authoritative occurrence
-exactly once in the supplied chronological order.
+conflicting memory from the previous turn.
+
+The control sequence is code-authoritative and is not yours to rewrite.
+Existing edges are code-authoritative; select only their supplied IDs. New
+edge candidates have already passed deterministic endpoint, role,
+binding-identity/type, or effect-precondition eligibility checks. Select only
+the candidates semantically required by the reusable composition. Do not
+invent an endpoint, role, edge ID, edge type, or provenance.
 
 Do not describe:
 - the benchmark;
@@ -347,17 +375,25 @@ insight:
 - may explain why the composition is reusable;
 - may not invent facts or dependencies.
 
-Existing edges must be copied only from known_edge_evidence using their real
-IDs and exact semantics. New data-flow edges require exact binding-identity
-reuse, exact occurrence IDs, and exact role names. Each required target role
-has at most one producer; if multiple preceding outputs have the same binding
-identity, select only the nearest one. The only dependency wire value is
-edge_type=requires_skill. Do not create requires_skill solely to express
-temporal order; control_sequence already carries order and occurrences need
-not be edge-connected.
+Do not select requires_skill solely to express temporal order; the canonical
+control sequence already carries order and occurrences need not be
+edge-connected.
 
 Call the offered native submission tool exactly once.""",
-            {"canonical_occurrences": _policy_value(list(canonical_occurrences))},
+            {
+                "canonical_occurrences": _policy_value(
+                    list(canonical_occurrences)
+                ),
+                "canonical_control_sequence": _policy_value(
+                    list(canonical_control_sequence)
+                ),
+                "known_existing_edge_evidence": _policy_value(
+                    list(known_existing_edge_evidence)
+                ),
+                "new_edge_candidates": _policy_value(
+                    list(new_edge_candidates)
+                ),
+            },
         )
 
 

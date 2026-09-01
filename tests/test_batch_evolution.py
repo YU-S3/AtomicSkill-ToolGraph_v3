@@ -26,6 +26,7 @@ from atomic_skillgraph.evolution.aligner import Aligner
 from atomic_skillgraph.evolution.maintenance import (
     BatchMaintenanceResult, EvolutionMaintenance,
 )
+from atomic_skillgraph.evolution.extractor_session import ExtractionContentError
 from atomic_skillgraph.evolution.repair import RepairProposal, RepairStore
 from atomic_skillgraph.evolution.repair_session import (
     EvolutionToolCandidateProposal,
@@ -970,10 +971,10 @@ def test_extractor_protocol_rejection_discards_evolution_but_preserves_task(
         )
 
         def reject_extractor(*_args, **_kwargs):
-            raise AgentProtocolError(
-                "runtime_agent_schema_error",
+            raise ExtractionContentError(
+                "e2",
+                "extractor_e2_schema_rejected",
                 "malformed E2 native submission",
-                layer=FailureLayer.RUNTIME_AGENT,
             )
 
         system._prepare_evolution = reject_extractor
@@ -984,9 +985,11 @@ def test_extractor_protocol_rejection_discards_evolution_but_preserves_task(
         assert result.learning_eligible is True
         assert result.metadata["evolution_branch"] == "success"
         assert result.metadata["extraction"] == {
+            "attempted": True,
+            "stage": "e2",
             "prepared": False,
-            "error_type": "AgentProtocolError",
-            "error_code": "runtime_agent_schema_error",
+            "error_type": "ExtractionContentError",
+            "error_code": "extractor_e2_schema_rejected",
             "error": "malformed E2 native submission",
         }
         assert "evolution_applied" not in result.metadata

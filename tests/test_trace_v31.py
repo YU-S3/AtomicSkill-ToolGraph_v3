@@ -266,6 +266,12 @@ def test_report_preserves_new_buckets_and_derives_v31_metrics() -> None:
         "repeated_atomic_occurrence_count": 0,
         "cold_start_trigger_count": 1,
         "cold_start_plan_valid_count": 1,
+        "cold_start_c1_validation_pass_count": 1,
+        "cold_start_executable_prefix_nonempty_count": 1,
+        "cold_start_executable_prefix_empty_count": 0,
+        "cold_start_admitted_prefix_step_count": 3,
+        "cold_start_executed_scaffold_step_count": 3,
+        "cold_start_continuation_only_count": 0,
         "cold_start_scaffold_step_count": 3,
         "cold_start_verified_step_success_count": 1,
         "provisional_trial_count": 2,
@@ -275,6 +281,7 @@ def test_report_preserves_new_buckets_and_derives_v31_metrics() -> None:
         "runtime_dynamic_cold_start_continuation_count": 1,
         "failure_extractor_f1_count": 1,
         "failure_extractor_f2_count": 1,
+        "failure_extractor_eligible_count": 0,
         "provisional_created_count": 2,
         "provisional_trial_ready_count": 1,
         "provisional_trial_supported_count": 1,
@@ -296,6 +303,29 @@ def test_report_preserves_new_buckets_and_derives_v31_metrics() -> None:
     summary = summarize_traces([row])
     for name in V31_METHOD_METRICS:
         assert summary[name] == row[name]
+
+
+def test_report_separates_valid_c1_empty_prefix_and_failure_eligibility() -> None:
+    trace = _trace()
+    trace.runtime_plan = {"source": "full_dynamic", "control_sequence": []}
+    trace.cold_start_plan = ColdStartPlanRecord(
+        plan_id="continuation-only",
+        proposal={"steps": [{"candidate_source": "unresolved"}]},
+        validation={"passed": True},
+        repair_used=False,
+        executable_step_ids=[],
+        first_unresolved_step_id="dynamic-step",
+    )
+    trace.metadata["failure_extractor_eligible"] = True
+
+    row = trace_to_row(trace)
+    assert row["cold_start_c1_validation_pass_count"] == 1
+    assert row["cold_start_executable_prefix_nonempty_count"] == 0
+    assert row["cold_start_executable_prefix_empty_count"] == 1
+    assert row["cold_start_admitted_prefix_step_count"] == 0
+    assert row["cold_start_executed_scaffold_step_count"] == 0
+    assert row["cold_start_continuation_only_count"] == 1
+    assert row["failure_extractor_eligible_count"] == 1
 
 
 def test_report_does_not_infer_repeated_atomic_occurrences_from_requirement_ir() -> None:

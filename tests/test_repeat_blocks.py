@@ -375,13 +375,14 @@ def test_compiler_and_validator_accept_same_atomic_ref_in_serial_instances() -> 
         count=2,
         iteration_steps=(("acquire_0", "place_0"), ("acquire_1", "place_1")),
         distinct_roles=("object",),
-        shared_roles=("destination",),
+        shared_roles=("location",),
         step_role_bindings={
             "acquire_0": {"object": "object"},
-            "place_0": {"object": "object", "destination": "destination"},
+            "place_0": {"object": "object", "location": "destination"},
             "acquire_1": {"object": "object"},
-            "place_1": {"object": "object", "destination": "destination"},
+            "place_1": {"object": "object", "location": "destination"},
         },
+        basis_constraint_id="cc_delivery",
     )]
     instance_candidates = {
         instance.instance_id: {

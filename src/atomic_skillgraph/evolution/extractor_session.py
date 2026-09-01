@@ -12,8 +12,11 @@ from ..agents.structured_submission import (
     StructuredSubmissionClient,
 )
 from ..core.contracts import SemanticPredicate
+from ..core.errors import AgentProtocolError
 from ..core.serialization import to_primitive
+from ..validation.contract_matcher import ContractMatcher, ExactContractMatcher
 from .atomicizer import AtomicOccurrenceProposal, CanonicalAtomicOccurrence
+from .composite_edge_candidates import CompositeEdgeCandidateBuilder
 
 
 E1_SCHEMA = {
@@ -36,6 +39,15 @@ class CompositeExtractionProposal:
     insight: dict[str, Any]
 
 
+class ExtractionContentError(ValueError):
+    """A staged Extractor submission/content rejection, never task failure."""
+
+    def __init__(self, stage: str, error_code: str, message: str) -> None:
+        super().__init__(message)
+        self.stage = str(stage)
+        self.error_code = str(error_code)
+
+
 def _predicate(value: dict[str, Any]) -> SemanticPredicate:
     return SemanticPredicate(
         str(value["predicate"]), dict(value.get("args", {})),
@@ -55,21 +67,34 @@ class ExtractorSession:
         self,
         normalized_trace: dict[str, Any],
         known_atomic_contracts: list[Any] | tuple[Any, ...] = (),
+        required_task_contract_witnesses: Any = (),
     ) -> list[AtomicOccurrenceProposal]:
         if self._e1_complete:
             raise RuntimeError("Extractor E1 may run exactly once")
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("extractor_e1")
-        payload = self.submissions.request(
-            self.session,
-            prompt=self.context.extractor_e1(
-                canonical_trace=normalized_trace,
-                known_atomic_contracts=known_atomic_contracts,
-            ),
-            tool_name="submit_extractor_atomics",
-            description="Submit the complete Atomic occurrence extraction proposal.",
-            schema=E1_SCHEMA,
-        ).value
+        try:
+            payload = self.submissions.request(
+                self.session,
+                prompt=self.context.extractor_e1(
+                    canonical_trace=normalized_trace,
+                    known_atomic_contracts=known_atomic_contracts,
+                    required_task_contract_witnesses=(
+                        required_task_contract_witnesses
+                    ),
+                ),
+                tool_name="submit_extractor_atomics",
+                description=(
+                    "Submit the complete Atomic occurrence extraction proposal."
+                ),
+                schema=E1_SCHEMA,
+            ).value
+        except AgentProtocolError as exc:
+            raise ExtractionContentError(
+                "e1",
+                "extractor_e1_schema_rejected",
+                str(exc),
+            ) from exc
         self._e1_complete = True
         proposals: list[AtomicOccurrenceProposal] = []
         for item in payload["occurrences"]:
@@ -91,6 +116,8 @@ class ExtractorSession:
     def propose_composite(
         self, authoritative_occurrences: list[CanonicalAtomicOccurrence],
         existing_edges: list[Any],
+        *,
+        contract_matcher: ContractMatcher | None = None,
     ) -> CompositeExtractionProposal:
         if not self._e1_complete or self._e2_complete:
             raise RuntimeError("Extractor E2 requires one completed E1 and may run exactly once")
@@ -115,27 +142,83 @@ class ExtractorSession:
                     role: identity(value)
                     for role, value in item.output_bindings.items()
                 },
-                "known_edge_evidence": [
-                    to_primitive(edge)
-                    for edge in existing_edges
-                    if str(item.proposed_ref) in {
-                        str(getattr(edge, "source_step_ref", "")),
-                        str(getattr(edge, "target_step_ref", "")),
-                    }
-                ],
             } for item in authoritative_occurrences
+        ]
+        matcher = contract_matcher or ExactContractMatcher()
+        edge_builder = CompositeEdgeCandidateBuilder()
+        candidates = edge_builder.build(
+            authoritative_occurrences,
+            matcher=matcher,
+        )
+        candidate_by_id = {item.candidate_id: item for item in candidates}
+        existing_views, existing_by_id = (
+            edge_builder.existing_edge_materializations(
+                authoritative_occurrences,
+                existing_edges,
+            )
+        )
+        control_sequence = [
+            item.occurrence_id for item in authoritative_occurrences
         ]
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("extractor_e2")
-        payload = self.submissions.request(
-            self.session,
-            prompt=self.context.extractor_e2(canonical_occurrences=authority),
-            tool_name="submit_extractor_composite",
-            description="Submit the complete Composite extraction proposal.",
-            schema=E2_SCHEMA,
-        ).value
+        try:
+            payload = self.submissions.request(
+                self.session,
+                prompt=self.context.extractor_e2(
+                    canonical_occurrences=authority,
+                    canonical_control_sequence=control_sequence,
+                    known_existing_edge_evidence=existing_views,
+                    new_edge_candidates=to_primitive(candidates),
+                ),
+                tool_name="submit_extractor_composite",
+                description=(
+                    "Select admitted Composite edge evidence and candidates."
+                ),
+                schema=E2_SCHEMA,
+            ).value
+        except AgentProtocolError as exc:
+            raise ExtractionContentError(
+                "e2",
+                "extractor_e2_schema_rejected",
+                str(exc),
+            ) from exc
         self._e2_complete = True
+        selected_existing_ids = [
+            str(item) for item in payload["selected_existing_edge_ids"]
+        ]
+        unknown_existing = sorted(
+            set(selected_existing_ids) - set(existing_by_id)
+        )
+        if unknown_existing:
+            raise ExtractionContentError(
+                "e2",
+                "extractor_e2_existing_edge_selection_invalid",
+                "E2 selected unknown/inapplicable existing edge IDs: "
+                + ", ".join(unknown_existing),
+            )
+        selected_candidate_ids = [
+            str(item)
+            for item in payload["selected_new_edge_candidate_ids"]
+        ]
+        unknown_candidates = sorted(
+            set(selected_candidate_ids) - set(candidate_by_id)
+        )
+        if unknown_candidates:
+            raise ExtractionContentError(
+                "e2",
+                "extractor_e2_new_edge_selection_invalid",
+                "E2 selected unknown edge candidate IDs: "
+                + ", ".join(unknown_candidates),
+            )
         return CompositeExtractionProposal(
-            [str(item) for item in payload["control_sequence"]], list(payload["existing_edges"]),
-            list(payload["new_edges"]), str(payload["summary"]), dict(payload["guideline"]), dict(payload["insight"]),
+            control_sequence,
+            [existing_by_id[item] for item in selected_existing_ids],
+            [
+                edge_builder.materialize_candidate(candidate_by_id[item])
+                for item in selected_candidate_ids
+            ],
+            str(payload["summary"]),
+            dict(payload["guideline"]),
+            dict(payload["insight"]),
         )
