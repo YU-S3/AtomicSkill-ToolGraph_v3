@@ -208,9 +208,9 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
             "max_total_tokens_per_task": 120000,
         },
         "runtime": {
-            "reasoning_effort": "high", "max_completion_tokens": 32768,
-            "request_timeout_seconds": 180, "max_total_tokens_per_node": 80000,
-            "max_total_tokens_per_task": 200000, "learned_toolcall_repair_limit": 2,
+            "reasoning_effort": "low", "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180, "max_total_tokens_per_node": 100000,
+            "max_total_tokens_per_task": 300000, "learned_toolcall_repair_limit": 2,
             "protocol_repair_limit": 1,
         },
         "extractor": {
@@ -244,6 +244,16 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
             "removed hidden/visible token gates are configured: "
             + ", ".join(forbidden_config_fields)
         )
+    runtime = dict(config.get("runtime") or {})
+    for name, wanted in (
+        ("global_action_budget", 100),
+        ("node_action_budget", 35),
+    ):
+        actual = runtime.get(name)
+        if actual != wanted:
+            mismatches.append(
+                f"runtime.{name}: expected {wanted!r}, got {actual!r}"
+            )
     if mismatches:
         raise ProtocolError("formal DeepSeek protocol mismatch: " + "; ".join(mismatches))
 

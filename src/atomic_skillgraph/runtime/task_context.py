@@ -37,7 +37,9 @@ class TaskRuntimeContext:
     task: HarnessTask
     budget: RuntimeBudget
     task_progress: TaskProgressTracker
-    plan_failed: bool = False
+    plan_execution_failed: bool = False
+    plan_conflict_declared: bool = False
+    plan_conflict_context: dict[str, Any] = field(default_factory=dict)
     task_rescue_used: bool = False
 
     @classmethod
@@ -85,7 +87,16 @@ class TaskRuntimeContext:
         return [item for item in self.action_history if item.get("occurrence_id") in {"", occurrence_id}]
 
     def plan_boundary_reached(self) -> bool:
-        return not self.plan_failed and self.current_step_index >= len(self.plan.control_sequence)
+        return (
+            not self.plan_execution_failed
+            and not self.plan_conflict_declared
+            and self.current_step_index >= len(self.plan.control_sequence)
+        )
+
+    def rescue_allowed(self) -> bool:
+        """A completed graph or an Agent-declared conflict may enter Dynamic."""
+
+        return self.plan_boundary_reached() or self.plan_conflict_declared
 
     def task_complete(self) -> bool:
         validation = self.harness.validator_channel().validate_task_contract(self.task_contract)

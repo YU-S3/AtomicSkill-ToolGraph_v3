@@ -166,6 +166,37 @@ class TaskProgressTracker:
             progress_digest=digest,
         )
 
+    def policy_view(
+        self,
+        snapshot: TaskProgressSnapshot | None = None,
+    ) -> dict[str, Any]:
+        """Return validator-backed progress without witness identities.
+
+        The policy surface reports only formal obligation shape and aggregate
+        satisfaction.  Raw facts, concrete witnesses, shared/distinct values,
+        validator revisions, and the witness-derived progress digest remain
+        available to Trace/audit code through :meth:`snapshot`, but are not
+        exposed to the Runtime Agent here.
+        """
+
+        current = snapshot if snapshot is not None else self.snapshot()
+        return {
+            "targets": [
+                {
+                    "constraint_id": target.constraint_id,
+                    "predicate": target.predicate,
+                    "required_count": target.required_count,
+                    "satisfied_count": target.satisfied_count,
+                    "remaining_count": target.remaining_count,
+                    "distinct_by": target.distinct_by,
+                }
+                for target in current.targets
+            ],
+            "unsatisfied_identity_constraint_count": len(
+                current.unsatisfied_identity_constraints
+            ),
+        }
+
     def record(self, source: str) -> TaskProgressSnapshot:
         snapshot = self.snapshot()
         if snapshot.progress_digest != self._last_digest:

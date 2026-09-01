@@ -228,7 +228,12 @@ def test_cold_start_runtime_effects_are_candidate_authoritative() -> None:
     )
     ctx = SimpleNamespace(
         task_contract=SimpleNamespace(),
-        task_progress=SimpleNamespace(snapshot=lambda: {"digest": "progress"}),
+        task_progress=SimpleNamespace(
+            policy_view=lambda: {
+                "targets": [],
+                "unsatisfied_identity_constraint_count": 0,
+            },
+        ),
         plan=SimpleNamespace(
             task_id="task",
             cold_start_plan=proposal,
@@ -260,6 +265,9 @@ def test_cold_start_runtime_effects_are_candidate_authoritative() -> None:
         ctx,
         completed_local_effects,
     )
+    # ContextBuilder.dynamic_task already carries the current policy-safe
+    # TaskProgress.  The cold-continuation side context must not duplicate it.
+    assert "task_progress" not in continuation
     assert continuation["completed_local_effects"] == completed_local_effects
     assert continuation["completed_local_effects"][0]["validated_effects"] == (
         to_primitive([verified_effect])
@@ -314,6 +322,10 @@ def test_cold_start_runtime_effects_are_candidate_authoritative() -> None:
             progress_digest=f"progress::{source}",
         ),
         snapshot=lambda: {"digest": "progress"},
+        policy_view=lambda: {
+            "targets": [],
+            "unsatisfied_identity_constraint_count": 0,
+        },
     )
     ctx.harness = SimpleNamespace(
         validator_channel=lambda: SimpleNamespace(won=False),

@@ -29,6 +29,7 @@ from ..validation.engine import ValidationEngine
 from .budget import RuntimeBudget
 from .invocation_compiler import InvocationCompiler
 from .node_executor import NodeExecutor
+from .plan_context import RuntimePlanContextBuilder
 from .task_context import TaskRuntimeContext
 from .cold_start_executor import ProvisionalNodeExecutor, provisional_atomic_view
 
@@ -72,6 +73,12 @@ class RuntimeOrchestrator:
         self.session_factory = session_factory
         self.runtime_config = runtime_config or {}
         self.node_executor = NodeExecutor(invocation_compiler, validation, session_factory)
+        self.plan_context_builder = RuntimePlanContextBuilder(
+            invocation_compiler.skills
+        )
+        # NodeExecutor owns prompt construction; both components share the
+        # same narrow formal-plan interpreter and no benchmark/task policy.
+        self.node_executor.plan_context_builder = self.plan_context_builder
         self.failure_knowledge = failure_knowledge
         self.provisional_node_executor = ProvisionalNodeExecutor(self.node_executor)
 
@@ -265,6 +272,21 @@ class RuntimeOrchestrator:
                 node.direct_result = to_primitive(direct)
                 final = direct
                 if not direct.atomic_effect_passed:
+                    if direct.failure_code == "runtime_plan_conflict":
+                        node.status = direct.node_status
+                        node.failure = {
+                            "failure_layer": direct.failure_layer or "composite",
+                            "failure_code": "runtime_plan_conflict",
+                            "direct_started": direct.started,
+                        }
+                        ctx.plan_conflict_declared = True
+                        ctx.plan_conflict_context = self._plan_conflict_context(
+                            ctx, occurrence,
+                        )
+                        ctx.trace_builder.trace.metadata.setdefault(
+                            "runtime_plan_conflicts", []
+                        ).append(dict(ctx.plan_conflict_context))
+                        break
                     seeded = self.node_executor.run_seeded_fresh(occurrence, ctx)
                     node.seeded_result = to_primitive(seeded)
                     final = seeded
@@ -274,7 +296,7 @@ class RuntimeOrchestrator:
                             "failure_layer": seeded.failure_layer, "failure_code": seeded.failure_code,
                             "direct_started": direct.started,
                         }
-                        ctx.plan_failed = True
+                        ctx.plan_execution_failed = True
                         break
                 node.status = final.node_status
                 node.validated_outputs = dict(final.validated_outputs)
@@ -302,7 +324,7 @@ class RuntimeOrchestrator:
         terminal = self.validation.task.terminal(
             ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
         )
-        if ctx.plan_boundary_reached() and not terminal.passed:
+        if ctx.rescue_allowed() and not terminal.passed:
             ctx.task_rescue_used = True
             # Task rescue is task-level Dynamic execution.  It keeps every
             # action already charged to the global episode budget, but it must
@@ -318,6 +340,18 @@ class RuntimeOrchestrator:
             terminal = self.validation.task.terminal(
                 ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
             )
+            if ctx.plan_conflict_declared:
+                conflicts = ctx.trace_builder.trace.metadata.get(
+                    "runtime_plan_conflicts", []
+                )
+                if conflicts:
+                    conflicts[-1]["rescue_attempted"] = True
+                    conflicts[-1]["rescue_strict_success"] = bool(
+                        getattr(ctx.harness.validator_channel(), "won", False)
+                        and dict(getattr(terminal, "checks", {}) or {}).get(
+                            "task_contract", False
+                        )
+                    )
 
         trace = ctx.trace_builder.trace
         trace.node_contract_success = bool(trace.node_records) and all(
@@ -347,6 +381,81 @@ class RuntimeOrchestrator:
         trace.metadata["invocation_compile_rejections"] = list(self.invocation_compiler.compile_rejections)
         trace.runtime_plan["failure_stage"] = ""
         return ctx.trace_builder.finish()
+
+    def _plan_conflict_context(
+        self,
+        ctx: TaskRuntimeContext,
+        occurrence: RuntimeOccurrence,
+        *,
+        execution_plan: RuntimeLinearPlan | None = None,
+    ) -> dict[str, Any]:
+        """Record only formal/public diagnostics for an Agent declaration."""
+
+        atomic = self.invocation_compiler.skills.get_atomic(
+            occurrence.node_ref
+        )
+        projection = ctx.binding_store.runtime_prompt_projection(
+            occurrence, atomic.inputs,
+        )
+        last_preflight_failure_code = ""
+        detail = ""
+        for call in reversed(ctx.trace_builder.trace.native_tool_calls):
+            if call.occurrence_id != occurrence.occurrence_id:
+                continue
+            if (
+                call.tool_name == "report_runtime_status"
+                and call.arguments.get("status") == "plan_conflict"
+            ):
+                detail = str(call.arguments.get("detail") or "")
+                continue
+            result = dict(call.preflight_result or {})
+            validation = dict(result.get("validation") or {})
+            code = str(
+                result.get("failure_code")
+                or result.get("error")
+                or validation.get("failure_code")
+                or ""
+            )
+            if code:
+                last_preflight_failure_code = code
+                break
+        if not last_preflight_failure_code:
+            for validation_record in reversed(
+                ctx.trace_builder.trace.validations
+            ):
+                if validation_record.occurrence_id != occurrence.occurrence_id:
+                    continue
+                result = dict(validation_record.result or {})
+                if bool(result.get("passed", False)):
+                    continue
+                code = str(result.get("failure_code") or "")
+                if code:
+                    last_preflight_failure_code = code
+                    break
+        policy_context = self.plan_context_builder.build(
+            execution_plan or ctx.plan,
+            occurrence.step_id,
+            ctx.binding_store,
+        ).policy_view()
+        progress = ctx.task_progress.snapshot()
+        record = {
+            "occurrence_id": occurrence.occurrence_id,
+            "atomic_ref": str(occurrence.node_ref),
+            "semantic_anchors": dict(
+                projection["occurrence_semantic_anchors"]
+            ),
+            "last_preflight_failure_code": last_preflight_failure_code,
+            "world_revision": ctx.world_revision,
+            "task_progress_digest": progress.progress_digest,
+            "conflict_code": "runtime_plan_conflict",
+            "conflict_step_summary": atomic.summary,
+            "remaining_method_outline": list(
+                policy_context.get("remaining_method_outline", ())
+            ),
+        }
+        if detail:
+            record["detail"] = detail
+        return record
 
     @staticmethod
     def _cold_edge(value: Any) -> GraphEdge:
@@ -543,11 +652,33 @@ class RuntimeOrchestrator:
                             2,
                         )
                     ),
+                    plan_context_plan=execution_plan,
                 )
         node.direct_result = to_primitive(direct)
         final = direct
         if not direct.atomic_effect_passed:
-            seeded = self.node_executor.run_seeded_fresh(occurrence, ctx)
+            if direct.failure_code == "runtime_plan_conflict":
+                node.status = direct.node_status
+                node.failure = {
+                    "failure_layer": direct.failure_layer or "composite",
+                    "failure_code": "runtime_plan_conflict",
+                    "direct_started": direct.started,
+                }
+                ctx.plan_conflict_declared = True
+                ctx.plan_conflict_context = self._plan_conflict_context(
+                    ctx,
+                    occurrence,
+                    execution_plan=execution_plan,
+                )
+                ctx.trace_builder.trace.metadata.setdefault(
+                    "runtime_plan_conflicts", [],
+                ).append(dict(ctx.plan_conflict_context))
+                return False, "runtime_plan_conflict", "plan_conflict"
+            seeded = self.node_executor.run_seeded_fresh(
+                occurrence,
+                ctx,
+                plan_context_plan=execution_plan,
+            )
             node.seeded_result = to_primitive(seeded)
             final = seeded
         if not final.atomic_effect_passed:
@@ -616,7 +747,6 @@ class RuntimeOrchestrator:
                 failure_experiences.append(sanitized)
 
         return {
-            "task_progress": to_primitive(ctx.task_progress.snapshot()),
             "completed_local_effects": to_primitive(completed_local_effects),
             "remaining_requirement_instance_ids": list(
                 dict.fromkeys(remaining_instances)
@@ -647,7 +777,12 @@ class RuntimeOrchestrator:
         # regardless of whether its prefix or continuation completes the task.
         trace.graph_self_sufficient_success = False
         if dynamic_result is not None:
-            trace.metadata["cold_start_dynamic_continuation"] = dynamic_result
+            metadata_key = (
+                "task_rescue"
+                if dynamic_result.get("rescue")
+                else "cold_start_dynamic_continuation"
+            )
+            trace.metadata[metadata_key] = dynamic_result
             if dynamic_result.get("failure_code") in {
                 "infrastructure_failure",
                 "llm_error",
@@ -786,19 +921,36 @@ class RuntimeOrchestrator:
         # No unresolved suffix is executed out of order.  The continuation is
         # a fresh task-level Agent Session over the current real environment.
         ctx.budget.end_node()
-        dynamic_result = self.node_executor.run_dynamic(
-            ctx,
-            cold_start_continuation=True,
-            continuation_context=self._cold_continuation_context(
+        if getattr(ctx, "plan_conflict_declared", False):
+            ctx.task_rescue_used = True
+            ctx.trace_builder.trace.task_rescue_required = True
+            dynamic_result = self.node_executor.run_dynamic(ctx, rescue=True)
+        else:
+            dynamic_result = self.node_executor.run_dynamic(
                 ctx,
-                completed_local_effects,
-            ),
-        )
+                cold_start_continuation=True,
+                continuation_context=self._cold_continuation_context(
+                    ctx,
+                    completed_local_effects,
+                ),
+            )
         terminal = self.validation.task.terminal(
             ctx.task_contract,
             ctx.harness.validator_channel(),
             bool(getattr(ctx.harness.validator_channel(), "won", False)),
         )
+        if getattr(ctx, "plan_conflict_declared", False):
+            conflicts = ctx.trace_builder.trace.metadata.get(
+                "runtime_plan_conflicts", [],
+            )
+            if conflicts:
+                conflicts[-1]["rescue_attempted"] = True
+                conflicts[-1]["rescue_strict_success"] = bool(
+                    getattr(ctx.harness.validator_channel(), "won", False)
+                    and dict(getattr(terminal, "checks", {}) or {}).get(
+                        "task_contract", False,
+                    )
+                )
         return self._finish_cold_start(
             ctx,
             terminal,

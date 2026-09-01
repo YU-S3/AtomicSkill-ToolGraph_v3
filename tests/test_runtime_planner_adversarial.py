@@ -647,20 +647,38 @@ def test_dynamic_tool_result_carries_the_new_action_catalog(tmp_path: Path) -> N
             if message["role"] == "tool"
         ))
         assert first_result["new_revision"] == 1
-        assert first_result["action_catalog"] == [
-            {
+        assert first_result["action_catalog"] == {
+            "revision": 1,
+            "actions": [{
                 "action_id": "r001_a001",
                 "action_type": "EXAMINE",
                 "arguments": {"item": "apple_1"},
-                "display_text": "examine apple_1",
-                "revision": 1,
-            }
-        ]
-        assert "r000_a001" not in {
-            item["action_id"] for item in first_result["action_catalog"]
+            }],
         }
-        assert first_result["remaining_budget"]["used_global_actions"] == 1
-        assert first_result["remaining_budget"]["remaining_global_actions"] == 9
+        assert "r000_a001" not in {
+            item["action_id"]
+            for item in first_result["action_catalog"]["actions"]
+        }
+        assert first_result["remaining_budget"] == {
+            "remaining_global_actions": 9,
+        }
+        initial_prompt = next(
+            message["content"] for message in session.snapshot["messages"]
+            if message["role"] == "user"
+        )
+        initial_policy = json.loads(
+            initial_prompt.split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1]
+        )
+        assert initial_policy["task_progress"]["targets"][0][
+            "satisfied_count"
+        ] == 0
+        assert first_result["task_progress"]["targets"][0][
+            "satisfied_count"
+        ] == 1
+        assert first_result["task_progress"]["targets"][0][
+            "remaining_count"
+        ] == 0
+        assert "facts" not in json.dumps(first_result["task_progress"])
     finally:
         database.close()
 
@@ -706,7 +724,10 @@ def test_environment_action_never_grounds_from_rejection_or_missing_current_witn
         runtime.node_executor._execute_environment_call(
             SimpleNamespace(
                 call_id="reject", name="environment_action",
-                arguments={"action_id": spec.action_id},
+                arguments={
+                    "action_id": spec.action_id,
+                    "intent": "explore",
+                },
             ),
             session, occurrence, ctx, span_id=span.span_id, origin="test",
             loop_guard=loop_guard,
@@ -719,7 +740,10 @@ def test_environment_action_never_grounds_from_rejection_or_missing_current_witn
         runtime.node_executor._execute_environment_call(
             SimpleNamespace(
                 call_id="no-witness", name="environment_action",
-                arguments={"action_id": spec.action_id},
+                arguments={
+                    "action_id": spec.action_id,
+                    "intent": "explore",
+                },
             ),
             session, occurrence, ctx, span_id=span.span_id, origin="test",
             loop_guard=loop_guard,

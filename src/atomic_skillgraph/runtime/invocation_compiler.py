@@ -407,7 +407,28 @@ class InvocationCompiler:
             if binding is None or binding.status is not BindingStatus.GROUNDED:
                 return fail("runtime_binding", "runtime_binding_unresolved", f"required binding unresolved: {parameter.name}")
             if not resolution_satisfies(binding.resolution, parameter.required_resolution):
-                return fail("runtime_binding", "runtime_binding_not_concrete", f"binding resolution insufficient: {parameter.name}")
+                # A role-specific execution-context constraint may provide the
+                # missing concrete/relation authority immediately before the
+                # implementation starts.  Defer only to such a declared
+                # constraint; validate_execution_context must both match it
+                # and perform the final required-resolution check.
+                can_be_certified = any(
+                    constraint.kind not in {
+                        GroundingConstraintKind.ARGUMENT_EXISTS,
+                        GroundingConstraintKind.ARGUMENT_CONCRETE,
+                    }
+                    and any(
+                        expression.source_role == parameter.name
+                        for expression in constraint.argument_mapping.values()
+                    )
+                    and resolution_satisfies(
+                        constraint.required_resolution,
+                        parameter.required_resolution,
+                    )
+                    for constraint in compiled.spec.grounding_constraints
+                )
+                if not can_be_certified:
+                    return fail("runtime_binding", "runtime_binding_not_concrete", f"binding resolution insufficient: {parameter.name}")
         normalized = {
             role: binding.value
             for role, binding in merged.items()
@@ -486,17 +507,45 @@ class InvocationCompiler:
             if any(not item.valid_at(revision) for item in evidence):
                 return fail("runtime_binding", "stale_grounding_evidence", f"stale evidence: {constraint.constraint_id}")
             matched.extend(item.evidence_id for item in evidence)
-            if constraint.required_resolution == "relation_verified":
+            required_resolution = BindingResolution(
+                constraint.required_resolution
+            )
+            if required_resolution is not BindingResolution.SEMANTIC:
                 for expression in constraint.argument_mapping.values():
                     if expression.source_role in merged:
                         old = merged[expression.source_role]
+                        if resolution_satisfies(
+                            old.resolution, required_resolution,
+                        ):
+                            continue
                         upgraded = RuntimeBinding(
                             old.role, old.value, old.semantic_type, BindingSource.HARNESS_EVIDENCE,
-                            BindingStatus.GROUNDED, BindingResolution.RELATION_VERIFIED,
+                            BindingStatus.GROUNDED, required_resolution,
                             list(dict.fromkeys(old.evidence_refs + [item.evidence_id for item in evidence])), revision,
                         )
                         grounded[old.role] = upgraded
                         merged[old.role] = upgraded
+        # Direct and Agent-selected learned invocations share this final
+        # authority check.  Matched evidence alone is never sufficient: each
+        # required Atomic role must now carry the declared resolution.
+        for parameter in compiled.atomic.inputs:
+            if not parameter.required:
+                continue
+            binding = merged.get(parameter.name)
+            if binding is None or binding.status is not BindingStatus.GROUNDED:
+                return fail(
+                    "runtime_binding",
+                    "runtime_binding_unresolved",
+                    f"required binding unresolved after context validation: {parameter.name}",
+                )
+            if not resolution_satisfies(
+                binding.resolution, parameter.required_resolution,
+            ):
+                return fail(
+                    "runtime_binding",
+                    "runtime_binding_not_concrete",
+                    f"binding resolution insufficient after context validation: {parameter.name}",
+                )
         # Compatibility
         profiles = compiled.implementation.compatibility.get("harness_profiles") or []
         if profiles and self.harness.profile_name not in profiles:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, TypedDict, runtime_checkable
 
 from ..core.contracts import TaskContract
 from ..core.results import AtomicEffectResolution, PrimitiveToolStep, ValidationResult
@@ -42,12 +42,35 @@ class HarnessActionResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+class AtomicEffectResolutionRequest(TypedDict, total=False):
+    """Validator request for action-derived Atomic witness resolution.
+
+    ``preferred_bindings`` is an Agent-declared role-to-value preference.  It
+    only filters factual candidate assignments; it is not factual authority
+    and cannot create facts or override known bindings/semantic anchors.
+    """
+
+    atomic_ref: str
+    occurrence_id: str
+    effects: list[Any]
+    known_bindings: dict[str, Any]
+    semantic_anchors: dict[str, Any]
+    input_specs: list[Any]
+    output_specs: list[Any]
+    output_identity: list[dict[str, Any]]
+    preferred_values: list[Any]
+    preferred_bindings: dict[str, Any]
+    current_revision: int
+
+
 @runtime_checkable
 class ValidatorChannel(Protocol):
     validation_strength: str
 
     def snapshot(self) -> dict[str, Any]: ...
-    def resolve_atomic_effect(self, request: dict[str, Any]) -> AtomicEffectResolution: ...
+    def resolve_atomic_effect(
+        self, request: AtomicEffectResolutionRequest,
+    ) -> AtomicEffectResolution: ...
     def validate_atomic_effect(self, request: dict[str, Any]) -> ValidationResult: ...
     def validate_task_contract(self, contract: TaskContract) -> ValidationResult: ...
 

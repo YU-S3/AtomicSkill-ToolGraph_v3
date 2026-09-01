@@ -39,6 +39,14 @@ USAGE_BUCKETS = (
     "unattributed",
 )
 
+_RUNTIME_USAGE_BUCKETS = (
+    "runtime_preparation",
+    "runtime_seeded",
+    "runtime_dynamic",
+    "runtime_dynamic_cold_start_continuation",
+    "runtime_provisional_seeded",
+)
+
 _USAGE_FIELDS = (
     "prompt_tokens",
     "completion_tokens",
@@ -114,6 +122,21 @@ V31_METHOD_METRICS = (
     "p0_exact_contract_rejection_count",
     "failure_side_read_count",
     "provisional_selected_count",
+)
+
+R21_RUNTIME_METRICS = (
+    "runtime_exploration_action_count",
+    "runtime_atomic_attempt_action_count",
+    "runtime_validate_current_atomic_count",
+    "runtime_validate_current_atomic_success_count",
+    "learned_invocation_selected_count",
+    "runtime_plan_conflict_count",
+    "runtime_plan_conflict_occurrence_count",
+    "runtime_plan_conflict_rescue_count",
+    "runtime_plan_conflict_rescue_success_count",
+    "replay_catalog_compaction_count",
+    "replay_initial_catalog_compacted_count",
+    "replay_history_action_count",
 )
 
 _FROZEN_FORBIDDEN_COLD_START_BUCKETS = (
@@ -194,6 +217,13 @@ REPORT_COLUMNS = (
     "runtime_failure_diagnostic",
     "task_token_budget_exhausted_count",
     "node_token_budget_exhausted_count",
+    *R21_RUNTIME_METRICS,
+    "replay_full_catalog_count_at_last_request",
+    "runtime_prompt_tokens",
+    "runtime_completion_tokens",
+    "runtime_reasoning_tokens",
+    "runtime_reasoning_share",
+    "runtime_token_decomposition",
     *V31_METHOD_METRICS,
     *EXTRACTOR_QUALITY_METRICS,
     "extraction_attempted",
@@ -286,6 +316,14 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         invocations=invocations,
         failure_codes=failure_codes,
         strict_task_success=strict_task_success,
+    )
+    r21_runtime = _r21_runtime_metrics(
+        trace,
+        usage=usage,
+        strict_task_success=strict_task_success,
+        task_rescue_required=_boolean(
+            _field(trace, "task_rescue_required", False)
+        ),
     )
     row: dict[str, Any] = {
         "trace_id": str(_field(trace, "trace_id", "")),
@@ -405,6 +443,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "node_token_budget_exhausted_count": int(
             "runtime_node_token_budget_exhausted" in failure_codes
         ),
+        **r21_runtime,
         **v31_metrics,
         **{
             name: _integer(quality.get(name, 0))
@@ -530,6 +569,21 @@ def summarize_traces(
         if _boolean(row.get("strict_task_success"))
         and _boolean(row.get("full_dynamic"))
     ]
+    runtime_token_decomposition = _aggregate_runtime_token_decomposition(
+        resource_rows
+    )
+    runtime_prompt_tokens = sum(
+        _integer(item.get("runtime_prompt_tokens", 0))
+        for item in resource_rows
+    )
+    runtime_completion_tokens = sum(
+        _integer(item.get("runtime_completion_tokens", 0))
+        for item in resource_rows
+    )
+    runtime_reasoning_tokens = sum(
+        _integer(item.get("runtime_reasoning_tokens", 0))
+        for item in resource_rows
+    )
 
     return {
         "schema_version": 3,
@@ -617,6 +671,24 @@ def summarize_traces(
             _integer(row.get("node_token_budget_exhausted_count", 0))
             for row in task_rows
         ),
+        **{
+            name: sum(_integer(row.get(name, 0)) for row in task_rows)
+            for name in R21_RUNTIME_METRICS
+        },
+        "replay_full_catalog_count_at_last_request": max(
+            (
+                _integer(row.get("replay_full_catalog_count_at_last_request", 0))
+                for row in task_rows
+            ),
+            default=0,
+        ),
+        "runtime_prompt_tokens": runtime_prompt_tokens,
+        "runtime_completion_tokens": runtime_completion_tokens,
+        "runtime_reasoning_tokens": runtime_reasoning_tokens,
+        "runtime_reasoning_share": _ratio(
+            runtime_reasoning_tokens, runtime_completion_tokens
+        ) or 0.0,
+        "runtime_token_decomposition": runtime_token_decomposition,
         **{
             name: sum(
                 _integer(row.get(name, 0)) for row in task_rows
@@ -843,6 +915,44 @@ def render_markdown(
         (name, summary.get(name, 0))
         for name in V31_METHOD_METRICS
     )))
+    lines.extend(["", "## R2.1 Runtime decision and replay", ""])
+    lines.extend(_markdown_pairs(tuple(
+        (name, summary.get(name, 0))
+        for name in R21_RUNTIME_METRICS
+    ) + (
+        (
+            "replay_full_catalog_count_at_last_request",
+            summary.get("replay_full_catalog_count_at_last_request", 0),
+        ),
+        ("runtime_prompt_tokens", summary.get("runtime_prompt_tokens", 0)),
+        (
+            "runtime_completion_tokens",
+            summary.get("runtime_completion_tokens", 0),
+        ),
+        ("runtime_reasoning_tokens", summary.get("runtime_reasoning_tokens", 0)),
+        ("runtime_reasoning_share", summary.get("runtime_reasoning_share", 0.0)),
+    )))
+    lines.extend(["", "### Runtime token decomposition", ""])
+    lines.append(
+        "| Bucket | Calls | Prompt | Completion | Reasoning | Avg total/call | "
+        "Max total/call | Exhausted sessions |"
+    )
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+    runtime_usage = _mapping(summary.get("runtime_token_decomposition", {}))
+    for bucket in _RUNTIME_USAGE_BUCKETS:
+        item = _mapping(runtime_usage.get(bucket, {}))
+        lines.append(
+            "| {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                bucket,
+                item.get("calls", 0),
+                item.get("prompt_tokens", 0),
+                item.get("completion_tokens", 0),
+                item.get("reasoning_tokens", 0),
+                _display(item.get("average_tokens_per_call", 0.0)),
+                item.get("max_tokens_per_call", 0),
+                item.get("exhausted_session_count", 0),
+            )
+        )
     lines.extend(["", "## Token, latency, and cost", ""])
     accounting = (
         ("Total tokens", summary.get("total_tokens")),
@@ -1747,6 +1857,325 @@ def _runtime_failure_diagnostic(
     }
 
 
+def _runtime_exhausted_session_counts(
+    trace: Any,
+    *,
+    sessions: Sequence[Mapping[str, Any]],
+    session_bucket_map: Mapping[str, str],
+) -> dict[str, int]:
+    """Count only sessions backed by an actual token-exhaustion result.
+
+    A session reaching its numeric cap is not itself failure evidence: it may
+    have completed successfully on that exact call.  New traces expose the
+    route result that caught ``BudgetExhausted``.  Legacy FailureEnvelope-only
+    traces are used only when occurrence/stage identity selects exactly one
+    Runtime session; ambiguous evidence stays zero.
+    """
+
+    session_rows: list[tuple[str, str, str]] = []
+    for session in sessions:
+        session_id = str(session.get("session_id", ""))
+        snapshot = _mapping(session.get("snapshot", {}))
+        bucket = str(
+            snapshot.get("usage_bucket")
+            or session_bucket_map.get(session_id, "")
+        )
+        if bucket in _RUNTIME_USAGE_BUCKETS and session_id:
+            session_rows.append((
+                session_id,
+                bucket,
+                str(session.get("occurrence_id", "")),
+            ))
+
+    exhausted_ids: set[str] = set()
+
+    def add_unique(bucket: str, occurrence_id: str | None = None) -> None:
+        candidates = [
+            session_id
+            for session_id, candidate_bucket, candidate_occurrence in session_rows
+            if candidate_bucket == bucket
+            and (
+                occurrence_id is None
+                or candidate_occurrence == occurrence_id
+            )
+        ]
+        if len(candidates) == 1:
+            exhausted_ids.add(candidates[0])
+
+    def code(value: Any) -> str:
+        payload = _mapping(value)
+        return str(payload.get("failure_code") or payload.get("code") or "")
+
+    node_exhaustion = "runtime_node_token_budget_exhausted"
+    for raw_node in _sequence(_field(trace, "node_records", [])):
+        node = _mapping(raw_node)
+        occurrence_id = str(node.get("occurrence_id", ""))
+        if code(node.get("direct_result", {})) == node_exhaustion:
+            add_unique("runtime_preparation", occurrence_id)
+        if code(node.get("seeded_result", {})) == node_exhaustion:
+            add_unique("runtime_seeded", occurrence_id)
+
+    for raw_step in _sequence(_field(trace, "cold_start_steps", [])):
+        step = _mapping(raw_step)
+        if code(step) != "provisional_seeded_budget_exhausted":
+            continue
+        step_id = str(step.get("step_id", ""))
+        if step_id:
+            add_unique("runtime_provisional_seeded", f"cold::{step_id}")
+
+    metadata = _mapping(_field(trace, "metadata", {}))
+    task_exhaustion = "runtime_task_token_budget_exhausted"
+    for key, default_bucket in (
+        ("dynamic_result", "runtime_dynamic"),
+        ("task_rescue", "runtime_dynamic"),
+        (
+            "cold_start_dynamic_continuation",
+            "runtime_dynamic_cold_start_continuation",
+        ),
+    ):
+        result = _mapping(metadata.get(key, {}))
+        if code(result) != task_exhaustion:
+            continue
+        bucket = default_bucket
+        if key == "dynamic_result" and _boolean(
+            result.get("cold_start_continuation", False)
+        ):
+            bucket = "runtime_dynamic_cold_start_continuation"
+        add_unique(bucket)
+
+    # Legacy strict fallback: a formal FailureEnvelope is usable only when its
+    # code and occurrence resolve to one and only one eligible session.
+    for raw_failure in _sequence(_field(trace, "failures", [])):
+        failure = _mapping(raw_failure)
+        failure_code = code(failure)
+        occurrence_id = str(failure.get("occurrence_id", ""))
+        if failure_code == task_exhaustion:
+            candidates = [
+                session_id
+                for session_id, bucket, _occurrence in session_rows
+                if bucket in {
+                    "runtime_dynamic",
+                    "runtime_dynamic_cold_start_continuation",
+                }
+            ]
+            if len(candidates) == 1:
+                exhausted_ids.add(candidates[0])
+        elif failure_code == node_exhaustion and occurrence_id:
+            candidates = [
+                session_id
+                for session_id, bucket, candidate_occurrence in session_rows
+                if bucket in {"runtime_preparation", "runtime_seeded"}
+                and candidate_occurrence == occurrence_id
+            ]
+            if len(candidates) == 1:
+                exhausted_ids.add(candidates[0])
+
+    counts = {bucket: 0 for bucket in _RUNTIME_USAGE_BUCKETS}
+    by_id = {session_id: bucket for session_id, bucket, _ in session_rows}
+    for session_id in exhausted_ids:
+        counts[by_id[session_id]] += 1
+    return counts
+
+
+def _r21_runtime_metrics(
+    trace: Any,
+    *,
+    usage: Mapping[str, Any],
+    strict_task_success: bool,
+    task_rescue_required: bool,
+) -> dict[str, Any]:
+    """Derive R2.1 diagnostics from formal Trace records, defaulting to zero.
+
+    These values are observational only.  They never infer a Runtime decision
+    from task type, object names, free text, or hidden validator state.
+    """
+
+    calls = [
+        _mapping(item)
+        for item in _sequence(_field(trace, "native_tool_calls", []))
+    ]
+    exploration = 0
+    attempts = 0
+    validations = 0
+    validation_successes = 0
+    selected_invocations = 0
+    conflict_occurrences: set[str] = set()
+    conflict_count = 0
+    for call in calls:
+        name = str(call.get("tool_name", ""))
+        arguments = _mapping(call.get("arguments", {}))
+        preflight = _mapping(call.get("preflight_result", {}))
+        if name == "environment_action":
+            intent = str(arguments.get("intent", preflight.get("intent", "")))
+            exploration += int(intent == "explore")
+            attempts += int(intent == "attempt_current_atomic")
+        elif name == "validate_current_atomic":
+            validations += 1
+            validation_successes += int(_boolean(
+                preflight.get(
+                    "atomic_effect_passed",
+                    preflight.get("passed", False),
+                )
+            ))
+        elif name == "report_runtime_status" and str(
+            arguments.get("status", "")
+        ) == "plan_conflict":
+            conflict_count += 1
+            occurrence_id = str(call.get("occurrence_id", ""))
+            if occurrence_id:
+                conflict_occurrences.add(occurrence_id)
+        elif (
+            str(call.get("call_kind", "")).casefold()
+            in {"implementation", "implementation_invocation", "learned_invocation"}
+            or name.startswith("invoke_impl_")
+        ):
+            selected_invocations += 1
+
+    sessions = [
+        _mapping(item)
+        for item in _sequence(_field(trace, "agent_sessions", []))
+    ]
+    replay_catalog_compactions = 0
+    replay_initial_compacted_count = 0
+    replay_last_full_catalogs = 0
+    replay_history_actions = 0
+    session_bucket_map = _session_bucket_map(trace)
+    for session in sessions:
+        snapshot = _mapping(session.get("snapshot", {}))
+        replay_catalog_compactions += _integer(
+            snapshot.get(
+                "replay_catalog_compaction_count",
+                snapshot.get("context_compaction_count", 0),
+            )
+        )
+        replay_initial_compacted_count += int(_boolean(
+            snapshot.get("replay_initial_catalog_compacted", False)
+        ))
+        replay_last_full_catalogs = max(
+            replay_last_full_catalogs,
+            _integer(snapshot.get("replay_full_catalog_count_at_last_request", 0)),
+        )
+        replay_history_actions += _integer(
+            snapshot.get("replay_history_action_count", 0)
+        )
+    exhausted_by_bucket = _runtime_exhausted_session_counts(
+        trace,
+        sessions=sessions,
+        session_bucket_map=session_bucket_map,
+    )
+
+    events = [
+        _mapping(item) for item in _sequence(usage.get("events", []))
+    ]
+    decomposition: dict[str, dict[str, Any]] = {}
+    for bucket in _RUNTIME_USAGE_BUCKETS:
+        bucket_events = [item for item in events if item.get("bucket") == bucket]
+        if bucket_events:
+            totals = _sum_usage(bucket_events)
+            calls_count = _integer(totals.get("call_count", 0))
+            total_values = [_integer(item.get("total_tokens", 0)) for item in bucket_events]
+            reasoning_tokens = sum(
+                _integer(item.get("reasoning_tokens", 0))
+                for item in bucket_events
+            )
+        else:
+            totals = _normalize_usage(
+                _mapping(_mapping(usage.get("by_bucket", {})).get(bucket, {}))
+            )
+            calls_count = _integer(totals.get("call_count", 0))
+            total_values = []
+            reasoning_tokens = _integer(totals.get("reasoning_tokens", 0))
+        decomposition[bucket] = {
+            "calls": calls_count,
+            "prompt_tokens": _integer(totals.get("prompt_tokens", 0)),
+            "completion_tokens": _integer(totals.get("completion_tokens", 0)),
+            "total_tokens": _integer(totals.get("total_tokens", 0)),
+            "reasoning_tokens": reasoning_tokens,
+            "average_tokens_per_call": _ratio(
+                _integer(totals.get("total_tokens", 0)), calls_count
+            ) or 0.0,
+            "max_tokens_per_call": max(total_values, default=0),
+            "exhausted_session_count": exhausted_by_bucket[bucket],
+        }
+
+    runtime_prompt = sum(
+        _integer(item["prompt_tokens"]) for item in decomposition.values()
+    )
+    runtime_completion = sum(
+        _integer(item["completion_tokens"]) for item in decomposition.values()
+    )
+    runtime_reasoning = sum(
+        _integer(item["reasoning_tokens"]) for item in decomposition.values()
+    )
+    return {
+        "runtime_exploration_action_count": exploration,
+        "runtime_atomic_attempt_action_count": attempts,
+        "runtime_validate_current_atomic_count": validations,
+        "runtime_validate_current_atomic_success_count": validation_successes,
+        "learned_invocation_selected_count": selected_invocations,
+        "runtime_plan_conflict_count": conflict_count,
+        "runtime_plan_conflict_occurrence_count": len(conflict_occurrences),
+        "runtime_plan_conflict_rescue_count": int(
+            conflict_count > 0 and task_rescue_required
+        ),
+        "runtime_plan_conflict_rescue_success_count": int(
+            conflict_count > 0 and task_rescue_required and strict_task_success
+        ),
+        "replay_catalog_compaction_count": replay_catalog_compactions,
+        "replay_initial_catalog_compacted_count": replay_initial_compacted_count,
+        "replay_full_catalog_count_at_last_request": replay_last_full_catalogs,
+        "replay_history_action_count": replay_history_actions,
+        "runtime_prompt_tokens": runtime_prompt,
+        "runtime_completion_tokens": runtime_completion,
+        "runtime_reasoning_tokens": runtime_reasoning,
+        "runtime_reasoning_share": _ratio(
+            runtime_reasoning, runtime_completion
+        ) or 0.0,
+        "runtime_token_decomposition": decomposition,
+    }
+
+
+def _aggregate_runtime_token_decomposition(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for bucket in _RUNTIME_USAGE_BUCKETS:
+        values = [
+            _mapping(_mapping(row.get("runtime_token_decomposition", {})).get(
+                bucket, {}
+            ))
+            for row in rows
+        ]
+        calls = sum(_integer(item.get("calls", 0)) for item in values)
+        total_tokens = sum(
+            _integer(item.get("total_tokens", 0))
+            for item in values
+        )
+        result[bucket] = {
+            "calls": calls,
+            "prompt_tokens": sum(
+                _integer(item.get("prompt_tokens", 0)) for item in values
+            ),
+            "completion_tokens": sum(
+                _integer(item.get("completion_tokens", 0)) for item in values
+            ),
+            "total_tokens": total_tokens,
+            "reasoning_tokens": sum(
+                _integer(item.get("reasoning_tokens", 0)) for item in values
+            ),
+            "average_tokens_per_call": _ratio(total_tokens, calls) or 0.0,
+            "max_tokens_per_call": max(
+                (_integer(item.get("max_tokens_per_call", 0)) for item in values),
+                default=0,
+            ),
+            "exhausted_session_count": sum(
+                _integer(item.get("exhausted_session_count", 0))
+                for item in values
+            ),
+        }
+    return result
+
+
 def _confirmed_capability_gap(trace: Any, metadata: Mapping[str, Any]) -> bool:
     direct = _first_present(
         metadata,
@@ -2351,6 +2780,7 @@ def _replace_with_retry(source: Path, target: Path) -> None:
 
 __all__ = [
     "REPORT_COLUMNS",
+    "R21_RUNTIME_METRICS",
     "ReportPaths",
     "USAGE_BUCKETS",
     "V31_METHOD_METRICS",

@@ -13,6 +13,7 @@ _LAYER_BY_CODE = {
     "runtime_agent_multiple_tool_calls": FailureLayer.RUNTIME_AGENT,
     "runtime_task_token_budget_exhausted": FailureLayer.RUNTIME_AGENT,
     "runtime_node_token_budget_exhausted": FailureLayer.RUNTIME_AGENT,
+    "runtime_plan_conflict": FailureLayer.COMPOSITE,
     "runtime_binding_unresolved": FailureLayer.RUNTIME_BINDING,
     "runtime_binding_not_concrete": FailureLayer.RUNTIME_BINDING,
     "runtime_relation_not_grounded": FailureLayer.RUNTIME_BINDING,

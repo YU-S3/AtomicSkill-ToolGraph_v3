@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from ..core.bindings import BindingStatus, RuntimeBinding
 from ..core.contracts import AbstractAtomicSkill
@@ -63,6 +63,7 @@ class AtomicValidator:
         *,
         semantic_anchors: dict[str, RuntimeBinding | Any],
         preferred_values: list[Any],
+        preferred_bindings: Mapping[str, Any] | None = None,
         current_revision: int,
     ) -> AtomicEffectResolution:
         """Resolve current action facts, then run the ordinary Atomic validator."""
@@ -88,6 +89,20 @@ class AtomicValidator:
         )
         input_roles = {item.name for item in atomic.inputs}
         output_roles = {item.name for item in atomic.outputs}
+        claims = {
+            str(role): value
+            for role, value in dict(preferred_bindings or {}).items()
+        }
+        unknown_claims = sorted(set(claims) - input_roles)
+        if unknown_claims:
+            return AtomicEffectResolution(
+                False,
+                failure_code="atomic_preferred_binding_role_invalid",
+                message=(
+                    "Agent-preferred bindings may reference only Atomic input "
+                    f"roles; unknown roles: {unknown_claims!r}"
+                ),
+            )
         for item in output_identity:
             output_role = str(item.get("output_role", ""))
             input_role = str(item.get("input_role", ""))
@@ -107,6 +122,10 @@ class AtomicValidator:
             "output_specs": list(atomic.outputs),
             "output_identity": output_identity,
             "preferred_values": list(preferred_values),
+            # Agent preference only: the Harness must match this claim against
+            # current accepted-action-derived facts and must never turn it into
+            # a synthetic fact or a replacement for a hard semantic anchor.
+            "preferred_bindings": claims,
             "current_revision": current_revision,
         })
         if not resolution.passed:

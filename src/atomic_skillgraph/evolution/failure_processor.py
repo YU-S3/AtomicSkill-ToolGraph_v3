@@ -16,6 +16,7 @@ _LAYER_FALLBACK = {
     "tool_preflight_rejected": FailureLayer.TOOL,
     "tool_output_schema_error": FailureLayer.TOOL,
     "composite_self_sufficiency_failure": FailureLayer.COMPOSITE,
+    "runtime_plan_conflict": FailureLayer.COMPOSITE,
     "task_contract_mismatch": FailureLayer.TASK_CONTRACT,
     "benchmark_goal_contract_mismatch": FailureLayer.TASK_CONTRACT,
     "benchmark_failure": FailureLayer.BENCHMARK,

@@ -135,10 +135,7 @@ class ProvisionalNodeExecutor:
             relevant_action_history=ctx.relevant_history(occurrence.occurrence_id),
             remaining_budget=ctx.budget.snapshot(),
         )
-        tools = [
-            self.node_executor._environment_tool(ctx),
-            self.node_executor._status_tool(),
-        ]
+        tools = self.node_executor._node_tools(ctx, atomic)
         loop_guard = ActionLoopGuard()
         failure_code = "provisional_atomic_effect_failed"
         resolved: dict[str, Any] = {}
@@ -153,6 +150,31 @@ class ProvisionalNodeExecutor:
                         session, call.call_id, {"accepted": True}, tools,
                     )
                     break
+                if call.name == "validate_current_atomic":
+                    effect, payload = (
+                        self.node_executor._validate_current_atomic_call(
+                            call,
+                            session,
+                            occurrence,
+                            ctx,
+                            mode="seeded",
+                            atomic=atomic,
+                        )
+                    )
+                    tools = self.node_executor._node_tools(ctx, atomic)
+                    if effect is not None:
+                        self.node_executor._finalize_tool_result(
+                            session, call.call_id, payload, tools,
+                        )
+                        resolved, witness_refs = self._record_success(
+                            effect, occurrence, ctx,
+                        )
+                        failure_code = ""
+                        break
+                    turn = session.submit_tool_result(
+                        call.call_id, payload, tools=tools,
+                    )
+                    continue
                 payload, action_spec = self.node_executor._execute_environment_call(
                     call, session, occurrence, ctx,
                     span_id=span.span_id,
@@ -160,10 +182,7 @@ class ProvisionalNodeExecutor:
                     loop_guard=loop_guard,
                 )
                 progress_tracker.record("environment_action")
-                tools = [
-                    self.node_executor._environment_tool(ctx),
-                    self.node_executor._status_tool(),
-                ]
+                tools = self.node_executor._node_tools(ctx, atomic)
                 if payload.get("loop_blocked"):
                     if payload.get("fallback_required"):
                         failure_code = str(
@@ -187,50 +206,39 @@ class ProvisionalNodeExecutor:
                         call.call_id, payload, tools=tools,
                     )
                     continue
-                effect = self.node_executor._complete_from_current_effect(
-                    occurrence,
-                    ctx,
-                    mode="seeded",
-                    preferred_values=list(action_spec.arguments.values()),
-                    atomic_override=atomic,
-                )
+                effect = None
+                if (
+                    call.arguments["intent"] == "attempt_current_atomic"
+                    and payload.get("accepted")
+                ):
+                    resolutions = []
+                    effect = self.node_executor._complete_from_current_effect(
+                        occurrence,
+                        ctx,
+                        mode="seeded",
+                        preferred_values=list(action_spec.arguments.values()),
+                        atomic_override=atomic,
+                        resolution_out=resolutions,
+                    )
+                    payload["atomic_validation"] = to_primitive(
+                        resolutions[-1]
+                    )
+                elif call.arguments["intent"] == "attempt_current_atomic":
+                    payload["atomic_validation"] = {
+                        "passed": False,
+                        "failure_code": "environment_action_rejected",
+                        "message": (
+                            "Rejected environment action cannot commit the "
+                            "provisional Atomic"
+                        ),
+                    }
                 if effect is not None:
                     self.node_executor._finalize_tool_result(
                         session, call.call_id, payload, tools,
                     )
-                    resolved = {
-                        key: value.value
-                        for key, value in ctx.binding_store.snapshot_for_node(
-                            occurrence,
-                        ).items()
-                    }
-                    witness_refs = next((
-                        list(item.result.get("witness_refs", ()))
-                        for item in reversed(ctx.trace_builder.trace.validations)
-                        if item.occurrence_id == occurrence.occurrence_id
-                        and item.level == "atomic"
-                    ), [])
-                    if effect.validated_outputs:
-                        if not witness_refs:
-                            witness_refs = [
-                                f"validator:occurrence:{occurrence.occurrence_id}:"
-                                f"revision:{ctx.world_revision}"
-                            ]
-                        ctx.binding_store.publish_validated_outputs(
-                            occurrence,
-                            effect.validated_outputs,
-                            witness_refs,
-                            ctx.world_revision,
-                        )
-                        ctx.validated_outputs[occurrence.occurrence_id] = dict(
-                            effect.validated_outputs
-                        )
-                        for role, value in effect.validated_outputs.items():
-                            ctx.evidence_store.add_validated_tool_output(
-                                role,
-                                value,
-                                witness_refs,
-                            )
+                    resolved, witness_refs = self._record_success(
+                        effect, occurrence, ctx,
+                    )
                     failure_code = ""
                     break
                 if payload.get("done"):
@@ -276,6 +284,47 @@ class ProvisionalNodeExecutor:
             failure_code=failure_code,
             resolved_bindings=resolved,
         )
+
+    @staticmethod
+    def _record_success(
+        effect: Any,
+        occurrence: RuntimeOccurrence,
+        ctx: Any,
+    ) -> tuple[dict[str, Any], list[str]]:
+        resolved = {
+            key: value.value
+            for key, value in ctx.binding_store.snapshot_for_node(
+                occurrence,
+            ).items()
+        }
+        witness_refs = next((
+            list(item.result.get("witness_refs", ()))
+            for item in reversed(ctx.trace_builder.trace.validations)
+            if item.occurrence_id == occurrence.occurrence_id
+            and item.level == "atomic"
+        ), [])
+        if effect.validated_outputs:
+            if not witness_refs:
+                witness_refs = [
+                    f"validator:occurrence:{occurrence.occurrence_id}:"
+                    f"revision:{ctx.world_revision}"
+                ]
+            ctx.binding_store.publish_validated_outputs(
+                occurrence,
+                effect.validated_outputs,
+                witness_refs,
+                ctx.world_revision,
+            )
+            ctx.validated_outputs[occurrence.occurrence_id] = dict(
+                effect.validated_outputs
+            )
+            for role, value in effect.validated_outputs.items():
+                ctx.evidence_store.add_validated_tool_output(
+                    role,
+                    value,
+                    witness_refs,
+                )
+        return resolved, witness_refs
 
 
 __all__ = [

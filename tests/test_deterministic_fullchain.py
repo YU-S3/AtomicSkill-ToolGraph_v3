@@ -465,7 +465,10 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     )
     factory.enqueue(
         "runtime_seeded",
-        [FakeReply.tool("environment_action", {"action_id": "r000_a001"})],
+        [FakeReply.tool("environment_action", {
+            "action_id": "r000_a001",
+            "intent": "attempt_current_atomic",
+        })],
     )
     tool_started_before = projection.stats(str(tool_ref), "tool").started_count
     implementation_failures_before = projection.stats(

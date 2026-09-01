@@ -17,16 +17,6 @@ from ..core.serialization import to_primitive
 _ATOMIC_RUNTIME_FIELDS = ("summary", "inputs", "outputs", "preconditions", "effects")
 _ATOMIC_SEEDED_FIELDS = (*_ATOMIC_RUNTIME_FIELDS, "guideline")
 _INVOCATION_FIELDS = ("name", "description", "input_schema")
-_ACTION_HISTORY_FIELDS = (
-    "action_id",
-    "action_type",
-    "accepted",
-    "observation",
-    "done",
-    "won",
-    "revision",
-    "new_revision",
-)
 _FORBIDDEN_POLICY_KEYS = {
     "validator_only",
     "validator_snapshot",
@@ -58,6 +48,7 @@ class ContextBuilder:
         relevant_action_history: Iterable[Any],
         remaining_budget: Mapping[str, Any],
         implementation_invocations: Iterable[Any],
+        downstream_plan_context: Mapping[str, Any] | None = None,
     ) -> str:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
@@ -86,11 +77,27 @@ class ContextBuilder:
             "current_observation": _text(observation, "observation"),
             "current_action_catalog": _compact_catalog(action_catalog),
             "relevant_action_history": _compact_history(relevant_action_history),
-            "remaining_budget": _policy_value(dict(remaining_budget)),
+            "remaining_budget": _compact_budget(remaining_budget),
             "allowed_implementation_invocations": invocations,
+            "downstream_plan_context": _policy_value(
+                dict(downstream_plan_context or {})
+            ),
         }
         return _render(
-            "Prepare and execute only the current Atomic occurrence. task_semantic_context "
+            "Prepare and execute only the current Atomic occurrence. Mark each "
+            "environment_action as explore or attempt_current_atomic. An explore action "
+            "collects public evidence and never commits the current Atomic merely because "
+            "its effect happens to be true. Use validate_current_atomic when the current "
+            "accepted-action-derived state already proves the Atomic and no new environment "
+            "action is needed. downstream_plan_context describes how current outputs are "
+            "consumed by the already-validated Runtime plan. It is semantic intent, never "
+            "current evidence, and you decide which concrete current entities satisfy it. "
+            "Use cannot_resolve only when this occurrence may still be valid but public "
+            "evidence is insufficient or search is incomplete. Use plan_conflict only "
+            "when the formal occurrence, a hard semantic anchor, or a downstream obligation "
+            "conflicts with public evidence and the same rigid graph cannot solve the task. "
+            "Use give_up to terminate this route without asserting such a formal conflict. "
+            "task_semantic_context "
             "describes the whole-task goal; only current_occurrence_semantic_anchors constrains "
             "learned invocation arguments. Stored Atomic summaries and learned-implementation "
             "descriptions are portable semantic guidance, never current bindings or evidence. "
@@ -104,9 +111,9 @@ class ContextBuilder:
             "destination. For a learned invocation, call the exact native-tool name shown in "
             "allowed_implementation_invocations.name; never derive or extend a tool name from an "
             "artifact description or identifier, and copy canonical values exactly from the latest "
-            "public catalog arguments: current_action_catalog.arguments initially, then "
-            "action_catalog.arguments in environment tool results; display_text is "
-            "only human-readable. Use only native tools; "
+            "public catalog arguments: current_action_catalog.actions[].arguments initially, "
+            "then action_catalog.actions[].arguments in environment tool results. Use only "
+            "native tools; "
             "never encode an action in prose.",
             payload,
         )
@@ -125,6 +132,7 @@ class ContextBuilder:
         action_catalog: Iterable[Any],
         relevant_action_history: Iterable[Any],
         remaining_budget: Mapping[str, Any],
+        downstream_plan_context: Mapping[str, Any] | None = None,
     ) -> str:
         ready = (
             dict(execution_ready_bindings)
@@ -147,10 +155,18 @@ class ContextBuilder:
             "current_observation": _text(observation, "observation"),
             "current_action_catalog": _compact_catalog(action_catalog),
             "relevant_real_action_history": _compact_history(relevant_action_history),
-            "remaining_budget": _policy_value(dict(remaining_budget)),
+            "remaining_budget": _compact_budget(remaining_budget),
+            "downstream_plan_context": _policy_value(
+                dict(downstream_plan_context or {})
+            ),
         }
         return _render(
-            "Solve only the current Atomic occurrence with environment_action. "
+            "Solve only the current Atomic occurrence with environment_action and "
+            "validate_current_atomic. Mark every environment action as explore or "
+            "attempt_current_atomic. Exploration never commits the Atomic merely because "
+            "its effect happens to be true. downstream_plan_context describes how current "
+            "outputs are consumed by the already-validated Runtime plan; use it as semantic "
+            "intent, never current evidence, and choose concrete entities yourself. "
             "task_semantic_context describes the whole-task goal; only "
             "current_occurrence_semantic_anchors constrains this occurrence. Stored Atomic summaries "
             "and guidelines are portable semantic guidance, never current bindings or evidence. "
@@ -174,17 +190,29 @@ class ContextBuilder:
         action_catalog: Iterable[Any],
         relevant_action_history: Iterable[Any],
         remaining_budget: Mapping[str, Any],
+        task_progress: Mapping[str, Any] | None = None,
+        rescue_method_guidance: Mapping[str, Any] | None = None,
     ) -> str:
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
             "current_observation": _text(observation, "observation"),
             "current_action_catalog": _compact_catalog(action_catalog),
             "relevant_action_history": _compact_history(relevant_action_history),
-            "remaining_budget": _policy_value(dict(remaining_budget)),
+            "remaining_budget": _compact_budget(remaining_budget),
+            "task_progress": _policy_value(dict(task_progress or {})),
         }
+        if rescue_method_guidance is not None:
+            payload["rescue_method_guidance"] = _policy_value(
+                dict(rescue_method_guidance)
+            )
         return _render(
             "Solve the task through native environment_action calls. The orchestrator, not prose, "
-            "determines completion.",
+            "determines completion. task_progress is descriptive validator-backed state, "
+            "not an action policy. Choose actions yourself. When public state and current "
+            "actions make it possible to complete an already-started unsatisfied obligation, "
+            "prefer making measurable progress before unrelated exploration. "
+            "rescue_method_guidance, when present, is portable non-binding method context and "
+            "must not be treated as current evidence or a hard concrete anchor.",
             payload,
         )
 
@@ -451,9 +479,10 @@ def _reject_forbidden_keys(value: Any, *, path: str = "$") -> None:
             _reject_forbidden_keys(item, path=f"{path}[{index}]")
 
 
-def _compact_catalog(values: Iterable[Any]) -> list[dict[str, Any]]:
+def _compact_catalog(values: Iterable[Any]) -> dict[str, Any]:
     catalog: list[dict[str, Any]] = []
     seen: set[str] = set()
+    revision: Any = None
     for value in values:
         mapping = _as_mapping(value)
         action_id = str(mapping.get("action_id", ""))
@@ -462,19 +491,49 @@ def _compact_catalog(values: Iterable[Any]) -> list[dict[str, Any]]:
         if action_id in seen:
             continue
         seen.add(action_id)
+        entry_revision = mapping.get("revision")
+        if revision is None:
+            revision = entry_revision
+        elif entry_revision != revision:
+            raise ValueError("action catalog entries must share one revision")
         compact = {
             "action_id": action_id,
             "action_type": str(mapping.get("action_type", "")),
             "arguments": _policy_value(dict(mapping.get("arguments") or {})),
-            "display_text": str(mapping.get("display_text", "")),
-            "revision": mapping.get("revision"),
         }
         catalog.append(_policy_value(compact))
-    return catalog
+    return _policy_value({"revision": revision, "actions": catalog})
 
 
 def _compact_history(values: Iterable[Any]) -> list[dict[str, Any]]:
-    return [_project(value, _ACTION_HISTORY_FIELDS) for value in values]
+    history: list[dict[str, Any]] = []
+    for value in values:
+        mapping = _as_mapping(value)
+        compact = {
+            "action_type": str(mapping.get("action_type", "")),
+            "arguments": _policy_value(dict(mapping.get("arguments") or {})),
+            "observation": str(mapping.get("observation", "")),
+        }
+        if bool(mapping.get("done")):
+            compact["done"] = True
+        if bool(mapping.get("won")):
+            compact["won"] = True
+        history.append(_policy_value(compact))
+    return history
+
+
+def _compact_budget(value: Mapping[str, Any]) -> dict[str, int]:
+    mapping = dict(value)
+    result = {
+        "remaining_global_actions": max(
+            0, int(mapping.get("remaining_global_actions", 0))
+        ),
+    }
+    if bool(mapping.get("node_budget_active")):
+        result["remaining_node_actions"] = max(
+            0, int(mapping.get("remaining_node_actions", 0))
+        )
+    return result
 
 
 __all__ = ["ContextBuilder"]

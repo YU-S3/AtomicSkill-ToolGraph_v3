@@ -410,11 +410,11 @@ def test_context_builder_separates_grounding_authorities() -> None:
     }
     assert payload["current_occurrence_semantic_anchors"] == {"object": "apple"}
     assert "semantic_anchors" not in payload
-    assert payload["current_action_catalog"][0]["arguments"] == {
+    assert payload["current_action_catalog"]["actions"][0]["arguments"] == {
         "destination": "coffeetable_1",
     }
     assert "copy canonical values exactly" in payload_text
-    assert "action_catalog.arguments in environment tool results" in payload_text
+    assert "action_catalog.actions[].arguments in environment tool results" in payload_text
     assert "portable semantic guidance" in payload_text
     assert "never current bindings or evidence" in payload_text
     assert "the task's final destination" in payload_text

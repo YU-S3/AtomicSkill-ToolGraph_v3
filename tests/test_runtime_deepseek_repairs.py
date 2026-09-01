@@ -407,7 +407,10 @@ def test_environment_action_does_not_auto_commit_binding() -> None:
         SimpleNamespace(
             call_id="call_env",
             name="environment_action",
-            arguments={"action_id": action.action_id},
+                arguments={
+                    "action_id": action.action_id,
+                    "intent": "explore",
+                },
         ),
         SimpleNamespace(session_id="session"),
         SimpleNamespace(occurrence_id="occ1"),

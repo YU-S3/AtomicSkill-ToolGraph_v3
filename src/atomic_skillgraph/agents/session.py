@@ -29,6 +29,7 @@ from .usage import AgentBudget, BudgetTracker, LLMUsage, UsageBucket, UsageLedge
 
 
 PROTOCOL_REPAIR_LIMIT = 1
+_POLICY_CONTEXT_SEPARATOR = "\n\nPOLICY_CONTEXT_JSON\n"
 
 
 def structured_provider_turn_cap(semantic_max_turns: int) -> int:
@@ -101,6 +102,9 @@ class ReplayAgentSession:
         self._accepted_turn_count = 0
         self._protocol_repairs_used = 0
         self._context_compaction_count = 0
+        self._replay_initial_catalog_compacted = False
+        self._replay_full_catalog_count_at_last_request = 0
+        self._replay_history_action_count = 0
         self._protocol_failures: list[ProtocolFailureRecord] = []
         self._terminal_protocol_failure: AgentProtocolError | None = None
         self._finalized = False
@@ -259,6 +263,14 @@ class ReplayAgentSession:
                 "accepted_turn_count": self._accepted_turn_count,
                 "protocol_repairs_used": self._protocol_repairs_used,
                 "context_compaction_count": self._context_compaction_count,
+                "replay_catalog_compaction_count": self._context_compaction_count,
+                "replay_initial_catalog_compacted": (
+                    self._replay_initial_catalog_compacted
+                ),
+                "replay_full_catalog_count_at_last_request": (
+                    self._replay_full_catalog_count_at_last_request
+                ),
+                "replay_history_action_count": self._replay_history_action_count,
                 "semantic_budget": (
                     None
                     if self._semantic_max_turns is None
@@ -481,37 +493,106 @@ class ReplayAgentSession:
         )
 
     def _compact_superseded_action_catalogs(self) -> None:
-        """Keep only the newest revision's full display catalog in replay.
+        """Keep at most one current full catalog in Runtime replay.
 
         Assistant envelopes (including DeepSeek reasoning_content) and action
-        results remain intact.  Only client-authored catalogs from older world
-        revisions are replaced by an auditable marker; the canonical Trace and
-        GroundingEvidence retain their complete typed action records.
+        ToolCall envelopes remain byte-for-byte structurally intact.  Only
+        client-authored Runtime policy JSON is rewritten: stale catalogs become
+        auditable markers and verbose budget snapshots become remaining-quota
+        views.  Canonical Trace and GroundingEvidence keep the full records.
         """
 
-        catalogs: list[tuple[int, dict[str, Any]]] = []
+        if not self._usage_bucket.value.startswith("runtime_"):
+            self._replay_full_catalog_count_at_last_request = 0
+            self._replay_history_action_count = 0
+            return
+
+        catalogs: list[dict[str, Any]] = []
+        markers: list[dict[str, Any]] = []
+        history_action_count = 0
         for index, message in enumerate(self._messages):
-            if message.get("role") != "tool":
+            role = message.get("role")
+            if role == "user":
+                decoded = _decode_policy_context(str(message.get("content", "")))
+                if decoded is None:
+                    continue
+                prefix, payload = decoded
+                for history_key in (
+                    "relevant_action_history",
+                    "relevant_real_action_history",
+                ):
+                    history = payload.get(history_key)
+                    if isinstance(history, list):
+                        history_action_count += len(history)
+                catalog = payload.get("current_action_catalog")
+                count = _full_catalog_entry_count(catalog)
+                if count is not None:
+                    catalogs.append({
+                        "kind": "initial",
+                        "index": index,
+                        "prefix": prefix,
+                        "payload": payload,
+                        "field": "current_action_catalog",
+                        "entry_count": count,
+                        "revision": _catalog_revision(catalog),
+                    })
+                elif _is_superseded_catalog_marker(catalog):
+                    markers.append({
+                        "kind": "initial",
+                        "index": index,
+                        "prefix": prefix,
+                        "payload": payload,
+                        "field": "current_action_catalog",
+                    })
+                compact_budget = _compact_replay_budget(payload.get("remaining_budget"))
+                if compact_budget is not None and compact_budget != payload.get(
+                    "remaining_budget"
+                ):
+                    payload["remaining_budget"] = compact_budget
+                    self._messages[index]["content"] = _encode_policy_context(
+                        prefix, payload
+                    )
+                continue
+            if role != "tool":
                 continue
             try:
                 payload = json.loads(str(message.get("content", "")))
             except (TypeError, ValueError):
                 continue
-            if not isinstance(payload, dict) or not isinstance(
-                payload.get("action_catalog"), list,
-            ):
+            if not isinstance(payload, dict):
                 continue
-            catalogs.append((index, payload))
-        if len(catalogs) <= 1:
-            return
-        latest_revision = catalogs[-1][1].get("new_revision")
-        for index, payload in catalogs[:-1]:
-            entries = list(payload["action_catalog"])
-            payload["action_catalog"] = {
-                "status": "superseded",
-                "entry_count": len(entries),
-                "superseded_by_revision": latest_revision,
-            }
+            compact_budget = _compact_replay_budget(payload.get("remaining_budget"))
+            if compact_budget is not None:
+                payload["remaining_budget"] = compact_budget
+            catalog = payload.get("action_catalog")
+            count = _full_catalog_entry_count(catalog)
+            if (
+                "new_revision" in payload
+                and "observation" in payload
+                and (
+                    count is not None
+                    or _is_superseded_catalog_marker(catalog)
+                )
+            ):
+                history_action_count += 1
+            if count is not None:
+                catalogs.append({
+                    "kind": "tool",
+                    "index": index,
+                    "payload": payload,
+                    "field": "action_catalog",
+                    "entry_count": count,
+                    "revision": _catalog_revision(
+                        catalog, fallback=payload.get("new_revision")
+                    ),
+                })
+            elif _is_superseded_catalog_marker(catalog):
+                markers.append({
+                    "kind": "tool",
+                    "index": index,
+                    "payload": payload,
+                    "field": "action_catalog",
+                })
             self._messages[index]["content"] = json.dumps(
                 payload,
                 ensure_ascii=False,
@@ -519,7 +600,49 @@ class ReplayAgentSession:
                 separators=(",", ":"),
                 allow_nan=False,
             )
+
+        latest_revision = catalogs[-1]["revision"] if catalogs else None
+        if latest_revision is not None:
+            for marker in markers:
+                payload = marker["payload"]
+                payload[marker["field"]]["superseded_by_revision"] = latest_revision
+                index = int(marker["index"])
+                if marker["kind"] == "initial":
+                    self._messages[index]["content"] = _encode_policy_context(
+                        str(marker["prefix"]), payload
+                    )
+                else:
+                    self._messages[index]["content"] = json.dumps(
+                        payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    )
+        for item in catalogs[:-1]:
+            payload = item["payload"]
+            payload[item["field"]] = {
+                "status": "superseded",
+                "entry_count": item["entry_count"],
+                "superseded_by_revision": latest_revision,
+            }
+            index = int(item["index"])
+            if item["kind"] == "initial":
+                self._messages[index]["content"] = _encode_policy_context(
+                    str(item["prefix"]), payload
+                )
+                self._replay_initial_catalog_compacted = True
+            else:
+                self._messages[index]["content"] = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
             self._context_compaction_count += 1
+        self._replay_full_catalog_count_at_last_request = min(1, len(catalogs))
+        self._replay_history_action_count = history_action_count
 
     def _ensure_live(self) -> None:
         if self._finalized:
@@ -537,6 +660,80 @@ class ReplayAgentSession:
 
 
 ClientManagedAgentSession = ReplayAgentSession
+
+
+def _decode_policy_context(content: str) -> tuple[str, dict[str, Any]] | None:
+    if _POLICY_CONTEXT_SEPARATOR not in content:
+        return None
+    prefix, encoded = content.split(_POLICY_CONTEXT_SEPARATOR, 1)
+    try:
+        payload = json.loads(encoded)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return prefix, payload
+
+
+def _encode_policy_context(prefix: str, payload: dict[str, Any]) -> str:
+    return prefix + _POLICY_CONTEXT_SEPARATOR + json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _full_catalog_entry_count(value: Any) -> int | None:
+    """Return entry count only for a full policy catalog, never a marker."""
+
+    if isinstance(value, list):
+        return len(value)
+    if isinstance(value, dict) and isinstance(value.get("actions"), list):
+        return len(value["actions"])
+    return None
+
+
+def _catalog_revision(value: Any, *, fallback: Any = None) -> Any:
+    if isinstance(value, dict) and "revision" in value:
+        return value.get("revision")
+    if isinstance(value, list):
+        revisions = {
+            item.get("revision")
+            for item in value
+            if isinstance(item, dict) and "revision" in item
+        }
+        if len(revisions) == 1:
+            return next(iter(revisions))
+    return fallback
+
+
+def _is_superseded_catalog_marker(value: Any) -> bool:
+    return isinstance(value, dict) and value.get("status") == "superseded"
+
+
+def _compact_replay_budget(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, int] = {}
+    aliases = (
+        ("remaining_global_actions", "remaining_global_actions"),
+        ("task_actions_remaining", "remaining_global_actions"),
+        ("remaining_node_actions", "remaining_node_actions"),
+        ("node_actions_remaining", "remaining_node_actions"),
+    )
+    for source, target in aliases:
+        if source not in value or target in result:
+            continue
+        candidate = value[source]
+        if isinstance(candidate, bool):
+            continue
+        try:
+            result[target] = max(0, int(candidate))
+        except (TypeError, ValueError):
+            continue
+    return result or None
 
 
 def _normalize_tools(tools: list[NativeToolSpec] | None) -> list[NativeToolSpec]:

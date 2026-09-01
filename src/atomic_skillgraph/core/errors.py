@@ -26,7 +26,7 @@ ERROR_CODES = frozenset(
     """planner_requirement_invalid planner_requirement_uncovered
     planner_requirement_repair_failed retrieval_miss planner_graph_invalid
     planner_graph_repair_failed runtime_agent_schema_error
-    runtime_agent_multiple_tool_calls runtime_binding_unresolved
+    runtime_agent_multiple_tool_calls runtime_binding_unresolved runtime_plan_conflict
     runtime_binding_not_concrete runtime_relation_not_grounded
     stale_grounding_evidence implementation_compile_rejected
     implementation_mapping_error implementation_constraint_error

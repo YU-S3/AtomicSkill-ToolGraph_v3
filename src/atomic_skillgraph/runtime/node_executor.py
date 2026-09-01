@@ -9,10 +9,12 @@ from typing import Any, Callable
 from ..agents.context_builder import ContextBuilder
 from ..agents.protocol import AgentTurn, NativeToolSpec
 from ..core.bindings import (
-    BindingStatus, RuntimeBinding,
+    BindingResolution, BindingStatus, RuntimeBinding,
 )
 from ..core.errors import AtomicSkillGraphError, FailureLayer
-from ..core.results import ImplementationExecutionResult, NodeExecutionStatus
+from ..core.results import (
+    AtomicEffectResolution, ImplementationExecutionResult, NodeExecutionStatus,
+)
 from ..core.serialization import to_primitive
 from ..traces.schema import (
     AgentSessionRecord, AgentTurnRecord, EnvironmentActionRecord,
@@ -62,24 +64,217 @@ class NodeExecutor:
             # Missing runtime-resolvable arguments are Preparation work, not an
             # attempted Direct failure and do not create long-term evidence.
             return None
+        current = ctx.binding_store.snapshot_for_node(occurrence)
+        effective = dict(current)
+        effective.update({item.role: item for item in preflight.binding_updates})
+        # Direct Autonomous is a deterministic fast path, not an entity or
+        # location chooser.  Deterministic preflight may certify an already
+        # formal argument from current validator evidence, but every required
+        # runtime-resolvable role must end preflight as a role-specific
+        # concrete or relation-verified binding before implementation begins.
+        if any(
+            parameter.required
+            and parameter.runtime_resolvable
+            and not self._runtime_role_is_deterministic(
+                effective.get(parameter.name),
+            )
+            for parameter in compiled.atomic.inputs
+        ):
+            return None
         return self.implementation_runner.run(compiled, preflight, occurrence, ctx, agent_prepared=False)
 
-    def _environment_tool(self, ctx: Any) -> NativeToolSpec:
+    @staticmethod
+    def _runtime_role_is_deterministic(
+        binding: RuntimeBinding | None,
+    ) -> bool:
+        return bool(
+            binding is not None
+            and binding.status is BindingStatus.GROUNDED
+            and binding.resolution in {
+                BindingResolution.CONCRETE,
+                BindingResolution.RELATION_VERIFIED,
+            }
+        )
+
+    def _environment_tool(
+        self, ctx: Any, *, node_level: bool = True,
+    ) -> NativeToolSpec:
+        properties: dict[str, Any] = {
+            "action_id": {
+                "type": "string",
+                "enum": [item.action_id for item in ctx.action_catalog],
+            },
+        }
+        required = ["action_id"]
+        description = "Execute one currently available environment action."
+        if node_level:
+            properties["intent"] = {
+                "type": "string",
+                "enum": ["explore", "attempt_current_atomic"],
+            }
+            required.append("intent")
+            description += (
+                " Set intent=explore for evidence gathering/preparation, or "
+                "intent=attempt_current_atomic only when asking the Runtime "
+                "to validate this action as completion of the current Atomic."
+            )
         return NativeToolSpec(
-            "environment_action", "Execute one currently available environment action.",
+            "environment_action", description,
             {
-                "type": "object", "required": ["action_id"], "additionalProperties": False,
-                "properties": {"action_id": {"type": "string", "enum": [item.action_id for item in ctx.action_catalog]}},
+                "type": "object", "required": required,
+                "additionalProperties": False, "properties": properties,
             },
         )
 
     @staticmethod
-    def _status_tool() -> NativeToolSpec:
+    def _status_tool(*, allow_plan_conflict: bool = False) -> NativeToolSpec:
+        statuses = ["cannot_resolve", "give_up"]
+        if allow_plan_conflict:
+            statuses.insert(1, "plan_conflict")
+        description = (
+            "Explicitly report why the current mode cannot continue. "
+            "cannot_resolve means the current occurrence may still be valid, "
+            "but public evidence is insufficient or search is incomplete; "
+            "give_up terminates this route without asserting a formal plan conflict."
+        )
+        if allow_plan_conflict:
+            description += (
+                " plan_conflict means the current formal occurrence, hard semantic "
+                "anchor, or downstream obligation conflicts with public evidence, so "
+                "the same rigid graph cannot solve the task; only the Agent may declare it."
+            )
         return NativeToolSpec(
-            "report_runtime_status", "Explicitly report that the current mode cannot continue.",
+            "report_runtime_status", description,
             {
                 "type": "object", "required": ["status"], "additionalProperties": False,
-                "properties": {"status": {"type": "string", "enum": ["cannot_resolve", "give_up"]}},
+                "properties": {
+                    "status": {"type": "string", "enum": statuses},
+                    "detail": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "description": (
+                            "Optional short diagnostic only; never formal binding "
+                            "or validation authority."
+                        ),
+                    },
+                },
+            },
+        )
+
+    @staticmethod
+    def _policy_catalog(catalog: Any, revision: Any) -> dict[str, Any]:
+        """Return the frozen compact policy representation of one catalog."""
+
+        return {
+            "revision": revision,
+            "actions": [
+                {
+                    "action_id": item.action_id,
+                    "action_type": item.action_type,
+                    "arguments": dict(item.arguments),
+                }
+                for item in catalog
+            ],
+        }
+
+    @staticmethod
+    def _policy_budget(ctx: Any) -> dict[str, int]:
+        snapshot = dict(ctx.budget.snapshot())
+        result = {
+            "remaining_global_actions": max(
+                0, int(snapshot.get("remaining_global_actions", 0))
+            ),
+        }
+        if bool(snapshot.get("node_budget_active")):
+            result["remaining_node_actions"] = max(
+                0, int(snapshot.get("remaining_node_actions", 0))
+            )
+        return result
+
+    @staticmethod
+    def _task_progress_policy(ctx: Any) -> dict[str, Any]:
+        tracker = getattr(ctx, "task_progress", None)
+        policy_view = getattr(tracker, "policy_view", None)
+        return dict(policy_view()) if callable(policy_view) else {}
+
+    def _downstream_plan_context(
+        self,
+        ctx: Any,
+        occurrence: Any,
+        *,
+        plan_context_plan: Any | None = None,
+    ) -> dict[str, Any]:
+        builder = getattr(self, "plan_context_builder", None)
+        plan = plan_context_plan or getattr(ctx, "plan", None)
+        if builder is None or plan is None:
+            return {}
+        try:
+            return dict(
+                builder.build(
+                    plan,
+                    occurrence.step_id,
+                    ctx.binding_store,
+                ).policy_view()
+            )
+        except KeyError:
+            # Provisional/test-only occurrences are not verified plan nodes.
+            # Fail closed rather than manufacturing downstream intent.
+            return {}
+
+    @staticmethod
+    def _rescue_method_guidance(ctx: Any) -> dict[str, Any] | None:
+        conflict = dict(getattr(ctx, "plan_conflict_context", {}) or {})
+        if not conflict:
+            return None
+        guidance = {
+            "conflict_step_summary": str(
+                conflict.get("conflict_step_summary", "")
+            ),
+            "conflict_code": str(
+                conflict.get("conflict_code", "runtime_plan_conflict")
+            ),
+            "remaining_method_outline": list(
+                conflict.get("remaining_method_outline", ())
+            ),
+        }
+        message = str(
+            conflict.get("detail")
+            or conflict.get("last_preflight_failure_code")
+            or ""
+        )
+        if message:
+            guidance["conflict_message"] = message
+        return guidance
+
+    @staticmethod
+    def _validate_current_atomic_tool(atomic: Any) -> NativeToolSpec:
+        return NativeToolSpec(
+            "validate_current_atomic",
+            (
+                "Ask the Runtime to validate the current public environment "
+                "state as completion of the current Atomic. Candidate bindings "
+                "are Agent preferences only and cannot create facts or override "
+                "formal Task/DataFlow anchors."
+            ),
+            {
+                "type": "object",
+                "required": ["candidate_bindings"],
+                "additionalProperties": False,
+                "properties": {
+                    "candidate_bindings": {
+                        "type": "object",
+                        "properties": {
+                            item.name: {
+                                "type": [
+                                    "string", "integer", "number", "boolean",
+                                    "object", "array",
+                                ],
+                            }
+                            for item in atomic.inputs
+                        },
+                        "additionalProperties": False,
+                    },
+                },
             },
         )
 
@@ -136,7 +331,16 @@ class NodeExecutor:
                 f"stale or unknown environment action_id: {action_id}",
                 layer=FailureLayer.RUNTIME_AGENT,
             )
-        if occurrence is not None:
+        intent = str(call.arguments.get("intent", ""))
+        if occurrence is not None and intent not in {
+            "explore", "attempt_current_atomic",
+        }:
+            raise AtomicSkillGraphError(
+                "runtime_agent_schema_error",
+                "node-level environment_action requires an explicit valid intent",
+                layer=FailureLayer.RUNTIME_AGENT,
+            )
+        if occurrence is not None and intent == "attempt_current_atomic":
             repeat_values = {
                 role: binding.value
                 for role, binding in ctx.binding_store.snapshot_for_node(
@@ -167,13 +371,17 @@ class NodeExecutor:
                 )
                 payload = {
                     "loop_blocked": True,
-                    "fallback_required": True,
+                    # A rejected Repeat identity is a typed preflight result,
+                    # not a terminal loop-guard fallback.  The same Agent
+                    # session must be allowed to choose another candidate.
+                    "fallback_required": False,
+                    "repeat_preflight_rejected": True,
                     "error": code,
                     "observation": ctx.observation,
                     "done": False,
                     "won": False,
                     "new_revision": ctx.world_revision,
-                    "remaining_budget": ctx.budget.snapshot(),
+                    "remaining_budget": self._policy_budget(ctx),
                 }
                 ctx.trace_builder.trace.native_tool_calls.append(
                     NativeToolCallRecord(
@@ -205,8 +413,10 @@ class NodeExecutor:
                 "done": False,
                 "won": False,
                 "new_revision": ctx.world_revision,
-                "remaining_budget": ctx.budget.snapshot(),
+                "remaining_budget": self._policy_budget(ctx),
             }
+            if occurrence is None:
+                payload["task_progress"] = self._task_progress_policy(ctx)
             ctx.trace_builder.trace.native_tool_calls.append(NativeToolCallRecord(
                 call.call_id, session.session_id,
                 "" if occurrence is None else occurrence.occurrence_id,
@@ -241,21 +451,22 @@ class NodeExecutor:
             # canonical affordance fields exposed in the initial policy
             # context.  Learned invocation arguments must remain copyable
             # after exploration advances the world revision.
-            "action_catalog": [
-                {
-                    "action_id": item.action_id,
-                    "action_type": item.action_type,
-                    "arguments": dict(item.arguments),
-                    "display_text": item.display_text,
-                    "revision": item.revision,
-                }
-                for item in result.catalog
-            ],
-            "remaining_budget": ctx.budget.snapshot(),
+            "action_catalog": self._policy_catalog(
+                result.catalog, result.new_revision,
+            ),
+            "remaining_budget": self._policy_budget(ctx),
         }
+        if occurrence is not None:
+            payload["intent"] = intent
+        else:
+            payload["task_progress"] = self._task_progress_policy(ctx)
         ctx.trace_builder.trace.native_tool_calls.append(NativeToolCallRecord(
             call.call_id, session.session_id, occurrence_id, call.name, dict(call.arguments),
-            "environment_action", {"passed": True}, f"revision:{result.new_revision}",
+            "environment_action", {
+                "passed": bool(result.accepted),
+                "harness_accepted": bool(result.accepted),
+                **({"intent": intent} if occurrence is not None else {}),
+            }, f"revision:{result.new_revision}",
             sum(1 for item in ctx.trace_builder.trace.agent_turns if item.session_id == session.session_id) - 1,
         ))
         return payload, spec
@@ -267,8 +478,10 @@ class NodeExecutor:
         *,
         mode: str,
         preferred_values: list[Any],
+        preferred_bindings: dict[str, Any] | None = None,
         provisional_bindings: list[RuntimeBinding] = (),
         atomic_override: Any | None = None,
+        resolution_out: list[AtomicEffectResolution] | None = None,
     ) -> ImplementationExecutionResult | None:
         atomic = atomic_override or self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
         bindings = ctx.binding_store.snapshot_for_node(occurrence)
@@ -294,9 +507,18 @@ class NodeExecutor:
             ctx.harness.validator_channel(),
             semantic_anchors=semantic_anchors,
             preferred_values=preferred_values,
+            preferred_bindings=preferred_bindings,
             current_revision=ctx.world_revision,
         )
         if not resolution.passed:
+            if resolution_out is not None:
+                resolution_out.append(resolution)
+                ctx.trace_builder.trace.validations.append(ValidationRecord(
+                    occurrence.occurrence_id,
+                    "atomic",
+                    to_primitive(resolution),
+                    ctx.world_revision,
+                ))
             return None
         repeat_effect_values = {
             **dict(resolution.resolved_bindings),
@@ -313,6 +535,24 @@ class NodeExecutor:
             ctx.world_revision,
         ))
         if not repeat_preflight.passed:
+            if resolution_out is not None:
+                resolution_out.append(AtomicEffectResolution(
+                    False,
+                    resolved_bindings=dict(resolution.resolved_bindings),
+                    output_candidates=dict(resolution.output_candidates),
+                    witness_refs=list(resolution.witness_refs),
+                    checks=dict(resolution.checks),
+                    failure_code=(
+                        repeat_preflight.failure_codes[0]
+                        if repeat_preflight.failure_codes
+                        else "runtime_repetition_distinctness_violation"
+                    ),
+                    message=(
+                        repeat_preflight.messages[0]
+                        if repeat_preflight.messages
+                        else "RepeatBlock preflight rejected the Atomic witness"
+                    ),
+                ))
             return None
         committed = ctx.binding_store.commit_atomic_effect_witnesses(
             occurrence.occurrence_id,
@@ -332,6 +572,8 @@ class NodeExecutor:
             to_primitive(repeat_commit),
             ctx.world_revision,
         ))
+        if resolution_out is not None:
+            resolution_out.append(resolution)
         if not repeat_commit.passed:
             raise AtomicSkillGraphError(
                 repeat_commit.failure_codes[0],
@@ -417,9 +659,124 @@ class NodeExecutor:
 
         return list(spec.arguments.values())
 
+    def _node_tools(
+        self,
+        ctx: Any,
+        atomic: Any,
+        *,
+        invocations: list[CompiledInvocation] = (),
+        allow_plan_conflict: bool = False,
+    ) -> list[NativeToolSpec]:
+        return [
+            self._environment_tool(ctx, node_level=True),
+            self._validate_current_atomic_tool(atomic),
+            *[self._invocation_tool(item) for item in invocations],
+            self._status_tool(allow_plan_conflict=allow_plan_conflict),
+        ]
+
+    def _record_control_call(
+        self,
+        call: Any,
+        session: Any,
+        occurrence: Any,
+        ctx: Any,
+        *,
+        call_kind: str,
+        result: dict[str, Any],
+    ) -> None:
+        ctx.trace_builder.trace.native_tool_calls.append(
+            NativeToolCallRecord(
+                call.call_id,
+                session.session_id,
+                occurrence.occurrence_id,
+                call.name,
+                dict(call.arguments),
+                call_kind,
+                to_primitive(result),
+                f"revision:{ctx.world_revision}",
+                sum(
+                    1 for item in ctx.trace_builder.trace.agent_turns
+                    if item.session_id == session.session_id
+                ) - 1,
+            )
+        )
+
+    def _validate_current_atomic_call(
+        self,
+        call: Any,
+        session: Any,
+        occurrence: Any,
+        ctx: Any,
+        *,
+        mode: str,
+        atomic: Any,
+    ) -> tuple[ImplementationExecutionResult | None, dict[str, Any]]:
+        claims = dict(call.arguments.get("candidate_bindings") or {})
+        input_roles = {item.name for item in atomic.inputs}
+        unknown = sorted(set(claims) - input_roles)
+        if unknown:
+            resolution = AtomicEffectResolution(
+                False,
+                failure_code="atomic_preferred_binding_role_invalid",
+                message=(
+                    "validate_current_atomic candidate_bindings may reference "
+                    f"only current Atomic inputs; unknown roles: {unknown!r}"
+                ),
+            )
+            effect = None
+        else:
+            resolutions: list[AtomicEffectResolution] = []
+            effect = self._complete_from_current_effect(
+                occurrence,
+                ctx,
+                mode=mode,
+                preferred_values=[],
+                preferred_bindings=claims,
+                atomic_override=atomic,
+                resolution_out=resolutions,
+            )
+            resolution = resolutions[-1]
+        payload = {
+            "accepted": True,
+            "committed": effect is not None,
+            "passed": effect is not None,
+            "atomic_effect_passed": effect is not None,
+            "validation": to_primitive(resolution),
+            "new_revision": ctx.world_revision,
+        }
+        self._record_control_call(
+            call,
+            session,
+            occurrence,
+            ctx,
+            call_kind="atomic_validation",
+            result=payload,
+        )
+        return effect, payload
+
+    def _status_result(
+        self,
+        call: Any,
+        session: Any,
+        occurrence: Any,
+        ctx: Any,
+    ) -> tuple[str, dict[str, Any]]:
+        status = str(call.arguments["status"])
+        payload = {"accepted": True, "status": status}
+        self._record_control_call(
+            call,
+            session,
+            occurrence,
+            ctx,
+            call_kind="runtime_status",
+            result=payload,
+        )
+        return status, payload
+
     def run_preparation_session(
         self, occurrence: Any, invocations: list[CompiledInvocation], ctx: Any,
         *, learned_call_repair_limit: int = 2,
+        plan_context_plan: Any | None = None,
     ) -> ImplementationExecutionResult:
         session = self.session_factory("runtime_preparation", occurrence.occurrence_id)
         record = self._record_session_start(session, "RuntimePreparationSession", occurrence.occurrence_id, ctx)
@@ -440,8 +797,15 @@ class NodeExecutor:
             observation=ctx.observation,
             action_catalog=ctx.action_catalog, relevant_action_history=ctx.relevant_history(occurrence.occurrence_id),
             remaining_budget=ctx.budget.snapshot(), implementation_invocations=[item.spec for item in invocations],
+            downstream_plan_context=self._downstream_plan_context(
+                ctx,
+                occurrence,
+                plan_context_plan=plan_context_plan,
+            ),
         )
-        tools = [self._environment_tool(ctx), *[self._invocation_tool(item) for item in invocations], self._status_tool()]
+        tools = self._node_tools(
+            ctx, atomic, invocations=invocations, allow_plan_conflict=True,
+        )
         preflight_failures = 0
         loop_guard = ActionLoopGuard()
         try:
@@ -450,10 +814,18 @@ class NodeExecutor:
                 self._record_turn(session, turn, ctx)
                 call = turn.tool_calls[0]
                 if call.name == "report_runtime_status":
-                    self._finalize_tool_result(
-                        session, call.call_id,
-                        {"accepted": True, "status": call.arguments["status"]}, tools,
+                    status, payload = self._status_result(
+                        call, session, occurrence, ctx,
                     )
+                    self._finalize_tool_result(
+                        session, call.call_id, payload, tools,
+                    )
+                    if status == "plan_conflict":
+                        conflict = self.not_started(
+                            occurrence, failure_code="runtime_plan_conflict",
+                        )
+                        conflict.failure_layer = "composite"
+                        return conflict
                     return self.not_started(occurrence, failure_code="runtime_binding_unresolved")
                 if call.name == "environment_action":
                     payload, action_spec = self._execute_environment_call(
@@ -462,7 +834,10 @@ class NodeExecutor:
                         loop_guard=loop_guard,
                     )
                     if payload.get("loop_blocked"):
-                        tools = [self._environment_tool(ctx), *[self._invocation_tool(item) for item in invocations], self._status_tool()]
+                        tools = self._node_tools(
+                            ctx, atomic, invocations=invocations,
+                            allow_plan_conflict=True,
+                        )
                         if payload.get("fallback_required"):
                             self._finalize_tool_result(session, call.call_id, payload, tools)
                             return self.not_started(
@@ -470,21 +845,67 @@ class NodeExecutor:
                             )
                         turn = session.submit_tool_result(call.call_id, payload, tools=tools)
                         continue
-                    effect = self._complete_from_current_effect(
-                        occurrence,
-                        ctx,
-                        mode="preparation",
-                        preferred_values=self._environment_effect_preferences(
+                    effect = None
+                    if (
+                        call.arguments["intent"] == "attempt_current_atomic"
+                        and payload.get("accepted")
+                    ):
+                        resolutions: list[AtomicEffectResolution] = []
+                        effect = self._complete_from_current_effect(
                             occurrence,
                             ctx,
-                            action_spec,
-                        ),
+                            mode="preparation",
+                            preferred_values=self._environment_effect_preferences(
+                                occurrence,
+                                ctx,
+                                action_spec,
+                            ),
+                            resolution_out=resolutions,
+                        )
+                        payload["atomic_validation"] = to_primitive(
+                            resolutions[-1]
+                        )
+                    elif call.arguments["intent"] == "attempt_current_atomic":
+                        payload["atomic_validation"] = to_primitive(
+                            AtomicEffectResolution(
+                                False,
+                                failure_code="environment_action_rejected",
+                                message=(
+                                    "Rejected environment action cannot commit "
+                                    "the current Atomic"
+                                ),
+                            )
+                        )
+                    tools = self._node_tools(
+                        ctx, atomic, invocations=invocations,
+                        allow_plan_conflict=True,
                     )
-                    tools = [self._environment_tool(ctx), *[self._invocation_tool(item) for item in invocations], self._status_tool()]
                     if effect is not None:
                         self._finalize_tool_result(session, call.call_id, payload, tools)
                         return effect
                     turn = session.submit_tool_result(call.call_id, payload, tools=tools)
+                    continue
+                if call.name == "validate_current_atomic":
+                    effect, payload = self._validate_current_atomic_call(
+                        call,
+                        session,
+                        occurrence,
+                        ctx,
+                        mode="preparation",
+                        atomic=atomic,
+                    )
+                    tools = self._node_tools(
+                        ctx, atomic, invocations=invocations,
+                        allow_plan_conflict=True,
+                    )
+                    if effect is not None:
+                        self._finalize_tool_result(
+                            session, call.call_id, payload, tools,
+                        )
+                        return effect
+                    turn = session.submit_tool_result(
+                        call.call_id, payload, tools=tools,
+                    )
                     continue
                 compiled = next(item for item in invocations if item.spec.name == call.name)
                 prepared = self.invocation_compiler.prepare_arguments(
@@ -597,7 +1018,13 @@ class NodeExecutor:
             ctx.trace_builder.finish_span(span.span_id)
             self._finish_session(record, session)
 
-    def run_seeded_fresh(self, occurrence: Any, ctx: Any) -> ImplementationExecutionResult:
+    def run_seeded_fresh(
+        self,
+        occurrence: Any,
+        ctx: Any,
+        *,
+        plan_context_plan: Any | None = None,
+    ) -> ImplementationExecutionResult:
         session = self.session_factory("runtime_seeded", occurrence.occurrence_id)
         record = self._record_session_start(session, "SeededSession", occurrence.occurrence_id, ctx)
         span = ctx.trace_builder.start_span("runtime_seeded", occurrence.occurrence_id)
@@ -617,8 +1044,13 @@ class NodeExecutor:
             ],
             observation=ctx.observation, action_catalog=ctx.action_catalog,
             relevant_action_history=ctx.relevant_history(occurrence.occurrence_id), remaining_budget=ctx.budget.snapshot(),
+            downstream_plan_context=self._downstream_plan_context(
+                ctx,
+                occurrence,
+                plan_context_plan=plan_context_plan,
+            ),
         )
-        tools = [self._environment_tool(ctx), self._status_tool()]
+        tools = self._node_tools(ctx, atomic)
         loop_guard = ActionLoopGuard()
         try:
             turn = session.next_turn(prompt, tools=tools)
@@ -626,15 +1058,39 @@ class NodeExecutor:
                 self._record_turn(session, turn, ctx)
                 call = turn.tool_calls[0]
                 if call.name == "report_runtime_status":
-                    self._finalize_tool_result(session, call.call_id, {"accepted": True}, tools)
+                    _status, payload = self._status_result(
+                        call, session, occurrence, ctx,
+                    )
+                    self._finalize_tool_result(
+                        session, call.call_id, payload, tools,
+                    )
                     break
+                if call.name == "validate_current_atomic":
+                    effect, payload = self._validate_current_atomic_call(
+                        call,
+                        session,
+                        occurrence,
+                        ctx,
+                        mode="seeded",
+                        atomic=atomic,
+                    )
+                    tools = self._node_tools(ctx, atomic)
+                    if effect is not None:
+                        self._finalize_tool_result(
+                            session, call.call_id, payload, tools,
+                        )
+                        return effect
+                    turn = session.submit_tool_result(
+                        call.call_id, payload, tools=tools,
+                    )
+                    continue
                 payload, action_spec = self._execute_environment_call(
                     call, session, occurrence, ctx,
                     span_id=span.span_id, origin="runtime_seeded",
                     loop_guard=loop_guard,
                 )
                 if payload.get("loop_blocked"):
-                    tools = [self._environment_tool(ctx), self._status_tool()]
+                    tools = self._node_tools(ctx, atomic)
                     if payload.get("fallback_required"):
                         self._finalize_tool_result(session, call.call_id, payload, tools)
                         result = self.not_started(
@@ -644,17 +1100,38 @@ class NodeExecutor:
                         return result
                     turn = session.submit_tool_result(call.call_id, payload, tools=tools)
                     continue
-                effect = self._complete_from_current_effect(
-                    occurrence,
-                    ctx,
-                    mode="seeded",
-                    preferred_values=self._environment_effect_preferences(
+                effect = None
+                if (
+                    call.arguments["intent"] == "attempt_current_atomic"
+                    and payload.get("accepted")
+                ):
+                    resolutions: list[AtomicEffectResolution] = []
+                    effect = self._complete_from_current_effect(
                         occurrence,
                         ctx,
-                        action_spec,
-                    ),
-                )
-                tools = [self._environment_tool(ctx), self._status_tool()]
+                        mode="seeded",
+                        preferred_values=self._environment_effect_preferences(
+                            occurrence,
+                            ctx,
+                            action_spec,
+                        ),
+                        resolution_out=resolutions,
+                    )
+                    payload["atomic_validation"] = to_primitive(
+                        resolutions[-1]
+                    )
+                elif call.arguments["intent"] == "attempt_current_atomic":
+                    payload["atomic_validation"] = to_primitive(
+                        AtomicEffectResolution(
+                            False,
+                            failure_code="environment_action_rejected",
+                            message=(
+                                "Rejected environment action cannot commit "
+                                "the current Atomic"
+                            ),
+                        )
+                    )
+                tools = self._node_tools(ctx, atomic)
                 if effect is not None:
                     self._finalize_tool_result(session, call.call_id, payload, tools)
                     return effect
@@ -709,18 +1186,27 @@ class NodeExecutor:
         prompt = self.context_builder.dynamic_task(
             task_goal=ctx.task_goal, observation=ctx.observation, action_catalog=ctx.action_catalog,
             relevant_action_history=ctx.action_history, remaining_budget=ctx.budget.snapshot(),
+            task_progress=self._task_progress_policy(ctx),
+            rescue_method_guidance=(
+                self._rescue_method_guidance(ctx) if rescue else None
+            ),
         )
         if cold_start_continuation:
             import json
-            prompt += (
-                "\n\nCOLD_START_CONTINUATION_CONTEXT_JSON\n"
+            prompt = (
+                "COLD_START_CONTINUATION_CONTEXT_JSON\n"
                 + json.dumps(
                     to_primitive(continuation_context or {}),
                     ensure_ascii=False,
                     sort_keys=True,
                 )
+                + "\n\n"
+                + prompt
             )
-        tools = [self._environment_tool(ctx), self._status_tool()]
+        tools = [
+            self._environment_tool(ctx, node_level=False),
+            self._status_tool(),
+        ]
         success = False
         failure_code = ""
         loop_guard = ActionLoopGuard()
@@ -774,7 +1260,10 @@ class NodeExecutor:
                     loop_guard=loop_guard,
                 )
                 if payload.get("loop_blocked"):
-                    tools = [self._environment_tool(ctx), self._status_tool()]
+                    tools = [
+                        self._environment_tool(ctx, node_level=False),
+                        self._status_tool(),
+                    ]
                     if payload.get("fallback_required"):
                         self._finalize_tool_result(session, call.call_id, payload, tools)
                         failure_code = "runtime_action_loop_blocked"
@@ -782,7 +1271,10 @@ class NodeExecutor:
                     turn = session.submit_tool_result(call.call_id, payload, tools=tools)
                     continue
                 terminal = self.validation.task.terminal(ctx.task_contract, ctx.harness.validator_channel(), payload["won"])
-                tools = [self._environment_tool(ctx), self._status_tool()]
+                tools = [
+                    self._environment_tool(ctx, node_level=False),
+                    self._status_tool(),
+                ]
                 if terminal.passed:
                     self._finalize_tool_result(session, call.call_id, payload, tools)
                     success = True

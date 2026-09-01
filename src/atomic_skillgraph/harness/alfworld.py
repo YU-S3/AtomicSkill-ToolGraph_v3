@@ -449,6 +449,13 @@ class AlfWorldValidatorChannel:
             value for value in list(request.get("preferred_values") or [])
             if value not in (None, "")
         ]
+        preferred_bindings = {
+            str(role): value
+            for role, value in dict(
+                request.get("preferred_bindings") or {}
+            ).items()
+            if value not in (None, "")
+        }
         input_specs = list(request.get("input_specs") or [])
         output_specs = list(request.get("output_specs") or [])
         output_identity = list(request.get("output_identity") or [])
@@ -562,6 +569,19 @@ class AlfWorldValidatorChannel:
                         break
                     assignment[source_role] = actual
                 if compatible:
+                    # A role-specific Agent claim is only a candidate filter.
+                    # It cannot create a fact, weaken a hard anchor, or make an
+                    # otherwise absent witness eligible.
+                    for role, expected in preferred_bindings.items():
+                        if role not in source_roles:
+                            continue
+                        actual = assignment.get(role, known.get(role))
+                        if actual in (None, "") or not self._value_matches(
+                            actual, expected,
+                        ):
+                            compatible = False
+                            break
+                if compatible:
                     raw_candidates.append((
                         assignment,
                         actual_args,
@@ -587,7 +607,12 @@ class AlfWorldValidatorChannel:
                 for role, value in assignment.items():
                     if role in known or role in anchors:
                         continue
-                    preferred_match = any(
+                    preferred_match = (
+                        role in preferred_bindings
+                        and self._value_matches(
+                            value, preferred_bindings[role],
+                        )
+                    ) or any(
                         self._value_matches(value, candidate)
                         for candidate in preferred
                     )
@@ -677,6 +702,20 @@ class AlfWorldValidatorChannel:
                         list(dict.fromkeys([*existing_refs, *refs])),
                     ))
             combined = next_combined
+
+        # A multi-effect contract may distribute roles across different
+        # predicates. Per-effect filtering above can only check roles used by
+        # that predicate; check every claimed role on each joint assignment.
+        combined = [
+            (assignment, refs)
+            for assignment, refs in combined
+            if all(
+                (actual := {**known, **assignment}.get(role))
+                not in (None, "")
+                and self._value_matches(actual, expected)
+                for role, expected in preferred_bindings.items()
+            )
+        ]
 
         checks["joint_effect_assignment_exists"] = bool(combined)
         if not combined:

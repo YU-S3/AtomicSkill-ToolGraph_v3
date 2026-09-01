@@ -604,7 +604,10 @@ def test_navigation_effect_satisfied_after_environment_action_skips_entry_afford
     harness = _PickPlaceHarness()
     factory = FakeAgentFactory()
     factory.enqueue("runtime_preparation", [
-        FakeReply.tool("environment_action", {"action_id": "r000_a001"}),
+        FakeReply.tool("environment_action", {
+            "action_id": "r000_a001",
+            "intent": "attempt_current_atomic",
+        }),
     ])
     runtime, ctx, occurrence, invocations = _single_nav_context(
         harness, factory,
@@ -909,7 +912,10 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
     harness = _PickPlaceHarness()
     factory = FakeAgentFactory()
     factory.enqueue("runtime_preparation", [
-        FakeReply.tool("environment_action", {"action_id": "r000_a001"}),
+        FakeReply.tool("environment_action", {
+            "action_id": "r000_a001",
+            "intent": "attempt_current_atomic",
+        }),
     ])
     factory.enqueue("runtime_preparation", [
         FakeReply.tool("$learned", {"object": "apple_2"}),
@@ -1000,9 +1006,15 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
     payload = json.loads(first_prompt.split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1])
     assert payload["task_semantic_context"]["destination"] == "desk"
     assert "destination" not in payload["current_occurrence_semantic_anchors"]
+    obligation = payload["downstream_plan_context"]["output_obligations"][0]
+    assert obligation["producer_output_role"] == "reached_location"
+    assert obligation["consumer_input_role"] == "source"
+    assert obligation["consumer_known_semantic_anchors"]["object"][
+        "value"
+    ] == "apple"
     assert any(
         item["arguments"].get("destination") == "drawer_2"
-        for item in payload["current_action_catalog"]
+        for item in payload["current_action_catalog"]["actions"]
     )
     first_tool_result = next(
         json.loads(item["content"])
@@ -1013,6 +1025,6 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
     assert not any(
         item["action_type"] == "GO_TO"
         and item["arguments"].get("destination") == "drawer_2"
-        for item in first_tool_result["action_catalog"]
+        for item in first_tool_result["action_catalog"]["actions"]
     )
     factory.assert_exhausted()
