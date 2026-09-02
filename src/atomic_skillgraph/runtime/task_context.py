@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from ..core.contracts import TaskContract
 from ..core.results import RuntimeLinearPlan
@@ -12,6 +12,7 @@ from ..traces.schema import TraceBuilder
 from .binding_store import RuntimeBindingStore
 from .budget import RuntimeBudget
 from .evidence_store import GroundingEvidenceStore
+from .state import ExplorationMemory, OccurrenceAtomicEvidenceState, normalized_facts
 from .task_progress import TaskProgressTracker
 
 
@@ -41,6 +42,20 @@ class TaskRuntimeContext:
     plan_conflict_declared: bool = False
     plan_conflict_context: dict[str, Any] = field(default_factory=dict)
     task_rescue_used: bool = False
+    occurrence_evidence: dict[str, OccurrenceAtomicEvidenceState] = field(
+        default_factory=dict,
+    )
+    active_occurrence_id: str = ""
+    exploration_memory: ExplorationMemory = field(default_factory=ExplorationMemory)
+    grounding_state_by_occurrence: dict[str, dict[str, Any]] = field(
+        default_factory=dict,
+    )
+    last_failed_invocation: dict[str, Any] | None = None
+    _after_action_refresh: Callable[[], None] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     @classmethod
     def create(
@@ -69,11 +84,92 @@ class TaskRuntimeContext:
             budget.global_action_budget, 0, budget.token_limits, trace_builder,
             harness, task, budget, progress,
         )
+        context.exploration_memory.observe_catalog(
+            reset.catalog,
+            revision=reset.new_revision,
+            current_facts=normalized_facts(
+                harness.validator_channel().snapshot()
+            ).values(),
+        )
         progress.record("task_reset")
         return context
 
+    def begin_occurrence(self, occurrence: Any) -> OccurrenceAtomicEvidenceState:
+        """Start (or resume) one occurrence without resetting its evidence."""
+
+        occurrence_id = str(occurrence.occurrence_id)
+        self.active_occurrence_id = occurrence_id
+        state = self.occurrence_evidence.get(occurrence_id)
+        if state is None:
+            state = OccurrenceAtomicEvidenceState.begin(
+                occurrence_id,
+                self.world_revision,
+                self.harness.validator_channel().snapshot(),
+            )
+            self.occurrence_evidence[occurrence_id] = state
+        return state
+
+    def clear_active_occurrence(self) -> None:
+        self.active_occurrence_id = ""
+        self._after_action_refresh = None
+
+    def install_after_action_refresh(self, callback: Callable[[], None]) -> None:
+        self._after_action_refresh = callback
+
+    def atomic_evidence_for(
+        self, occurrence: Any | str,
+    ) -> OccurrenceAtomicEvidenceState:
+        occurrence_id = (
+            occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
+        )
+        if occurrence_id not in self.occurrence_evidence:
+            raise KeyError(f"occurrence evidence was not started: {occurrence_id}")
+        return self.occurrence_evidence[str(occurrence_id)]
+
+    def record_grounding_state(
+        self,
+        occurrence_id: str,
+        state: dict[str, Any],
+    ) -> None:
+        import copy
+
+        snapshot = copy.deepcopy(state)
+        self.grounding_state_by_occurrence[str(occurrence_id)] = snapshot
+        signature = {
+            key: snapshot.get(key)
+            for key in (
+                "confirmed_bindings",
+                "candidate_bindings",
+                "missing_bindings",
+                "invalidated_bindings",
+                "precondition_status",
+                "effect_witness_status",
+                "learned_invocation_ready",
+                "blocking_reasons",
+            )
+        }
+        self.exploration_memory.note_grounding_state(signature)
+        self.trace_builder.trace.metadata.setdefault(
+            "runtime_state_snapshots", []
+        ).append(copy.deepcopy(snapshot))
+
+    def record_failed_invocation(
+        self,
+        *,
+        occurrence_id: str,
+        implementation_ref: str,
+        failure_code: str,
+        message: str,
+    ) -> None:
+        self.last_failed_invocation = {
+            "occurrence_id": str(occurrence_id),
+            "implementation_ref": str(implementation_ref),
+            "failure_code": str(failure_code),
+            "message": str(message)[:512],
+            "revision": int(self.world_revision),
+        }
+
     def update_after_action(self, result: Any, record: dict[str, Any]) -> None:
-        old_revision = self.world_revision
         self.observation = result.observation
         self.world_revision = result.new_revision
         self.action_catalog = list(result.catalog)
@@ -82,9 +178,51 @@ class TaskRuntimeContext:
         self.binding_store.invalidate_revision(self.world_revision)
         self.evidence_store.replace_action_catalog(self.action_catalog, self.world_revision)
         self.task_progress.record("environment_action")
+        validator_snapshot = self.harness.validator_channel().snapshot()
+        facts = normalized_facts(validator_snapshot).values()
+        occurrence_id = str(record.get("occurrence_id") or self.active_occurrence_id)
+        state = self.occurrence_evidence.get(occurrence_id)
+        if state is not None:
+            state.reconcile(
+                validator_snapshot,
+                revision=self.world_revision,
+                accepted=bool(result.accepted),
+            )
+            if bool(result.accepted):
+                self.trace_builder.trace.metadata.setdefault(
+                    "atomic_evidence_snapshots", []
+                ).append({
+                    "revision": int(self.world_revision),
+                    **state.full_state(),
+                })
+        self.exploration_memory.record_action(
+            record,
+            metadata=getattr(result, "metadata", {}) or {},
+            catalog=self.action_catalog,
+            revision=self.world_revision,
+            current_facts=facts,
+        )
+        if bool(result.accepted) and self._after_action_refresh is not None:
+            self._after_action_refresh()
 
-    def relevant_history(self, occurrence_id: str) -> list[dict[str, Any]]:
-        return [item for item in self.action_history if item.get("occurrence_id") in {"", occurrence_id}]
+    def relevant_history(
+        self,
+        occurrence_id: str,
+        *,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Return the frozen recent window; the complete history stays in Trace."""
+
+        values = [
+            item
+            for item in self.action_history
+            if bool(item.get("accepted"))
+            and (
+                not occurrence_id
+                or item.get("occurrence_id") in {"", occurrence_id}
+            )
+        ]
+        return values[-max(0, int(limit)):] if limit else []
 
     def plan_boundary_reached(self) -> bool:
         return (

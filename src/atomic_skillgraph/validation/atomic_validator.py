@@ -65,6 +65,7 @@ class AtomicValidator:
         preferred_values: list[Any],
         preferred_bindings: Mapping[str, Any] | None = None,
         current_revision: int,
+        authoritative_evidence_facts: list[dict[str, Any]] | None = None,
     ) -> AtomicEffectResolution:
         """Resolve current action facts, then run the ordinary Atomic validator."""
 
@@ -126,6 +127,9 @@ class AtomicValidator:
             # current accepted-action-derived facts and must never turn it into
             # a synthetic fact or a replacement for a hard semantic anchor.
             "preferred_bindings": claims,
+            "authoritative_evidence_facts": list(
+                authoritative_evidence_facts or []
+            ),
             "current_revision": current_revision,
         })
         if not resolution.passed:

@@ -68,7 +68,13 @@ class GroundingEvidenceStore:
         for evidence in self._evidence.values():
             if evidence.invalidated_at_revision is not None:
                 continue
-            if evidence.stability is EvidenceStability.REVISION_SCOPED and evidence.observed_at_revision <= old_revision:
+            if (
+                evidence.stability in {
+                    EvidenceStability.REVISION_SCOPED,
+                    EvidenceStability.STATE_SCOPED,
+                }
+                and evidence.observed_at_revision <= old_revision
+            ):
                 evidence.invalidated_at_revision = new_revision
                 if self._on_change:
                     self._on_change("invalidate", evidence, new_revision)

@@ -456,6 +456,20 @@ class AlfWorldValidatorChannel:
             ).items()
             if value not in (None, "")
         }
+        authoritative_fact_keys = {
+            (
+                str(item.get("predicate", "")),
+                tuple(sorted(
+                    (str(role), str(value))
+                    for role, value in dict(item.get("args") or {}).items()
+                )),
+            )
+            for item in list(
+                request.get("authoritative_evidence_facts") or []
+            )
+            if isinstance(item, Mapping)
+            and str(item.get("predicate", ""))
+        }
         input_specs = list(request.get("input_specs") or [])
         output_specs = list(request.get("output_specs") or [])
         output_identity = list(request.get("output_identity") or [])
@@ -604,6 +618,13 @@ class AlfWorldValidatorChannel:
             filtered: list[tuple[dict[str, Any], dict[str, Any], str]] = []
             for assignment, actual_args, witness in raw_candidates:
                 allowed = True
+                occurrence_authoritative = (
+                    predicate,
+                    tuple(sorted(
+                        (str(role), str(value))
+                        for role, value in actual_args.items()
+                    )),
+                ) in authoritative_fact_keys
                 for role, value in assignment.items():
                     if role in known or role in anchors:
                         continue
@@ -631,7 +652,11 @@ class AlfWorldValidatorChannel:
                         len(candidate_values.get(role, set())) == 1
                         and other_arguments_anchored
                     )
-                    if not preferred_match and not uniquely_constrained:
+                    if (
+                        not preferred_match
+                        and not occurrence_authoritative
+                        and not uniquely_constrained
+                    ):
                         allowed = False
                         break
                 if allowed:

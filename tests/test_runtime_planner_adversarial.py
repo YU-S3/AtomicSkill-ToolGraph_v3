@@ -669,7 +669,7 @@ def test_dynamic_tool_result_carries_the_new_action_catalog(tmp_path: Path) -> N
         initial_policy = json.loads(
             initial_prompt.split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1]
         )
-        assert initial_policy["task_progress"]["targets"][0][
+        assert initial_policy["current_state_snapshot"]["task_progress"]["targets"][0][
             "satisfied_count"
         ] == 0
         assert first_result["task_progress"]["targets"][0][

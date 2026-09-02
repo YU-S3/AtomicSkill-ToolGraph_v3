@@ -30,6 +30,7 @@ from .usage import AgentBudget, BudgetTracker, LLMUsage, UsageBucket, UsageLedge
 
 PROTOCOL_REPAIR_LIMIT = 1
 _POLICY_CONTEXT_SEPARATOR = "\n\nPOLICY_CONTEXT_JSON\n"
+_RUNTIME_REPLAY_ACTION_WINDOW = 5
 
 
 def structured_provider_turn_cap(semantic_max_turns: int) -> int:
@@ -105,6 +106,8 @@ class ReplayAgentSession:
         self._replay_initial_catalog_compacted = False
         self._replay_full_catalog_count_at_last_request = 0
         self._replay_history_action_count = 0
+        self._replay_action_window_compaction_count = 0
+        self._replay_pruned_action_count = 0
         self._protocol_failures: list[ProtocolFailureRecord] = []
         self._terminal_protocol_failure: AgentProtocolError | None = None
         self._finalized = False
@@ -238,7 +241,7 @@ class ReplayAgentSession:
             raise TypeError("tool result must be a JSON object")
         try:
             encoded_result = json.dumps(
-                result, ensure_ascii=False, sort_keys=True,
+                result, ensure_ascii=False, sort_keys=False,
                 separators=(",", ":"), allow_nan=False,
             )
         except (TypeError, ValueError) as exc:
@@ -271,6 +274,11 @@ class ReplayAgentSession:
                     self._replay_full_catalog_count_at_last_request
                 ),
                 "replay_history_action_count": self._replay_history_action_count,
+                "replay_action_window_size": _RUNTIME_REPLAY_ACTION_WINDOW,
+                "replay_action_window_compaction_count": (
+                    self._replay_action_window_compaction_count
+                ),
+                "replay_pruned_action_count": self._replay_pruned_action_count,
                 "semantic_budget": (
                     None
                     if self._semantic_max_turns is None
@@ -312,6 +320,7 @@ class ReplayAgentSession:
         while True:
             self._check_budget_before_call()
             self._compact_superseded_action_catalogs()
+            self._compact_runtime_action_history()
             accepted_candidate: AgentTurn | None = None
             try:
                 set_context = getattr(self._provider, "set_request_context", None)
@@ -520,6 +529,7 @@ class ReplayAgentSession:
                 for history_key in (
                     "relevant_action_history",
                     "relevant_real_action_history",
+                    "recent_accepted_actions",
                 ):
                     history = payload.get(history_key)
                     if isinstance(history, list):
@@ -596,7 +606,7 @@ class ReplayAgentSession:
             self._messages[index]["content"] = json.dumps(
                 payload,
                 ensure_ascii=False,
-                sort_keys=True,
+                sort_keys=False,
                 separators=(",", ":"),
                 allow_nan=False,
             )
@@ -615,7 +625,7 @@ class ReplayAgentSession:
                     self._messages[index]["content"] = json.dumps(
                         payload,
                         ensure_ascii=False,
-                        sort_keys=True,
+                        sort_keys=False,
                         separators=(",", ":"),
                         allow_nan=False,
                     )
@@ -636,13 +646,140 @@ class ReplayAgentSession:
                 self._messages[index]["content"] = json.dumps(
                     payload,
                     ensure_ascii=False,
-                    sort_keys=True,
+                    sort_keys=False,
                     separators=(",", ":"),
                     allow_nan=False,
                 )
             self._context_compaction_count += 1
         self._replay_full_catalog_count_at_last_request = min(1, len(catalogs))
         self._replay_history_action_count = history_action_count
+
+    def _compact_runtime_action_history(self) -> None:
+        """Replay only the five most recent accepted environment actions.
+
+        Compaction runs only at a provider-request boundary, after the previous
+        ToolCall has received its Tool result.  Complete, older Assistant
+        ToolCall/Tool-result pairs may therefore be removed without breaking
+        DeepSeek replay.  Retained Assistant envelopes are never rewritten, so
+        their provider-private ``reasoning_content`` stays byte-for-byte intact.
+
+        Rejected calls are deliberately not classified as accepted action
+        memory.  In particular, a rejected multiple-ToolCall turn remains a
+        protocol record and is never converted into an executable action here.
+        """
+
+        if not self._usage_bucket.value.startswith("runtime_"):
+            self._replay_history_action_count = 0
+            return
+        # This is defensive: normal request flow has already acknowledged the
+        # pending call.  Never compact across an unacknowledged provider call.
+        if self._pending_call is not None:
+            return
+
+        accepted_pairs: list[tuple[int, int]] = []
+        for assistant_index in range(len(self._messages) - 1):
+            call_id = _single_environment_action_call_id(
+                self._messages[assistant_index]
+            )
+            if call_id is None:
+                continue
+            tool_index = assistant_index + 1
+            if _is_accepted_environment_tool_result(
+                self._messages[tool_index], call_id=call_id,
+            ):
+                accepted_pairs.append((assistant_index, tool_index))
+
+        obsolete_pairs = accepted_pairs[:-_RUNTIME_REPLAY_ACTION_WINDOW]
+        if obsolete_pairs:
+            obsolete_indices = {
+                index for pair in obsolete_pairs for index in pair
+            }
+            self._messages = [
+                message
+                for index, message in enumerate(self._messages)
+                if index not in obsolete_indices
+            ]
+
+        retained_pair_count = min(
+            _RUNTIME_REPLAY_ACTION_WINDOW, len(accepted_pairs),
+        )
+        initial_history_slots = max(
+            0, _RUNTIME_REPLAY_ACTION_WINDOW - retained_pair_count,
+        )
+        retained_initial_count, pruned_initial_count = (
+            self._compact_initial_runtime_history(initial_history_slots)
+        )
+        pruned_pair_count = len(obsolete_pairs)
+        if pruned_pair_count or pruned_initial_count:
+            self._replay_action_window_compaction_count += 1
+            self._replay_pruned_action_count += (
+                pruned_pair_count + pruned_initial_count
+            )
+        self._replay_history_action_count = (
+            retained_pair_count + retained_initial_count
+        )
+
+    def _compact_initial_runtime_history(self, limit: int) -> tuple[int, int]:
+        """Trim client-authored initial history across Runtime policy prompts."""
+
+        locations: list[dict[str, Any]] = []
+        flattened: list[tuple[int, int]] = []
+        explicitly_rejected = 0
+        for message_index, message in enumerate(self._messages):
+            if message.get("role") != "user":
+                continue
+            decoded = _decode_policy_context(str(message.get("content", "")))
+            if decoded is None:
+                continue
+            prefix, payload = decoded
+            for history_key in (
+                "relevant_action_history",
+                "relevant_real_action_history",
+                "recent_accepted_actions",
+            ):
+                history = payload.get(history_key)
+                if not isinstance(history, list):
+                    continue
+                accepted_history: list[Any] = []
+                for item in history:
+                    if isinstance(item, dict) and item.get("accepted") is False:
+                        explicitly_rejected += 1
+                        continue
+                    accepted_history.append(item)
+                location_index = len(locations)
+                locations.append({
+                    "message_index": message_index,
+                    "prefix": prefix,
+                    "payload": payload,
+                    "history_key": history_key,
+                    "history": accepted_history,
+                    "original_count": len(history),
+                })
+                flattened.extend(
+                    (location_index, item_index)
+                    for item_index in range(len(accepted_history))
+                )
+
+        keep = set(flattened[-limit:] if limit else ())
+        retained = 0
+        pruned = explicitly_rejected
+        for location_index, location in enumerate(locations):
+            history = location["history"]
+            compacted = [
+                item
+                for item_index, item in enumerate(history)
+                if (location_index, item_index) in keep
+            ]
+            retained += len(compacted)
+            pruned += len(history) - len(compacted)
+            if len(compacted) == int(location["original_count"]):
+                continue
+            payload = location["payload"]
+            payload[str(location["history_key"])] = compacted
+            self._messages[int(location["message_index"])]["content"] = (
+                _encode_policy_context(str(location["prefix"]), payload)
+            )
+        return retained, pruned
 
     def _ensure_live(self) -> None:
         if self._finalized:
@@ -679,7 +816,7 @@ def _encode_policy_context(prefix: str, payload: dict[str, Any]) -> str:
     return prefix + _POLICY_CONTEXT_SEPARATOR + json.dumps(
         payload,
         ensure_ascii=False,
-        sort_keys=True,
+        sort_keys=False,
         separators=(",", ":"),
         allow_nan=False,
     )
@@ -711,6 +848,46 @@ def _catalog_revision(value: Any, *, fallback: Any = None) -> Any:
 
 def _is_superseded_catalog_marker(value: Any) -> bool:
     return isinstance(value, dict) and value.get("status") == "superseded"
+
+
+def _single_environment_action_call_id(message: AgentMessage) -> str | None:
+    """Return one replayed environment-action call id, never a multi-call id."""
+
+    if message.get("role") != "assistant":
+        return None
+    calls = message.get("tool_calls")
+    if not isinstance(calls, list) or len(calls) != 1:
+        return None
+    call = calls[0]
+    if not isinstance(call, dict):
+        return None
+    function = call.get("function")
+    if not isinstance(function, dict) or function.get("name") != "environment_action":
+        return None
+    call_id = call.get("id")
+    return call_id if isinstance(call_id, str) and call_id else None
+
+
+def _is_accepted_environment_tool_result(
+    message: AgentMessage,
+    *,
+    call_id: str,
+) -> bool:
+    if (
+        message.get("role") != "tool"
+        or message.get("tool_call_id") != call_id
+    ):
+        return False
+    try:
+        payload = json.loads(str(message.get("content", "")))
+    except (TypeError, ValueError):
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get("accepted") is True
+        and "observation" in payload
+        and "new_revision" in payload
+    )
 
 
 def _compact_replay_budget(value: Any) -> dict[str, int] | None:

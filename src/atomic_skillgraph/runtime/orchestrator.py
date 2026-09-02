@@ -219,6 +219,7 @@ class RuntimeOrchestrator:
                 atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
                 ctx.binding_store.apply_data_flow(plan, step_id, ctx.validated_outputs, revision=ctx.world_revision)
                 ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
+                ctx.begin_occurrence(occurrence)
                 already = self.node_executor._complete_from_current_effect(
                     occurrence,
                     ctx,
@@ -287,6 +288,13 @@ class RuntimeOrchestrator:
                             "runtime_plan_conflicts", []
                         ).append(dict(ctx.plan_conflict_context))
                         break
+                    if direct.implementation_ref and direct.failure_code:
+                        ctx.record_failed_invocation(
+                            occurrence_id=occurrence.occurrence_id,
+                            implementation_ref=direct.implementation_ref,
+                            failure_code=direct.failure_code,
+                            message=direct.failure_code,
+                        )
                     seeded = self.node_executor.run_seeded_fresh(occurrence, ctx)
                     node.seeded_result = to_primitive(seeded)
                     final = seeded
@@ -606,6 +614,7 @@ class RuntimeOrchestrator:
             occurrence,
             ctx.world_revision,
         )
+        ctx.begin_occurrence(occurrence)
         already = self.node_executor._complete_from_current_effect(
             occurrence,
             ctx,
@@ -674,6 +683,13 @@ class RuntimeOrchestrator:
                     "runtime_plan_conflicts", [],
                 ).append(dict(ctx.plan_conflict_context))
                 return False, "runtime_plan_conflict", "plan_conflict"
+            if direct.implementation_ref and direct.failure_code:
+                ctx.record_failed_invocation(
+                    occurrence_id=occurrence.occurrence_id,
+                    implementation_ref=direct.implementation_ref,
+                    failure_code=direct.failure_code,
+                    message=direct.failure_code,
+                )
             seeded = self.node_executor.run_seeded_fresh(
                 occurrence,
                 ctx,
@@ -836,6 +852,9 @@ class RuntimeOrchestrator:
             step = by_step[step_id]
             occurrence = execution_plan.occurrence(step_id)
             ctx.budget.begin_node(occurrence.occurrence_id)
+            begin_occurrence = getattr(ctx, "begin_occurrence", None)
+            if callable(begin_occurrence):
+                begin_occurrence(occurrence)
             before = ctx.task_progress.record("cold_start_step_start")
             action_start = len(ctx.trace_builder.trace.environment_actions)
             failure_code = ""

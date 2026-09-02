@@ -25,6 +25,14 @@ def _looks_concrete(value: Any) -> bool:
     return bool(isinstance(value, str) and re.search(r"(?:_|\s)\d+$", value.strip()))
 
 
+_SEMANTIC_ANCHOR_SOURCES = frozenset({
+    BindingSource.TASK,
+    BindingSource.RUNTIME_PLAN,
+    BindingSource.DATA_FLOW,
+    BindingSource.REPEAT,
+})
+
+
 @dataclass
 class RepeatBindingState:
     """Effect-committed repetition values for one task only.
@@ -41,6 +49,11 @@ class RepeatBindingState:
 
 class RuntimeBindingStore:
     def __init__(self, *, on_change: Callable[[RuntimeBindingChange], None] | None = None) -> None:
+        # Formal semantic intent and executable concrete state have different
+        # lifetimes.  In particular, replacing an occurrence binding with a
+        # revision-scoped Harness grounding must not erase the Task/plan/
+        # DataFlow/Repeat value that grounding was meant to satisfy.
+        self._semantic_anchors: dict[tuple[str, str], RuntimeBinding] = {}
         self._bindings: dict[tuple[str, str], RuntimeBinding] = {}
         self._outputs: dict[tuple[str, str], RuntimeBinding] = {}
         self._proposals: dict[tuple[str, str], RuntimeBinding] = {}
@@ -144,12 +157,12 @@ class RuntimeBindingStore:
         }
         return constraint, repeat_index, projected, missing
 
-    def preflight_repeat_bindings(
+    def _evaluate_repeat_bindings(
         self,
         step_id: str,
         values: dict[str, Any],
     ) -> ValidationResult:
-        """Check proposed concrete values against earlier effect commits."""
+        """Purely compare values with effect-committed Repeat identities."""
 
         constraint, repeat_index, projected, _ = self._repeat_values(
             step_id,
@@ -206,6 +219,30 @@ class RuntimeBindingStore:
             repeat_distinct_values_valid=True,
             repeat_shared_values_valid=True,
         )
+
+    def repeat_candidate_compatible(
+        self,
+        step_id: str,
+        values: dict[str, Any],
+    ) -> bool:
+        """Return whether a Grounding candidate satisfies Repeat relations.
+
+        This is a read-only relation query for state projection.  It is kept
+        separate from the execution preflight so an exploratory action never
+        crosses the R2.1 completion-attempt boundary merely because R3
+        refreshes its Grounding Status.
+        """
+
+        return self._evaluate_repeat_bindings(step_id, values).passed
+
+    def preflight_repeat_bindings(
+        self,
+        step_id: str,
+        values: dict[str, Any],
+    ) -> ValidationResult:
+        """Check a completion attempt against earlier effect commits."""
+
+        return self._evaluate_repeat_bindings(step_id, values)
 
     def commit_repeat_bindings(
         self,
@@ -264,20 +301,124 @@ class RuntimeBindingStore:
             )[index] = value
         for key, value in shared_updates:
             self.repeat_state.committed_shared_values.setdefault(key, value)
+        self._project_repeat_anchors(
+            constraint,
+            repeat_index,
+            step_id,
+            projected,
+        )
         return ValidationResult.ok(
             "runtime_repeat",
             repeat_effect_values_committed=True,
         )
+
+    def _project_repeat_anchors(
+        self,
+        constraint: RuntimeRepeatConstraint,
+        repeat_index: int,
+        source_step: str,
+        projected: dict[str, Any],
+    ) -> None:
+        """Project effect-committed Repeat identity into its formal scope.
+
+        A distinct role is stable only within its own iteration, while a
+        shared role is stable across every iteration in the block.  These are
+        semantic constraints for retries and later nodes; they are not fresh
+        concrete-environment evidence and therefore never enter ``_bindings``.
+        """
+
+        source_owner = self._step_to_occurrence.get(source_step, source_step)
+        source_roles = constraint.step_role_bindings.get(source_step, {})
+        for block_role, value in projected.items():
+            if block_role in constraint.shared_roles:
+                target_steps = (
+                    target_step
+                    for iteration in constraint.iteration_steps
+                    for target_step in iteration
+                )
+                scope = "shared"
+            elif block_role in constraint.distinct_roles:
+                target_steps = iter(constraint.iteration_steps[repeat_index])
+                scope = str(repeat_index)
+            else:
+                continue
+
+            source_atomic_role = source_roles.get(block_role, "")
+            source_binding = self._bindings.get(
+                (source_owner, source_atomic_role),
+            )
+            for target_step in target_steps:
+                target_role = constraint.step_role_bindings.get(
+                    target_step, {},
+                ).get(block_role)
+                if not target_role:
+                    continue
+                target_owner = self._step_to_occurrence.get(
+                    target_step, target_step,
+                )
+                previous = self._semantic_anchors.get(
+                    (target_owner, target_role),
+                )
+                semantic_type = (
+                    previous.semantic_type
+                    if previous is not None
+                    else source_binding.semantic_type
+                    if source_binding is not None
+                    else "entity"
+                )
+                revision = (
+                    source_binding.world_revision
+                    if source_binding is not None
+                    else previous.world_revision
+                    if previous is not None
+                    else 0
+                )
+                self._set_semantic_anchor(
+                    target_owner,
+                    RuntimeBinding(
+                        role=target_role,
+                        value=copy.deepcopy(value),
+                        semantic_type=semantic_type,
+                        source=BindingSource.REPEAT,
+                        status=BindingStatus.GROUNDED,
+                        resolution=BindingResolution.SEMANTIC,
+                        evidence_refs=[
+                            f"repeat:{constraint.block_id}:"
+                            f"{block_role}:{scope}"
+                        ],
+                        world_revision=revision,
+                    ),
+                    replace=True,
+                )
 
     def register_transform(self, transform_id: str, function: Callable[[Any], Any]) -> None:
         if not transform_id or transform_id in self._transforms:
             raise ValueError(f"invalid or duplicate transform: {transform_id!r}")
         self._transforms[transform_id] = function
 
+    def _set_semantic_anchor(
+        self,
+        occurrence_id: str,
+        binding: RuntimeBinding,
+        *,
+        replace: bool = False,
+    ) -> None:
+        if (
+            binding.status is not BindingStatus.GROUNDED
+            or binding.source not in _SEMANTIC_ANCHOR_SOURCES
+        ):
+            return
+        key = (occurrence_id, binding.role)
+        if replace or key not in self._semantic_anchors:
+            # Keep a separate object so later concrete-state changes cannot
+            # mutate the stable formal layer by aliasing.
+            self._semantic_anchors[key] = copy.deepcopy(binding)
+
     def _set(self, occurrence_id: str, binding: RuntimeBinding, reason: str) -> None:
         key = (occurrence_id, binding.role)
         previous = self._bindings.get(key)
         self._bindings[key] = binding
+        self._set_semantic_anchor(occurrence_id, binding)
         if self._on_change:
             self._on_change(RuntimeBindingChange(
                 occurrence_id, binding.role, asdict(previous) if previous else None,
@@ -327,9 +468,15 @@ class RuntimeBindingStore:
                     )
             if source is None:
                 continue
+            current_resolution = (
+                source.resolution
+                if source.world_revision == revision
+                else BindingResolution.SEMANTIC
+            )
             self._set(current.occurrence_id, RuntimeBinding(
                 edge.target_role, source.value, source.semantic_type, BindingSource.DATA_FLOW,
-                BindingStatus.GROUNDED, source.resolution, list(source.evidence_refs) + [edge.edge_id], revision,
+                BindingStatus.GROUNDED, current_resolution,
+                list(source.evidence_refs) + [edge.edge_id], revision,
             ), "data_flow")
 
     def resolve_expression(
@@ -340,18 +487,20 @@ class RuntimeBindingStore:
         if expression.kind is BindingExprKind.CONSTANT:
             return RuntimeBinding(
                 role="", value=expression.constant, semantic_type=type(expression.constant).__name__,
-                source=BindingSource.TASK, status=BindingStatus.GROUNDED,
+                source=BindingSource.RUNTIME_PLAN, status=BindingStatus.GROUNDED,
                 resolution=BindingResolution.CONCRETE, evidence_refs=["constant"], world_revision=0,
             )
         if expression.kind is BindingExprKind.SKILL_INPUT:
-            binding = self._bindings.get((occurrence_id, expression.source_role)) or self._bindings.get(("__task__", expression.source_role))
+            binding = self._semantic_anchors.get(
+                (occurrence_id, expression.source_role),
+            ) or self._semantic_anchors.get(
+                ("__task__", expression.source_role),
+            )
         elif expression.kind is BindingExprKind.DATA_FLOW:
             source_owner = self._step_to_occurrence.get(
                 expression.source_step, expression.source_step
             )
             binding = self._outputs.get((source_owner, expression.source_role))
-            if binding is None:
-                binding = self._bindings.get((source_owner, expression.source_role))
         elif expression.kind is BindingExprKind.TOOL_OUTPUT:
             value = (tool_outputs or {}).get((expression.source_step, expression.source_role))
             binding = None if value is None else RuntimeBinding(
@@ -360,12 +509,16 @@ class RuntimeBindingStore:
                 [f"tool_output:{expression.source_step}:{expression.source_role}"], 0,
             )
         elif expression.kind is BindingExprKind.ADAPTER_TRANSFORM:
-            source = self._bindings.get((occurrence_id, expression.source_role)) or self._bindings.get(("__task__", expression.source_role))
+            source = self._semantic_anchors.get(
+                (occurrence_id, expression.source_role),
+            ) or self._semantic_anchors.get(
+                ("__task__", expression.source_role),
+            )
             if source is None or expression.transform_id not in self._transforms:
                 return None
             binding = RuntimeBinding(
                 expression.source_role, self._transforms[expression.transform_id](source.value), source.semantic_type,
-                source.source, source.status, source.resolution,
+                BindingSource.RUNTIME_PLAN, source.status, source.resolution,
                 list(source.evidence_refs) + [f"transform:{expression.transform_id}"], source.world_revision,
             )
         else:
@@ -373,19 +526,34 @@ class RuntimeBindingStore:
         return binding
 
     def resolve_occurrence_specs(self, occurrence: RuntimeOccurrence, revision: int) -> None:
+        repeat_owner = self._repeat_step_owner.get(occurrence.step_id)
+        repeat_roles = set(
+            repeat_owner[0].step_role_bindings.get(
+                occurrence.step_id, {},
+            ).values()
+        ) if repeat_owner is not None else set()
         for role, raw_expression in occurrence.binding_specs.items():
             expression = BindingExpression.from_dict(raw_expression)
             binding = self.resolve_expression(occurrence.occurrence_id, expression)
             if binding is None:
                 continue
-            source = (
-                BindingSource.DATA_FLOW
-                if expression.kind is BindingExprKind.DATA_FLOW
-                else binding.source
-            )
+            if role in repeat_roles:
+                source = BindingSource.REPEAT
+            elif expression.kind is BindingExprKind.DATA_FLOW:
+                source = BindingSource.DATA_FLOW
+            else:
+                source = binding.source
+            resolution = binding.resolution
+            if (
+                expression.kind is BindingExprKind.DATA_FLOW
+                and binding.world_revision != revision
+            ):
+                # The publication still supplies stable downstream identity,
+                # but its state-scoped concrete proof is stale in this world.
+                resolution = BindingResolution.SEMANTIC
             self._set(occurrence.occurrence_id, RuntimeBinding(
                 role, binding.value, binding.semantic_type, source,
-                binding.status, binding.resolution, list(binding.evidence_refs), revision,
+                binding.status, resolution, list(binding.evidence_refs), revision,
             ), "binding_expression")
 
     def propose_agent_arguments(
@@ -475,7 +643,16 @@ class RuntimeBindingStore:
 
     def invalidate_revision(self, revision: int) -> None:
         for key, binding in list(self._bindings.items()):
-            if binding.source is BindingSource.HARNESS_EVIDENCE and binding.world_revision < revision:
+            if (
+                binding.source in {
+                    BindingSource.HARNESS_EVIDENCE,
+                    BindingSource.TOOL_OUTPUT,
+                    BindingSource.DATA_FLOW,
+                }
+                and binding.status is BindingStatus.GROUNDED
+                and binding.resolution is not BindingResolution.SEMANTIC
+                and binding.world_revision < revision
+            ):
                 invalid = RuntimeBinding(
                     binding.role, binding.value, binding.semantic_type, binding.source,
                     BindingStatus.INVALIDATED, binding.resolution, list(binding.evidence_refs), revision,
@@ -515,7 +692,8 @@ class RuntimeBindingStore:
 
         occurrence_id = occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
         task_bindings = {
-            role: binding for (owner, role), binding in self._bindings.items()
+            role: binding
+            for (owner, role), binding in self._semantic_anchors.items()
             if owner == "__task__"
         }
         current = self.snapshot_for_node(occurrence_id)
@@ -524,8 +702,9 @@ class RuntimeBindingStore:
             if binding.status is BindingStatus.GROUNDED
         }
         occurrence_anchors = {
-            role: binding.value for role, binding in current.items()
-            if binding.source in {BindingSource.TASK, BindingSource.DATA_FLOW}
+            role: binding.value
+            for (owner, role), binding in self._semantic_anchors.items()
+            if owner == occurrence_id
             and binding.status is BindingStatus.GROUNDED
         }
         execution_ready: dict[str, Any] = {}
@@ -555,15 +734,15 @@ class RuntimeBindingStore:
         occurrence: RuntimeOccurrence | str,
         role: str,
     ) -> RuntimeBinding | None:
-        """Return an explicitly projected Task/DataFlow anchor for one input."""
+        """Return stable formal intent without consulting concrete fallback."""
 
         occurrence_id = (
             occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
         )
-        binding = self._bindings.get((occurrence_id, str(role)))
+        binding = self._semantic_anchors.get((occurrence_id, str(role)))
         if binding is None or binding.status is not BindingStatus.GROUNDED:
             return None
-        if binding.source not in {BindingSource.TASK, BindingSource.DATA_FLOW}:
+        if binding.source not in _SEMANTIC_ANCHOR_SOURCES:
             return None
         return binding
 

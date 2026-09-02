@@ -48,6 +48,10 @@ class AtomicEffectResolutionRequest(TypedDict, total=False):
     ``preferred_bindings`` is an Agent-declared role-to-value preference.  It
     only filters factual candidate assignments; it is not factual authority
     and cannot create facts or override known bindings/semantic anchors.
+
+    ``authoritative_evidence_facts`` contains only still-current facts created
+    or re-established by accepted actions in this occurrence.  It is code
+    authority and is independent of AgentSession/ToolCall boundaries.
     """
 
     atomic_ref: str
@@ -60,6 +64,7 @@ class AtomicEffectResolutionRequest(TypedDict, total=False):
     output_identity: list[dict[str, Any]]
     preferred_values: list[Any]
     preferred_bindings: dict[str, Any]
+    authoritative_evidence_facts: list[dict[str, Any]]
     current_revision: int
 
 

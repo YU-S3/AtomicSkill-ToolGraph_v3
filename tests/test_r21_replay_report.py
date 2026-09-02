@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from atomic_skillgraph.agents import NativeToolSpec, ReplayAgentSession, UsageLedger
+from atomic_skillgraph.agents import (
+    AgentTurn,
+    NativeToolCall,
+    NativeToolSpec,
+    ReplayAgentSession,
+    UsageLedger,
+)
 from experiments.fakes import FakeReply, ScriptedAgentProvider
 from experiments.protocol import ProtocolError, validate_deepseek_formal_llm
 from experiments.report import summarize_traces, trace_to_row
@@ -154,6 +160,209 @@ def test_runtime_replay_compacts_initial_and_old_catalogs_without_touching_assis
     assert snapshot["replay_initial_catalog_compacted"] is True
     assert snapshot["replay_full_catalog_count_at_last_request"] == 1
     assert snapshot["replay_history_action_count"] == 2
+
+
+def test_runtime_replay_keeps_exactly_five_recent_accepted_action_pairs() -> None:
+    provider = ScriptedAgentProvider([
+        FakeReply.tool("environment_action", {"action_id": f"r{i:03d}_a001"})
+        for i in range(7)
+    ])
+    session = ReplayAgentSession(
+        provider,
+        system_prompt="runtime",
+        usage_ledger=UsageLedger(),
+        usage_bucket="runtime_dynamic",
+    )
+    turn = session.next_turn("start", tools=[_action_tool("r000_a001")])
+    for index in range(6):
+        next_action_id = f"r{index + 1:03d}_a001"
+        turn = session.submit_tool_result(
+            turn.tool_calls[0].call_id,
+            {
+                "accepted": True,
+                "observation": f"accepted-{index}",
+                "new_revision": index + 1,
+                "action_catalog": [{
+                    "action_id": next_action_id,
+                    "revision": index + 1,
+                }],
+            },
+            tools=[_action_tool(next_action_id)],
+        )
+
+    replay = provider.requests[6].messages
+    assistants = [message for message in replay if message["role"] == "assistant"]
+    tool_results = [message for message in replay if message["role"] == "tool"]
+    assert len(assistants) == 5
+    assert len(tool_results) == 5
+    assert [
+        json.loads(message["tool_calls"][0]["function"]["arguments"])["action_id"]
+        for message in assistants
+    ] == [f"r{i:03d}_a001" for i in range(1, 6)]
+    assert [json.loads(message["content"])["observation"] for message in tool_results] == [
+        f"accepted-{i}" for i in range(1, 6)
+    ]
+
+    prior_assistants = [
+        message
+        for message in provider.requests[5].messages
+        if message["role"] == "assistant"
+    ]
+    # Retained provider envelopes, including reasoning_content, are untouched.
+    assert assistants[:4] == prior_assistants[1:]
+    snapshot = session.snapshot()
+    assert snapshot["replay_action_window_size"] == 5
+    assert snapshot["replay_action_window_compaction_count"] == 1
+    assert snapshot["replay_pruned_action_count"] == 1
+    assert snapshot["replay_history_action_count"] == 5
+    assert snapshot["pending_tool_call"] == {
+        "call_id": turn.tool_calls[0].call_id,
+        "name": "environment_action",
+        "arguments": {"action_id": "r006_a001"},
+    }
+    assert any(
+        message.get("role") == "assistant"
+        and message.get("tool_calls", [{}])[0].get("id") == turn.tool_calls[0].call_id
+        and message.get("reasoning_content_present") is True
+        for message in snapshot["messages"]
+    )
+
+
+def test_runtime_replay_initial_history_and_new_pairs_share_the_five_action_window() -> None:
+    provider = ScriptedAgentProvider([
+        FakeReply.tool("environment_action", {"action_id": "r000_a001"}),
+        FakeReply.tool("environment_action", {"action_id": "r001_a001"}),
+    ])
+    session = ReplayAgentSession(
+        provider,
+        system_prompt="runtime",
+        usage_ledger=UsageLedger(),
+        usage_bucket="runtime_dynamic",
+    )
+    history = [
+        {
+            "action_type": f"ACTION_{index}",
+            "arguments": {},
+            "observation": f"history-{index}",
+            "accepted": index not in {1, 4},
+        }
+        for index in range(8)
+    ]
+    prompt = "Choose one action." + POLICY_SEPARATOR + json.dumps({
+        "current_action_catalog": [{"action_id": "r000_a001", "revision": 0}],
+        "recent_accepted_actions": history,
+        "remaining_budget": {"remaining_global_actions": 100},
+    })
+    first = session.next_turn(prompt, tools=[_action_tool("r000_a001")])
+    first_history = provider.requests[0].policy_context["recent_accepted_actions"]
+    assert [item["observation"] for item in first_history] == [
+        "history-2", "history-3", "history-5", "history-6", "history-7",
+    ]
+
+    session.submit_tool_result(
+        first.tool_calls[0].call_id,
+        {
+            "accepted": True,
+            "observation": "new accepted action",
+            "new_revision": 1,
+            "action_catalog": [{"action_id": "r001_a001", "revision": 1}],
+        },
+        tools=[_action_tool("r001_a001")],
+    )
+    second_history = provider.requests[1].policy_context["recent_accepted_actions"]
+    assert [item["observation"] for item in second_history] == [
+        "history-3", "history-5", "history-6", "history-7",
+    ]
+    snapshot = session.snapshot()
+    assert snapshot["replay_history_action_count"] == 5
+    assert snapshot["replay_action_window_compaction_count"] == 2
+    assert snapshot["replay_pruned_action_count"] == 4
+
+
+def test_multiple_runtime_tool_calls_are_all_rejected_before_single_call_repair() -> None:
+    def turn(call_ids: list[str]) -> AgentTurn:
+        calls = [
+            NativeToolCall(call_id, "environment_action", {"action_id": "r000_a001"})
+            for call_id in call_ids
+        ]
+        reasoning = "private rejected reasoning" if len(calls) > 1 else "private repair reasoning"
+        return AgentTurn(
+            content="",
+            tool_calls=calls,
+            finish_reason="tool_calls",
+            prompt_tokens=1,
+            completion_tokens=1,
+            total_tokens=2,
+            reasoning_tokens=1,
+            latency_ms=0.0,
+            provider_metadata={"provider": "test"},
+            reasoning_content=reasoning,
+            replay_assistant_message={
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": reasoning,
+                "tool_calls": [
+                    {
+                        "id": call.call_id,
+                        "type": "function",
+                        "function": {
+                            "name": call.name,
+                            "arguments": json.dumps(call.arguments),
+                        },
+                    }
+                    for call in calls
+                ],
+            },
+        )
+
+    class MultipleThenSingleProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(self, _messages, *, tools=None):
+            self.calls += 1
+            return turn(["rejected_a", "rejected_b"] if self.calls == 1 else ["accepted_c"])
+
+        def snapshot(self):
+            return {"provider": "multiple_then_single"}
+
+    session = ReplayAgentSession(
+        MultipleThenSingleProvider(),
+        system_prompt="runtime",
+        usage_ledger=UsageLedger(),
+        usage_bucket="runtime_dynamic",
+    )
+    repaired = session.next_turn("start", tools=[_action_tool("r000_a001")])
+    assert repaired.tool_calls[0].call_id == "accepted_c"
+    snapshot = session.snapshot()
+    rejected_results = [
+        json.loads(message["content"])
+        for message in snapshot["messages"]
+        if message.get("role") == "tool"
+    ]
+    assert rejected_results == [
+        {
+            "accepted": False,
+            "error": "runtime_agent_multiple_tool_calls",
+            "executed": False,
+        },
+        {
+            "accepted": False,
+            "error": "runtime_agent_multiple_tool_calls",
+            "executed": False,
+        },
+    ]
+    assert snapshot["protocol_repairs_used"] == 1
+    assert snapshot["replay_history_action_count"] == 0
+
+
+def test_all_runtime_system_prompts_start_with_single_toolcall_rule() -> None:
+    from atomic_skillgraph.system import _SYSTEM_PROMPTS
+
+    for stage in ("runtime_preparation", "runtime_seeded", "runtime_dynamic"):
+        assert _SYSTEM_PROMPTS[stage].startswith(
+            "Exactly ONE native ToolCall per turn."
+        )
 
 
 def test_r21_formal_runtime_parameters_and_action_budgets_are_frozen() -> None:

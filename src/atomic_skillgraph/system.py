@@ -149,14 +149,17 @@ _SYSTEM_PROMPTS = {
         "an environment action or return a prose/JSON answer outside that ToolCall."
     ),
     "runtime_preparation": (
-        "You are a runtime preparation agent. Use only native tools offered in the current turn. "
-        "Ground missing arguments through current environment evidence, then invoke at most one learned implementation."
+        "Exactly ONE native ToolCall per turn. You are a runtime preparation agent. Use only "
+        "native tools offered in the current turn. Ground missing arguments through current "
+        "environment evidence, then invoke at most one learned implementation."
     ),
     "runtime_seeded": (
-        "You are a fresh seeded runtime agent. Complete only the supplied Atomic contract using current native actions."
+        "Exactly ONE native ToolCall per turn. You are a fresh seeded runtime agent. Complete "
+        "only the supplied Atomic contract using current native actions."
     ),
     "runtime_dynamic": (
-        "You are a fresh full-dynamic task agent. Solve the stated task using exactly one currently offered native action per turn."
+        "Exactly ONE native ToolCall per turn. You are a fresh full-dynamic task agent. Solve "
+        "the stated task using exactly one currently offered native action per turn."
     ),
     "extractor": (
         "You are the AtomicSkillGraph v3 two-turn extractor. Treat the canonical structured trace as authority; "
@@ -321,9 +324,10 @@ class _SessionProxy:
 @dataclass
 class _PreparedEvolution:
     compiled: list[Any]
-    composite: Any
+    composite: Any | None
     gap_diagnosis: dict[str, Any]
     source_composite_ref: str
+    composite_rejection: dict[str, str] | None = None
 
 
 class AtomicSkillGraphSystem:
@@ -1174,16 +1178,32 @@ class AtomicSkillGraphSystem:
             }
             try:
                 prepared = self._prepare_evolution(trace, task)
+                composite_prepared = (
+                    getattr(prepared, "composite", None) is not None
+                )
+                composite_rejection = dict(
+                    getattr(prepared, "composite_rejection", None) or {}
+                )
                 trace.metadata["extraction"] = {
                     **dict(trace.metadata.get("extraction") or {}),
                     "attempted": True,
-                    "stage": "prepared",
+                    "stage": (
+                        "prepared" if composite_prepared
+                        else "atomic_prepared"
+                    ),
                     "prepared": True,
                     "applied": False,
                     "atomic_occurrence_count": len(prepared.compiled),
-                    "error_code": "",
-                    "error_type": "",
-                    "error": "",
+                    "atomic_prepared": bool(prepared.compiled),
+                    "composite_prepared": composite_prepared,
+                    "partial_atomic_admission": not composite_prepared,
+                    "error_code": str(
+                        composite_rejection.get("error_code", "")
+                    ),
+                    "error_type": str(
+                        composite_rejection.get("error_type", "")
+                    ),
+                    "error": str(composite_rejection.get("error", "")),
                 }
             except (AgentProtocolError, ValueError, BudgetExhausted) as exc:
                 # Extractor proposals may be rejected either by the native
@@ -1237,7 +1257,12 @@ class AtomicSkillGraphSystem:
                 source_composite_ref = str(
                     trace.runtime_plan.get("source_composite_ref") or ""
                 )
-                if trace.task_rescue_required and prepared is not None and source_composite_ref:
+                if (
+                    trace.task_rescue_required
+                    and prepared is not None
+                    and getattr(prepared, "composite", None) is not None
+                    and source_composite_ref
+                ):
                     assert self.evolution_maintenance is not None
                     repair_proposals = [
                         self.evolution_maintenance.prepare_validated_composite_repair(
@@ -1321,12 +1346,19 @@ class AtomicSkillGraphSystem:
             elif trace.learning_eligible:
                 if prepared is not None:
                     applied = self._apply_evolution(prepared, trace, task)
+                    composite_applied = bool(applied["composite_validated"])
                     trace.metadata["extraction"] = {
                         **dict(trace.metadata.get("extraction") or {}),
                         "attempted": True,
-                        "stage": "applied",
+                        "stage": (
+                            "applied" if composite_applied
+                            else "atomic_applied"
+                        ),
                         "prepared": True,
                         "applied": True,
+                        "atomic_applied": bool(applied["atomic_refs"]),
+                        "composite_applied": composite_applied,
+                        "partial_atomic_admission": not composite_applied,
                     }
                     trace.metadata["evolution_applied"] = {
                         "atomic_refs": [str(item) for item in applied["atomic_refs"]],
@@ -1334,8 +1366,13 @@ class AtomicSkillGraphSystem:
                             str(item) for item in applied["implementation_refs"]
                         ],
                         "tool_refs": [str(item) for item in applied["tool_refs"]],
-                        "composite_ref": str(applied["composite_ref"]),
-                        "composite_validated": bool(applied["composite_validated"]),
+                        "composite_ref": (
+                            str(applied["composite_ref"])
+                            if applied["composite_ref"] is not None
+                            else ""
+                        ),
+                        "composite_validated": composite_applied,
+                        "partial_atomic_admission": not composite_applied,
                     }
                     self._commit_gap_diagnosis(prepared.gap_diagnosis)
                     if repair_proposals:
@@ -1854,59 +1891,94 @@ class AtomicSkillGraphSystem:
                 "extractor_e1_occurrence_rejected",
                 str(exc),
             ) from exc
+        # Compile and canonicalize each independently validated occurrence
+        # before considering Composite coverage.  A content-invalid occurrence
+        # must not discard unrelated, admission-ready Atomic knowledge from the
+        # same E1 response.
+        provisional: list[CompiledKnowledge] = []
+        for occurrence in canonical:
+            occurrence_stage = "compile"
+            try:
+                compiled_items = self.tool_compiler.compile([occurrence])
+                if len(compiled_items) != 1:
+                    raise RuntimeError(
+                        "one canonical Atomic occurrence must compile to "
+                        "exactly one knowledge bundle"
+                    )
+                item = compiled_items[0]
+                occurrence_stage = "stage"
+                bundle = self.aligner.stage_atomic(
+                    item.atomic,
+                    item.tool,
+                    item.implementation,
+                )
+                assert (
+                    bundle.tool is not None
+                    and bundle.implementation is not None
+                )
+                staged_occurrence = (
+                    self.aligner.atomic_canonicalizer
+                    .rewrite_canonical_occurrence(
+                        item.occurrence,
+                        bundle,
+                        atomic_ref=bundle.atomic.ref,
+                    )
+                )
+            except ValueError as exc:
+                occurrence_rejections.append({
+                    "phase_id": str(occurrence.phase_id),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "stage": occurrence_stage,
+                })
+                continue
+            provisional.append(CompiledKnowledge(
+                staged_occurrence,
+                bundle.atomic,
+                bundle.tool,
+                bundle.implementation,
+            ))
+
+        if not provisional:
+            quality = {
+                "extractor_e1_proposal_count": len(proposals),
+                "extractor_e1_validated_occurrence_count": 0,
+                "extractor_e1_rejection_count": len(occurrence_rejections),
+                "extractor_e1_contract_coverage_passed": False,
+                "known_atomic_contract_payload_count": len(
+                    known_atomic_contracts
+                ),
+            }
+            trace.metadata["extractor_quality"] = quality
+            trace.metadata["extraction_occurrence_rejections"] = (
+                occurrence_rejections
+            )
+            trace.metadata["extraction"] = {
+                **dict(trace.metadata.get("extraction") or {}),
+                "e1_proposed": len(proposals),
+                "e1_validated": 0,
+                "e1_rejected": len(occurrence_rejections),
+                "e1_contract_coverage_passed": False,
+            }
+            raise ExtractionContentError(
+                "e1",
+                "extractor_e1_occurrence_rejected",
+                "Extractor E1 produced no independently compilable Atomic "
+                "occurrences",
+            )
+
         quality = {
             "extractor_e1_proposal_count": len(proposals),
-            "extractor_e1_validated_occurrence_count": len(canonical),
+            "extractor_e1_validated_occurrence_count": len(provisional),
             "extractor_e1_rejection_count": len(occurrence_rejections),
             "known_atomic_contract_payload_count": len(
                 known_atomic_contracts
             ),
         }
         if occurrence_rejections:
-            trace.metadata["extraction_occurrence_rejections"] = occurrence_rejections
-
-        coverage = contract_coverage_report(contract, canonical, matcher)
-        trace.metadata["extractor_contract_coverage"] = to_primitive(
-            coverage
-        )
-        quality["extractor_e1_contract_coverage_passed"] = coverage.passed
-        trace.metadata["extractor_quality"] = quality
-        trace.metadata["extraction"] = {
-            **dict(trace.metadata.get("extraction") or {}),
-            "e1_proposed": len(proposals),
-            "e1_validated": len(canonical),
-            "e1_rejected": len(occurrence_rejections),
-            "e1_contract_coverage_passed": coverage.passed,
-        }
-        if not coverage.passed:
-            raise ExtractionContentError(
-                "e1",
-                "extractor_e1_task_contract_coverage_incomplete",
-                "validated E1 occurrences do not cover the authoritative "
-                "TaskContract: " + ", ".join(coverage.failure_codes),
+            trace.metadata["extraction_occurrence_rejections"] = (
+                occurrence_rejections
             )
-
-        # Compile and canonicalize roles before E2.  Staging is read-only but
-        # resolves the exact persistent Atomic refs that graph evidence uses.
-        provisional: list[CompiledKnowledge] = []
-        for item in self.tool_compiler.compile(canonical):
-            bundle = self.aligner.stage_atomic(
-                item.atomic,
-                item.tool,
-                item.implementation,
-            )
-            assert bundle.tool is not None and bundle.implementation is not None
-            occurrence = self.aligner.atomic_canonicalizer.rewrite_canonical_occurrence(
-                item.occurrence,
-                bundle,
-                atomic_ref=bundle.atomic.ref,
-            )
-            provisional.append(CompiledKnowledge(
-                occurrence,
-                bundle.atomic,
-                bundle.tool,
-                bundle.implementation,
-            ))
 
         # Resolve one label per final staged Atomic ref.  This also makes two
         # alpha-equivalent occurrences in the same batch share a name before
@@ -1944,6 +2016,20 @@ class AtomicSkillGraphSystem:
             for item in provisional
         ]
         staged_occurrences = [item.occurrence for item in staged_compiled]
+        coverage = contract_coverage_report(
+            contract, staged_occurrences, matcher,
+        )
+        trace.metadata["extractor_contract_coverage"] = to_primitive(
+            coverage
+        )
+        quality["extractor_e1_contract_coverage_passed"] = coverage.passed
+        trace.metadata["extraction"] = {
+            **dict(trace.metadata.get("extraction") or {}),
+            "e1_proposed": len(proposals),
+            "e1_validated": len(staged_compiled),
+            "e1_rejected": len(occurrence_rejections),
+            "e1_contract_coverage_passed": coverage.passed,
+        }
         quality.update({
             "portable_intent_pass_count": sum(
                 validate_portability(
@@ -1971,60 +2057,99 @@ class AtomicSkillGraphSystem:
                 for label in labels.values()
             ),
         })
-        trace.metadata["extractor_quality"] = quality
-        existing = self.graph.existing_edges(
-            [str(item.proposed_ref) for item in staged_occurrences],
-            mode=RuntimeMode.ONLINE,
-        )
-        trace.metadata["extraction"] = {
-            **dict(trace.metadata.get("extraction") or {}),
-            "attempted": True,
-            "stage": "e2",
-            "prepared": False,
-            "e2_attempted": True,
-        }
-        quality["extractor_e2_attempted"] = True
-        composite_proposal = extractor.propose_composite(
-            staged_occurrences,
-            existing,
-            contract_matcher=matcher,
-        )
-        quality.update({
-            "extractor_e2_selected_existing_edge_count": len(
-                composite_proposal.existing_edges
-            ),
-            "extractor_e2_selected_new_edge_count": len(
-                composite_proposal.new_edges
-            ),
-        })
-        trace.metadata["extraction"] = {
-            **dict(trace.metadata.get("extraction") or {}),
-            "e2_selected_existing_edges": len(
-                composite_proposal.existing_edges
-            ),
-            "e2_selected_new_edges": len(
-                composite_proposal.new_edges
-            ),
-        }
-        try:
-            composite = self.composite_builder.validate_and_build(
-                composite_proposal,
-                staged_occurrences,
-                contract,
-                existing_edge_evidence=existing,
-                contract_matcher=matcher,
-                task_bindings=dict(
-                    task.context.get("semantic_bindings") or {}
-                ),
-            )
-        except ValueError as exc:
-            raise ExtractionContentError(
-                "e2",
-                "extractor_e2_composite_validation_failed",
-                str(exc),
-            ) from exc
-        trace.metadata["extractor_quality"] = quality
         compiled = staged_compiled
+        composite = None
+        composite_rejection: dict[str, str] | None = None
+        quality["extractor_e2_attempted"] = False
+        if coverage.passed:
+            try:
+                existing = self.graph.existing_edges(
+                    [str(item.proposed_ref) for item in staged_occurrences],
+                    mode=RuntimeMode.ONLINE,
+                )
+                trace.metadata["extraction"] = {
+                    **dict(trace.metadata.get("extraction") or {}),
+                    "attempted": True,
+                    "stage": "e2",
+                    "prepared": False,
+                    "e2_attempted": True,
+                }
+                quality["extractor_e2_attempted"] = True
+                composite_proposal = extractor.propose_composite(
+                    staged_occurrences,
+                    existing,
+                    contract_matcher=matcher,
+                )
+                quality.update({
+                    "extractor_e2_selected_existing_edge_count": len(
+                        composite_proposal.existing_edges
+                    ),
+                    "extractor_e2_selected_new_edge_count": len(
+                        composite_proposal.new_edges
+                    ),
+                })
+                trace.metadata["extraction"] = {
+                    **dict(trace.metadata.get("extraction") or {}),
+                    "e2_selected_existing_edges": len(
+                        composite_proposal.existing_edges
+                    ),
+                    "e2_selected_new_edges": len(
+                        composite_proposal.new_edges
+                    ),
+                }
+                composite = self.composite_builder.validate_and_build(
+                    composite_proposal,
+                    staged_occurrences,
+                    contract,
+                    existing_edge_evidence=existing,
+                    contract_matcher=matcher,
+                    task_bindings=dict(
+                        task.context.get("semantic_bindings") or {}
+                    ),
+                )
+            except (AgentProtocolError, ValueError, BudgetExhausted) as exc:
+                if (
+                    isinstance(exc, BudgetExhausted)
+                    and exc.code != "extractor_token_budget_exhausted"
+                ):
+                    raise
+                stage = str(getattr(exc, "stage", "") or "e2")
+                error_code = str(
+                    getattr(exc, "error_code", "")
+                    or getattr(exc, "code", "")
+                )
+                if error_code == "runtime_agent_schema_error":
+                    error_code = f"extractor_{stage}_schema_rejected"
+                if not error_code:
+                    error_code = "extractor_e2_composite_validation_failed"
+                composite_rejection = {
+                    "stage": stage,
+                    "error_type": type(exc).__name__,
+                    "error_code": error_code,
+                    "error": self._sanitize_failure_message(exc),
+                }
+        else:
+            composite_rejection = {
+                "stage": "e1",
+                "error_type": "ExtractionContentError",
+                "error_code": (
+                    "extractor_e1_task_contract_coverage_incomplete"
+                ),
+                "error": (
+                    "validated E1 occurrences do not cover the authoritative "
+                    "TaskContract: " + ", ".join(coverage.failure_codes)
+                ),
+            }
+            trace.metadata["extraction"] = {
+                **dict(trace.metadata.get("extraction") or {}),
+                "e2_attempted": False,
+            }
+
+        if composite_rejection:
+            trace.metadata["extraction"] = {
+                **dict(trace.metadata.get("extraction") or {}),
+                "composite_rejection": dict(composite_rejection),
+            }
         label_violations = 0
         for item in compiled:
             terms = occurrence_terms(item.occurrence)
@@ -2049,14 +2174,19 @@ class AtomicSkillGraphSystem:
                     ),
                 )
             )
-        label_violations += int(
-            composite.metadata.get(
-                "artifact_label_concrete_term_violation_count", 0,
+        if composite is not None:
+            label_violations += int(
+                composite.metadata.get(
+                    "artifact_label_concrete_term_violation_count", 0,
+                )
             )
-        )
         quality["artifact_label_concrete_term_violation_count"] = (
             label_violations
         )
+        quality["partial_atomic_admission_count"] = (
+            len(compiled) if composite is None else 0
+        )
+        trace.metadata["extractor_quality"] = quality
         diagnosis = self.gap_diagnoser.diagnose(
             trace, [item.atomic for item in compiled],
         )
@@ -2067,6 +2197,7 @@ class AtomicSkillGraphSystem:
             composite,
             diagnosis,
             str(trace.runtime_plan.get("source_composite_ref") or ""),
+            composite_rejection,
         )
 
     def _apply_evolution(
@@ -2198,52 +2329,71 @@ class AtomicSkillGraphSystem:
                 trace.trace_id,
             )
 
-        composite_operation = (
-            self._composite_rescue_operation(
-                prepared.source_composite_ref, prepared.composite,
-            )
-            if prepared.source_composite_ref
-            else ""
-        )
-        composite_refs_before = {
-            str(item) for item in self.skills.list_refs("composite")
-        }
-        composite_ref = self.aligner.align_composite(prepared.composite, by_occurrence)
+        composite_ref = None
         quality.update({
             "atomic_alignment_reuse_count": atomic_reuse_count,
             "atomic_new_contract_count": atomic_new_count,
-            "composite_alignment_reuse_count": int(
-                str(composite_ref) in composite_refs_before
+            "composite_alignment_reuse_count": 0,
+            "partial_atomic_alignment_reuse_count": (
+                atomic_reuse_count if prepared.composite is None else 0
+            ),
+            "partial_atomic_new_contract_count": (
+                atomic_new_count if prepared.composite is None else 0
             ),
         })
-        trace.metadata["extractor_quality"] = quality
-        evidence.record(
-            str(composite_ref),
-            "composite",
-            occurrence_id="composite",
-            passed=True,
-            reason="deterministic_graph_validation_passed",
-            metadata={
-                "component_occurrence_ids": sorted(by_occurrence),
-            },
-        )
-        if prepared.source_composite_ref and str(composite_ref) != prepared.source_composite_ref:
-            self._add_structural_edge(
+        if prepared.composite is not None:
+            composite_operation = (
+                self._composite_rescue_operation(
+                    prepared.source_composite_ref, prepared.composite,
+                )
+                if prepared.source_composite_ref
+                else ""
+            )
+            composite_refs_before = {
+                str(item) for item in self.skills.list_refs("composite")
+            }
+            composite_ref = self.aligner.align_composite(
+                prepared.composite, by_occurrence,
+            )
+            quality["composite_alignment_reuse_count"] = int(
+                str(composite_ref) in composite_refs_before
+            )
+            evidence.record(
                 str(composite_ref),
-                prepared.source_composite_ref,
-                (
-                    GlobalRelationType.DERIVED_FROM
-                    if composite_operation == "revise_composite_sequence"
-                    else GlobalRelationType.ALTERNATIVE
-                ),
-                trace.trace_id,
-                evolution_operation=composite_operation or "task_rescue_revision",
+                "composite",
+                occurrence_id="composite",
+                passed=True,
+                reason="deterministic_graph_validation_passed",
+                metadata={
+                    "component_occurrence_ids": sorted(by_occurrence),
+                },
             )
-        for occurrence_id, atomic_ref in by_occurrence.items():
-            self._add_structural_edge(
-                str(composite_ref), str(atomic_ref), GlobalRelationType.CONTAINS,
-                trace.trace_id, occurrence_id=occurrence_id,
-            )
+            if (
+                prepared.source_composite_ref
+                and str(composite_ref) != prepared.source_composite_ref
+            ):
+                self._add_structural_edge(
+                    str(composite_ref),
+                    prepared.source_composite_ref,
+                    (
+                        GlobalRelationType.DERIVED_FROM
+                        if composite_operation == "revise_composite_sequence"
+                        else GlobalRelationType.ALTERNATIVE
+                    ),
+                    trace.trace_id,
+                    evolution_operation=(
+                        composite_operation or "task_rescue_revision"
+                    ),
+                )
+            for occurrence_id, atomic_ref in by_occurrence.items():
+                self._add_structural_edge(
+                    str(composite_ref),
+                    str(atomic_ref),
+                    GlobalRelationType.CONTAINS,
+                    trace.trace_id,
+                    occurrence_id=occurrence_id,
+                )
+        trace.metadata["extractor_quality"] = quality
 
         attempts = tuple(
             CreditAttempt(
@@ -2272,7 +2422,7 @@ class AtomicSkillGraphSystem:
             "implementation_refs": implementation_refs,
             "tool_refs": tool_refs,
             "composite_ref": composite_ref,
-            "composite_validated": True,
+            "composite_validated": composite_ref is not None,
         }
 
     def _composite_rescue_operation(

@@ -49,6 +49,9 @@ class ContextBuilder:
         remaining_budget: Mapping[str, Any],
         implementation_invocations: Iterable[Any],
         downstream_plan_context: Mapping[str, Any] | None = None,
+        current_state_snapshot: Mapping[str, Any] | None = None,
+        exploration_memory: Mapping[str, Any] | None = None,
+        recent_failed_learned_invocation: Mapping[str, Any] | None = None,
     ) -> str:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
@@ -65,23 +68,42 @@ class ContextBuilder:
             if missing_or_insufficient_bindings is not None
             else list(missing_required_arguments or ())
         )
+        state = dict(current_state_snapshot or {
+            "current_atomic": _project(
+                atomic_contract, _ATOMIC_RUNTIME_FIELDS,
+            ),
+            "semantic_anchors": dict(
+                current_occurrence_semantic_anchors or {}
+            ),
+            "confirmed_bindings": ready,
+            "candidate_bindings": {},
+            "missing_bindings": [str(value) for value in missing],
+            "invalidated_bindings": {},
+            "preconditions": [],
+            "effect_witness_status": {},
+            "learned_invocation_ready": False,
+            "blocking_reasons": [],
+            "downstream_obligations": dict(downstream_plan_context or {}),
+            "remaining_budget": _compact_budget(remaining_budget),
+        })
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
-            "current_atomic_contract": _project(atomic_contract, _ATOMIC_RUNTIME_FIELDS),
-            "task_semantic_context": _policy_value(dict(task_semantic_context or {})),
-            "current_occurrence_semantic_anchors": _policy_value(
-                dict(current_occurrence_semantic_anchors or {})
+            "task_semantic_context": _policy_value(
+                dict(task_semantic_context or {})
             ),
-            "execution_ready_bindings": _policy_value(ready),
-            "missing_or_insufficient_bindings": [str(value) for value in missing],
+            "current_state_snapshot": _policy_value(state),
             "current_observation": _text(observation, "observation"),
             "current_action_catalog": _compact_catalog(action_catalog),
-            "relevant_action_history": _compact_history(relevant_action_history),
-            "remaining_budget": _compact_budget(remaining_budget),
-            "allowed_implementation_invocations": invocations,
-            "downstream_plan_context": _policy_value(
-                dict(downstream_plan_context or {})
+            "exploration_memory": _policy_value(dict(exploration_memory or {})),
+            "recent_accepted_actions": _compact_history(
+                relevant_action_history,
             ),
+            "recent_failed_learned_invocation": _policy_value(
+                dict(recent_failed_learned_invocation)
+                if recent_failed_learned_invocation is not None
+                else None
+            ),
+            "allowed_implementation_invocations": invocations,
         }
         return _render(
             "Prepare and execute only the current Atomic occurrence. Mark each "
@@ -89,16 +111,18 @@ class ContextBuilder:
             "collects public evidence and never commits the current Atomic merely because "
             "its effect happens to be true. Use validate_current_atomic when the current "
             "accepted-action-derived state already proves the Atomic and no new environment "
-            "action is needed. downstream_plan_context describes how current outputs are "
+            "action is needed. current_state_snapshot.downstream_obligations describes how current outputs are "
             "consumed by the already-validated Runtime plan. It is semantic intent, never "
             "current evidence, and you decide which concrete current entities satisfy it. "
             "Use cannot_resolve only when this occurrence may still be valid but public "
-            "evidence is insufficient or search is incomplete. Use plan_conflict only "
+            "evidence is insufficient or search is incomplete. current_state_snapshot is "
+            "the code-authoritative current status; exploration_memory is historical and "
+            "must not be treated as current truth. Use plan_conflict only "
             "when the formal occurrence, a hard semantic anchor, or a downstream obligation "
             "conflicts with public evidence and the same rigid graph cannot solve the task. "
             "Use give_up to terminate this route without asserting such a formal conflict. "
-            "task_semantic_context "
-            "describes the whole-task goal; only current_occurrence_semantic_anchors constrains "
+            "task_semantic_context describes the whole-task goal; only "
+            "current_state_snapshot.semantic_anchors constrains "
             "learned invocation arguments. Stored Atomic summaries and learned-implementation "
             "descriptions are portable semantic guidance, never current bindings or evidence. "
             "Resolve missing unanchored arguments by "
@@ -106,7 +130,7 @@ class ContextBuilder:
             "evidence; do not copy a same-named task field or the task's final destination merely "
             "because its name or type matches. Explore first when the required current relation is "
             "not yet evidenced. This prohibition applies only to roles absent from "
-            "current_occurrence_semantic_anchors. When a role is explicitly anchored there, ground a "
+            "current_state_snapshot.semantic_anchors. When a role is explicitly anchored there, ground a "
             "compatible concrete current entity for that anchor, including when it is the task's final "
             "destination. For a learned invocation, call the exact native-tool name shown in "
             "allowed_implementation_invocations.name; never derive or extend a tool name from an "
@@ -116,6 +140,7 @@ class ContextBuilder:
             "native tools; "
             "never encode an action in prose.",
             payload,
+            sort_keys=False,
         )
 
     def seeded_node(
@@ -133,53 +158,74 @@ class ContextBuilder:
         relevant_action_history: Iterable[Any],
         remaining_budget: Mapping[str, Any],
         downstream_plan_context: Mapping[str, Any] | None = None,
+        current_state_snapshot: Mapping[str, Any] | None = None,
+        exploration_memory: Mapping[str, Any] | None = None,
+        recent_failed_learned_invocation: Mapping[str, Any] | None = None,
     ) -> str:
         ready = (
             dict(execution_ready_bindings)
             if execution_ready_bindings is not None
             else dict(certified_bindings or {})
         )
-        payload = {
-            "task_goal": _text(task_goal, "task_goal"),
-            "current_atomic_contract_and_guideline": _project(
-                atomic_contract, _ATOMIC_SEEDED_FIELDS
+        state = dict(current_state_snapshot or {
+            "current_atomic": _project(
+                atomic_contract, _ATOMIC_SEEDED_FIELDS,
             ),
-            "task_semantic_context": _policy_value(dict(task_semantic_context or {})),
-            "current_occurrence_semantic_anchors": _policy_value(
-                dict(current_occurrence_semantic_anchors or {})
+            "semantic_anchors": dict(
+                current_occurrence_semantic_anchors or {}
             ),
-            "execution_ready_bindings": _policy_value(ready),
-            "missing_or_insufficient_bindings": [
+            "confirmed_bindings": ready,
+            "candidate_bindings": {},
+            "missing_bindings": [
                 str(value) for value in missing_or_insufficient_bindings
             ],
+            "invalidated_bindings": {},
+            "preconditions": [],
+            "effect_witness_status": {},
+            "learned_invocation_ready": False,
+            "blocking_reasons": [],
+            "downstream_obligations": dict(downstream_plan_context or {}),
+            "remaining_budget": _compact_budget(remaining_budget),
+        })
+        payload = {
+            "task_goal": _text(task_goal, "task_goal"),
+            "task_semantic_context": _policy_value(dict(task_semantic_context or {})),
+            "current_state_snapshot": _policy_value(state),
             "current_observation": _text(observation, "observation"),
             "current_action_catalog": _compact_catalog(action_catalog),
-            "relevant_real_action_history": _compact_history(relevant_action_history),
-            "remaining_budget": _compact_budget(remaining_budget),
-            "downstream_plan_context": _policy_value(
-                dict(downstream_plan_context or {})
+            "exploration_memory": _policy_value(dict(exploration_memory or {})),
+            "recent_accepted_actions": _compact_history(
+                relevant_action_history,
+            ),
+            "recent_failed_learned_invocation": _policy_value(
+                dict(recent_failed_learned_invocation)
+                if recent_failed_learned_invocation is not None
+                else None
             ),
         }
         return _render(
             "Solve only the current Atomic occurrence with environment_action and "
             "validate_current_atomic. Mark every environment action as explore or "
             "attempt_current_atomic. Exploration never commits the Atomic merely because "
-            "its effect happens to be true. downstream_plan_context describes how current "
+            "its effect happens to be true. current_state_snapshot.downstream_obligations describes how current "
             "outputs are consumed by the already-validated Runtime plan; use it as semantic "
             "intent, never current evidence, and choose concrete entities yourself. "
             "task_semantic_context describes the whole-task goal; only "
-            "current_occurrence_semantic_anchors constrains this occurrence. Stored Atomic summaries "
+            "current_state_snapshot.semantic_anchors constrains this occurrence. "
+            "current_state_snapshot is current authority; exploration_memory is historical. "
+            "Stored Atomic summaries "
             "and guidelines are portable semantic guidance, never current bindings or evidence. "
             "Resolve missing unanchored arguments by "
             "instantiating that relational intent with task_semantic_context and current environment "
             "evidence; do not copy a same-named task field or the task's final destination merely "
             "because its name or type matches. Explore first when the required current relation is "
             "not yet evidenced. This prohibition applies only to roles absent from "
-            "current_occurrence_semantic_anchors. When a role is explicitly anchored there, ground a "
+            "current_state_snapshot.semantic_anchors. When a role is explicitly anchored there, ground a "
             "compatible concrete current entity for that anchor, including when it is the task's final "
             "destination. This is a fresh Seeded session and contains no failed Tool body or "
             "failed Implementation mapping.",
             payload,
+            sort_keys=False,
         )
 
     def dynamic_task(
@@ -192,14 +238,26 @@ class ContextBuilder:
         remaining_budget: Mapping[str, Any],
         task_progress: Mapping[str, Any] | None = None,
         rescue_method_guidance: Mapping[str, Any] | None = None,
+        exploration_memory: Mapping[str, Any] | None = None,
+        recent_failed_learned_invocation: Mapping[str, Any] | None = None,
     ) -> str:
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
             "current_observation": _text(observation, "observation"),
             "current_action_catalog": _compact_catalog(action_catalog),
-            "relevant_action_history": _compact_history(relevant_action_history),
-            "remaining_budget": _compact_budget(remaining_budget),
-            "task_progress": _policy_value(dict(task_progress or {})),
+            "current_state_snapshot": {
+                "task_progress": _policy_value(dict(task_progress or {})),
+                "remaining_budget": _compact_budget(remaining_budget),
+            },
+            "exploration_memory": _policy_value(dict(exploration_memory or {})),
+            "recent_accepted_actions": _compact_history(
+                relevant_action_history,
+            ),
+            "recent_failed_learned_invocation": _policy_value(
+                dict(recent_failed_learned_invocation)
+                if recent_failed_learned_invocation is not None
+                else None
+            ),
         }
         if rescue_method_guidance is not None:
             payload["rescue_method_guidance"] = _policy_value(
@@ -214,6 +272,7 @@ class ContextBuilder:
             "rescue_method_guidance, when present, is portable non-binding method context and "
             "must not be treated as current evidence or a hard concrete anchor.",
             payload,
+            sort_keys=False,
         )
 
     def planner_requirements(
@@ -425,11 +484,16 @@ Call the offered native submission tool exactly once.""",
         )
 
 
-def _render(instruction: str, payload: dict[str, Any]) -> str:
+def _render(
+    instruction: str,
+    payload: dict[str, Any],
+    *,
+    sort_keys: bool = True,
+) -> str:
     return instruction + "\n\nPOLICY_CONTEXT_JSON\n" + json.dumps(
         payload,
         ensure_ascii=False,
-        sort_keys=True,
+        sort_keys=sort_keys,
         separators=(",", ":"),
         allow_nan=False,
     )
@@ -509,6 +573,8 @@ def _compact_history(values: Iterable[Any]) -> list[dict[str, Any]]:
     history: list[dict[str, Any]] = []
     for value in values:
         mapping = _as_mapping(value)
+        if mapping.get("accepted") is False:
+            continue
         compact = {
             "action_type": str(mapping.get("action_type", "")),
             "arguments": _policy_value(dict(mapping.get("arguments") or {})),
@@ -519,7 +585,7 @@ def _compact_history(values: Iterable[Any]) -> list[dict[str, Any]]:
         if bool(mapping.get("won")):
             compact["won"] = True
         history.append(_policy_value(compact))
-    return history
+    return history[-5:]
 
 
 def _compact_budget(value: Mapping[str, Any]) -> dict[str, int]:

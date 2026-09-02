@@ -296,6 +296,50 @@ def test_atomicizer_action_state_reducer_invalidates_stale_witnesses() -> None:
         )
 
 
+def test_invalid_concrete_argument_rejects_only_its_e1_occurrence() -> None:
+    actions = [
+        _action(0, "TAKE", {
+            "object": "apple_1", "source": "desk_1",
+        }),
+        _action(1, "TAKE", {
+            "object": "book_1", "source": "shelf_1",
+        }, won=True),
+    ]
+    proposals = [
+        _proposal(
+            "valid_take",
+            "take an object from its source",
+            0,
+            {"object": "apple_1", "source": "desk_1"},
+            {"held_object": "apple_1"},
+            SemanticPredicate("agent.holds", {"object": "apple_1"}),
+        ),
+        _proposal(
+            "invalid_take",
+            "take another object without binding its source",
+            1,
+            {"object": "book_1"},
+            {"held_object": "book_1"},
+            SemanticPredicate("agent.holds", {"object": "book_1"}),
+        ),
+    ]
+
+    canonical, rejections = Atomicizer().validate_proposed_subset(
+        proposals,
+        _normalized(
+            actions,
+            target_effects=[SemanticPredicate(
+                "agent.holds", {"object": "apple_1"},
+            )],
+        ),
+    )
+
+    assert [item.phase_id for item in canonical] == ["valid_take"]
+    assert [item["phase_id"] for item in rejections] == ["invalid_take"]
+    assert "lacks one reusable input role" in rejections[0]["error"]
+    assert len(ToolCompiler().compile(canonical)) == 1
+
+
 def _take_canonical():
     effect = SemanticPredicate("agent.holds", {"object": "apple_1"})
     return Atomicizer().validate_and_canonicalize(

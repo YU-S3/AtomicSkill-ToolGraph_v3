@@ -22,11 +22,13 @@ from ..traces.schema import (
 )
 from ..validation.engine import ValidationEngine
 from .implementation_runner import ImplementationRunner
+from .grounding_state import IncrementalGroundingAuthority
 from .invocation_compiler import CompiledInvocation, InvocationCompiler
 from .loop_guard import ActionLoopGuard
 
 
 SessionFactory = Callable[[str, str], Any]
+_ONE_NATIVE_CALL = "Exactly ONE native ToolCall per turn. "
 
 
 class NodeExecutor:
@@ -39,6 +41,9 @@ class NodeExecutor:
         self.session_factory = session_factory
         self.implementation_runner = ImplementationRunner(validation)
         self.context_builder = ContextBuilder()
+        self.grounding_authority = IncrementalGroundingAuthority(
+            invocation_compiler, validation,
+        )
 
     def not_started(self, occurrence: Any, *, failure_code: str) -> ImplementationExecutionResult:
         return ImplementationExecutionResult(
@@ -52,6 +57,9 @@ class NodeExecutor:
     ) -> ImplementationExecutionResult | None:
         if not invocations:
             return self.not_started(occurrence, failure_code="no_compatible_implementation")
+        self._activate_occurrence_state(
+            occurrence, invocations[0].atomic, list(invocations), ctx,
+        )
         preferred = [item for item in invocations if item.implementation.quality.get("preferred")]
         if len(invocations) > 1 and len(preferred) != 1:
             return None
@@ -106,7 +114,10 @@ class NodeExecutor:
             },
         }
         required = ["action_id"]
-        description = "Execute one currently available environment action."
+        description = (
+            _ONE_NATIVE_CALL
+            + "Execute one currently available environment action."
+        )
         if node_level:
             properties["intent"] = {
                 "type": "string",
@@ -132,7 +143,8 @@ class NodeExecutor:
         if allow_plan_conflict:
             statuses.insert(1, "plan_conflict")
         description = (
-            "Explicitly report why the current mode cannot continue. "
+            _ONE_NATIVE_CALL
+            + "Explicitly report why the current mode cannot continue. "
             "cannot_resolve means the current occurrence may still be valid, "
             "but public evidence is insufficient or search is incomplete; "
             "give_up terminates this route without asserting a formal plan conflict."
@@ -222,6 +234,158 @@ class NodeExecutor:
             return {}
 
     @staticmethod
+    def _atomic_policy_contract(atomic: Any) -> dict[str, Any]:
+        primitive = dict(to_primitive(atomic))
+        return {
+            key: primitive[key]
+            for key in (
+                "summary", "inputs", "outputs", "preconditions", "effects",
+            )
+            if key in primitive
+        }
+
+    def _current_state_snapshot(
+        self,
+        occurrence: Any,
+        atomic: Any,
+        ctx: Any,
+        *,
+        plan_context_plan: Any | None = None,
+    ) -> dict[str, Any]:
+        """Build the fixed-order policy projection from code-owned state."""
+
+        state = dict(
+            getattr(ctx, "grounding_state_by_occurrence", {}).get(
+                occurrence.occurrence_id, {}
+            )
+        )
+        downstream = self._downstream_plan_context(
+            ctx, occurrence, plan_context_plan=plan_context_plan,
+        )
+        return {
+            "current_atomic": self._atomic_policy_contract(atomic),
+            "semantic_anchors": dict(state.get("semantic_anchors") or {}),
+            "confirmed_bindings": dict(state.get("confirmed_bindings") or {}),
+            "candidate_bindings": dict(state.get("candidate_bindings") or {}),
+            "missing_bindings": list(state.get("missing_bindings") or []),
+            "invalidated_bindings": dict(
+                state.get("invalidated_bindings") or {}
+            ),
+            "preconditions": list(state.get("precondition_status") or []),
+            "effect_witness_status": dict(
+                state.get("effect_witness_status") or {}
+            ),
+            "learned_invocation_ready": bool(
+                state.get("learned_invocation_ready", False)
+            ),
+            "blocking_reasons": list(state.get("blocking_reasons") or []),
+            "downstream_obligations": downstream,
+            "remaining_budget": self._policy_budget(ctx),
+        }
+
+    def _refresh_occurrence_state(
+        self,
+        occurrence: Any,
+        atomic: Any,
+        invocations: list[CompiledInvocation],
+        ctx: Any,
+        *,
+        plan_context_plan: Any | None = None,
+        allow_auto_confirm: bool = True,
+    ) -> dict[str, Any]:
+        self.grounding_authority.refresh(
+            occurrence,
+            atomic,
+            list(invocations),
+            ctx,
+            allow_auto_confirm=allow_auto_confirm,
+        )
+        return self._current_state_snapshot(
+            occurrence,
+            atomic,
+            ctx,
+            plan_context_plan=plan_context_plan,
+        )
+
+    def _activate_occurrence_state(
+        self,
+        occurrence: Any,
+        atomic: Any,
+        invocations: list[CompiledInvocation],
+        ctx: Any,
+        *,
+        plan_context_plan: Any | None = None,
+    ) -> dict[str, Any]:
+        begin = getattr(ctx, "begin_occurrence", None)
+        if callable(begin):
+            begin(occurrence)
+
+        def refresh() -> None:
+            self._refresh_occurrence_state(
+                occurrence,
+                atomic,
+                list(invocations),
+                ctx,
+                plan_context_plan=plan_context_plan,
+            )
+
+        install = getattr(ctx, "install_after_action_refresh", None)
+        if callable(install):
+            install(refresh)
+        return self._refresh_occurrence_state(
+            occurrence,
+            atomic,
+            list(invocations),
+            ctx,
+            plan_context_plan=plan_context_plan,
+            allow_auto_confirm=False,
+        )
+
+    def _augment_runtime_payload(
+        self,
+        payload: dict[str, Any],
+        ctx: Any,
+        *,
+        occurrence: Any | None = None,
+        atomic: Any | None = None,
+        plan_context_plan: Any | None = None,
+    ) -> dict[str, Any]:
+        if occurrence is not None and atomic is not None:
+            payload["current_state_snapshot"] = self._current_state_snapshot(
+                occurrence,
+                atomic,
+                ctx,
+                plan_context_plan=plan_context_plan,
+            )
+            payload["recent_failed_learned_invocation"] = (
+                dict(ctx.last_failed_invocation)
+                if getattr(ctx, "last_failed_invocation", None)
+                and ctx.last_failed_invocation.get("occurrence_id")
+                == occurrence.occurrence_id
+                else None
+            )
+            occurrence_id = occurrence.occurrence_id
+        else:
+            occurrence_id = ""
+            payload["current_state_snapshot"] = {
+                "task_progress": self._task_progress_policy(ctx),
+                "remaining_budget": self._policy_budget(ctx),
+            }
+            payload["recent_failed_learned_invocation"] = (
+                dict(ctx.last_failed_invocation)
+                if getattr(ctx, "last_failed_invocation", None)
+                else None
+            )
+        memory = getattr(ctx, "exploration_memory", None)
+        payload["exploration_memory"] = (
+            memory.policy_view() if memory is not None else {}
+        )
+        payload["recent_accepted_actions"] = ctx.relevant_history(
+            occurrence_id,
+        ) if hasattr(ctx, "relevant_history") else []
+        return payload
+
+    @staticmethod
     def _rescue_method_guidance(ctx: Any) -> dict[str, Any] | None:
         conflict = dict(getattr(ctx, "plan_conflict_context", {}) or {})
         if not conflict:
@@ -251,7 +415,8 @@ class NodeExecutor:
         return NativeToolSpec(
             "validate_current_atomic",
             (
-                "Ask the Runtime to validate the current public environment "
+                _ONE_NATIVE_CALL
+                + "Ask the Runtime to validate the current public environment "
                 "state as completion of the current Atomic. Candidate bindings "
                 "are Agent preferences only and cannot create facts or override "
                 "formal Task/DataFlow anchors."
@@ -280,7 +445,11 @@ class NodeExecutor:
 
     @staticmethod
     def _invocation_tool(item: CompiledInvocation) -> NativeToolSpec:
-        return NativeToolSpec(item.spec.name, item.spec.description, item.spec.input_schema)
+        return NativeToolSpec(
+            item.spec.name,
+            _ONE_NATIVE_CALL + item.spec.description,
+            item.spec.input_schema,
+        )
 
     def _record_session_start(self, session: Any, session_type: str, occurrence_id: str, ctx: Any) -> AgentSessionRecord:
         import time
@@ -319,6 +488,8 @@ class NodeExecutor:
     def _execute_environment_call(
         self, call: Any, session: Any, occurrence: Any | None, ctx: Any,
         *, span_id: str, origin: str, loop_guard: ActionLoopGuard,
+        atomic: Any | None = None,
+        plan_context_plan: Any | None = None,
     ) -> tuple[dict[str, Any], Any]:
         action_id = str(call.arguments["action_id"])
         spec = next(
@@ -399,7 +570,13 @@ class NodeExecutor:
                         ) - 1,
                     )
                 )
-                return payload, spec
+                return self._augment_runtime_payload(
+                    payload,
+                    ctx,
+                    occurrence=occurrence,
+                    atomic=atomic,
+                    plan_context_plan=plan_context_plan,
+                ), spec
         loop = loop_guard.inspect(
             action_type=spec.action_type,
             arguments=spec.arguments,
@@ -432,7 +609,13 @@ class NodeExecutor:
                     if item.session_id == session.session_id
                 ) - 1,
             ))
-            return payload, spec
+            return self._augment_runtime_payload(
+                payload,
+                ctx,
+                occurrence=occurrence,
+                atomic=atomic,
+                plan_context_plan=plan_context_plan,
+            ), spec
         ctx.budget.consume_action()
         result = ctx.harness.execute_action(action_id, spec.revision)
         record = EnvironmentActionRecord(
@@ -469,7 +652,13 @@ class NodeExecutor:
             }, f"revision:{result.new_revision}",
             sum(1 for item in ctx.trace_builder.trace.agent_turns if item.session_id == session.session_id) - 1,
         ))
-        return payload, spec
+        return self._augment_runtime_payload(
+            payload,
+            ctx,
+            occurrence=occurrence,
+            atomic=atomic,
+            plan_context_plan=plan_context_plan,
+        ), spec
 
     def _complete_from_current_effect(
         self,
@@ -500,6 +689,12 @@ class NodeExecutor:
                 )
             ) is not None
         }
+        try:
+            authoritative_evidence_facts = ctx.atomic_evidence_for(
+                occurrence
+            ).authoritative_facts()
+        except (AttributeError, KeyError):
+            authoritative_evidence_facts = []
         resolution = self.validation.atomic.resolve_current_effect(
             atomic,
             occurrence,
@@ -509,6 +704,7 @@ class NodeExecutor:
             preferred_values=preferred_values,
             preferred_bindings=preferred_bindings,
             current_revision=ctx.world_revision,
+            authoritative_evidence_facts=authoritative_evidence_facts,
         )
         if not resolution.passed:
             if resolution_out is not None:
@@ -595,6 +791,14 @@ class NodeExecutor:
                 to_primitive(resolution),
                 ctx.world_revision,
             ))
+        if hasattr(ctx, "grounding_state_by_occurrence"):
+            self._refresh_occurrence_state(
+                occurrence,
+                atomic,
+                [],
+                ctx,
+                allow_auto_confirm=False,
+            )
         status = (
             NodeExecutionStatus.ALREADY_SATISFIED
             if mode == "entry"
@@ -744,6 +948,13 @@ class NodeExecutor:
             "validation": to_primitive(resolution),
             "new_revision": ctx.world_revision,
         }
+        if effect is not None:
+            self._refresh_occurrence_state(
+                occurrence, atomic, [], ctx,
+            )
+        self._augment_runtime_payload(
+            payload, ctx, occurrence=occurrence, atomic=atomic,
+        )
         self._record_control_call(
             call,
             session,
@@ -782,6 +993,13 @@ class NodeExecutor:
         record = self._record_session_start(session, "RuntimePreparationSession", occurrence.occurrence_id, ctx)
         span = ctx.trace_builder.start_span("runtime_preparation", occurrence.occurrence_id)
         atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
+        current_state = self._activate_occurrence_state(
+            occurrence,
+            atomic,
+            list(invocations),
+            ctx,
+            plan_context_plan=plan_context_plan,
+        )
         prompt_bindings = ctx.binding_store.runtime_prompt_projection(
             occurrence, atomic.inputs,
         )
@@ -797,10 +1015,15 @@ class NodeExecutor:
             observation=ctx.observation,
             action_catalog=ctx.action_catalog, relevant_action_history=ctx.relevant_history(occurrence.occurrence_id),
             remaining_budget=ctx.budget.snapshot(), implementation_invocations=[item.spec for item in invocations],
-            downstream_plan_context=self._downstream_plan_context(
-                ctx,
-                occurrence,
-                plan_context_plan=plan_context_plan,
+            downstream_plan_context=current_state["downstream_obligations"],
+            current_state_snapshot=current_state,
+            exploration_memory=ctx.exploration_memory.policy_view(),
+            recent_failed_learned_invocation=(
+                ctx.last_failed_invocation
+                if ctx.last_failed_invocation
+                and ctx.last_failed_invocation.get("occurrence_id")
+                == occurrence.occurrence_id
+                else None
             ),
         )
         tools = self._node_tools(
@@ -832,6 +1055,8 @@ class NodeExecutor:
                         call, session, occurrence, ctx,
                         span_id=span.span_id, origin="runtime_preparation",
                         loop_guard=loop_guard,
+                        atomic=atomic,
+                        plan_context_plan=plan_context_plan,
                     )
                     if payload.get("loop_blocked"):
                         tools = self._node_tools(
@@ -876,6 +1101,13 @@ class NodeExecutor:
                                 ),
                             )
                         )
+                    self._augment_runtime_payload(
+                        payload,
+                        ctx,
+                        occurrence=occurrence,
+                        atomic=atomic,
+                        plan_context_plan=plan_context_plan,
+                    )
                     tools = self._node_tools(
                         ctx, atomic, invocations=invocations,
                         allow_plan_conflict=True,
@@ -996,7 +1228,20 @@ class NodeExecutor:
                         )
                     )
                     preflight_failures += 1
-                    payload = {"error": preflight.failure_code, "message": preflight.message, "repairable": preflight_failures <= learned_call_repair_limit}
+                    ctx.record_failed_invocation(
+                        occurrence_id=occurrence.occurrence_id,
+                        implementation_ref=str(compiled.implementation.ref),
+                        failure_code=preflight.failure_code,
+                        message=preflight.message,
+                    )
+                    payload = self._augment_runtime_payload({
+                        "error": preflight.failure_code,
+                        "message": preflight.message,
+                        "repairable": (
+                            preflight_failures <= learned_call_repair_limit
+                        ),
+                    }, ctx, occurrence=occurrence, atomic=atomic,
+                        plan_context_plan=plan_context_plan)
                     if preflight_failures > learned_call_repair_limit:
                         self._finalize_tool_result(session, call.call_id, payload, tools)
                         return self.not_started(occurrence, failure_code=preflight.failure_code)
@@ -1029,6 +1274,13 @@ class NodeExecutor:
         record = self._record_session_start(session, "SeededSession", occurrence.occurrence_id, ctx)
         span = ctx.trace_builder.start_span("runtime_seeded", occurrence.occurrence_id)
         atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
+        current_state = self._activate_occurrence_state(
+            occurrence,
+            atomic,
+            [],
+            ctx,
+            plan_context_plan=plan_context_plan,
+        )
         prompt_bindings = ctx.binding_store.runtime_prompt_projection(
             occurrence, atomic.inputs,
         )
@@ -1044,10 +1296,15 @@ class NodeExecutor:
             ],
             observation=ctx.observation, action_catalog=ctx.action_catalog,
             relevant_action_history=ctx.relevant_history(occurrence.occurrence_id), remaining_budget=ctx.budget.snapshot(),
-            downstream_plan_context=self._downstream_plan_context(
-                ctx,
-                occurrence,
-                plan_context_plan=plan_context_plan,
+            downstream_plan_context=current_state["downstream_obligations"],
+            current_state_snapshot=current_state,
+            exploration_memory=ctx.exploration_memory.policy_view(),
+            recent_failed_learned_invocation=(
+                ctx.last_failed_invocation
+                if ctx.last_failed_invocation
+                and ctx.last_failed_invocation.get("occurrence_id")
+                == occurrence.occurrence_id
+                else None
             ),
         )
         tools = self._node_tools(ctx, atomic)
@@ -1088,6 +1345,8 @@ class NodeExecutor:
                     call, session, occurrence, ctx,
                     span_id=span.span_id, origin="runtime_seeded",
                     loop_guard=loop_guard,
+                    atomic=atomic,
+                    plan_context_plan=plan_context_plan,
                 )
                 if payload.get("loop_blocked"):
                     tools = self._node_tools(ctx, atomic)
@@ -1131,6 +1390,13 @@ class NodeExecutor:
                             ),
                         )
                     )
+                self._augment_runtime_payload(
+                    payload,
+                    ctx,
+                    occurrence=occurrence,
+                    atomic=atomic,
+                    plan_context_plan=plan_context_plan,
+                )
                 tools = self._node_tools(ctx, atomic)
                 if effect is not None:
                     self._finalize_tool_result(session, call.call_id, payload, tools)
@@ -1164,6 +1430,9 @@ class NodeExecutor:
         cold_start_continuation: bool = False,
         continuation_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        clear_occurrence = getattr(ctx, "clear_active_occurrence", None)
+        if callable(clear_occurrence):
+            clear_occurrence()
         session_kind = (
             "runtime_dynamic_cold_start_continuation"
             if cold_start_continuation
@@ -1183,10 +1452,24 @@ class NodeExecutor:
             else "task_rescue" if rescue else "full_dynamic"
         )
         span = ctx.trace_builder.start_span(span_kind, "", learnable=True)
+        relevant_history = getattr(ctx, "relevant_history", None)
+        recent_actions = (
+            relevant_history("")
+            if callable(relevant_history)
+            else [
+                item for item in list(getattr(ctx, "action_history", []))
+                if item.get("accepted") is not False
+            ][-5:]
+        )
+        memory = getattr(ctx, "exploration_memory", None)
         prompt = self.context_builder.dynamic_task(
             task_goal=ctx.task_goal, observation=ctx.observation, action_catalog=ctx.action_catalog,
-            relevant_action_history=ctx.action_history, remaining_budget=ctx.budget.snapshot(),
+            relevant_action_history=recent_actions, remaining_budget=ctx.budget.snapshot(),
             task_progress=self._task_progress_policy(ctx),
+            exploration_memory=(memory.policy_view() if memory else {}),
+            recent_failed_learned_invocation=getattr(
+                ctx, "last_failed_invocation", None,
+            ),
             rescue_method_guidance=(
                 self._rescue_method_guidance(ctx) if rescue else None
             ),

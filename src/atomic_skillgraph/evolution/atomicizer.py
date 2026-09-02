@@ -337,9 +337,9 @@ class Atomicizer:
 
         A semantically invalid exploration proposal must not discard unrelated,
         code-validated causal occurrences from the same E1 submission.  The
-        accepted proposals remain exactly Agent-proposed, and the later E2
-        TaskContract/data-flow validator still fails closed if that subset is
-        incomplete.
+        accepted proposals remain exactly Agent-proposed.  Composite admission
+        later remains fail-closed when the accepted subset cannot cover the
+        TaskContract.
         """
 
         accepted: list[AtomicOccurrenceProposal] = []
@@ -458,6 +458,27 @@ class Atomicizer:
                 unused_witnesses.difference_update(selected_witnesses)
             if not proposal.effects or not effect_witness_indexes:
                 raise ValueError(f"Atomic effect lacks accepted state/validator witness: {proposal.phase_id}")
+
+            # A validated occurrence must also be independently compilable.
+            # Episode-local entity instances cannot become constants in a
+            # reusable Tool, so every such accepted action argument must be
+            # owned by exactly one explicit Atomic input role.  Checking this
+            # inside the per-proposal validation boundary prevents one bad E1
+            # occurrence from failing compilation for all otherwise valid
+            # occurrences in the same extraction.
+            input_values = list(inputs.values())
+            for event in selected:
+                for argument, value in dict(event.get("arguments") or {}).items():
+                    if not (
+                        isinstance(value, str)
+                        and re.search(r"(?:_|\s)\d+$", value)
+                    ):
+                        continue
+                    if input_values.count(value) != 1:
+                        raise ValueError(
+                            "Atomic concrete action argument lacks one reusable "
+                            f"input role: {proposal.phase_id}.{argument}={value}"
+                        )
 
             validation_refs: list[str] = []
             after_revision = int(selected[-1].get("after_revision", 0))

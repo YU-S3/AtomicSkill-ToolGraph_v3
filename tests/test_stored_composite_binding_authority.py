@@ -1005,8 +1005,12 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
     )
     payload = json.loads(first_prompt.split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1])
     assert payload["task_semantic_context"]["destination"] == "desk"
-    assert "destination" not in payload["current_occurrence_semantic_anchors"]
-    obligation = payload["downstream_plan_context"]["output_obligations"][0]
+    assert "destination" not in payload["current_state_snapshot"][
+        "semantic_anchors"
+    ]
+    obligation = payload["current_state_snapshot"][
+        "downstream_obligations"
+    ]["output_obligations"][0]
     assert obligation["producer_output_role"] == "reached_location"
     assert obligation["consumer_input_role"] == "source"
     assert obligation["consumer_known_semantic_anchors"]["object"][

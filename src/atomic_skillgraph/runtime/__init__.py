@@ -6,14 +6,18 @@ from .budget import (
 )
 from .loop_guard import ActionLoopGuard
 from .evidence_store import GroundingEvidenceStore
+from .grounding_state import IncrementalGroundingAuthority
 from .plan_context import (
     RuntimeConsumerObligation, RuntimePlanContextBuilder,
     RuntimePlanPolicyContext,
 )
 from .task_context import TaskRuntimeContext
+from .state import ExplorationMemory, OccurrenceAtomicEvidenceState
 
 __all__ = [
-    "ActionLoopGuard", "GroundingEvidenceStore", "RuntimeBindingStore",
+    "ActionLoopGuard", "ExplorationMemory", "GroundingEvidenceStore",
+    "IncrementalGroundingAuthority", "OccurrenceAtomicEvidenceState",
+    "RuntimeBindingStore",
     "RuntimeBudget", "RuntimeConsumerObligation", "RuntimePlanContextBuilder",
     "RuntimePlanPolicyContext", "TaskRuntimeContext",
     "required_runtime_turn_caps", "validate_runtime_turn_caps",

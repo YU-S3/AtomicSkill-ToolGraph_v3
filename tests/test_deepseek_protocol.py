@@ -680,7 +680,8 @@ def test_context_builder_separates_grounding_authorities() -> None:
     assert payload["task_semantic_context"] == {
         "object": "apple", "destination": "fridge",
     }
-    assert payload["current_occurrence_semantic_anchors"] == {"object": "apple"}
+    current_state = payload["current_state_snapshot"]
+    assert current_state["semantic_anchors"] == {"object": "apple"}
     assert "semantic_anchors" not in payload
     assert payload["current_action_catalog"]["actions"][0]["arguments"] == {
         "destination": "coffeetable_1",
@@ -698,8 +699,12 @@ def test_context_builder_separates_grounding_authorities() -> None:
         "description": "navigate to source",
         "input_schema": {"type": "object", "properties": {}},
     }]
-    assert payload["execution_ready_bindings"] == {"held_object": "apple_2"}
-    assert payload["missing_or_insufficient_bindings"] == ["destination"]
+    assert current_state["confirmed_bindings"] == {"held_object": "apple_2"}
+    assert current_state["missing_bindings"] == ["destination"]
+    assert payload["recent_accepted_actions"] == []
+    assert payload["exploration_memory"] == {}
+    assert "execution_ready_bindings" not in payload
+    assert "missing_or_insufficient_bindings" not in payload
     assert "certified_bindings" not in payload
 
     seeded_text = ContextBuilder().seeded_node(
@@ -714,6 +719,14 @@ def test_context_builder_separates_grounding_authorities() -> None:
         relevant_action_history=[],
         remaining_budget={"actions": 10},
     )
+    seeded_payload = json.loads(
+        seeded_text.split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1]
+    )
+    assert seeded_payload["current_state_snapshot"]["semantic_anchors"] == {}
+    assert seeded_payload["current_state_snapshot"]["missing_bindings"] == [
+        "destination"
+    ]
+    assert seeded_payload["recent_accepted_actions"] == []
     assert "portable semantic guidance" in seeded_text
     assert "never current bindings or evidence" in seeded_text
     assert "When a role is explicitly anchored there" in seeded_text

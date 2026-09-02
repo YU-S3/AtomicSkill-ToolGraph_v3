@@ -15,7 +15,6 @@ from ..core.bindings import (
     BindingExprKind,
     BindingExpression,
     BindingSource,
-    BindingStatus,
 )
 from ..core.contracts import AbstractAtomicSkill, ParameterSpec
 from ..core.results import RuntimeLinearPlan, RuntimeOccurrence
@@ -91,7 +90,7 @@ class RuntimePlanContextBuilder:
         role: str,
         binding_store: RuntimeBindingStore,
     ) -> dict[str, Any] | None:
-        """Resolve only formal Task/DataFlow binding expressions.
+        """Resolve only formal Task/plan/DataFlow/Repeat binding intent.
 
         The returned view intentionally omits evidence identities and world
         revisions.  Agent-proposed or incidental Harness bindings are never
@@ -99,17 +98,6 @@ class RuntimePlanContextBuilder:
         """
 
         existing = binding_store.semantic_anchor_for(occurrence, role)
-        if existing is None:
-            candidate = binding_store.snapshot_for_node(occurrence).get(role)
-            if (
-                candidate is not None
-                and candidate.status is BindingStatus.GROUNDED
-                and candidate.source in {
-                    BindingSource.HARNESS_EVIDENCE,
-                    BindingSource.TOOL_OUTPUT,
-                }
-            ):
-                existing = candidate
         if existing is not None:
             return {
                 "value": to_primitive(existing.value),
@@ -137,7 +125,9 @@ class RuntimePlanContextBuilder:
         )
         if binding is None or binding.source not in {
             BindingSource.TASK,
+            BindingSource.RUNTIME_PLAN,
             BindingSource.DATA_FLOW,
+            BindingSource.REPEAT,
             BindingSource.TOOL_OUTPUT,
         }:
             return None

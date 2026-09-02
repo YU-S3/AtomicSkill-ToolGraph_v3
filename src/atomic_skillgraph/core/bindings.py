@@ -92,7 +92,9 @@ class ToolBinding:
 
 class BindingSource(str, Enum):
     TASK = "task"
+    RUNTIME_PLAN = "runtime_plan"
     DATA_FLOW = "data_flow"
+    REPEAT = "repeat"
     TOOL_OUTPUT = "tool_output"
     HARNESS_EVIDENCE = "harness_evidence"
     AGENT_PROPOSED = "agent_proposed"
@@ -166,7 +168,16 @@ class GroundingEvidence:
             return False
         if self.invalidated_at_revision is not None and revision >= self.invalidated_at_revision:
             return False
-        if self.stability is EvidenceStability.REVISION_SCOPED:
+        # A STATE_SCOPED witness describes the concrete world that was
+        # observed, not semantic intent.  Unless a later observation
+        # explicitly republishes it, any world transition may have made that
+        # concrete fact stale, so fail closed just like revision-scoped
+        # evidence.  PERSISTENT evidence is the only kind that crosses an
+        # ordinary world revision.
+        if self.stability in {
+            EvidenceStability.REVISION_SCOPED,
+            EvidenceStability.STATE_SCOPED,
+        }:
             return revision == self.observed_at_revision
         return True
 

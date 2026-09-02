@@ -463,7 +463,9 @@ def test_cold_scaffold_plan_is_used_for_downstream_data_edge_prompt() -> None:
         if item["role"] == "user"
     )
     policy = json.loads(prompt.split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1])
-    obligations = policy["downstream_plan_context"]["output_obligations"]
+    obligations = policy["current_state_snapshot"][
+        "downstream_obligations"
+    ]["output_obligations"]
     assert obligations[0]["edge_id"] == "cold-edge"
     assert obligations[0]["consumer_input_role"] == "source"
     factory.assert_exhausted()
