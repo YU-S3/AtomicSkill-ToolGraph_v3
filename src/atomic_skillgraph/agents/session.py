@@ -108,6 +108,7 @@ class ReplayAgentSession:
         self._replay_history_action_count = 0
         self._replay_action_window_compaction_count = 0
         self._replay_pruned_action_count = 0
+        self._r3_events: list[dict[str, Any]] = []
         self._protocol_failures: list[ProtocolFailureRecord] = []
         self._terminal_protocol_failure: AgentProtocolError | None = None
         self._finalized = False
@@ -279,6 +280,7 @@ class ReplayAgentSession:
                     self._replay_action_window_compaction_count
                 ),
                 "replay_pruned_action_count": self._replay_pruned_action_count,
+                "r3_events": copy.deepcopy(self._r3_events),
                 "semantic_budget": (
                     None
                     if self._semantic_max_turns is None
@@ -319,8 +321,11 @@ class ReplayAgentSession:
     ) -> AgentTurn:
         while True:
             self._check_budget_before_call()
-            self._compact_superseded_action_catalogs()
-            self._compact_runtime_action_history()
+            repair_in_progress = self._protocol_repair_in_progress()
+            if not repair_in_progress:
+                self._compact_superseded_action_catalogs()
+                self._compact_runtime_action_history()
+                self._record_runtime_projection_event()
             accepted_candidate: AgentTurn | None = None
             try:
                 set_context = getattr(self._provider, "set_request_context", None)
@@ -655,17 +660,17 @@ class ReplayAgentSession:
         self._replay_history_action_count = history_action_count
 
     def _compact_runtime_action_history(self) -> None:
-        """Replay only the five most recent accepted environment actions.
+        """Keep one protocol envelope and a structured five-action window.
 
         Compaction runs only at a provider-request boundary, after the previous
-        ToolCall has received its Tool result.  Complete, older Assistant
-        ToolCall/Tool-result pairs may therefore be removed without breaking
-        DeepSeek replay.  Retained Assistant envelopes are never rewritten, so
-        their provider-private ``reasoning_content`` stays byte-for-byte intact.
+        ToolCall has received its Tool result.  Runtime semantics come from the
+        newest ``recent_accepted_actions`` projection; historical Assistant and
+        Tool envelopes are not the semantic action window.  Exactly the newest
+        complete envelope is retained for provider-dialect continuity.
 
-        Rejected calls are deliberately not classified as accepted action
-        memory.  In particular, a rejected multiple-ToolCall turn remains a
-        protocol record and is never converted into an executable action here.
+        Protocol-repair requests bypass this method, so their rejected envelope
+        is preserved until the repair response has been accepted and its Tool
+        result acknowledged.
         """
 
         if not self._usage_bucket.value.startswith("runtime_"):
@@ -676,48 +681,161 @@ class ReplayAgentSession:
         if self._pending_call is not None:
             return
 
-        accepted_pairs: list[tuple[int, int]] = []
-        for assistant_index in range(len(self._messages) - 1):
-            call_id = _single_environment_action_call_id(
-                self._messages[assistant_index]
-            )
-            if call_id is None:
-                continue
-            tool_index = assistant_index + 1
-            if _is_accepted_environment_tool_result(
-                self._messages[tool_index], call_id=call_id,
-            ):
-                accepted_pairs.append((assistant_index, tool_index))
-
-        obsolete_pairs = accepted_pairs[:-_RUNTIME_REPLAY_ACTION_WINDOW]
-        if obsolete_pairs:
+        envelopes = _completed_assistant_tool_envelopes(self._messages)
+        obsolete_envelopes = envelopes[:-1]
+        pruned_action_count = sum(
+            _envelope_has_accepted_environment_action(self._messages, envelope)
+            for envelope in obsolete_envelopes
+        )
+        if obsolete_envelopes:
             obsolete_indices = {
-                index for pair in obsolete_pairs for index in pair
+                index for envelope in obsolete_envelopes for index in envelope
             }
             self._messages = [
                 message
                 for index, message in enumerate(self._messages)
                 if index not in obsolete_indices
+                and not _is_protocol_repair_user_message(message)
             ]
 
-        retained_pair_count = min(
-            _RUNTIME_REPLAY_ACTION_WINDOW, len(accepted_pairs),
-        )
-        initial_history_slots = max(
-            0, _RUNTIME_REPLAY_ACTION_WINDOW - retained_pair_count,
-        )
-        retained_initial_count, pruned_initial_count = (
-            self._compact_initial_runtime_history(initial_history_slots)
-        )
-        pruned_pair_count = len(obsolete_pairs)
+        # Before the first action, normalize any caller-provided history to the
+        # frozen accepted-action window.  Once a current Tool projection exists,
+        # its recent-action list is authoritative and all older policy copies
+        # are removed rather than replayed.
+        current_projection = _latest_runtime_projection(self._messages)
+        if current_projection is None:
+            retained_initial_count, pruned_initial_count = (
+                self._compact_initial_runtime_history(
+                    _RUNTIME_REPLAY_ACTION_WINDOW,
+                )
+            )
+        else:
+            retained_initial_count = len(
+                current_projection.get("recent_accepted_actions") or []
+            )
+            pruned_initial_count = self._prune_superseded_runtime_policy_fields()
+        pruned_pair_count = int(pruned_action_count)
         if pruned_pair_count or pruned_initial_count:
             self._replay_action_window_compaction_count += 1
             self._replay_pruned_action_count += (
                 pruned_pair_count + pruned_initial_count
             )
+            revision, occurrence_id = _runtime_projection_identity(
+                current_projection or {},
+            )
+            self._r3_events.append({
+                "revision": revision,
+                "occurrence_id": occurrence_id,
+                "event_type": "replay_action_window_compaction",
+                "details": {
+                    "pruned_action_count": (
+                        pruned_pair_count + pruned_initial_count
+                    ),
+                    "protocol_envelopes_retained": min(1, len(envelopes)),
+                    "action_window_size": _RUNTIME_REPLAY_ACTION_WINDOW,
+                },
+            })
         self._replay_history_action_count = (
-            retained_pair_count + retained_initial_count
+            min(_RUNTIME_REPLAY_ACTION_WINDOW, retained_initial_count)
         )
+
+    def _prune_superseded_runtime_policy_fields(self) -> int:
+        """Remove stale dynamic policy copies while retaining static guidance."""
+
+        latest = _latest_runtime_projection_location(self._messages)
+        if latest is None:
+            return 0
+        latest_index, _latest_payload = latest
+        dynamic_fields = {
+            "current_state_snapshot",
+            "exploration_memory",
+            "recent_accepted_actions",
+            "relevant_action_history",
+            "relevant_real_action_history",
+            "recent_failed_learned_invocation",
+            "remaining_budget",
+            "current_action_catalog",
+            "action_catalog",
+            "current_observation",
+        }
+        pruned_actions = 0
+        for index, message in enumerate(self._messages):
+            if index == latest_index:
+                continue
+            role = message.get("role")
+            if role == "user":
+                decoded = _decode_policy_context(str(message.get("content", "")))
+                if decoded is None:
+                    continue
+                prefix, payload = decoded
+                history = payload.get("recent_accepted_actions")
+                if isinstance(history, list):
+                    pruned_actions += len(history)
+                changed = any(field in payload for field in dynamic_fields)
+                for field in dynamic_fields:
+                    payload.pop(field, None)
+                if changed:
+                    self._messages[index]["content"] = _encode_policy_context(
+                        prefix, payload,
+                    )
+                continue
+            if role != "tool":
+                continue
+            try:
+                payload = json.loads(str(message.get("content", "")))
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            history = payload.get("recent_accepted_actions")
+            if isinstance(history, list):
+                pruned_actions += len(history)
+            for field in dynamic_fields:
+                payload.pop(field, None)
+            self._messages[index]["content"] = json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        return pruned_actions
+
+    def _protocol_repair_in_progress(self) -> bool:
+        return bool(
+            self._messages
+            and _is_protocol_repair_user_message(self._messages[-1])
+        )
+
+    def _record_runtime_projection_event(self) -> None:
+        if not self._usage_bucket.value.startswith("runtime_"):
+            return
+        projections = _runtime_projection_payloads(self._messages)
+        snapshot_count = sum(
+            "current_state_snapshot" in payload for payload in projections
+        )
+        memory_count = sum(
+            "exploration_memory" in payload for payload in projections
+        )
+        recent = (
+            projections[-1].get("recent_accepted_actions", [])
+            if projections else []
+        )
+        recent_count = len(recent) if isinstance(recent, list) else 0
+        revision, occurrence_id = _runtime_projection_identity(
+            projections[-1] if projections else {},
+        )
+        self._r3_events.append({
+            "revision": revision,
+            "occurrence_id": occurrence_id,
+            "event_type": "runtime_context_projection",
+            "details": {
+                "current_state_snapshot_count": snapshot_count,
+                "exploration_memory_count": memory_count,
+                "recent_action_count": recent_count,
+                "action_window_size": _RUNTIME_REPLAY_ACTION_WINDOW,
+            },
+        })
 
     def _compact_initial_runtime_history(self, limit: int) -> tuple[int, int]:
         """Trim client-authored initial history across Runtime policy prompts."""
@@ -819,6 +937,131 @@ def _encode_policy_context(prefix: str, payload: dict[str, Any]) -> str:
         sort_keys=False,
         separators=(",", ":"),
         allow_nan=False,
+    )
+
+
+def _runtime_projection_payloads(
+    messages: list[AgentMessage],
+) -> list[dict[str, Any]]:
+    projections: list[dict[str, Any]] = []
+    for message in messages:
+        role = message.get("role")
+        if role == "user":
+            decoded = _decode_policy_context(str(message.get("content", "")))
+            if decoded is not None:
+                projections.append(decoded[1])
+            continue
+        if role != "tool":
+            continue
+        try:
+            payload = json.loads(str(message.get("content", "")))
+        except (TypeError, ValueError):
+            continue
+        if isinstance(payload, dict) and (
+            "current_state_snapshot" in payload
+            or "exploration_memory" in payload
+            or "recent_accepted_actions" in payload
+        ):
+            projections.append(payload)
+    return projections
+
+
+def _latest_runtime_projection_location(
+    messages: list[AgentMessage],
+) -> tuple[int, dict[str, Any]] | None:
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.get("role") != "tool":
+            continue
+        try:
+            payload = json.loads(str(message.get("content", "")))
+        except (TypeError, ValueError):
+            continue
+        if (
+            isinstance(payload, dict)
+            and "current_state_snapshot" in payload
+            and "exploration_memory" in payload
+            and isinstance(payload.get("recent_accepted_actions"), list)
+        ):
+            return index, payload
+    return None
+
+
+def _latest_runtime_projection(
+    messages: list[AgentMessage],
+) -> dict[str, Any] | None:
+    located = _latest_runtime_projection_location(messages)
+    return located[1] if located is not None else None
+
+
+def _runtime_projection_identity(payload: dict[str, Any]) -> tuple[int, str]:
+    snapshot = payload.get("current_state_snapshot")
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    revision = snapshot.get("revision", payload.get("new_revision", 0))
+    occurrence_id = snapshot.get("occurrence_id", "")
+    try:
+        normalized_revision = int(revision)
+    except (TypeError, ValueError):
+        normalized_revision = 0
+    return normalized_revision, str(occurrence_id or "")
+
+
+def _completed_assistant_tool_envelopes(
+    messages: list[AgentMessage],
+) -> list[tuple[int, ...]]:
+    """Return complete Assistant ToolCall plus contiguous Tool result groups."""
+
+    envelopes: list[tuple[int, ...]] = []
+    for assistant_index, message in enumerate(messages):
+        if message.get("role") != "assistant":
+            continue
+        calls = message.get("tool_calls")
+        if not isinstance(calls, list) or not calls:
+            continue
+        call_ids = {
+            str(call.get("id", ""))
+            for call in calls
+            if isinstance(call, dict) and str(call.get("id", ""))
+        }
+        if not call_ids:
+            continue
+        tool_indices: list[int] = []
+        cursor = assistant_index + 1
+        while cursor < len(messages) and messages[cursor].get("role") == "tool":
+            if str(messages[cursor].get("tool_call_id", "")) in call_ids:
+                tool_indices.append(cursor)
+            cursor += 1
+        returned = {
+            str(messages[index].get("tool_call_id", ""))
+            for index in tool_indices
+        }
+        if returned == call_ids:
+            envelopes.append((assistant_index, *tool_indices))
+    return envelopes
+
+
+def _envelope_has_accepted_environment_action(
+    messages: list[AgentMessage],
+    envelope: tuple[int, ...],
+) -> bool:
+    if not envelope:
+        return False
+    call_id = _single_environment_action_call_id(messages[envelope[0]])
+    if call_id is None:
+        return False
+    return any(
+        _is_accepted_environment_tool_result(messages[index], call_id=call_id)
+        for index in envelope[1:]
+    )
+
+
+def _is_protocol_repair_user_message(message: AgentMessage) -> bool:
+    return bool(
+        message.get("role") == "user"
+        and str(message.get("content", "")).startswith(
+            "PROTOCOL REPAIR REQUIRED."
+        )
     )
 
 

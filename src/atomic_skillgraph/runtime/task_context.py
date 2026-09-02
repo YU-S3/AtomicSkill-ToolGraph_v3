@@ -98,6 +98,8 @@ class TaskRuntimeContext:
         """Start (or resume) one occurrence without resetting its evidence."""
 
         occurrence_id = str(occurrence.occurrence_id)
+        if self.active_occurrence_id and self.active_occurrence_id != occurrence_id:
+            self.clear_failed_invocation(self.active_occurrence_id)
         self.active_occurrence_id = occurrence_id
         state = self.occurrence_evidence.get(occurrence_id)
         if state is None:
@@ -110,6 +112,7 @@ class TaskRuntimeContext:
         return state
 
     def clear_active_occurrence(self) -> None:
+        self.clear_failed_invocation(self.active_occurrence_id)
         self.active_occurrence_id = ""
         self._after_action_refresh = None
 
@@ -134,6 +137,7 @@ class TaskRuntimeContext:
         import copy
 
         snapshot = copy.deepcopy(state)
+        previous = self.grounding_state_by_occurrence.get(str(occurrence_id))
         self.grounding_state_by_occurrence[str(occurrence_id)] = snapshot
         signature = {
             key: snapshot.get(key)
@@ -152,6 +156,62 @@ class TaskRuntimeContext:
         self.trace_builder.trace.metadata.setdefault(
             "runtime_state_snapshots", []
         ).append(copy.deepcopy(snapshot))
+        self.record_r3_event(
+            "grounding_refresh",
+            occurrence_id=str(occurrence_id),
+            details={
+                "learned_invocation_ready": bool(
+                    snapshot.get("learned_invocation_ready", False)
+                ),
+                "effect_ready": bool(
+                    dict(snapshot.get("effect_witness_status") or {}).get(
+                        "passed", False,
+                    )
+                ),
+            },
+        )
+        previous_ready = bool(
+            (previous or {}).get("learned_invocation_ready", False)
+        )
+        current_ready = bool(snapshot.get("learned_invocation_ready", False))
+        if current_ready and not previous_ready:
+            self.record_r3_event(
+                "invocation_ready_transition",
+                occurrence_id=str(occurrence_id),
+                details={"from": False, "to": True},
+            )
+        previous_effect = bool(
+            dict((previous or {}).get("effect_witness_status") or {}).get(
+                "passed", False,
+            )
+        )
+        current_effect = bool(
+            dict(snapshot.get("effect_witness_status") or {}).get(
+                "passed", False,
+            )
+        )
+        if current_effect and not previous_effect:
+            self.record_r3_event(
+                "effect_ready_transition",
+                occurrence_id=str(occurrence_id),
+                details={"from": False, "to": True},
+            )
+
+    def record_r3_event(
+        self,
+        event_type: str,
+        *,
+        occurrence_id: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        import copy
+
+        self.trace_builder.trace.metadata.setdefault("r3_events", []).append({
+            "revision": int(self.world_revision),
+            "occurrence_id": str(occurrence_id),
+            "event_type": str(event_type),
+            "details": copy.deepcopy(details or {}),
+        })
 
     def record_failed_invocation(
         self,
@@ -168,6 +228,16 @@ class TaskRuntimeContext:
             "message": str(message)[:512],
             "revision": int(self.world_revision),
         }
+
+    def clear_failed_invocation(self, occurrence_id: str = "") -> None:
+        current = self.last_failed_invocation
+        if current is None:
+            return
+        if occurrence_id and str(current.get("occurrence_id", "")) != str(
+            occurrence_id
+        ):
+            return
+        self.last_failed_invocation = None
 
     def update_after_action(self, result: Any, record: dict[str, Any]) -> None:
         self.observation = result.observation
@@ -222,7 +292,24 @@ class TaskRuntimeContext:
                 or item.get("occurrence_id") in {"", occurrence_id}
             )
         ]
-        return values[-max(0, int(limit)):] if limit else []
+        selected = values[-max(0, int(limit)):] if limit else []
+        projected: list[dict[str, Any]] = []
+        for item in selected:
+            value = {
+                "action_type": str(item.get("action_type", "")),
+                "arguments": dict(item.get("arguments") or {}),
+                "observation": str(item.get("observation", "")),
+                "revision": int(
+                    item.get("new_revision", item.get("revision", 0))
+                ),
+                "done": bool(item.get("done", False)),
+                "won": bool(item.get("won", False)),
+                "origin": str(item.get("origin", "")),
+            }
+            if item.get("intent"):
+                value["intent"] = str(item["intent"])
+            projected.append(value)
+        return projected
 
     def plan_boundary_reached(self) -> bool:
         return (

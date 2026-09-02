@@ -238,9 +238,10 @@ class ExplorationMemory:
             "visited": sorted(self.visited),
             "inspected": sorted(self.inspected),
             "opened": sorted(self.opened),
-            "discovered": {
+            "historical_discoveries": {
                 key: copy.deepcopy(self.discovered[key])
                 for key in sorted(self.discovered)
+                if self.discovered[key].get("evidence_status") == "historical"
             },
             "negative_observations": {
                 key: copy.deepcopy(self.negative_observations[key])

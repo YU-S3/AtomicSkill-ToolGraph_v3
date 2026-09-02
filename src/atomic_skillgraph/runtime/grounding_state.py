@@ -531,6 +531,16 @@ class IncrementalGroundingAuthority:
                 for role, binding in current.items()
                 if binding.status is BindingStatus.GROUNDED
             }
+            record_event = getattr(ctx, "record_r3_event", None)
+            if callable(record_event):
+                record_event(
+                    "unique_binding_auto_confirm",
+                    occurrence_id=str(occurrence.occurrence_id),
+                    details={
+                        "roles": sorted(proposed),
+                        "role_count": len(proposed),
+                    },
+                )
 
         confirmed = {
             parameter.name: current[parameter.name].value

@@ -89,7 +89,12 @@ class NodeExecutor:
             for parameter in compiled.atomic.inputs
         ):
             return None
-        return self.implementation_runner.run(compiled, preflight, occurrence, ctx, agent_prepared=False)
+        result = self.implementation_runner.run(
+            compiled, preflight, occurrence, ctx, agent_prepared=False,
+        )
+        if bool(getattr(result, "atomic_effect_passed", False)):
+            ctx.clear_failed_invocation(occurrence.occurrence_id)
+        return result
 
     @staticmethod
     def _runtime_role_is_deterministic(
@@ -466,14 +471,22 @@ class NodeExecutor:
         }
         ctx.trace_builder.trace.agent_turns.append(AgentTurnRecord(
             session.session_id, index, turn.content, turn.finish_reason,
-            [item.call_id for item in turn.tool_calls], usage, dict(turn.provider_metadata),
+            [item.call_id for item in turn.tool_calls], usage,
+            dict(turn.provider_metadata), turn.reasoning_content,
         ))
         ctx.trace_builder.trace.llm_usage.append({"session_id": session.session_id, **usage})
 
-    def _finish_session(self, record: AgentSessionRecord, session: Any) -> None:
+    def _finish_session(
+        self, record: AgentSessionRecord, session: Any, ctx: Any,
+    ) -> None:
         import time
         record.ended_at = time.time()
         record.snapshot = session.snapshot()
+        events = record.snapshot.get("r3_events", [])
+        if isinstance(events, list) and events:
+            ctx.trace_builder.trace.metadata.setdefault("r3_events", []).extend(
+                to_primitive(events)
+            )
 
     @staticmethod
     def _finalize_tool_result(session: Any, call_id: str, result: dict[str, Any], tools: list[NativeToolSpec]) -> None:
@@ -799,6 +812,9 @@ class NodeExecutor:
                 ctx,
                 allow_auto_confirm=False,
             )
+        clear_failed = getattr(ctx, "clear_failed_invocation", None)
+        if callable(clear_failed):
+            clear_failed(occurrence.occurrence_id)
         status = (
             NodeExecutionStatus.ALREADY_SATISFIED
             if mode == "entry"
@@ -1248,6 +1264,19 @@ class NodeExecutor:
                     turn = session.submit_tool_result(call.call_id, payload, tools=tools)
                     continue
                 result = self.implementation_runner.run(compiled, preflight, occurrence, ctx, agent_prepared=True)
+                if result.atomic_effect_passed:
+                    ctx.clear_failed_invocation(occurrence.occurrence_id)
+                else:
+                    ctx.record_failed_invocation(
+                        occurrence_id=occurrence.occurrence_id,
+                        implementation_ref=str(compiled.implementation.ref),
+                        failure_code=(
+                            result.failure_code or "atomic_effect_violation"
+                        ),
+                        message=(
+                            result.failure_code or "atomic effect validation failed"
+                        ),
+                    )
                 self._finalize_tool_result(session, call.call_id, to_primitive(result), tools)
                 return result
         except AtomicSkillGraphError as exc:
@@ -1261,7 +1290,7 @@ class NodeExecutor:
             return failure
         finally:
             ctx.trace_builder.finish_span(span.span_id)
-            self._finish_session(record, session)
+            self._finish_session(record, session, ctx)
 
     def run_seeded_fresh(
         self,
@@ -1417,7 +1446,7 @@ class NodeExecutor:
             return failure
         finally:
             ctx.trace_builder.finish_span(span.span_id)
-            self._finish_session(record, session)
+            self._finish_session(record, session, ctx)
         result = self.not_started(occurrence, failure_code="atomic_effect_violation")
         result.node_status = NodeExecutionStatus.SEEDED_FAILED
         return result
@@ -1573,7 +1602,7 @@ class NodeExecutor:
             failure_code = exc.code
         finally:
             ctx.trace_builder.finish_span(span.span_id)
-            self._finish_session(session_record, session)
+            self._finish_session(session_record, session, ctx)
         terminal = self.validation.task.terminal(
             ctx.task_contract,
             ctx.harness.validator_channel(),

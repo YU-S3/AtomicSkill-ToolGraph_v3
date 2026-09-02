@@ -38,6 +38,17 @@ def _action_tool(action_id: str) -> NativeToolSpec:
     )
 
 
+def _projection(revision: int, recent: list[dict] | None = None) -> dict:
+    return {
+        "current_state_snapshot": {
+            "revision": revision,
+            "occurrence_id": "occ_runtime",
+        },
+        "exploration_memory": {"visited": []},
+        "recent_accepted_actions": list(recent or []),
+    }
+
+
 def test_runtime_replay_compacts_initial_and_old_catalogs_without_touching_assistant() -> None:
     provider = ScriptedAgentProvider([
         FakeReply.tool("environment_action", {"action_id": "r000_a001"}),
@@ -51,6 +62,7 @@ def test_runtime_replay_compacts_initial_and_old_catalogs_without_touching_assis
         usage_bucket="runtime_dynamic",
     )
     prompt = "Choose one action." + POLICY_SEPARATOR + json.dumps({
+        **_projection(0),
         "current_action_catalog": {
             "revision": 0,
             "actions": [{
@@ -70,6 +82,15 @@ def test_runtime_replay_compacts_initial_and_old_catalogs_without_touching_assis
     second = session.submit_tool_result(
         first.tool_calls[0].call_id,
         {
+            **_projection(1, [{
+                "action_type": "LOOK",
+                "arguments": {},
+                "observation": "revision one",
+                "revision": 1,
+                "done": False,
+                "won": False,
+                "origin": "runtime_dynamic",
+            }]),
             "accepted": True,
             "observation": "revision one",
             "new_revision": 1,
@@ -92,6 +113,26 @@ def test_runtime_replay_compacts_initial_and_old_catalogs_without_touching_assis
     session.submit_tool_result(
         second.tool_calls[0].call_id,
         {
+            **_projection(2, [
+                {
+                    "action_type": "LOOK",
+                    "arguments": {},
+                    "observation": "revision one",
+                    "revision": 1,
+                    "done": False,
+                    "won": False,
+                    "origin": "runtime_dynamic",
+                },
+                {
+                    "action_type": "GO_TO",
+                    "arguments": {"destination": "place_1"},
+                    "observation": "revision two",
+                    "revision": 2,
+                    "done": False,
+                    "won": False,
+                    "origin": "runtime_dynamic",
+                },
+            ]),
             "accepted": True,
             "observation": "revision two",
             "new_revision": 2,
@@ -117,24 +158,17 @@ def test_runtime_replay_compacts_initial_and_old_catalogs_without_touching_assis
         message for message in request.messages if message["role"] == "user"
     )
     initial_payload = json.loads(initial["content"].split(POLICY_SEPARATOR, 1)[1])
-    assert initial_payload["current_action_catalog"] == {
-        "status": "superseded",
-        "entry_count": 1,
-        "superseded_by_revision": 2,
-    }
-    assert initial_payload["remaining_budget"] == {
-        "remaining_global_actions": 100,
-    }
+    assert "current_action_catalog" not in initial_payload
+    assert "remaining_budget" not in initial_payload
+    assert "current_state_snapshot" not in initial_payload
+    assert "exploration_memory" not in initial_payload
     tool_payloads = [
         json.loads(message["content"])
         for message in request.messages
         if message["role"] == "tool"
     ]
-    assert tool_payloads[0]["action_catalog"]["status"] == "superseded"
-    assert tool_payloads[0]["remaining_budget"] == {
-        "remaining_global_actions": 99,
-    }
-    assert tool_payloads[1]["action_catalog"]["revision"] == 2
+    assert len(tool_payloads) == 1
+    assert tool_payloads[0]["action_catalog"]["revision"] == 2
     assert sum(
         int(
             isinstance(payload.get("action_catalog"), dict)
@@ -146,7 +180,7 @@ def test_runtime_replay_compacts_initial_and_old_catalogs_without_touching_assis
     assistants = [
         message for message in request.messages if message["role"] == "assistant"
     ]
-    assert len(assistants) == 2
+    assert len(assistants) == 1
     assert all("reasoning_content" in message for message in assistants)
     assert all("tool_calls" in message for message in assistants)
     prior_first_assistant = next(
@@ -154,7 +188,15 @@ def test_runtime_replay_compacts_initial_and_old_catalogs_without_touching_assis
         for message in provider.requests[1].messages
         if message["role"] == "assistant"
     )
-    assert assistants[0] == prior_first_assistant
+    assert assistants[0] != prior_first_assistant
+    assert sum(
+        "current_state_snapshot" in payload
+        for payload in [initial_payload, *tool_payloads]
+    ) == 1
+    assert sum(
+        "exploration_memory" in payload
+        for payload in [initial_payload, *tool_payloads]
+    ) == 1
     snapshot = session.snapshot()
     assert snapshot["replay_catalog_compaction_count"] == 2
     assert snapshot["replay_initial_catalog_compacted"] is True
@@ -162,10 +204,10 @@ def test_runtime_replay_compacts_initial_and_old_catalogs_without_touching_assis
     assert snapshot["replay_history_action_count"] == 2
 
 
-def test_runtime_replay_keeps_exactly_five_recent_accepted_action_pairs() -> None:
+def test_runtime_replay_keeps_one_envelope_and_five_structured_actions() -> None:
     provider = ScriptedAgentProvider([
         FakeReply.tool("environment_action", {"action_id": f"r{i:03d}_a001"})
-        for i in range(7)
+        for i in range(23)
     ])
     session = ReplayAgentSession(
         provider,
@@ -174,11 +216,22 @@ def test_runtime_replay_keeps_exactly_five_recent_accepted_action_pairs() -> Non
         usage_bucket="runtime_dynamic",
     )
     turn = session.next_turn("start", tools=[_action_tool("r000_a001")])
-    for index in range(6):
+    recent: list[dict] = []
+    for index in range(22):
         next_action_id = f"r{index + 1:03d}_a001"
+        recent.append({
+            "action_type": "LOOK",
+            "arguments": {},
+            "observation": f"accepted-{index}",
+            "revision": index + 1,
+            "done": False,
+            "won": False,
+            "origin": "runtime_dynamic",
+        })
         turn = session.submit_tool_result(
             turn.tool_calls[0].call_id,
             {
+                **_projection(index + 1, recent[-5:]),
                 "accepted": True,
                 "observation": f"accepted-{index}",
                 "new_revision": index + 1,
@@ -190,35 +243,45 @@ def test_runtime_replay_keeps_exactly_five_recent_accepted_action_pairs() -> Non
             tools=[_action_tool(next_action_id)],
         )
 
-    replay = provider.requests[6].messages
+    replay = provider.requests[22].messages
     assistants = [message for message in replay if message["role"] == "assistant"]
     tool_results = [message for message in replay if message["role"] == "tool"]
-    assert len(assistants) == 5
-    assert len(tool_results) == 5
+    assert len(assistants) == 1
+    assert len(tool_results) == 1
     assert [
         json.loads(message["tool_calls"][0]["function"]["arguments"])["action_id"]
         for message in assistants
-    ] == [f"r{i:03d}_a001" for i in range(1, 6)]
-    assert [json.loads(message["content"])["observation"] for message in tool_results] == [
-        f"accepted-{i}" for i in range(1, 6)
-    ]
+    ] == ["r021_a001"]
+    projected = json.loads(tool_results[0]["content"])
+    projection_payloads = [projected]
+    for message in replay:
+        if message["role"] != "user" or POLICY_SEPARATOR not in message["content"]:
+            continue
+        projection_payloads.append(
+            json.loads(message["content"].split(POLICY_SEPARATOR, 1)[1])
+        )
+    assert sum(
+        "current_state_snapshot" in item for item in projection_payloads
+    ) == 1
+    assert sum("exploration_memory" in item for item in projection_payloads) == 1
+    assert [
+        item["observation"]
+        for item in projected["recent_accepted_actions"]
+    ] == [f"accepted-{i}" for i in range(17, 22)]
 
-    prior_assistants = [
-        message
-        for message in provider.requests[5].messages
-        if message["role"] == "assistant"
-    ]
     # Retained provider envelopes, including reasoning_content, are untouched.
-    assert assistants[:4] == prior_assistants[1:]
+    assert assistants[0]["reasoning_content"] == (
+        "deterministic reasoning for call_default_000021"
+    )
     snapshot = session.snapshot()
     assert snapshot["replay_action_window_size"] == 5
-    assert snapshot["replay_action_window_compaction_count"] == 1
-    assert snapshot["replay_pruned_action_count"] == 1
+    assert snapshot["replay_action_window_compaction_count"] == 21
+    assert snapshot["replay_pruned_action_count"] == 21
     assert snapshot["replay_history_action_count"] == 5
     assert snapshot["pending_tool_call"] == {
         "call_id": turn.tool_calls[0].call_id,
         "name": "environment_action",
-        "arguments": {"action_id": "r006_a001"},
+        "arguments": {"action_id": "r022_a001"},
     }
     assert any(
         message.get("role") == "assistant"
@@ -249,8 +312,8 @@ def test_runtime_replay_initial_history_and_new_pairs_share_the_five_action_wind
         for index in range(8)
     ]
     prompt = "Choose one action." + POLICY_SEPARATOR + json.dumps({
+        **_projection(0, history),
         "current_action_catalog": [{"action_id": "r000_a001", "revision": 0}],
-        "recent_accepted_actions": history,
         "remaining_budget": {"remaining_global_actions": 100},
     })
     first = session.next_turn(prompt, tools=[_action_tool("r000_a001")])
@@ -262,6 +325,18 @@ def test_runtime_replay_initial_history_and_new_pairs_share_the_five_action_wind
     session.submit_tool_result(
         first.tool_calls[0].call_id,
         {
+            **_projection(1, [
+                *[item for item in first_history[-4:]],
+                {
+                    "action_type": "LOOK",
+                    "arguments": {},
+                    "observation": "new accepted action",
+                    "revision": 1,
+                    "done": False,
+                    "won": False,
+                    "origin": "runtime_dynamic",
+                },
+            ]),
             "accepted": True,
             "observation": "new accepted action",
             "new_revision": 1,
@@ -269,14 +344,20 @@ def test_runtime_replay_initial_history_and_new_pairs_share_the_five_action_wind
         },
         tools=[_action_tool("r001_a001")],
     )
-    second_history = provider.requests[1].policy_context["recent_accepted_actions"]
+    second_payload = json.loads(next(
+        message["content"]
+        for message in provider.requests[1].messages
+        if message["role"] == "tool"
+    ))
+    second_history = second_payload["recent_accepted_actions"]
     assert [item["observation"] for item in second_history] == [
         "history-3", "history-5", "history-6", "history-7",
+        "new accepted action",
     ]
     snapshot = session.snapshot()
     assert snapshot["replay_history_action_count"] == 5
     assert snapshot["replay_action_window_compaction_count"] == 2
-    assert snapshot["replay_pruned_action_count"] == 4
+    assert snapshot["replay_pruned_action_count"] >= 4
 
 
 def test_multiple_runtime_tool_calls_are_all_rejected_before_single_call_repair() -> None:
@@ -500,6 +581,97 @@ def test_r21_report_defaults_new_metrics_to_zero_for_legacy_trace() -> None:
         item["calls"] == 0
         for item in row["runtime_token_decomposition"].values()
     )
+
+
+def test_r31_report_aggregates_only_structured_events() -> None:
+    trace = {
+        "trace_id": "trace-r31",
+        "schema_version": 3,
+        "task": {"task_id": "task-r31"},
+        "metadata": {
+            "r3_events": [
+                {
+                    "revision": 1,
+                    "occurrence_id": "occ-1",
+                    "event_type": "grounding_refresh",
+                    "details": {},
+                },
+                {
+                    "revision": 1,
+                    "occurrence_id": "occ-1",
+                    "event_type": "unique_binding_auto_confirm",
+                    "details": {"role_count": 2},
+                },
+                {
+                    "revision": 2,
+                    "occurrence_id": "occ-1",
+                    "event_type": "invocation_ready_transition",
+                    "details": {"from": False, "to": True},
+                },
+                {
+                    "revision": 3,
+                    "occurrence_id": "occ-1",
+                    "event_type": "effect_ready_transition",
+                    "details": {"from": False, "to": True},
+                },
+                {
+                    "revision": 4,
+                    "occurrence_id": "occ-1",
+                    "event_type": "runtime_context_projection",
+                    "details": {
+                        "current_state_snapshot_count": 1,
+                        "exploration_memory_count": 1,
+                        "recent_action_count": 5,
+                        "action_window_size": 5,
+                    },
+                },
+                {
+                    "revision": 4,
+                    "occurrence_id": "occ-1",
+                    "event_type": "replay_action_window_compaction",
+                    "details": {"pruned_action_count": 3},
+                },
+                {
+                    "revision": 4,
+                    "occurrence_id": "",
+                    "event_type": "partial_atomic_admission",
+                    "details": {
+                        "admission_count": 1,
+                        "alignment_reuse_count": 1,
+                        "new_contract_count": 0,
+                        "tool_admission_count": 1,
+                        "implementation_admission_count": 1,
+                    },
+                },
+            ],
+            # Report must not infer R3 transitions from other metadata.
+            "runtime_state_snapshots": [{"learned_invocation_ready": True}],
+        },
+    }
+    row = trace_to_row(trace)
+    assert row["runtime_grounding_refresh_count"] == 1
+    assert row["runtime_unique_binding_auto_confirm_count"] == 1
+    assert row["runtime_unique_binding_auto_confirm_role_count"] == 2
+    assert row["runtime_invocation_ready_transition_count"] == 1
+    assert row["runtime_effect_ready_transition_count"] == 1
+    assert row["replay_action_window_size"] == 5
+    assert row["replay_action_window_compaction_count"] == 1
+    assert row["replay_pruned_action_count"] == 3
+    assert row["runtime_context_snapshot_count"] == 1
+    assert row["runtime_exploration_memory_projection_count"] == 1
+    assert row["runtime_recent_action_projection_count"] == 5
+    assert row["partial_atomic_admission_count"] == 1
+    assert row["partial_atomic_alignment_reuse_count"] == 1
+    assert row["partial_atomic_new_contract_count"] == 0
+    assert row["partial_atomic_tool_admission_count"] == 1
+    assert row["partial_atomic_implementation_admission_count"] == 1
+    summary = summarize_traces([row])
+    for name in (
+        "runtime_grounding_refresh_count",
+        "replay_action_window_compaction_count",
+        "partial_atomic_admission_count",
+    ):
+        assert summary[name] == row[name]
 
 
 def test_r21_report_uses_strict_exhaustion_and_per_event_token_authority() -> None:

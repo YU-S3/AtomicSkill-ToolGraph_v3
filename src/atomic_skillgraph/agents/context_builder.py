@@ -579,11 +579,15 @@ def _compact_history(values: Iterable[Any]) -> list[dict[str, Any]]:
             "action_type": str(mapping.get("action_type", "")),
             "arguments": _policy_value(dict(mapping.get("arguments") or {})),
             "observation": str(mapping.get("observation", "")),
+            "revision": int(
+                mapping.get("new_revision", mapping.get("revision", 0))
+            ),
+            "done": bool(mapping.get("done", False)),
+            "won": bool(mapping.get("won", False)),
+            "origin": str(mapping.get("origin", "")),
         }
-        if bool(mapping.get("done")):
-            compact["done"] = True
-        if bool(mapping.get("won")):
-            compact["won"] = True
+        if mapping.get("intent"):
+            compact["intent"] = str(mapping["intent"])
         history.append(_policy_value(compact))
     return history[-5:]
 

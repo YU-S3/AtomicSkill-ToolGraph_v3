@@ -973,7 +973,7 @@ def test_protocol_format_repair_quota_is_global_to_replay_session(
     assert snapshot["terminal_protocol_failure"] is not None
 
 
-def test_replay_compacts_only_superseded_action_catalogs_and_keeps_reasoning() -> None:
+def test_runtime_replay_keeps_only_latest_complete_protocol_envelope() -> None:
     from experiments.fakes import FakeReply, ScriptedAgentProvider
 
     def action_tool(action_id: str) -> NativeToolSpec:
@@ -1038,26 +1038,20 @@ def test_replay_compacts_only_superseded_action_catalogs_and_keeps_reasoning() -
         for message in replay_messages
         if message["role"] == "tool"
     ]
-    assert tool_payloads[0]["observation"] == "first observation"
-    assert tool_payloads[0]["action_catalog"] == {
-        "status": "superseded",
-        "entry_count": 1,
-        "superseded_by_revision": 2,
-    }
-    assert tool_payloads[1]["action_catalog"] == [{
+    assert len(tool_payloads) == 1
+    assert tool_payloads[0]["observation"] == "second observation"
+    assert tool_payloads[0]["action_catalog"] == [{
         "action_id": "r002_a001",
         "display_text": "take apple 1",
     }]
-    first_reasoning = next(
-        message["reasoning_content"]
-        for message in provider.requests[1].messages
+    assistants = [
+        message for message in replay_messages
         if message["role"] == "assistant"
+    ]
+    assert len(assistants) == 1
+    assert assistants[0]["reasoning_content"] == (
+        "deterministic reasoning for call_default_000001"
     )
-    assert next(
-        message["reasoning_content"]
-        for message in replay_messages
-        if message["role"] == "assistant"
-    ) == first_reasoning
     assert session.snapshot()["context_compaction_count"] == 1
 
 

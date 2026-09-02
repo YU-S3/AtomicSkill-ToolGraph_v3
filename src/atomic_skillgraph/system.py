@@ -2183,9 +2183,9 @@ class AtomicSkillGraphSystem:
         quality["artifact_label_concrete_term_violation_count"] = (
             label_violations
         )
-        quality["partial_atomic_admission_count"] = (
-            len(compiled) if composite is None else 0
-        )
+        # The partial-admission event is emitted only after admission actually
+        # runs.  Preparation alone cannot claim an admitted artifact.
+        quality["partial_atomic_admission_count"] = 0
         trace.metadata["extractor_quality"] = quality
         diagnosis = self.gap_diagnoser.diagnose(
             trace, [item.atomic for item in compiled],
@@ -2211,6 +2211,8 @@ class AtomicSkillGraphSystem:
         quality = dict(trace.metadata.get("extractor_quality") or {})
         atomic_reuse_count = 0
         atomic_new_count = 0
+        tool_admission_count = 0
+        implementation_admission_count = 0
         for item in prepared.compiled:
             atomic_alignment = self.aligner.resolve_atomic(item.atomic)
             atomic_reuse_count += int(atomic_alignment.reused)
@@ -2228,6 +2230,7 @@ class AtomicSkillGraphSystem:
                 ),
             )
             tool_ref = tool_alignment.ref
+            tool_admission_count += int(bool(tool_alignment.admitted))
             if (
                 tool_alignment.operation == "add_replay"
                 and tool_alignment.source_ref is not None
@@ -2306,6 +2309,7 @@ class AtomicSkillGraphSystem:
             implementation_passed = (
                 admitted_implementation.status is SkillStatus.CANDIDATE
             )
+            implementation_admission_count += int(implementation_passed)
             evidence.record(
                 str(implementation_ref),
                 "implementation",
@@ -2334,11 +2338,19 @@ class AtomicSkillGraphSystem:
             "atomic_alignment_reuse_count": atomic_reuse_count,
             "atomic_new_contract_count": atomic_new_count,
             "composite_alignment_reuse_count": 0,
+            "partial_atomic_admission_count": 0,
             "partial_atomic_alignment_reuse_count": (
                 atomic_reuse_count if prepared.composite is None else 0
             ),
             "partial_atomic_new_contract_count": (
                 atomic_new_count if prepared.composite is None else 0
+            ),
+            "partial_atomic_tool_admission_count": (
+                tool_admission_count if prepared.composite is None else 0
+            ),
+            "partial_atomic_implementation_admission_count": (
+                implementation_admission_count
+                if prepared.composite is None else 0
             ),
         })
         if prepared.composite is not None:
@@ -2393,6 +2405,28 @@ class AtomicSkillGraphSystem:
                     trace.trace_id,
                     occurrence_id=occurrence_id,
                 )
+        elif prepared.compiled:
+            quality["partial_atomic_admission_count"] = 1
+            trace.metadata.setdefault("r3_events", []).append({
+                "revision": max(
+                    (
+                        int(item.new_revision)
+                        for item in getattr(trace, "environment_actions", [])
+                    ),
+                    default=0,
+                ),
+                "occurrence_id": "",
+                "event_type": "partial_atomic_admission",
+                "details": {
+                    "admission_count": 1,
+                    "alignment_reuse_count": atomic_reuse_count,
+                    "new_contract_count": atomic_new_count,
+                    "tool_admission_count": tool_admission_count,
+                    "implementation_admission_count": (
+                        implementation_admission_count
+                    ),
+                },
+            })
         trace.metadata["extractor_quality"] = quality
 
         attempts = tuple(
@@ -3205,14 +3239,20 @@ class AtomicSkillGraphSystem:
         for observed in observations:
             if observed.task_id != trace.task.task_id or observed.session.session_id in existing:
                 continue
+            snapshot = observed.session.snapshot()
             trace.agent_sessions.append(AgentSessionRecord(
                 observed.session.session_id,
                 observed.session_type,
                 observed.occurrence_id,
                 observed.started_at,
                 time.time(),
-                observed.session.snapshot(),
+                snapshot,
             ))
+            events = snapshot.get("r3_events", [])
+            if isinstance(events, list) and events:
+                trace.metadata.setdefault("r3_events", []).extend(
+                    to_primitive(events)
+                )
             for index, turn in enumerate(observed.turns):
                 trace.agent_turns.append(AgentTurnRecord(
                     observed.session.session_id,
@@ -3229,6 +3269,7 @@ class AtomicSkillGraphSystem:
                         "latency_ms": turn.latency_ms,
                     },
                     dict(turn.provider_metadata),
+                    turn.reasoning_content,
                 ))
 
     def preflight(

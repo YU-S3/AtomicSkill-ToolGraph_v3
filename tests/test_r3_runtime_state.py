@@ -571,8 +571,10 @@ def test_long_history_keeps_full_trace_but_projects_memory_and_five_recent_actio
     assert memory["negative_observations"] == {
         "initial_check": "no additional current candidate",
     }
-    assert memory["discovered"]["location_0"]["evidence_status"] == "historical"
-    assert memory["discovered"]["container_22"]["evidence_status"] == "observed"
+    assert memory["historical_discoveries"]["location_0"][
+        "evidence_status"
+    ] == "historical"
+    assert "container_22" not in memory["historical_discoveries"]
     assert memory["progress_since_last_grounding_change"] == {
         "accepted_actions": 22,
     }
@@ -609,7 +611,7 @@ def test_long_history_keeps_full_trace_but_projects_memory_and_five_recent_actio
             "arguments": {"object": "container_22"},
         }],
     }
-    assert policy["exploration_memory"]["discovered"]["location_0"][
+    assert policy["exploration_memory"]["historical_discoveries"]["location_0"][
         "evidence_status"
     ] == "historical"
     assert "location_0" not in json.dumps(
@@ -618,3 +620,24 @@ def test_long_history_keeps_full_trace_but_projects_memory_and_five_recent_actio
     # Policy projection must not destructively compact canonical history.
     assert len(ctx.action_history) == 22
     assert len(trace_builder.trace.environment_actions) == 22
+
+    # A failed learned invocation remains diagnostic only within its current
+    # occurrence and is cleared at success/switch/takeover boundaries.
+    ctx.begin_occurrence(SimpleNamespace(occurrence_id="occ-a"))
+    ctx.record_failed_invocation(
+        occurrence_id="occ-a",
+        implementation_ref="implementation:test",
+        failure_code="binding_failed",
+        message="binding failed",
+    )
+    assert ctx.last_failed_invocation is not None
+    ctx.clear_failed_invocation("occ-a")
+    assert ctx.last_failed_invocation is None
+    ctx.record_failed_invocation(
+        occurrence_id="occ-a",
+        implementation_ref="implementation:test",
+        failure_code="binding_failed",
+        message="binding failed",
+    )
+    ctx.begin_occurrence(SimpleNamespace(occurrence_id="occ-b"))
+    assert ctx.last_failed_invocation is None

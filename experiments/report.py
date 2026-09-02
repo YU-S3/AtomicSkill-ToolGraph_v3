@@ -139,6 +139,25 @@ R21_RUNTIME_METRICS = (
     "replay_history_action_count",
 )
 
+R31_RUNTIME_METRICS = (
+    "runtime_grounding_refresh_count",
+    "runtime_unique_binding_auto_confirm_count",
+    "runtime_unique_binding_auto_confirm_role_count",
+    "runtime_invocation_ready_transition_count",
+    "runtime_effect_ready_transition_count",
+    "replay_action_window_size",
+    "replay_action_window_compaction_count",
+    "replay_pruned_action_count",
+    "runtime_context_snapshot_count",
+    "runtime_exploration_memory_projection_count",
+    "runtime_recent_action_projection_count",
+    "partial_atomic_admission_count",
+    "partial_atomic_alignment_reuse_count",
+    "partial_atomic_new_contract_count",
+    "partial_atomic_tool_admission_count",
+    "partial_atomic_implementation_admission_count",
+)
+
 R22_FAILURE_EXTRACTOR_METRICS = (
     "failure_extractor_f1_input_event_count",
     "failure_extractor_f1_prompt_chars",
@@ -236,6 +255,7 @@ REPORT_COLUMNS = (
     "task_token_budget_exhausted_count",
     "node_token_budget_exhausted_count",
     *R21_RUNTIME_METRICS,
+    *R31_RUNTIME_METRICS,
     "replay_full_catalog_count_at_last_request",
     "runtime_prompt_tokens",
     "runtime_completion_tokens",
@@ -347,6 +367,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
             _field(trace, "task_rescue_required", False)
         ),
     )
+    r31_runtime = _r31_event_metrics(trace, metadata=metadata)
     row: dict[str, Any] = {
         "trace_id": str(_field(trace, "trace_id", "")),
         "schema_version": _integer(_field(trace, "schema_version", 0)),
@@ -466,6 +487,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
             "runtime_node_token_budget_exhausted" in failure_codes
         ),
         **r21_runtime,
+        **r31_runtime,
         **failure_extractor,
         **v31_metrics,
         **{
@@ -697,6 +719,17 @@ def summarize_traces(
         **{
             name: sum(_integer(row.get(name, 0)) for row in task_rows)
             for name in R21_RUNTIME_METRICS
+        },
+        **{
+            name: (
+                max(
+                    (_integer(row.get(name, 0)) for row in task_rows),
+                    default=0,
+                )
+                if name == "replay_action_window_size"
+                else sum(_integer(row.get(name, 0)) for row in task_rows)
+            )
+            for name in R31_RUNTIME_METRICS
         },
         **{
             name: sum(_integer(row.get(name, 0)) for row in task_rows)
@@ -963,6 +996,11 @@ def render_markdown(
         ),
         ("runtime_reasoning_tokens", summary.get("runtime_reasoning_tokens", 0)),
         ("runtime_reasoning_share", summary.get("runtime_reasoning_share", 0.0)),
+    )))
+    lines.extend(["", "## R3.1 Runtime context and observability", ""])
+    lines.extend(_markdown_pairs(tuple(
+        (name, summary.get(name, 0))
+        for name in R31_RUNTIME_METRICS
     )))
     lines.extend(["", "### Runtime token decomposition", ""])
     lines.append(
@@ -2095,6 +2133,67 @@ def _runtime_exhausted_session_counts(
     return counts
 
 
+def _r31_event_metrics(
+    trace: Any,
+    *,
+    metadata: Mapping[str, Any],
+) -> dict[str, int]:
+    """Aggregate only explicit R3 events; never infer Runtime decisions."""
+
+    events = [
+        _mapping(item)
+        for item in _sequence(metadata.get("r3_events", []))
+    ]
+    result = {name: 0 for name in R31_RUNTIME_METRICS}
+    result["replay_action_window_size"] = 5
+    for event in events:
+        event_type = str(event.get("event_type", ""))
+        details = _mapping(event.get("details", {}))
+        if event_type == "grounding_refresh":
+            result["runtime_grounding_refresh_count"] += 1
+        elif event_type == "unique_binding_auto_confirm":
+            result["runtime_unique_binding_auto_confirm_count"] += 1
+            result["runtime_unique_binding_auto_confirm_role_count"] += _integer(
+                details.get("role_count", 0)
+            )
+        elif event_type == "invocation_ready_transition":
+            result["runtime_invocation_ready_transition_count"] += 1
+        elif event_type == "effect_ready_transition":
+            result["runtime_effect_ready_transition_count"] += 1
+        elif event_type == "replay_action_window_compaction":
+            result["replay_action_window_compaction_count"] += 1
+            result["replay_pruned_action_count"] += _integer(
+                details.get("pruned_action_count", 0)
+            )
+        elif event_type == "runtime_context_projection":
+            result["runtime_context_snapshot_count"] += _integer(
+                details.get("current_state_snapshot_count", 0)
+            )
+            result["runtime_exploration_memory_projection_count"] += _integer(
+                details.get("exploration_memory_count", 0)
+            )
+            result["runtime_recent_action_projection_count"] += _integer(
+                details.get("recent_action_count", 0)
+            )
+        elif event_type == "partial_atomic_admission":
+            result["partial_atomic_admission_count"] += _integer(
+                details.get("admission_count", 0)
+            )
+            result["partial_atomic_alignment_reuse_count"] += _integer(
+                details.get("alignment_reuse_count", 0)
+            )
+            result["partial_atomic_new_contract_count"] += _integer(
+                details.get("new_contract_count", 0)
+            )
+            result["partial_atomic_tool_admission_count"] += _integer(
+                details.get("tool_admission_count", 0)
+            )
+            result[
+                "partial_atomic_implementation_admission_count"
+            ] += _integer(details.get("implementation_admission_count", 0))
+    return result
+
+
 def _r21_runtime_metrics(
     trace: Any,
     *,
@@ -2899,6 +2998,7 @@ def _replace_with_retry(source: Path, target: Path) -> None:
 __all__ = [
     "REPORT_COLUMNS",
     "R21_RUNTIME_METRICS",
+    "R31_RUNTIME_METRICS",
     "R22_FAILURE_EXTRACTOR_METRICS",
     "ReportPaths",
     "USAGE_BUCKETS",

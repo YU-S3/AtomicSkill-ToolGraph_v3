@@ -47,6 +47,7 @@ class AgentTurnRecord:
     tool_call_ids: list[str]
     usage: dict[str, Any]
     provider_metadata: dict[str, Any] = field(default_factory=dict)
+    reasoning_content: str = ""
 
 
 @dataclass(frozen=True)

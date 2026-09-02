@@ -269,7 +269,7 @@ class ProvisionalNodeExecutor:
                 failure_code = "provisional_atomic_effect_failed"
         finally:
             ctx.trace_builder.finish_span(span.span_id)
-            self.node_executor._finish_session(session_record, session)
+            self.node_executor._finish_session(session_record, session, ctx)
 
         after = progress_tracker.record("cold_start_step_complete")
         action_end = len(ctx.trace_builder.trace.environment_actions)
