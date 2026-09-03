@@ -253,6 +253,29 @@ class ToolRunner:
             merged.setdefault(key, value)
         return merged
 
+    def _resolved_effect(
+        self, effect: dict[str, Any], state: ToolExecutionState,
+    ) -> dict[str, Any]:
+        """Resolve serialized BindingExpression effect args for Harness validation."""
+
+        args: dict[str, Any] = {}
+        for role, raw in dict(effect.get("args") or {}).items():
+            if isinstance(raw, dict) and raw.get("kind") == "skill_input":
+                args[role] = state.bindings.get(str(raw.get("source_role", "")))
+            elif isinstance(raw, dict) and raw.get("kind") == "constant":
+                args[role] = raw.get("constant")
+            elif isinstance(raw, str) and raw.startswith("$"):
+                args[role] = state.bindings.get(raw[1:])
+            else:
+                args[role] = raw
+        return {
+            "predicate": str(effect.get("predicate", "")),
+            "args": args,
+            "cardinality": int(effect.get("cardinality", 1)),
+            "distinct_by": str(effect.get("distinct_by", "")),
+            "effect_domain": str(effect.get("effect_domain", "world")),
+        }
+
     def _validate_step_effects(
         self, node: dict[str, Any], ctx: Any, state: ToolExecutionState,
     ) -> dict[str, Any]:
@@ -273,7 +296,10 @@ class ToolRunner:
         if callable(validate_effect):
             try:
                 passed = bool(validate_effect({
-                    "effects": expected,
+                    "effects": [
+                        self._resolved_effect(effect, state)
+                        for effect in expected
+                    ],
                     "bindings": self._effect_bindings(state),
                 }).passed)
             except Exception:
@@ -466,7 +492,10 @@ class ToolRunner:
         validate_effect = getattr(ctx.harness.validator_channel(), "validate_atomic_effect", None)
         if callable(validate_effect) and final_effects:
             atomic_effect_passed = bool(validate_effect({
-                "effects": final_effects,
+                "effects": [
+                    self._resolved_effect(effect, state)
+                    for effect in final_effects
+                ],
                 "bindings": self._effect_bindings(state),
             }).passed)
         final_effect_result = {
