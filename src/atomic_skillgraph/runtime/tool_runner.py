@@ -18,6 +18,7 @@ from ..validation.tool_validator import ToolValidator
 from ..tooling.ir import (
     ToolExecutionState,
     evaluate_condition,
+    normalize_return_output_sources,
     resolve_collection,
     resolve_return_sources,
 )
@@ -423,8 +424,15 @@ class ToolRunner:
                     )
                     return "BREAK_LOOP"
             elif opcode == "RETURN":
+                output_sources = normalize_return_output_sources(
+                    node,
+                    list(
+                        tool.interface.get("output_schema", {})
+                        .get("properties", {})
+                    ),
+                )
                 outputs, refs = resolve_return_sources(
-                    dict(node.get("output_sources") or {}), state,
+                    output_sources, state,
                 )
                 if any(value is None for value in outputs.values()):
                     state.failure_code = "tool_ir_return_output_unresolved"

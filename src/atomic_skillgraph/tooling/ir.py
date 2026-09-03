@@ -309,6 +309,27 @@ def resolve_collection(
     return values
 
 
+def normalize_return_output_sources(
+    node: Mapping[str, Any],
+    output_roles: Any = (),
+) -> dict[str, Any]:
+    """Repair a common structural mistake where RETURN supplies a source spec
+    instead of the required ``{output_role: source_spec}`` mapping."""
+
+    raw = _as_mapping(node.get("output_sources"))
+    if not raw:
+        return {}
+    roles = {str(role) for role in output_roles}
+    source_spec_keys = {
+        "source", "field", "where", "project", "kind", "constant",
+        "value", "source_role", "distinct",
+    }
+    if set(raw) <= source_spec_keys and "source" in raw:
+        if len(roles) == 1:
+            return {next(iter(roles)): dict(raw)}
+    return dict(raw)
+
+
 def resolve_return_sources(
     output_sources: Mapping[str, Any],
     state: ToolExecutionState,
@@ -435,6 +456,7 @@ __all__ = [
     "ToolExecutionState",
     "evaluate_condition",
     "normalize_tool_program",
+    "normalize_return_output_sources",
     "walk_program_nodes",
     "program_paths",
     "resolve_collection",

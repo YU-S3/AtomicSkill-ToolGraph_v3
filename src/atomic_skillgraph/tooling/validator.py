@@ -16,6 +16,7 @@ from ..core.results import ValidationResult
 from ..core.serialization import to_primitive
 from .ir import (
     CONDITION_OPERATORS,
+    normalize_return_output_sources,
     normalize_tool_program,
     program_paths,
     walk_program_nodes,
@@ -322,6 +323,16 @@ class ToolStaticValidator:
 
         try:
             program = normalize_tool_program(proposal.program)
+            output_roles_for_return = {
+                str(item.name)
+                for item in [*proposal.outputs, *atomic.outputs]
+                if item.name
+            }
+            for node in walk_program_nodes(program):
+                if node.get("op") == "RETURN":
+                    node["output_sources"] = normalize_return_output_sources(
+                        node, output_roles_for_return,
+                    )
             paths = program_paths(program)
             checks["program_schema"] = True
             checks["program_paths_computable"] = bool(paths["path_ids"])
