@@ -371,6 +371,19 @@ class CompositeBuilder:
                 additional_forbidden_terms=source_terms,
             ).passed,
         ))
+        terminal_metadata = dict(terminal_certificate or {}) if terminal_authority else {}
+        if terminal_authority:
+            covered_signatures: list[dict[str, Any]] = []
+            for occurrence in canonical:
+                for effect in occurrence.effects:
+                    covered_signatures.append({
+                        "predicate": effect.predicate,
+                        "effect_domain": effect.effect_domain.value,
+                        "argument_roles": sorted(map(str, effect.args)),
+                        "cardinality": max(1, int(effect.cardinality)),
+                        "distinct_by": str(effect.distinct_by),
+                    })
+            terminal_metadata["covered_effect_signatures"] = covered_signatures
         return CompositeSkill(
             SkillRef(f"composite_{signature[:24]}", "1.0.0"), summary,
             occurrences, list(proposal.control_sequence),
@@ -395,7 +408,7 @@ class CompositeBuilder:
                     ),
                     "source_composite_ref": str(source_composite_ref),
                 },
-                "terminal_certificate": dict(terminal_certificate or {}) if terminal_authority else {},
+                "terminal_certificate": terminal_metadata,
                 "observed_task_contract_coverage": {
                     "covered_effects": [
                         item.get("predicate")

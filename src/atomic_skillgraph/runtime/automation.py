@@ -218,11 +218,36 @@ class RuntimeAutomationCoordinator:
             and not tool_intrinsic_failure
             and not terminal_interrupted
         )
+        input_authorities: dict[str, dict[str, Any]] = {}
+        for role, raw in (dict(getattr(draft, "input_binding_specs", None) or {})).items():
+            if role not in trial_bindings:
+                continue
+            spec = dict(raw) if isinstance(raw, dict) else {}
+            input_authorities[role] = {
+                "kind": str(spec.get("kind", "")).casefold(),
+                "source_occurrence_id": str(occurrence.occurrence_id),
+                "source_role": str(spec.get("source_role", "")),
+                "value": trial_bindings[role],
+                "authority_ref": f"runtime_input:{draft.draft_id}:{role}",
+            }
+        r1_witness_refs: list[str] = []
+        for tool_result in result.tool_results:
+            evidence = dict(getattr(tool_result, "tool_path_evidence", {}) or {})
+            r1_witness_refs.extend(
+                str(item) for item in evidence.get("evidence_refs", [])
+            )
+            for step in evidence.get("step_effect_results", []):
+                if isinstance(step, dict) and step.get("witness_refs"):
+                    r1_witness_refs.extend(map(str, step.get("witness_refs", [])))
         trial = {
             "draft_id": draft.draft_id,
             "atomic_ref": str(atomic.ref),
             "tool_ref": str(compiled.tool.ref),
             "implementation_ref": str(compiled.implementation.ref),
+            "trial_bindings": to_primitive(trial_bindings),
+            "input_authorities": to_primitive(input_authorities),
+            "r1_outputs": to_primitive(result.validated_outputs),
+            "r1_witness_refs": list(dict.fromkeys(r1_witness_refs)),
             "result": to_primitive(result),
             "r1": {
                 "atomic_effect_passed": atomic_effect_passed,

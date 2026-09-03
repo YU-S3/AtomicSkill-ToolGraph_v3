@@ -103,9 +103,20 @@ class ImplementationRunner:
                 output_candidates[output.name] = atomic_values[output.name]
         bindings = ctx.binding_store.snapshot_for_node(occurrence)
         bindings.update({item.role: item for item in preflight.binding_updates})
-        atomic_validation = self.validation.atomic.validate(
-            compiled.atomic, occurrence, bindings, ctx.harness.validator_channel(), output_candidates,
-        )
+        if compiled.atomic.validator_spec.get("output_derivations"):
+            atomic_validation = self.validation.atomic.validate_execution_result(
+                compiled.atomic,
+                occurrence,
+                bindings,
+                output_candidates,
+                ctx.harness.validator_channel(),
+                current_revision=ctx.world_revision,
+            )
+        else:
+            atomic_validation = self.validation.atomic.validate(
+                compiled.atomic, occurrence, bindings,
+                ctx.harness.validator_channel(), output_candidates,
+            )
         ctx.trace_builder.trace.validations.append(ValidationRecord(
             occurrence.occurrence_id, "atomic", to_primitive(atomic_validation), ctx.world_revision,
         ))

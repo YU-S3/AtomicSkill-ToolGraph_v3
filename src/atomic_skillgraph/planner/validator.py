@@ -1174,13 +1174,29 @@ class PlannerValidator:
         )
         if not closure or not expressions_consistent:
             errors.append("data_flow_error")
-        if not checks["identity_cardinality_preserved"]:
+        if not checks["identity_cardinality_preserved"] and not terminal_empirical:
             errors.append("task_contract_mismatch")
+        if terminal_empirical:
+            checks["terminal_empirical_incomplete_coverage_nonblocking"] = True
 
         errors = list(dict.fromkeys(errors))
+        diagnostic_when_terminal = {
+            "task_contract_effect_coverage",
+            "identity_cardinality_preserved",
+        }
+        blocking_checks = {
+            name: value
+            for name, value in checks.items()
+            if not (
+                terminal_empirical and name in diagnostic_when_terminal
+            )
+        }
         return ValidationResult(
-            level="planner", passed=not errors and all(checks.values()), checks=checks,
-            failure_codes=errors, messages=messages,
+            level="planner",
+            passed=not errors and all(blocking_checks.values()),
+            checks=checks,
+            failure_codes=errors,
+            messages=messages,
         )
 
 

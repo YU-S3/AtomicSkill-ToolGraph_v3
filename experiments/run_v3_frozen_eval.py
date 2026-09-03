@@ -347,6 +347,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                     knowledge_digest=digest_before, tasks=task_items,
                     metadata={
                         "condition": "full", "source_train_run": train_manifest.run_id,
+                        "environment": {"alfworld_version": "0.4.2"},
                         "task_types": labels, "tasks_per_type": per_type,
                         "total_tasks": expected_total,
                     },

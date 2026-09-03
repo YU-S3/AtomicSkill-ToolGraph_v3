@@ -443,29 +443,12 @@ class ToolRunner:
 
         terminal_interrupted = bool(terminal and terminal[0].get("won"))
         outputs = dict(state.outputs)
-        if not outputs:
-            output_mapping = tool.artifact.get("output_mapping", {})
-            for role, expression in output_mapping.items():
-                if isinstance(expression, dict) and "kind" in expression:
-                    expression = BindingExpression.from_dict(expression)
-                    outputs[role] = (
-                        expression.constant
-                        if expression.kind is BindingExprKind.CONSTANT
-                        else state.bindings.get(expression.source_role)
-                    )
-                else:
-                    outputs[role] = state.bindings.get(role, expression)
         output_validation = self.validator.validate_output(tool, outputs)
         completed = bool(control_signal == "RETURN_PROGRAM")
         if completed and not output_validation.passed:
             completed = False
             state.failure_code = "tool_output_schema_error"
             state.failure_message = "; ".join(output_validation.messages)
-        if terminal_interrupted and not outputs:
-            for role in (tool.interface.get("output_schema", {}).get("properties", {}) or {}):
-                if role in state.bindings:
-                    outputs[role] = state.bindings[role]
-
         final_effects = [dict(item) if isinstance(item, dict) else to_primitive(item) for item in tool.artifact.get("final_effects", [])]
         observed_effects: list[dict[str, Any]] = []
         missing_effects: list[dict[str, Any]] = []

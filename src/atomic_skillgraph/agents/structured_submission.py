@@ -237,6 +237,14 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {"type": "object"},
         },
+        "input_provenance_refs": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+        "output_derivations": {
+            "type": "object",
+            "additionalProperties": {"type": "object"},
+        },
         "input_roles": {
             "type": "object",
             "minProperties": 1,
@@ -248,7 +256,8 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "type": "object",
             "minProperties": 1,
             "description": (
-                "Published role identities; every value must exactly repeat an input_roles value."
+                "Published role identities; every value must have exactly one "
+                "input_identity or effect_witness derivation."
             ),
         },
         "preconditions": {

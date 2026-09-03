@@ -26,6 +26,8 @@ class AtomicOccurrenceProposal:
     precondition_witness_refs: list[str] = field(default_factory=list)
     effect_witness_refs: list[str] = field(default_factory=list)
     ordering_constraints: list[dict[str, Any]] = field(default_factory=list)
+    input_provenance_refs: dict[str, Any] = field(default_factory=dict)
+    output_derivations: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -52,6 +54,8 @@ class CanonicalAtomicOccurrence:
     effect_witness_refs: list[str] = field(default_factory=list)
     ordering_constraints: list[dict[str, Any]] = field(default_factory=list)
     envelope_events: list[dict[str, Any]] = field(default_factory=list)
+    input_provenance_refs: dict[str, Any] = field(default_factory=dict)
+    output_derivations: dict[str, Any] = field(default_factory=dict)
 
 
 _ACTION_EFFECTS: dict[str, tuple[tuple[str, dict[str, tuple[str, ...]]], ...]] = {
@@ -339,6 +343,193 @@ def _canonical_predicate(predicate: SemanticPredicate, inputs: dict[str, Any], o
     )
 
 
+def _authority_ref_identity(authority: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(authority.get("authority_ref", "")),
+        str(authority.get("role", "")),
+        repr(authority.get("value")),
+    )
+
+
+def _input_authorities(
+    normalized_trace: dict[str, Any],
+    events: list[dict[str, Any]],
+    *,
+    through_event: int,
+) -> list[dict[str, Any]]:
+    """Code-side input authority candidates.
+
+    Explicit boundary authorities always win.  For legacy E1 proposals that
+    predate ``input_provenance_refs``, accepted action arguments are projected
+    into deterministic ``action_argument`` authorities.
+    """
+
+    authorities: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    boundary = dict(normalized_trace.get("boundary_authorities") or {})
+    for raw in list(boundary.get("inputs") or []):
+        if not isinstance(raw, Mapping):
+            continue
+        authority = dict(raw)
+        if not str(authority.get("authority_ref", "")):
+            authority["authority_ref"] = (
+                f"boundary_input:{authority.get('source_kind', 'code')}:"
+                f"{authority.get('role', '')}"
+            )
+        identity = _authority_ref_identity(authority)
+        if identity not in seen:
+            seen.add(identity)
+            authorities.append(authority)
+    for event in events[: through_event + 1]:
+        if not event.get("accepted"):
+            continue
+        event_id = str(event.get("event_id", event.get("action_id", "")))
+        for role, value in dict(event.get("arguments") or {}).items():
+            authority = {
+                "authority_ref": f"action_arg:{event_id}:{role}",
+                "kind": "action_argument",
+                "role": str(role),
+                "value": value,
+                "event_id": event_id,
+                "argument_role": str(role),
+            }
+            identity = _authority_ref_identity(authority)
+            if identity not in seen:
+                seen.add(identity)
+                authorities.append(authority)
+    return authorities
+
+
+def _resolve_input_authority(
+    role: str,
+    value: Any,
+    ref: str,
+    authorities: list[dict[str, Any]],
+    *,
+    phase_id: str,
+) -> dict[str, Any]:
+    matches = [
+        item for item in authorities
+        if str(item.get("authority_ref", "")) == str(ref)
+    ]
+    if not matches:
+        raise ValueError(f"input authority ref not found: {ref}")
+    authority = dict(matches[0])
+    if str(authority.get("role", "")) != str(role):
+        # A provenance entry may use an adapter argument role for a renamed
+        # Atomic input.  Value equality remains mandatory, not role spelling.
+        pass
+    if repr(authority.get("value")) != repr(value):
+        raise ValueError(
+            f"input authority value mismatch for {role}: {ref}"
+        )
+    return authority
+
+
+def _normalize_output_derivations(
+    proposal: Any,
+    inputs: dict[str, Any],
+    outputs: dict[str, Any],
+    *,
+    phase_id: str,
+) -> dict[str, Any]:
+    derivations: dict[str, Any] = {}
+    supplied = dict(getattr(proposal, "output_derivations", None) or {})
+    for output_role, value in outputs.items():
+        raw = supplied.get(output_role)
+        if raw is None:
+            matches = [
+                role for role, bound in inputs.items() if bound == value
+            ]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"Atomic output lacks one authoritative derivation: {phase_id}.{output_role}"
+                )
+            derivations[output_role] = {
+                "kind": "input_identity",
+                "input_role": matches[0],
+            }
+            continue
+        derivation = dict(raw) if isinstance(raw, Mapping) else {}
+        kind = str(derivation.get("kind", "")).casefold()
+        if kind == "input_identity":
+            input_role = str(derivation.get("input_role", ""))
+            if input_role not in inputs or inputs[input_role] != value:
+                raise ValueError(
+                    f"Atomic input_identity derivation invalid: {phase_id}.{output_role}"
+                )
+            derivations[output_role] = {
+                "kind": "input_identity",
+                "input_role": input_role,
+            }
+        elif kind == "effect_witness":
+            derivations[output_role] = {
+                "kind": "effect_witness",
+                "predicate": str(derivation.get("predicate", "")),
+                "argument_role": str(derivation.get("argument_role", "")),
+            }
+        else:
+            raise ValueError(
+                f"unsupported Atomic output derivation: {phase_id}.{output_role}"
+            )
+    return derivations
+
+
+def _validate_effect_witness_derivations(
+    derivations: dict[str, Any],
+    proposal: Any,
+    inputs: dict[str, Any],
+    outputs: dict[str, Any],
+    effect_facts: list[dict[str, Any]],
+    *,
+    phase_id: str,
+) -> tuple[dict[str, Any], list[str]]:
+    validated: dict[str, Any] = {}
+    declared_effects = {
+        item.predicate.casefold(): item for item in proposal.effects
+    }
+    extra_refs: list[str] = []
+    for output_role, derivation in derivations.items():
+        if derivation.get("kind") != "effect_witness":
+            validated[output_role] = dict(derivation)
+            continue
+        predicate = str(derivation.get("predicate", "")).casefold()
+        argument_role = str(derivation.get("argument_role", ""))
+        effect = declared_effects.get(predicate)
+        if effect is None:
+            raise ValueError(
+                f"Atomic effect_witness derivation references undeclared Effect: {phase_id}.{output_role}"
+            )
+        if argument_role not in {str(role) for role in effect.args}:
+            raise ValueError(
+                f"Atomic effect_witness derivation role invalid: {phase_id}.{output_role}"
+            )
+        matching = [
+            fact for fact in effect_facts
+            if str(fact.get("predicate", "")).casefold() == predicate
+            and repr(dict(fact.get("args") or {}).get(argument_role))
+            == repr(outputs[output_role])
+        ]
+        if not matching:
+            raise ValueError(
+                f"Atomic effect_witness derivation lacks witness: {phase_id}.{output_role}"
+            )
+        refs = [
+            str(fact.get("witness_ref", ""))
+            for fact in matching
+            if str(fact.get("witness_ref", ""))
+        ]
+        if refs:
+            extra_refs.extend(refs)
+        validated[output_role] = {
+            "kind": "effect_witness",
+            "predicate": effect.predicate,
+            "argument_role": argument_role,
+            "witness_refs": list(dict.fromkeys(refs)),
+        }
+    return validated, list(dict.fromkeys(extra_refs))
+
+
 class Atomicizer:
     def validate_proposed_subset(
         self,
@@ -476,15 +667,31 @@ class Atomicizer:
             outputs = dict(proposal.output_roles)
             if len({repr(value) for value in inputs.values()}) != len(inputs):
                 raise ValueError(f"Atomic input identity is ambiguous: {proposal.phase_id}")
-            available_values = {
-                repr(value)
-                for event in events[:proposal.event_end + 1]
-                for value in dict(event.get("arguments") or {}).values()
-            }
-            if any(repr(value) not in available_values for value in inputs.values()):
-                raise ValueError(f"Atomic input lacks action/binding provenance: {proposal.phase_id}")
-            if any(value not in inputs.values() for value in outputs.values()):
-                raise ValueError(f"Atomic output lacks reusable input identity: {proposal.phase_id}")
+            authorities = _input_authorities(
+                normalized_trace, events, through_event=proposal.event_end,
+            )
+            input_provenance: dict[str, Any] = {}
+            for role, value in inputs.items():
+                ref = str(proposal.input_provenance_refs.get(role, ""))
+                if ref:
+                    authority = _resolve_input_authority(
+                        role, value, ref, authorities,
+                        phase_id=proposal.phase_id,
+                    )
+                else:
+                    matches = [
+                        item for item in authorities
+                        if repr(item.get("value")) == repr(value)
+                    ]
+                    if not matches:
+                        raise ValueError(
+                            f"Atomic input lacks code authority: {proposal.phase_id}.{role}"
+                        )
+                    authority = dict(matches[0])
+                input_provenance[role] = authority
+            output_derivations = _normalize_output_derivations(
+                proposal, inputs, outputs, phase_id=proposal.phase_id,
+            )
 
             bindings = {**inputs, **outputs}
             prefix_facts = reduce_action_state(list(events[:proposal.event_start]))
@@ -526,6 +733,17 @@ class Atomicizer:
                 unused_witnesses.difference_update(selected_witnesses)
             if not proposal.effects or not effect_witness_indexes:
                 raise ValueError(f"Atomic effect lacks accepted state/validator witness: {proposal.phase_id}")
+
+            output_derivations, derivation_effect_refs = (
+                _validate_effect_witness_derivations(
+                    output_derivations,
+                    proposal,
+                    inputs,
+                    outputs,
+                    effect_facts,
+                    phase_id=proposal.phase_id,
+                )
+            )
 
             for witness_ref in proposal.precondition_witness_refs:
                 facts = [
@@ -579,6 +797,7 @@ class Atomicizer:
             # occurrence from failing compilation for all otherwise valid
             # occurrences in the same extraction.
             input_values = list(inputs.values())
+            output_values = list(outputs.values())
             for event in selected:
                 for argument, value in dict(event.get("arguments") or {}).items():
                     if not (
@@ -586,10 +805,19 @@ class Atomicizer:
                         and re.search(r"(?:_|\s)\d+$", value)
                     ):
                         continue
-                    if input_values.count(value) != 1:
+                    input_owned = input_values.count(value) == 1
+                    fresh_output_owned = (
+                        output_values.count(value) == 1
+                        and any(
+                            derivation.get("kind") == "effect_witness"
+                            and repr(outputs.get(output_role)) == repr(value)
+                            for output_role, derivation in output_derivations.items()
+                        )
+                    )
+                    if not (input_owned or fresh_output_owned):
                         raise ValueError(
                             "Atomic concrete action argument lacks one reusable "
-                            f"input role: {proposal.phase_id}.{argument}={value}"
+                            f"input/output derivation: {proposal.phase_id}.{argument}={value}"
                         )
 
             validation_refs: list[str] = []
@@ -605,6 +833,7 @@ class Atomicizer:
                 str(effect_facts[fact_index]["witness_ref"])
                 for fact_index in effect_witness_indexes
             )
+            validation_refs.extend(derivation_effect_refs)
             preconditions = [_canonical_predicate(item, inputs, outputs) for item in proposal.preconditions]
             effects = [_canonical_predicate(item, inputs, outputs) for item in proposal.effects]
             input_specs = [
@@ -632,6 +861,8 @@ class Atomicizer:
                 effect_witness_refs=list(proposal.effect_witness_refs),
                 ordering_constraints=[dict(item) for item in proposal.ordering_constraints],
                 envelope_events=envelope_events,
+                input_provenance_refs=dict(input_provenance),
+                output_derivations=dict(output_derivations),
             ))
             used_support_events.update(owned_support_events)
         if not result:

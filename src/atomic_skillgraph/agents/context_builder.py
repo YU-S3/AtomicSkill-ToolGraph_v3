@@ -463,12 +463,16 @@ Ranges must be ordered and non-overlapping.
 input_roles:
 - non-empty;
 - unique role-to-concrete-value bindings;
-- values copied exactly from authoritative candidates in the selected slice.
+- every input must reference one supplied input_provenance_refs authority.
 
 output_roles:
 - non-empty;
-- each output value must equal one input value;
-- publish only identities made available by the verified transition.
+- every required output must have exactly one code-verifiable derivation;
+- INPUT_IDENTITY: exactly the same concrete identity as one declared input; or
+- EFFECT_WITNESS: a concrete argument of one declared authoritative Effect witness.
+Do not invent an output value.
+Do not derive an output from observation prose.
+Use only supplied boundary_authorities / effect witness refs.
 
 preconditions:
 - may be empty;
@@ -520,6 +524,13 @@ Call the offered native submission tool exactly once.""",
                 ],
                 "runtime_tool_trials": _policy_value(
                     list(runtime_tool_trials)
+                ),
+                "boundary_authorities": _policy_value(
+                    dict(
+                        _policy_value(canonical_trace).get(
+                            "boundary_authorities", {}
+                        )
+                    )
                 ),
             },
         )

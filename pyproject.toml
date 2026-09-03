@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-alfworld = ["alfworld>=0.3.0"]
+alfworld = ["alfworld==0.4.2"]
 dev = ["pytest>=7.0"]
 
 [build-system]

@@ -233,7 +233,7 @@ def test_tool_ir_executes_zero_llm_and_stops_at_return() -> None:
     assert result.completed is False
     assert result.terminal_interrupted is True
     assert result.intrinsic_failure is False
-    assert result.output_candidates == {"held_object": "apple_1"}
+    assert result.output_candidates == {}  # terminal interruption is not a RETURN authority
     assert result.executed_node_count == 1
     assert ctx.used_actions == 1
     assert ctx.benchmark_terminal() is True

@@ -13,6 +13,7 @@ from ..core.bindings import (
 from ..core.contracts import AbstractAtomicSkill, ImplementationAtom, ToolAsset
 from ..core.refs import SkillRef, ToolRef
 from ..core.status import SkillStatus, ToolStatus
+from ..tooling.ir import walk_program_nodes
 from ..tooling.proposal import ToolProposal, ToolProvenance
 from .atomicizer import CanonicalAtomicOccurrence
 from .portability import CanonicalCapabilityLabel
@@ -205,7 +206,7 @@ class ToolCompiler:
         if not program:
             raise ValueError("ToolProposal cannot compile an empty Tool IR program")
         action_nodes = [
-            node for node in program
+            node for node in walk_program_nodes(program)
             if str(node.get("op", "")) == "ACTION"
         ]
         tool_properties = {
@@ -258,7 +259,6 @@ class ToolCompiler:
                 "program": program,
                 "final_effects": proposal.final_effects,
                 "evidence_outputs": proposal.evidence_outputs,
-                "output_mapping": output_mapping,
                 "path_expectations": proposal.path_expectations,
             },
             [{
@@ -316,12 +316,31 @@ class ToolCompiler:
         constraints = []
         if action_nodes:
             first = action_nodes[0]
-            constraints.append(GroundingConstraint(
-                "entry_affordance", GroundingConstraintKind.HARNESS_AFFORDANCE,
-                action_type=str(first.get("action_type", "")),
-                argument_mapping=dict(first.get("argument_mapping", {})),
-                required_resolution="concrete",
-            ))
+            first_mapping: dict[str, BindingExpression] = {}
+            mapping_supported = True
+            for role, raw in dict(first.get("argument_mapping") or {}).items():
+                expression = dict(raw) if isinstance(raw, dict) else {}
+                kind = str(expression.get("kind", ""))
+                if kind == "skill_input":
+                    first_mapping[role] = BindingExpression(
+                        BindingExprKind.SKILL_INPUT,
+                        source_role=str(expression.get("source_role", "")),
+                    )
+                elif kind == "constant":
+                    first_mapping[role] = BindingExpression(
+                        BindingExprKind.CONSTANT,
+                        constant=expression.get("constant"),
+                    )
+                else:
+                    mapping_supported = False
+                    break
+            if first_mapping and mapping_supported:
+                constraints.append(GroundingConstraint(
+                    "entry_affordance", GroundingConstraintKind.HARNESS_AFFORDANCE,
+                    action_type=str(first.get("action_type", "")),
+                    argument_mapping=first_mapping,
+                    required_resolution="concrete",
+                ))
         implementation = ImplementationAtom(
             SkillRef(f"impl_{atomic.ref.logical_id.removeprefix('atomic_')}", "1.0.0"),
             atomic.ref,

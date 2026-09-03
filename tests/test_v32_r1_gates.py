@@ -1049,3 +1049,315 @@ def test_gate24_and_gate25_terminal_candidate_separate_retrieval_channel() -> No
             str(terminal_candidate.ref)
         ]
         assert terminal.terminal_empirical_audit[0]["completion_authority"] == "terminal_empirical"
+
+
+def test_gate30_fresh_output_effect_witness_mismatch_fail_closed() -> None:
+    from atomic_skillgraph.validation.atomic_validator import AtomicValidator
+    from atomic_skillgraph.core.results import RuntimeOccurrence
+    from atomic_skillgraph.core.refs import SkillRef
+
+    atomic = AbstractAtomicSkill(
+        ref=SkillRef("atomic_locate_gate30", "1.0.0"),
+        summary="locate fresh entity",
+        inputs=[ParameterSpec("target", "entity")],
+        outputs=[
+            ParameterSpec("entity", "entity"),
+            ParameterSpec("location", "entity"),
+        ],
+        preconditions=[],
+        effects=[
+            SemanticPredicate(
+                "entity.discovered_at",
+                {
+                    "entity": BindingExpression(BindingExprKind.SKILL_INPUT, source_role="entity"),
+                    "location": BindingExpression(BindingExprKind.SKILL_INPUT, source_role="location"),
+                },
+                effect_domain=EffectDomain.EVIDENCE,
+            )
+        ],
+        validator_spec={
+            "output_derivations": {
+                "entity": {
+                    "kind": "effect_witness",
+                    "predicate": "entity.discovered_at",
+                    "argument_role": "entity",
+                },
+                "location": {
+                    "kind": "effect_witness",
+                    "predicate": "entity.discovered_at",
+                    "argument_role": "location",
+                },
+            }
+        },
+        failure_modes=[], guideline={}, metadata={}, status=SkillStatus.CANDIDATE,
+    )
+    channel = AlfWorldValidatorChannel()
+    channel.set_catalog([
+        HarnessActionSpec(
+            "take", 0, "TAKE",
+            {"object": "cup_3", "source": "countertop_2"}, "", "", {},
+        )
+    ])
+    occurrence = RuntimeOccurrence(
+        "s1", "occ1", atomic.ref, [], {}, [], list(atomic.effects),
+    )
+    authority_facts = [{
+        "predicate": "entity.discovered_at",
+        "args": {"entity": "cup_3", "location": "countertop_2"},
+    }]
+    wrong = AtomicValidator().validate_execution_result(
+        atomic, occurrence, {"target": "cup"},
+        {"entity": "mug_2", "location": "countertop_2"},
+        channel, current_revision=0,
+        authoritative_evidence_facts=authority_facts,
+    )
+    assert wrong.passed is False
+    assert "atomic_output_effect_witness_mismatch" in wrong.failure_codes
+    right = AtomicValidator().validate_execution_result(
+        atomic, occurrence, {"target": "cup"},
+        {"entity": "cup_3", "location": "countertop_2"},
+        channel, current_revision=0,
+        authoritative_evidence_facts=authority_facts,
+    )
+    assert right.passed is True
+
+
+def test_gate31_fake_input_authority_rejected() -> None:
+    from atomic_skillgraph.evolution.atomicizer import Atomicizer
+
+    normalized = _atomicizer_trace()
+    normalized["boundary_authorities"] = {"inputs": [], "effects": []}
+    proposal = _atomicizer_proposal("p", start=0, end=1, support=["e1"])
+    proposal.input_roles = {"target": "cup"}
+    proposal.output_roles = {"result": "cup"}
+    proposal.output_derivations = {
+        "result": {"kind": "input_identity", "input_role": "target"}
+    }
+    proposal.input_provenance_refs = {
+        "target": "runtime_input:fake:target"
+    }
+    with pytest.raises(ValueError, match="input authority ref not found"):
+        Atomicizer().validate_and_canonicalize([proposal], normalized)
+
+
+def test_gate32_raw_observation_cannot_create_fresh_output() -> None:
+    from atomic_skillgraph.evolution.atomicizer import Atomicizer
+
+    normalized = _atomicizer_trace()
+    normalized["actions"][1]["observation_text"] = "You see cup 3 on countertop 2"
+    normalized["boundary_authorities"] = {
+        "inputs": [{
+            "authority_ref": "runtime_input:d:target",
+            "role": "target", "value": "cup",
+            "source_kind": "current_occurrence_anchor",
+        }],
+        "effects": [],
+    }
+    proposal = _atomicizer_proposal("p", start=0, end=1, support=["e1"])
+    proposal.input_roles = {"target": "cup"}
+    proposal.output_roles = {"entity": "cup_3"}
+    proposal.input_provenance_refs = {
+        "target": "runtime_input:d:target"
+    }
+    proposal.output_derivations = {
+        "entity": {
+            "kind": "effect_witness",
+            "predicate": "entity.discovered_at",
+            "argument_role": "entity",
+        }
+    }
+    proposal.effects = [
+        SemanticPredicate(
+            "entity.discovered_at",
+            {"entity": "$entity", "location": "countertop_2"},
+            effect_domain=EffectDomain.EVIDENCE,
+        )
+    ]
+    with pytest.raises(ValueError):
+        Atomicizer().validate_and_canonicalize([proposal], normalized)
+
+
+def test_gate33_recursive_concrete_id_leakage_rejected() -> None:
+    atomic = _atomic("atomic_nested_leak")
+    proposal = ToolProposal(
+        proposal_version="1", decision="create", summary="nested leak",
+        atomic_ref=str(atomic.ref), inputs=atomic.inputs, outputs=atomic.outputs,
+        program=[
+            {
+                "node_id": "loop", "op": "FOR_EACH",
+                "collection_source": {
+                    "source": "local_deterministic",
+                    "values": ["cabinet_7"],
+                },
+                "iteration_variable": "loc", "max_iterations": 1,
+                "body": [{
+                    "node_id": "go", "op": "ACTION", "action_type": "GO_TO",
+                    "argument_mapping": {
+                        "destination": {
+                            "kind": "constant", "constant": "cabinet_7",
+                        }
+                    },
+                }],
+            },
+            {
+                "node_id": "ret", "op": "RETURN",
+                "output_sources": {
+                    "found": {"source": "tool_input", "field": "target"}
+                },
+            },
+        ],
+        max_actions=2,
+        final_effects=atomic.effects,
+        evidence_outputs=[], path_expectations=[], rationale="",
+    )
+    report = ToolStaticValidator().validate_proposal(
+        proposal, atomic, FakeHarness(),
+    )
+    assert report.passed is False
+    assert "tool_ir_episode_concrete_id" in report.failure_codes
+
+
+def test_gate34_recursive_safety_action_collection() -> None:
+    from atomic_skillgraph.evolution.atomicizer import CanonicalAtomicOccurrence
+    from atomic_skillgraph.core.refs import SkillRef
+
+    atomic = _atomic("atomic_nested_safety")
+    atomic.ref = SkillRef.parse(str(atomic.ref))
+    atomic.effects = [
+        SemanticPredicate("entity.discovered_at", {"entity": "$found"})
+    ]
+    occurrence = CanonicalAtomicOccurrence(
+        occurrence_id="occ", phase_id="p", intent="nested search",
+        event_start=0, event_end=0,
+        input_bindings={"target": "cup"}, output_bindings={"found": "cup_3"},
+        input_specs=atomic.inputs, output_specs=atomic.outputs,
+        preconditions=[], effects=atomic.effects, action_events=[],
+        prefix_events=[], source_task={"task_id": "t"}, source_trace_id="tr",
+        proposed_ref=SkillRef("atomic_nested_safety", "1.0.0"),
+    )
+    proposal = ToolProposal(
+        proposal_version="1", decision="create", summary="nested search",
+        atomic_ref=str(atomic.ref), inputs=atomic.inputs, outputs=atomic.outputs,
+        program=[
+            {
+                "node_id": "loop", "op": "FOR_EACH",
+                "collection_source": {
+                    "source": "local_deterministic", "values": ["a"],
+                },
+                "iteration_variable": "loc", "max_iterations": 1,
+                "body": [
+                    {
+                        "node_id": "go", "op": "ACTION", "action_type": "GO_TO",
+                        "argument_mapping": {
+                            "destination": {
+                                "kind": "local_variable", "source_role": "loc",
+                            }
+                        },
+                    },
+                    {
+                        "node_id": "choice", "op": "IF",
+                        "condition": {
+                            "source": "local_variable", "field": "loc",
+                            "op": "exists",
+                        },
+                        "then_branch": [{
+                            "node_id": "open", "op": "ACTION",
+                            "action_type": "OPEN",
+                            "argument_mapping": {
+                                "object": {
+                                    "kind": "local_variable", "source_role": "loc",
+                                }
+                            },
+                        }],
+                        "else_branch": [],
+                    },
+                ],
+            },
+            {
+                "node_id": "ret", "op": "RETURN",
+                "output_sources": {
+                    "found": {"source": "tool_input", "field": "target"}
+                },
+            },
+        ],
+        max_actions=2,
+        final_effects=atomic.effects,
+        evidence_outputs=[], path_expectations=[], rationale="",
+    )
+    compiled = ToolCompiler().compile_proposal(
+        occurrence, atomic, proposal,
+        ToolProvenance("success_evolution", str(atomic.ref), "tr", "occ"),
+    )
+    assert compiled.tool is not None
+    assert set(compiled.tool.safety.get("allowed_action_types") or []) == {
+        "GO_TO", "OPEN",
+    }
+
+
+def test_gate36_terminal_empirical_current_contract_subset_gate() -> None:
+    from atomic_skillgraph.evolution.composite_builder import CompositeBuilder
+    from atomic_skillgraph.evolution.extractor_session import CompositeExtractionProposal
+    from atomic_skillgraph.knowledge.artifact_store import ArtifactStore
+    from atomic_skillgraph.knowledge.database import StateDatabase
+    from atomic_skillgraph.knowledge.skill_registry import SkillRegistry
+    from atomic_skillgraph.planner.composite_retriever import CompositeRetriever
+
+    import tempfile
+    from pathlib import Path as _Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        database = StateDatabase(_Path(tmp) / "state.sqlite3")
+        artifacts = ArtifactStore(_Path(tmp), database)
+        skills = SkillRegistry(artifacts, database)
+        canonical = [_terminal_canonical_occurrence()]
+        skills.register_atomic(replace(
+            _atomic("atomic_observe_terminal"),
+            ref=canonical[0].proposed_ref,
+        ))
+        candidate = CompositeBuilder().validate_and_build(
+            CompositeExtractionProposal(
+                control_sequence=["occ_1"],
+                existing_edges=[], new_edges=[],
+                summary="observe prefix", guideline={}, insight={},
+            ),
+            canonical,
+            TaskContract([
+                SemanticPredicate(
+                    "object.observed", {"object": "cup_1"},
+                    effect_domain=EffectDomain.EVIDENCE,
+                ),
+                SemanticPredicate("object.at_location", {"object": "cup_1"}),
+            ]),
+            task_bindings={"item": "cup_1"},
+            terminal_certificate={
+                "benchmark_won": True,
+                "source_trace_id": "tr",
+                "terminal_revision": 1,
+                "executed_occurrence_ids": ["occ_1"],
+                "skipped_planned_occurrence_ids": [],
+                "observed_task_contract_coverage": {},
+            },
+        )
+        skills.register_composite(candidate)
+        retriever = CompositeRetriever(skills)
+        eligible = retriever.retrieve_terminal(
+            SimpleNamespace(task_id="t_clean", goal="clean"),
+            TaskContract([
+                SemanticPredicate(
+                    "object.observed", {"object": "cup_1"},
+                    effect_domain=EffectDomain.EVIDENCE,
+                ),
+                SemanticPredicate("object.at_location", {"object": "cup_1"}),
+            ]),
+            mode="online", harness_profile="fake_v3",
+        )
+        assert len(eligible.terminal_empirical_candidates) == 1
+        ineligible = retriever.retrieve_terminal(
+            SimpleNamespace(task_id="t_heat", goal="heat"),
+            TaskContract([
+                SemanticPredicate("object.heated", {"object": "cup_1"}),
+                SemanticPredicate("object.at_location", {"object": "cup_1"}),
+            ]),
+            mode="online", harness_profile="fake_v3",
+        )
+        assert ineligible.terminal_empirical_candidates == []

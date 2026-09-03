@@ -635,6 +635,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 tasks=task_items,
                 metadata={
                     "condition": "full",
+                    "environment": {"alfworld_version": "0.4.2"},
                     "llm_config_hash": hash_config(config.get("llm") or {}),
                     "task_types": task_types,
                     "tasks_per_type": per_type,

@@ -14,7 +14,12 @@ from typing import Any, Iterable, Mapping
 from ..core.contracts import AbstractAtomicSkill, ParameterSpec, SemanticPredicate
 from ..core.results import ValidationResult
 from ..core.serialization import to_primitive
-from .ir import CONDITION_OPERATORS, normalize_tool_program, program_paths
+from .ir import (
+    CONDITION_OPERATORS,
+    normalize_tool_program,
+    program_paths,
+    walk_program_nodes,
+)
 from .proposal import RuntimeAutomationAtomicDraft, ToolProposal
 
 
@@ -250,7 +255,7 @@ def _iter_string_values(value: Any) -> Iterable[str]:
 
 def _concrete_ids_from_nodes(nodes: list[dict[str, Any]]) -> list[str]:
     found: list[str] = []
-    for node in nodes:
+    for node in walk_program_nodes(nodes):
         opcode = str(node.get("op", ""))
         if opcode == "ACTION":
             for raw in dict(node.get("argument_mapping") or {}).values():
@@ -428,6 +433,23 @@ class ToolStaticValidator:
                         fail("tool_ir_return_closure_invalid", f"RETURN {node.get('node_id')}.{role} source invalid")
                     if role not in atomic_outputs and role not in proposal_outputs:
                         fail("tool_ir_return_closure_invalid", f"RETURN {node.get('node_id')}.{role} is not an Atomic/proposal output")
+        return_roles: set[str] = set()
+        for node in walk_program_nodes(program):
+            if node.get("op") == "RETURN":
+                return_roles.update(str(role) for role in dict(node.get("output_sources") or {}))
+        required_output_roles = {
+            str(name)
+            for name, spec in atomic_outputs.items()
+            if spec.required
+        } or {
+            str(item.name) for item in proposal.outputs if item.required
+        }
+        missing_return_outputs = sorted(required_output_roles - return_roles)
+        if missing_return_outputs:
+            fail(
+                "tool_ir_return_closure_invalid",
+                f"RETURN does not produce required outputs {missing_return_outputs}",
+            )
         _scope_pass(
             program, atomic_inputs=set(atomic_inputs), fail=fail,
         )

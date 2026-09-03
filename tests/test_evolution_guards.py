@@ -336,7 +336,7 @@ def test_invalid_concrete_argument_rejects_only_its_e1_occurrence() -> None:
 
     assert [item.phase_id for item in canonical] == ["valid_take"]
     assert [item["phase_id"] for item in rejections] == ["invalid_take"]
-    assert "lacks one reusable input role" in rejections[0]["error"]
+    assert "lacks one reusable input/output derivation" in rejections[0]["error"]
     assert len(ToolCompiler().compile(canonical)) == 1
 
 

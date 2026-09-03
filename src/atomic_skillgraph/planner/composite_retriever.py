@@ -188,6 +188,44 @@ class CompositeRetriever:
         ranked: list[tuple[float, str, CompositeSkill]] = []
         composites = self.skills.composites(mode=mode)
 
+        def _compatible_subset(composite: CompositeSkill) -> bool:
+            certificate = dict(
+                composite.metadata.get("terminal_certificate") or {}
+            )
+            signatures = list(
+                certificate.get("covered_effect_signatures") or []
+            )
+            if not signatures:
+                observed = dict(
+                    composite.metadata.get(
+                        "observed_task_contract_coverage"
+                    ) or {}
+                )
+                signatures = [
+                    {"predicate": str(item)}
+                    for item in observed.get("covered_effects", [])
+                ]
+            if not signatures:
+                return False
+            targets = list(contract.target_effects)
+            for signature in signatures:
+                predicate = str(signature.get("predicate", "")).casefold()
+                roles = set(map(str, signature.get("argument_roles") or ()))
+                domain = str(signature.get("effect_domain", ""))
+                matched = False
+                for target in targets:
+                    if target.predicate.casefold() != predicate:
+                        continue
+                    if roles and roles != set(map(str, target.args)):
+                        continue
+                    if domain and domain != str(target.effect_domain.value):
+                        continue
+                    matched = True
+                    break
+                if matched:
+                    return True
+            return False
+
         def terminal_compatible(composite: CompositeSkill) -> bool:
             completion = dict(
                 composite.metadata.get("completion_authority") or {}
@@ -198,6 +236,8 @@ class CompositeRetriever:
             if completion.get("kind") != "terminal_empirical":
                 return False
             if certificate.get("benchmark_won") is not True:
+                return False
+            if not _compatible_subset(composite):
                 return False
             profiles = composite.metadata.get("harness_profiles") or []
             if profiles and harness_profile not in profiles:

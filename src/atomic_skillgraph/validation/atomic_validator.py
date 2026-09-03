@@ -17,6 +17,147 @@ class AtomicValidator:
             for role, value in bindings.items()
         }
 
+    @staticmethod
+    def _output_derivations(atomic: AbstractAtomicSkill) -> dict[str, dict[str, Any]]:
+        raw = dict(atomic.validator_spec.get("output_derivations") or {})
+        if raw:
+            return {str(role): dict(value) for role, value in raw.items()}
+        migrated: dict[str, dict[str, Any]] = {}
+        for item in list(atomic.validator_spec.get("output_identity") or []):
+            output_role = str(item.get("output_role", ""))
+            input_role = str(item.get("input_role", ""))
+            if output_role and input_role:
+                migrated[output_role] = {
+                    "kind": "input_identity",
+                    "input_role": input_role,
+                }
+        return migrated
+
+    def validate_execution_result(
+        self,
+        atomic: AbstractAtomicSkill,
+        occurrence: RuntimeOccurrence,
+        bindings: dict[str, Any],
+        tool_output_candidates: dict[str, Any],
+        validator_channel: Any,
+        *,
+        current_revision: int,
+        authoritative_evidence_facts: list[dict[str, Any]] | None = None,
+    ) -> ValidationResult:
+        """Validate generated outputs against Harness effect witnesses.
+
+        Tool RETURN values are candidates only.  ``resolve_atomic_effect`` is
+        the semantic authority that derives fresh outputs from current facts.
+        """
+
+        plain = self._plain(bindings)
+        derivations = self._output_derivations(atomic)
+        output_identity = [
+            {
+                "output_role": str(role),
+                "input_role": str(derivation.get("input_role", "")),
+            }
+            for role, derivation in derivations.items()
+            if derivation.get("kind") == "input_identity"
+        ]
+        output_roles = {item.name for item in atomic.outputs}
+        candidate_outputs = {
+            str(role): value
+            for role, value in dict(tool_output_candidates or {}).items()
+            if role in output_roles
+        }
+        for role, derivation in derivations.items():
+            if derivation.get("kind") == "input_identity":
+                input_role = str(derivation.get("input_role", ""))
+                if role in candidate_outputs and repr(
+                    candidate_outputs[role]
+                ) != repr(plain.get(input_role)):
+                    return ValidationResult(
+                        "atomic", False,
+                        {"output_derivation_consistent": False},
+                        ["atomic_output_identity_mismatch"],
+                        ["Tool output conflicts with input_identity derivation"],
+                    )
+                candidate_outputs[role] = plain.get(input_role)
+        try:
+            resolution = validator_channel.resolve_atomic_effect({
+                "atomic_ref": str(atomic.ref),
+                "occurrence_id": occurrence.occurrence_id,
+                "effects": list(atomic.effects),
+                "known_bindings": dict(plain),
+                "semantic_anchors": {},
+                "input_specs": list(atomic.inputs),
+                "output_specs": list(atomic.outputs),
+                "output_identity": output_identity,
+                "preferred_values": [],
+                "preferred_bindings": {},
+                "authoritative_evidence_facts": list(
+                    authoritative_evidence_facts or []
+                ),
+                "current_revision": int(current_revision),
+            })
+        except (KeyError, TypeError, ValueError) as exc:
+            return ValidationResult(
+                "atomic", False,
+                {"effect_resolution_available": False},
+                ["atomic_effect_violation"],
+                [str(exc)],
+            )
+        if not resolution.passed:
+            return ValidationResult(
+                "atomic", False,
+                dict(resolution.checks),
+                ["atomic_effect_violation"],
+                [resolution.message],
+                witness_refs=list(resolution.witness_refs),
+            )
+        authoritative_outputs = {
+            str(role): value
+            for role, value in dict(resolution.output_candidates).items()
+            if role in output_roles
+        }
+        for role, value in candidate_outputs.items():
+            if role in authoritative_outputs and repr(
+                authoritative_outputs[role]
+            ) != repr(value):
+                return ValidationResult(
+                    "atomic", False,
+                    {"tool_return": value, "effect_witness": authoritative_outputs[role]},
+                    ["atomic_output_effect_witness_mismatch"],
+                    ["Tool RETURN conflicts with authoritative Effect witness"],
+                    witness_refs=list(resolution.witness_refs),
+                )
+        merged_outputs = {**authoritative_outputs, **candidate_outputs}
+        merged_bindings = {
+            **plain,
+            **{
+                role: value
+                for role, value in resolution.resolved_bindings.items()
+                if role not in plain
+            },
+        }
+        final = self.validate(
+            atomic, occurrence, merged_bindings, validator_channel,
+            merged_outputs,
+        )
+        return ValidationResult(
+            final.level,
+            final.passed,
+            {
+                **resolution.checks,
+                **final.checks,
+                "generated_outputs_validated": final.passed,
+            },
+            final.failure_codes,
+            final.messages,
+            witness_refs=list(dict.fromkeys([
+                *resolution.witness_refs,
+                *final.witness_refs,
+            ])),
+            before_ref=final.before_ref,
+            after_ref=final.after_ref,
+        )
+
     def validate(
         self, atomic: AbstractAtomicSkill, occurrence: RuntimeOccurrence,
         bindings: dict[str, RuntimeBinding | Any], validator_channel: Any,

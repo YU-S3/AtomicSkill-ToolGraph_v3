@@ -45,6 +45,24 @@ def _as_mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
+def walk_program_nodes(program: Any) -> list[dict[str, Any]]:
+    """Single recursive walker for every Tool IR consumer."""
+
+    result: list[dict[str, Any]] = []
+    for raw in program or ():
+        if not isinstance(raw, Mapping):
+            raise ValueError("tool_ir_schema_invalid")
+        node = dict(raw)
+        result.append(node)
+        opcode = str(node.get("op", ""))
+        if opcode == "IF":
+            result.extend(walk_program_nodes(node.get("then_branch")))
+            result.extend(walk_program_nodes(node.get("else_branch")))
+        elif opcode == "FOR_EACH":
+            result.extend(walk_program_nodes(node.get("body")))
+    return result
+
+
 def normalize_tool_program(value: Any) -> list[dict[str, Any]]:
     """Return a validated flat list of top-level IR nodes.
 
@@ -155,13 +173,22 @@ def _selector_entries(
 
     selected: list[Mapping[str, Any]] = []
     where = _as_mapping(source.get("where"))
+    source_kind = str(source.get("source", "")).casefold()
     for entry in entries:
         item = dict(entry)
         if where.get("action_type") is not None and str(
             item.get("action_type", "")
         ) != str(where.get("action_type", "")):
             continue
-        arguments = _as_mapping(item.get("arguments"))
+        if where.get("predicate") is not None and str(
+            item.get("predicate", "")
+        ) != str(where.get("predicate", "")):
+            continue
+        arguments = _as_mapping(
+            item.get("arguments")
+            if source_kind == "action_catalog"
+            else item.get("args")
+        )
         ok = True
         for raw_role, expected in where.items():
             if raw_role in {"action_type", "argument_role", "semantic_compatible_with"}:
@@ -202,13 +229,17 @@ def _selector_entries(
 
 def _project(entry: Mapping[str, Any], source: Mapping[str, Any]) -> Any:
     project = _as_mapping(source.get("project"))
+    source_kind = str(source.get("source", "")).casefold()
     if not project:
         field_name = str(source.get("field", ""))
         return entry.get(field_name)
     kind = str(project.get("kind", "field")).casefold()
     if kind == "argument":
         role = str(project.get("role", ""))
-        arguments = _as_mapping(entry.get("arguments"))
+        if source_kind == "action_catalog":
+            arguments = _as_mapping(entry.get("arguments"))
+        else:
+            arguments = _as_mapping(entry.get("args"))
         return arguments.get(role)
     field_name = str(project.get("field", ""))
     return entry.get(field_name)
@@ -293,6 +324,23 @@ def resolve_return_sources(
         }
         source = str(spec.get("source", "tool_input")).casefold()
         field_name = str(spec.get("field", role))
+        if source in {"semantic_evidence", "binding_evidence", "action_catalog"} and (
+            "where" in spec or "project" in spec
+        ):
+            values = resolve_collection(
+                {
+                    "source": source,
+                    "field": field_name,
+                    "where": dict(spec.get("where") or {}),
+                    "project": dict(spec.get("project") or {}),
+                    "distinct": bool(spec.get("distinct", True)),
+                },
+                state,
+            )
+            outputs[role] = values[-1] if values else None
+            if values:
+                evidence_refs.append(f"{source}:{field_name}")
+            continue
         if source == "tool_input":
             outputs[role] = state.bindings.get(field_name)
             evidence_refs.append(f"tool_input:{field_name}")
@@ -381,6 +429,7 @@ __all__ = [
     "ToolExecutionState",
     "evaluate_condition",
     "normalize_tool_program",
+    "walk_program_nodes",
     "program_paths",
     "resolve_collection",
     "resolve_return_sources",

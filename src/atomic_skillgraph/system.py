@@ -187,6 +187,16 @@ _SYSTEM_PROMPTS = {
 }
 
 
+def installed_alfworld_version() -> str:
+    """Installed ALFWorld version, resolved without importing alfworld."""
+
+    try:
+        import importlib.metadata as importlib_metadata
+        return str(importlib_metadata.version("alfworld"))
+    except Exception:
+        return ""
+
+
 _LONG_TERM_KNOWLEDGE_TABLES = (
     "artifact_index",
     "recommended_pointers",
@@ -1171,6 +1181,9 @@ class AtomicSkillGraphSystem:
         trace_builder.trace.metadata["method_patch"] = str(
             self.config.get("method_patch", "3.1")
         )
+        trace_builder.trace.metadata.setdefault("environment", {}).update({
+            "alfworld_version": installed_alfworld_version(),
+        })
         provider_offsets = self._provider_request_offsets()
         try:
             return self._run_task_pipeline(
@@ -1922,19 +1935,31 @@ class AtomicSkillGraphSystem:
     ) -> AbstractAtomicSkill | None:
         """Build the Atomic contract without synthesizing an executable Tool."""
 
+        derivations = dict(
+            getattr(occurrence, "output_derivations", None) or {}
+        )
+        if not derivations:
+            for output_role, value in sorted(occurrence.output_bindings.items()):
+                input_role = next(
+                    (
+                        role for role, bound in occurrence.input_bindings.items()
+                        if bound == value
+                    ),
+                    None,
+                )
+                if input_role is None:
+                    return None
+                derivations[output_role] = {
+                    "kind": "input_identity",
+                    "input_role": input_role,
+                }
         output_identity: list[dict[str, str]] = []
-        for output_role, value in sorted(occurrence.output_bindings.items()):
-            input_role = next(
-                (
-                    role for role, bound in occurrence.input_bindings.items()
-                    if bound == value
-                ),
-                None,
-            )
-            if input_role is None:
-                return None
+        for output_role, derivation in derivations.items():
+            if derivation.get("kind") != "input_identity":
+                continue
+            input_role = str(derivation.get("input_role", ""))
             output_identity.append({
-                "output_role": output_role,
+                "output_role": str(output_role),
                 "input_role": input_role,
             })
         return AbstractAtomicSkill(
@@ -1948,6 +1973,10 @@ class AtomicSkillGraphSystem:
                 "validator_id": "harness_atomic_effect",
                 "identity_strict": True,
                 "output_identity": output_identity,
+                "output_derivations": {
+                    str(role): dict(derivation)
+                    for role, derivation in derivations.items()
+                },
             },
             [],
             {
@@ -2220,6 +2249,39 @@ class AtomicSkillGraphSystem:
 
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
         normalized = self.normalizer.build(trace)
+        boundary_inputs: list[dict[str, Any]] = []
+        for trial in list(trace.metadata.get("runtime_tool_trials", {}).values()):
+            if not isinstance(trial, dict):
+                continue
+            for role, authority in dict(trial.get("input_authorities") or {}).items():
+                if not isinstance(authority, dict):
+                    continue
+                boundary_inputs.append({
+                    "authority_ref": str(authority.get("authority_ref") or f"runtime_input:{trial.get('draft_id', '')}:{role}"),
+                    "role": str(role),
+                    "value": authority.get("value"),
+                    "source_kind": str(authority.get("kind", "")),
+                    "source_occurrence_id": str(authority.get("source_occurrence_id", "")),
+                    "source_role": str(authority.get("source_role", "")),
+                })
+        boundary_effects: list[dict[str, Any]] = []
+        for action in normalized.get("actions", []):
+            for raw_fact in action.get("authoritative_positive_effects", []):
+                if not isinstance(raw_fact, dict):
+                    continue
+                witness_ref = str(
+                    raw_fact.get("witness_ref")
+                    or action.get("event_id", action.get("action_id", ""))
+                )
+                boundary_effects.append({
+                    "witness_ref": witness_ref,
+                    "predicate": str(raw_fact.get("predicate", "")),
+                    "args": dict(raw_fact.get("args") or {}),
+                })
+        normalized["boundary_authorities"] = {
+            "inputs": boundary_inputs,
+            "effects": boundary_effects,
+        }
         extractor = ExtractorSession(self._extractor_session(task.task_id))
         contract = self.harness.task_contract(task)
         matcher_factory = getattr(self.harness, "contract_matcher", None)
@@ -3855,6 +3917,7 @@ class AtomicSkillGraphSystem:
             provider_adapter_interface = False
         checks: dict[str, Any] = {
             "schema_version": int(self.config.get("schema_version", 0)) == 3,
+            "alfworld_version": installed_alfworld_version() == "0.4.2",
             "method_patch": str(self.config.get("method_patch", "")) in {"3.1", "3.2"},
             "state_patch_level": (
                 database_schema

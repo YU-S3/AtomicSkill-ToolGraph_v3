@@ -8,6 +8,7 @@ from typing import Any, Callable
 from ..core.bindings import BindingExprKind, BindingExpression
 from ..core.contracts import AbstractAtomicSkill, ImplementationAtom, ToolAsset
 from ..core.status import SkillStatus, ToolStatus
+from ..tooling.ir import walk_program_nodes
 from ..tooling.validator import ToolStaticValidator
 from ..validation.tool_validator import ToolValidator
 
@@ -322,26 +323,25 @@ class Admission:
         if not isinstance(max_actions, int) or max_actions <= 0:
             reasons.append("tool_ir_max_actions_invalid")
         allowed = set(tool.safety.get("allowed_action_types") or [])
+        nodes = walk_program_nodes(program)
         action_types = {
             str(node.get("action_type", ""))
-            for node in program
-            if isinstance(node, dict) and str(node.get("op", "")) == "ACTION"
+            for node in nodes
+            if str(node.get("op", "")) == "ACTION"
         }
         if action_types - allowed:
             reasons.append("tool_ir_action_not_safety_allowlisted")
-        output_mapping = tool.artifact.get("output_mapping")
-        if not isinstance(output_mapping, dict) or set(output_mapping) != set(output.get("output_required") or []):
-            reasons.append("tool_output_mapping_incomplete")
-        else:
-            for raw in output_mapping.values():
-                expression = Admission._normalized_expression(raw)
-                if not isinstance(expression, BindingExpression):
-                    reasons.append("tool_output_mapping_invalid")
-                elif expression.kind is BindingExprKind.SKILL_INPUT:
-                    if expression.source_role not in properties:
-                        reasons.append("tool_output_mapping_not_closed")
-                elif expression.kind is not BindingExprKind.CONSTANT:
-                    reasons.append("tool_output_mapping_not_closed")
+        return_roles: set[str] = set()
+        for node in nodes:
+            if str(node.get("op", "")) != "RETURN":
+                continue
+            return_roles.update(
+                str(role)
+                for role in dict(node.get("output_sources") or {})
+            )
+        required_outputs = set(output.get("output_required") or [])
+        if required_outputs - return_roles:
+            reasons.append("tool_ir_return_closure_invalid")
         return list(dict.fromkeys(reasons))
 
     @staticmethod
