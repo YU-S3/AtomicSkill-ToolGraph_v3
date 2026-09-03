@@ -1282,6 +1282,13 @@ class AlfWorldAdapter:
                 "alfworld_action_facts",
             ),
             PredicateSpec(
+                "agent.at_location",
+                "world",
+                ("location",),
+                {"location": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
                 "object.at_location",
                 "world",
                 ("object", "location"),

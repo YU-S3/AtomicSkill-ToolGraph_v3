@@ -351,6 +351,17 @@ class ContextBuilder:
             "Do not add task-specific workflow knowledge. "
             "Every branch, output, and expected effect must be representable in "
             "the supplied Harness interface. "
+            'RETURN.output_sources must use exactly one of: '
+            '{"source":"tool_input","field":"<input_role>"}, '
+            '{"source":"local_variable","field":"<loop_variable>"}, '
+            '{"source":"semantic_evidence","where":{"predicate":"..."},'
+            '"project":{"kind":"argument","role":"..."}}, '
+            'or {"source":"constant","value":"..."}. '
+            'Do not use kind=data_flow or kind=skill_input inside RETURN. '
+            'evidence_outputs entries must use '
+            '{"role":"<output_role>","source":"tool_input","field":"<input_role>"} '
+            'or the same semantic_evidence form; omit evidence_outputs when no '
+            'structured source is available. '
             "Return decision=no_tool if no safe reusable bounded implementation "
             "is justified. "
             "Call only the offered create_tool submission.",

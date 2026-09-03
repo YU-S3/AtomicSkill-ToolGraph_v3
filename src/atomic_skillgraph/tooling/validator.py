@@ -227,8 +227,20 @@ def _scope_pass(
                     spec = _selector_source(raw) if isinstance(raw, Mapping) else {
                         "source": "tool_input", "field": str(raw),
                     }
+                    if "source" not in spec and spec.get("kind") == "skill_input":
+                        spec = {
+                            **spec,
+                            "source": "tool_input",
+                            "field": str(spec.get("source_role", "")),
+                        }
+                    elif "source" not in spec and spec.get("kind") == "local_variable":
+                        spec = {
+                            **spec,
+                            "source": "local_variable",
+                            "field": str(spec.get("source_role", "")),
+                        }
                     source = str(spec.get("source", "tool_input")).casefold()
-                    target = _reference_target(source, spec, "")
+                    target = _reference_target(source, spec, str(spec.get("source_role", "")))
                     _check_scoped_reference(
                         source, target,
                         available_locals=current,

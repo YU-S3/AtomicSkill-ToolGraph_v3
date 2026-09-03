@@ -322,8 +322,14 @@ def resolve_return_sources(
             "source": "tool_input",
             "field": role,
         }
+        if "source" not in spec and spec.get("kind") == "skill_input":
+            spec = {**spec, "source": "tool_input", "field": str(spec.get("source_role", role))}
+        elif "source" not in spec and spec.get("kind") == "local_variable":
+            spec = {**spec, "source": "local_variable", "field": str(spec.get("source_role", role))}
+        elif "source" not in spec and spec.get("kind") == "constant":
+            spec = {**spec, "source": "constant", "value": spec.get("constant")}
         source = str(spec.get("source", "tool_input")).casefold()
-        field_name = str(spec.get("field", role))
+        field_name = str(spec.get("field", spec.get("source_role", role)))
         if source in {"semantic_evidence", "binding_evidence", "action_catalog"} and (
             "where" in spec or "project" in spec
         ):
