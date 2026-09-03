@@ -668,7 +668,12 @@ class AtomicSkillGraphSystem:
         return _SessionProxy(observed)
 
     def _shared_tool_builder_tokens(self, session_kind: str) -> int:
-        """ToolBuilder never creates a new implicit learning budget pool."""
+        """ToolBuilder never creates a new implicit learning budget pool.
+
+        Shared caps are task-scoped.  The process-wide UsageLedger may contain
+        earlier episodes, so only events from the current task boundary are
+        charged against the remaining allocation.
+        """
 
         if session_kind == "tool_builder_runtime" or session_kind.startswith("runtime"):
             shared_buckets = (
@@ -695,9 +700,13 @@ class AtomicSkillGraphSystem:
                     "max_total_tokens_per_task", 262144,
                 )
             )
+        events = list(self.usage.events)
+        start = int(getattr(self, "_current_task_usage_start", 0) or 0)
+        current_events = events[max(0, start):]
         used = sum(
-            self.usage.total(bucket).total_tokens
-            for bucket in shared_buckets
+            event.usage.total_tokens
+            for event in current_events
+            if event.bucket in shared_buckets
         )
         return max(0, cap - int(used))
 
@@ -1150,6 +1159,7 @@ class AtomicSkillGraphSystem:
         self._current_task_id = task.task_id
         self.invocation_compiler.mode = run_mode
         usage_start = len(self.usage.events)
+        self._current_task_usage_start = int(usage_start)
         sessions_start = len(self._observed_sessions)
         failure_side_read_start = (
             self.failure_knowledge.failure_side_read_count
@@ -1192,6 +1202,7 @@ class AtomicSkillGraphSystem:
             raise
         finally:
             self._current_task_id = ""
+            self._current_task_usage_start = 0
 
     def _run_task_pipeline(
         self,

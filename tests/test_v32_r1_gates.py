@@ -687,6 +687,8 @@ def test_gate20_tool_builder_shares_remaining_runtime_budget() -> None:
         usage=LLMUsage(total_tokens=290000, call_count=1),
     ))
     assert system._shared_tool_builder_tokens("tool_builder_runtime") == 10000
+    system._current_task_usage_start = 1
+    assert system._shared_tool_builder_tokens("tool_builder_runtime") == 300000
 
 
 def test_gate21_tool_builder_context_has_no_provenance_leakage() -> None:
