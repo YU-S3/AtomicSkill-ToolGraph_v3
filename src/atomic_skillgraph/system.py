@@ -2010,11 +2010,11 @@ class AtomicSkillGraphSystem:
         expected_task = str((case.get("source_task") or {}).get("task_id", ""))
         if expected_task and expected_task != task.task_id:
             return False
-        from ..core.bindings import BindingExprKind, BindingExpression
-        from ..core.results import PrimitiveToolStep, RuntimeLinearPlan
-        from .runtime.budget import RuntimeBudget
-        from .runtime.task_context import TaskRuntimeContext
-        from .runtime.tool_runner import ToolRunner
+        from atomic_skillgraph.core.bindings import BindingExprKind, BindingExpression
+        from atomic_skillgraph.core.results import PrimitiveToolStep, RuntimeLinearPlan
+        from atomic_skillgraph.runtime.budget import RuntimeBudget
+        from atomic_skillgraph.runtime.task_context import TaskRuntimeContext
+        from atomic_skillgraph.runtime.tool_runner import ToolRunner
 
         contract = self.harness.task_contract(task)
         plan = RuntimeLinearPlan.full_dynamic(
