@@ -13,8 +13,10 @@ from ..core.bindings import (
     BindingResolution, BindingStatus, RuntimeBinding,
 )
 from ..core.errors import AtomicSkillGraphError, FailureLayer
+from ..core.refs import SkillRef
 from ..core.results import (
     AtomicEffectResolution, ImplementationExecutionResult, NodeExecutionStatus,
+    RuntimeOccurrence,
 )
 from ..core.serialization import to_primitive
 from ..core.status import RuntimeMode
@@ -892,6 +894,7 @@ class NodeExecutor:
         *,
         invocations: list[CompiledInvocation] = (),
         allow_plan_conflict: bool = False,
+        support_candidates: list[Any] = (),
     ) -> list[NativeToolSpec]:
         tools = [
             self._environment_tool(ctx, node_level=True),
@@ -900,7 +903,35 @@ class NodeExecutor:
             self._automation_tool(),
             self._status_tool(allow_plan_conflict=allow_plan_conflict),
         ]
+        if support_candidates:
+            tools.insert(2, self._support_tool(list(support_candidates)))
         return tools
+
+    @staticmethod
+    def _support_tool(candidates: list[Any]) -> NativeToolSpec:
+        return NativeToolSpec(
+            "invoke_support_atomic",
+            "Ask Runtime to execute a contract-compatible support Atomic whose "
+            "output/evidence can resolve a missing binding of the current blocked "
+            "Atomic. Only candidates returned by formal support retrieval are "
+            "offered. Argument values are Agent-declared and still pass through "
+            "deterministic preflight/validation.",
+            {
+                "type": "object",
+                "required": ["support_atomic_ref", "arguments"],
+                "additionalProperties": False,
+                "properties": {
+                    "support_atomic_ref": {
+                        "type": "string",
+                        "enum": [str(item.atomic_ref) for item in candidates],
+                    },
+                    "arguments": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                    },
+                },
+            },
+        )
 
     @staticmethod
     def _automation_tool() -> NativeToolSpec:
@@ -1019,6 +1050,136 @@ class NodeExecutor:
         )
         return status, payload
 
+    def _invoke_support_atomic_call(
+        self,
+        call: Any,
+        session: Any,
+        occurrence: Any,
+        ctx: Any,
+        atomic: Any,
+        candidates: list[Any],
+        plan_context_plan: Any | None = None,
+    ) -> dict[str, Any]:
+        support_ref = SkillRef.parse(str(call.arguments["support_atomic_ref"]))
+        candidate = next(
+            (item for item in candidates if str(item.atomic_ref) == str(support_ref)),
+            None,
+        )
+        if candidate is None:
+            payload = {
+                "accepted": False,
+                "error": "runtime_support_candidate_invalid",
+            }
+            self._record_control_call(
+                call, session, occurrence, ctx,
+                call_kind="support_atomic_invocation", result=payload,
+            )
+            return payload
+        try:
+            support_atomic = self.invocation_compiler.skills.get_atomic(support_ref)
+        except KeyError:
+            payload = {
+                "accepted": False,
+                "error": "runtime_support_atomic_unavailable",
+            }
+            self._record_control_call(
+                call, session, occurrence, ctx,
+                call_kind="support_atomic_invocation", result=payload,
+            )
+            return payload
+        arguments = dict(call.arguments.get("arguments") or {})
+        support_occurrence = RuntimeOccurrence(
+            step_id=f"support_for_{occurrence.step_id}",
+            occurrence_id=f"support_{occurrence.occurrence_id}_{uuid.uuid4().hex[:8]}",
+            node_ref=support_ref,
+            requirement_ids=[],
+            binding_specs={
+                role: {"kind": "constant", "constant": value}
+                for role, value in arguments.items()
+            },
+            implementation_candidates=[],
+            expected_effects=list(support_atomic.effects),
+        )
+        ctx.begin_occurrence(support_occurrence)
+        ctx.binding_store.resolve_occurrence_specs(
+            support_occurrence, ctx.world_revision,
+        )
+        invocations = self.invocation_compiler.compile_candidates(
+            support_occurrence, ctx.binding_store,
+            max_candidates=1, task_id=ctx.task_id,
+        )
+        result = None
+        if invocations:
+            result = self.try_autonomous(
+                support_occurrence, invocations, ctx,
+            )
+        passed = bool(
+            result is not None
+            and getattr(result, "atomic_effect_passed", False)
+        )
+        payload: dict[str, Any] = {
+            "accepted": True,
+            "support_atomic_ref": str(support_ref),
+            "support_occurrence_id": support_occurrence.occurrence_id,
+            "passed": passed,
+            "result": to_primitive(result) if result is not None else None,
+        }
+        v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
+            "v32_metrics", {}
+        )
+        v32_metrics["runtime_support_selected_count"] = int(
+            v32_metrics.get("runtime_support_selected_count", 0)
+        ) + 1
+        if passed:
+            blocked_input_roles = {
+                str(item.name) for item in atomic.inputs
+            }
+            support_outputs = {
+                role: value
+                for role, value in result.validated_outputs.items()
+                if role in blocked_input_roles
+            }
+            if support_outputs:
+                ctx.binding_store.publish_validated_outputs(
+                    occurrence,
+                    support_outputs,
+                    [],
+                    ctx.world_revision,
+                )
+                ctx.validated_outputs[occurrence.occurrence_id] = dict(
+                    support_outputs
+                )
+                for role, value in support_outputs.items():
+                    ctx.evidence_store.add_validated_tool_output(
+                        role, value, [],
+                    )
+            v32_metrics["runtime_support_success_count"] = int(
+                v32_metrics.get("runtime_support_success_count", 0)
+            ) + 1
+            v32_metrics["runtime_graph_augmentation_count"] = int(
+                v32_metrics.get("runtime_graph_augmentation_count", 0)
+            ) + 1
+            ctx.trace_builder.trace.metadata.setdefault(
+                "runtime_graph_augmentation", []
+            ).append({
+                "support_atomic_ref": str(support_ref),
+                "producer_occurrence_id": support_occurrence.occurrence_id,
+                "consumer_occurrence_id": occurrence.occurrence_id,
+                "data_flow_roles": sorted(support_outputs),
+                "reason": "missing_binding_support",
+            })
+        # Return active context to the blocked occurrence.
+        ctx.begin_occurrence(occurrence)
+        self._augment_runtime_payload(
+            payload, ctx, occurrence=occurrence, atomic=atomic,
+            plan_context_plan=plan_context_plan,
+        )
+        self._record_control_call(
+            call, session, occurrence, ctx,
+            call_kind="support_atomic_invocation", result=payload,
+        )
+        return payload
+
     def run_preparation_session(
         self, occurrence: Any, invocations: list[CompiledInvocation], ctx: Any,
         *, learned_call_repair_limit: int = 2,
@@ -1086,6 +1247,7 @@ class NodeExecutor:
         )
         tools = self._node_tools(
             ctx, atomic, invocations=invocations, allow_plan_conflict=True,
+            support_candidates=support_candidates,
         )
         preflight_failures = 0
         loop_guard = ActionLoopGuard()
@@ -1185,6 +1347,21 @@ class NodeExecutor:
                     tools = self._node_tools(
                         ctx, atomic, invocations=invocations,
                         allow_plan_conflict=True,
+                        support_candidates=support_candidates,
+                    )
+                    turn = session.submit_tool_result(
+                        call.call_id, payload, tools=tools,
+                    )
+                    continue
+                if call.name == "invoke_support_atomic":
+                    payload = self._invoke_support_atomic_call(
+                        call, session, occurrence, ctx, atomic,
+                        support_candidates, plan_context_plan,
+                    )
+                    tools = self._node_tools(
+                        ctx, atomic, invocations=invocations,
+                        allow_plan_conflict=True,
+                        support_candidates=support_candidates,
                     )
                     turn = session.submit_tool_result(
                         call.call_id, payload, tools=tools,
@@ -1251,6 +1428,7 @@ class NodeExecutor:
                     tools = self._node_tools(
                         ctx, atomic, invocations=invocations,
                         allow_plan_conflict=True,
+                        support_candidates=support_candidates,
                     )
                     if effect is not None:
                         self._finalize_tool_result(session, call.call_id, payload, tools)
@@ -1269,6 +1447,7 @@ class NodeExecutor:
                     tools = self._node_tools(
                         ctx, atomic, invocations=invocations,
                         allow_plan_conflict=True,
+                        support_candidates=support_candidates,
                     )
                     if effect is not None:
                         self._finalize_tool_result(
