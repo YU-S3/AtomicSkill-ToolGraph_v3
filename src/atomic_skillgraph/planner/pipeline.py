@@ -25,6 +25,7 @@ from .cold_start_validator import ColdStartPlanValidator
 from .compiler import PlanCompiler
 from .composite_retriever import CompositeRetriever
 from .related_composite import RelatedCompositeHintFinder
+from .repairability import RepairabilityGate
 from .requirement_agent import RequirementAgent
 from .multiplicity import (
     RequirementBundleValidator,
@@ -103,6 +104,7 @@ class PlannerPipeline:
         self.compiler = PlanCompiler(skills)
         self.validator = PlannerValidator(skills, graph, max_occurrences=max_occurrences)
         self.requirement_validator = RequirementBundleValidator()
+        self.repairability_gate = RepairabilityGate()
         self.multiplicity_compiler = RequirementMultiplicityCompiler()
         self.max_occurrences = int(max_occurrences)
         self.max_repeat_count = int(max_repeat_count)
@@ -196,7 +198,17 @@ class PlannerPipeline:
             if not search.full_coverage:
                 hints = self.related.find(search, mode=mode)
                 audit.related_composite_hints = hints
-        if not validation.passed or (search is not None and not search.full_coverage):
+        repairability = None
+        if search is not None and (not validation.passed or not search.full_coverage):
+            repairability = self.repairability_gate.decide(
+                bundle, validation, search.template_results, hints,
+            )
+            audit.repairability = to_primitive(repairability)
+        if not validation.passed or (
+            search is not None
+            and not search.full_coverage
+            and (repairability is None or repairability.repairable)
+        ):
             try:
                 bundle = requirement_agent.repair(
                     task, contract, bundle,

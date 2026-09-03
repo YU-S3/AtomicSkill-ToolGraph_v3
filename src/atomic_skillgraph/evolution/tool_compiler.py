@@ -13,6 +13,7 @@ from ..core.bindings import (
 from ..core.contracts import AbstractAtomicSkill, ImplementationAtom, ToolAsset
 from ..core.refs import SkillRef, ToolRef
 from ..core.status import SkillStatus, ToolStatus
+from ..tooling.proposal import ToolProposal, ToolProvenance
 from .atomicizer import CanonicalAtomicOccurrence
 from .portability import CanonicalCapabilityLabel
 
@@ -179,3 +180,144 @@ class ToolCompiler:
             )
             result.append(CompiledKnowledge(occurrence, atomic, tool, implementation))
         return result
+
+    def compile_proposal(
+        self,
+        occurrence: CanonicalAtomicOccurrence,
+        atomic: AbstractAtomicSkill,
+        proposal: ToolProposal,
+        provenance: ToolProvenance,
+    ) -> CompiledKnowledge:
+        """Compile an Agent-authored ToolProposal into ToolAsset/ImplementationAtom.
+
+        The compiler never chooses which actions enter the Tool; that authority
+        belongs to ToolBuilder.  It only normalizes the already-validated IR into
+        the persistent artifact envelope.
+        """
+
+        if proposal.decision == "no_tool":
+            raise ValueError(f"ToolBuilder returned NO_TOOL for {atomic.ref}: {proposal.rationale}")
+        program = proposal.program
+        if not program:
+            raise ValueError("ToolProposal cannot compile an empty Tool IR program")
+        action_nodes = [
+            node for node in program
+            if str(node.get("op", "")) == "ACTION"
+        ]
+        tool_properties = {
+            str(item.name): {"type": "string"}
+            for item in proposal.inputs or atomic.inputs
+        }
+        output_properties = {
+            str(item.name): {"type": "string"}
+            for item in proposal.outputs or atomic.outputs
+        }
+        output_mapping: dict[str, Any] = {}
+        implementation_output_mapping: dict[str, Any] = {}
+        for output in proposal.outputs or atomic.outputs:
+            role = str(output.name)
+            source = next(
+                (
+                    item.get("source", "tool_input")
+                    for item in proposal.evidence_outputs
+                    if str(item.get("role", "")) == role
+                ),
+                "tool_input",
+            )
+            if source == "tool_input":
+                output_mapping[role] = BindingExpression(
+                    BindingExprKind.SKILL_INPUT, source_role=role,
+                )
+            else:
+                output_mapping[role] = BindingExpression(
+                    BindingExprKind.TOOL_OUTPUT, source_role=role, source_step="primary",
+                )
+            implementation_output_mapping[role] = BindingExpression(
+                BindingExprKind.TOOL_OUTPUT, source_role=role, source_step="primary",
+            )
+        tool_id = f"tool_{atomic.ref.logical_id.removeprefix('atomic_')}"
+        tool_ref = ToolRef(tool_id, "1.0.0")
+        tool = ToolAsset(
+            tool_ref,
+            f"IR implementation of {atomic.summary}",
+            {"type": "object", "properties": tool_properties, "required": sorted(tool_properties)},
+            {"output_schema": {
+                "type": "object",
+                "properties": output_properties,
+                "required": sorted(output_properties),
+                "additionalProperties": False,
+            }},
+            "tool_ir_v1",
+            {
+                "schema_version": 1,
+                "max_actions": int(proposal.max_actions),
+                "program": program,
+                "final_effects": proposal.final_effects,
+                "evidence_outputs": proposal.evidence_outputs,
+                "output_mapping": output_mapping,
+                "path_expectations": proposal.path_expectations,
+            },
+            [{
+                "kind": "tool_proposal_replay",
+                "trace_id": provenance.source_trace_id,
+                "occurrence_id": provenance.occurrence_id,
+                "draft_id": provenance.draft_id,
+                "bindings": dict(occurrence.input_bindings),
+                "source_task": dict(occurrence.source_task),
+                "effects": [dict(
+                    predicate=item.predicate,
+                    args=dict(item.args),
+                    cardinality=int(item.cardinality),
+                    distinct_by=str(item.distinct_by),
+                    effect_domain=str(item.effect_domain.value),
+                ) for item in proposal.final_effects],
+            }],
+            {
+                "reviewed": True,
+                "allowed_action_types": sorted({
+                    str(node.get("action_type", ""))
+                    for node in action_nodes
+                    if node.get("action_type")
+                }),
+                "zero_llm": True,
+                "terminal_interruptible": True,
+            },
+            {
+                "source": provenance.source,
+                "source_trace_id": provenance.source_trace_id,
+                "occurrence_id": provenance.occurrence_id,
+                "draft_id": provenance.draft_id,
+            },
+            {
+                "tool_builder_summary": proposal.summary,
+                "tool_builder_rationale": proposal.rationale,
+                "schema_version": 1,
+            },
+            ToolStatus.ADMISSION_PENDING,
+        )
+        tool_binding_mapping = {
+            str(item.name): BindingExpression(
+                BindingExprKind.SKILL_INPUT, source_role=str(item.name),
+            )
+            for item in proposal.inputs or atomic.inputs
+        }
+        constraints = []
+        if action_nodes:
+            first = action_nodes[0]
+            constraints.append(GroundingConstraint(
+                "entry_affordance", GroundingConstraintKind.HARNESS_AFFORDANCE,
+                action_type=str(first.get("action_type", "")),
+                argument_mapping=dict(first.get("argument_mapping", {})),
+                required_resolution="concrete",
+            ))
+        implementation = ImplementationAtom(
+            SkillRef(f"impl_{atomic.ref.logical_id.removeprefix('atomic_')}", "1.0.0"),
+            atomic.ref,
+            [ToolBinding(tool.ref, "primary", tool_binding_mapping, 0)],
+            constraints,
+            {"mode": "serial", "output_mapping": implementation_output_mapping},
+            {"harness_profiles": ["alfworld_v3", "fake_v3"]},
+            {},
+            SkillStatus.DRAFT,
+        )
+        return CompiledKnowledge(occurrence, atomic, tool, implementation)

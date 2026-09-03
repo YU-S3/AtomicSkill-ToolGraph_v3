@@ -979,16 +979,26 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
         item.occurrence_id != "source_nav"
         for item in trace.implementation_invocations
     )
-    assert all(
-        item.result["started"] and item.result["completed"]
+    assert all(item.result["started"] for item in trace.implementation_invocations)
+    assert sum(
+        1 for item in trace.implementation_invocations
+        if item.result["completed"]
+    ) == 2
+    assert any(
+        item.result.get("terminal_interrupted")
         for item in trace.implementation_invocations
-    ), json.dumps([item.result for item in trace.implementation_invocations], indent=2)
+    )
     assert len(trace.tool_executions) == 3
     assert all(
         item.occurrence_id != "source_nav"
         for item in trace.tool_executions
     )
-    assert all(item.result["started"] and item.result["completed"] for item in trace.tool_executions)
+    assert all(item.result["started"] for item in trace.tool_executions)
+    assert sum(1 for item in trace.tool_executions if item.result["completed"]) == 2
+    assert sum(
+        1 for item in trace.tool_executions
+        if item.result.get("terminal_interrupted")
+    ) == 1
     assert any(
         item["occurrence_id"] == "take"
         and item["role"] == "source"

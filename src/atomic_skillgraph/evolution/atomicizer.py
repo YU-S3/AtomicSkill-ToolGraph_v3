@@ -22,6 +22,10 @@ class AtomicOccurrenceProposal:
     preconditions: list[SemanticPredicate]
     effects: list[SemanticPredicate]
     rationale: str
+    support_event_ids: list[str] = field(default_factory=list)
+    precondition_witness_refs: list[str] = field(default_factory=list)
+    effect_witness_refs: list[str] = field(default_factory=list)
+    ordering_constraints: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -43,6 +47,11 @@ class CanonicalAtomicOccurrence:
     source_trace_id: str
     proposed_ref: SkillRef
     validation_refs: list[str] = field(default_factory=list)
+    support_event_ids: list[str] = field(default_factory=list)
+    precondition_witness_refs: list[str] = field(default_factory=list)
+    effect_witness_refs: list[str] = field(default_factory=list)
+    ordering_constraints: list[dict[str, Any]] = field(default_factory=list)
+    envelope_events: list[dict[str, Any]] = field(default_factory=list)
 
 
 _ACTION_EFFECTS: dict[str, tuple[tuple[str, dict[str, tuple[str, ...]]], ...]] = {
@@ -324,7 +333,10 @@ def _canonical_predicate(predicate: SemanticPredicate, inputs: dict[str, Any], o
         if not matches and isinstance(value, str) and re.search(r"(?:_|\s)\d+$", value):
             raise ValueError(f"concrete instance in predicate is not bound to a role: {value}")
         arguments[name] = BindingExpression(BindingExprKind.SKILL_INPUT, source_role=matches[0]) if matches else value
-    return SemanticPredicate(predicate.predicate, arguments, predicate.cardinality, predicate.distinct_by)
+    return SemanticPredicate(
+        predicate.predicate, arguments, predicate.cardinality,
+        predicate.distinct_by, predicate.effect_domain,
+    )
 
 
 class Atomicizer:
@@ -381,7 +393,22 @@ class Atomicizer:
                 for used_start, used_end in used_ranges
             ):
                 raise ValueError(f"Atomic proposals overlap: {proposal.phase_id}")
-            selected = events[proposal.event_start: proposal.event_end + 1]
+            envelope_events = events[proposal.event_start: proposal.event_end + 1]
+            if not envelope_events or not all(item.get("accepted") for item in envelope_events):
+                raise ValueError(f"Atomic proposal contains rejected/no events: {proposal.phase_id}")
+            if proposal.support_event_ids:
+                envelope_by_id = {
+                    str(item.get("event_id", item.get("action_id", ""))): item
+                    for item in envelope_events
+                }
+                selected = []
+                for event_id in proposal.support_event_ids:
+                    event = envelope_by_id.get(str(event_id))
+                    if event is None:
+                        raise ValueError(f"support event outside evidence envelope: {event_id}")
+                    selected.append(event)
+            else:
+                selected = list(envelope_events)
             if not selected or not all(item.get("accepted") for item in selected):
                 raise ValueError(f"Atomic proposal contains rejected/no events: {proposal.phase_id}")
             if any(
@@ -390,6 +417,10 @@ class Atomicizer:
             ):
                 raise ValueError(f"Atomic proposal lacks a real revision transition: {proposal.phase_id}")
             selected_span_ids = {str(item.get("span_id", "")) for item in selected}
+            support_indices = {
+                int(item.get("event_index", events.index(item)))
+                for item in selected
+            }
             if len(selected_span_ids) != 1 or "" in selected_span_ids:
                 raise ValueError(f"Atomic proposal crosses incompatible RuntimeSpan: {proposal.phase_id}")
             containing = [
@@ -432,9 +463,7 @@ class Atomicizer:
                 for fact in reduce_action_state(
                     list(events[:proposal.event_end + 1])
                 )
-                if proposal.event_start
-                <= int(fact.get("event_index", -1))
-                <= proposal.event_end
+                if int(fact.get("event_index", -1)) in support_indices
             ]
             effect_facts += _normalized_state_facts(
                 normalized_trace,
@@ -515,6 +544,11 @@ class Atomicizer:
                     f"trace:{normalized_trace['trace_id']}:events:{proposal.event_start}-{proposal.event_end}",
                     *validation_refs,
                 ])),
+                support_event_ids=[str(item.get("event_id", item.get("action_id", ""))) for item in selected],
+                precondition_witness_refs=list(proposal.precondition_witness_refs),
+                effect_witness_refs=list(proposal.effect_witness_refs),
+                ordering_constraints=[dict(item) for item in proposal.ordering_constraints],
+                envelope_events=envelope_events,
             ))
             used_ranges.append((proposal.event_start, proposal.event_end))
         if not result:

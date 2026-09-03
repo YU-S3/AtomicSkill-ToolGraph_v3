@@ -66,6 +66,7 @@ PREDICATE_SCHEMA: dict[str, Any] = {
         "args": {"type": "object"},
         "cardinality": {"type": "integer", "minimum": 1},
         "distinct_by": {"type": "string"},
+        "effect_domain": {"type": "string", "enum": ["world", "evidence"]},
     },
 }
 
@@ -212,6 +213,30 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
                 "Exclusive index after the last selected event; a single event i uses [i,i+1)."
             ),
         },
+        "support_event_ids": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": {"type": "string", "minLength": 1},
+            "description": (
+                "Optional explicit accepted events that actually support this Atomic. "
+                "They must lie within the event_start..event_end evidence envelope and "
+                "may be non-contiguous."
+            ),
+        },
+        "precondition_witness_refs": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": {"type": "string", "minLength": 1},
+        },
+        "effect_witness_refs": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": {"type": "string", "minLength": 1},
+        },
+        "ordering_constraints": {
+            "type": "array",
+            "items": {"type": "object"},
+        },
         "input_roles": {
             "type": "object",
             "minProperties": 1,
@@ -340,8 +365,86 @@ class StructuredSubmissionClient:
         )
 
 
+TOOL_IR_PROGRAM_NODE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["node_id", "op"],
+    "additionalProperties": False,
+    "properties": {
+        "node_id": NONEMPTY_STRING_SCHEMA,
+        "op": {
+            "type": "string",
+            "enum": ["ACTION", "IF", "FOR_EACH", "STOP_WHEN", "RETURN"],
+        },
+        "action_type": {"type": "string"},
+        "argument_mapping": {
+            "type": "object",
+            "additionalProperties": BINDING_EXPRESSION_SCHEMA,
+        },
+        "condition": {"type": "object"},
+        "then_branch": {"type": "array", "items": {"type": "object"}},
+        "else_branch": {"type": "array", "items": {"type": "object"}},
+        "collection_source": {"type": "object"},
+        "iteration_variable": {"type": "string"},
+        "body": {"type": "array", "items": {"type": "object"}},
+        "max_iterations": {"type": "integer", "minimum": 1},
+        "output_sources": {"type": "object"},
+        "expected_effects": {"type": "array", "items": PREDICATE_SCHEMA},
+    },
+}
+
+TOOL_PROPOSAL_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": [
+        "proposal_version", "decision", "summary", "atomic_ref", "inputs",
+        "outputs", "program", "max_actions", "final_effects",
+        "evidence_outputs", "path_expectations", "rationale",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "proposal_version": NONEMPTY_STRING_SCHEMA,
+        "decision": {"type": "string", "enum": ["create", "no_tool"]},
+        "summary": NONEMPTY_STRING_SCHEMA,
+        "atomic_ref": NONEMPTY_STRING_SCHEMA,
+        "inputs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
+        "outputs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
+        "program": {"type": "array", "items": TOOL_IR_PROGRAM_NODE_SCHEMA},
+        "max_actions": {"type": "integer", "minimum": 1},
+        "final_effects": {"type": "array", "items": PREDICATE_SCHEMA},
+        "evidence_outputs": {"type": "array", "items": {"type": "object"}},
+        "path_expectations": {"type": "array", "items": {"type": "object"}},
+        "rationale": NONEMPTY_STRING_SCHEMA,
+    },
+}
+
+RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": [
+        "draft_id", "intent", "inputs", "outputs", "preconditions",
+        "effects", "rationale", "source_occurrence_id",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "draft_id": NONEMPTY_STRING_SCHEMA,
+        "intent": NONEMPTY_STRING_SCHEMA,
+        "inputs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
+        "outputs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
+        "preconditions": {"type": "array", "items": PREDICATE_SCHEMA},
+        "effects": {
+            "type": "array",
+            "minItems": 1,
+            "items": PREDICATE_SCHEMA,
+        },
+        "rationale": NONEMPTY_STRING_SCHEMA,
+        "source_occurrence_id": NONEMPTY_STRING_SCHEMA,
+    },
+}
+
+
 __all__ = [
     "ATOMIC_EXTRACTION_SCHEMA",
+    "RUNTIME_AUTOMATION_ATOMIC_SCHEMA",
+    "TOOL_IR_PROGRAM_NODE_SCHEMA",
+    "TOOL_PROPOSAL_SCHEMA",
     "BINDING_EXPRESSION_SCHEMA",
     "CAPABILITY_REQUIREMENT_SCHEMA",
     "COMPOSITE_EXTRACTION_SCHEMA",

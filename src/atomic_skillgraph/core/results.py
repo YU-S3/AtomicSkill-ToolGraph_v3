@@ -172,6 +172,20 @@ class ToolExecutionResult:
     failure_layer: str = ""
     failure_code: str = ""
     failure_message: str = ""
+    terminal_interrupted: bool = False
+    intrinsic_failure: bool = False
+    executed_node_count: int = 0
+    remaining_node_count: int = 0
+    path_id: str = ""
+    program_node_id: str = ""
+    expected_effects: list[dict[str, Any]] = field(default_factory=list)
+    observed_effects: list[dict[str, Any]] = field(default_factory=list)
+    missing_effects: list[dict[str, Any]] = field(default_factory=list)
+    loop_iteration_counts: dict[str, int] = field(default_factory=dict)
+    validated_paths: list[str] = field(default_factory=list)
+    unvalidated_paths: list[str] = field(default_factory=list)
+    stop_condition_witnesses: list[str] = field(default_factory=list)
+    atomic_effect_passed: bool = False
 
 
 @dataclass
@@ -190,6 +204,7 @@ class ImplementationExecutionResult:
     failure_layer: str = ""
     failure_code: str = ""
     node_status: NodeExecutionStatus = NodeExecutionStatus.NOT_STARTED
+    terminal_interrupted: bool = False
 
 
 @dataclass(frozen=True)

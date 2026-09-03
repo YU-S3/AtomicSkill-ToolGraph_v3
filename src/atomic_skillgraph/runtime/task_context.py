@@ -51,6 +51,15 @@ class TaskRuntimeContext:
         default_factory=dict,
     )
     last_failed_invocation: dict[str, Any] | None = None
+    terminal_latched: bool = False
+    terminal_origin: str = ""
+    terminal_revision: int = 0
+    runtime_automation_drafts: dict[str, dict[str, Any]] = field(
+        default_factory=dict,
+    )
+    runtime_tool_trials: dict[str, dict[str, Any]] = field(
+        default_factory=dict,
+    )
     _after_action_refresh: Callable[[], None] | None = field(
         default=None,
         repr=False,
@@ -274,6 +283,10 @@ class TaskRuntimeContext:
         )
         if bool(result.accepted) and self._after_action_refresh is not None:
             self._after_action_refresh()
+        if bool(getattr(result, "won", False)) and not self.terminal_latched:
+            self.mark_terminal_latched(
+                origin=str(record.get("origin") or "environment_action"),
+            )
 
     def relevant_history(
         self,
@@ -323,6 +336,30 @@ class TaskRuntimeContext:
 
         return self.plan_boundary_reached() or self.plan_conflict_declared
 
+    def benchmark_terminal(self) -> bool:
+        """Benchmark ``won`` is the sole task-terminal authority in v3.2."""
+
+        return bool(getattr(self.harness.validator_channel(), "won", False))
+
+    def mark_terminal_latched(
+        self,
+        *,
+        origin: str = "",
+        revision: int | None = None,
+    ) -> None:
+        self.terminal_latched = True
+        self.terminal_origin = str(origin or "benchmark_won")
+        self.terminal_revision = int(
+            self.world_revision if revision is None else revision
+        )
+        self.record_r3_event(
+            "task_terminal_latched",
+            occurrence_id=self.active_occurrence_id,
+            details={
+                "origin": self.terminal_origin,
+                "revision": self.terminal_revision,
+            },
+        )
+
     def task_complete(self) -> bool:
-        validation = self.harness.validator_channel().validate_task_contract(self.task_contract)
-        return bool(validation.passed and getattr(self.harness.validator_channel(), "won", False))
+        return self.benchmark_terminal()

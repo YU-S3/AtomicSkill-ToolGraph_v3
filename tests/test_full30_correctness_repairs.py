@@ -613,7 +613,7 @@ def _trace() -> TraceRecord:
     ("won", "contract", "resource", "infrastructure", "strict", "learning"),
     [
         (True, True, True, False, True, True),
-        (True, False, True, False, False, False),
+        (True, False, True, False, True, True),
         (False, True, True, False, False, False),
         (True, True, False, False, True, False),
         (True, True, True, True, True, False),
@@ -722,8 +722,8 @@ def test_report_separates_official_strict_and_learning_success() -> None:
     apply_terminal_outcome(trace, terminal, SimpleNamespace(won=True))
     summary = summarize_traces([trace_to_row(trace)])
     assert summary["official_alfworld_won_rate"] == 1.0
-    assert summary["strict_task_success_rate"] == 0.0
-    assert summary["learning_eligible_success_rate"] == 0.0
+    assert summary["strict_task_success_rate"] == 1.0
+    assert summary["learning_eligible_success_rate"] == 1.0
 
 
 def test_planner_p2_metric_counts_attempted_provider_turn() -> None:

@@ -52,6 +52,7 @@ def _predicate(value: dict[str, Any]) -> SemanticPredicate:
     return SemanticPredicate(
         str(value["predicate"]), dict(value.get("args", {})),
         int(value.get("cardinality", 1)), str(value.get("distinct_by", "")),
+        str(value.get("effect_domain", "world")),
     )
 
 
@@ -68,6 +69,9 @@ class ExtractorSession:
         normalized_trace: dict[str, Any],
         known_atomic_contracts: list[Any] | tuple[Any, ...] = (),
         required_task_contract_witnesses: Any = (),
+        *,
+        runtime_automation_drafts: list[Any] | tuple[Any, ...] = (),
+        runtime_tool_trials: list[Any] | tuple[Any, ...] = (),
     ) -> list[AtomicOccurrenceProposal]:
         if self._e1_complete:
             raise RuntimeError("Extractor E1 may run exactly once")
@@ -82,6 +86,8 @@ class ExtractorSession:
                     required_task_contract_witnesses=(
                         required_task_contract_witnesses
                     ),
+                    runtime_automation_drafts=runtime_automation_drafts,
+                    runtime_tool_trials=runtime_tool_trials,
                 ),
                 tool_name="submit_extractor_atomics",
                 description=(
@@ -110,6 +116,10 @@ class ExtractorSession:
                 input_roles=dict(item["input_roles"]), output_roles=dict(item["output_roles"]),
                 preconditions=[_predicate(value) for value in item["preconditions"]],
                 effects=[_predicate(value) for value in item["effects"]], rationale=str(item["rationale"]),
+                support_event_ids=[str(value) for value in item.get("support_event_ids", [])],
+                precondition_witness_refs=[str(value) for value in item.get("precondition_witness_refs", [])],
+                effect_witness_refs=[str(value) for value in item.get("effect_witness_refs", [])],
+                ordering_constraints=[dict(value) for value in item.get("ordering_constraints", [])],
             ))
         return proposals
 

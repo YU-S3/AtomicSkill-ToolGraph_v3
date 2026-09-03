@@ -47,7 +47,11 @@ def apply_terminal_outcome(
     terminal_result: Any,
     validator_channel: Any,
 ) -> None:
-    """Apply the one authoritative task-outcome definition to every route."""
+    """Apply the v3.2 task-outcome definition to every route.
+
+    ``benchmark won`` is the sole task-success authority.  TaskContract
+    agreement remains a diagnostic field and never vetoes task success.
+    """
 
     trace.benchmark_success = bool(getattr(validator_channel, "won", False))
     trace.task_contract_success = bool(
@@ -55,9 +59,7 @@ def apply_terminal_outcome(
             "task_contract", False,
         )
     )
-    trace.strict_task_success = bool(
-        trace.benchmark_success and trace.task_contract_success
-    )
+    trace.strict_task_success = trace.benchmark_success
     refresh_learning_eligibility(trace)
 
 
@@ -81,6 +83,33 @@ class RuntimeOrchestrator:
         self.node_executor.plan_context_builder = self.plan_context_builder
         self.failure_knowledge = failure_knowledge
         self.provisional_node_executor = ProvisionalNodeExecutor(self.node_executor)
+
+
+    def attach_runtime_automation(
+        self,
+        *,
+        tool_builder_factory: Any,
+        tool_compiler: Any,
+    ) -> None:
+        """Inject the ToolBuilder/Compiler path after System has built them."""
+
+        from .automation import RuntimeAutomationCoordinator
+
+        self.node_executor.automation_coordinator = RuntimeAutomationCoordinator(
+            tool_builder_factory=tool_builder_factory,
+            tool_compiler=tool_compiler,
+            implementation_runner=self.node_executor.implementation_runner,
+        )
+
+    @staticmethod
+    def _persist_v32_task_local_assets(ctx: Any) -> None:
+        trace = ctx.trace_builder.trace
+        drafts = getattr(ctx, "runtime_automation_drafts", {}) or {}
+        trials = getattr(ctx, "runtime_tool_trials", {}) or {}
+        if drafts:
+            trace.metadata["runtime_automation_drafts"] = to_primitive(drafts)
+        if trials:
+            trace.metadata["runtime_tool_trials"] = to_primitive(trials)
 
     def _budget(self) -> RuntimeBudget:
         config = self.runtime_config
@@ -203,6 +232,7 @@ class RuntimeOrchestrator:
             )
             trace.runtime_plan["failure_stage"] = ""
             ctx.task_progress.record("task_terminal")
+            self._persist_v32_task_local_assets(ctx)
             return ctx.trace_builder.finish()
 
         if plan.source == "cold_start":
@@ -272,6 +302,17 @@ class RuntimeOrchestrator:
                         )
                 node.direct_result = to_primitive(direct)
                 final = direct
+                if ctx.terminal_latched and not direct.atomic_effect_passed:
+                    node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+                    trace = ctx.trace_builder.trace
+                    trace.metadata.setdefault("task_terminal", {})
+                    trace.metadata["task_terminal"].update({
+                        "during": "direct",
+                        "origin": ctx.terminal_origin,
+                        "revision": ctx.terminal_revision,
+                    })
+                    self._mark_remaining_terminal(ctx, index + 1)
+                    break
                 if not direct.atomic_effect_passed:
                     if direct.failure_code == "runtime_plan_conflict":
                         node.status = direct.node_status
@@ -298,6 +339,10 @@ class RuntimeOrchestrator:
                     seeded = self.node_executor.run_seeded_fresh(occurrence, ctx)
                     node.seeded_result = to_primitive(seeded)
                     final = seeded
+                    if ctx.terminal_latched and not seeded.atomic_effect_passed:
+                        node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+                        self._mark_remaining_terminal(ctx, index + 1)
+                        break
                     if not seeded.atomic_effect_passed:
                         node.status = NodeExecutionStatus.SEEDED_FAILED
                         node.failure = {
@@ -388,6 +433,7 @@ class RuntimeOrchestrator:
             trace.metadata["anomaly"] = "benchmark_goal_contract_mismatch"
         trace.metadata["invocation_compile_rejections"] = list(self.invocation_compiler.compile_rejections)
         trace.runtime_plan["failure_stage"] = ""
+        self._persist_v32_task_local_assets(ctx)
         return ctx.trace_builder.finish()
 
     def _plan_conflict_context(
@@ -815,6 +861,7 @@ class RuntimeOrchestrator:
         )
         ctx.task_progress.record("task_terminal")
         trace.runtime_plan["failure_stage"] = ""
+        self._persist_v32_task_local_assets(ctx)
         return ctx.trace_builder.finish()
 
     def _run_cold_start(

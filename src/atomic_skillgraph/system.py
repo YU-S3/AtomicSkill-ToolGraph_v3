@@ -28,6 +28,7 @@ from .agents import (
     structured_provider_turn_cap,
 )
 from .core.edges import GlobalGraphEdge, GlobalRelationType
+from .core.contracts import AbstractAtomicSkill
 from .core.errors import (
     AgentProtocolError,
     AtomicSkillGraphError,
@@ -87,6 +88,9 @@ from .evolution.tool_compiler import (
     ToolCompiler,
     rewrite_capability_labels,
 )
+from .tooling.builder_session import ToolBuilderSession
+from .tooling.proposal import ToolProvenance
+from .tooling.validator import ToolStaticValidator
 from .evolution.trace_normalizer import TraceNormalizer
 from .evolution.provisional_promotion import (
     PreparedPromotion,
@@ -170,6 +174,14 @@ _SYSTEM_PROMPTS = {
         "You are the AtomicSkillGraph v3 batch evolution proposal agent. Use only supplied "
         "structured Tool/replay/failure evidence. Submit through the single offered native tool. You may propose semantic "
         "edits, but code is the sole replay, validation, versioning, and admission authority."
+    ),
+    "tool_builder": (
+        "You are the v3.2 ToolBuilder sub-agent and the only Tool Program author. "
+        "Implement exactly the supplied Atomic contract with a bounded declarative "
+        "ACTION/IF/FOR_EACH/STOP_WHEN/RETURN Tool IR. Never emit Python, shell, "
+        "filesystem, network, task-family, or episode-entity-specific code. "
+        "Submit create_tool exactly once, or decision=no_tool when no safe reusable "
+        "bounded implementation is justified."
     ),
 }
 
@@ -552,8 +564,13 @@ class AtomicSkillGraphSystem:
         self.normalizer = TraceNormalizer()
         self.atomicizer = Atomicizer()
         self.tool_compiler = ToolCompiler()
+        self.tool_static_validator = ToolStaticValidator()
         self.admission = Admission(self.validation.tool)
         self.aligner = Aligner(self.skills, self.tools)
+        self.orchestrator.attach_runtime_automation(
+            tool_builder_factory=self._tool_builder_session,
+            tool_compiler=self.tool_compiler,
+        )
         self.composite_builder = CompositeBuilder()
         self.failure_processor = FailureProcessor(self.validation.failure_localizer)
         self.gap_diagnoser = GapDiagnoser(self.skills)
@@ -648,6 +665,22 @@ class AtomicSkillGraphSystem:
         )
         self._observed_sessions.append(observed)
         return _SessionProxy(observed)
+
+    def _tool_builder_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:
+        cfg = self._stage_config("runtime")
+        bucket = (
+            UsageBucket.TOOL_BUILDER_RUNTIME
+            if session_kind.startswith("runtime")
+            else UsageBucket.TOOL_BUILDER_EVOLUTION
+        )
+        return self._new_session(
+            stage="tool_builder", bucket=bucket,
+            session_type="ToolBuilderSession", occurrence_id=occurrence_id,
+            task_id=str(getattr(self, "_current_task_id", "")),
+            max_turns=structured_provider_turn_cap(1),
+            max_tokens=int(cfg.get("max_total_tokens_per_task", 300000)),
+            exhaustion_code="tool_builder_token_budget_exhausted",
+        )
 
     def _planner_session(self, task: HarnessTask, _contract: Any) -> _SessionProxy:
         cfg = self._stage_config("planner")
@@ -1835,6 +1868,175 @@ class AtomicSkillGraphSystem:
         builder.finish()
         self.traces.save_atomic(trace)
 
+    def _canonical_atomic_for_occurrence(
+        self, occurrence: Any,
+    ) -> AbstractAtomicSkill | None:
+        """Build the Atomic contract without synthesizing an executable Tool."""
+
+        output_identity: list[dict[str, str]] = []
+        for output_role, value in sorted(occurrence.output_bindings.items()):
+            input_role = next(
+                (
+                    role for role, bound in occurrence.input_bindings.items()
+                    if bound == value
+                ),
+                None,
+            )
+            if input_role is None:
+                return None
+            output_identity.append({
+                "output_role": output_role,
+                "input_role": input_role,
+            })
+        return AbstractAtomicSkill(
+            occurrence.proposed_ref,
+            occurrence.intent,
+            occurrence.input_specs,
+            occurrence.output_specs,
+            occurrence.preconditions,
+            occurrence.effects,
+            {
+                "validator_id": "harness_atomic_effect",
+                "identity_strict": True,
+                "output_identity": output_identity,
+            },
+            [],
+            {
+                "support_event_ids": [
+                    str(item.get("event_id", item.get("action_id", index)))
+                    for index, item in enumerate(occurrence.action_events)
+                ],
+                "envelope_event_range": [
+                    int(occurrence.event_start),
+                    int(occurrence.event_end),
+                ],
+            },
+            {"source_trace_ids": [occurrence.source_trace_id]},
+            SkillStatus.DRAFT,
+        )
+
+    def _existing_executable_reuse(
+        self, occurrence: Any, atomic_view: AbstractAtomicSkill,
+    ) -> CompiledKnowledge | None:
+        """Reuse an exact existing Implementation/Tool without calling ToolBuilder."""
+
+        alignment = self.aligner.resolve_atomic(atomic_view)
+        if not alignment.reused:
+            return None
+        for implementation in self.skills.implementations_for(
+            alignment.ref, mode=self.mode,
+        ):
+            try:
+                tools = [
+                    self.tools.get(binding.tool_ref)
+                    for binding in implementation.tool_bindings
+                ]
+            except KeyError:
+                continue
+            if len(tools) != len(implementation.tool_bindings):
+                continue
+            if len(tools) != 1:
+                continue
+            return CompiledKnowledge(
+                occurrence, atomic_view, tools[0], implementation,
+            )
+        return None
+
+    def _build_tool_for_occurrence(
+        self,
+        occurrence: Any,
+        atomic_view: AbstractAtomicSkill,
+        normalized: dict[str, Any],
+        trace: TraceRecord,
+    ) -> tuple[CompiledKnowledge | None, dict[str, int]]:
+        """Success Evolution Tool path: exact reuse else ToolBuilder + static gate."""
+
+        metrics = {
+            "call_count": 0,
+            "no_tool_count": 0,
+            "static_pass_count": 0,
+            "static_reject_count": 0,
+        }
+        if (
+            getattr(self, "config", None) is None
+            or getattr(self, "usage", None) is None
+            or not hasattr(self, "_tool_builder_session")
+        ):
+            # Legacy deterministic unit fixtures construct System objects without
+            # the v3.2 tooling configuration.  The formal runner always has both.
+            compiled = self.tool_compiler.compile([occurrence])
+            return compiled[0], metrics
+        exact = self._existing_executable_reuse(occurrence, atomic_view)
+        if exact is not None:
+            return exact, metrics
+        provenance = ToolProvenance(
+            source="success_evolution",
+            atomic_ref=str(atomic_view.ref),
+            source_trace_id=str(getattr(trace, "trace_id", normalized.get("trace_id", ""))),
+            occurrence_id=occurrence.occurrence_id,
+            task_id=str(getattr(getattr(trace, "task", None), "task_id", "")),
+        )
+        evidence_support = [
+            item for item in occurrence.action_events
+        ]
+        actions = list(normalized.get("actions") or [])
+        before_facts = []
+        after_facts = []
+        for item in normalized.get("before_state_facts", ()):
+            if int(item.get("revision", -1)) == int(
+                evidence_support[0].get("before_revision", -1)
+            ) if evidence_support else False:
+                before_facts.append(item)
+        for item in normalized.get("after_state_facts", ()):
+            if int(item.get("revision", -1)) == int(
+                evidence_support[-1].get("after_revision", -1)
+            ) if evidence_support else False:
+                after_facts.append(item)
+        action_types = sorted({
+            str(item.get("action_type", ""))
+            for item in evidence_support
+            if item.get("action_type")
+        })
+        session = self._tool_builder_session(
+            "tool_builder_evolution", occurrence.occurrence_id,
+        )
+        builder = ToolBuilderSession(session)
+        proposal = builder.build(
+            atomic=atomic_view,
+            provenance=provenance,
+            evidence_support=evidence_support,
+            semantic_delta={
+                "before_facts": before_facts,
+                "after_facts": after_facts,
+            },
+            harness_interface={
+                "profile": self.harness.profile_name,
+                "predicate_vocabulary": to_primitive(
+                    self.harness.semantic_predicate_schema()
+                ),
+                "primitive_action_types": action_types,
+            },
+            bucket="tool_builder_evolution",
+        )
+        metrics["call_count"] = 1
+        if proposal.decision == "no_tool":
+            metrics["no_tool_count"] = 1
+            return None, metrics
+        static = self.tool_static_validator.validate_proposal(
+            proposal, atomic_view, self.harness,
+        )
+        if not static.passed:
+            metrics["static_reject_count"] = 1
+            raise ValueError(
+                "ToolBuilder proposal failed static validation: "
+                + "; ".join(static.messages)
+            )
+        metrics["static_pass_count"] = 1
+        item = self.tool_compiler.compile_proposal(
+            occurrence, atomic_view, proposal, provenance,
+        )
+        return item, metrics
+
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
         normalized = self.normalizer.build(trace)
         extractor = ExtractorSession(self._extractor_session(task.task_id))
@@ -1862,6 +2064,12 @@ class AtomicSkillGraphSystem:
             normalized,
             known_atomic_contracts,
             to_primitive(witness_authority),
+            runtime_automation_drafts=list(
+                trace.metadata.get("runtime_automation_drafts", {}).values()
+            ),
+            runtime_tool_trials=list(
+                trace.metadata.get("runtime_tool_trials", {}).values()
+            ),
         )
         try:
             canonical, occurrence_rejections = (
@@ -1896,25 +2104,47 @@ class AtomicSkillGraphSystem:
         # must not discard unrelated, admission-ready Atomic knowledge from the
         # same E1 response.
         provisional: list[CompiledKnowledge] = []
+        tool_builder_calls = 0
+        tool_builder_no_tool = 0
+        tool_builder_static_pass = 0
+        tool_builder_static_reject = 0
         for occurrence in canonical:
             occurrence_stage = "compile"
             try:
-                compiled_items = self.tool_compiler.compile([occurrence])
-                if len(compiled_items) != 1:
-                    raise RuntimeError(
-                        "one canonical Atomic occurrence must compile to "
-                        "exactly one knowledge bundle"
+                atomic_view = self._canonical_atomic_for_occurrence(occurrence)
+                if atomic_view is None:
+                    raise RuntimeError("canonical occurrence has no Atomic view")
+                item, builder_metrics = self._build_tool_for_occurrence(
+                    occurrence, atomic_view, normalized, trace,
+                )
+                tool_builder_calls += int(builder_metrics.get("call_count", 0))
+                tool_builder_no_tool += int(builder_metrics.get("no_tool_count", 0))
+                tool_builder_static_pass += int(builder_metrics.get("static_pass_count", 0))
+                tool_builder_static_reject += int(builder_metrics.get("static_reject_count", 0))
+                if item is None:
+                    # NO_TOOL is an explicit, valid Builder decision.  The Atomic
+                    # remains learnable and may be executed by a Seeded Agent.
+                    alignment = self.aligner.resolve_atomic(atomic_view)
+                    staged = self.aligner.stage_atomic(atomic_view)
+                    staged_occurrence = (
+                        self.aligner.atomic_canonicalizer
+                        .rewrite_canonical_occurrence(
+                            occurrence,
+                            staged,
+                            atomic_ref=staged.atomic.ref,
+                        )
                     )
-                item = compiled_items[0]
-                occurrence_stage = "stage"
+                    provisional.append(CompiledKnowledge(
+                        staged_occurrence,
+                        staged.atomic,
+                        None,
+                        None,
+                    ))
+                    continue
                 bundle = self.aligner.stage_atomic(
                     item.atomic,
                     item.tool,
                     item.implementation,
-                )
-                assert (
-                    bundle.tool is not None
-                    and bundle.implementation is not None
                 )
                 staged_occurrence = (
                     self.aligner.atomic_canonicalizer
@@ -1938,6 +2168,12 @@ class AtomicSkillGraphSystem:
                 bundle.tool,
                 bundle.implementation,
             ))
+        trace.metadata.setdefault("v32_metrics", {}).update({
+            "tool_builder_call_count": tool_builder_calls,
+            "tool_builder_no_tool_count": tool_builder_no_tool,
+            "tool_builder_static_pass_count": tool_builder_static_pass,
+            "tool_builder_static_rejection_count": tool_builder_static_reject,
+        })
 
         if not provisional:
             quality = {
@@ -2218,6 +2454,17 @@ class AtomicSkillGraphSystem:
             atomic_reuse_count += int(atomic_alignment.reused)
             atomic_new_count += int(not atomic_alignment.reused)
             atomic_ref = self.aligner.align_atomic(item.atomic)
+            if item.tool is None or item.implementation is None:
+                atomic_refs.append(atomic_ref)
+                by_occurrence[item.occurrence.occurrence_id] = atomic_ref
+                evidence.record(
+                    str(atomic_ref),
+                    "atomic",
+                    occurrence_id=item.occurrence.occurrence_id,
+                    passed=True,
+                    reason="tool_builder_no_tool_atomic_only",
+                )
+                continue
             admitted_tool = self.admission.admit_tool(
                 item.tool,
                 replay=lambda tool, case: bool(self.harness.replay_tool(task, tool, case)),

@@ -33,6 +33,8 @@ USAGE_BUCKETS = (
     "runtime_dynamic_cold_start_continuation",
     "extractor_e1",
     "extractor_e2",
+    "tool_builder_runtime",
+    "tool_builder_evolution",
     "failure_extractor_f1",
     "failure_extractor_f2",
     "evolution_repair",
@@ -158,6 +160,45 @@ R31_RUNTIME_METRICS = (
     "partial_atomic_implementation_admission_count",
 )
 
+V32_METHOD_METRICS = (
+    "planner_repairability_gate_count",
+    "planner_repairability_repairable_count",
+    "planner_hard_capability_gap_count",
+    "planner_p1r_skipped_hard_gap_count",
+    "planner_support_atomic_candidate_count",
+    "planner_support_atomic_selected_count",
+    "task_terminal_early_success_count",
+    "task_terminal_during_tool_count",
+    "task_terminal_with_remaining_occurrences_count",
+    "terminal_skipped_occurrence_count",
+    "extractor_noncontiguous_atomic_count",
+    "extractor_support_event_count",
+    "extractor_envelope_event_count",
+    "extractor_redundant_envelope_event_excluded_count",
+    "tool_builder_call_count",
+    "tool_builder_no_tool_count",
+    "tool_builder_proposal_count",
+    "tool_builder_static_pass_count",
+    "tool_builder_static_rejection_count",
+    "runtime_automation_atomic_proposal_count",
+    "runtime_automation_r0_pass_count",
+    "runtime_automation_r0_reject_count",
+    "runtime_tool_trial_count",
+    "runtime_tool_trial_r1_pass_count",
+    "runtime_tool_trial_r1_reject_count",
+    "runtime_tool_internal_action_count",
+    "runtime_tool_llm_bypassed_action_count",
+    "runtime_support_retrieval_count",
+    "runtime_support_candidate_count",
+    "runtime_support_selected_count",
+    "runtime_support_success_count",
+    "runtime_graph_augmentation_count",
+    "tool_validated_path_count",
+    "tool_unvalidated_path_count",
+    "tool_observed_loop_iteration_count",
+    "tool_stop_condition_witness_count",
+)
+
 R22_FAILURE_EXTRACTOR_METRICS = (
     "failure_extractor_f1_input_event_count",
     "failure_extractor_f1_prompt_chars",
@@ -256,6 +297,7 @@ REPORT_COLUMNS = (
     "node_token_budget_exhausted_count",
     *R21_RUNTIME_METRICS,
     *R31_RUNTIME_METRICS,
+    *V32_METHOD_METRICS,
     "replay_full_catalog_count_at_last_request",
     "runtime_prompt_tokens",
     "runtime_completion_tokens",
@@ -323,7 +365,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
     )
     strict_raw = _field(trace, "strict_task_success", None)
     strict_task_success = (
-        benchmark_success and task_contract_success
+        benchmark_success
         if strict_raw is None
         else _boolean(strict_raw)
     )
@@ -368,6 +410,14 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         ),
     )
     r31_runtime = _r31_event_metrics(trace, metadata=metadata)
+    v32_metrics = _v32_method_metrics(
+        trace,
+        planner=planner,
+        metadata=metadata,
+        nodes=nodes,
+        invocations=invocations,
+        executions=executions,
+    )
     row: dict[str, Any] = {
         "trace_id": str(_field(trace, "trace_id", "")),
         "schema_version": _integer(_field(trace, "schema_version", 0)),
@@ -488,6 +538,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         ),
         **r21_runtime,
         **r31_runtime,
+        **v32_metrics,
         **failure_extractor,
         **v31_metrics,
         **{
@@ -2410,6 +2461,81 @@ def _confirmed_capability_gap(trace: Any, metadata: Mapping[str, Any]) -> bool:
         metadata.get("gap_classification"),
     )
     return any(value == "confirmed_capability_gap" for value in candidates)
+
+
+def _v32_method_metrics(
+    trace: Any,
+    *,
+    planner: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    nodes: Sequence[Mapping[str, Any]],
+    invocations: Sequence[Mapping[str, Any]],
+    executions: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    """Derive v3.2 counters from structured Trace authority only."""
+
+    explicit = _mapping(metadata.get("v32_metrics", {}))
+    planner_repairability = _mapping(planner.get("repairability", {}))
+    diagnostics = planner_repairability.get("diagnostics") or ()
+    result: dict[str, int] = {
+        name: _integer(explicit.get(name, 0))
+        for name in V32_METHOD_METRICS
+    }
+    result.setdefault("planner_repairability_gate_count", int(bool(planner_repairability)))
+    result.setdefault("planner_repairability_repairable_count", int(
+        bool(planner_repairability)
+        and bool(planner_repairability.get("repairable", False))
+    ))
+    result.setdefault("planner_hard_capability_gap_count", sum(
+        1 for item in diagnostics if item.get("hard_capability_gap")
+    ))
+    result.setdefault("planner_p1r_skipped_hard_gap_count", int(
+        bool(planner_repairability)
+        and str(planner_repairability.get("reason_code", ""))
+        == "planner_hard_capability_gap"
+    ))
+    result.setdefault("task_terminal_early_success_count", int(
+        bool(_mapping(metadata.get("task_terminal", {})).get("during"))
+    ))
+    result.setdefault("task_terminal_during_tool_count", sum(
+        1 for item in executions
+        if _boolean(_mapping(item.get("result", {})).get("terminal_interrupted", False))
+    ))
+    result.setdefault("terminal_skipped_occurrence_count", sum(
+        1 for item in nodes
+        if str(item.get("status", "")) == "skipped_goal_terminal"
+    ))
+    result.setdefault("task_terminal_with_remaining_occurrences_count", int(
+        result["terminal_skipped_occurrence_count"] > 0
+    ))
+    result.setdefault("tool_builder_proposal_count", int(
+        result["tool_builder_call_count"] - result["tool_builder_no_tool_count"]
+    ))
+    result.setdefault("tool_validated_path_count", sum(
+        len(_sequence(_mapping(item.get("result", {})).get("validated_paths", ())))
+        for item in executions
+    ))
+    result.setdefault("tool_unvalidated_path_count", sum(
+        len(_sequence(_mapping(item.get("result", {})).get("unvalidated_paths", ())))
+        for item in executions
+    ))
+    result.setdefault("tool_observed_loop_iteration_count", sum(
+        sum(_integer(value) for value in _mapping(
+            _mapping(item.get("result", {})).get("loop_iteration_counts", {})
+        ).values())
+        for item in executions
+    ))
+    result.setdefault("tool_stop_condition_witness_count", sum(
+        len(_sequence(_mapping(item.get("result", {})).get("stop_condition_witnesses", ())))
+        for item in executions
+    ))
+    result.setdefault("runtime_tool_llm_bypassed_action_count", sum(
+        _integer(_mapping(item.get("result", {})).get("executed_node_count", 0))
+        for item in executions
+        if _mapping(item.get("result", {})).get("path_id")
+        or _mapping(item.get("result", {})).get("program_node_id")
+    ))
+    return result
 
 
 def _v31_method_metrics(

@@ -350,9 +350,15 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         )
         completed = bool(_field(result, "completed", False))
         atomic_passed = bool(_field(result, "atomic_effect_passed", False))
+        terminal_interrupted = bool(_field(result, "terminal_interrupted", False))
         failure_layer = _result_failure_layer(result, preflight)
         outcome: CreditOutcome | None = None
         if started:
+            if terminal_interrupted:
+                # Benchmark terminal authority interrupts Tool IR.  The current
+                # occurrence is not evidence for a completed Implementation, and
+                # it must not be recorded as an intrinsic failure either.
+                continue
             outcome = (
                 CreditOutcome.DIRECT_SUCCESS
                 if completed and atomic_passed

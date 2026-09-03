@@ -40,6 +40,7 @@ def _predicate(value: SemanticPredicate | Mapping[str, Any]) -> SemanticPredicat
     return SemanticPredicate(
         str(value["predicate"]), args,
         int(value.get("cardinality", 1)), str(value.get("distinct_by", "")),
+        str(value.get("effect_domain", "world")),
     )
 
 

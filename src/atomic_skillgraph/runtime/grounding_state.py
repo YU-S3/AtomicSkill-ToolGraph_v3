@@ -66,6 +66,18 @@ def _predicate_parts(value: Any) -> tuple[str, dict[str, Any], int, str]:
     )
 
 
+def _evidence_level(resolution: BindingResolution, evidence_ref: str) -> str:
+    if resolution is BindingResolution.RELATION_VERIFIED:
+        if evidence_ref.startswith("occurrence_fact:"):
+            return "confirmed_binding"
+        return "affordance_certified"
+    if resolution is BindingResolution.CONCRETE:
+        if evidence_ref.startswith("affordance:"):
+            return "affordance_certified"
+        return "observed_candidate"
+    return "observed_candidate"
+
+
 def _predicate_matches(
     predicate: Any,
     facts: Iterable[Mapping[str, Any]],
@@ -179,6 +191,7 @@ class IncrementalGroundingAuthority:
             bucket = candidates[role].setdefault(value, {
                 "evidence_refs": [],
                 "resolution": resolution,
+                "evidence_level": _evidence_level(resolution, evidence_ref),
             })
         except TypeError:
             # Runtime entity bindings are expected to be JSON scalars.  An
@@ -190,6 +203,7 @@ class IncrementalGroundingAuthority:
             ]))
         if _RESOLUTION_ORDER[resolution] > _RESOLUTION_ORDER[bucket["resolution"]]:
             bucket["resolution"] = resolution
+            bucket["evidence_level"] = _evidence_level(resolution, evidence_ref)
 
     def _collect_candidates(
         self,
@@ -656,12 +670,26 @@ class IncrementalGroundingAuthority:
         if invocations and not ready:
             blocking.append("learned_invocation_not_ready")
 
+        candidate_evidence: dict[str, list[dict[str, Any]]] = {}
+        for role, values in candidates.items():
+            entries = []
+            for value, detail in values.items():
+                entries.append({
+                    "value": value,
+                    "evidence_level": str(detail.get("evidence_level", "observed_candidate")),
+                    "resolution": detail["resolution"].value,
+                    "evidence_refs": list(detail.get("evidence_refs", [])),
+                })
+            if entries:
+                candidate_evidence[role] = entries
+
         state = {
             "revision": int(ctx.world_revision),
             "occurrence_id": str(occurrence.occurrence_id),
             "semantic_anchors": copy.deepcopy(anchors),
             "confirmed_bindings": copy.deepcopy(confirmed),
             "candidate_bindings": copy.deepcopy(projected_candidates),
+            "candidate_binding_evidence": copy.deepcopy(candidate_evidence),
             "missing_bindings": list(missing),
             "invalidated_bindings": copy.deepcopy(invalidated),
             "precondition_status": preconditions,

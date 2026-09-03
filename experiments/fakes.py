@@ -25,6 +25,7 @@ from atomic_skillgraph.agents.protocol import (
 from atomic_skillgraph.agents.usage import UsageBucket, UsageLedger
 from atomic_skillgraph.core.bindings import BindingExprKind, BindingExpression
 from atomic_skillgraph.core.contracts import ContractSource, SemanticPredicate, TaskContract
+from atomic_skillgraph.core.errors import AtomicSkillGraphError, FailureLayer
 from atomic_skillgraph.core.results import (
     AtomicEffectResolution,
     PrimitiveToolStep,
@@ -35,6 +36,7 @@ from atomic_skillgraph.harness.protocol import (
     HarnessActionResult,
     HarnessActionSpec,
     HarnessTask,
+    PredicateSpec,
 )
 from atomic_skillgraph.validation.contract_matcher import ExactContractMatcher
 
@@ -1194,6 +1196,12 @@ class FakeHarness:
     def execute_action(self, action_id: str, revision: int) -> HarnessActionResult:
         if self._task is None:
             raise RuntimeError("FakeHarness must be reset before action execution")
+        if self._done or self._won:
+            raise AtomicSkillGraphError(
+                "harness_terminal_latched",
+                "benchmark terminal is latched; no further env.step is allowed",
+                layer=FailureLayer.RUNTIME_AGENT,
+            )
         spec = self._catalog.get(action_id, revision)
         target = str(self._task.context["target_item"])
         accepted = False
@@ -1255,6 +1263,26 @@ class FakeHarness:
 
     def validator_channel(self) -> FakeValidatorChannel:
         return self._validator
+
+    def semantic_predicate_schema(self) -> list[PredicateSpec]:
+        return [
+            PredicateSpec(
+                "agent.holds", "world", ("object",),
+                {"object": "entity"}, "fake_v3_action_facts",
+            ),
+            PredicateSpec(
+                "object.observed", "evidence", ("object",),
+                {"object": "entity"}, "fake_v3_action_facts",
+            ),
+        ]
+
+    def primitive_action_schema(self) -> list[dict[str, Any]]:
+        return [
+            {"action_type": "TAKE", "argument_roles": ["item"]},
+            {"action_type": "EXAMINE", "argument_roles": ["item"]},
+            {"action_type": "GO_TO", "argument_roles": ["destination"]},
+            {"action_type": "PUT", "argument_roles": ["item", "destination"]},
+        ]
 
     def compile_primitive(
         self,

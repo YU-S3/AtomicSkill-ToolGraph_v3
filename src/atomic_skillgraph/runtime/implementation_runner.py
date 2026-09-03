@@ -73,12 +73,13 @@ class ImplementationRunner:
             result = self.tool_runner.run(tool, arguments, ctx, occurrence_id=occurrence.occurrence_id, parent_span_id=span.span_id)
             tool_results.append(result)
             started = started or result.started
-            if not result.completed:
-                failure_layer = result.failure_layer or "tool"
-                failure_code = result.failure_code or "tool_execution_error"
-                break
             for role, value in result.output_candidates.items():
                 tool_outputs[(binding.role, role)] = value
+            if not result.completed:
+                if not result.terminal_interrupted:
+                    failure_layer = result.failure_layer or "tool"
+                    failure_code = result.failure_code or "tool_execution_error"
+                break
         else:
             completed = bool(tool_results) and all(item.completed for item in tool_results)
 
@@ -149,6 +150,9 @@ class ImplementationRunner:
             NodeExecutionStatus.DIRECT_AGENT_PREPARED_SUCCESS if atomic_passed and agent_prepared
             else NodeExecutionStatus.DIRECT_AUTONOMOUS_SUCCESS if atomic_passed
             else NodeExecutionStatus.DIRECT_FAILED if started else NodeExecutionStatus.FAILED_NOT_STARTED,
+            terminal_interrupted=bool(
+                tool_results and any(item.terminal_interrupted for item in tool_results)
+            ),
         )
         ctx.trace_builder.trace.implementation_invocations.append(ImplementationInvocationRecord(
             attempt_id, occurrence.occurrence_id, str(compiled.implementation.ref),

@@ -52,6 +52,8 @@ class ContextBuilder:
         current_state_snapshot: Mapping[str, Any] | None = None,
         exploration_memory: Mapping[str, Any] | None = None,
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
+        support_atomic_candidates: Iterable[Any] = (),
+        runtime_automation_drafts: Iterable[Any] = (),
     ) -> str:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
@@ -104,6 +106,12 @@ class ContextBuilder:
                 else None
             ),
             "allowed_implementation_invocations": invocations,
+            "support_atomic_candidates": [
+                _policy_value(item) for item in support_atomic_candidates
+            ],
+            "runtime_automation_drafts": [
+                _policy_value(item) for item in runtime_automation_drafts
+            ],
         }
         return _render(
             "Prepare and execute only the current Atomic occurrence. Mark each "
@@ -132,7 +140,11 @@ class ContextBuilder:
             "not yet evidenced. This prohibition applies only to roles absent from "
             "current_state_snapshot.semantic_anchors. When a role is explicitly anchored there, ground a "
             "compatible concrete current entity for that anchor, including when it is the task's final "
-            "destination. For a learned invocation, call the exact native-tool name shown in "
+            "destination. Before executing a repetitive, mechanical, low-semantic-value action "
+            "sequence, prefer propose_runtime_automation_atomic when the loop object, condition, "
+            "and stop condition can be expressed by the current structured action/evidence "
+            "interface. The proposal is an Atomic draft, never source code. "
+            "For a learned invocation, call the exact native-tool name shown in "
             "allowed_implementation_invocations.name; never derive or extend a tool name from an "
             "artifact description or identifier, and copy canonical values exactly from the latest "
             "public catalog arguments: current_action_catalog.actions[].arguments initially, "
@@ -275,6 +287,78 @@ class ContextBuilder:
             sort_keys=False,
         )
 
+    def tool_builder(
+        self,
+        *,
+        atomic: Any,
+        provenance: Any,
+        evidence_support: Iterable[Any] | None = None,
+        semantic_delta: Mapping[str, Any] | None = None,
+        harness_interface: Mapping[str, Any] | None = None,
+        near_match_interfaces: Iterable[Any] | None = None,
+        local_failures: Iterable[Any] | None = None,
+    ) -> str:
+        atomic_view = _project(
+            atomic,
+            (
+                "summary", "inputs", "outputs", "preconditions", "effects",
+                "metadata",
+            ),
+        )
+        # The frozen ToolBuilder context never includes the complete task goal,
+        # full trace, full planner history, full skill bank, or old Tool bodies.
+        payload = {
+            "canonical_atomic": atomic_view,
+            "atomic_evidence_support": [
+                _policy_value(item) for item in evidence_support or ()
+            ],
+            "semantic_delta": _policy_value(dict(semantic_delta or {})),
+            "harness_interface": _policy_value(dict(harness_interface or {})),
+            "tool_ir_schema": {
+                "schema_version": 1,
+                "opcodes": ["ACTION", "IF", "FOR_EACH", "STOP_WHEN", "RETURN"],
+            },
+            "safety_portability": {
+                "no_python": True,
+                "no_shell": True,
+                "no_filesystem": True,
+                "no_network": True,
+                "no_task_id_constants": True,
+                "no_episode_entity_constants": True,
+                "no_benchmark_family_branch": True,
+                "no_hidden_llm_call": True,
+                "bounded_max_actions": True,
+                "evidence_backed_outputs": True,
+            },
+            "near_match_interfaces": [
+                _policy_value(item) for item in near_match_interfaces or ()
+            ],
+            "local_failure_facts": [
+                _policy_value(item) for item in local_failures or ()
+            ],
+            "provenance": _policy_value(dict(
+                to_primitive(provenance)
+                if is_dataclass(provenance)
+                else provenance or {}
+            )),
+        }
+        return _render(
+            "You are ToolBuilder, the only v3.2 Tool Program author. "
+            "You implement one already-proposed Atomic. "
+            "The Atomic contract is authoritative. "
+            "The source trace is evidence, not a program to replay. "
+            "Use the minimal reusable procedure needed to realize the Atomic. "
+            "Do not copy every event in the evidence envelope. "
+            "Do not add task-specific workflow knowledge. "
+            "Every branch, output, and expected effect must be representable in "
+            "the supplied Harness interface. "
+            "Return decision=no_tool if no safe reusable bounded implementation "
+            "is justified. "
+            "Call only the offered create_tool submission.",
+            payload,
+            sort_keys=False,
+        )
+
     def planner_requirements(
         self,
         *,
@@ -321,6 +405,8 @@ class ContextBuilder:
         canonical_trace: Any,
         known_atomic_contracts: Iterable[Any] = (),
         required_task_contract_witnesses: Any = (),
+        runtime_automation_drafts: Iterable[Any] = (),
+        runtime_tool_trials: Iterable[Any] = (),
     ) -> str:
         return _render(
             """Propose the smallest sufficient set of reusable Atomic capability occurrences
@@ -408,6 +494,12 @@ minimal occurrence slice whose declared Effect is exactly that authoritative
 positive fact. Search/navigation detours remain non-learnable unless causally
 required inside that occurrence.
 
+  event_start/event_end are the temporal evidence envelope only. Explicitly
+  select support_event_ids. Support events may be non-contiguous within one
+  causal occurrence lineage. Do not include unrelated actions merely to make
+  the interval contiguous. Precondition and effect witnesses must be explicit.
+  Only extract causal capabilities supported before benchmark terminal success.
+
 Call the offered native submission tool exactly once.""",
             {
                 "canonical_trace": _policy_value(canonical_trace),
@@ -416,6 +508,17 @@ Call the offered native submission tool exactly once.""",
                 ),
                 "required_task_contract_witnesses": _policy_value(
                     required_task_contract_witnesses
+                ),
+                "runtime_created_atomic_drafts": _policy_value(
+                    list(runtime_automation_drafts)
+                ),
+                "runtime_created_tool_proposals": [
+                    _policy_value(item.get("proposal"))
+                    for item in runtime_tool_trials
+                    if isinstance(item, Mapping) and item.get("proposal")
+                ],
+                "runtime_tool_trials": _policy_value(
+                    list(runtime_tool_trials)
                 ),
             },
         )
@@ -465,6 +568,11 @@ insight:
 Do not select requires_skill solely to express temporal order; the canonical
 control sequence already carries order and occurrences need not be
 edge-connected.
+
+  Use only validated canonical Atomics. Runtime-created support Atomics are
+  ordinary candidates. Prefer a causally sufficient minimal subgraph. Do not
+  retain planned-but-unexecuted post-terminal nodes. Keep a support Atomic if
+  its evidence/output is actually consumed.
 
 Call the offered native submission tool exactly once.""",
             {

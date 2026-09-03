@@ -36,7 +36,7 @@ def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") ->
 
 
 class ToolValidator:
-    SUPPORTED_ARTIFACTS = {"primitive_ir"}
+    SUPPORTED_ARTIFACTS = {"primitive_ir", "tool_ir_v1"}
 
     def validate_asset(self, tool: ToolAsset) -> ValidationResult:
         checks = {
@@ -50,6 +50,11 @@ class ToolValidator:
             steps = tool.artifact.get("steps")
             checks["primitive_steps"] = isinstance(steps, list) and bool(steps)
             checks["primitive_shape"] = bool(steps) and all(isinstance(step, dict) and bool(step.get("action_type")) for step in steps)
+        elif tool.artifact_kind == "tool_ir_v1":
+            program = tool.artifact.get("program")
+            checks["tool_ir_program"] = isinstance(program, list) and bool(program)
+            checks["tool_ir_bounded"] = isinstance(tool.artifact.get("max_actions"), int) and tool.artifact["max_actions"] > 0
+            checks["tool_ir_final_effects"] = bool(tool.artifact.get("final_effects"))
         passed = all(checks.values())
         return ValidationResult(
             "tool", passed, checks,

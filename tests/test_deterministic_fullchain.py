@@ -439,9 +439,9 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
         ledger,
         projection,
     )
-    assert any(
+    assert not any(
         item.artifact_ref == str(tool_ref)
-        and item.event is EvidenceEventType.DIRECT_SUCCESS
+        and item.event in {EvidenceEventType.DIRECT_SUCCESS, EvidenceEventType.DIRECT_FAILURE}
         for item in direct_events
     )
 

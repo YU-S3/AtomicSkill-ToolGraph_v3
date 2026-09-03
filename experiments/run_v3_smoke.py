@@ -390,6 +390,7 @@ def run_deterministic() -> int:
         "tests/test_r3_runtime_state.py",
         "tests/test_r3_semantic_anchors.py",
         "tests/test_r21_replay_report.py",
+        "tests/test_v32_frozen_design.py",
         "tests/test_extractor_contract_authority.py",
         "src/atomic_skillgraph/governance/tests/test_governance.py",
         "experiments/tests/test_protocol_report.py",

@@ -18,7 +18,7 @@ from ..core.errors import AtomicSkillGraphError, FailureLayer
 from ..core.results import AtomicEffectResolution, PrimitiveToolStep, ValidationResult
 from ..validation.contract_matcher import ContractMatcher
 from .action_catalog import HarnessActionCatalog
-from .protocol import HarnessActionResult, HarnessActionSpec, HarnessTask
+from .protocol import HarnessActionResult, HarnessActionSpec, HarnessTask, PredicateSpec
 
 
 TASK_TYPE_IDS = {
@@ -1149,6 +1149,12 @@ class AlfWorldAdapter:
         )
 
     def execute_action(self, action_id: str, revision: int) -> HarnessActionResult:
+        if self._done or self._won:
+            raise AtomicSkillGraphError(
+                "harness_terminal_latched",
+                "benchmark terminal is latched; no further env.step is allowed",
+                layer=FailureLayer.RUNTIME_AGENT,
+            )
         spec = self._catalog.get(action_id, revision)
         try:
             observations, scores, dones, infos = self._env.step([spec.raw_action])
@@ -1219,6 +1225,113 @@ class AlfWorldAdapter:
 
     def validator_channel(self) -> AlfWorldValidatorChannel:
         return self._validator
+
+    def semantic_predicate_schema(self) -> list[PredicateSpec]:
+        return [
+            PredicateSpec(
+                "agent.holds",
+                "world",
+                ("object",),
+                {"object": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
+                "object.at_location",
+                "world",
+                ("object", "location"),
+                {"object": "entity", "location": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
+                "object.heated",
+                "world",
+                ("object",),
+                {"object": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
+                "object.cleaned",
+                "world",
+                ("object",),
+                {"object": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
+                "object.cooled",
+                "world",
+                ("object",),
+                {"object": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
+                "object.sliced",
+                "world",
+                ("object",),
+                {"object": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
+                "container.open",
+                "world",
+                ("container",),
+                {"container": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
+                "light.on",
+                "world",
+                ("light",),
+                {"light": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
+                "object.observed",
+                "evidence",
+                ("object",),
+                {"object": "entity"},
+                "alfworld_action_facts",
+            ),
+            PredicateSpec(
+                "object.observed_with",
+                "world",
+                ("object", "light"),
+                {"object": "entity", "light": "entity"},
+                "alfworld_terminal_certificate",
+            ),
+            PredicateSpec(
+                "binding.discovered",
+                "evidence",
+                ("role", "value"),
+                {"role": "string", "value": "entity"},
+                "alfworld_action_catalog",
+            ),
+            PredicateSpec(
+                "entity.discovered_at",
+                "evidence",
+                ("entity", "location"),
+                {"entity": "entity", "location": "entity"},
+                "alfworld_action_catalog",
+            ),
+        ]
+
+    def primitive_action_schema(self) -> list[dict[str, Any]]:
+        return [
+            {"action_type": "TAKE", "argument_roles": ["object"]},
+            {"action_type": "PUT", "argument_roles": ["object", "destination"]},
+            {"action_type": "MOVE", "argument_roles": ["object", "destination"]},
+            {"action_type": "GO_TO", "argument_roles": ["destination"]},
+            {"action_type": "OPEN", "argument_roles": ["object"]},
+            {"action_type": "CLOSE", "argument_roles": ["object"]},
+            {"action_type": "TOGGLE_ON", "argument_roles": ["light"]},
+            {"action_type": "TOGGLE_OFF", "argument_roles": ["light"]},
+            {"action_type": "EXAMINE", "argument_roles": ["object"]},
+            {"action_type": "LOOK", "argument_roles": []},
+            {"action_type": "INVENTORY", "argument_roles": []},
+            {"action_type": "HEAT", "argument_roles": ["object"]},
+            {"action_type": "COOL", "argument_roles": ["object"]},
+            {"action_type": "CLEAN", "argument_roles": ["object"]},
+            {"action_type": "SLICE", "argument_roles": ["object"]},
+        ]
 
     def compile_primitive(self, primitive: PrimitiveToolStep, bindings: dict[str, Any]) -> HarnessActionSpec:
         expected: dict[str, Any] = {}

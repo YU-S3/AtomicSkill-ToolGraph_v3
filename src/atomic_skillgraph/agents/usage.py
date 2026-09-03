@@ -27,6 +27,8 @@ class UsageBucket(str, Enum):
     RUNTIME_DYNAMIC_COLD_START_CONTINUATION = "runtime_dynamic_cold_start_continuation"
     EXTRACTOR_E1 = "extractor_e1"
     EXTRACTOR_E2 = "extractor_e2"
+    TOOL_BUILDER_RUNTIME = "tool_builder_runtime"
+    TOOL_BUILDER_EVOLUTION = "tool_builder_evolution"
     FAILURE_EXTRACTOR_F1 = "failure_extractor_f1"
     FAILURE_EXTRACTOR_F2 = "failure_extractor_f2"
     EVOLUTION_REPAIR = "evolution_repair"

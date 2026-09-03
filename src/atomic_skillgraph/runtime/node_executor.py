@@ -7,7 +7,8 @@ from dataclasses import asdict
 from typing import Any, Callable
 
 from ..agents.context_builder import ContextBuilder
-from ..agents.protocol import AgentTurn, NativeToolSpec
+from ..agents.structured_submission import RUNTIME_AUTOMATION_ATOMIC_SCHEMA
+from ..agents.protocol import AgentTurn, NativeToolSpec, SchemaValidationError, validate_schema_instance
 from ..core.bindings import (
     BindingResolution, BindingStatus, RuntimeBinding,
 )
@@ -16,6 +17,8 @@ from ..core.results import (
     AtomicEffectResolution, ImplementationExecutionResult, NodeExecutionStatus,
 )
 from ..core.serialization import to_primitive
+from ..core.status import RuntimeMode
+from ..tooling.proposal import runtime_automation_draft_from_dict
 from ..traces.schema import (
     AgentSessionRecord, AgentTurnRecord, EnvironmentActionRecord,
     ImplementationInvocationRecord, NativeToolCallRecord, ValidationRecord,
@@ -25,6 +28,7 @@ from .implementation_runner import ImplementationRunner
 from .grounding_state import IncrementalGroundingAuthority
 from .invocation_compiler import CompiledInvocation, InvocationCompiler
 from .loop_guard import ActionLoopGuard
+from .support_retriever import SupportAtomicRetriever
 
 
 SessionFactory = Callable[[str, str], Any]
@@ -41,6 +45,8 @@ class NodeExecutor:
         self.session_factory = session_factory
         self.implementation_runner = ImplementationRunner(validation)
         self.context_builder = ContextBuilder()
+        self.support_retriever = SupportAtomicRetriever()
+        self.automation_coordinator = None
         self.grounding_authority = IncrementalGroundingAuthority(
             invocation_compiler, validation,
         )
@@ -887,12 +893,25 @@ class NodeExecutor:
         invocations: list[CompiledInvocation] = (),
         allow_plan_conflict: bool = False,
     ) -> list[NativeToolSpec]:
-        return [
+        tools = [
             self._environment_tool(ctx, node_level=True),
             self._validate_current_atomic_tool(atomic),
             *[self._invocation_tool(item) for item in invocations],
+            self._automation_tool(),
             self._status_tool(allow_plan_conflict=allow_plan_conflict),
         ]
+        return tools
+
+    @staticmethod
+    def _automation_tool() -> NativeToolSpec:
+        return NativeToolSpec(
+            "propose_runtime_automation_atomic",
+            "Propose one bounded Automation Atomic draft when upcoming work is "
+            "repetitive, mechanical, low-semantic-value, and expressible with "
+            "the current structured action/evidence interface. This is an "
+            "Atomic contract draft, never source code and never create_tool.",
+            RUNTIME_AUTOMATION_ATOMIC_SCHEMA,
+        )
 
     def _record_control_call(
         self,
@@ -1020,6 +1039,25 @@ class NodeExecutor:
             occurrence, atomic.inputs,
         )
         missing = prompt_bindings["missing_or_insufficient_bindings"]
+        atomics_method = getattr(self.invocation_compiler.skills, "atomics", None)
+        plan_source = str(getattr(ctx.plan, "source", "online"))
+        support_mode = (
+            RuntimeMode.FROZEN if plan_source == "frozen" else RuntimeMode.ONLINE
+        )
+        support_atomic_pool = (
+            atomics_method(mode=support_mode)
+            if callable(atomics_method)
+            else []
+        )
+        support_candidates = self.support_retriever.retrieve(
+            blocked_atomic=atomic,
+            missing_roles=missing,
+            atomics=support_atomic_pool,
+        )
+        if support_candidates:
+            metrics = ctx.trace_builder.trace.metadata.setdefault("v32_metrics", {})
+            metrics["runtime_support_retrieval_count"] = int(metrics.get("runtime_support_retrieval_count", 0)) + 1
+            metrics["runtime_support_candidate_count"] = int(metrics.get("runtime_support_candidate_count", 0)) + len(support_candidates)
         prompt = self.context_builder.runtime_node(
             task_goal=ctx.task_goal, atomic_contract=atomic,
             task_semantic_context=prompt_bindings["task_semantic_context"],
@@ -1034,6 +1072,10 @@ class NodeExecutor:
             downstream_plan_context=current_state["downstream_obligations"],
             current_state_snapshot=current_state,
             exploration_memory=ctx.exploration_memory.policy_view(),
+            support_atomic_candidates=support_candidates,
+            runtime_automation_drafts=list(
+                ctx.runtime_automation_drafts.values()
+            ),
             recent_failed_learned_invocation=(
                 ctx.last_failed_invocation
                 if ctx.last_failed_invocation
@@ -1066,6 +1108,88 @@ class NodeExecutor:
                         conflict.failure_layer = "composite"
                         return conflict
                     return self.not_started(occurrence, failure_code="runtime_binding_unresolved")
+                if call.name == "propose_runtime_automation_atomic":
+                    try:
+                        validate_schema_instance(
+                            call.arguments, RUNTIME_AUTOMATION_ATOMIC_SCHEMA,
+                        )
+                        draft = runtime_automation_draft_from_dict(
+                            call.arguments
+                        )
+                    except (SchemaValidationError, KeyError, TypeError) as exc:
+                        payload = {
+                            "accepted": False,
+                            "error": "runtime_automation_r0_rejected",
+                            "message": str(exc),
+                        }
+                    else:
+                        ctx.runtime_automation_drafts[draft.draft_id] = {
+                            "draft": to_primitive(draft),
+                            "stage": "r0",
+                        }
+                        v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
+                            "v32_metrics", {}
+                        )
+                        v32_metrics["runtime_automation_atomic_proposal_count"] = int(
+                            v32_metrics.get("runtime_automation_atomic_proposal_count", 0)
+                        ) + 1
+                        v32_metrics["runtime_automation_r0_pass_count"] = int(
+                            v32_metrics.get("runtime_automation_r0_pass_count", 0)
+                        ) + 1
+                        ctx.record_r3_event(
+                            "runtime_automation_proposed",
+                            occurrence_id=occurrence.occurrence_id,
+                            details={"draft_id": draft.draft_id},
+                        )
+                        if self.automation_coordinator is None:
+                            payload = {
+                                "accepted": True,
+                                "r0_passed": True,
+                                "stage": "r0_pass",
+                                "draft_id": draft.draft_id,
+                                "message": "automation draft accepted; tooling not attached",
+                            }
+                        else:
+                            outcome = self.automation_coordinator.process_draft(
+                                draft=draft,
+                                ctx=ctx,
+                                occurrence=occurrence,
+                            )
+                            ctx.runtime_automation_drafts[draft.draft_id].update(
+                                to_primitive(outcome)
+                            )
+                            if outcome.trial is not None:
+                                v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
+                                    "v32_metrics", {}
+                                )
+                                v32_metrics["runtime_tool_trial_count"] = int(
+                                    v32_metrics.get("runtime_tool_trial_count", 0)
+                                ) + 1
+                                if outcome.r1_passed:
+                                    v32_metrics["runtime_tool_trial_r1_pass_count"] = int(
+                                        v32_metrics.get("runtime_tool_trial_r1_pass_count", 0)
+                                    ) + 1
+                                else:
+                                    v32_metrics["runtime_tool_trial_r1_reject_count"] = int(
+                                        v32_metrics.get("runtime_tool_trial_r1_reject_count", 0)
+                                    ) + 1
+                            payload = {
+                                "accepted": True,
+                                "draft_id": draft.draft_id,
+                                **to_primitive(outcome),
+                            }
+                    self._augment_runtime_payload(
+                        payload, ctx, occurrence=occurrence, atomic=atomic,
+                        plan_context_plan=plan_context_plan,
+                    )
+                    tools = self._node_tools(
+                        ctx, atomic, invocations=invocations,
+                        allow_plan_conflict=True,
+                    )
+                    turn = session.submit_tool_result(
+                        call.call_id, payload, tools=tools,
+                    )
+                    continue
                 if call.name == "environment_action":
                     payload, action_spec = self._execute_environment_call(
                         call, session, occurrence, ctx,
@@ -1351,6 +1475,53 @@ class NodeExecutor:
                         session, call.call_id, payload, tools,
                     )
                     break
+                if call.name == "propose_runtime_automation_atomic":
+                    try:
+                        validate_schema_instance(
+                            call.arguments, RUNTIME_AUTOMATION_ATOMIC_SCHEMA,
+                        )
+                        draft = runtime_automation_draft_from_dict(
+                            call.arguments
+                        )
+                        ctx.runtime_automation_drafts[draft.draft_id] = {
+                            "draft": to_primitive(draft),
+                            "stage": "r0",
+                        }
+                        payload = {"accepted": True, "draft_id": draft.draft_id}
+                        if self.automation_coordinator is not None:
+                            outcome = self.automation_coordinator.process_draft(
+                                draft=draft, ctx=ctx, occurrence=occurrence,
+                            )
+                            ctx.runtime_automation_drafts[draft.draft_id].update(
+                                to_primitive(outcome)
+                            )
+                            payload.update(to_primitive(outcome))
+                        else:
+                            payload.update({"r0_passed": True, "stage": "r0_pass"})
+                    except (SchemaValidationError, KeyError, TypeError) as exc:
+                        v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
+                            "v32_metrics", {}
+                        )
+                        v32_metrics["runtime_automation_atomic_proposal_count"] = int(
+                            v32_metrics.get("runtime_automation_atomic_proposal_count", 0)
+                        ) + 1
+                        v32_metrics["runtime_automation_r0_reject_count"] = int(
+                            v32_metrics.get("runtime_automation_r0_reject_count", 0)
+                        ) + 1
+                        payload = {
+                            "accepted": False,
+                            "error": "runtime_automation_r0_rejected",
+                            "message": str(exc),
+                        }
+                    self._augment_runtime_payload(
+                        payload, ctx, occurrence=occurrence, atomic=atomic,
+                        plan_context_plan=plan_context_plan,
+                    )
+                    tools = self._node_tools(ctx, atomic)
+                    turn = session.submit_tool_result(
+                        call.call_id, payload, tools=tools,
+                    )
+                    continue
                 if call.name == "validate_current_atomic":
                     effect, payload = self._validate_current_atomic_call(
                         call,

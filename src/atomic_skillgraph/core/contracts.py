@@ -12,12 +12,21 @@ from .refs import SkillRef, ToolRef
 from .status import SkillStatus, ToolStatus
 
 
+class EffectDomain(str, Enum):
+    WORLD = "world"
+    EVIDENCE = "evidence"
+
+
 @dataclass(frozen=True)
 class SemanticPredicate:
     predicate: str
     args: dict[str, BindingExpression | Any]
     cardinality: int = 1
     distinct_by: str = ""
+    effect_domain: EffectDomain = EffectDomain.WORLD
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "effect_domain", EffectDomain(self.effect_domain))
 
 
 @dataclass
@@ -336,6 +345,7 @@ class PlannerAudit:
     requirements_p1: dict[str, Any] = field(default_factory=dict)
     atomic_search_p1: dict[str, Any] = field(default_factory=dict)
     related_composite_hints: list[dict[str, Any]] = field(default_factory=list)
+    repairability: dict[str, Any] = field(default_factory=dict)
     requirements_p1r: dict[str, Any] = field(default_factory=dict)
     atomic_search_p1r: dict[str, Any] = field(default_factory=dict)
     workflow_p2: dict[str, Any] = field(default_factory=dict)

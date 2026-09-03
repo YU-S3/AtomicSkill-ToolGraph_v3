@@ -31,6 +31,15 @@ class HarnessActionSpec:
     metadata: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class PredicateSpec:
+    predicate: str
+    effect_domain: str
+    argument_roles: tuple[str, ...]
+    argument_semantic_types: dict[str, str]
+    validation_source: str
+
+
 @dataclass
 class HarnessActionResult:
     accepted: bool
@@ -96,4 +105,6 @@ class HarnessAdapter(Protocol):
     def validator_channel(self) -> ValidatorChannel: ...
     def compile_primitive(self, primitive: PrimitiveToolStep, bindings: dict[str, Any]) -> Any: ...
     def execute_primitive(self, primitive: PrimitiveToolStep, bindings: dict[str, Any]) -> HarnessActionResult: ...
+    def semantic_predicate_schema(self) -> list[PredicateSpec]: ...
+    def primitive_action_schema(self) -> list[dict[str, Any]]: ...
     def supports_constraint(self, kind: str, verifier_id: str = "") -> bool: ...
