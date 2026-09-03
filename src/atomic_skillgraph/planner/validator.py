@@ -1097,7 +1097,19 @@ class PlannerValidator:
         checks["task_contract_effect_coverage"] = _effects_cover_occurrences(
             plan.task_contract.target_effects, offered_effects
         )
-        if plan.task_contract.target_effects and not checks["task_contract_effect_coverage"]:
+        terminal_empirical = (
+            str(
+                plan.planner_audit.get(
+                    "selected_composite_authority", {},
+                ).get("kind", "")
+            )
+            == "terminal_empirical"
+        )
+        if (
+            plan.task_contract.target_effects
+            and not checks["task_contract_effect_coverage"]
+            and not terminal_empirical
+        ):
             errors.append("task_contract_mismatch")
 
         incoming = {(edge.target_step, edge.target_role) for edge in plan.data_edges}

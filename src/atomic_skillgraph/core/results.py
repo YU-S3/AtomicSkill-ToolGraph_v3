@@ -186,6 +186,13 @@ class ToolExecutionResult:
     unvalidated_paths: list[str] = field(default_factory=list)
     stop_condition_witnesses: list[str] = field(default_factory=list)
     atomic_effect_passed: bool = False
+    tool_path_evidence: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def executed_action_count(self) -> int:
+        """Compatibility alias for the Tool IR action-budget authority."""
+
+        return int(self.executed_step_count)
 
 
 @dataclass

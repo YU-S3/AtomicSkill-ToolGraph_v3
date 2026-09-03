@@ -288,6 +288,54 @@ class TaskRuntimeContext:
                 origin=str(record.get("origin") or "environment_action"),
             )
 
+    def tool_evidence_snapshot(self) -> dict[str, Any]:
+        """Unified code-authoritative projection for ToolRunner after actions.
+
+        ToolRunner never reads Harness private state or Agent prose; it reads
+        this revision-aware projection and the public action catalog.
+        """
+
+        channel_snapshot = self.harness.validator_channel().snapshot()
+        if isinstance(channel_snapshot, dict):
+            raw_facts = channel_snapshot.get("facts", [])
+        elif isinstance(channel_snapshot, list):
+            raw_facts = channel_snapshot
+        else:
+            raw_facts = []
+        semantic_facts = list(
+            normalized_facts({"facts": raw_facts}).values()
+        )
+        binding_evidence: list[dict[str, Any]] = []
+        for evidence in self.evidence_store.active():
+            payload = dict(getattr(evidence, "payload", {}) or {})
+            if evidence.evidence_type not in {
+                "entity_concrete", "validated_tool_output", "harness_affordance",
+            }:
+                continue
+            binding_evidence.append({
+                "evidence_id": evidence.evidence_id,
+                "evidence_type": evidence.evidence_type,
+                "role": str(payload.get("role", "")),
+                "value": payload.get("value"),
+                "action_type": str(payload.get("action_type", "")),
+                "revision": int(evidence.observed_at_revision),
+                "valid_from_revision": int(evidence.valid_from_revision),
+            })
+        return {
+            "semantic_facts": semantic_facts,
+            "binding_evidence": binding_evidence,
+            "action_catalog": [
+                {
+                    "action_id": str(item.action_id),
+                    "revision": int(item.revision),
+                    "action_type": str(item.action_type),
+                    "arguments": dict(item.arguments),
+                }
+                for item in self.action_catalog
+            ],
+            "revision": int(self.world_revision),
+        }
+
     def relevant_history(
         self,
         occurrence_id: str,

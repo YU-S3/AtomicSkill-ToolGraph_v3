@@ -651,7 +651,7 @@ def test_report_rows_summary_and_all_three_output_formats(tmp_path: Path) -> Non
     assert json.loads(csv_rows[0]["usage_by_bucket"])["planner_p1"]["total_tokens"] == 10
     markdown = paths.markdown.read_text(encoding="utf-8")
     assert "Official ALFWorld won" in markdown
-    assert "Strict TaskContract success" in markdown
+    assert "Benchmark success (deprecated alias: strict_task_success)" in markdown
     assert "Learning-eligible success" in markdown
     assert "Per-agent usage buckets" in markdown
     assert "Artifact growth and lifecycle" in markdown

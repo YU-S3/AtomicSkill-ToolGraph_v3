@@ -74,7 +74,7 @@ def test_v31_configs_freeze_only_the_documented_patch_fields() -> None:
     }
     for config in (default, online, frozen):
         assert config["schema_version"] == 3
-        assert config["method_patch"] == "3.1"
+        assert config["method_patch"] == "3.2"
         assert config["planner"]["max_repeat_count"] == 4
         assert config["planner"]["max_runtime_occurrences"] == 16
         assert config["planner"]["cold_start_c1_repair_limit"] == 1

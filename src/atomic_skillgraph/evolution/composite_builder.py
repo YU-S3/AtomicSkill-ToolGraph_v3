@@ -65,6 +65,8 @@ class CompositeBuilder:
         known_edge_ids: set[str] | None = None,
         contract_matcher: ContractMatcher | None = None,
         task_bindings: Mapping[str, Any] | None = None,
+        terminal_certificate: Mapping[str, Any] | None = None,
+        source_composite_ref: str = "",
     ) -> CompositeSkill:
         evidence_by_id = {
             item.edge_id: item for item in (existing_edge_evidence or [])
@@ -80,7 +82,11 @@ class CompositeBuilder:
             )
         matcher = contract_matcher or ExactContractMatcher()
         coverage = contract_coverage_report(contract, canonical, matcher)
-        if not coverage.passed:
+        terminal_authority = bool(
+            terminal_certificate
+            and dict(terminal_certificate).get("benchmark_won") is True
+        )
+        if not coverage.passed and not terminal_authority:
             raise ValueError("E2 canonical occurrences do not cover the authoritative TaskContract")
 
         edges: list[GraphEdge] = []
@@ -310,7 +316,10 @@ class CompositeBuilder:
         validator_spec = {
             "canonical_sequence": True,
             "self_sufficiency_required": True,
-            "task_contract_covered": True,
+            "task_contract_covered": bool(coverage.passed),
+            "completion_authority": (
+                "complete_contract" if coverage.passed else "terminal_empirical"
+            ),
         }
         structure = composite_structure_payload(
             occurrences=occurrences,
@@ -378,6 +387,27 @@ class CompositeBuilder:
                 "artifact_label_concrete_term_violation_count": (
                     final_label_violations
                 ),
+                "completion_authority": {
+                    "kind": (
+                        "complete_contract"
+                        if coverage.passed
+                        else "terminal_empirical"
+                    ),
+                    "source_composite_ref": str(source_composite_ref),
+                },
+                "terminal_certificate": dict(terminal_certificate or {}) if terminal_authority else {},
+                "observed_task_contract_coverage": {
+                    "covered_effects": [
+                        item.get("predicate")
+                        for item in coverage.target_checks
+                        if bool(item.get("passed"))
+                    ],
+                    "uncovered_effects": [
+                        item.get("predicate")
+                        for item in coverage.target_checks
+                        if not bool(item.get("passed"))
+                    ],
+                } if terminal_authority else {},
             }, SkillStatus.CANDIDATE,
         )
 

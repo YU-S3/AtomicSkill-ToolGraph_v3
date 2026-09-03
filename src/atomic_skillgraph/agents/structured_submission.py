@@ -436,6 +436,10 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
         },
         "rationale": NONEMPTY_STRING_SCHEMA,
         "source_occurrence_id": NONEMPTY_STRING_SCHEMA,
+        "input_binding_specs": {
+            "type": "object",
+            "additionalProperties": {"type": "object"},
+        },
     },
 }
 

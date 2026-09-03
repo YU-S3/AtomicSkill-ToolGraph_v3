@@ -42,6 +42,15 @@ def refresh_learning_eligibility(trace: TraceRecord) -> None:
     )
 
 
+def _task_terminal(ctx: Any) -> bool:
+    """Control-flow terminal authority; simple namespaces stay compatible."""
+
+    benchmark_terminal = getattr(ctx, "benchmark_terminal", None)
+    return bool(getattr(ctx, "terminal_latched", False)) or bool(
+        benchmark_terminal() if callable(benchmark_terminal) else False
+    )
+
+
 def apply_terminal_outcome(
     trace: TraceRecord,
     terminal_result: Any,
@@ -238,7 +247,7 @@ class RuntimeOrchestrator:
         if plan.source == "cold_start":
             return self._run_cold_start(ctx, mode=mode)
 
-        if initial_terminal.passed:
+        if _task_terminal(ctx):
             self._mark_remaining_terminal(ctx, 0)
         else:
             for index, step_id in enumerate(plan.control_sequence):
@@ -281,7 +290,7 @@ class RuntimeOrchestrator:
                     terminal = self.validation.task.terminal(
                         ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
                     )
-                    if terminal.passed:
+                    if _task_terminal(ctx):
                         self._mark_remaining_terminal(ctx, index + 1)
                         break
                     continue
@@ -302,7 +311,7 @@ class RuntimeOrchestrator:
                         )
                 node.direct_result = to_primitive(direct)
                 final = direct
-                if ctx.terminal_latched and not direct.atomic_effect_passed:
+                if _task_terminal(ctx) and not direct.atomic_effect_passed:
                     node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
                     trace = ctx.trace_builder.trace
                     trace.metadata.setdefault("task_terminal", {})
@@ -339,7 +348,7 @@ class RuntimeOrchestrator:
                     seeded = self.node_executor.run_seeded_fresh(occurrence, ctx)
                     node.seeded_result = to_primitive(seeded)
                     final = seeded
-                    if ctx.terminal_latched and not seeded.atomic_effect_passed:
+                    if _task_terminal(ctx) and not seeded.atomic_effect_passed:
                         node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
                         self._mark_remaining_terminal(ctx, index + 1)
                         break
@@ -368,7 +377,7 @@ class RuntimeOrchestrator:
                 ctx.trace_builder.trace.validations.append(ValidationRecord(
                     occurrence.occurrence_id, "task_terminal", to_primitive(terminal), ctx.world_revision,
                 ))
-                if terminal.passed:
+                if _task_terminal(ctx):
                     self._mark_remaining_terminal(ctx, index + 1)
                     break
             else:
@@ -377,7 +386,7 @@ class RuntimeOrchestrator:
         terminal = self.validation.task.terminal(
             ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
         )
-        if ctx.rescue_allowed() and not terminal.passed:
+        if ctx.rescue_allowed() and not ctx.benchmark_terminal():
             ctx.task_rescue_used = True
             # Task rescue is task-level Dynamic execution.  It keeps every
             # action already charged to the global episode budget, but it must
@@ -426,6 +435,30 @@ class RuntimeOrchestrator:
         )
         trace.validations.append(ValidationRecord("", "composite", to_primitive(composite), ctx.world_revision))
         trace.graph_self_sufficient_success = composite.passed
+        planner_audit = dict(trace.runtime_plan.get("planner_audit") or {})
+        selected_authority = dict(
+            planner_audit.get("selected_composite_authority") or {}
+        )
+        benchmark_won = bool(
+            getattr(ctx.harness.validator_channel(), "won", False)
+        )
+        if (
+            selected_authority.get("kind") == "terminal_empirical"
+            and benchmark_won
+            and not ctx.task_rescue_used
+        ):
+            # A real benchmark-won prefix without rescue is terminal-empirical
+            # self-sufficient evidence; it is never full graph completion.
+            trace.graph_self_sufficient_success = True
+            trace.metadata["terminal_empirical_execution"] = {
+                "composite_ref": str(
+                    trace.runtime_plan.get("source_composite_ref") or ""
+                ),
+                "completion_authority": "terminal_empirical",
+                "benchmark_won": True,
+                "task_rescue_required": False,
+                "graph_full_completion": bool(trace.graph_full_completion),
+            }
         apply_terminal_outcome(
             trace, terminal, ctx.harness.validator_channel(),
         )
@@ -711,6 +744,9 @@ class RuntimeOrchestrator:
                 )
         node.direct_result = to_primitive(direct)
         final = direct
+        if _task_terminal(ctx) and not direct.atomic_effect_passed:
+            node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+            return False, "benchmark_terminal", "goal_terminal"
         if not direct.atomic_effect_passed:
             if direct.failure_code == "runtime_plan_conflict":
                 node.status = direct.node_status
@@ -887,7 +923,7 @@ class RuntimeOrchestrator:
             ctx.harness.validator_channel(),
             bool(getattr(ctx.harness.validator_channel(), "won", False)),
         )
-        if terminal.passed:
+        if _task_terminal(ctx):
             return self._finish_cold_start(
                 ctx,
                 terminal,
@@ -960,6 +996,15 @@ class RuntimeOrchestrator:
             )
             if not local_effect_passed:
                 break
+            if _task_terminal(ctx):
+                terminal = self.validation.task.terminal(
+                    ctx.task_contract,
+                    ctx.harness.validator_channel(),
+                    bool(getattr(ctx.harness.validator_channel(), "won", False)),
+                )
+                return self._finish_cold_start(
+                    ctx, terminal, dynamic_result=None,
+                )
             completed_local_effects.append({
                 "step_id": step.step_id,
                 "candidate_source": step.candidate_source.value,
@@ -977,7 +1022,7 @@ class RuntimeOrchestrator:
                 ctx.harness.validator_channel(),
                 bool(getattr(ctx.harness.validator_channel(), "won", False)),
             )
-            if terminal.passed:
+            if _task_terminal(ctx):
                 return self._finish_cold_start(
                     ctx,
                     terminal,

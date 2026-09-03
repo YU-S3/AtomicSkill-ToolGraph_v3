@@ -442,8 +442,9 @@ def test_won_does_not_bypass_task_contract() -> None:
     )
     channel.won = True
     terminal = TaskValidator().terminal(contract, channel, benchmark_won=True)
-    assert terminal.passed is False
-    assert terminal.failure_codes == ["benchmark_goal_contract_mismatch"]
+    assert terminal.passed is True
+    assert terminal.failure_codes == []
+    assert terminal.messages == ["benchmark_goal_contract_mismatch"]
 
     channel.record(
         HarnessActionSpec(

@@ -102,6 +102,7 @@ from .evolution.typed_repairs import TypedRepairEngine
 from .governance import (
     CandidateUsePolicy,
     CreditAssigner,
+    CreditOutcome,
     CreditAttempt,
     CreditTrace,
     EvidenceLedger,
@@ -214,8 +215,8 @@ def load_config(source: str | Path | Mapping[str, Any]) -> dict[str, Any]:
     if int(config.get("schema_version", 0)) != 3:
         raise ValueError("AtomicSkillGraph v3 requires schema_version: 3")
     method_patch = str(config.get("method_patch", "3.1"))
-    if method_patch != "3.1":
-        raise ValueError("AtomicSkillGraph v3 requires method_patch: \"3.1\"")
+    if method_patch not in {"3.1", "3.2"}:
+        raise ValueError("AtomicSkillGraph v3 requires method_patch: \"3.1\" or \"3.2\"")
     config["method_patch"] = method_patch
     llm = dict(config.get("llm") or {})
     if str(llm.get("provider", "openai_compatible")) != "openai_compatible":
@@ -666,8 +667,42 @@ class AtomicSkillGraphSystem:
         self._observed_sessions.append(observed)
         return _SessionProxy(observed)
 
+    def _shared_tool_builder_tokens(self, session_kind: str) -> int:
+        """ToolBuilder never creates a new implicit learning budget pool."""
+
+        if session_kind == "tool_builder_runtime" or session_kind.startswith("runtime"):
+            shared_buckets = (
+                UsageBucket.RUNTIME_PREPARATION,
+                UsageBucket.RUNTIME_SEEDED,
+                UsageBucket.RUNTIME_DYNAMIC,
+                UsageBucket.RUNTIME_PROVISIONAL_SEEDED,
+                UsageBucket.RUNTIME_DYNAMIC_COLD_START_CONTINUATION,
+                UsageBucket.TOOL_BUILDER_RUNTIME,
+            )
+            cap = int(
+                self._stage_config("runtime").get(
+                    "max_total_tokens_per_task", 300000,
+                )
+            )
+        else:
+            shared_buckets = (
+                UsageBucket.EXTRACTOR_E1,
+                UsageBucket.EXTRACTOR_E2,
+                UsageBucket.TOOL_BUILDER_EVOLUTION,
+            )
+            cap = int(
+                self._stage_config("extractor").get(
+                    "max_total_tokens_per_task", 262144,
+                )
+            )
+        used = sum(
+            self.usage.total(bucket).total_tokens
+            for bucket in shared_buckets
+        )
+        return max(0, cap - int(used))
+
     def _tool_builder_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:
-        cfg = self._stage_config("runtime")
+        cfg = self._stage_config("tool_builder")
         bucket = (
             UsageBucket.TOOL_BUILDER_RUNTIME
             if session_kind.startswith("runtime")
@@ -678,7 +713,7 @@ class AtomicSkillGraphSystem:
             session_type="ToolBuilderSession", occurrence_id=occurrence_id,
             task_id=str(getattr(self, "_current_task_id", "")),
             max_turns=structured_provider_turn_cap(1),
-            max_tokens=int(cfg.get("max_total_tokens_per_task", 300000)),
+            max_tokens=int(self._shared_tool_builder_tokens(session_kind)),
             exhaustion_code="tool_builder_token_budget_exhausted",
         )
 
@@ -1122,6 +1157,9 @@ class AtomicSkillGraphSystem:
         )
         trace_builder = self.orchestrator.create_trace_builder(
             task, attempt_id=attempt_id,
+        )
+        trace_builder.trace.metadata["method_patch"] = str(
+            self.config.get("method_patch", "3.1")
         )
         provider_offsets = self._provider_request_offsets()
         try:
@@ -1915,6 +1953,96 @@ class AtomicSkillGraphSystem:
             SkillStatus.DRAFT,
         )
 
+    def _replay_tool_candidate(
+        self,
+        task: HarnessTask,
+        tool: Any,
+        case: dict[str, Any],
+    ) -> bool:
+        """Run one admission replay through the same ToolRunner authority.
+
+        The Harness only resets, replays validated prefix actions, and exposes
+        catalog/evidence; it never interprets ``tool_ir_v1``.
+        """
+
+        if str(getattr(tool, "artifact_kind", "")) != "tool_ir_v1":
+            return bool(self.harness.replay_tool(task, tool, case))
+        expected_task = str((case.get("source_task") or {}).get("task_id", ""))
+        if expected_task and expected_task != task.task_id:
+            return False
+        from ..core.bindings import BindingExprKind, BindingExpression
+        from ..core.results import PrimitiveToolStep, RuntimeLinearPlan
+        from .runtime.budget import RuntimeBudget
+        from .runtime.task_context import TaskRuntimeContext
+        from .runtime.tool_runner import ToolRunner
+
+        contract = self.harness.task_contract(task)
+        plan = RuntimeLinearPlan.full_dynamic(
+            task.task_id, contract, reason="tool_ir_replay",
+        )
+        trace_record = TraceRecord.create(
+            TaskRecord(
+                task.task_id, task.benchmark, task.goal, task.task_type,
+                str(task.metadata.get("task_signature") or task.task_id),
+                dict(task.metadata),
+            ),
+            to_primitive(contract),
+            {},
+            {"source": "full_dynamic", "failure_stage": "tool_ir_replay"},
+        )
+        trace_record.metadata["method_patch"] = str(
+            self.config.get("method_patch", "3.1")
+        )
+        ctx = TaskRuntimeContext.create(
+            task, plan, self.harness, TraceBuilder(trace_record),
+            RuntimeBudget(global_action_budget=100, node_action_budget=35),
+        )
+        try:
+            for event in list(case.get("prefix") or []):
+                action_type = str(event.get("action_type", ""))
+                arguments = dict(event.get("arguments") or {})
+                primitive = PrimitiveToolStep(
+                    action_type,
+                    {
+                        role: BindingExpression(
+                            BindingExprKind.CONSTANT, constant=value,
+                        )
+                        for role, value in arguments.items()
+                    },
+                )
+                result = self.harness.execute_primitive(primitive, {})
+                if not result.accepted or (result.done and not result.won):
+                    return False
+                ctx.update_after_action(
+                    result,
+                    {
+                        "action_type": action_type,
+                        "arguments": arguments,
+                        "accepted": result.accepted,
+                        "done": result.done,
+                        "won": result.won,
+                        "new_revision": result.new_revision,
+                        "observation": result.observation,
+                        "occurrence_id": "tool_ir_replay_prefix",
+                        "origin": "tool_ir_replay",
+                    },
+                )
+            bindings = dict(case.get("bindings") or {})
+            result = ToolRunner(self.validation.tool).run(
+                tool, bindings, ctx, occurrence_id="tool_ir_replay",
+            )
+            if result.executed_action_count <= 0:
+                return False
+            if not result.atomic_effect_passed:
+                return False
+            if result.failure_code and not result.terminal_interrupted:
+                return False
+            return True
+        except AtomicSkillGraphError:
+            raise
+        except (KeyError, TypeError, ValueError, RuntimeError):
+            return False
+
     def _existing_executable_reuse(
         self, occurrence: Any, atomic_view: AbstractAtomicSkill,
     ) -> CompiledKnowledge | None:
@@ -1992,11 +2120,12 @@ class AtomicSkillGraphSystem:
                 evidence_support[-1].get("after_revision", -1)
             ) if evidence_support else False:
                 after_facts.append(item)
-        action_types = sorted({
-            str(item.get("action_type", ""))
-            for item in evidence_support
-            if item.get("action_type")
-        })
+        action_schema = getattr(self.harness, "primitive_action_schema", None)
+        primitive_actions = (
+            [dict(item) for item in action_schema()]
+            if callable(action_schema)
+            else []
+        )
         session = self._tool_builder_session(
             "tool_builder_evolution", occurrence.occurrence_id,
         )
@@ -2014,7 +2143,7 @@ class AtomicSkillGraphSystem:
                 "predicate_vocabulary": to_primitive(
                     self.harness.semantic_predicate_schema()
                 ),
-                "primitive_action_types": action_types,
+                "primitive_actions": primitive_actions,
             },
             bucket="tool_builder_evolution",
         )
@@ -2036,6 +2165,47 @@ class AtomicSkillGraphSystem:
             occurrence, atomic_view, proposal, provenance,
         )
         return item, metrics
+
+    @staticmethod
+    def _terminal_empirical_certificate(
+        trace: TraceRecord,
+        coverage: Any,
+    ) -> dict[str, Any]:
+        if not bool(getattr(trace, "benchmark_success", False)):
+            return {}
+        executed: list[str] = []
+        skipped: list[str] = []
+        for node in getattr(trace, "node_records", ()) or ():
+            occurrence_id = str(getattr(node, "occurrence_id", ""))
+            status = str(getattr(node, "status", ""))
+            if status == "skipped_goal_terminal":
+                skipped.append(occurrence_id)
+            elif occurrence_id:
+                executed.append(occurrence_id)
+        terminal_revision = max(
+            (int(item.new_revision) for item in getattr(trace, "environment_actions", ())),
+            default=0,
+        )
+        return {
+            "benchmark": getattr(getattr(trace, "task", None), "benchmark", "alfworld"),
+            "source_trace_id": str(trace.trace_id),
+            "terminal_revision": int(terminal_revision),
+            "executed_occurrence_ids": list(dict.fromkeys(executed)),
+            "skipped_planned_occurrence_ids": list(dict.fromkeys(skipped)),
+            "benchmark_won": True,
+            "observed_task_contract_coverage": {
+                "covered_effects": [
+                    item.get("predicate")
+                    for item in getattr(coverage, "target_checks", ())
+                    if bool(item.get("passed"))
+                ],
+                "uncovered_effects": [
+                    item.get("predicate")
+                    for item in getattr(coverage, "target_checks", ())
+                    if not bool(item.get("passed"))
+                ],
+            },
+        }
 
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
         normalized = self.normalizer.build(trace)
@@ -2376,10 +2546,94 @@ class AtomicSkillGraphSystem:
                     "TaskContract: " + ", ".join(coverage.failure_codes)
                 ),
             }
-            trace.metadata["extraction"] = {
-                **dict(trace.metadata.get("extraction") or {}),
-                "e2_attempted": False,
-            }
+            terminal_certificate = self._terminal_empirical_certificate(
+                trace, coverage,
+            )
+            if (
+                bool(getattr(trace, "benchmark_success", False))
+                and staged_occurrences
+                and terminal_certificate
+            ):
+                try:
+                    existing = self.graph.existing_edges(
+                        [str(item.proposed_ref) for item in staged_occurrences],
+                        mode=RuntimeMode.ONLINE,
+                    )
+                    trace.metadata["extraction"] = {
+                        **dict(trace.metadata.get("extraction") or {}),
+                        "attempted": True,
+                        "stage": "e2_terminal_empirical",
+                        "prepared": False,
+                        "e2_attempted": True,
+                        "completion_authority": "terminal_empirical",
+                    }
+                    quality["extractor_e2_attempted"] = True
+                    composite_proposal = extractor.propose_composite(
+                        staged_occurrences,
+                        existing,
+                        contract_matcher=matcher,
+                    )
+                    quality.update({
+                        "extractor_e2_selected_existing_edge_count": len(
+                            composite_proposal.existing_edges
+                        ),
+                        "extractor_e2_selected_new_edge_count": len(
+                            composite_proposal.new_edges
+                        ),
+                    })
+                    composite = self.composite_builder.validate_and_build(
+                        composite_proposal,
+                        staged_occurrences,
+                        contract,
+                        existing_edge_evidence=existing,
+                        contract_matcher=matcher,
+                        task_bindings=dict(
+                            task.context.get("semantic_bindings") or {}
+                        ),
+                        terminal_certificate=terminal_certificate,
+                        source_composite_ref=str(
+                            trace.runtime_plan.get("source_composite_ref") or ""
+                        ),
+                    )
+                    trace.metadata["extraction"] = {
+                        **dict(trace.metadata.get("extraction") or {}),
+                        "terminal_empirical_candidate_ref": str(composite.ref),
+                        "terminal_certificate": terminal_certificate,
+                    }
+                except (AgentProtocolError, ValueError, BudgetExhausted) as exc:
+                    if (
+                        isinstance(exc, BudgetExhausted)
+                        and exc.code != "extractor_token_budget_exhausted"
+                    ):
+                        raise
+                    composite_rejection = {
+                        "stage": "e2_terminal_empirical",
+                        "error_type": type(exc).__name__,
+                        "error_code": str(
+                            getattr(exc, "error_code", "")
+                            or getattr(exc, "code", "")
+                            or "extractor_e2_terminal_empirical_failed"
+                        ),
+                        "error": self._sanitize_failure_message(exc),
+                    }
+                else:
+                    composite_rejection = None
+            if composite_rejection is not None:
+                composite_rejection = composite_rejection or {
+                    "stage": "e1",
+                    "error_type": "ExtractionContentError",
+                    "error_code": (
+                        "extractor_e1_task_contract_coverage_incomplete"
+                    ),
+                    "error": (
+                        "validated E1 occurrences do not cover the authoritative "
+                        "TaskContract: " + ", ".join(coverage.failure_codes)
+                    ),
+                }
+                trace.metadata["extraction"] = {
+                    **dict(trace.metadata.get("extraction") or {}),
+                    "e2_attempted": False,
+                }
 
         if composite_rejection:
             trace.metadata["extraction"] = {
@@ -2390,6 +2644,20 @@ class AtomicSkillGraphSystem:
         for item in compiled:
             terms = occurrence_terms(item.occurrence)
             extra = source_forbidden_terms(item.occurrence)
+            values = [
+                (item.occurrence.intent, True),
+                (item.atomic.summary, False),
+                (item.atomic.guideline, False),
+            ]
+            if item.tool is not None:
+                values.append((item.tool.summary, False))
+            if item.implementation is not None:
+                values.append((
+                    item.implementation.metadata.get(
+                        "semantic_description", "",
+                    ),
+                    False,
+                ))
             label_violations += sum(
                 not validate_portability(
                     value,
@@ -2397,18 +2665,7 @@ class AtomicSkillGraphSystem:
                     additional_forbidden_terms=extra,
                     require_intent=require_intent,
                 ).passed
-                for value, require_intent in (
-                    (item.occurrence.intent, True),
-                    (item.atomic.summary, False),
-                    (item.atomic.guideline, False),
-                    (item.tool.summary, False),
-                    (
-                        item.implementation.metadata.get(
-                            "semantic_description", "",
-                        ),
-                        False,
-                    ),
-                )
+                for value, require_intent in values
             )
         if composite is not None:
             label_violations += int(
@@ -2467,13 +2724,17 @@ class AtomicSkillGraphSystem:
                 continue
             admitted_tool = self.admission.admit_tool(
                 item.tool,
-                replay=lambda tool, case: bool(self.harness.replay_tool(task, tool, case)),
+                replay=lambda tool, case: self._replay_tool_candidate(
+                    task, tool, case,
+                ),
+                atomic=item.atomic,
+                harness=self.harness,
             )
             tool_alignment = self.aligner.align_tool_with_replays(
                 admitted_tool,
                 admission=self.admission,
-                replay=lambda tool, case: bool(
-                    self.harness.replay_tool(task, tool, case)
+                replay=lambda tool, case: self._replay_tool_candidate(
+                    task, tool, case,
                 ),
             )
             tool_ref = tool_alignment.ref
@@ -2694,6 +2955,29 @@ class AtomicSkillGraphSystem:
             )
             for index, state in enumerate(evidence.assets())
         )
+        if (
+            composite_ref is not None
+            and prepared.composite is not None
+            and dict(prepared.composite.metadata.get("completion_authority") or {}).get("kind")
+            == "terminal_empirical"
+            and bool(getattr(trace, "benchmark_success", False))
+            and not bool(getattr(trace, "task_rescue_required", False))
+        ):
+            attempts = attempts + (CreditAttempt(
+                artifact_ref=str(composite_ref),
+                artifact_kind="composite",
+                occurrence_id="graph",
+                attempt_id=f"composite:{composite_ref}:source_terminal_success",
+                sequence_no=len(attempts),
+                started=True,
+                outcome=CreditOutcome.SELF_SUFFICIENT_SUCCESS,
+                metadata={
+                    "completion_authority": "terminal_empirical",
+                    "benchmark_won": True,
+                    "task_rescue_required": False,
+                    "source": "terminal_empirical_candidate_creation",
+                },
+            ),)
         events = self.credit.assign(CreditTrace(
             trace.task.task_id, trace.trace_id, attempts
         ))
@@ -3560,7 +3844,7 @@ class AtomicSkillGraphSystem:
             provider_adapter_interface = False
         checks: dict[str, Any] = {
             "schema_version": int(self.config.get("schema_version", 0)) == 3,
-            "method_patch": str(self.config.get("method_patch", "")) == "3.1",
+            "method_patch": str(self.config.get("method_patch", "")) in {"3.1", "3.2"},
             "state_patch_level": (
                 database_schema
                 and self.database.execute(

@@ -179,6 +179,7 @@ class AlfWorldValidatorChannel:
         self._light_locations: dict[str, str] = {}
         self._observed: set[str] = set()
         self._agent_location = ""
+        self._discovered: dict[tuple[str, str], tuple[str, str]] = {}
 
     def reset(self) -> None:
         self.revision = 0
@@ -195,6 +196,7 @@ class AlfWorldValidatorChannel:
         self._light_locations.clear()
         self._observed.clear()
         self._agent_location = ""
+        self._discovered.clear()
 
     def _rebuild_facts(self) -> None:
         facts: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
@@ -221,6 +223,8 @@ class AlfWorldValidatorChannel:
             add("light.off", light=light)
         for obj in self._observed:
             add("object.observed", object=obj)
+        for entity, location in self._discovered.values():
+            add("entity.discovered_at", entity=entity, location=location)
         # The look-at goal is a final-state conjunction, not an action-order
         # witness.  Derive it from current base state so TAKE -> USE and
         # USE -> TAKE have identical semantics, and so leaving, putting, or
@@ -238,8 +242,21 @@ class AlfWorldValidatorChannel:
                     )
         self._facts = facts
 
-    def record(self, spec: HarnessActionSpec, *, accepted: bool, revision: int, done: bool, won: bool) -> None:
+    def record(
+        self,
+        spec: HarnessActionSpec,
+        *,
+        accepted: bool,
+        revision: int,
+        done: bool,
+        won: bool,
+        observation: str = "",
+        metadata: dict[str, Any] | None = None,
+        catalog: list[HarnessActionSpec] | None = None,
+    ) -> None:
         self.revision, self.done, self.won = revision, done, won
+        if catalog is not None:
+            self.set_catalog(catalog)
         if not accepted:
             return
         args = spec.arguments
@@ -288,23 +305,37 @@ class AlfWorldValidatorChannel:
                 self._lights_on.discard(obj)
                 self._lights_off.add(obj)
         elif spec.action_type == "USE":
+            # USE is contextual in ALFWorld.  The official observation is the
+            # only authority for a light transition; when it is ambiguous we
+            # deliberately do not manufacture a deterministic light fact.
             if obj:
-                # ALFWorld exposes lamp interaction as ``use <lamp>``.  The
-                # generated look-at tasks start with the target lamp off, and
-                # an accepted USE toggles its state.  The observation is a
-                # contextual effect: the object is the concrete item already
-                # held, while the action argument identifies the lamp.
-                if obj in self._lights_on:
-                    self._lights_on.discard(obj)
-                    self._lights_off.add(obj)
-                else:
+                lowered = re.sub(r"\s+", " ", str(observation or "").casefold())
+                on_phrase = bool(re.search(r"\b(?:turn|turned|switch|switched)\s+on\b", lowered))
+                off_phrase = bool(re.search(r"\b(?:turn|turned|switch|switched)\s+off\b", lowered))
+                if on_phrase and not off_phrase:
                     self._lights_off.discard(obj)
                     self._lights_on.add(obj)
                     if self._agent_location:
                         self._light_locations[obj] = self._agent_location
+                elif off_phrase and not on_phrase:
+                    self._lights_on.discard(obj)
+                    self._lights_off.add(obj)
         elif spec.action_type == "EXAMINE":
             if obj:
                 self._observed.add(obj)
+        self._rebuild_facts()
+
+    def set_catalog(self, catalog: list[HarnessActionSpec]) -> None:
+        """Rebuild revision-aware structured evidence from the public catalog."""
+
+        self._discovered.clear()
+        for spec in catalog:
+            if spec.action_type != "TAKE":
+                continue
+            entity = str(spec.arguments.get("object", ""))
+            location = str(spec.arguments.get("source", ""))
+            if entity and location:
+                self._discovered[(entity, location)] = (entity, location)
         self._rebuild_facts()
 
     def snapshot(self) -> dict[str, Any]:
@@ -1119,6 +1150,7 @@ class AlfWorldAdapter:
         self._done = self._won = False
         self._validator.reset()
         catalog = self._replace_action_catalog(admissible, self._revision)
+        self._validator.set_catalog(catalog)
         return HarnessActionResult(True, observation, False, False, self._revision, catalog, {"reset": True})
 
     def action_catalog(self) -> list[HarnessActionSpec]:
@@ -1172,11 +1204,25 @@ class AlfWorldAdapter:
         old_revision = self._revision
         self._revision += 1
         catalog = self._replace_action_catalog(admissible, self._revision)
+        metadata = {
+            "score": float(scores[0]),
+            "previous_revision": old_revision,
+            "action_type": spec.action_type,
+        }
         self._observation, self._done, self._won = observation, done, won
-        self._validator.record(spec, accepted=accepted, revision=self._revision, done=done, won=won)
+        self._validator.record(
+            spec,
+            accepted=accepted,
+            revision=self._revision,
+            done=done,
+            won=won,
+            observation=observation,
+            metadata=metadata,
+            catalog=catalog,
+        )
         return HarnessActionResult(
             accepted, observation, done, won, self._revision, catalog,
-            {"score": float(scores[0]), "previous_revision": old_revision, "action_type": spec.action_type},
+            metadata,
         )
 
     def task_contract(self, task: HarnessTask) -> TaskContract:
@@ -1299,13 +1345,6 @@ class AlfWorldAdapter:
                 "alfworld_terminal_certificate",
             ),
             PredicateSpec(
-                "binding.discovered",
-                "evidence",
-                ("role", "value"),
-                {"role": "string", "value": "entity"},
-                "alfworld_action_catalog",
-            ),
-            PredicateSpec(
                 "entity.discovered_at",
                 "evidence",
                 ("entity", "location"),
@@ -1315,23 +1354,23 @@ class AlfWorldAdapter:
         ]
 
     def primitive_action_schema(self) -> list[dict[str, Any]]:
-        return [
-            {"action_type": "TAKE", "argument_roles": ["object"]},
-            {"action_type": "PUT", "argument_roles": ["object", "destination"]},
-            {"action_type": "MOVE", "argument_roles": ["object", "destination"]},
-            {"action_type": "GO_TO", "argument_roles": ["destination"]},
-            {"action_type": "OPEN", "argument_roles": ["object"]},
-            {"action_type": "CLOSE", "argument_roles": ["object"]},
-            {"action_type": "TOGGLE_ON", "argument_roles": ["light"]},
-            {"action_type": "TOGGLE_OFF", "argument_roles": ["light"]},
-            {"action_type": "EXAMINE", "argument_roles": ["object"]},
+        """Single parser-derived source of truth for Builder/Runtime/Static."""
+
+        schema: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for action_type, _pattern, roles in _ACTION_PATTERNS:
+            if action_type in seen:
+                continue
+            seen.add(action_type)
+            schema.append({
+                "action_type": action_type,
+                "argument_roles": list(roles),
+            })
+        schema.extend([
             {"action_type": "LOOK", "argument_roles": []},
             {"action_type": "INVENTORY", "argument_roles": []},
-            {"action_type": "HEAT", "argument_roles": ["object"]},
-            {"action_type": "COOL", "argument_roles": ["object"]},
-            {"action_type": "CLEAN", "argument_roles": ["object"]},
-            {"action_type": "SLICE", "argument_roles": ["object"]},
-        ]
+        ])
+        return schema
 
     def compile_primitive(self, primitive: PrimitiveToolStep, bindings: dict[str, Any]) -> HarnessActionSpec:
         expected: dict[str, Any] = {}
@@ -1354,7 +1393,10 @@ class AlfWorldAdapter:
         return self.execute_action(spec.action_id, spec.revision)
 
     def replay_tool(self, task: HarnessTask, tool: Any, case: dict[str, Any]) -> bool:
-        """Replay the recorded source prefix and a parameterized Tool in a fresh episode."""
+        """Replay primitive_ir only.  tool_ir_v1 is owned by ToolRunner."""
+
+        if getattr(tool, "artifact_kind", "") == "tool_ir_v1":
+            return False
         expected_task = str((case.get("source_task") or {}).get("task_id", ""))
         if expected_task and expected_task != task.task_id:
             return False

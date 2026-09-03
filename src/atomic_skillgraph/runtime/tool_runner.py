@@ -1,4 +1,8 @@
-"""Execute serial Primitive IR against the Harness, preserving partial side effects."""
+"""Execute serial Primitive/Tool IR against the Harness under one authority.
+
+ToolRunner is the only interpreter for ``tool_ir_v1``.  Admission replay and
+task-local runtime trials both execute the same bounded program semantics here.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,12 @@ from ..core.results import PrimitiveToolStep, ToolExecutionResult
 from ..core.serialization import to_primitive
 from ..traces.schema import EnvironmentActionRecord, ToolExecutionRecord
 from ..validation.tool_validator import ToolValidator
-from ..tooling.ir import ToolExecutionState, evaluate_condition, program_paths, resolve_collection, resolve_return_sources
+from ..tooling.ir import (
+    ToolExecutionState,
+    evaluate_condition,
+    resolve_collection,
+    resolve_return_sources,
+)
 
 
 class ToolRunner:
@@ -55,9 +64,6 @@ class ToolRunner:
             except (KeyError, TypeError, ValueError) as exc:
                 failure_index, failure_code, failure_message = index, "tool_primitive_rejected", str(exc)
                 break
-            # Budget and Harness exceptions are not intrinsic Tool failures.
-            # Let the orchestrator classify them (including infrastructure)
-            # instead of manufacturing negative Tool evidence.
             ctx.budget.consume_action()
             started = True
             result = ctx.harness.execute_action(spec.action_id, spec.revision)
@@ -74,7 +80,6 @@ class ToolRunner:
                 failure_index, failure_code, failure_message = index, "tool_primitive_rejected", "Harness rejected primitive"
                 break
             if result.won:
-                # Benchmark terminal authority: never execute the remaining IR.
                 terminal_interrupted = True
                 break
             if result.done:
@@ -111,35 +116,60 @@ class ToolRunner:
             executed_node_count=executed,
             remaining_node_count=max(0, len(steps) - executed),
             program_node_id=str(failure_index) if failure_index is not None else "",
+            path_id=",".join(str(index) for index in range(executed)),
+            tool_path_evidence={
+                "program_path_id": ",".join(str(index) for index in range(executed)),
+                "executed_node_ids": [str(index) for index in range(executed)],
+                "validated_paths": [],
+                "unvalidated_paths": [],
+                "loop_iteration_counts": {},
+                "stop_condition_witnesses": [],
+                "step_effect_results": [],
+                "final_effect_result": {
+                    "passed": completed or terminal_interrupted,
+                    "failure_code": failure_code,
+                },
+                "outputs": to_primitive(outputs),
+                "evidence_refs": [],
+                "terminal_interrupted": terminal_interrupted,
+            },
         )
         ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(
             f"tool_attempt_{uuid.uuid4().hex}", occurrence_id, str(tool.ref), to_primitive(tool_result), span.span_id,
         ))
         return tool_result
 
-
     def _ir_state(self, tool: ToolAsset, bindings: dict[str, Any], ctx: Any) -> ToolExecutionState:
-        snapshot = getattr(ctx.harness.validator_channel(), "snapshot", lambda: {})()
-        if isinstance(snapshot, dict):
-            facts = snapshot.get("facts", [])
-        elif isinstance(snapshot, list):
-            facts = snapshot
+        snapshot_method = getattr(ctx, "tool_evidence_snapshot", None)
+        if callable(snapshot_method):
+            snapshot = snapshot_method()
+            facts = snapshot.get("semantic_facts", [])
+            binding_evidence = snapshot.get("binding_evidence", [])
+            catalog = snapshot.get("action_catalog", [])
         else:
-            facts = []
-        catalog = [
-            {
-                "action_id": str(item.action_id),
-                "revision": int(item.revision),
-                "action_type": str(item.action_type),
-                "arguments": dict(item.arguments),
-            }
-            for item in ctx.action_catalog
-        ]
+            channel_snapshot = getattr(ctx.harness.validator_channel(), "snapshot", lambda: {})()
+            if isinstance(channel_snapshot, dict):
+                facts = channel_snapshot.get("facts", [])
+            elif isinstance(channel_snapshot, list):
+                facts = channel_snapshot
+            else:
+                facts = []
+            binding_evidence = []
+            catalog = [
+                {
+                    "action_id": str(item.action_id),
+                    "revision": int(item.revision),
+                    "action_type": str(item.action_type),
+                    "arguments": dict(item.arguments),
+                }
+                for item in ctx.action_catalog
+            ]
         return ToolExecutionState(
             bindings=dict(bindings),
-            catalog=catalog,
+            catalog=[dict(item) for item in catalog],
             semantic_facts=[dict(item) for item in facts],
-            binding_evidence=[],
+            binding_evidence=[dict(item) for item in binding_evidence],
+            max_actions=int(tool.artifact.get("max_actions", 0) or 0),
         )
 
     def _resolve_action_arguments(
@@ -164,7 +194,7 @@ class ToolRunner:
         return PrimitiveToolStep(str(node.get("action_type", "")), mapping)
 
     def _record_ir_action(
-        self, node: dict[str, Any], primitive: PrimitiveToolStep, result: Any,
+        self, node: dict[str, Any], primitive: PrimitiveToolStep,
         ctx: Any, state: ToolExecutionState, *, occurrence_id: str, span_id: str,
     ) -> dict[str, Any]:
         spec = ctx.harness.compile_primitive(primitive, state.bindings)
@@ -186,20 +216,28 @@ class ToolRunner:
             },
         )
         state.executed_nodes.append(str(node.get("node_id", "")))
-        state.catalog = [
-            {
-                "action_id": str(item.action_id),
-                "revision": int(item.revision),
-                "action_type": str(item.action_type),
-                "arguments": dict(item.arguments),
-            }
-            for item in result.catalog
-        ]
-        snapshot = getattr(ctx.harness.validator_channel(), "snapshot", lambda: {})()
-        if isinstance(snapshot, dict):
-            state.semantic_facts = [dict(item) for item in snapshot.get("facts", [])]
-        elif isinstance(snapshot, list):
-            state.semantic_facts = [dict(item) for item in snapshot]
+        state.executed_action_count += 1
+        snapshot_method = getattr(ctx, "tool_evidence_snapshot", None)
+        if callable(snapshot_method):
+            snapshot = snapshot_method()
+            state.semantic_facts = [dict(item) for item in snapshot.get("semantic_facts", [])]
+            state.binding_evidence = [dict(item) for item in snapshot.get("binding_evidence", [])]
+            state.catalog = [dict(item) for item in snapshot.get("action_catalog", [])]
+        else:
+            state.catalog = [
+                {
+                    "action_id": str(item.action_id),
+                    "revision": int(item.revision),
+                    "action_type": str(item.action_type),
+                    "arguments": dict(item.arguments),
+                }
+                for item in result.catalog
+            ]
+            channel_snapshot = getattr(ctx.harness.validator_channel(), "snapshot", lambda: {})()
+            if isinstance(channel_snapshot, dict):
+                state.semantic_facts = [dict(item) for item in channel_snapshot.get("facts", [])]
+            elif isinstance(channel_snapshot, list):
+                state.semantic_facts = [dict(item) for item in channel_snapshot]
         return {
             "accepted": bool(result.accepted),
             "won": bool(result.won),
@@ -209,34 +247,102 @@ class ToolRunner:
             "arguments": dict(spec.arguments),
         }
 
+    def _effect_bindings(self, state: ToolExecutionState) -> dict[str, Any]:
+        merged = dict(state.bindings)
+        for key, value in state.local.items():
+            merged.setdefault(key, value)
+        return merged
+
+    def _validate_step_effects(
+        self, node: dict[str, Any], ctx: Any, state: ToolExecutionState,
+    ) -> dict[str, Any]:
+        expected = [dict(item) if isinstance(item, dict) else to_primitive(item) for item in node.get("expected_effects", [])]
+        report = {
+            "program_node_id": str(node.get("node_id", "")),
+            "expected_effects": expected,
+            "observed_effects": [],
+            "missing_effects": [],
+            "step_effect_passed": True,
+            "failure_code": "",
+        }
+        if not expected:
+            state.step_effect_results.append(report)
+            return report
+        passed = False
+        validate_effect = getattr(ctx.harness.validator_channel(), "validate_atomic_effect", None)
+        if callable(validate_effect):
+            try:
+                passed = bool(validate_effect({
+                    "effects": expected,
+                    "bindings": self._effect_bindings(state),
+                }).passed)
+            except Exception:
+                passed = False
+        if not passed:
+            observed = [
+                fact for fact in state.semantic_facts
+                if any(str(fact.get("predicate", "")) == str(effect.get("predicate", "")) for effect in expected)
+            ]
+            report.update({
+                "observed_effects": [dict(item) for item in observed],
+                "missing_effects": expected,
+                "step_effect_passed": False,
+                "failure_code": "tool_step_effect_violation",
+            })
+        state.step_effect_results.append(report)
+        return report
+
     def _execute_ir_nodes(
         self, nodes: list[dict[str, Any]], state: ToolExecutionState,
         ctx: Any, *, occurrence_id: str, span_id: str, tool: ToolAsset,
-        stop: list[bool], returned: list[bool], terminal: list[dict[str, Any]],
-    ) -> None:
-        """Zero-LLM recursive IR control.  ``terminal`` receives the winning action record."""
+        terminal: list[dict[str, Any]],
+    ) -> str:
+        """Zero-LLM recursive IR control.
+
+        Returns one of the frozen control signals.  ``terminal`` receives the
+        winning action record.
+        """
+
         for node in nodes:
-            if stop[0] or returned[0] or terminal:
-                return
+            if state.failure_code or terminal:
+                return "BENCHMARK_TERMINAL" if terminal else "FAIL_TOOL"
             opcode = str(node.get("op", ""))
             if opcode == "ACTION":
+                if state.max_actions and state.executed_action_count >= state.max_actions:
+                    state.failure_code = "tool_ir_max_actions_exhausted"
+                    state.failure_message = (
+                        f"Tool max_actions={state.max_actions} exhausted before "
+                        f"node {node.get('node_id')}"
+                    )
+                    state.program_node_id = str(node.get("node_id", ""))
+                    return "FAIL_TOOL"
                 primitive = self._resolve_action_arguments(node, state)
                 outcome = self._record_ir_action(
-                    node, primitive, None, ctx, state,
+                    node, primitive, ctx, state,
                     occurrence_id=occurrence_id, span_id=span_id,
                 )
                 if not outcome["accepted"]:
-                    stop[0] = True
-                    state.stop_condition_witnesses.append(
-                        f"rejected:{node.get('node_id')}"
+                    state.failure_code = "tool_primitive_rejected"
+                    state.failure_message = "Harness rejected Tool IR ACTION"
+                    state.program_node_id = str(node.get("node_id", ""))
+                    state.stop_condition_witnesses.append(f"rejected:{node.get('node_id')}")
+                    return "FAIL_TOOL"
+                effect_report = self._validate_step_effects(node, ctx, state)
+                if not effect_report["step_effect_passed"]:
+                    state.failure_code = "tool_step_effect_violation"
+                    state.failure_message = (
+                        f"required expected effect failed at {node.get('node_id')}"
                     )
-                    return
+                    state.program_node_id = str(node.get("node_id", ""))
+                    return "FAIL_TOOL"
                 if outcome["won"]:
                     terminal.append(outcome)
-                    return
+                    return "BENCHMARK_TERMINAL"
                 if outcome["done"]:
-                    stop[0] = True
-                    return
+                    state.failure_code = "tool_execution_error"
+                    state.failure_message = "environment ended without success"
+                    state.program_node_id = str(node.get("node_id", ""))
+                    return "FAIL_TOOL"
             elif opcode == "IF":
                 condition = dict(node.get("condition") or {})
                 branch_taken = evaluate_condition(condition, state)
@@ -248,28 +354,36 @@ class ToolRunner:
                     state.unvalidated_paths.append(f"{node.get('node_id')}:then")
                 elif "else_branch" in node and node.get("else_branch") is not None:
                     state.unvalidated_paths.append(f"{node.get('node_id')}:else")
-                self._execute_ir_nodes(
+                signal = self._execute_ir_nodes(
                     list(branch or []), state, ctx, occurrence_id=occurrence_id,
-                    span_id=span_id, tool=tool, stop=stop, returned=returned,
-                    terminal=terminal,
+                    span_id=span_id, tool=tool, terminal=terminal,
                 )
+                if signal:
+                    return signal
             elif opcode == "FOR_EACH":
                 values = resolve_collection(
                     dict(node.get("collection_source") or {}), state,
+                    semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None),
                 )
                 max_iterations = int(node.get("max_iterations", len(values)) or 0)
                 variable = str(node.get("iteration_variable", ""))
                 count = 0
                 for value in values:
-                    if count >= max_iterations or stop[0] or returned[0] or terminal:
+                    if count >= max_iterations or state.failure_code or terminal:
                         break
                     state.local[variable] = value
-                    self._execute_ir_nodes(
+                    signal = self._execute_ir_nodes(
                         list(node.get("body") or []), state, ctx,
                         occurrence_id=occurrence_id, span_id=span_id, tool=tool,
-                        stop=stop, returned=returned, terminal=terminal,
+                        terminal=terminal,
                     )
                     count += 1
+                    if signal in {"RETURN_PROGRAM", "BENCHMARK_TERMINAL", "FAIL_TOOL"}:
+                        state.loop_iteration_counts[str(node.get("node_id", ""))] = count
+                        return signal
+                    if signal == "BREAK_LOOP":
+                        state.loop_iteration_counts[str(node.get("node_id", ""))] = count
+                        break
                 state.loop_iteration_counts[str(node.get("node_id", ""))] = count
                 if count > 1:
                     state.stop_condition_witnesses.append(
@@ -278,19 +392,23 @@ class ToolRunner:
             elif opcode == "STOP_WHEN":
                 condition = dict(node.get("condition") or {})
                 if evaluate_condition(condition, state):
-                    stop[0] = True
                     state.stop_condition_witnesses.append(
                         f"stop:{node.get('node_id')}"
                     )
-                    return
+                    return "BREAK_LOOP"
             elif opcode == "RETURN":
                 outputs, refs = resolve_return_sources(
                     dict(node.get("output_sources") or {}), state,
                 )
+                if any(value is None for value in outputs.values()):
+                    state.failure_code = "tool_ir_return_output_unresolved"
+                    state.failure_message = f"RETURN {node.get('node_id')} produced an unresolved output"
+                    state.program_node_id = str(node.get("node_id", ""))
+                    return "FAIL_TOOL"
                 state.outputs.update(outputs)
                 state.evidence_refs.extend(refs)
-                returned[0] = True
-                return
+                return "RETURN_PROGRAM"
+        return ""
 
     def _run_ir_v1(
         self, tool: ToolAsset, bindings: dict[str, Any], ctx: Any,
@@ -299,25 +417,23 @@ class ToolRunner:
         before_revision = ctx.world_revision
         state = self._ir_state(tool, bindings, ctx)
         program = [dict(node) for node in tool.artifact.get("program", [])]
-        stop = [False]
-        returned = [False]
         terminal: list[dict[str, Any]] = []
+        control_signal = ""
         try:
-            self._execute_ir_nodes(
+            control_signal = self._execute_ir_nodes(
                 program, state, ctx, occurrence_id=occurrence_id,
-                span_id=span_id, tool=tool, stop=stop, returned=returned,
-                terminal=terminal,
+                span_id=span_id, tool=tool, terminal=terminal,
             )
         except (KeyError, TypeError, ValueError) as exc:
             ctx.trace_builder.finish_span(span_id)
             result = ToolExecutionResult(
                 str(tool.ref), True, bool(state.executed_nodes), False,
-                ctx.world_revision != before_revision, 0, None,
+                ctx.world_revision != before_revision, state.executed_action_count, None,
                 [], {}, before_revision, ctx.world_revision,
                 "tool", "tool_ir_execution_error", str(exc),
                 intrinsic_failure=False,
                 executed_node_count=len(state.executed_nodes),
-                path_id="",
+                path_id=",".join(state.executed_nodes),
             )
             ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(
                 f"tool_attempt_{uuid.uuid4().hex}", occurrence_id, str(tool.ref),
@@ -340,16 +456,16 @@ class ToolRunner:
                 else:
                     outputs[role] = state.bindings.get(role, expression)
         output_validation = self.validator.validate_output(tool, outputs)
-        completed = bool(returned[0] or (stop[0] and not terminal_interrupted))
+        completed = bool(control_signal == "RETURN_PROGRAM")
         if completed and not output_validation.passed:
             completed = False
+            state.failure_code = "tool_output_schema_error"
+            state.failure_message = "; ".join(output_validation.messages)
         if terminal_interrupted and not outputs:
             for role in (tool.interface.get("output_schema", {}).get("properties", {}) or {}):
                 if role in state.bindings:
                     outputs[role] = state.bindings[role]
 
-        # Step/effect diagnostics: benchmark won never proves an unexecuted Tool
-        # step, and a terminal interruption is explicitly not an intrinsic failure.
         final_effects = [dict(item) if isinstance(item, dict) else to_primitive(item) for item in tool.artifact.get("final_effects", [])]
         observed_effects: list[dict[str, Any]] = []
         missing_effects: list[dict[str, Any]] = []
@@ -368,27 +484,37 @@ class ToolRunner:
         if callable(validate_effect) and final_effects:
             atomic_effect_passed = bool(validate_effect({
                 "effects": final_effects,
-                "bindings": state.bindings,
+                "bindings": self._effect_bindings(state),
             }).passed)
-
-        path_report = program_paths(program)
-        total_nodes = sum(
-            1 for _node in program for _node in self._walk_for_count(program)
-        )
+        final_effect_result = {
+            "passed": atomic_effect_passed,
+            "observed_effects": [dict(item) for item in observed_effects],
+            "missing_effects": [dict(item) for item in missing_effects],
+            "failure_code": "" if atomic_effect_passed else "tool_ir_final_effect_failed",
+        }
+        failure_layer = ""
+        failure_code = state.failure_code
+        failure_message = state.failure_message
+        if not completed and not terminal_interrupted and not failure_code:
+            failure_layer = "tool"
+            failure_code = "tool_ir_execution_error"
+            failure_message = "Tool IR ended without RETURN or benchmark terminal"
+        elif failure_code:
+            failure_layer = "tool"
+        total_nodes = len(self._walk_for_count(program))
+        path_id = ",".join(state.executed_nodes)
         result = ToolExecutionResult(
             str(tool.ref), True, bool(state.executed_nodes), completed,
             ctx.world_revision != before_revision,
-            len(state.executed_nodes), None,
+            state.executed_action_count, None,
             state.bindings, outputs, before_revision, ctx.world_revision,
-            "" if completed or terminal_interrupted else "tool",
-            "" if completed or terminal_interrupted else "tool_ir_execution_error",
-            "",
+            failure_layer, failure_code, failure_message,
             terminal_interrupted=terminal_interrupted,
-            intrinsic_failure=bool(stop[0] and not terminal_interrupted and not returned[0]),
+            intrinsic_failure=bool(failure_code and not terminal_interrupted),
             executed_node_count=len(state.executed_nodes),
             remaining_node_count=max(0, total_nodes - len(state.executed_nodes)),
-            path_id=",".join(state.executed_nodes),
-            program_node_id=(
+            path_id=path_id,
+            program_node_id=state.program_node_id or (
                 str(state.executed_nodes[-1]) if state.executed_nodes else ""
             ),
             expected_effects=final_effects,
@@ -399,6 +525,19 @@ class ToolRunner:
             unvalidated_paths=sorted(set(state.unvalidated_paths)),
             stop_condition_witnesses=list(state.stop_condition_witnesses),
             atomic_effect_passed=atomic_effect_passed,
+            tool_path_evidence={
+                "program_path_id": path_id,
+                "executed_node_ids": list(state.executed_nodes),
+                "validated_paths": sorted(set(state.validated_paths)),
+                "unvalidated_paths": sorted(set(state.unvalidated_paths)),
+                "loop_iteration_counts": dict(state.loop_iteration_counts),
+                "stop_condition_witnesses": list(state.stop_condition_witnesses),
+                "step_effect_results": [dict(item) for item in state.step_effect_results],
+                "final_effect_result": final_effect_result,
+                "outputs": to_primitive(outputs),
+                "evidence_refs": list(dict.fromkeys(state.evidence_refs)),
+                "terminal_interrupted": terminal_interrupted,
+            },
         )
         ctx.trace_builder.finish_span(span_id)
         ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(

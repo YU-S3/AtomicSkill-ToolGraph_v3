@@ -20,6 +20,10 @@ class CompositeRetrieval:
     candidates: list[CompositeSkill] = field(default_factory=list)
     audit_candidates: list[dict[str, Any]] = field(default_factory=list)
     rejections: list[dict[str, Any]] = field(default_factory=list)
+    terminal_empirical_candidates: list[CompositeSkill] = field(
+        default_factory=list,
+    )
+    terminal_empirical_audit: list[dict[str, Any]] = field(default_factory=list)
 
 
 class CompositeRetriever:
@@ -99,6 +103,24 @@ class CompositeRetriever:
                 bootstrap_candidates.sort(key=lambda item: (-item[0], item[1]))
                 bootstrap_candidate_ref = bootstrap_candidates[0][1]
         for composite in composites:
+            completion = dict(
+                composite.metadata.get("completion_authority") or {}
+            )
+            if completion.get("kind") == "terminal_empirical":
+                result.audit_candidates.append({
+                    "composite_ref": str(composite.ref),
+                    "score": lexical_similarity(
+                        getattr(task, "goal", ""),
+                        f"{composite.summary} {composite.guideline}",
+                    ),
+                    "completion_authority": "terminal_empirical",
+                })
+                result.rejections.append({
+                    "composite_ref": str(composite.ref),
+                    "stage": "retrieval_contract",
+                    "reasons": ["terminal_empirical_not_complete_contract"],
+                })
+                continue
             contract_diagnosis = complete_composite_contract_diagnosis(
                 contract, composite.goal_contract,
             )
@@ -154,4 +176,70 @@ class CompositeRetriever:
                 ranked.append((score, str(composite.ref), composite))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         result.candidates = [item[2] for item in ranked[: self.top_k]]
+        return result
+
+    def retrieve_terminal(
+        self, task: Any, contract: TaskContract, *, mode: RuntimeMode | str,
+        harness_profile: str,
+    ) -> CompositeRetrieval:
+        """Terminal-certified empirical Candidates are a separate channel."""
+
+        result = CompositeRetrieval()
+        ranked: list[tuple[float, str, CompositeSkill]] = []
+        composites = self.skills.composites(mode=mode)
+
+        def terminal_compatible(composite: CompositeSkill) -> bool:
+            completion = dict(
+                composite.metadata.get("completion_authority") or {}
+            )
+            certificate = dict(
+                composite.metadata.get("terminal_certificate") or {}
+            )
+            if completion.get("kind") != "terminal_empirical":
+                return False
+            if certificate.get("benchmark_won") is not True:
+                return False
+            profiles = composite.metadata.get("harness_profiles") or []
+            if profiles and harness_profile not in profiles:
+                return False
+            occurrence_ids = {item.step_id for item in composite.occurrences}
+            if (
+                len(composite.control_sequence) != len(occurrence_ids)
+                or set(composite.control_sequence) != occurrence_ids
+            ):
+                return False
+            return True
+
+        for composite in composites:
+            if not terminal_compatible(composite):
+                continue
+            try:
+                for occurrence in composite.occurrences:
+                    self.skills.get_atomic(occurrence.node_ref)
+            except KeyError:
+                continue
+            score = lexical_similarity(
+                getattr(task, "goal", ""),
+                f"{composite.summary} {composite.guideline}",
+            )
+            item = {
+                "composite_ref": str(composite.ref),
+                "score": score,
+                "completion_authority": "terminal_empirical",
+                "candidate_status": composite.status.value,
+            }
+            result.terminal_empirical_audit.append(item)
+            if self.candidate_policy is not None and not self.candidate_policy.allows(
+                artifact_ref=str(composite.ref), artifact_kind="composite",
+                status=composite.status, mode=mode,
+                task_id=str(getattr(task, "task_id", "unknown_task")),
+                reliable_active_available=False,
+                explicit_exploration=True,
+            ):
+                continue
+            ranked.append((score, str(composite.ref), composite))
+        ranked.sort(key=lambda item: (-item[0], item[1]))
+        result.terminal_empirical_candidates = [
+            item[2] for item in ranked[: self.top_k]
+        ]
         return result

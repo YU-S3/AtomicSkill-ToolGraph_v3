@@ -381,18 +381,36 @@ class Atomicizer:
     ) -> list[CanonicalAtomicOccurrence]:
         events = normalized_trace.get("actions", [])
         spans = normalized_trace.get("runtime_spans", [])
+        span_by_id = {
+            str(span.get("span_id", "")): span
+            for span in spans
+            if str(span.get("span_id", ""))
+        }
+
+        def span_lineage(span_id: str) -> frozenset[str]:
+            occurrences: set[str] = set()
+            seen: set[str] = set()
+            while span_id and span_id not in seen:
+                seen.add(span_id)
+                span = span_by_id.get(span_id)
+                if span is None:
+                    break
+                occurrence_id = str(span.get("occurrence_id", ""))
+                if occurrence_id:
+                    occurrences.add(occurrence_id)
+                parent_id = str(span.get("parent_span_id", "") or "")
+                if not parent_id or parent_id == span_id:
+                    break
+                span_id = parent_id
+            return frozenset(occurrences)
+
         result: list[CanonicalAtomicOccurrence] = []
-        used_ranges: list[tuple[int, int]] = []
+        used_support_events: set[str] = set()
         for proposal in proposals:
             if not proposal.phase_id or any(item.phase_id == proposal.phase_id for item in result):
                 raise ValueError(f"duplicate/empty Atomic phase id: {proposal.phase_id!r}")
             if not (0 <= proposal.event_start <= proposal.event_end < len(events)):
                 raise ValueError(f"invalid event range for {proposal.phase_id}")
-            if any(
-                proposal.event_start <= used_end and used_start <= proposal.event_end
-                for used_start, used_end in used_ranges
-            ):
-                raise ValueError(f"Atomic proposals overlap: {proposal.phase_id}")
             envelope_events = events[proposal.event_start: proposal.event_end + 1]
             if not envelope_events or not all(item.get("accepted") for item in envelope_events):
                 raise ValueError(f"Atomic proposal contains rejected/no events: {proposal.phase_id}")
@@ -411,6 +429,16 @@ class Atomicizer:
                 selected = list(envelope_events)
             if not selected or not all(item.get("accepted") for item in selected):
                 raise ValueError(f"Atomic proposal contains rejected/no events: {proposal.phase_id}")
+            owned_support_events = {
+                str(item.get("event_id", item.get("action_id", "")))
+                for item in selected
+            }
+            overlap = owned_support_events & used_support_events
+            if overlap:
+                raise ValueError(
+                    "Atomic support events are already owned by another "
+                    f"independent Atomic: {sorted(overlap)}"
+                )
             if any(
                 int(item.get("after_revision", -1)) <= int(item.get("before_revision", -1))
                 for item in selected
@@ -421,13 +449,24 @@ class Atomicizer:
                 int(item.get("event_index", events.index(item)))
                 for item in selected
             }
-            if len(selected_span_ids) != 1 or "" in selected_span_ids:
+            if "" in selected_span_ids:
+                raise ValueError(f"Atomic proposal lacks a RuntimeSpan: {proposal.phase_id}")
+            lineages = {span_lineage(span_id) for span_id in selected_span_ids}
+            if len(lineages) > 1:
+                raise ValueError(f"noncontiguous_evidence_lineage_invalid: {proposal.phase_id}")
+            lineage = next(iter(lineages)) if lineages else frozenset()
+            if len(lineage) > 1:
                 raise ValueError(f"Atomic proposal crosses incompatible RuntimeSpan: {proposal.phase_id}")
+            if not lineage and len(selected_span_ids) > 1:
+                raise ValueError(f"noncontiguous_evidence_lineage_invalid: {proposal.phase_id}")
             containing = [
                 span for span in spans
                 if span.get("action_start", 0) <= proposal.event_start
                 and span.get("action_end", len(events)) >= proposal.event_end + 1
-                and str(span.get("span_id", "")) in selected_span_ids
+                and (
+                    str(span.get("span_id", "")) in selected_span_ids
+                    or str(span.get("occurrence_id", "")) in lineage
+                )
             ]
             if spans and not containing:
                 raise ValueError(f"Atomic proposal crosses incompatible RuntimeSpan: {proposal.phase_id}")
@@ -487,6 +526,50 @@ class Atomicizer:
                 unused_witnesses.difference_update(selected_witnesses)
             if not proposal.effects or not effect_witness_indexes:
                 raise ValueError(f"Atomic effect lacks accepted state/validator witness: {proposal.phase_id}")
+
+            for witness_ref in proposal.precondition_witness_refs:
+                facts = [
+                    fact for fact in prefix_facts
+                    if str(fact.get("witness_ref", "")) == str(witness_ref)
+                ]
+                if not facts or not any(
+                    _fact_matches(precondition, fact, bindings)
+                    for precondition in proposal.preconditions
+                    for fact in facts
+                ):
+                    raise ValueError(f"evidence_witness_ref_invalid: precondition {witness_ref}")
+            for witness_ref in proposal.effect_witness_refs:
+                facts = [
+                    fact for fact in effect_facts
+                    if str(fact.get("witness_ref", "")) == str(witness_ref)
+                ]
+                if not facts or not any(
+                    _fact_matches(effect, fact, bindings)
+                    for effect in proposal.effects
+                    for fact in facts
+                ):
+                    raise ValueError(f"evidence_witness_ref_invalid: effect {witness_ref}")
+
+            support_event_by_id = {
+                str(item.get("event_id", item.get("action_id", ""))): item
+                for item in selected
+            }
+            for ordering in proposal.ordering_constraints:
+                before_id = str(ordering.get("before_event_id", ""))
+                after_id = str(ordering.get("after_event_id", ""))
+                before_event = support_event_by_id.get(before_id)
+                after_event = support_event_by_id.get(after_id)
+                if before_event is None or after_event is None:
+                    raise ValueError(
+                        "ordering_constraints may only reference support events: "
+                        f"{proposal.phase_id}"
+                    )
+                if int(before_event.get("after_revision", -1)) >= int(
+                    after_event.get("after_revision", -1)
+                ):
+                    raise ValueError(
+                        f"ordering constraint is not revision-ordered: {proposal.phase_id}"
+                    )
 
             # A validated occurrence must also be independently compilable.
             # Episode-local entity instances cannot become constants in a
@@ -550,7 +633,7 @@ class Atomicizer:
                 ordering_constraints=[dict(item) for item in proposal.ordering_constraints],
                 envelope_events=envelope_events,
             ))
-            used_ranges.append((proposal.event_start, proposal.event_end))
+            used_support_events.update(owned_support_events)
         if not result:
             raise ValueError("Extractor E1 produced no canonical Atomic occurrence")
         result.sort(key=lambda item: (

@@ -16,6 +16,13 @@ from ..core.semantic_types import semantic_types_compatible
 
 
 @dataclass(frozen=True)
+class SupportRoleMapping:
+    producer_role: str
+    consumer_role: str
+    semantic_type: str
+
+
+@dataclass(frozen=True)
 class SupportCandidate:
     atomic_ref: str
     score: float
@@ -23,6 +30,7 @@ class SupportCandidate:
     output_roles: tuple[str, ...]
     effect_predicates: tuple[str, ...]
     diagnostics: tuple[dict[str, Any], ...]
+    role_mappings: tuple[SupportRoleMapping, ...] = ()
 
 
 def _predicate_name(value: Any) -> str:
@@ -50,39 +58,45 @@ class SupportAtomicRetriever:
         for atomic in atomics:
             if str(atomic.ref) == str(blocked_atomic.ref):
                 continue
+            mappings: list[SupportRoleMapping] = []
             supplied_roles: list[str] = []
             diagnostics: list[dict[str, Any]] = []
             for output in atomic.outputs:
-                if output.name not in missing:
-                    continue
-                required = blocked_inputs[output.name]
-                if not semantic_types_compatible(
-                    required.semantic_type, output.semantic_type,
-                ):
+                for consumer_role in sorted(missing):
+                    required = blocked_inputs.get(consumer_role)
+                    if required is None:
+                        continue
+                    compatible = semantic_types_compatible(
+                        required.semantic_type, output.semantic_type,
+                    )
                     diagnostics.append({
-                        "role": output.name,
-                        "compatible": False,
+                        "producer_role": output.name,
+                        "consumer_role": consumer_role,
+                        "compatible": bool(compatible),
                         "required_type": required.semantic_type,
                         "offered_type": output.semantic_type,
                     })
-                    continue
-                supplied_roles.append(output.name)
-                diagnostics.append({
-                    "role": output.name,
-                    "compatible": True,
-                    "offered_type": output.semantic_type,
-                })
-            if not supplied_roles:
+                    if not compatible:
+                        continue
+                    mappings.append(SupportRoleMapping(
+                        producer_role=str(output.name),
+                        consumer_role=str(consumer_role),
+                        semantic_type=str(output.semantic_type or required.semantic_type),
+                    ))
+                    if output.name not in supplied_roles:
+                        supplied_roles.append(output.name)
+            if not mappings:
                 continue
             candidates.append(SupportCandidate(
                 atomic_ref=str(atomic.ref),
-                score=float(len(supplied_roles)),
+                score=float(len(mappings)),
                 supplied_roles=tuple(sorted(supplied_roles)),
                 output_roles=tuple(sorted(str(item.name) for item in atomic.outputs)),
                 effect_predicates=tuple(sorted({
                     _predicate_name(item) for item in atomic.effects
                 })),
                 diagnostics=tuple(to_primitive(diagnostics)),
+                role_mappings=tuple(mappings),
             ))
         candidates.sort(key=lambda item: (-item.score, item.atomic_ref))
         return candidates[: max(0, int(top_k))]

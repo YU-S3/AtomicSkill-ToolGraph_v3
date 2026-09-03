@@ -145,6 +145,37 @@ class PlannerPipeline:
                 "checks": dict(report.checks),
             })
 
+        terminal_retrieval = self.composite_retriever.retrieve_terminal(
+            task, contract, mode=mode, harness_profile=harness.profile_name,
+        )
+        audit.terminal_empirical_candidates = (
+            terminal_retrieval.terminal_empirical_audit
+        )
+        for composite in terminal_retrieval.terminal_empirical_candidates:
+            provisional_audit = to_primitive(audit)
+            provisional_audit["selected_composite"] = str(composite.ref)
+            provisional_audit["final_outcome"] = "stored_composite"
+            provisional_audit["selected_composite_authority"] = {
+                "kind": "terminal_empirical",
+                "candidate_status": composite.status.value,
+                "source_ref": str(composite.ref),
+            }
+            plan = self.compiler.from_composite(
+                task, contract, composite, mode=mode,
+                audit=provisional_audit,
+            )
+            report = self.validator.validate(
+                plan, mode=mode, harness_profile=harness.profile_name,
+            )
+            if report.passed:
+                return plan
+            audit.composite_rejections.append({
+                "composite_ref": str(composite.ref),
+                "stage": "terminal_empirical_plan_validation",
+                "reasons": list(report.failure_codes),
+                "checks": dict(report.checks),
+            })
+
         # Frozen and explicitly cold-start-disabled compatibility runs retain
         # the old empty-bank shortcut.  v3.1 online cold start must still run
         # P1 so C1 and a later Failure Extractor have high-level authority.

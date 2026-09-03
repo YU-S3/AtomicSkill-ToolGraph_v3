@@ -28,6 +28,7 @@ class RuntimeAutomationAtomicDraft:
     rationale: str
     source_occurrence_id: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    input_binding_specs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -132,6 +133,7 @@ def runtime_automation_draft_from_dict(value: Mapping[str, Any]) -> RuntimeAutom
         rationale=str(value.get("rationale", "")),
         source_occurrence_id=str(value.get("source_occurrence_id", "")),
         metadata=dict(value.get("metadata", {})),
+        input_binding_specs=dict(value.get("input_binding_specs", {})),
     )
 
 

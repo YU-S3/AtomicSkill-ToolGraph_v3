@@ -68,7 +68,57 @@ def _near_effect_match(desired: set[str], hint: Mapping[str, Any]) -> bool:
         _predicate(item).casefold()
         for item in contract.get("effects", ())
     }
+    offered.update(
+        str(item).casefold()
+        for item in hint.get("effect_predicates", ())
+    )
+    for component in hint.get("components", ()):
+        for item in dict(component).get("effects", ()):
+            offered.add(_predicate(item).casefold())
     return bool(desired & offered)
+
+
+def _composite_hint_interface_relevant(
+    result: Any,
+    hints: Iterable[Mapping[str, Any]],
+) -> bool:
+    """Deterministic effect-family / interface overlap, never existence-only."""
+
+    if isinstance(result, Mapping):
+        requirement = result.get("requirement")
+    else:
+        requirement = getattr(result, "requirement", None)
+    if isinstance(requirement, Mapping):
+        desired = _effect_predicates(requirement.get("desired_effects", ()))
+        expected_inputs = {
+            str(item.get("name", "")): str(item.get("semantic_type", ""))
+            for item in requirement.get("expected_inputs", ())
+            if isinstance(item, Mapping)
+        }
+    else:
+        desired = _effect_predicates(
+            getattr(requirement, "desired_effects", ())
+        )
+        expected_inputs = {
+            str(item.name): str(item.semantic_type)
+            for item in getattr(requirement, "expected_inputs", ()) or ()
+        }
+    for hint in hints:
+        if _near_effect_match(desired, hint):
+            return True
+        for component in hint.get("components", ()):
+            component = dict(component)
+            component_outputs = {
+                str(item.get("name", "")): str(item.get("semantic_type", ""))
+                for item in component.get("outputs", ())
+                if isinstance(item, Mapping)
+            }
+            if expected_inputs and any(
+                value and value == component_outputs.get(key)
+                for key, value in expected_inputs.items()
+            ):
+                return True
+    return False
 
 
 def _candidate_refs(results: Iterable[Any]) -> tuple[str, ...]:
@@ -220,20 +270,33 @@ class RepairabilityGate:
                 tuple(diagnostics),
             )
 
+        related_hints = list(related_composite_hints)
         per_result: list[tuple[Any, bool, str]] = []
         for result in required_uncovered:
             if _result_is_hard_gap(result):
-                per_result.append((result, False, "planner_hard_capability_gap"))
+                if _composite_hint_interface_relevant(result, related_hints):
+                    per_result.append(
+                        (result, True, "related_composite_interface_repairable")
+                    )
+                else:
+                    per_result.append((result, False, "planner_hard_capability_gap"))
             else:
                 per_result.append((result, True, "coverage_partial_effect_match"))
 
         repairable_count = sum(1 for _, ok, _ in per_result if ok)
         hard_count = len(per_result) - repairable_count
-        reason_code = (
-            "planner_hard_capability_gap"
-            if hard_count and not repairable_count
-            else "coverage_partial_effect_match"
-        )
+        if repairable_count and all(
+            item_code == "related_composite_interface_repairable"
+            for _result, _ok, item_code in per_result
+            if _ok
+        ):
+            reason_code = "related_composite_interface_repairable"
+        else:
+            reason_code = (
+                "planner_hard_capability_gap"
+                if hard_count and not repairable_count
+                else "coverage_partial_effect_match"
+            )
         diagnostics = [
             _result_diagnostics(
                 result,
@@ -243,11 +306,14 @@ class RepairabilityGate:
             )
             for result, repairable, item_code in per_result
         ]
-        if related_composite_hints:
+        if related_hints:
             diagnostics.append({
                 "stage": "related_composite_hints",
-                "count": len(list(related_composite_hints)),
-                "hints": to_primitive(list(related_composite_hints)),
+                "count": len(related_hints),
+                "hints": to_primitive(related_hints),
+                "repairable_overlap_count": sum(
+                    1 for result, repairable, _code in per_result if repairable
+                ),
             })
         return RepairabilityDecision(
             bool(repairable_count),

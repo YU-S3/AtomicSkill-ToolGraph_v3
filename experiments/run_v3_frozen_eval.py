@@ -72,7 +72,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     planner = dict(config.get("planner") or {})
     cold_start = dict(config.get("cold_start") or {})
     expected = {
-        "method_patch": (config.get("method_patch"), "3.1"),
+        "method_patch": (config.get("method_patch"), "3.2"),
         "planner.max_repeat_count": (planner.get("max_repeat_count"), 4),
         "planner.max_runtime_occurrences": (
             planner.get("max_runtime_occurrences"), 16

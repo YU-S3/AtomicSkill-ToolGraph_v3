@@ -22,8 +22,8 @@ from .portability import CanonicalCapabilityLabel
 class CompiledKnowledge:
     occurrence: CanonicalAtomicOccurrence
     atomic: AbstractAtomicSkill
-    tool: ToolAsset
-    implementation: ImplementationAtom
+    tool: ToolAsset | None
+    implementation: ImplementationAtom | None
 
 
 def rewrite_capability_labels(
@@ -45,25 +45,29 @@ def rewrite_capability_labels(
             "canonical_label_source": label.source,
         },
     )
-    tool = replace(
-        compiled.tool,
-        summary=f"Primitive executable for {label.display_summary}",
-        metadata={
-            **dict(compiled.tool.metadata or {}),
-            "canonical_intent": label.canonical_intent,
-            "semantic_description": label.display_summary,
-            "canonical_label_source": label.source,
-        },
-    )
-    implementation = replace(
-        compiled.implementation,
-        metadata={
-            **dict(compiled.implementation.metadata or {}),
-            "canonical_intent": label.canonical_intent,
-            "semantic_description": label.display_summary,
-            "canonical_label_source": label.source,
-        },
-    )
+    tool = None
+    if compiled.tool is not None:
+        tool = replace(
+            compiled.tool,
+            summary=f"Tool executable for {label.display_summary}",
+            metadata={
+                **dict(compiled.tool.metadata or {}),
+                "canonical_intent": label.canonical_intent,
+                "semantic_description": label.display_summary,
+                "canonical_label_source": label.source,
+            },
+        )
+    implementation = None
+    if compiled.implementation is not None:
+        implementation = replace(
+            compiled.implementation,
+            metadata={
+                **dict(compiled.implementation.metadata or {}),
+                "canonical_intent": label.canonical_intent,
+                "semantic_description": label.display_summary,
+                "canonical_label_source": label.source,
+            },
+        )
     return CompiledKnowledge(
         replace(compiled.occurrence, intent=label.canonical_intent),
         atomic,
@@ -196,7 +200,7 @@ class ToolCompiler:
         """
 
         if proposal.decision == "no_tool":
-            raise ValueError(f"ToolBuilder returned NO_TOOL for {atomic.ref}: {proposal.rationale}")
+            return CompiledKnowledge(occurrence, atomic, None, None)
         program = proposal.program
         if not program:
             raise ValueError("ToolProposal cannot compile an empty Tool IR program")
@@ -264,6 +268,14 @@ class ToolCompiler:
                 "draft_id": provenance.draft_id,
                 "bindings": dict(occurrence.input_bindings),
                 "source_task": dict(occurrence.source_task),
+                "prefix": [
+                    {
+                        "action_type": event["action_type"],
+                        "arguments": dict(event.get("arguments", {})),
+                    }
+                    for event in occurrence.prefix_events
+                    if event.get("accepted")
+                ],
                 "effects": [dict(
                     predicate=item.predicate,
                     args=dict(item.args),

@@ -14,7 +14,7 @@ from typing import Any, Iterable, Mapping
 from ..core.contracts import AbstractAtomicSkill, ParameterSpec, SemanticPredicate
 from ..core.results import ValidationResult
 from ..core.serialization import to_primitive
-from .ir import normalize_tool_program, program_paths
+from .ir import CONDITION_OPERATORS, normalize_tool_program, program_paths
 from .proposal import RuntimeAutomationAtomicDraft, ToolProposal
 
 
@@ -25,17 +25,25 @@ _CONDITION_SOURCES = {
 }
 _COLLECTION_SOURCES = {
     "tool_input", "local_variable", "action_catalog",
-    "semantic_evidence", "local_deterministic",
+    "semantic_evidence", "binding_evidence", "local_deterministic",
 }
 _RETURN_SOURCES = {
     "tool_input", "local_variable", "semantic_evidence",
     "binding_evidence", "constant",
+}
+_INPUT_BINDING_KINDS = {
+    "current_occurrence_anchor",
+    "current_confirmed_binding",
+    "current_candidate_binding",
+    "data_flow",
+    "constant",
 }
 _FORBIDDEN_CODE_MARKERS = (
     "python", "shell", "subprocess", "import ", "eval(", "exec(",
     "os.system", "__builtins__", "open(", "http://", "https://",
     "socket", "requests.", "pathlib", "/proc/", "C:\\",
 )
+_CONCRETE_ID_RE = re.compile(r"(?:^|[ _])(?:[a-z0-9]+[ _])?\d+$", re.IGNORECASE)
 
 
 @dataclass
@@ -90,6 +98,189 @@ def _iter_nodes(nodes: Any, *, depth: int = 0, max_depth: int = 6) -> Iterable[t
             yield from _iter_nodes(node.get("body"), depth=depth + 1, max_depth=max_depth)
 
 
+def _selector_source(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _validate_selector(
+    source: dict[str, Any],
+    node_id: str,
+    *,
+    fail: Any,
+) -> None:
+    kind = str(source.get("source", "")).casefold()
+    if kind not in _COLLECTION_SOURCES:
+        fail("tool_ir_selector_invalid", f"{node_id}: unknown collection source {kind}")
+        return
+    if kind == "local_deterministic":
+        values = source.get("values")
+        if not isinstance(values, (list, tuple)) or not values:
+            fail("tool_ir_selector_invalid", f"{node_id}: local_deterministic.values must be non-empty")
+        return
+    project = _selector_source(source.get("project"))
+    if project:
+        project_kind = str(project.get("kind", "field")).casefold()
+        if project_kind not in {"field", "argument"}:
+            fail("tool_ir_selector_invalid", f"{node_id}: project.kind must be field or argument")
+        if project_kind == "argument" and not str(project.get("role", "")):
+            fail("tool_ir_selector_invalid", f"{node_id}: argument project requires role")
+        if project_kind == "field" and not str(project.get("field", "")):
+            fail("tool_ir_selector_invalid", f"{node_id}: field project requires field")
+    elif not str(source.get("field", "")):
+        fail("tool_ir_selector_invalid", f"{node_id}: selector requires field or project")
+    where = _selector_source(source.get("where"))
+    semantic = _selector_source(where.get("semantic_compatible_with"))
+    if semantic:
+        if str(semantic.get("source", "")).casefold() not in _CONDITION_SOURCES:
+            fail("tool_ir_selector_invalid", f"{node_id}: semantic_compatible_with source invalid")
+        if not str(semantic.get("field", "")):
+            fail("tool_ir_selector_invalid", f"{node_id}: semantic_compatible_with field required")
+        if not str(where.get("argument_role", "")):
+            fail("tool_ir_selector_invalid", f"{node_id}: semantic_compatible_with requires where.argument_role")
+
+
+def _reference_target(source: str, spec: Mapping[str, Any], default: str) -> str:
+    if source in {"tool_input", "local_variable", "action_catalog", "semantic_evidence", "binding_evidence"}:
+        return str(spec.get("field", default))
+    return str(spec.get("source_role", default))
+
+
+def _condition_reference(condition: Mapping[str, Any]) -> tuple[str, str]:
+    return (
+        str(condition.get("source", "")).casefold(),
+        str(condition.get("field", "")),
+    )
+
+
+def _check_scoped_reference(
+    source: str,
+    target: str,
+    *,
+    available_locals: set[str],
+    atomic_inputs: set[str],
+    fail: Any,
+    node_id: str,
+    context: str,
+) -> None:
+    if source == "tool_input":
+        if target not in atomic_inputs:
+            fail("tool_ir_local_scope_invalid", f"{node_id}.{context} references unknown tool input {target}")
+    elif source == "local_variable":
+        if target not in available_locals:
+            fail("tool_ir_local_scope_invalid", f"{node_id}.{context} references {target} before it is definitely defined")
+
+
+def _scope_pass(
+    program: list[dict[str, Any]],
+    *,
+    atomic_inputs: set[str],
+    fail: Any,
+) -> None:
+    """Fail-closed lexical scope without full SSA."""
+
+    def visit(nodes: list[dict[str, Any]], available: set[str]) -> set[str]:
+        current = set(available)
+        for node in nodes:
+            node_id = str(node.get("node_id", ""))
+            opcode = str(node.get("op", ""))
+            if opcode == "ACTION":
+                for raw in dict(node.get("argument_mapping") or {}).values():
+                    expression = _selector_source(raw)
+                    if str(expression.get("kind", "")).casefold() == "local_variable":
+                        _check_scoped_reference(
+                            "local_variable",
+                            str(expression.get("source_role", "")),
+                            available_locals=current,
+                            atomic_inputs=atomic_inputs,
+                            fail=fail,
+                            node_id=node_id,
+                            context="argument_mapping",
+                        )
+            elif opcode in {"IF", "STOP_WHEN"}:
+                source, target = _condition_reference(_selector_source(node.get("condition")))
+                _check_scoped_reference(
+                    source, target,
+                    available_locals=current,
+                    atomic_inputs=atomic_inputs,
+                    fail=fail, node_id=node_id, context="condition",
+                )
+                if opcode == "IF":
+                    then_out = visit(list(node.get("then_branch") or []), current)
+                    else_out = visit(list(node.get("else_branch") or []), current)
+                    current = set(then_out) & set(else_out)
+            elif opcode == "FOR_EACH":
+                _validate_selector(
+                    _selector_source(node.get("collection_source")),
+                    node_id, fail=fail,
+                )
+                variable = str(node.get("iteration_variable", ""))
+                if variable:
+                    visit(list(node.get("body") or []), current | {variable})
+                # Loop variables never leak outside their body.
+            elif opcode == "RETURN":
+                for raw in dict(node.get("output_sources") or {}).values():
+                    spec = _selector_source(raw) if isinstance(raw, Mapping) else {
+                        "source": "tool_input", "field": str(raw),
+                    }
+                    source = str(spec.get("source", "tool_input")).casefold()
+                    target = _reference_target(source, spec, "")
+                    _check_scoped_reference(
+                        source, target,
+                        available_locals=current,
+                        atomic_inputs=atomic_inputs,
+                        fail=fail, node_id=node_id, context="output_sources",
+                    )
+        return current
+
+    visit(program, set())
+
+
+def _iter_string_values(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, Mapping):
+        for key, item in value.items():
+            if key in {"source", "kind", "op", "node_id"}:
+                continue
+            yield from _iter_string_values(item)
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            yield from _iter_string_values(item)
+
+
+def _concrete_ids_from_nodes(nodes: list[dict[str, Any]]) -> list[str]:
+    found: list[str] = []
+    for node in nodes:
+        opcode = str(node.get("op", ""))
+        if opcode == "ACTION":
+            for raw in dict(node.get("argument_mapping") or {}).values():
+                expression = _selector_source(raw)
+                if str(expression.get("kind", "")).casefold() == "constant":
+                    found.append(str(expression.get("constant", "")))
+        elif opcode in {"IF", "STOP_WHEN"}:
+            condition = _selector_source(node.get("condition"))
+            if condition.get("value") is not None:
+                found.append(str(condition.get("value")))
+        elif opcode == "FOR_EACH":
+            source = _selector_source(node.get("collection_source"))
+            if source.get("source") == "local_deterministic":
+                found.extend(map(str, source.get("values") or []))
+            for item in _iter_string_values(source.get("where") or {}):
+                found.append(item)
+        elif opcode == "RETURN":
+            for raw in dict(node.get("output_sources") or {}).values():
+                spec = _selector_source(raw) if isinstance(raw, Mapping) else {}
+                if str(spec.get("source", "")).casefold() == "constant":
+                    found.append(str(spec.get("value", "")))
+        for raw in node.get("expected_effects") or ():
+            found.extend(str(item) for item in _iter_string_values(raw) if item != "$")
+        found.extend(str(item) for item in _iter_string_values(node.get("path_expectations") or []))
+    return [
+        value for value in found
+        if value and _CONCRETE_ID_RE.search(value.casefold())
+    ]
+
+
 class ToolStaticValidator:
     """All checks are deterministic and code-authoritative."""
 
@@ -129,6 +320,7 @@ class ToolStaticValidator:
         atomic_inputs = _parameter_map(atomic.inputs)
         atomic_outputs = _parameter_map(atomic.outputs)
         atomic_effects = {_effect_name(item) for item in atomic.effects}
+        proposal_outputs = {str(item.name) for item in proposal.outputs}
         predicate_schema = _predicate_schema(harness)
         known_predicates = {
             str(item.get("predicate", "")).casefold(): item
@@ -146,7 +338,6 @@ class ToolStaticValidator:
                 allowed_action_types = set()
 
         node_ids: set[str] = set()
-        defined_locals: set[str] = set()
         all_nodes = list(_iter_nodes(program))
 
         # 1. opcode whitelist / unique ids / recursion.
@@ -180,23 +371,23 @@ class ToolStaticValidator:
                     fail("tool_ir_for_each_unbounded", f"FOR_EACH {node.get('node_id')} lacks max_iterations")
                 if proposal.max_actions and max_iterations > proposal.max_actions:
                     fail("tool_ir_for_each_unbounded", f"FOR_EACH {node.get('node_id')} exceeds max_actions")
-                source = dict(node.get("collection_source") or {})
-                if str(source.get("source", "")).casefold() not in _COLLECTION_SOURCES:
-                    fail("tool_ir_collection_source_invalid", f"FOR_EACH {node.get('node_id')} collection source invalid")
+                _validate_selector(
+                    _selector_source(node.get("collection_source")),
+                    str(node.get("node_id", "")), fail=fail,
+                )
                 variable = str(node.get("iteration_variable", ""))
                 if not variable:
                     fail("tool_ir_for_each_variable_invalid", f"FOR_EACH {node.get('node_id')} lacks iteration_variable")
-                else:
-                    defined_locals.add(variable)
         checks["tool_ir_for_each_bounded"] = not any(
             code in codes for code in {
                 "tool_ir_for_each_unbounded",
-                "tool_ir_collection_source_invalid",
+                "tool_ir_selector_invalid",
                 "tool_ir_for_each_variable_invalid",
             }
         )
 
-        # 3. Action nodes are harness primitives and argument mapping is closed.
+        # 3. Action nodes are harness primitives and argument mapping is closed
+        #    by strict program-order/branch scope.
         for node, _depth in all_nodes:
             if node["op"] != "ACTION":
                 continue
@@ -206,46 +397,44 @@ class ToolStaticValidator:
             elif allowed_action_types and action_type not in allowed_action_types:
                 fail("tool_ir_action_schema_invalid", f"ACTION {node.get('node_id')} action_type not in Harness schema")
             for role, expression in dict(node.get("argument_mapping") or {}).items():
-                expr = dict(expression) if isinstance(expression, Mapping) else {}
+                expr = _selector_source(expression)
                 kind = str(expr.get("kind", ""))
                 if kind == "skill_input":
                     source_role = str(expr.get("source_role", ""))
                     if source_role not in atomic_inputs:
                         fail("tool_ir_input_closure_invalid", f"ACTION {node.get('node_id')} references unknown input role {source_role}")
-                elif kind == "local_variable":
-                    source_role = str(expr.get("source_role", ""))
-                    if source_role not in defined_locals:
-                        fail("tool_ir_local_closure_invalid", f"ACTION {node.get('node_id')} references unknown local {source_role}")
-                elif kind != "constant":
+                elif kind != "constant" and kind != "local_variable":
                     fail("tool_ir_argument_mapping_invalid", f"ACTION {node.get('node_id')}.{role} has unsupported mapping kind")
         checks["tool_ir_input_closure"] = "tool_ir_input_closure_invalid" not in codes
-        checks["tool_ir_local_closure"] = "tool_ir_local_closure_invalid" not in codes
         checks["tool_ir_action_schema"] = "tool_ir_action_schema_invalid" not in codes
+        checks["tool_ir_argument_mapping"] = "tool_ir_argument_mapping_invalid" not in codes
 
-        # 4. IF condition sources and STOP_WHEN / RETURN closure.
+        # 4. Conditions, RETURN closure and fail-closed lexical scope.
         for node, _depth in all_nodes:
             if node["op"] in {"IF", "STOP_WHEN"}:
-                condition = dict(node.get("condition") or {})
+                condition = _selector_source(node.get("condition"))
                 if str(condition.get("source", "")).casefold() not in _CONDITION_SOURCES:
                     fail("tool_ir_condition_source_invalid", f"{node['op']} {node.get('node_id')} condition source invalid")
                 if not str(condition.get("field", "")):
                     fail("tool_ir_condition_source_invalid", f"{node['op']} {node.get('node_id')} condition lacks field")
+                operator = str(condition.get("op", "exists")).casefold()
+                if operator not in CONDITION_OPERATORS:
+                    fail("tool_ir_condition_operator_unsupported", f"{node['op']} {node.get('node_id')} condition operator invalid")
             if node["op"] == "RETURN":
                 for role, raw in dict(node.get("output_sources") or {}).items():
-                    spec = dict(raw) if isinstance(raw, Mapping) else {"source": "tool_input", "field": role}
+                    spec = _selector_source(raw) if isinstance(raw, Mapping) else {"source": "tool_input", "field": role}
                     source = str(spec.get("source", "tool_input")).casefold()
                     if source not in _RETURN_SOURCES:
                         fail("tool_ir_return_closure_invalid", f"RETURN {node.get('node_id')}.{role} source invalid")
-                    if source in {"tool_input", "local_variable"}:
-                        target = str(spec.get("field", role))
-                        if source == "tool_input" and target not in atomic_inputs:
-                            fail("tool_ir_return_closure_invalid", f"RETURN {node.get('node_id')}.{role} unknown tool input")
-                        if source == "local_variable" and target not in defined_locals:
-                            fail("tool_ir_return_closure_invalid", f"RETURN {node.get('node_id')}.{role} unknown local")
-                    if role not in atomic_outputs and role not in {item.name for item in proposal.outputs}:
+                    if role not in atomic_outputs and role not in proposal_outputs:
                         fail("tool_ir_return_closure_invalid", f"RETURN {node.get('node_id')}.{role} is not an Atomic/proposal output")
+        _scope_pass(
+            program, atomic_inputs=set(atomic_inputs), fail=fail,
+        )
         checks["tool_ir_condition_source"] = "tool_ir_condition_source_invalid" not in codes
+        checks["tool_ir_condition_operator"] = "tool_ir_condition_operator_unsupported" not in codes
         checks["tool_ir_return_closure"] = "tool_ir_return_closure_invalid" not in codes
+        checks["tool_ir_local_scope"] = "tool_ir_local_scope_invalid" not in codes
 
         # 5. Predicate vocabulary and effect domain.
         def validate_predicates(predicates: Iterable[Any], *, code: str) -> None:
@@ -278,7 +467,7 @@ class ToolStaticValidator:
         if missing:
             fail("tool_ir_final_effects_missing", f"final effects missing {missing}")
 
-        # 7. Portability / no arbitrary code / no episode concrete IDs.
+        # 7. Portability / no arbitrary code / recursive episode-leakage scan.
         text_blob = str(to_primitive(proposal.program)).casefold()
         lowered = text_blob.casefold()
         arbitrary = [marker for marker in _FORBIDDEN_CODE_MARKERS if marker in lowered]
@@ -286,19 +475,15 @@ class ToolStaticValidator:
         if arbitrary:
             fail("tool_ir_arbitrary_code", f"forbidden executable marker(s): {arbitrary}")
 
-        concrete_ids: list[str] = []
-        for node, _depth in all_nodes:
-            if node["op"] != "ACTION":
-                continue
-            for raw in dict(node.get("argument_mapping") or {}).values():
-                expr = dict(raw) if isinstance(raw, Mapping) else {}
-                if str(expr.get("kind", "")) == "constant":
-                    value = str(expr.get("constant", ""))
-                    if re.search(r"(?:^|[ _])(?:[a-z0-9]+[ _])?\d+$", value.casefold()):
-                        concrete_ids.append(value)
+        concrete_ids = _concrete_ids_from_nodes(program)
+        for raw in proposal.path_expectations:
+            concrete_ids.extend(
+                value for value in _iter_string_values(raw)
+                if value and _CONCRETE_ID_RE.search(value.casefold())
+            )
         checks["tool_ir_no_episode_concrete_ids"] = not concrete_ids
         if concrete_ids:
-            fail("tool_ir_episode_concrete_id", f"episode concrete constant(s): {concrete_ids[:5]}")
+            fail("tool_ir_episode_concrete_id", f"episode concrete constant(s): {list(dict.fromkeys(concrete_ids))[:5]}")
 
         # 8. Evidence outputs are deterministically verifiable.
         evidence_ok = True
@@ -313,12 +498,47 @@ class ToolStaticValidator:
         checks["tool_ir_static_safe"] = not codes
         return ToolStaticReport(not codes, checks, codes, messages, paths)
 
+    def validate_tool_asset(
+        self,
+        tool: Any,
+        atomic: AbstractAtomicSkill,
+        harness: Any,
+    ) -> ToolStaticReport:
+        """Revalidate a persisted ToolAsset with the same static authority."""
+
+        artifact = dict(tool.artifact or {})
+        program = [dict(item) for item in artifact.get("program", [])]
+        outputs = [
+            ParameterSpec(str(name), "entity")
+            for name in (
+                tool.interface.get("output_schema", {}).get("properties", {})
+            )
+        ]
+        proposal = ToolProposal(
+            proposal_version="1",
+            decision="create",
+            summary=str(tool.summary),
+            atomic_ref=str(atomic.ref),
+            inputs=list(atomic.inputs),
+            outputs=outputs or list(atomic.outputs),
+            program=program,
+            max_actions=int(artifact.get("max_actions", 0) or 0),
+            final_effects=[_as_semantic(item) for item in artifact.get("final_effects", [])],
+            evidence_outputs=[dict(item) for item in artifact.get("evidence_outputs", [])],
+            path_expectations=[dict(item) for item in artifact.get("path_expectations", [])],
+            rationale=str(tool.metadata.get("tool_builder_rationale", "")),
+        )
+        return self.validate_proposal(proposal, atomic, harness)
+
     def validate_automation_draft(
         self,
         draft: RuntimeAutomationAtomicDraft,
         harness: Any,
+        *,
+        ctx: Any | None = None,
+        occurrence: Any | None = None,
     ) -> ValidationResult:
-        """R0: structure only, before any Tool execution."""
+        """R0: structure and task-local input binding authority."""
 
         checks: dict[str, bool] = {}
         codes: list[str] = []
@@ -351,10 +571,7 @@ class ToolStaticValidator:
         else:
             checks["draft_predicate_vocabulary"] = True
 
-        domains = {
-            str(item.effect_domain.value)
-            for item in draft.effects
-        }
+        domains = {str(item.effect_domain.value) for item in draft.effects}
         checks["draft_effect_domain"] = domains <= {"world", "evidence"}
         if not checks["draft_effect_domain"]:
             fail("runtime_automation_r0_effect_domain", f"invalid effect domains {sorted(domains)}")
@@ -364,6 +581,68 @@ class ToolStaticValidator:
         checks["draft_no_arbitrary_code"] = not arbitrary
         if arbitrary:
             fail("runtime_automation_r0_arbitrary_code", f"forbidden marker(s): {arbitrary}")
+
+        specs = dict(getattr(draft, "input_binding_specs", None) or {})
+        checks["draft_input_binding_specs"] = True
+        for role, raw in specs.items():
+            spec = _selector_source(raw)
+            kind = str(spec.get("kind", "")).casefold()
+            if role not in {str(item.name) for item in draft.inputs}:
+                checks["draft_input_binding_specs"] = False
+                fail("runtime_automation_input_binding_invalid", f"input_binding_specs role {role} is not a draft input")
+                continue
+            if kind not in _INPUT_BINDING_KINDS:
+                checks["draft_input_binding_specs"] = False
+                fail("runtime_automation_input_binding_invalid", f"input_binding_specs.{role} has unsupported kind {kind}")
+                continue
+            if ctx is not None and occurrence is not None:
+                binding_store = getattr(ctx, "binding_store", None)
+                snapshot = binding_store.snapshot_for_node(occurrence) if binding_store is not None else {}
+                resolved: Any = None
+                if kind == "current_occurrence_anchor":
+                    source_role = str(spec.get("source_role", ""))
+                    anchor = binding_store.semantic_anchor_for(occurrence, source_role) if binding_store is not None else None
+                    resolved = getattr(anchor, "value", None) if anchor is not None else None
+                    if not source_role or resolved in (None, ""):
+                        fail("runtime_automation_input_binding_invalid", f"{role}: current_occurrence_anchor.{source_role} unavailable")
+                elif kind in {"current_confirmed_binding", "current_candidate_binding"}:
+                    source_role = str(spec.get("source_role", ""))
+                    binding = snapshot.get(source_role)
+                    if binding is None:
+                        fail("runtime_automation_input_binding_invalid", f"{role}: binding {source_role} unavailable")
+                        continue
+                    status = str(getattr(binding, "status", "")).casefold()
+                    if kind == "current_confirmed_binding" and status != "grounded":
+                        fail("runtime_automation_input_binding_invalid", f"{role}: binding {source_role} is not confirmed")
+                    resolved = getattr(binding, "value", None)
+                elif kind == "data_flow":
+                    source_role = str(spec.get("source_role", ""))
+                    outputs = getattr(ctx, "validated_outputs", {}) or {}
+                    resolved = outputs.get(occurrence.occurrence_id, {}).get(source_role)
+                    if resolved in (None, "") and binding_store is not None:
+                        output_binding = binding_store.validated_outputs(occurrence.occurrence_id).get(source_role)
+                        resolved = getattr(output_binding, "value", None) if output_binding is not None else None
+                    if resolved in (None, ""):
+                        fail("runtime_automation_input_binding_invalid", f"{role}: data_flow.{source_role} unavailable")
+                elif kind == "constant":
+                    resolved = spec.get("value")
+                    if resolved in (None, "") or (
+                        isinstance(resolved, str) and _CONCRETE_ID_RE.search(resolved.casefold())
+                    ):
+                        fail("runtime_automation_input_binding_invalid", f"{role}: invalid episode concrete constant")
+                if resolved not in (None, "") and kind != "constant":
+                    input_spec = next(
+                        (item for item in draft.inputs if str(item.name) == role),
+                        None,
+                    )
+                    semantic_type = str(
+                        getattr(input_spec, "semantic_type", "") or "entity"
+                    )
+                    anchor_value = resolved
+                    if isinstance(resolved, (str, int, float)) and hasattr(harness, "semantic_value_compatible"):
+                        # Concrete identity compatibility is checked by the
+                        # regular R0 effect/binding path; keep R0 structural here.
+                        pass
 
         checks["draft_no_episode_leakage"] = not bool(
             draft.source_occurrence_id
@@ -376,9 +655,20 @@ class ToolStaticValidator:
             )
         )
         passed = all(checks.values()) and not codes
-        return ValidationResult(
-            "tool_r0", passed, checks, codes, messages,
-        )
+        return ValidationResult("tool_r0", passed, checks, codes, messages)
+
+
+def _as_semantic(value: Any) -> SemanticPredicate:
+    if isinstance(value, SemanticPredicate):
+        return value
+    raw = dict(value)
+    return SemanticPredicate(
+        predicate=str(raw.get("predicate", "")),
+        args=dict(raw.get("args") or {}),
+        cardinality=int(raw.get("cardinality", 1)),
+        distinct_by=str(raw.get("distinct_by", "")),
+        effect_domain=str(raw.get("effect_domain", "world")),
+    )
 
 
 __all__ = ["ToolStaticReport", "ToolStaticValidator"]

@@ -296,7 +296,7 @@ def test_existing_incomplete_database_schema_fails_closed_at_startup(tmp_path: P
 def test_formal_train_max_task_attempts_config_is_strict_positive_integer() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     config_path = repo_root / "configs" / "alfworld_train_full_30.yaml"
-    output_dir = repo_root / "runs" / "alfworld_train_full_30"
+    output_dir = repo_root / "runs" / "alfworld_train_full_30_v32"
     config = load_config(config_path)
     assert config["experiment"]["max_task_attempts"] == 3
     _validate_formal_config(config, output_dir)

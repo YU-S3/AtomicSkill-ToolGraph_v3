@@ -1,9 +1,9 @@
 # Fixed AtomicSkillGraph v3 full-method ALFWorld online-training protocol.
 # The six task types and counts below are part of the experiment contract.
 schema_version: 3
-method_patch: "3.1"
+method_patch: "3.2"
 
-data_dir: runs/alfworld_train_full_30/data_v3
+data_dir: runs/alfworld_train_full_30_v32/data_v3
 
 llm:
   provider: openai_compatible
@@ -51,6 +51,12 @@ llm:
     request_timeout_seconds: 600
     max_turns: 2
     max_total_tokens_per_task: 262144
+
+  tool_builder:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
 
   evolution_repair:
     reasoning_effort: high
@@ -100,15 +106,15 @@ extraction:
   skip_stable_direct_success: true
 
 experiment:
-  name: alfworld_train_full_30
+  name: alfworld_train_full_30_v32
   phase: train
   condition: full
   runtime_mode: online
   freeze_skills: false
   seed: 42
-  output_dir: runs/alfworld_train_full_30
-  task_manifest_path: runs/alfworld_train_full_30/task_manifest.json
-  frozen_snapshot_dir: runs/alfworld_train_full_30/frozen/data_v3
+  output_dir: runs/alfworld_train_full_30_v32
+  task_manifest_path: runs/alfworld_train_full_30_v32/task_manifest.json
+  frozen_snapshot_dir: runs/alfworld_train_full_30_v32/frozen/data_v3
   initialize_v3_bank: empty
   resume_completed_task_boundary_only: true
   max_task_attempts: 3

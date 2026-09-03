@@ -13,6 +13,12 @@ from typing import Any, Mapping, Sequence
 from .proposal import ToolProgramOp
 
 
+CONDITION_OPERATORS = frozenset({
+    "exists", "not_exists", "equals", "not_equals",
+    "contains", "empty", "non_empty",
+})
+
+
 @dataclass
 class ToolExecutionState:
     bindings: dict[str, Any] = field(default_factory=dict)
@@ -27,6 +33,12 @@ class ToolExecutionState:
     unvalidated_paths: list[str] = field(default_factory=list)
     loop_iteration_counts: dict[str, int] = field(default_factory=dict)
     stop_condition_witnesses: list[str] = field(default_factory=list)
+    executed_action_count: int = 0
+    max_actions: int = 0
+    step_effect_results: list[dict[str, Any]] = field(default_factory=list)
+    failure_code: str = ""
+    failure_message: str = ""
+    program_node_id: str = ""
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:
@@ -99,6 +111,8 @@ def evaluate_condition(condition: Any, state: ToolExecutionState) -> bool:
     field_name = str(condition.get("field", ""))
     operator = str(condition.get("op", "exists")).casefold()
     expected = condition.get("value")
+    if operator not in CONDITION_OPERATORS:
+        raise ValueError("tool_ir_condition_operator_unsupported")
 
     if source not in {
         "tool_input", "local_variable", "action_catalog",
@@ -130,33 +144,138 @@ def evaluate_condition(condition: Any, state: ToolExecutionState) -> bool:
     raise ValueError("tool_ir_condition_operator_unsupported")
 
 
-def resolve_collection(collection_source: Any, state: ToolExecutionState) -> list[Any]:
+def _selector_entries(
+    source: Mapping[str, Any],
+    entries: Sequence[Mapping[str, Any]],
+    state: ToolExecutionState,
+    *,
+    semantic_compatible: Any = None,
+) -> list[Mapping[str, Any]]:
+    """Apply one declarative selector without introducing a new opcode."""
+
+    selected: list[Mapping[str, Any]] = []
+    where = _as_mapping(source.get("where"))
+    for entry in entries:
+        item = dict(entry)
+        if where.get("action_type") is not None and str(
+            item.get("action_type", "")
+        ) != str(where.get("action_type", "")):
+            continue
+        arguments = _as_mapping(item.get("arguments"))
+        ok = True
+        for raw_role, expected in where.items():
+            if raw_role in {"action_type", "argument_role", "semantic_compatible_with"}:
+                continue
+            if raw_role.endswith("_in"):
+                roles = [str(value) for value in expected] if isinstance(expected, (list, tuple)) else [str(expected)]
+            else:
+                roles = [str(raw_role)]
+            for role in roles:
+                actual = arguments.get(role)
+                if expected is not None and actual != expected:
+                    ok = False
+                    break
+            if not ok:
+                break
+        semantic = _as_mapping(where.get("semantic_compatible_with"))
+        if ok and semantic:
+            anchor = _lookup(
+                str(semantic.get("source", "")),
+                str(semantic.get("field", "")),
+                state,
+            )
+            role = str(semantic.get("argument_role") or where.get("argument_role") or "")
+            value = arguments.get(role)
+            if not callable(semantic_compatible):
+                ok = False
+            elif not bool(semantic_compatible(
+                role=role,
+                concrete_value=value,
+                semantic_anchor=anchor,
+                semantic_type=str(semantic.get("semantic_type", "entity")),
+            )):
+                ok = False
+        if ok:
+            selected.append(item)
+    return selected
+
+
+def _project(entry: Mapping[str, Any], source: Mapping[str, Any]) -> Any:
+    project = _as_mapping(source.get("project"))
+    if not project:
+        field_name = str(source.get("field", ""))
+        return entry.get(field_name)
+    kind = str(project.get("kind", "field")).casefold()
+    if kind == "argument":
+        role = str(project.get("role", ""))
+        arguments = _as_mapping(entry.get("arguments"))
+        return arguments.get(role)
+    field_name = str(project.get("field", ""))
+    return entry.get(field_name)
+
+
+def resolve_collection(
+    collection_source: Any,
+    state: ToolExecutionState,
+    *,
+    semantic_compatible: Any = None,
+) -> list[Any]:
     source = _as_mapping(collection_source)
     kind = str(source.get("source", "")).casefold()
-    if kind == "tool_input":
-        value = state.bindings.get(str(source.get("field", "")))
-        return list(value) if isinstance(value, (list, tuple)) else []
-    if kind == "local_variable":
-        value = state.local.get(str(source.get("field", "")))
-        return list(value) if isinstance(value, (list, tuple)) else []
-    if kind == "action_catalog":
-        field_name = str(source.get("field", ""))
-        values: list[Any] = []
-        for item in state.catalog:
-            if field_name and field_name in item:
-                values.append(item[field_name])
-        return values
-    if kind == "semantic_evidence":
-        field_name = str(source.get("field", ""))
-        values = []
-        for item in state.semantic_facts:
-            if field_name and field_name in item:
-                values.append(item[field_name])
-        return values
-    if kind == "local_deterministic":
-        values = source.get("values")
-        return list(values) if isinstance(values, (list, tuple)) else []
-    raise ValueError("tool_ir_collection_source_unsupported")
+    if kind in {"tool_input", "local_variable"}:
+        value = (
+            state.bindings.get(str(source.get("field", "")))
+            if kind == "tool_input"
+            else state.local.get(str(source.get("field", "")))
+        )
+        values = list(value) if isinstance(value, (list, tuple)) else []
+    elif kind == "action_catalog":
+        values = [
+            _project(item, source)
+            for item in _selector_entries(
+                source, state.catalog, state,
+                semantic_compatible=semantic_compatible,
+            )
+        ]
+    elif kind == "semantic_evidence":
+        values = [
+            _project(item, source)
+            for item in _selector_entries(
+                source, state.semantic_facts, state,
+                semantic_compatible=semantic_compatible,
+            )
+        ]
+    elif kind == "binding_evidence":
+        values = [
+            _project(item, source)
+            for item in _selector_entries(
+                source, state.binding_evidence, state,
+                semantic_compatible=semantic_compatible,
+            )
+        ]
+    elif kind == "local_deterministic":
+        raw_values = source.get("values", [])
+        values = list(raw_values) if isinstance(raw_values, (list, tuple)) else []
+        project = _as_mapping(source.get("project"))
+        if project:
+            values = [
+                _project(item, source)
+                for item in values
+                if isinstance(item, Mapping)
+            ]
+    else:
+        raise ValueError("tool_ir_collection_source_unsupported")
+    if bool(source.get("distinct", False)):
+        unique: list[Any] = []
+        for value in values:
+            try:
+                duplicate = value in unique
+            except TypeError:
+                duplicate = any(repr(value) == repr(item) for item in unique)
+            if not duplicate:
+                unique.append(value)
+        values = unique
+    return values
 
 
 def resolve_return_sources(
@@ -258,6 +377,7 @@ def program_paths(program: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
 
 
 __all__ = [
+    "CONDITION_OPERATORS",
     "ToolExecutionState",
     "evaluate_condition",
     "normalize_tool_program",

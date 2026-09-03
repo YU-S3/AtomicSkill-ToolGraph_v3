@@ -24,10 +24,18 @@ def _spec(action_type: str, **arguments: str) -> HarnessActionSpec:
     )
 
 
-def _record(channel: AlfWorldValidatorChannel, revision: int, action_type: str, **arguments: str) -> None:
+def _record(
+    channel: AlfWorldValidatorChannel,
+    revision: int,
+    action_type: str,
+    observation: str = "",
+    **arguments: str,
+) -> None:
+    if not observation and action_type == "USE":
+        observation = "You turn on the lamp."
     channel.record(
         _spec(action_type, **arguments), accepted=True, revision=revision,
-        done=False, won=False,
+        done=False, won=False, observation=observation,
     )
 
 
@@ -206,9 +214,9 @@ def test_look_witness_is_derived_from_current_conjunctive_state() -> None:
     }
     assert expected in channel.snapshot()["facts"]  # TAKE -> USE
 
-    _record(channel, 4, "USE", object="desklamp_1")
+    _record(channel, 4, "USE", observation="You turn off the lamp.", object="desklamp_1")
     assert expected not in channel.snapshot()["facts"]  # light off
-    _record(channel, 5, "USE", object="desklamp_1")
+    _record(channel, 5, "USE", observation="You turn on the lamp.", object="desklamp_1")
     _record(channel, 6, "PUT", object="book_1", destination="desk_1")
     assert expected not in channel.snapshot()["facts"]  # no longer held
 
@@ -228,7 +236,7 @@ def test_look_witness_is_order_independent_and_location_scoped() -> None:
     assert expected not in channel.snapshot()["facts"]
     _record(channel, 5, "GO_TO", destination="desk_1")
     assert expected in channel.snapshot()["facts"]
-    _record(channel, 6, "USE", object="desklamp_1")
+    _record(channel, 6, "USE", observation="You turn off the lamp.", object="desklamp_1")
     assert expected not in channel.snapshot()["facts"]
 
 

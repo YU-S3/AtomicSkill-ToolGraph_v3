@@ -929,6 +929,10 @@ class NodeExecutor:
                         "type": "object",
                         "additionalProperties": {"type": "string"},
                     },
+                    "output_mapping": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                    },
                 },
             },
         )
@@ -1050,6 +1054,33 @@ class NodeExecutor:
         )
         return status, payload
 
+    @staticmethod
+    def _resolve_support_output_mapping(
+        call: Any, candidate: Any,
+    ) -> dict[str, str] | None:
+        mappings = {
+            str(item.producer_role): str(item.consumer_role)
+            for item in getattr(candidate, "role_mappings", ())
+        }
+        if not mappings:
+            return None
+        requested = dict(call.arguments.get("output_mapping") or {})
+        if not requested:
+            if len(set(mappings.values())) == 1 and len(mappings) == 1:
+                return dict(mappings)
+            return None
+        allowed: dict[str, set[str]] = {}
+        for item in getattr(candidate, "role_mappings", ()):
+            allowed.setdefault(str(item.producer_role), set()).add(
+                str(item.consumer_role)
+            )
+        if set(requested) - set(allowed):
+            return None
+        for producer_role, consumer_role in requested.items():
+            if consumer_role not in allowed.get(producer_role, set()):
+                return None
+        return requested
+
     def _invoke_support_atomic_call(
         self,
         call: Any,
@@ -1088,6 +1119,19 @@ class NodeExecutor:
             )
             return payload
         arguments = dict(call.arguments.get("arguments") or {})
+        output_mapping = self._resolve_support_output_mapping(
+            call, candidate,
+        )
+        if output_mapping is None:
+            payload = {
+                "accepted": False,
+                "error": "support_atomic_output_mapping_invalid",
+            }
+            self._record_control_call(
+                call, session, occurrence, ctx,
+                call_kind="support_atomic_invocation", result=payload,
+            )
+            return payload
         support_occurrence = RuntimeOccurrence(
             step_id=f"support_for_{occurrence.step_id}",
             occurrence_id=f"support_{occurrence.occurrence_id}_{uuid.uuid4().hex[:8]}",
@@ -1135,9 +1179,10 @@ class NodeExecutor:
                 str(item.name) for item in atomic.inputs
             }
             support_outputs = {
-                role: value
-                for role, value in result.validated_outputs.items()
-                if role in blocked_input_roles
+                consumer_role: result.validated_outputs[producer_role]
+                for producer_role, consumer_role in output_mapping.items()
+                if producer_role in result.validated_outputs
+                and consumer_role in blocked_input_roles
             }
             if support_outputs:
                 ctx.binding_store.publish_validated_outputs(
@@ -1165,7 +1210,8 @@ class NodeExecutor:
                 "support_atomic_ref": str(support_ref),
                 "producer_occurrence_id": support_occurrence.occurrence_id,
                 "consumer_occurrence_id": occurrence.occurrence_id,
-                "data_flow_roles": sorted(support_outputs),
+                "data_flow_roles": sorted(output_mapping.items()),
+                "output_mapping": dict(output_mapping),
                 "reason": "missing_binding_support",
             })
         # Return active context to the blocked occurrence.
@@ -1279,6 +1325,15 @@ class NodeExecutor:
                             call.arguments
                         )
                     except (SchemaValidationError, KeyError, TypeError) as exc:
+                        v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
+                            "v32_metrics", {}
+                        )
+                        v32_metrics["runtime_automation_atomic_proposal_count"] = int(
+                            v32_metrics.get("runtime_automation_atomic_proposal_count", 0)
+                        ) + 1
+                        v32_metrics["runtime_automation_r0_reject_count"] = int(
+                            v32_metrics.get("runtime_automation_r0_reject_count", 0)
+                        ) + 1
                         payload = {
                             "accepted": False,
                             "error": "runtime_automation_r0_rejected",
@@ -1294,9 +1349,6 @@ class NodeExecutor:
                         )
                         v32_metrics["runtime_automation_atomic_proposal_count"] = int(
                             v32_metrics.get("runtime_automation_atomic_proposal_count", 0)
-                        ) + 1
-                        v32_metrics["runtime_automation_r0_pass_count"] = int(
-                            v32_metrics.get("runtime_automation_r0_pass_count", 0)
                         ) + 1
                         ctx.record_r3_event(
                             "runtime_automation_proposed",
@@ -1320,6 +1372,17 @@ class NodeExecutor:
                             ctx.runtime_automation_drafts[draft.draft_id].update(
                                 to_primitive(outcome)
                             )
+                            v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
+                                "v32_metrics", {}
+                            )
+                            if outcome.r0_passed:
+                                v32_metrics["runtime_automation_r0_pass_count"] = int(
+                                    v32_metrics.get("runtime_automation_r0_pass_count", 0)
+                                ) + 1
+                            else:
+                                v32_metrics["runtime_automation_r0_reject_count"] = int(
+                                    v32_metrics.get("runtime_automation_r0_reject_count", 0)
+                                ) + 1
                             if outcome.trial is not None:
                                 v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
                                     "v32_metrics", {}
@@ -1667,6 +1730,12 @@ class NodeExecutor:
                             "stage": "r0",
                         }
                         payload = {"accepted": True, "draft_id": draft.draft_id}
+                        v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
+                            "v32_metrics", {}
+                        )
+                        v32_metrics["runtime_automation_atomic_proposal_count"] = int(
+                            v32_metrics.get("runtime_automation_atomic_proposal_count", 0)
+                        ) + 1
                         if self.automation_coordinator is not None:
                             outcome = self.automation_coordinator.process_draft(
                                 draft=draft, ctx=ctx, occurrence=occurrence,
@@ -1674,6 +1743,14 @@ class NodeExecutor:
                             ctx.runtime_automation_drafts[draft.draft_id].update(
                                 to_primitive(outcome)
                             )
+                            if outcome.r0_passed:
+                                v32_metrics["runtime_automation_r0_pass_count"] = int(
+                                    v32_metrics.get("runtime_automation_r0_pass_count", 0)
+                                ) + 1
+                            else:
+                                v32_metrics["runtime_automation_r0_reject_count"] = int(
+                                    v32_metrics.get("runtime_automation_r0_reject_count", 0)
+                                ) + 1
                             payload.update(to_primitive(outcome))
                         else:
                             payload.update({"r0_passed": True, "stage": "r0_pass"})
@@ -1882,16 +1959,12 @@ class NodeExecutor:
                     "task_contract", False,
                 )
             )
-            strict_success = bool(
-                benchmark_won and task_contract_success
-            )
             return {
                 "benchmark_won": benchmark_won,
                 "task_contract_success": task_contract_success,
-                "strict_success": strict_success,
-                # Compatibility alias; unlike the old result, its exact
-                # strict meaning is now explicit beside both components.
-                "success": strict_success,
+                # v3.2: benchmark won is the sole task-success authority.
+                "strict_success": benchmark_won,
+                "success": benchmark_won,
                 "failure_code": failure_code,
                 "rescue": rescue,
                 "cold_start_continuation": cold_start_continuation,
@@ -1959,7 +2032,7 @@ class NodeExecutor:
             bool(getattr(ctx.harness.validator_channel(), "won", False)),
         )
         result = outcome(terminal)
-        # Guard against a future validator implementation accidentally
-        # diverging from the loop's strict completion flag.
-        result["success"] = result["strict_success"]
+        # Keep success aligned with the benchmark terminal authority.
+        result["strict_success"] = result["benchmark_won"]
+        result["success"] = result["benchmark_won"]
         return result

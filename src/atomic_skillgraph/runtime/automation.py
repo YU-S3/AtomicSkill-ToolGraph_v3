@@ -93,7 +93,7 @@ class RuntimeAutomationCoordinator:
         occurrence: Any,
     ) -> RuntimeAutomationOutcome:
         r0 = self.static_validator.validate_automation_draft(
-            draft, ctx.harness,
+            draft, ctx.harness, ctx=ctx, occurrence=occurrence,
         )
         if not r0.passed:
             return RuntimeAutomationOutcome(
@@ -123,10 +123,7 @@ class RuntimeAutomationCoordinator:
                 atomic=atomic,
                 provenance=provenance,
                 evidence_support=[],
-                semantic_delta={
-                    "observation": ctx.observation,
-                    "revision": int(ctx.world_revision),
-                },
+                semantic_delta=ctx.tool_evidence_snapshot(),
                 harness_interface={
                     "profile": getattr(ctx.harness, "profile_name", ""),
                     "predicate_vocabulary": to_primitive(
@@ -182,13 +179,9 @@ class RuntimeAutomationCoordinator:
                 message=str(exc),
             )
 
-        trial_bindings = {
-            role: binding.value
-            for role, binding in ctx.binding_store.snapshot_for_node(
-                occurrence,
-            ).items()
-            if binding.value is not None
-        }
+        trial_bindings = self._resolve_trial_bindings(
+            draft, ctx, occurrence,
+        )
         preflight = ToolCallPreflightResult(
             True,
             str(compiled.implementation.ref),
@@ -197,13 +190,33 @@ class RuntimeAutomationCoordinator:
         result = self.implementation_runner.run(
             compiled, preflight, occurrence, ctx, agent_prepared=False,
         )
+        tool_results = list(result.tool_results)
+        tool_completed = bool(
+            tool_results and all(bool(tool.completed) for tool in tool_results)
+        )
+        terminal_interrupted = bool(
+            tool_results and any(tool.terminal_interrupted for tool in tool_results)
+        )
+        tool_intrinsic_failure = bool(
+            tool_results and any(tool.intrinsic_failure for tool in tool_results)
+        )
+        outputs_valid = bool(
+            result.validated_outputs
+            and all(value not in (None, "") for value in result.validated_outputs.values())
+        )
+        atomic_effect_passed = bool(result.atomic_effect_passed)
         r1_passed = bool(
             result.started
-            and result.atomic_effect_passed
-            and all(
-                bool(tool.completed or tool.terminal_interrupted)
-                for tool in result.tool_results
-            )
+            and atomic_effect_passed
+            and tool_completed
+            and outputs_valid
+        )
+        admission_eligible = bool(
+            atomic_effect_passed
+            and tool_completed
+            and outputs_valid
+            and not tool_intrinsic_failure
+            and not terminal_interrupted
         )
         trial = {
             "draft_id": draft.draft_id,
@@ -211,10 +224,26 @@ class RuntimeAutomationCoordinator:
             "tool_ref": str(compiled.tool.ref),
             "implementation_ref": str(compiled.implementation.ref),
             "result": to_primitive(result),
-            "terminal_interrupted": bool(
-                result.tool_results
-                and result.tool_results[0].terminal_interrupted
-            ),
+            "r1": {
+                "atomic_effect_passed": atomic_effect_passed,
+                "executed_path_effects_passed": all(
+                    not dict(tool.tool_path_evidence or {}).get(
+                        "step_effect_results", []
+                    )
+                    or all(
+                        bool(item.get("step_effect_passed", True))
+                        for item in dict(tool.tool_path_evidence or {}).get(
+                            "step_effect_results", []
+                        )
+                    )
+                    for tool in tool_results
+                ),
+                "tool_completed": tool_completed,
+                "terminal_interrupted": terminal_interrupted,
+                "outputs_valid": outputs_valid,
+                "admission_eligible": admission_eligible,
+            },
+            "terminal_interrupted": terminal_interrupted,
         }
         ctx.runtime_tool_trials[draft.draft_id] = trial
         return RuntimeAutomationOutcome(
@@ -224,10 +253,57 @@ class RuntimeAutomationCoordinator:
             static_report=to_primitive(static),
             trial=trial,
             r1_passed=bool(r1_passed),
-            r1_report={"passed": bool(r1_passed)},
+            r1_report=trial["r1"],
             failure_code="" if r1_passed else "runtime_automation_r1_rejected",
-            message="" if r1_passed else "task-local trial did not pass R1",
+            message="" if r1_passed else "task-local trial did not pass full R1",
         )
+
+    @staticmethod
+    def _resolve_trial_bindings(
+        draft: RuntimeAutomationAtomicDraft,
+        ctx: Any,
+        occurrence: Any,
+    ) -> dict[str, Any]:
+        """Resolve task-local Automation inputs from their frozen binding specs."""
+
+        bindings: dict[str, Any] = {}
+        specs = dict(getattr(draft, "input_binding_specs", None) or {})
+        snapshot = ctx.binding_store.snapshot_for_node(occurrence)
+        validated_outputs = getattr(ctx, "validated_outputs", {}) or {}
+        for role, raw in specs.items():
+            spec = dict(raw) if isinstance(raw, dict) else {}
+            kind = str(spec.get("kind", "")).casefold()
+            source_role = str(spec.get("source_role", ""))
+            if kind == "current_occurrence_anchor":
+                anchor = ctx.binding_store.semantic_anchor_for(
+                    occurrence, source_role,
+                )
+                value = getattr(anchor, "value", None)
+            elif kind in {"current_confirmed_binding", "current_candidate_binding"}:
+                binding = snapshot.get(source_role)
+                value = getattr(binding, "value", None)
+            elif kind == "data_flow":
+                value = validated_outputs.get(
+                    occurrence.occurrence_id, {},
+                ).get(source_role)
+                if value in (None, ""):
+                    output_binding = ctx.binding_store.validated_outputs(
+                        occurrence.occurrence_id,
+                    ).get(source_role)
+                    value = getattr(output_binding, "value", None)
+            elif kind == "constant":
+                value = spec.get("value")
+            else:
+                value = None
+            if value is not None:
+                bindings[role] = value
+        if not specs:
+            bindings = {
+                role: binding.value
+                for role, binding in snapshot.items()
+                if binding.value is not None
+            }
+        return bindings
 
     def _synthetic_occurrence(self, draft: Any, ctx: Any, occurrence: Any):
         from ..evolution.atomicizer import CanonicalAtomicOccurrence

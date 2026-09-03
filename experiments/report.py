@@ -944,7 +944,7 @@ def render_markdown(
     outcome = (
         ("Tasks", summary.get("task_count")),
         ("Official ALFWorld won", _percent(summary.get("official_alfworld_won_rate"))),
-        ("Strict TaskContract success", _percent(summary.get("strict_task_success_rate"))),
+        ("Benchmark success (deprecated alias: strict_task_success)", _percent(summary.get("strict_task_success_rate"))),
         ("Learning-eligible success", _percent(summary.get("learning_eligible_success_rate"))),
         (
             "Graph self-sufficient success",

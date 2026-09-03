@@ -300,10 +300,7 @@ class ContextBuilder:
     ) -> str:
         atomic_view = _project(
             atomic,
-            (
-                "summary", "inputs", "outputs", "preconditions", "effects",
-                "metadata",
-            ),
+            ("summary", "inputs", "outputs", "preconditions", "effects"),
         )
         # The frozen ToolBuilder context never includes the complete task goal,
         # full trace, full planner history, full skill bank, or old Tool bodies.
@@ -336,11 +333,13 @@ class ContextBuilder:
             "local_failure_facts": [
                 _policy_value(item) for item in local_failures or ()
             ],
-            "provenance": _policy_value(dict(
-                to_primitive(provenance)
-                if is_dataclass(provenance)
-                else provenance or {}
-            )),
+            "source_kind": (
+                "success_evolution"
+                if getattr(provenance, "source", "") == "success_evolution"
+                else "runtime_automation"
+                if getattr(provenance, "source", "") == "runtime_automation"
+                else str(getattr(provenance, "source", "unknown"))
+            ),
         }
         return _render(
             "You are ToolBuilder, the only v3.2 Tool Program author. "
@@ -426,13 +425,15 @@ Use state-transition evidence rather than action wording as authority.
 
 Do not extract:
 - pure observation with no authoritative transition;
-- search or exploration detours;
 - repeated checks;
 - failed attempts;
 - loops;
 - recovery actions;
-unless an accepted event in that slice is causally necessary to replay the
-verified primary transition.
+- incidental search/exploration detours that have no reusable, validated
+  evidence-domain Effect.
+A bounded Runtime-created automation that has passed R1 and produces an
+authoritative reusable evidence-domain Effect is not an incidental detour;
+review it as an ordinary Atomic candidate.
 
 A setup/helper action belongs inside an occurrence only when it is necessary
 to replay the occurrence's core transition. A durable independently useful

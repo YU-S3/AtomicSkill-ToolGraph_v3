@@ -341,6 +341,8 @@ class ColdStartPlanProposal:
 class PlannerAudit:
     composite_candidates: list[dict[str, Any]] = field(default_factory=list)
     composite_rejections: list[dict[str, Any]] = field(default_factory=list)
+    terminal_empirical_candidates: list[dict[str, Any]] = field(default_factory=list)
+    selected_composite_authority: dict[str, Any] = field(default_factory=dict)
     selected_composite: str | None = None
     requirements_p1: dict[str, Any] = field(default_factory=dict)
     atomic_search_p1: dict[str, Any] = field(default_factory=dict)
