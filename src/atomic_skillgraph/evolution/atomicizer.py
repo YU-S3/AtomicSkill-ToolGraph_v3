@@ -385,18 +385,22 @@ def _input_authorities(
             continue
         event_id = str(event.get("event_id", event.get("action_id", "")))
         for role, value in dict(event.get("arguments") or {}).items():
-            authority = {
-                "authority_ref": f"action_arg:{event_id}:{role}",
+            base_authority = {
                 "kind": "action_argument",
                 "role": str(role),
                 "value": value,
                 "event_id": event_id,
                 "argument_role": str(role),
             }
-            identity = _authority_ref_identity(authority)
-            if identity not in seen:
-                seen.add(identity)
-                authorities.append(authority)
+            for ref in {
+                f"action_arg:{event_id}:{role}",
+                f"action:{event_id}:revision:{event.get('after_revision', '')}",
+            }:
+                authority = {**base_authority, "authority_ref": ref}
+                identity = _authority_ref_identity(authority)
+                if identity not in seen:
+                    seen.add(identity)
+                    authorities.append(authority)
     return authorities
 
 
@@ -610,6 +614,10 @@ class Atomicizer:
                     str(item.get("event_id", item.get("action_id", ""))): item
                     for item in envelope_events
                 }
+                envelope_by_id.update({
+                    str(item.get("event_index", index)): item
+                    for index, item in enumerate(envelope_events, proposal.event_start)
+                })
                 selected = []
                 for event_id in proposal.support_event_ids:
                     event = envelope_by_id.get(str(event_id))
