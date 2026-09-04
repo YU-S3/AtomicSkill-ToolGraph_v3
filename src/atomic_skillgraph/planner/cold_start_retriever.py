@@ -41,17 +41,21 @@ class FailureExperienceView:
     support_count: int
 
 
-def _predicate(value: Any) -> tuple[str, set[str], int]:
+def _predicate(value: Any) -> tuple[str, set[str], int, str]:
     if isinstance(value, dict):
+        effect_domain = value.get("effect_domain", "world")
         return (
             str(value.get("predicate", "")).casefold(),
             set(map(str, (value.get("args") or {}))),
             int(value.get("cardinality", 1)),
+            str(getattr(effect_domain, "value", effect_domain)).casefold(),
         )
+    effect_domain = getattr(value, "effect_domain", "world")
     return (
         str(getattr(value, "predicate", "")).casefold(),
         set(map(str, getattr(value, "args", {}))),
         int(getattr(value, "cardinality", 1)),
+        str(getattr(effect_domain, "value", effect_domain)).casefold(),
     )
 
 
@@ -63,14 +67,19 @@ def provisional_contract_compatible(
         _predicate(value) for value in atomic_contract.get("effects", ())
     ]
     for wanted_raw in requirement.desired_effects:
-        wanted_name, wanted_roles, wanted_count = _predicate(wanted_raw)
+        wanted_name, wanted_roles, wanted_count, wanted_domain = _predicate(
+            wanted_raw
+        )
         # Requirement templates inside RepeatBlocks are units.  An isolated
         # provisional never gains aggregate task-level cardinality authority.
         if wanted_count != 1:
             return False
         if not any(
-            name == wanted_name and wanted_roles.issubset(roles) and count >= 1
-            for name, roles, count in offered
+            name == wanted_name
+            and domain == wanted_domain
+            and wanted_roles.issubset(roles)
+            and count >= 1
+            for name, roles, count, domain in offered
         ):
             return False
     required_types = {
@@ -97,6 +106,7 @@ def task_cluster_signature(
                 "roles": sorted(map(str, effect.args)),
                 "cardinality": int(effect.cardinality),
                 "distinct_by": str(effect.distinct_by),
+                "effect_domain": effect.effect_domain.value,
             }
             for effect in normalized.target_effects
         ],

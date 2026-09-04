@@ -86,16 +86,30 @@ def _e1_occurrences() -> list[dict]:
             "intent": "take target object",
             "event_start": 1,
             "event_end": 2,
+            "support_event_ids": ["r001_a001"],
             "input_roles": {
                 "object": "alarmclock_1",
                 "source": "desk_1",
             },
+            "input_provenance_refs": {
+                "object": "action_arg:r001_a001:object",
+                "source": "action_arg:r001_a001:source",
+            },
             "output_roles": {"held_object": "alarmclock_1"},
+            "output_derivations": {
+                "held_object": {
+                    "kind": "input_identity",
+                    "input_role": "object",
+                },
+            },
             "preconditions": [],
+            "precondition_witness_refs": [],
             "effects": [{
                 "predicate": "agent.holds",
                 "args": {"object": "alarmclock_1"},
+                "effect_domain": "world",
             }],
+            "effect_witness_refs": ["action:r001_a001:revision:2"],
             "rationale": "Accepted TAKE establishes the held object.",
         },
         {
@@ -103,22 +117,45 @@ def _e1_occurrences() -> list[dict]:
             "intent": "observe held object under the light",
             "event_start": 2,
             "event_end": 3,
+            "support_event_ids": ["r002_a001"],
             "input_roles": {
-                "target_object": "alarmclock_1",
+                "object": "alarmclock_1",
+            },
+            "input_provenance_refs": {
+                "object": "action_arg:r001_a001:object",
+            },
+            "output_roles": {
+                "observed_object": "alarmclock_1",
                 "light": "desklamp_1",
             },
-            "output_roles": {"observed_object": "alarmclock_1"},
+            "output_derivations": {
+                "observed_object": {
+                    "kind": "input_identity",
+                    "input_role": "object",
+                },
+                "light": {
+                    "kind": "effect_witness",
+                    "predicate": "object.observed_with",
+                    "argument_role": "light",
+                },
+            },
             "preconditions": [{
                 "predicate": "agent.holds",
                 "args": {"object": "alarmclock_1"},
+                "effect_domain": "world",
             }],
+            "precondition_witness_refs": [
+                "action:r001_a001:revision:2",
+            ],
             "effects": [{
                 "predicate": "object.observed_with",
                 "args": {
                     "object": "alarmclock_1",
                     "light": "desklamp_1",
                 },
+                "effect_domain": "world",
             }],
+            "effect_witness_refs": ["action:r002_a001:revision:3"],
             "rationale": "Current held/light/location state establishes the relation.",
         },
     ]
@@ -179,7 +216,7 @@ def test_e2_authority_exposes_binding_identity_and_accepts_dataflow() -> None:
             item for item in candidates
             if item["edge_type"] == "data_flow"
             and item["source_role"] == "held_object"
-            and item["target_role"] == "target_object"
+            and item["target_role"] == "object"
         )
         return {
             "selected_existing_edge_ids": [],
@@ -209,7 +246,7 @@ def test_e2_authority_exposes_binding_identity_and_accepts_dataflow() -> None:
     authority = provider.requests[1].policy_context["canonical_occurrences"]
     assert (
         authority[0]["output_binding_identities"]["held_object"]
-        == authority[1]["input_binding_identities"]["target_object"]
+        == authority[1]["input_binding_identities"]["object"]
     )
     assert provider.requests[1].policy_context[
         "canonical_control_sequence"

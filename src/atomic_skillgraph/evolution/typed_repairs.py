@@ -116,6 +116,7 @@ def _predicate(value: SemanticPredicate | Mapping[str, Any]) -> SemanticPredicat
         args=args,
         cardinality=int(value.get("cardinality", 1)),
         distinct_by=str(value.get("distinct_by", "")),
+        effect_domain=value.get("effect_domain", "world"),
     )
 
 

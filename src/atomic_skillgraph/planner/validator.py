@@ -24,6 +24,7 @@ from .repeat_constraints import formal_repeat_role, unit_effect_role_mappings
 def _predicate_shape_compatible(required: Any, offered: Any) -> bool:
     return (
         required.predicate.casefold() == offered.predicate.casefold()
+        and required.effect_domain is offered.effect_domain
         and set(required.args).issubset(offered.args)
     )
 
@@ -561,6 +562,7 @@ def _repeat_instance_validation(
     atomics: dict[str, Any],
     position: dict[str, int],
     instance_candidates: dict[str, set[str]] | None,
+    support_step_ids: set[str] | None = None,
 ) -> tuple[dict[str, bool], list[str]]:
     """Validate instance authority and serial RepeatBlock structure.
 
@@ -571,6 +573,7 @@ def _repeat_instance_validation(
 
     checks: dict[str, bool] = {}
     codes: list[str] = []
+    support_step_ids = set(support_step_ids or ())
     by_instance = {
         item.instance_id: item
         for item in expansion.instances
@@ -597,7 +600,9 @@ def _repeat_instance_validation(
 
     for occurrence in plan.occurrences:
         instance_ids = _occurrence_instance_ids(occurrence)
-        every_occurrence_attributed &= bool(instance_ids)
+        every_occurrence_attributed &= (
+            bool(instance_ids) or occurrence.step_id in support_step_ids
+        )
         instance_lists_unique &= len(instance_ids) == len(set(instance_ids))
         known = [
             by_instance[instance_id]
@@ -904,6 +909,7 @@ class PlannerValidator:
         harness_profile: str = "",
         expansion: RequirementExpansion | None = None,
         instance_candidates: dict[str, set[str]] | None = None,
+        support_candidates: list[Any] | None = None,
     ) -> ValidationResult:
         checks: dict[str, bool] = {}
         errors: list[str] = []
@@ -1039,6 +1045,110 @@ class PlannerValidator:
         )):
             errors.append("planner_graph_invalid")
 
+        # P2-only support occurrences carry no RequirementInstance claim.  They
+        # are valid only when an independently retrieved formal mapping is
+        # materialized as DataFlow into a downstream required occurrence.
+        support_validation_enabled = support_candidates is not None
+        support_candidates = list(support_candidates or ())
+        support_step_ids = (
+            {
+                occurrence.step_id
+                for occurrence in plan.occurrences
+                if not _occurrence_instance_ids(occurrence)
+            }
+            if support_validation_enabled
+            else set()
+        )
+        support_refs: set[str] = set()
+        support_mapping_authority: set[
+            tuple[str, str, str, str, str]
+        ] = set()
+        for candidate in support_candidates:
+            if isinstance(candidate, dict):
+                producer_ref = str(candidate.get("atomic_ref", ""))
+                instance_id = str(
+                    candidate.get("consumer_requirement_instance_id", "")
+                )
+                role_mappings = candidate.get("role_mappings") or ()
+            else:
+                producer_ref = str(getattr(candidate, "atomic_ref", ""))
+                instance_id = str(getattr(
+                    candidate, "consumer_requirement_instance_id", "",
+                ))
+                role_mappings = getattr(candidate, "role_mappings", ()) or ()
+            if producer_ref:
+                support_refs.add(producer_ref)
+            for mapping in role_mappings:
+                if isinstance(mapping, dict):
+                    producer_role = str(mapping.get("producer_role", ""))
+                    consumer_role = str(mapping.get("consumer_role", ""))
+                    consumer_ref = str(mapping.get("consumer_atomic_ref", ""))
+                else:
+                    producer_role = str(getattr(mapping, "producer_role", ""))
+                    consumer_role = str(getattr(mapping, "consumer_role", ""))
+                    consumer_ref = str(getattr(
+                        mapping, "consumer_atomic_ref", "",
+                    ))
+                if all((
+                    producer_ref, consumer_ref, instance_id,
+                    producer_role, consumer_role,
+                )):
+                    support_mapping_authority.add((
+                        producer_ref, consumer_ref, instance_id,
+                        producer_role, consumer_role,
+                    ))
+
+        support_occurrences_authorized = True
+        support_outputs_consumed = True
+        support_data_flow_mappings_valid = True
+        for step_id in sorted(support_step_ids):
+            occurrence = by_step[step_id]
+            producer_ref = str(occurrence.node_ref)
+            support_occurrences_authorized &= producer_ref in support_refs
+            outgoing = [
+                edge for edge in plan.data_edges
+                if edge.source_step == step_id
+            ]
+            if not outgoing:
+                support_outputs_consumed = False
+                continue
+            for edge in outgoing:
+                target = by_step.get(edge.target_step)
+                target_instance_ids = (
+                    [] if target is None else _occurrence_instance_ids(target)
+                )
+                if target is None or not target_instance_ids:
+                    support_outputs_consumed = False
+                    support_data_flow_mappings_valid = False
+                    continue
+                consumer_ref = str(target.node_ref)
+                mapping_valid = any(
+                    (
+                        producer_ref,
+                        consumer_ref,
+                        instance_id,
+                        edge.source_role,
+                        edge.target_role,
+                    ) in support_mapping_authority
+                    for instance_id in target_instance_ids
+                )
+                support_data_flow_mappings_valid &= mapping_valid
+        checks["support_occurrences_authorized"] = (
+            support_occurrences_authorized
+        )
+        checks["support_outputs_consumed_by_required_occurrence"] = (
+            support_outputs_consumed
+        )
+        checks["support_data_flow_mappings_valid"] = (
+            support_data_flow_mappings_valid
+        )
+        if not all((
+            support_occurrences_authorized,
+            support_outputs_consumed,
+            support_data_flow_mappings_valid,
+        )):
+            errors.append("planner_support_atomic_invalid")
+
         coverage = plan.planner_audit.get("requirement_coverage", {})
         required_requirement_ids = required_requirement_ids or []
         requirement_coverage = True
@@ -1085,6 +1195,7 @@ class PlannerValidator:
                 atomics,
                 position,
                 instance_candidates,
+                support_step_ids,
             )
             checks.update(repeat_checks)
             errors.extend(repeat_codes)

@@ -72,6 +72,52 @@ def apply_terminal_outcome(
     refresh_learning_eligibility(trace)
 
 
+def _executed_candidate_occurrence_ids(
+    trace: TraceRecord,
+    plan: RuntimeLinearPlan,
+) -> list[str]:
+    """Return plan occurrences with code-authoritative execution evidence.
+
+    ``ALREADY_SATISFIED`` and terminal-skipped nodes are deliberately not
+    execution.  A real environment-action span or a started learned
+    invocation is required before a Terminal-Empirical Composite can receive
+    self-sufficient success credit.
+    """
+
+    candidate_ids = {
+        str(item.occurrence_id) for item in plan.occurrences
+        if str(item.occurrence_id)
+    }
+    executed = {
+        str(span.occurrence_id)
+        for span in trace.runtime_spans
+        if (
+            str(span.occurrence_id) in candidate_ids
+            and int(span.action_end) > int(span.action_start)
+        )
+    }
+    for record in trace.implementation_invocations:
+        if (
+            str(record.occurrence_id) in candidate_ids
+            and bool(dict(record.result or {}).get("started", False))
+        ):
+            executed.add(str(record.occurrence_id))
+    for record in trace.tool_executions:
+        if (
+            str(record.occurrence_id) in candidate_ids
+            and bool(dict(record.result or {}).get("started", False))
+        ):
+            executed.add(str(record.occurrence_id))
+    for node in trace.node_records:
+        if str(node.occurrence_id) not in candidate_ids:
+            continue
+        if bool(dict(node.direct_result or {}).get("started", False)) or bool(
+            dict(node.seeded_result or {}).get("started", False)
+        ):
+            executed.add(str(node.occurrence_id))
+    return sorted(executed)
+
+
 class RuntimeOrchestrator:
     def __init__(
         self, planner: PlannerPipeline, harness: HarnessAdapter,
@@ -442,21 +488,32 @@ class RuntimeOrchestrator:
         benchmark_won = bool(
             getattr(ctx.harness.validator_channel(), "won", False)
         )
-        if (
-            selected_authority.get("kind") == "terminal_empirical"
-            and benchmark_won
-            and not ctx.task_rescue_used
-        ):
-            # A real benchmark-won prefix without rescue is terminal-empirical
-            # self-sufficient evidence; it is never full graph completion.
-            trace.graph_self_sufficient_success = True
+        if selected_authority.get("kind") == "terminal_empirical":
+            executed_candidate_occurrence_ids = (
+                _executed_candidate_occurrence_ids(trace, plan)
+            )
+            candidate_executed = bool(executed_candidate_occurrence_ids)
+            terminal_empirical_success = bool(
+                benchmark_won
+                and not ctx.task_rescue_used
+                and candidate_executed
+            )
+            # Terminal-Empirical credit is narrower than ordinary Composite
+            # runtime validation: a pre-satisfied/skipped candidate must not
+            # earn independent success merely because the task was won.
+            trace.graph_self_sufficient_success = terminal_empirical_success
             trace.metadata["terminal_empirical_execution"] = {
                 "composite_ref": str(
                     trace.runtime_plan.get("source_composite_ref") or ""
                 ),
                 "completion_authority": "terminal_empirical",
-                "benchmark_won": True,
-                "task_rescue_required": False,
+                "benchmark_won": benchmark_won,
+                "task_rescue_required": bool(ctx.task_rescue_used),
+                "candidate_executed": candidate_executed,
+                "executed_candidate_occurrence_ids": (
+                    executed_candidate_occurrence_ids
+                ),
+                "success_credit_eligible": terminal_empirical_success,
                 "graph_full_completion": bool(trace.graph_full_completion),
             }
         apply_terminal_outcome(
@@ -994,8 +1051,6 @@ class RuntimeOrchestrator:
                     failure_code=failure_code,
                 )
             )
-            if not local_effect_passed:
-                break
             if _task_terminal(ctx):
                 terminal = self.validation.task.terminal(
                     ctx.task_contract,
@@ -1005,6 +1060,8 @@ class RuntimeOrchestrator:
                 return self._finish_cold_start(
                     ctx, terminal, dynamic_result=None,
                 )
+            if not local_effect_passed:
+                break
             completed_local_effects.append({
                 "step_id": step.step_id,
                 "candidate_source": step.candidate_source.value,
@@ -1017,18 +1074,6 @@ class RuntimeOrchestrator:
                 ),
                 "progress_after": after.progress_digest,
             })
-            terminal = self.validation.task.terminal(
-                ctx.task_contract,
-                ctx.harness.validator_channel(),
-                bool(getattr(ctx.harness.validator_channel(), "won", False)),
-            )
-            if _task_terminal(ctx):
-                return self._finish_cold_start(
-                    ctx,
-                    terminal,
-                    dynamic_result=None,
-                )
-
         # No unresolved suffix is executed out of order.  The continuation is
         # a fresh task-level Agent Session over the current real environment.
         ctx.budget.end_node()

@@ -232,6 +232,7 @@ REPORT_COLUMNS = (
     "task_id",
     "task_signature",
     "benchmark",
+    "environment",
     "task_type",
     "benchmark_success",
     "task_contract_success",
@@ -424,6 +425,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "task_id": str(task.get("task_id", "")),
         "task_signature": str(task.get("task_signature", "")),
         "benchmark": str(task.get("benchmark", "")),
+        "environment": dict(_mapping(metadata.get("environment", {}))),
         "task_type": str(task.get("task_type", "")),
         "benchmark_success": benchmark_success,
         "task_contract_success": task_contract_success,
@@ -784,6 +786,10 @@ def summarize_traces(
         },
         **{
             name: sum(_integer(row.get(name, 0)) for row in task_rows)
+            for name in V32_METHOD_METRICS
+        },
+        **{
+            name: sum(_integer(row.get(name, 0)) for row in task_rows)
             for name in R22_FAILURE_EXTRACTOR_METRICS
         },
         "replay_full_catalog_count_at_last_request": max(
@@ -940,7 +946,23 @@ def render_markdown(
 ) -> str:
     """Render a compact human audit while JSONL/CSV remain authoritative."""
 
-    lines = [f"# {title}", "", "## Outcome", ""]
+    lines = [f"# {title}"]
+    environment: dict[str, list[Any]] = {}
+    for row in rows:
+        for name, value in _mapping(row.get("environment", {})).items():
+            values = environment.setdefault(str(name), [])
+            if not any(_canonical_json(item) == _canonical_json(value) for item in values):
+                values.append(value)
+    if environment:
+        lines.extend(["", "## Environment", ""])
+        lines.extend(_markdown_pairs(tuple(
+            (
+                name,
+                values[0] if len(values) == 1 else _canonical_json(values),
+            )
+            for name, values in sorted(environment.items())
+        )))
+    lines.extend(["", "## Outcome", ""])
     outcome = (
         ("Tasks", summary.get("task_count")),
         ("Official ALFWorld won", _percent(summary.get("official_alfworld_won_rate"))),
@@ -1052,6 +1074,11 @@ def render_markdown(
     lines.extend(_markdown_pairs(tuple(
         (name, summary.get(name, 0))
         for name in R31_RUNTIME_METRICS
+    )))
+    lines.extend(["", "## v3.2 Agent-driven Tool evolution", ""])
+    lines.extend(_markdown_pairs(tuple(
+        (name, summary.get(name, 0))
+        for name in V32_METHOD_METRICS
     )))
     lines.extend(["", "### Runtime token decomposition", ""])
     lines.append(
@@ -2481,60 +2508,91 @@ def _v32_method_metrics(
         name: _integer(explicit.get(name, 0))
         for name in V32_METHOD_METRICS
     }
-    result.setdefault("planner_repairability_gate_count", int(bool(planner_repairability)))
-    result.setdefault("planner_repairability_repairable_count", int(
+
+    def derived(name: str, value: Any) -> None:
+        """Use structured Trace evidence unless runtime supplied an exact counter."""
+
+        if name not in explicit:
+            result[name] = _integer(value)
+
+    def tool_action_count(execution: Mapping[str, Any]) -> int:
+        """Return Tool IR ACTION executions, excluding visited control nodes.
+
+        ``executed_action_count`` is the v3.2 authority.  The
+        ``executed_step_count`` fallback preserves reports for traces written
+        before the authority alias was serialized; neither case uses
+        ``executed_node_count``, which also includes IF/FOR_EACH/RETURN visits.
+        """
+
+        tool_result = _mapping(execution.get("result", {}))
+        return _integer(tool_result.get(
+            "executed_action_count",
+            tool_result.get("executed_step_count", 0),
+        ))
+
+    derived("planner_repairability_gate_count", int(bool(planner_repairability)))
+    derived("planner_repairability_repairable_count", int(
         bool(planner_repairability)
         and bool(planner_repairability.get("repairable", False))
     ))
-    result.setdefault("planner_hard_capability_gap_count", sum(
+    derived("planner_hard_capability_gap_count", sum(
         1 for item in diagnostics if item.get("hard_capability_gap")
     ))
-    result.setdefault("planner_p1r_skipped_hard_gap_count", int(
+    derived("planner_p1r_skipped_hard_gap_count", int(
         bool(planner_repairability)
         and str(planner_repairability.get("reason_code", ""))
         == "planner_hard_capability_gap"
     ))
-    result.setdefault("task_terminal_early_success_count", int(
+    derived("planner_support_atomic_candidate_count", _integer(
+        planner.get(
+            "planner_support_atomic_candidate_count",
+            len(_sequence(planner.get("support_atomic_candidates", ()))),
+        )
+    ))
+    derived("planner_support_atomic_selected_count", _integer(
+        planner.get(
+            "planner_support_atomic_selected_count",
+            len(_sequence(planner.get("support_atomic_selected", ()))),
+        )
+    ))
+    derived("task_terminal_early_success_count", int(
         bool(_mapping(metadata.get("task_terminal", {})).get("during"))
     ))
-    result.setdefault("task_terminal_during_tool_count", sum(
+    derived("task_terminal_during_tool_count", sum(
         1 for item in executions
         if _boolean(_mapping(item.get("result", {})).get("terminal_interrupted", False))
     ))
-    result.setdefault("terminal_skipped_occurrence_count", sum(
+    derived("terminal_skipped_occurrence_count", sum(
         1 for item in nodes
         if str(item.get("status", "")) == "skipped_goal_terminal"
     ))
-    result.setdefault("task_terminal_with_remaining_occurrences_count", int(
+    derived("task_terminal_with_remaining_occurrences_count", int(
         result["terminal_skipped_occurrence_count"] > 0
     ))
-    result.setdefault("tool_builder_proposal_count", int(
+    derived("tool_builder_proposal_count", int(
         result["tool_builder_call_count"] - result["tool_builder_no_tool_count"]
     ))
-    result.setdefault("tool_validated_path_count", sum(
+    derived("tool_validated_path_count", sum(
         len(_sequence(_mapping(item.get("result", {})).get("validated_paths", ())))
         for item in executions
     ))
-    result.setdefault("tool_unvalidated_path_count", sum(
+    derived("tool_unvalidated_path_count", sum(
         len(_sequence(_mapping(item.get("result", {})).get("unvalidated_paths", ())))
         for item in executions
     ))
-    result.setdefault("tool_observed_loop_iteration_count", sum(
+    derived("tool_observed_loop_iteration_count", sum(
         sum(_integer(value) for value in _mapping(
             _mapping(item.get("result", {})).get("loop_iteration_counts", {})
         ).values())
         for item in executions
     ))
-    result.setdefault("tool_stop_condition_witness_count", sum(
+    derived("tool_stop_condition_witness_count", sum(
         len(_sequence(_mapping(item.get("result", {})).get("stop_condition_witnesses", ())))
         for item in executions
     ))
-    result.setdefault("runtime_tool_llm_bypassed_action_count", sum(
-        _integer(_mapping(item.get("result", {})).get("executed_node_count", 0))
-        for item in executions
-        if _mapping(item.get("result", {})).get("path_id")
-        or _mapping(item.get("result", {})).get("program_node_id")
-    ))
+    tool_action_total = sum(tool_action_count(item) for item in executions)
+    derived("runtime_tool_internal_action_count", tool_action_total)
+    derived("runtime_tool_llm_bypassed_action_count", tool_action_total)
     return result
 
 

@@ -323,7 +323,16 @@ class Admission:
         if not isinstance(max_actions, int) or max_actions <= 0:
             reasons.append("tool_ir_max_actions_invalid")
         allowed = set(tool.safety.get("allowed_action_types") or [])
-        nodes = walk_program_nodes(program)
+        try:
+            nodes = walk_program_nodes(program)
+        except (KeyError, TypeError, ValueError, RecursionError) as exc:
+            message = str(exc) or "tool_ir_schema_invalid"
+            reasons.append(
+                "tool_ir_recursion_depth_exceeded"
+                if isinstance(exc, RecursionError)
+                else message.split(":", 1)[0]
+            )
+            return list(dict.fromkeys(reasons))
         action_types = {
             str(node.get("action_type", ""))
             for node in nodes
@@ -335,10 +344,11 @@ class Admission:
         for node in nodes:
             if str(node.get("op", "")) != "RETURN":
                 continue
-            return_roles.update(
-                str(role)
-                for role in dict(node.get("output_sources") or {})
-            )
+            raw_sources = node.get("output_sources")
+            if not isinstance(raw_sources, dict):
+                reasons.append("tool_ir_return_closure_invalid")
+                continue
+            return_roles.update(str(role) for role in raw_sources)
         required_outputs = set(output.get("output_required") or [])
         if required_outputs - return_roles:
             reasons.append("tool_ir_return_closure_invalid")

@@ -103,6 +103,8 @@ class ReplayAgentSession:
         self._accepted_turn_count = 0
         self._protocol_repairs_used = 0
         self._context_compaction_count = 0
+        self._structured_phase_compaction_count = 0
+        self._structured_phase_pruned_message_count = 0
         self._replay_initial_catalog_compacted = False
         self._replay_full_catalog_count_at_last_request = 0
         self._replay_history_action_count = 0
@@ -141,6 +143,51 @@ class ReplayAgentSession:
                     layer=FailureLayer.RUNTIME_AGENT,
                 )
             self._usage_bucket = UsageBucket(bucket)
+
+    def compact_completed_structured_phases(self) -> None:
+        """Prune superseded structured phases while preserving DeepSeek replay.
+
+        Planner stages share one session and one budget, but a later stage is
+        given the accepted semantic result explicitly in its own prompt.  Once
+        two structured ToolCall/result envelopes are complete, only the newest
+        envelope is required for DeepSeek's exact ``reasoning_content`` replay.
+        Older envelopes have already been recorded in the usage ledger and the
+        formal Agent-turn audit, so retaining them in every later provider
+        request only spends context without adding authority.
+
+        The newest user/Assistant/Tool group is kept byte-for-byte.  This method
+        therefore never removes an unacknowledged call and never weakens the
+        provider probe's immediate two-turn replay contract.
+        """
+
+        with self._lock:
+            self._ensure_live()
+            if self._pending_call is not None:
+                raise AgentProtocolError(
+                    "runtime_agent_schema_error",
+                    "cannot compact structured phases while a tool call is pending",
+                    layer=FailureLayer.RUNTIME_AGENT,
+                )
+            envelopes = _completed_assistant_tool_envelopes(self._messages)
+            if len(envelopes) <= 1:
+                return
+
+            latest_assistant_index = int(envelopes[-1][0])
+            latest_user_index = next(
+                (
+                    index
+                    for index in range(latest_assistant_index - 1, 0, -1)
+                    if self._messages[index].get("role") == "user"
+                ),
+                latest_assistant_index,
+            )
+            retained = [self._messages[0], *self._messages[latest_user_index:]]
+            pruned = len(self._messages) - len(retained)
+            if pruned <= 0:
+                return
+            self._messages = retained
+            self._structured_phase_compaction_count += 1
+            self._structured_phase_pruned_message_count += pruned
 
     def next_turn(
         self,
@@ -267,6 +314,12 @@ class ReplayAgentSession:
                 "accepted_turn_count": self._accepted_turn_count,
                 "protocol_repairs_used": self._protocol_repairs_used,
                 "context_compaction_count": self._context_compaction_count,
+                "structured_phase_compaction_count": (
+                    self._structured_phase_compaction_count
+                ),
+                "structured_phase_pruned_message_count": (
+                    self._structured_phase_pruned_message_count
+                ),
                 "replay_catalog_compaction_count": self._context_compaction_count,
                 "replay_initial_catalog_compacted": (
                     self._replay_initial_catalog_compacted

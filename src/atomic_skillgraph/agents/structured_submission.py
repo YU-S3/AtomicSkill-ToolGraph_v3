@@ -140,7 +140,6 @@ PROPOSED_OCCURRENCE_SCHEMA: dict[str, Any] = {
         },
         "requirement_instance_ids": {
             "type": "array",
-            "minItems": 1,
             "uniqueItems": True,
             "items": NONEMPTY_STRING_SCHEMA,
         },
@@ -191,10 +190,15 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         "intent",
         "event_start",
         "event_end",
+        "support_event_ids",
         "input_roles",
+        "input_provenance_refs",
         "output_roles",
+        "output_derivations",
         "preconditions",
+        "precondition_witness_refs",
         "effects",
+        "effect_witness_refs",
         "rationale",
     ],
     "additionalProperties": False,
@@ -215,12 +219,23 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         },
         "support_event_ids": {
             "type": "array",
+            "minItems": 1,
             "uniqueItems": True,
             "items": {"type": "string", "minLength": 1},
             "description": (
-                "Optional explicit accepted events that actually support this Atomic. "
+                "Explicit accepted events that actually support this Atomic. "
                 "They must lie within the event_start..event_end evidence envelope and "
                 "may be non-contiguous."
+            ),
+        },
+        "shared_precondition_event_ids": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": {"type": "string", "minLength": 1},
+            "description": (
+                "Selected support events used only as shared prerequisite "
+                "context. Code permits overlap only when no two independent "
+                "Atomic Effects claim the same event."
             ),
         },
         "precondition_witness_refs": {
@@ -230,6 +245,7 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         },
         "effect_witness_refs": {
             "type": "array",
+            "minItems": 1,
             "uniqueItems": True,
             "items": {"type": "string", "minLength": 1},
         },
@@ -239,17 +255,61 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         },
         "input_provenance_refs": {
             "type": "object",
-            "additionalProperties": {"type": "string"},
+            "minProperties": 1,
+            "propertyNames": {"type": "string", "minLength": 1},
+            "additionalProperties": NONEMPTY_STRING_SCHEMA,
+            "description": (
+                "One supplied code-authoritative boundary input reference for "
+                "every input_roles key. Code requires the key sets to match."
+            ),
         },
         "output_derivations": {
             "type": "object",
-            "additionalProperties": {"type": "object"},
+            "minProperties": 1,
+            "propertyNames": {"type": "string", "minLength": 1},
+            "additionalProperties": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": ["kind", "input_role"],
+                        "additionalProperties": False,
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": ["input_identity"],
+                            },
+                            "input_role": NONEMPTY_STRING_SCHEMA,
+                        },
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "kind", "predicate", "argument_role",
+                        ],
+                        "additionalProperties": False,
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": ["effect_witness"],
+                            },
+                            "predicate": NONEMPTY_STRING_SCHEMA,
+                            "argument_role": NONEMPTY_STRING_SCHEMA,
+                        },
+                    },
+                ],
+            },
+            "description": (
+                "Exactly one explicit input_identity or effect_witness "
+                "derivation for every output_roles key. Code requires the "
+                "key sets to match."
+            ),
         },
         "input_roles": {
             "type": "object",
             "minProperties": 1,
             "description": (
-                "Non-empty role-to-concrete-value bindings copied exactly from selected action arguments."
+                "Non-empty role-to-concrete-value bindings backed exactly by "
+                "the supplied boundary_authorities.inputs references."
             ),
         },
         "output_roles": {
@@ -430,6 +490,7 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
     "required": [
         "draft_id", "intent", "inputs", "outputs", "preconditions",
         "effects", "rationale", "source_occurrence_id",
+        "input_binding_specs",
     ],
     "additionalProperties": False,
     "properties": {

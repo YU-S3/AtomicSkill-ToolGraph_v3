@@ -22,6 +22,7 @@ def _predicate(raw: dict[str, Any]) -> SemanticPredicate:
         arguments,
         int(raw.get("cardinality", 1)),
         str(raw.get("distinct_by", "")),
+        raw.get("effect_domain", "world"),
     )
 
 

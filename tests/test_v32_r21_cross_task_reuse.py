@@ -423,6 +423,11 @@ _LOCATE_PROGRAM = [
         "argument_mapping": {
             "target": {"kind": "skill_input", "source_role": "target"}
         },
+        "expected_effects": [{
+            "predicate": "entity.discovered_at",
+            "args": {"entity": "$entity", "location": "$location"},
+            "effect_domain": "evidence",
+        }],
     },
     {
         "node_id": "ret",
@@ -494,7 +499,12 @@ def _locate_draft_call() -> dict[str, Any]:
     }
 
 
-def _locate_e1(target: str, location: str, event_id: str) -> dict[str, Any]:
+def _locate_e1(
+    target: str,
+    location: str,
+    event_id: str,
+    witness_ref: str = "effect:w_locate",
+) -> dict[str, Any]:
     return {
         "phase_id": "locate_p1",
         "intent": "locate target entity",
@@ -504,6 +514,7 @@ def _locate_e1(target: str, location: str, event_id: str) -> dict[str, Any]:
         "input_roles": {"target": target},
         "output_roles": {"entity": target, "location": location},
         "preconditions": [],
+        "precondition_witness_refs": [],
         "effects": [
             {
                 "predicate": "entity.discovered_at",
@@ -525,7 +536,7 @@ def _locate_e1(target: str, location: str, event_id: str) -> dict[str, Any]:
                 "argument_role": "location",
             },
         },
-        "effect_witness_refs": ["effect:w_locate"],
+        "effect_witness_refs": [witness_ref],
     }
 
 
@@ -607,9 +618,24 @@ def _take_e1(target: str, location: str, event_id: str) -> dict[str, Any]:
         "event_end": 1,
         "support_event_ids": [event_id],
         "input_roles": {"object": target, "location": location},
+        "input_provenance_refs": {
+            "object": f"action_arg:{event_id}:object",
+            "location": f"action_arg:{event_id}:location",
+        },
         "output_roles": {"held_object": target},
+        "output_derivations": {
+            "held_object": {
+                "kind": "input_identity", "input_role": "object",
+            },
+        },
         "preconditions": [],
-        "effects": [{"predicate": "agent.holds", "args": {"object": target}}],
+        "precondition_witness_refs": [],
+        "effects": [{
+            "predicate": "agent.holds",
+            "args": {"object": target},
+            "effect_domain": "world",
+        }],
+        "effect_witness_refs": [f"action:{event_id}:revision:1"],
         "rationale": "The accepted TAKE transition establishes possession.",
     }
 
@@ -727,26 +753,38 @@ def _learn_locate(
     trials = dict(trace.metadata.get("runtime_tool_trials") or {})
     trial = dict(trials["locate_1"])
     boundary_inputs = [
-        {**dict(authority), "role": role}
+        {
+            **dict(authority),
+            "draft_id": str(trial.get("draft_id", "")),
+            "trial_event_start": int(trial["trial_event_start"]),
+            "trial_event_end": int(trial["trial_event_end"]),
+            "source_kind": str(authority.get("kind", "")),
+            "role": role,
+        }
         for role, authority in dict(trial.get("input_authorities") or {}).items()
     ]
+    from atomic_skillgraph.system import AtomicSkillGraphSystem
+
+    effect_facts = (
+        AtomicSkillGraphSystem._runtime_trial_effect_authorities(
+            trial, list(normalized.get("actions") or []),
+        )
+    )
+    assert effect_facts
     normalized["boundary_authorities"] = {
         "inputs": boundary_inputs,
-        "effects": [],
+        "effects": [{
+            "witness_ref": str(fact["witness_ref"]),
+            "predicate": str(fact["predicate"]),
+            "args": dict(fact["args"]),
+            "effect_domain": str(fact["effect_domain"]),
+        } for fact in effect_facts],
     }
     search = next(
         action for action in normalized["actions"]
         if action["action_type"] == "SEARCH"
     )
-    normalized["after_state_facts"] = [{
-        "predicate": "entity.discovered_at",
-        "args": {
-            "entity": str(trial["r1_outputs"]["entity"]),
-            "location": str(trial["r1_outputs"]["location"]),
-        },
-        "revision": int(search["after_revision"]),
-        "witness_ref": "effect:w_locate",
-    }]
+    normalized["after_state_facts"] = effect_facts
     session = factory.new_session(
         "extractor",
         [FakeReply.structured({"occurrences": [
@@ -754,6 +792,7 @@ def _learn_locate(
                 str(trial["r1_outputs"]["entity"]),
                 str(trial["r1_outputs"]["location"]),
                 str(search["action_id"]),
+                str(effect_facts[0]["witness_ref"]),
             ),
         ]})],
     )
@@ -935,6 +974,10 @@ def test_gate29_cross_task_runtime_tool_reuse(tmp_path: Path) -> None:
     learned_atomic = skills.get_atomic(locate_refs["atomic_ref"])
     assert [item.name for item in learned_atomic.inputs] == ["target"]
     assert [item.name for item in learned_atomic.outputs] == ["entity", "location"]
+    assert {
+        expression.source_role
+        for expression in learned_atomic.effects[0].args.values()
+    } == {"entity", "location"}
     assert learned_atomic.status is SkillStatus.CANDIDATE
     assert tools.get(locate_refs["tool_ref"]).status is ToolStatus.CANDIDATE
     assert (

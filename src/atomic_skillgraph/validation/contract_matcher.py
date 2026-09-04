@@ -47,6 +47,7 @@ class ExactContractMatcher:
         }
         return (
             target.predicate.casefold() == offered.predicate.casefold()
+            and target.effect_domain is offered.effect_domain
             and set(expected) == set(offered_arguments)
             and all(
                 expected[name] == offered_arguments.get(name)

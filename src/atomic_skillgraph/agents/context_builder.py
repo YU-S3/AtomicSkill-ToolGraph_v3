@@ -298,17 +298,38 @@ class ContextBuilder:
         near_match_interfaces: Iterable[Any] | None = None,
         local_failures: Iterable[Any] | None = None,
     ) -> str:
+        atomic_mapping = _as_mapping(atomic)
         atomic_view = _project(
             atomic,
             ("summary", "inputs", "outputs", "preconditions", "effects"),
+        )
+        atomic_evidence_support = _compact_tool_builder_evidence(
+            evidence_support or ()
+        )
+        atomic_effect_witness_refs = list(dict.fromkeys(
+            str(fact.get("witness_ref", ""))
+            for event in atomic_evidence_support
+            for fact in event.get("authoritative_positive_effects", ())
+            if str(fact.get("witness_ref", ""))
+        ))
+        source_kind = (
+            "success_evolution"
+            if getattr(provenance, "source", "") == "success_evolution"
+            else "runtime_automation"
+            if getattr(provenance, "source", "") == "runtime_automation"
+            else str(getattr(provenance, "source", "unknown"))
         )
         # The frozen ToolBuilder context never includes the complete task goal,
         # full trace, full planner history, full skill bank, or old Tool bodies.
         payload = {
             "canonical_atomic": atomic_view,
-            "atomic_evidence_support": [
-                _policy_value(item) for item in evidence_support or ()
-            ],
+            "atomic_output_derivations": _policy_value(dict(
+                dict(atomic_mapping.get("validator_spec") or {}).get(
+                    "output_derivations"
+                ) or {}
+            )),
+            "atomic_evidence_support": atomic_evidence_support,
+            "atomic_effect_witness_refs": atomic_effect_witness_refs,
             "semantic_delta": _policy_value(dict(semantic_delta or {})),
             "harness_interface": _policy_value(dict(harness_interface or {})),
             "tool_ir_schema": {
@@ -333,13 +354,10 @@ class ContextBuilder:
             "local_failure_facts": [
                 _policy_value(item) for item in local_failures or ()
             ],
-            "source_kind": (
-                "success_evolution"
-                if getattr(provenance, "source", "") == "success_evolution"
-                else "runtime_automation"
-                if getattr(provenance, "source", "") == "runtime_automation"
-                else str(getattr(provenance, "source", "unknown"))
+            "historical_loop_evidence_required": (
+                source_kind == "success_evolution"
             ),
+            "source_kind": source_kind,
         }
         return _render(
             "You are ToolBuilder, the only v3.2 Tool Program author. "
@@ -355,8 +373,15 @@ class ContextBuilder:
             "Echo the supplied Atomic inputs/outputs exactly in ToolProposal. "
             "Use local variables and structured selectors for all internal "
             "temporary values. "
+            "Every ACTION node must declare non-empty expected_effects using "
+            "only the supplied Harness predicate vocabulary; these are checked "
+            "after that exact accepted action. "
             "Every branch, output, and expected effect must be representable in "
             "the supplied Harness interface. "
+            "For success-evolution evidence, propose FOR_EACH only when the "
+            "bounded Atomic evidence contains at least two structurally "
+            "isomorphic distinct repetitions. Runtime automation may instead "
+            "earn loop path evidence in its task-local R1 trial. "
             'RETURN.output_sources must use exactly one of: '
             '{"source":"tool_input","field":"<input_role>"}, '
             '{"source":"local_variable","field":"<loop_variable>"}, '
@@ -475,7 +500,16 @@ Never copy a concrete value into intent, rationale intended as a long-term
 summary, or any reusable guideline.
 
 event_start is inclusive and event_end is exclusive.
-Ranges must be ordered and non-overlapping.
+Temporal evidence envelopes may overlap when Atomics share prerequisite context.
+support_event_ids, not envelope overlap, define effect-producing event ownership.
+Do not assign the same effect-producing support event to multiple independent
+Atomics. shared_precondition_event_ids is not a general list of prerequisite
+events: every listed event must also be selected in support_event_ids by this
+occurrence and by at least one other proposed occurrence. Use it only to mark
+that shared support event as precondition evidence in every owner. Ordinary
+prerequisites belong in the temporal envelope and precondition_witness_refs,
+not shared_precondition_event_ids. Code accepts shared support ownership only
+when the event is not claimed as an Effect witness by two independent Atomics.
 
 input_roles:
 - non-empty;
@@ -740,6 +774,41 @@ def _compact_budget(value: Mapping[str, Any]) -> dict[str, int]:
         result["remaining_node_actions"] = max(
             0, int(mapping.get("remaining_node_actions", 0))
         )
+    return result
+
+
+def _compact_tool_builder_evidence(values: Iterable[Any]) -> list[dict[str, Any]]:
+    """Expose only the bounded Atomic occurrence's structured authorities."""
+
+    result: list[dict[str, Any]] = []
+    for index, value in enumerate(values):
+        mapping = _as_mapping(value)
+        positive_effects = [
+            {
+                key: _policy_value(fact[key])
+                for key in (
+                    "predicate", "args", "cardinality", "distinct_by",
+                    "effect_domain", "witness_ref", "revision",
+                )
+                if key in fact
+            }
+            for raw in mapping.get("authoritative_positive_effects", ())
+            if isinstance(raw, Mapping)
+            for fact in [dict(raw)]
+        ]
+        result.append(_policy_value({
+            "event_id": str(
+                mapping.get("event_id", mapping.get("action_id", index))
+            ),
+            "action_type": str(mapping.get("action_type", "")),
+            "arguments": dict(mapping.get("arguments") or {}),
+            "accepted": bool(mapping.get("accepted", True)),
+            "before_revision": int(mapping.get("before_revision", 0)),
+            "after_revision": int(
+                mapping.get("after_revision", mapping.get("new_revision", 0))
+            ),
+            "authoritative_positive_effects": positive_effects,
+        }))
     return result
 
 

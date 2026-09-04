@@ -975,6 +975,99 @@ class NodeExecutor:
             )
         )
 
+    @staticmethod
+    def _record_runtime_automation_outcome_metrics(
+        ctx: Any,
+        outcome: Any,
+    ) -> None:
+        """Apply the same R0/R1 counters on preparation and seeded paths."""
+
+        metrics = ctx.trace_builder.trace.metadata.setdefault(
+            "v32_metrics", {},
+        )
+        if outcome.r0_passed:
+            metrics["runtime_automation_r0_pass_count"] = int(
+                metrics.get("runtime_automation_r0_pass_count", 0)
+            ) + 1
+        else:
+            metrics["runtime_automation_r0_reject_count"] = int(
+                metrics.get("runtime_automation_r0_reject_count", 0)
+            ) + 1
+        if outcome.trial is None:
+            return
+        metrics["runtime_tool_trial_count"] = int(
+            metrics.get("runtime_tool_trial_count", 0)
+        ) + 1
+        key = (
+            "runtime_tool_trial_r1_pass_count"
+            if outcome.r1_passed
+            else "runtime_tool_trial_r1_reject_count"
+        )
+        metrics[key] = int(metrics.get(key, 0)) + 1
+
+    def _process_runtime_automation_call(
+        self,
+        call: Any,
+        ctx: Any,
+        occurrence: Any,
+    ) -> dict[str, Any]:
+        """Run the identical draft/R0/R1 path for every Runtime session."""
+
+        metrics = ctx.trace_builder.trace.metadata.setdefault(
+            "v32_metrics", {},
+        )
+        metrics["runtime_automation_atomic_proposal_count"] = int(
+            metrics.get("runtime_automation_atomic_proposal_count", 0)
+        ) + 1
+        try:
+            validate_schema_instance(
+                call.arguments, RUNTIME_AUTOMATION_ATOMIC_SCHEMA,
+            )
+            draft = runtime_automation_draft_from_dict(call.arguments)
+        except (SchemaValidationError, KeyError, TypeError) as exc:
+            metrics["runtime_automation_r0_reject_count"] = int(
+                metrics.get("runtime_automation_r0_reject_count", 0)
+            ) + 1
+            return {
+                "accepted": False,
+                "error": "runtime_automation_r0_rejected",
+                "message": str(exc),
+            }
+
+        ctx.runtime_automation_drafts[draft.draft_id] = {
+            "draft": to_primitive(draft),
+            "stage": "r0",
+        }
+        ctx.record_r3_event(
+            "runtime_automation_proposed",
+            occurrence_id=occurrence.occurrence_id,
+            details={"draft_id": draft.draft_id},
+        )
+        if self.automation_coordinator is None:
+            return {
+                "accepted": True,
+                "r0_passed": True,
+                "stage": "r0_pass",
+                "draft_id": draft.draft_id,
+                "message": "automation draft accepted; tooling not attached",
+            }
+
+        outcome = self.automation_coordinator.process_draft(
+            draft=draft,
+            ctx=ctx,
+            occurrence=occurrence,
+        )
+        ctx.runtime_automation_drafts[draft.draft_id].update(
+            to_primitive(outcome)
+        )
+        self._record_runtime_automation_outcome_metrics(ctx, outcome)
+        return {
+            "accepted": True,
+            "draft_id": draft.draft_id,
+            "new_revision": ctx.world_revision,
+            **to_primitive(outcome),
+        }
+
     def _validate_current_atomic_call(
         self,
         call: Any,
@@ -1058,23 +1151,28 @@ class NodeExecutor:
     def _resolve_support_output_mapping(
         call: Any, candidate: Any,
     ) -> dict[str, str] | None:
-        mappings = {
-            str(item.producer_role): str(item.consumer_role)
-            for item in getattr(candidate, "role_mappings", ())
-        }
-        if not mappings:
+        role_mappings = tuple(
+            getattr(candidate, "role_mappings", ())
+        )
+        if not role_mappings:
             return None
         requested = dict(call.arguments.get("output_mapping") or {})
         if not requested:
-            if len(set(mappings.values())) == 1 and len(mappings) == 1:
-                return dict(mappings)
+            if len(role_mappings) == 1:
+                only = role_mappings[0]
+                return {
+                    str(only.producer_role): str(only.consumer_role)
+                }
             return None
         allowed: dict[str, set[str]] = {}
-        for item in getattr(candidate, "role_mappings", ()):
+        for item in role_mappings:
             allowed.setdefault(str(item.producer_role), set()).add(
                 str(item.consumer_role)
             )
-        if set(requested) - set(allowed):
+        if (
+            set(requested) - set(allowed)
+            or len(set(map(str, requested.values()))) != len(requested)
+        ):
             return None
         for producer_role, consumer_role in requested.items():
             if consumer_role not in allowed.get(producer_role, set()):
@@ -1162,10 +1260,28 @@ class NodeExecutor:
             result = self.try_autonomous(
                 support_occurrence, invocations, ctx,
             )
-        passed = bool(
+        atomic_effect_passed = bool(
             result is not None
             and getattr(result, "atomic_effect_passed", False)
         )
+        blocked_input_roles = {
+            str(item.name) for item in atomic.inputs
+        }
+        validated_outputs = dict(
+            getattr(result, "validated_outputs", {}) or {}
+        ) if result is not None else {}
+        support_outputs = {
+            consumer_role: validated_outputs[producer_role]
+            for producer_role, consumer_role in output_mapping.items()
+            if producer_role in validated_outputs
+            and consumer_role in blocked_input_roles
+            and validated_outputs[producer_role] not in (None, "")
+        }
+        output_mapping_complete = bool(
+            output_mapping
+            and len(support_outputs) == len(output_mapping)
+        )
+        passed = bool(atomic_effect_passed and output_mapping_complete)
         payload: dict[str, Any] = {
             "accepted": True,
             "support_atomic_ref": str(support_ref),
@@ -1174,6 +1290,8 @@ class NodeExecutor:
             "result": to_primitive(result) if result is not None else None,
             "new_revision": ctx.world_revision,
         }
+        if atomic_effect_passed and not output_mapping_complete:
+            payload["error"] = "support_atomic_output_unresolved"
         v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
             "v32_metrics", {}
         )
@@ -1181,43 +1299,33 @@ class NodeExecutor:
             v32_metrics.get("runtime_support_selected_count", 0)
         ) + 1
         if passed:
-            blocked_input_roles = {
-                str(item.name) for item in atomic.inputs
-            }
-            support_outputs = {
-                consumer_role: result.validated_outputs[producer_role]
-                for producer_role, consumer_role in output_mapping.items()
-                if producer_role in result.validated_outputs
-                and consumer_role in blocked_input_roles
-            }
-            if support_outputs:
-                support_refs: list[str] = []
-                for record in reversed(ctx.trace_builder.trace.validations):
-                    if (
-                        record.occurrence_id == support_occurrence.occurrence_id
-                        and record.level in {"atomic", "already_satisfied"}
-                    ):
-                        support_refs = list(record.result.get("witness_refs", []))
-                        if support_refs:
-                            break
-                if not support_refs:
-                    support_refs = [
-                        f"validator:occurrence:{support_occurrence.occurrence_id}"
-                        f":revision:{ctx.world_revision}"
-                    ]
-                ctx.binding_store.publish_validated_outputs(
-                    occurrence,
-                    support_outputs,
-                    support_refs,
-                    ctx.world_revision,
+            support_refs: list[str] = []
+            for record in reversed(ctx.trace_builder.trace.validations):
+                if (
+                    record.occurrence_id == support_occurrence.occurrence_id
+                    and record.level in {"atomic", "already_satisfied"}
+                ):
+                    support_refs = list(record.result.get("witness_refs", []))
+                    if support_refs:
+                        break
+            if not support_refs:
+                support_refs = [
+                    f"validator:occurrence:{support_occurrence.occurrence_id}"
+                    f":revision:{ctx.world_revision}"
+                ]
+            ctx.binding_store.publish_validated_outputs(
+                occurrence,
+                support_outputs,
+                support_refs,
+                ctx.world_revision,
+            )
+            ctx.validated_outputs[occurrence.occurrence_id] = dict(
+                support_outputs
+            )
+            for role, value in support_outputs.items():
+                ctx.evidence_store.add_validated_tool_output(
+                    role, value, support_refs,
                 )
-                ctx.validated_outputs[occurrence.occurrence_id] = dict(
-                    support_outputs
-                )
-                for role, value in support_outputs.items():
-                    ctx.evidence_store.add_validated_tool_output(
-                        role, value, [],
-                    )
             v32_metrics["runtime_support_success_count"] = int(
                 v32_metrics.get("runtime_support_success_count", 0)
             ) + 1
@@ -1337,93 +1445,9 @@ class NodeExecutor:
                         return conflict
                     return self.not_started(occurrence, failure_code="runtime_binding_unresolved")
                 if call.name == "propose_runtime_automation_atomic":
-                    try:
-                        validate_schema_instance(
-                            call.arguments, RUNTIME_AUTOMATION_ATOMIC_SCHEMA,
-                        )
-                        draft = runtime_automation_draft_from_dict(
-                            call.arguments
-                        )
-                    except (SchemaValidationError, KeyError, TypeError) as exc:
-                        v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
-                            "v32_metrics", {}
-                        )
-                        v32_metrics["runtime_automation_atomic_proposal_count"] = int(
-                            v32_metrics.get("runtime_automation_atomic_proposal_count", 0)
-                        ) + 1
-                        v32_metrics["runtime_automation_r0_reject_count"] = int(
-                            v32_metrics.get("runtime_automation_r0_reject_count", 0)
-                        ) + 1
-                        payload = {
-                            "accepted": False,
-                            "error": "runtime_automation_r0_rejected",
-                            "message": str(exc),
-                        }
-                    else:
-                        ctx.runtime_automation_drafts[draft.draft_id] = {
-                            "draft": to_primitive(draft),
-                            "stage": "r0",
-                        }
-                        v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
-                            "v32_metrics", {}
-                        )
-                        v32_metrics["runtime_automation_atomic_proposal_count"] = int(
-                            v32_metrics.get("runtime_automation_atomic_proposal_count", 0)
-                        ) + 1
-                        ctx.record_r3_event(
-                            "runtime_automation_proposed",
-                            occurrence_id=occurrence.occurrence_id,
-                            details={"draft_id": draft.draft_id},
-                        )
-                        if self.automation_coordinator is None:
-                            payload = {
-                                "accepted": True,
-                                "r0_passed": True,
-                                "stage": "r0_pass",
-                                "draft_id": draft.draft_id,
-                                "message": "automation draft accepted; tooling not attached",
-                            }
-                        else:
-                            outcome = self.automation_coordinator.process_draft(
-                                draft=draft,
-                                ctx=ctx,
-                                occurrence=occurrence,
-                            )
-                            ctx.runtime_automation_drafts[draft.draft_id].update(
-                                to_primitive(outcome)
-                            )
-                            v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
-                                "v32_metrics", {}
-                            )
-                            if outcome.r0_passed:
-                                v32_metrics["runtime_automation_r0_pass_count"] = int(
-                                    v32_metrics.get("runtime_automation_r0_pass_count", 0)
-                                ) + 1
-                            else:
-                                v32_metrics["runtime_automation_r0_reject_count"] = int(
-                                    v32_metrics.get("runtime_automation_r0_reject_count", 0)
-                                ) + 1
-                            if outcome.trial is not None:
-                                v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
-                                    "v32_metrics", {}
-                                )
-                                v32_metrics["runtime_tool_trial_count"] = int(
-                                    v32_metrics.get("runtime_tool_trial_count", 0)
-                                ) + 1
-                                if outcome.r1_passed:
-                                    v32_metrics["runtime_tool_trial_r1_pass_count"] = int(
-                                        v32_metrics.get("runtime_tool_trial_r1_pass_count", 0)
-                                    ) + 1
-                                else:
-                                    v32_metrics["runtime_tool_trial_r1_reject_count"] = int(
-                                        v32_metrics.get("runtime_tool_trial_r1_reject_count", 0)
-                                    ) + 1
-                            payload = {
-                                "accepted": True,
-                                "draft_id": draft.draft_id,
-                                "new_revision": ctx.world_revision,
-                                **to_primitive(outcome),
-                            }
+                    payload = self._process_runtime_automation_call(
+                        call, ctx, occurrence,
+                    )
                     self._augment_runtime_payload(
                         payload, ctx, occurrence=occurrence, atomic=atomic,
                         plan_context_plan=plan_context_plan,
@@ -1739,58 +1763,9 @@ class NodeExecutor:
                     )
                     break
                 if call.name == "propose_runtime_automation_atomic":
-                    try:
-                        validate_schema_instance(
-                            call.arguments, RUNTIME_AUTOMATION_ATOMIC_SCHEMA,
-                        )
-                        draft = runtime_automation_draft_from_dict(
-                            call.arguments
-                        )
-                        ctx.runtime_automation_drafts[draft.draft_id] = {
-                            "draft": to_primitive(draft),
-                            "stage": "r0",
-                        }
-                        payload = {"accepted": True, "draft_id": draft.draft_id}
-                        v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
-                            "v32_metrics", {}
-                        )
-                        v32_metrics["runtime_automation_atomic_proposal_count"] = int(
-                            v32_metrics.get("runtime_automation_atomic_proposal_count", 0)
-                        ) + 1
-                        if self.automation_coordinator is not None:
-                            outcome = self.automation_coordinator.process_draft(
-                                draft=draft, ctx=ctx, occurrence=occurrence,
-                            )
-                            ctx.runtime_automation_drafts[draft.draft_id].update(
-                                to_primitive(outcome)
-                            )
-                            if outcome.r0_passed:
-                                v32_metrics["runtime_automation_r0_pass_count"] = int(
-                                    v32_metrics.get("runtime_automation_r0_pass_count", 0)
-                                ) + 1
-                            else:
-                                v32_metrics["runtime_automation_r0_reject_count"] = int(
-                                    v32_metrics.get("runtime_automation_r0_reject_count", 0)
-                                ) + 1
-                            payload["new_revision"] = ctx.world_revision
-                            payload.update(to_primitive(outcome))
-                        else:
-                            payload.update({"r0_passed": True, "stage": "r0_pass"})
-                    except (SchemaValidationError, KeyError, TypeError) as exc:
-                        v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
-                            "v32_metrics", {}
-                        )
-                        v32_metrics["runtime_automation_atomic_proposal_count"] = int(
-                            v32_metrics.get("runtime_automation_atomic_proposal_count", 0)
-                        ) + 1
-                        v32_metrics["runtime_automation_r0_reject_count"] = int(
-                            v32_metrics.get("runtime_automation_r0_reject_count", 0)
-                        ) + 1
-                        payload = {
-                            "accepted": False,
-                            "error": "runtime_automation_r0_rejected",
-                            "message": str(exc),
-                        }
+                    payload = self._process_runtime_automation_call(
+                        call, ctx, occurrence,
+                    )
                     self._augment_runtime_payload(
                         payload, ctx, occurrence=occurrence, atomic=atomic,
                         plan_context_plan=plan_context_plan,

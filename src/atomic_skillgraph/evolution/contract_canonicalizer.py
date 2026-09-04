@@ -257,6 +257,7 @@ def _identity_payload(
             },
             "cardinality": int(item.cardinality),
             "distinct_by": str(item.distinct_by),
+            "effect_domain": item.effect_domain.value,
         }
 
     def predicates(items: list[SemanticPredicate]) -> list[dict[str, Any]]:

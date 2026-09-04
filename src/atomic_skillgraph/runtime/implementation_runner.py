@@ -171,6 +171,9 @@ class ImplementationRunner:
             terminal_interrupted=bool(
                 tool_results and any(item.terminal_interrupted for item in tool_results)
             ),
+            atomic_witness_refs=list(dict.fromkeys(
+                str(ref) for ref in atomic_validation.witness_refs
+            )),
         )
         ctx.trace_builder.trace.implementation_invocations.append(ImplementationInvocationRecord(
             attempt_id, occurrence.occurrence_id, str(compiled.implementation.ref),

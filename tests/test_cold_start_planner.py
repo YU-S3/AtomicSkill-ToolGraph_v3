@@ -549,6 +549,91 @@ def _trace_builder() -> TraceBuilder:
     ))
 
 
+def test_cold_start_terminal_precedes_failed_local_effect_and_skips_dynamic(
+    monkeypatch,
+) -> None:
+    step = ColdStartPlanStep(
+        "terminal-step",
+        ["single::0"],
+        ColdStartCandidateSource.VERIFIED,
+        "skill://terminal@1.0.0",
+        ColdStartExecutionMode.DIRECT_OR_SEEDED,
+        {},
+        {},
+    )
+    proposal = ColdStartPlanProposal(
+        "terminal-plan",
+        [step],
+        [step.step_id],
+        [],
+        [],
+        {"single::0": [step.step_id]},
+        [],
+    )
+    occurrence = SimpleNamespace(
+        occurrence_id="terminal-occurrence",
+        expected_effects=[],
+    )
+    execution_plan = SimpleNamespace(
+        occurrence=lambda _step_id: occurrence,
+    )
+    channel = SimpleNamespace(won=False)
+    trace_builder = _trace_builder()
+    ctx = SimpleNamespace(
+        plan=SimpleNamespace(
+            cold_start_plan=proposal,
+            cold_start_scaffold={"executable_step_ids": [step.step_id]},
+        ),
+        task_contract=SimpleNamespace(),
+        harness=SimpleNamespace(validator_channel=lambda: channel),
+        benchmark_terminal=lambda: bool(channel.won),
+        terminal_latched=False,
+        budget=SimpleNamespace(
+            begin_node=lambda *_args, **_kwargs: None,
+            end_node=lambda: None,
+        ),
+        task_progress=SimpleNamespace(
+            record=lambda source: SimpleNamespace(
+                progress_digest=f"progress::{source}",
+            ),
+        ),
+        trace_builder=trace_builder,
+        world_revision=0,
+        current_step_index=0,
+    )
+    orchestrator = RuntimeOrchestrator.__new__(RuntimeOrchestrator)
+    orchestrator.validation = SimpleNamespace(
+        task=SimpleNamespace(
+            terminal=lambda *_args, **_kwargs: SimpleNamespace(
+                passed=bool(channel.won),
+            ),
+        ),
+    )
+    orchestrator._materialize_cold_execution_plan = (
+        lambda *_args, **_kwargs: (execution_plan, {})
+    )
+
+    def winning_step(*_args, **_kwargs):
+        channel.won = True
+        return False, "atomic_effect_unsatisfied", "benchmark_terminal"
+
+    orchestrator._run_verified_cold_step = winning_step
+    orchestrator._finish_cold_start = (
+        lambda _ctx, _terminal, *, dynamic_result: dynamic_result or "finished"
+    )
+    orchestrator.node_executor = SimpleNamespace(
+        run_dynamic=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("won cold-start must not enter Dynamic Session"),
+        ),
+    )
+
+    result = orchestrator._run_cold_start(ctx, mode=RuntimeMode.ONLINE)
+
+    assert result == "finished"
+    assert channel.won is True
+    assert trace_builder.trace.cold_start_steps[0].local_effect_passed is False
+
+
 def test_provisional_scaffold_session_has_no_learned_invocation_tool() -> None:
     offered: list[list[str]] = []
     node_executor = NodeExecutor(

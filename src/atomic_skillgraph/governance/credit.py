@@ -477,6 +477,21 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
     composite_ref = _field(runtime_plan, "source_composite_ref", None)
     if composite_ref:
         composite_ref = str(composite_ref)
+        planner_audit = _field(runtime_plan, "planner_audit", {}) or {}
+        selected_authority = _field(
+            planner_audit, "selected_composite_authority", {},
+        ) or {}
+        terminal_empirical = (
+            str(_field(selected_authority, "kind", ""))
+            == "terminal_empirical"
+        )
+        trace_metadata = _field(trace, "metadata", {}) or {}
+        terminal_execution = _field(
+            trace_metadata, "terminal_empirical_execution", {},
+        ) or {}
+        terminal_candidate_executed = bool(
+            _field(terminal_execution, "candidate_executed", False)
+        )
         for node in node_records:
             occurrence_id = str(_field(node, "occurrence_id", ""))
             status = _enum_value(_field(node, "status", "not_started"))
@@ -507,7 +522,10 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         if bool(_field(trace, "task_rescue_required", False)):
             composite_outcome = CreditOutcome.TASK_RESCUE_REQUIRED
             composite_layer = FailureLayer.COMPOSITE.value
-        elif bool(_field(trace, "graph_self_sufficient_success", False)):
+        elif (
+            bool(_field(trace, "graph_self_sufficient_success", False))
+            and (not terminal_empirical or terminal_candidate_executed)
+        ):
             composite_outcome = CreditOutcome.SELF_SUFFICIENT_SUCCESS
         elif bool(_field(trace, "benchmark_success", False)) and not bool(
             _field(

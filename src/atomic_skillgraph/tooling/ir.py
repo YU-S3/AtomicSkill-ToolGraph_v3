@@ -7,6 +7,7 @@ the current action catalog, semantic evidence, or binding evidence.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
@@ -17,6 +18,7 @@ CONDITION_OPERATORS = frozenset({
     "exists", "not_exists", "equals", "not_equals",
     "contains", "empty", "non_empty",
 })
+TOOL_IR_MAX_NESTING_DEPTH = 4
 
 
 @dataclass
@@ -29,6 +31,7 @@ class ToolExecutionState:
     outputs: dict[str, Any] = field(default_factory=dict)
     evidence_refs: list[str] = field(default_factory=list)
     executed_nodes: list[str] = field(default_factory=list)
+    path_tokens: list[str] = field(default_factory=list)
     validated_paths: list[str] = field(default_factory=list)
     unvalidated_paths: list[str] = field(default_factory=list)
     loop_iteration_counts: dict[str, int] = field(default_factory=dict)
@@ -47,21 +50,60 @@ def _as_mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
-def walk_program_nodes(program: Any) -> list[dict[str, Any]]:
-    """Single recursive walker for every Tool IR consumer."""
+def walk_program_nodes(
+    program: Any,
+    *,
+    max_depth: int = TOOL_IR_MAX_NESTING_DEPTH,
+    with_context: bool = False,
+) -> list[Any]:
+    """Single bounded recursive walker for every Tool IR consumer.
 
-    result: list[dict[str, Any]] = []
-    for raw in program or ():
-        if not isinstance(raw, Mapping):
-            raise ValueError("tool_ir_schema_invalid")
-        node = dict(raw)
-        result.append(node)
-        opcode = str(node.get("op", ""))
-        if opcode == "IF":
-            result.extend(walk_program_nodes(node.get("then_branch")))
-            result.extend(walk_program_nodes(node.get("else_branch")))
-        elif opcode == "FOR_EACH":
-            result.extend(walk_program_nodes(node.get("body")))
+    A Tool proposal is untrusted structured output.  In particular, nested
+    branch members may be scalars, mappings instead of lists, cyclic objects,
+    or adversarially deep trees.  Report those shapes with stable Tool-IR
+    errors instead of leaking Python ``TypeError``/``RecursionError`` out of a
+    static validation gate.
+    """
+
+    result: list[Any] = []
+    active_containers: set[int] = set()
+
+    def visit(nodes: Any, depth: int, prefix: str) -> None:
+        if depth > max_depth:
+            raise ValueError("tool_ir_recursion_depth_exceeded")
+        if not isinstance(nodes, (list, tuple)):
+            raise ValueError("tool_ir_schema_invalid: nested program must be a list")
+        container_id = id(nodes)
+        if container_id in active_containers:
+            raise ValueError("tool_ir_recursion_depth_exceeded")
+        active_containers.add(container_id)
+        try:
+            for index, raw in enumerate(nodes):
+                if not isinstance(raw, Mapping):
+                    raise ValueError("tool_ir_schema_invalid")
+                # Preserve ordinary dict identity so validators can apply
+                # canonical structural normalization to the actual tree.
+                node = raw if isinstance(raw, dict) else dict(raw)
+                node_id = str(node.get("node_id", f"{prefix}[{index}]"))
+                path_id = f"{prefix}/{node_id}"
+                result.append(
+                    (node, depth, path_id) if with_context else node
+                )
+                opcode = str(node.get("op", ""))
+                if opcode == "IF":
+                    then_branch = node.get("then_branch", [])
+                    else_branch = node.get("else_branch", [])
+                    visit(then_branch, depth + 1, f"{path_id}/then")
+                    visit(else_branch, depth + 1, f"{path_id}/else")
+                elif opcode == "FOR_EACH":
+                    visit(
+                        node.get("body", []), depth + 1,
+                        f"{path_id}/body",
+                    )
+        finally:
+            active_containers.remove(container_id)
+
+    visit(program, 0, "program")
     return result
 
 
@@ -79,7 +121,10 @@ def normalize_tool_program(value: Any) -> list[dict[str, Any]]:
     for index, raw in enumerate(value):
         if not isinstance(raw, Mapping):
             raise ValueError(f"tool_ir_schema_invalid: program[{index}] is not an object")
-        node = dict(raw)
+        # The normalized program is its own canonical tree.  Static
+        # normalization must never depend on mutating the Agent proposal's
+        # shallow-shared nested branches.
+        node = copy.deepcopy(dict(raw))
         opcode = str(node.get("op", ""))
         if opcode not in {item.value for item in ToolProgramOp}:
             raise ValueError(f"tool_ir_opcode_unsupported: {opcode}")
@@ -334,7 +379,9 @@ def normalize_return_output_sources(
         "source", "field", "where", "project", "kind", "constant",
         "value", "source_role", "distinct",
     }
-    if set(raw) <= source_spec_keys and "source" in raw:
+    if set(raw) <= source_spec_keys and (
+        "source" in raw or "kind" in raw
+    ):
         if len(roles) == 1:
             return {next(iter(roles)): dict(raw)}
     return dict(raw)
@@ -343,6 +390,8 @@ def normalize_return_output_sources(
 def resolve_return_sources(
     output_sources: Mapping[str, Any],
     state: ToolExecutionState,
+    *,
+    semantic_compatible: Any = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Deterministically resolve RETURN outputs and attach evidence refs."""
 
@@ -373,6 +422,7 @@ def resolve_return_sources(
                     "distinct": bool(spec.get("distinct", True)),
                 },
                 state,
+                semantic_compatible=semantic_compatible,
             )
             outputs[role] = values[-1] if values else None
             if values:
@@ -409,52 +459,13 @@ def resolve_return_sources(
     return outputs, evidence_refs
 
 
-def _walk_program(
-    program: Sequence[Mapping[str, Any]],
-    *,
-    prefix: str,
-    state: ToolExecutionState,
-    paths: list[str],
-    path_nodes: dict[str, list[str]],
-) -> None:
-    """Static path identity walk; branch coverage is recorded later at runtime."""
-
-    for index, node in enumerate(program):
-        node_id = str(node.get("node_id", f"{prefix}[{index}]"))
-        path_id = f"{prefix}/{node_id}"
-        path_nodes.setdefault(path_id, [node_id])
-        opcode = str(node.get("op", ""))
-        if opcode == ToolProgramOp.IF.value:
-            _walk_program(
-                _as_mapping(node).get("then_branch") or (),
-                prefix=f"{path_id}/then",
-                state=state,
-                paths=paths,
-                path_nodes=path_nodes,
-            )
-            _walk_program(
-                _as_mapping(node).get("else_branch") or (),
-                prefix=f"{path_id}/else",
-                state=state,
-                paths=paths,
-                path_nodes=path_nodes,
-            )
-        elif opcode == ToolProgramOp.FOR_EACH.value:
-            _walk_program(
-                _as_mapping(node).get("body") or (),
-                prefix=f"{path_id}/body",
-                state=state,
-                paths=paths,
-                path_nodes=path_nodes,
-            )
-        paths.append(path_id)
-
-
 def program_paths(program: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
-    state = ToolExecutionState()
-    paths: list[str] = []
-    path_nodes: dict[str, list[str]] = {}
-    _walk_program(program, prefix="program", state=state, paths=paths, path_nodes=path_nodes)
+    visits = walk_program_nodes(program, with_context=True)
+    paths = [str(path_id) for _node, _depth, path_id in visits]
+    path_nodes = {
+        str(path_id): [str(node.get("node_id", ""))]
+        for node, _depth, path_id in visits
+    }
     return {
         "path_ids": sorted(set(paths)),
         "paths": {path_id: path_nodes.get(path_id, []) for path_id in paths},
@@ -463,6 +474,7 @@ def program_paths(program: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
 
 __all__ = [
     "CONDITION_OPERATORS",
+    "TOOL_IR_MAX_NESTING_DEPTH",
     "ToolExecutionState",
     "evaluate_condition",
     "normalize_tool_program",

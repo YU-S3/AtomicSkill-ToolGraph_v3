@@ -350,6 +350,10 @@ class PlannerAudit:
     repairability: dict[str, Any] = field(default_factory=dict)
     requirements_p1r: dict[str, Any] = field(default_factory=dict)
     atomic_search_p1r: dict[str, Any] = field(default_factory=dict)
+    support_atomic_candidates: list[dict[str, Any]] = field(default_factory=list)
+    support_atomic_selected: list[dict[str, Any]] = field(default_factory=list)
+    planner_support_atomic_candidate_count: int = 0
+    planner_support_atomic_selected_count: int = 0
     workflow_p2: dict[str, Any] = field(default_factory=dict)
     validation_p2: dict[str, Any] = field(default_factory=dict)
     workflow_p2r: dict[str, Any] = field(default_factory=dict)

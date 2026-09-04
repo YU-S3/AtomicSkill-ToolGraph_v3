@@ -836,6 +836,63 @@ def test_same_session_supports_p1_p1r_p2_after_acknowledge() -> None:
     ]
 
 
+def test_structured_phase_compaction_keeps_latest_deepseek_envelope() -> None:
+    from experiments.fakes import FakeReply, ScriptedAgentProvider
+
+    provider = ScriptedAgentProvider([
+        FakeReply.structured({"ok": True}),
+        FakeReply.structured({"ok": True}),
+        FakeReply.structured({"ok": True}),
+    ])
+    session = ReplayAgentSession(
+        provider,
+        system_prompt="planner",
+        usage_ledger=UsageLedger(),
+        usage_bucket="planner_p1",
+        budget=AgentBudget(5, 1000, "planner_token_budget_exhausted"),
+        semantic_max_turns=4,
+        session_id="planner_compacted_session",
+    )
+    client = StructuredSubmissionClient()
+    for index, stage in enumerate(("planner_p1", "planner_p1_repair"), start=1):
+        session.set_usage_bucket(stage)
+        client.request(
+            session,
+            prompt=f"stage {index}",
+            tool_name=f"submit_stage_{index}",
+            description="submit planner stage",
+            schema=_tool().input_schema,
+        )
+
+    session.compact_completed_structured_phases()
+    session.set_usage_bucket("planner_p2")
+    client.request(
+        session,
+        prompt="stage 3",
+        tool_name="submit_stage_3",
+        description="submit planner stage",
+        schema=_tool().input_schema,
+    )
+
+    replay = provider.requests[-1].messages
+    assert [message["role"] for message in replay] == [
+        "system", "user", "assistant", "tool", "user",
+    ]
+    assert replay[1]["content"] == "stage 2"
+    assert replay[2]["reasoning_content"] == "deterministic reasoning for call_default_000001"
+    assert all(
+        "deterministic reasoning for call_default_000000" not in str(message)
+        for message in replay
+    )
+    snapshot = session.snapshot()
+    assert snapshot["session_id"] == "planner_compacted_session"
+    assert snapshot["structured_phase_compaction_count"] == 1
+    assert snapshot["structured_phase_pruned_message_count"] == 3
+    assert snapshot["budget"]["used_total_tokens"] == 30
+    assert snapshot["budget"]["used_turns"] == 3
+    assert snapshot["semantic_budget"]["used_turns"] == 3
+
+
 def test_structured_semantic_budget_keeps_one_session_wide_format_repair_headroom(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

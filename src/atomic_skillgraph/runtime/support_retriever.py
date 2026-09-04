@@ -8,11 +8,19 @@ benchmark workflow may enter this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
-from ..core.contracts import AbstractAtomicSkill
+from ..core.bindings import (
+    BindingExprKind,
+    BindingExpression,
+    resolution_satisfies,
+)
+from ..core.contracts import AbstractAtomicSkill, EffectDomain
 from ..core.serialization import to_primitive
-from ..core.semantic_types import semantic_types_compatible
+from ..core.semantic_types import (
+    normalize_semantic_type,
+    semantic_types_compatible,
+)
 
 
 @dataclass(frozen=True)
@@ -20,6 +28,9 @@ class SupportRoleMapping:
     producer_role: str
     consumer_role: str
     semantic_type: str
+    producer_resolution: str = "semantic"
+    required_resolution: str = "semantic"
+    effect_domain: str = ""
 
 
 @dataclass(frozen=True)
@@ -37,6 +48,45 @@ def _predicate_name(value: Any) -> str:
     if isinstance(value, dict):
         return str(value.get("predicate", ""))
     return str(getattr(value, "predicate", ""))
+
+
+def _referenced_roles(value: Any) -> set[str]:
+    roles: set[str] = set()
+    for raw in dict(getattr(value, "args", {}) or {}).values():
+        expression: BindingExpression | None = None
+        if isinstance(raw, BindingExpression):
+            expression = raw
+        elif isinstance(raw, Mapping) and "kind" in raw:
+            try:
+                expression = BindingExpression.from_dict(dict(raw))
+            except (KeyError, TypeError, ValueError):
+                expression = None
+        if expression is not None:
+            if expression.kind is BindingExprKind.SKILL_INPUT:
+                roles.add(str(expression.source_role))
+            continue
+        if isinstance(raw, str) and raw.startswith("$"):
+            roles.add(raw[1:])
+    return roles
+
+
+def _output_authority(
+    atomic: AbstractAtomicSkill,
+    output_role: str,
+    declared_resolution: str,
+) -> tuple[str, str]:
+    """Return the strongest contract-declared output authority."""
+
+    domains = {
+        str(effect.effect_domain.value)
+        for effect in atomic.effects
+        if output_role in _referenced_roles(effect)
+    }
+    if EffectDomain.EVIDENCE.value in domains:
+        return "relation_verified", EffectDomain.EVIDENCE.value
+    if EffectDomain.WORLD.value in domains:
+        return "concrete", EffectDomain.WORLD.value
+    return str(declared_resolution), ""
 
 
 class SupportAtomicRetriever:
@@ -66,22 +116,47 @@ class SupportAtomicRetriever:
                     required = blocked_inputs.get(consumer_role)
                     if required is None:
                         continue
-                    compatible = semantic_types_compatible(
+                    producer_resolution, effect_domain = _output_authority(
+                        atomic,
+                        str(output.name),
+                        str(output.required_resolution),
+                    )
+                    type_compatible = semantic_types_compatible(
                         required.semantic_type, output.semantic_type,
+                    )
+                    resolution_compatible = resolution_satisfies(
+                        producer_resolution, required.required_resolution,
+                    )
+                    compatible = bool(
+                        type_compatible and resolution_compatible
                     )
                     diagnostics.append({
                         "producer_role": output.name,
                         "consumer_role": consumer_role,
                         "compatible": bool(compatible),
+                        "semantic_type_compatible": bool(type_compatible),
+                        "resolution_compatible": bool(
+                            resolution_compatible
+                        ),
                         "required_type": required.semantic_type,
                         "offered_type": output.semantic_type,
+                        "producer_resolution": producer_resolution,
+                        "required_resolution": required.required_resolution,
+                        "effect_domain": effect_domain,
                     })
                     if not compatible:
                         continue
                     mappings.append(SupportRoleMapping(
                         producer_role=str(output.name),
                         consumer_role=str(consumer_role),
-                        semantic_type=str(output.semantic_type or required.semantic_type),
+                        semantic_type=normalize_semantic_type(
+                            output.semantic_type or required.semantic_type,
+                        ),
+                        producer_resolution=producer_resolution,
+                        required_resolution=str(
+                            required.required_resolution
+                        ),
+                        effect_domain=effect_domain,
                     ))
                     if output.name not in supplied_roles:
                         supplied_roles.append(output.name)

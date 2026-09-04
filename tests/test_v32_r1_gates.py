@@ -41,7 +41,10 @@ from atomic_skillgraph.harness.protocol import (
 )
 from atomic_skillgraph.planner.repairability import RepairabilityGate
 from atomic_skillgraph.runtime.automation import RuntimeAutomationCoordinator
-from atomic_skillgraph.runtime.support_retriever import SupportAtomicRetriever
+from atomic_skillgraph.runtime.support_retriever import (
+    SupportAtomicRetriever,
+    SupportRoleMapping,
+)
 from atomic_skillgraph.runtime.tool_runner import ToolRunner
 from atomic_skillgraph.tooling.ir import (
     ToolExecutionState,
@@ -515,6 +518,11 @@ def test_gate3_tool_ir_admission_and_gate4_replay_executes() -> None:
                     "argument_mapping": {
                         "item": {"kind": "skill_input", "source_role": "item"}
                     },
+                    "expected_effects": [{
+                        "predicate": "agent.holds",
+                        "args": {"object": "$item"},
+                        "effect_domain": "world",
+                    }],
                 },
                 {
                     "node_id": "ret",
@@ -585,6 +593,54 @@ def test_gate3_tool_ir_admission_and_gate4_replay_executes() -> None:
     assert admitted.metadata["admission"]["kind"] == "tool_ir_v1"
 
 
+def test_gate13_terminal_interrupted_replay_is_not_admission_evidence() -> None:
+    from atomic_skillgraph.system import AtomicSkillGraphSystem
+
+    harness = FakeHarness()
+    task = fake_task("task-terminal-replay", "apple_1")
+    harness.reset(task)
+    tool = _control_step_tool(
+        program=[
+            {
+                "node_id": "take",
+                "op": "ACTION",
+                "action_type": "TAKE",
+                "argument_mapping": {
+                    "item": {
+                        "kind": "skill_input",
+                        "source_role": "target",
+                    }
+                },
+            },
+            {
+                "node_id": "ret",
+                "op": "RETURN",
+                "output_sources": {
+                    "x": {"source": "tool_input", "field": "target"}
+                },
+            },
+        ],
+        max_actions=2,
+    )
+    system = AtomicSkillGraphSystem.__new__(AtomicSkillGraphSystem)
+    system.harness = harness
+    system.validation = ValidationEngine()
+    system.config = {"method_patch": "3.2"}
+
+    admitted = system._replay_tool_candidate(
+        task,
+        tool,
+        {
+            "source_task": {"task_id": task.task_id},
+            "prefix": [],
+            "bindings": {"target": "apple_1"},
+        },
+    )
+
+    assert harness.validator_channel().won is True
+    assert admitted is False
+
+
 def test_gate5_no_tool_compiles_atomic_only() -> None:
     from atomic_skillgraph.evolution.atomicizer import CanonicalAtomicOccurrence
     from atomic_skillgraph.core.refs import SkillRef
@@ -637,8 +693,107 @@ def test_gate18_support_role_mapping_is_explicit() -> None:
         blocked_atomic=blocked, missing_roles=["object"], atomics=[locator],
     )
     assert len(candidates) == 1
-    assert candidates[0].role_mappings[0].producer_role == "entity"
-    assert candidates[0].role_mappings[0].consumer_role == "object"
+    mapping = candidates[0].role_mappings[0]
+    assert mapping.producer_role == "entity"
+    assert mapping.consumer_role == "object"
+    assert mapping.producer_resolution == "relation_verified"
+    assert mapping.required_resolution == "semantic"
+    assert mapping.effect_domain == "evidence"
+
+
+def test_support_mapping_requires_resolution_and_effect_authority() -> None:
+    blocked = AbstractAtomicSkill(
+        ref="skill://atomic_blocked@1.0.0",
+        summary="blocked",
+        inputs=[
+            ParameterSpec(
+                "object",
+                "entity",
+                required_resolution="concrete",
+            )
+        ],
+        outputs=[],
+        preconditions=[],
+        effects=[SemanticPredicate("object.heated", {"object": "$object"})],
+        validator_spec={},
+        failure_modes=[],
+        guideline={},
+        metadata={},
+    )
+    semantic_only = AbstractAtomicSkill(
+        ref="skill://atomic_semantic_only@1.0.0",
+        summary="semantic only",
+        inputs=[],
+        outputs=[ParameterSpec("entity", "entity")],
+        preconditions=[],
+        effects=[SemanticPredicate("unrelated", {"value": "stable"})],
+        validator_spec={},
+        failure_modes=[],
+        guideline={},
+        metadata={},
+    )
+    world_backed = AbstractAtomicSkill(
+        ref="skill://atomic_world_backed@1.0.0",
+        summary="world backed",
+        inputs=[],
+        outputs=[ParameterSpec("entity", "entity")],
+        preconditions=[],
+        effects=[SemanticPredicate("agent.holds", {"object": "$entity"})],
+        validator_spec={},
+        failure_modes=[],
+        guideline={},
+        metadata={},
+    )
+
+    candidates = SupportAtomicRetriever().retrieve(
+        blocked_atomic=blocked,
+        missing_roles=["object"],
+        atomics=[semantic_only, world_backed],
+    )
+
+    assert [item.atomic_ref for item in candidates] == [
+        str(world_backed.ref)
+    ]
+    mapping = candidates[0].role_mappings[0]
+    assert mapping.producer_resolution == "concrete"
+    assert mapping.required_resolution == "concrete"
+    assert mapping.effect_domain == "world"
+
+    relation_required = replace(
+        blocked,
+        inputs=[
+            ParameterSpec(
+                "object",
+                "entity",
+                required_resolution="relation_verified",
+            )
+        ],
+    )
+    assert SupportAtomicRetriever().retrieve(
+        blocked_atomic=relation_required,
+        missing_roles=["object"],
+        atomics=[world_backed],
+    ) == []
+
+
+def test_ambiguous_support_mapping_requires_explicit_selection() -> None:
+    candidate = SimpleNamespace(role_mappings=(
+        SupportRoleMapping("entity", "object", "entity"),
+        SupportRoleMapping("entity", "destination", "entity"),
+    ))
+    implicit = SimpleNamespace(arguments={})
+    explicit = SimpleNamespace(arguments={
+        "output_mapping": {"entity": "object"},
+    })
+
+    from atomic_skillgraph.runtime.node_executor import NodeExecutor
+
+    assert NodeExecutor._resolve_support_output_mapping(
+        implicit, candidate,
+    ) is None
+    assert NodeExecutor._resolve_support_output_mapping(
+        explicit, candidate,
+    ) == {"entity": "object"}
 
 
 def test_gate19_repairability_uses_composite_hint() -> None:
@@ -756,6 +911,11 @@ def test_gate12_runtime_automation_input_binding_specs_resolve() -> None:
         draft, ctx, SimpleNamespace(occurrence_id="occ"),
     )
     assert bindings == {"target": "cup"}
+    assert RuntimeAutomationCoordinator._resolve_trial_bindings(
+        replace(draft, input_binding_specs={}),
+        ctx,
+        SimpleNamespace(occurrence_id="occ"),
+    ) == {}
 
 
 def _atomicizer_trace(
@@ -1184,6 +1344,69 @@ def test_gate32_raw_observation_cannot_create_fresh_output() -> None:
         Atomicizer().validate_and_canonicalize([proposal], normalized)
 
 
+@pytest.mark.parametrize(
+    "argument_mapping",
+    [
+        {},
+        {
+            "object": {
+                "kind": "skill_input",
+                "source_role": "target",
+            }
+        },
+        {
+            "destination": {
+                "kind": "skill_input",
+                "source_role": "target",
+            },
+            "object": {
+                "kind": "skill_input",
+                "source_role": "target",
+            },
+        },
+    ],
+)
+def test_tool_ir_action_argument_roles_match_harness_schema(
+    argument_mapping: dict[str, Any],
+) -> None:
+    atomic = _atomic("atomic_action_signature")
+    proposal = ToolProposal(
+        proposal_version="1",
+        decision="create",
+        summary="invalid action signature",
+        atomic_ref=str(atomic.ref),
+        inputs=atomic.inputs,
+        outputs=atomic.outputs,
+        program=[
+            {
+                "node_id": "go",
+                "op": "ACTION",
+                "action_type": "GO_TO",
+                "argument_mapping": argument_mapping,
+            },
+            {
+                "node_id": "ret",
+                "op": "RETURN",
+                "output_sources": {
+                    "found": {"source": "tool_input", "field": "target"}
+                },
+            },
+        ],
+        max_actions=1,
+        final_effects=atomic.effects,
+        evidence_outputs=[],
+        path_expectations=[],
+        rationale="",
+    )
+
+    report = ToolStaticValidator().validate_proposal(
+        proposal, atomic, FakeHarness(),
+    )
+
+    assert report.passed is False
+    assert "tool_ir_action_schema_invalid" in report.failure_codes
+
+
 def test_gate33_recursive_concrete_id_leakage_rejected() -> None:
     atomic = _atomic("atomic_nested_leak")
     proposal = ToolProposal(
@@ -1422,7 +1645,10 @@ def test_r2_3_terminal_empirical_all_signatures_subset() -> None:
             ),
             canonical,
             TaskContract([
-                SemanticPredicate("object.observed", {"object": "cup_1"}),
+                SemanticPredicate(
+                    "object.observed", {"object": "cup_1"},
+                    effect_domain=EffectDomain.EVIDENCE,
+                ),
             ]),
             task_bindings={"item": "cup_1"},
             terminal_certificate={
@@ -1468,9 +1694,10 @@ def test_r2_4_tool_builder_boundary_exactness() -> None:
 
     atomic = _atomic("atomic_boundary")
     atomic.ref = SkillRef.parse(str(atomic.ref))
-    atomic.effects = [
-        SemanticPredicate("object.observed", {"object": "$found"})
-    ]
+    atomic.effects = [SemanticPredicate(
+        "object.observed", {"object": "$found"},
+        effect_domain="evidence",
+    )]
     base = ToolProposal(
         proposal_version="1", decision="create", summary="locate",
         atomic_ref=str(atomic.ref),
@@ -1538,6 +1765,42 @@ def _locate_draft() -> RuntimeAutomationAtomicDraft:
         input_binding_specs={
             "target": {"kind": "current_occurrence_anchor", "source_role": "object"}
         },
+    )
+
+
+def test_runtime_automation_binding_specs_are_required_and_closed() -> None:
+    from atomic_skillgraph.agents.structured_submission import (
+        RUNTIME_AUTOMATION_ATOMIC_SCHEMA,
+    )
+
+    assert "input_binding_specs" in RUNTIME_AUTOMATION_ATOMIC_SCHEMA["required"]
+    missing = replace(_locate_draft(), input_binding_specs={})
+    missing_report = ToolStaticValidator().validate_automation_draft(
+        missing, FakeHarness(),
+    )
+    assert missing_report.passed is False
+    assert (
+        "runtime_automation_input_binding_invalid"
+        in missing_report.failure_codes
+    )
+
+    undeclared = replace(
+        _locate_draft(),
+        input_binding_specs={
+            **_locate_draft().input_binding_specs,
+            "not_an_input": {
+                "kind": "constant",
+                "value": "stable semantic literal",
+            },
+        },
+    )
+    undeclared_report = ToolStaticValidator().validate_automation_draft(
+        undeclared, FakeHarness(),
+    )
+    assert undeclared_report.passed is False
+    assert (
+        "runtime_automation_input_binding_invalid"
+        in undeclared_report.failure_codes
     )
 
 

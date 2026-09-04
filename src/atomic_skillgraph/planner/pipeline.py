@@ -27,6 +27,7 @@ from .composite_retriever import CompositeRetriever
 from .related_composite import RelatedCompositeHintFinder
 from .repairability import RepairabilityGate
 from .requirement_agent import RequirementAgent
+from .support_retriever import PlannerSupportAtomicRetriever
 from .multiplicity import (
     RequirementBundleValidator,
     RequirementMultiplicityCompiler,
@@ -98,6 +99,11 @@ class PlannerPipeline:
         )
         self.atomic_retriever = AtomicRetriever(
             skills, top_k=atomic_top_k, max_top_k=max_atomic_top_k,
+            candidate_policy=candidate_policy,
+        )
+        self.support_retriever = PlannerSupportAtomicRetriever(
+            skills,
+            top_k=atomic_top_k,
             candidate_policy=candidate_policy,
         )
         self.related = RelatedCompositeHintFinder(skills)
@@ -230,12 +236,21 @@ class PlannerPipeline:
                 hints = self.related.find(search, mode=mode)
                 audit.related_composite_hints = hints
         repairability = None
-        if search is not None and (not validation.passed or not search.full_coverage):
+        if not validation.passed:
+            repairability = self.repairability_gate.decide(
+                bundle, validation, (), (),
+            )
+            audit.repairability = to_primitive(repairability)
+        elif search is not None and not search.full_coverage:
             repairability = self.repairability_gate.decide(
                 bundle, validation, search.template_results, hints,
             )
             audit.repairability = to_primitive(repairability)
-        if not validation.passed or (
+        if (
+            not validation.passed
+            and repairability is not None
+            and repairability.repairable
+        ) or (
             search is not None
             and not search.full_coverage
             and (repairability is None or repairability.repairable)
@@ -471,15 +486,51 @@ class PlannerPipeline:
             )
             return plan
 
-        existing_edges = self.graph.existing_edges(search.refs, mode=mode)
+        support_candidates = self.support_retriever.retrieve(
+            required_instance_candidates=search.instance_candidates,
+            mode=mode,
+            harness_profile=harness.profile_name,
+            task_id=task.task_id,
+        )
+        audit.support_atomic_candidates = to_primitive(support_candidates)
+        audit.planner_support_atomic_candidate_count = len(support_candidates)
+        # Preserve the retrieval-produced order while deduplicating only the
+        # interface projection.  This does not re-rank, truncate, or otherwise
+        # change either required or support candidate pools.
+        ordered_supplied_refs: list[str] = []
+        seen_supplied_refs: set[str] = set()
+        for candidates in search.instance_candidates.values():
+            for candidate in candidates:
+                ref = str(candidate.atomic_ref)
+                if ref not in seen_supplied_refs:
+                    ordered_supplied_refs.append(ref)
+                    seen_supplied_refs.add(ref)
+        for candidate in support_candidates:
+            ref = str(candidate.atomic_ref)
+            if ref not in seen_supplied_refs:
+                ordered_supplied_refs.append(ref)
+                seen_supplied_refs.add(ref)
+        supplied_refs = set(ordered_supplied_refs)
+        authoritative = [
+            self.skills.get_atomic(ref) for ref in ordered_supplied_refs
+        ]
+        existing_edges = self.graph.existing_edges(supplied_refs, mode=mode)
         instance_candidates = {
             instance_id: {str(candidate.atomic_ref) for candidate in candidates}
             for instance_id, candidates in search.instance_candidates.items()
         }
         try:
-            proposal = workflow_agent.propose(task, contract, expansion, search.candidates, existing_edges, hints)
+            proposal = workflow_agent.propose(
+                task,
+                contract,
+                expansion,
+                search.candidates,
+                existing_edges,
+                hints,
+                support_candidates=support_candidates,
+                authoritative_contracts=authoritative,
+            )
             audit.workflow_p2 = to_primitive(proposal)
-            supplied_refs = {str(ref) for ref in search.refs}
             _require_supplied_atomic_refs(proposal, supplied_refs)
             plan = self.compiler.compile(
                 proposal, task, contract, mode=mode, audit=to_primitive(audit),
@@ -491,11 +542,17 @@ class PlannerPipeline:
             report = self.validator.validate(
                 plan, mode=mode, required_requirement_ids=required_ids, harness_profile=harness.profile_name,
                 expansion=expansion, instance_candidates=instance_candidates,
+                support_candidates=support_candidates,
             )
             audit.validation_p2 = to_primitive(report)
             if not report.passed:
-                authoritative = [self.skills.get_atomic(ref) for ref in search.refs]
-                proposal = workflow_agent.repair(proposal, report, authoritative, existing_edges)
+                proposal = workflow_agent.repair(
+                    proposal,
+                    report,
+                    authoritative,
+                    existing_edges,
+                    support_candidates=support_candidates,
+                )
                 audit.workflow_p2r = to_primitive(proposal)
                 _require_supplied_atomic_refs(proposal, supplied_refs)
                 plan = self.compiler.compile(
@@ -505,6 +562,7 @@ class PlannerPipeline:
                 report = self.validator.validate(
                     plan, mode=mode, required_requirement_ids=required_ids, harness_profile=harness.profile_name,
                     expansion=expansion, instance_candidates=instance_candidates,
+                    support_candidates=support_candidates,
                 )
                 audit.validation_p2r = to_primitive(report)
             if not report.passed:
@@ -519,6 +577,23 @@ class PlannerPipeline:
                 exc, "planner_graph_repair_failed",
             )
             return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=to_primitive(audit))
+        audit.support_atomic_selected = [
+            {
+                "step_id": step.step_id,
+                "occurrence_id": step.occurrence_id,
+                "atomic_ref": str(step.node_ref),
+                "data_flow_edges": [
+                    to_primitive(edge)
+                    for edge in proposal.data_edges
+                    if edge.source_step == step.step_id
+                ],
+            }
+            for step in proposal.steps
+            if not (step.requirement_instance_ids or step.requirement_ids)
+        ]
+        audit.planner_support_atomic_selected_count = len(
+            audit.support_atomic_selected
+        )
         audit.final_outcome = "atomic_composition"
         plan.planner_audit = to_primitive(audit) | {
             "requirement_coverage": plan.planner_audit.get("requirement_coverage", {}),

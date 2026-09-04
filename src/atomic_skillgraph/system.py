@@ -111,7 +111,7 @@ from .governance import (
     LifecycleProjection,
     LifecycleThresholds,
 )
-from .harness.alfworld import AlfWorldAdapter
+from .harness.alfworld import AlfWorldAdapter, normalize_entity
 from .harness.protocol import HarnessTask
 from .knowledge import (
     ArtifactStore,
@@ -2073,9 +2073,14 @@ class AtomicSkillGraphSystem:
             )
             if result.executed_action_count <= 0:
                 return False
+            # Admission replay proves the complete Tool program, not merely a
+            # benchmark-winning prefix.  A terminal interruption remains valid
+            # task/Atomic evidence, but it is never Tool-admission evidence.
+            if not result.completed or result.terminal_interrupted:
+                return False
             if not result.atomic_effect_passed:
                 return False
-            if result.failure_code and not result.terminal_interrupted:
+            if result.failure_code:
                 return False
             return True
         except AtomicSkillGraphError:
@@ -2193,6 +2198,7 @@ class AtomicSkillGraphSystem:
             return None, metrics
         static = self.tool_static_validator.validate_proposal(
             proposal, atomic_view, self.harness,
+            historical_evidence_support=evidence_support,
         )
         if not static.passed:
             metrics["static_reject_count"] = 1
@@ -2247,23 +2253,356 @@ class AtomicSkillGraphSystem:
             },
         }
 
+    @staticmethod
+    def _runtime_trial_e1_effect_eligible(
+        trial: Mapping[str, Any],
+    ) -> bool:
+        """Keep Tool admission separate from executed-prefix E1 authority."""
+
+        r1 = dict(trial.get("r1") or {})
+        if bool(r1.get("admission_eligible", False)):
+            return True
+        if not bool(r1.get("terminal_interrupted", False)):
+            return False
+        result = dict(trial.get("result") or {})
+        started = bool(r1.get("started", result.get("started", False)))
+        intrinsic_failure = bool(r1.get("tool_intrinsic_failure", False))
+        if not intrinsic_failure:
+            intrinsic_failure = any(
+                bool(dict(item).get("intrinsic_failure", False))
+                for item in list(result.get("tool_results") or [])
+                if isinstance(item, Mapping)
+            )
+        return bool(
+            started
+            and r1.get("atomic_effect_passed") is True
+            and r1.get("executed_path_effects_passed") is True
+            and r1.get("outputs_valid") is True
+            and not intrinsic_failure
+        )
+
+    @staticmethod
+    def _runtime_effect_witness_ref(
+        fact: Mapping[str, Any], *, revision: int,
+    ) -> str:
+        """Rebuild the ALFWorld validator's exact structured fact ref."""
+
+        predicate = str(fact.get("predicate", ""))
+        suffix = ",".join(
+            f"{role}={normalize_entity(value)}"
+            for role, value in sorted(dict(fact.get("args") or {}).items())
+        )
+        return f"alfworld_action_fact:r{revision}:{predicate}:{suffix}"
+
+    @staticmethod
+    def _runtime_effect_event_index(
+        trial: Mapping[str, Any],
+        actions: list[dict[str, Any]],
+        fact: Mapping[str, Any],
+    ) -> int | None:
+        """Tie a Runtime R1 fact to one accepted action in its actual trial."""
+
+        if not actions:
+            return None
+        try:
+            start = int(trial.get("trial_event_start", -1))
+            end = int(trial.get("trial_event_end", -1))
+        except (TypeError, ValueError):
+            return None
+        indexed = [
+            action for fallback, action in enumerate(actions)
+            if bool(action.get("accepted"))
+            and (
+                start <= int(action.get("event_index", fallback)) <= end
+                if start >= 0 and end >= start
+                else int(action.get("after_revision", -1))
+                == int(trial.get("after_revision", -2))
+            )
+        ]
+        if not indexed:
+            return None
+        identity = (
+            str(fact.get("predicate", "")).casefold(),
+            repr(sorted(dict(fact.get("args") or {}).items())),
+        )
+        exact = [
+            action for action in indexed
+            if any(
+                (
+                    str(raw.get("predicate", "")).casefold(),
+                    repr(sorted(dict(raw.get("args") or {}).items())),
+                ) == identity
+                for raw in list(
+                    action.get("authoritative_positive_effects") or []
+                )
+                if isinstance(raw, Mapping)
+            )
+        ]
+        if exact:
+            owner = exact[-1]
+            try:
+                return int(owner.get("event_index", actions.index(owner)))
+            except (TypeError, ValueError):
+                return None
+
+        # Rich Harness evidence (for example entity.discovered_at) is not
+        # necessarily expressible by the generic action-state reducer. It is
+        # admissible only when Runtime recorded the exact occurrence-local
+        # fact delta and accepted event/revision that established it.
+        explicit: list[tuple[int, int]] = []
+        for raw in list(trial.get("r1_effect_event_authorities") or []):
+            if not isinstance(raw, Mapping):
+                continue
+            if str(raw.get("source_kind", "")) != "occurrence_action_delta":
+                continue
+            raw_identity = (
+                str(raw.get("predicate", "")).casefold(),
+                repr(sorted(dict(raw.get("args") or {}).items())),
+            )
+            if raw_identity != identity:
+                continue
+            raw_domain = str(raw.get("effect_domain", "")).casefold()
+            fact_domain = str(fact.get("effect_domain", "")).casefold()
+            if not raw_domain or (fact_domain and raw_domain != fact_domain):
+                continue
+            event_index = raw.get("event_index")
+            revision = raw.get("revision")
+            if (
+                isinstance(event_index, bool)
+                or not isinstance(event_index, int)
+                or isinstance(revision, bool)
+                or not isinstance(revision, int)
+            ):
+                continue
+            owners = [
+                action for action in indexed
+                if int(action.get("event_index", -1)) == event_index
+                and int(action.get("after_revision", -1)) == revision
+            ]
+            if len(owners) != 1:
+                continue
+            explicit.append((revision, event_index))
+        if not explicit:
+            return None
+        # If a fact was invalidated and re-established within one trial, its
+        # latest explicit establishment owns the still-current R1 witness.
+        _revision, event_index = max(explicit)
+        return int(event_index)
+
+    @staticmethod
+    def _runtime_trial_effect_authorities(
+        trial: Mapping[str, Any],
+        actions: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Project only an R1-admissible Runtime trial into E1 authorities.
+
+        The model cannot author these facts.  They are reconstructed from the
+        frozen Atomic Effect declaration, the Tool's validated RETURN outputs,
+        and the AtomicValidator witness refs captured by ImplementationRunner.
+        Tool-path selector refs are deliberately excluded.
+        """
+
+        if not AtomicSkillGraphSystem._runtime_trial_e1_effect_eligible(trial):
+            return []
+        witness_refs = list(dict.fromkeys(
+            str(ref) for ref in list(trial.get("r1_witness_refs") or [])
+            if str(ref)
+        ))
+        if not witness_refs:
+            return []
+        bindings = {
+            **dict(trial.get("trial_bindings") or {}),
+            **dict(trial.get("r1_outputs") or {}),
+        }
+
+        def resolve(raw: Any) -> tuple[bool, Any]:
+            if isinstance(raw, Mapping):
+                kind = str(raw.get("kind", "")).casefold()
+                if kind == "skill_input":
+                    role = str(raw.get("source_role", ""))
+                    return role in bindings, bindings.get(role)
+                if kind == "constant":
+                    return "constant" in raw, raw.get("constant")
+            if isinstance(raw, str) and raw.startswith("$"):
+                role = raw[1:]
+                return role in bindings, bindings.get(role)
+            return True, raw
+
+        resolved_effects: dict[str, list[dict[str, Any]]] = {}
+        for raw_effect in list(trial.get("declared_effects") or []):
+            if not isinstance(raw_effect, Mapping):
+                continue
+            predicate = str(raw_effect.get("predicate", ""))
+            arguments: dict[str, Any] = {}
+            closed = bool(predicate)
+            for argument_role, expression in dict(
+                raw_effect.get("args") or {}
+            ).items():
+                resolved, value = resolve(expression)
+                if not resolved or value in (None, ""):
+                    closed = False
+                    break
+                arguments[str(argument_role)] = value
+            if closed and arguments:
+                resolved_effects.setdefault(
+                    predicate.casefold(), []
+                ).append({
+                    "predicate": predicate,
+                    "args": arguments,
+                    "cardinality": max(
+                        1, int(raw_effect.get("cardinality", 1) or 1)
+                    ),
+                    "distinct_by": str(
+                        raw_effect.get("distinct_by", "")
+                    ),
+                    "effect_domain": str(
+                        raw_effect.get("effect_domain", "world")
+                    ),
+                })
+
+        revision = int(trial.get("after_revision", 0) or 0)
+        authorities: list[dict[str, Any]] = []
+        for facts in resolved_effects.values():
+            for fact in facts:
+                expected_ref = (
+                    AtomicSkillGraphSystem._runtime_effect_witness_ref(
+                        fact, revision=revision,
+                    )
+                )
+                exact_refs = [
+                    witness_ref for witness_ref in witness_refs
+                    if witness_ref == expected_ref
+                ]
+                if len(exact_refs) != 1:
+                    # A validator ref that cannot be mapped to exactly one
+                    # predicate+binding fact is not E1 Effect authority.
+                    continue
+                event_index = AtomicSkillGraphSystem._runtime_effect_event_index(
+                    trial, list(actions or []), fact,
+                )
+                if actions is not None and event_index is None:
+                    continue
+                authority = {
+                    **fact,
+                    "witness_ref": exact_refs[0],
+                    "revision": revision,
+                    "source_kind": "runtime_trial_r1",
+                    "draft_id": str(trial.get("draft_id", "")),
+                }
+                if event_index is not None:
+                    authority["event_index"] = int(event_index)
+                authorities.append(authority)
+        return authorities
+
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
         normalized = self.normalizer.build(trace)
-        boundary_inputs: list[dict[str, Any]] = []
+        boundary_inputs: list[dict[str, Any]] = [
+            dict(item)
+            for item in list(
+                dict(normalized.get("boundary_authorities") or {}).get(
+                    "inputs"
+                )
+                or []
+            )
+            if isinstance(item, Mapping)
+        ]
+        seen_boundary_inputs = {
+            (
+                str(item.get("authority_ref", "")),
+                str(item.get("role", "")),
+                repr(item.get("value")),
+            )
+            for item in boundary_inputs
+        }
+        for action in list(normalized.get("actions") or []):
+            if not isinstance(action, Mapping) or action.get("accepted") is not True:
+                continue
+            event_id = str(
+                action.get("event_id", action.get("action_id", ""))
+            )
+            if not event_id:
+                continue
+            for raw_role, value in dict(
+                action.get("arguments") or {}
+            ).items():
+                role = str(raw_role)
+                projected_authority = {
+                    "authority_ref": f"action_arg:{event_id}:{role}",
+                    "event_id": event_id,
+                    "argument_role": role,
+                    "kind": "action_argument",
+                    "source_kind": "action_argument",
+                    "role": role,
+                    "value": value,
+                }
+                identity = (
+                    projected_authority["authority_ref"],
+                    projected_authority["role"],
+                    repr(projected_authority["value"]),
+                )
+                if identity not in seen_boundary_inputs:
+                    seen_boundary_inputs.add(identity)
+                    boundary_inputs.append(projected_authority)
+        runtime_effect_facts: list[dict[str, Any]] = []
         for trial in list(trace.metadata.get("runtime_tool_trials", {}).values()):
             if not isinstance(trial, dict):
+                continue
+            if not self._runtime_trial_e1_effect_eligible(trial):
                 continue
             for role, authority in dict(trial.get("input_authorities") or {}).items():
                 if not isinstance(authority, dict):
                     continue
-                boundary_inputs.append({
+                trial_event_start = trial.get("trial_event_start", -1)
+                trial_event_end = trial.get("trial_event_end", -1)
+                if (
+                    isinstance(trial_event_start, bool)
+                    or not isinstance(trial_event_start, int)
+                ):
+                    trial_event_start = -1
+                if (
+                    isinstance(trial_event_end, bool)
+                    or not isinstance(trial_event_end, int)
+                ):
+                    trial_event_end = -1
+                source_kind = str(authority.get("kind", "")).casefold()
+                projected_authority = {
                     "authority_ref": str(authority.get("authority_ref") or f"runtime_input:{trial.get('draft_id', '')}:{role}"),
+                    "draft_id": str(trial.get("draft_id", "")),
+                    "trial_event_start": int(trial_event_start),
+                    "trial_event_end": int(trial_event_end),
+                    "kind": source_kind,
                     "role": str(role),
                     "value": authority.get("value"),
-                    "source_kind": str(authority.get("kind", "")),
+                    "source_kind": source_kind,
                     "source_occurrence_id": str(authority.get("source_occurrence_id", "")),
                     "source_role": str(authority.get("source_role", "")),
-                })
+                }
+                identity = (
+                    projected_authority["authority_ref"],
+                    projected_authority["role"],
+                    repr(projected_authority["value"]),
+                )
+                if identity not in seen_boundary_inputs:
+                    seen_boundary_inputs.add(identity)
+                    boundary_inputs.append(projected_authority)
+            runtime_effect_facts.extend(
+                self._runtime_trial_effect_authorities(
+                    trial, list(normalized.get("actions") or []),
+                )
+            )
+        if runtime_effect_facts:
+            normalized.setdefault("after_state_facts", []).extend(
+                runtime_effect_facts
+            )
+        predicate_schema = getattr(
+            self.harness, "semantic_predicate_schema", None
+        )
+        predicate_domains = {
+            str(item.name): str(item.effect_domain)
+            for item in (
+                predicate_schema() if callable(predicate_schema) else ()
+            )
+        }
         boundary_effects: list[dict[str, Any]] = []
         for action in normalized.get("actions", []):
             for raw_fact in action.get("authoritative_positive_effects", []):
@@ -2277,7 +2616,22 @@ class AtomicSkillGraphSystem:
                     "witness_ref": witness_ref,
                     "predicate": str(raw_fact.get("predicate", "")),
                     "args": dict(raw_fact.get("args") or {}),
+                    "effect_domain": str(
+                        raw_fact.get("effect_domain")
+                        or predicate_domains.get(
+                            str(raw_fact.get("predicate", "")), ""
+                        )
+                    ),
                 })
+        boundary_effects.extend({
+            "witness_ref": str(fact.get("witness_ref", "")),
+            "predicate": str(fact.get("predicate", "")),
+            "args": dict(fact.get("args") or {}),
+            "effect_domain": str(fact.get("effect_domain", "world")),
+            "source_kind": "runtime_trial_r1",
+            "draft_id": str(fact.get("draft_id", "")),
+            "event_index": int(fact.get("event_index", -1)),
+        } for fact in runtime_effect_facts)
         normalized["boundary_authorities"] = {
             "inputs": boundary_inputs,
             "effects": boundary_effects,

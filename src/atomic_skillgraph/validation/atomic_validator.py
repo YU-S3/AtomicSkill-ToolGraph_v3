@@ -116,6 +116,21 @@ class AtomicValidator:
             for role, value in dict(resolution.output_candidates).items()
             if role in output_roles
         }
+        # Fresh outputs can use a role name that differs from the predicate
+        # argument name (for example ``found_entity`` feeding
+        # ``entity.discovered_at(entity=...)``).  The Harness resolves that
+        # binding while matching the declared Effect, so it is authoritative
+        # even when the predicate's argument key cannot be projected into
+        # ``output_candidates`` by name.
+        for role, derivation in derivations.items():
+            if (
+                derivation.get("kind") == "effect_witness"
+                and role in output_roles
+                and role in resolution.resolved_bindings
+            ):
+                authoritative_outputs[role] = (
+                    resolution.resolved_bindings[role]
+                )
         for role, value in candidate_outputs.items():
             if role in authoritative_outputs and repr(
                 authoritative_outputs[role]

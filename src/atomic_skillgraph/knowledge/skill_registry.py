@@ -29,7 +29,13 @@ def _predicate(value: Any) -> SemanticPredicate:
     args = {}
     for key, item in value.get("args", {}).items():
         args[key] = BindingExpression.from_dict(item) if isinstance(item, dict) and "kind" in item else item
-    return SemanticPredicate(value["predicate"], args, int(value.get("cardinality", 1)), str(value.get("distinct_by", "")))
+    return SemanticPredicate(
+        value["predicate"],
+        args,
+        int(value.get("cardinality", 1)),
+        str(value.get("distinct_by", "")),
+        effect_domain=value.get("effect_domain", "world"),
+    )
 
 
 def _parameter(value: Any) -> ParameterSpec:

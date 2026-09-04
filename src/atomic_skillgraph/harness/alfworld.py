@@ -98,6 +98,8 @@ class AlfWorldContractMatcher:
     ) -> bool:
         if target.predicate.casefold() != offered.predicate.casefold():
             return False
+        if target.effect_domain is not offered.effect_domain:
+            return False
         if set(target.args) != set(offered_arguments):
             return False
         return all(

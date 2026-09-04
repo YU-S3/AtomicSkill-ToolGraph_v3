@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from experiments.fakes import FakeAgentFactory, FakeReply
 from atomic_skillgraph.core.bindings import (
     BindingExpression, BindingExprKind,
@@ -19,6 +21,12 @@ from atomic_skillgraph.core.results import (
 )
 from atomic_skillgraph.harness.alfworld import AlfWorldValidatorChannel
 from atomic_skillgraph.harness.protocol import HarnessActionSpec
+from atomic_skillgraph.runtime.automation import RuntimeAutomationOutcome
+from atomic_skillgraph.runtime.node_executor import NodeExecutor
+from atomic_skillgraph.runtime.support_retriever import (
+    SupportCandidate,
+    SupportRoleMapping,
+)
 
 
 def _binding_fixtures():
@@ -37,6 +45,202 @@ def _context(factory: FakeAgentFactory):
     return fixtures._single_nav_context(
         fixtures._PickPlaceHarness(), factory,
     )
+
+
+def test_support_atomic_missing_mapped_output_is_not_success(
+    monkeypatch,
+) -> None:
+    support_ref = "skill://support_missing_output@1.0.0"
+    support_atomic = SimpleNamespace(
+        ref=support_ref,
+        inputs=[],
+        outputs=[ParameterSpec("entity", "entity")],
+        effects=[],
+    )
+    candidate = SupportCandidate(
+        atomic_ref=support_ref,
+        score=1.0,
+        supplied_roles=("entity",),
+        output_roles=("entity",),
+        effect_predicates=(),
+        diagnostics=(),
+        role_mappings=(
+            SupportRoleMapping(
+                "entity",
+                "object",
+                "entity",
+                "relation_verified",
+                "concrete",
+                "evidence",
+            ),
+        ),
+    )
+    executor = NodeExecutor.__new__(NodeExecutor)
+    executor.invocation_compiler = SimpleNamespace(
+        skills=SimpleNamespace(
+            get_atomic=lambda _ref: support_atomic,
+            implementations_for=lambda *_args, **_kwargs: [],
+        ),
+        mode="online",
+        compile_candidates=lambda *_args, **_kwargs: [object()],
+    )
+    executor.try_autonomous = lambda *_args, **_kwargs: SimpleNamespace(
+        atomic_effect_passed=True,
+        validated_outputs={},
+    )
+    monkeypatch.setattr(
+        executor, "_augment_runtime_payload", lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        executor, "_record_control_call", lambda *_args, **_kwargs: None,
+    )
+    publish_calls: list[dict] = []
+    evidence_calls: list[dict] = []
+    trace = SimpleNamespace(metadata={}, validations=[])
+    ctx = SimpleNamespace(
+        begin_occurrence=lambda _occurrence: None,
+        binding_store=SimpleNamespace(
+            resolve_occurrence_specs=lambda *_args, **_kwargs: None,
+            publish_validated_outputs=lambda *_args, **_kwargs: (
+                publish_calls.append({"published": True})
+            ),
+        ),
+        evidence_store=SimpleNamespace(
+            add_validated_tool_output=lambda *_args, **_kwargs: (
+                evidence_calls.append({"published": True})
+            ),
+        ),
+        trace_builder=SimpleNamespace(trace=trace),
+        world_revision=1,
+        task_id="task-support-output",
+        validated_outputs={},
+    )
+    occurrence = SimpleNamespace(
+        step_id="blocked-step",
+        occurrence_id="blocked-occurrence",
+    )
+    blocked = SimpleNamespace(
+        inputs=[
+            ParameterSpec(
+                "object", "entity", required_resolution="concrete",
+            )
+        ],
+    )
+    call = SimpleNamespace(
+        call_id="support-call",
+        name="invoke_support_atomic",
+        arguments={
+            "support_atomic_ref": support_ref,
+            "arguments": {},
+            "output_mapping": {"entity": "object"},
+        },
+    )
+
+    payload = executor._invoke_support_atomic_call(
+        call,
+        SimpleNamespace(session_id="support-session"),
+        occurrence,
+        ctx,
+        blocked,
+        [candidate],
+    )
+
+    assert payload["passed"] is False
+    assert payload["error"] == "support_atomic_output_unresolved"
+    assert trace.metadata["v32_metrics"] == {
+        "runtime_support_selected_count": 1,
+    }
+    assert "runtime_graph_augmentation" not in trace.metadata
+    assert publish_calls == []
+    assert evidence_calls == []
+
+
+@pytest.mark.parametrize("r1_passed", [True, False])
+def test_seeded_and_preparation_runtime_automation_share_r1_metrics(
+    r1_passed: bool,
+) -> None:
+    def execute(path: str) -> tuple[dict, list[dict]]:
+        factory = FakeAgentFactory()
+        runtime, ctx, occurrence, invocations = _context(factory)
+        draft = {
+            "draft_id": f"automation-{path}",
+            "intent": "resolve navigation target",
+            "inputs": [{"name": "target", "semantic_type": "entity"}],
+            "outputs": [],
+            "preconditions": [],
+            "effects": [{
+                "predicate": "agent.at_location",
+                "args": {"location": "$target"},
+                "effect_domain": "world",
+            }],
+            "rationale": "bounded task-local trial",
+            "source_occurrence_id": occurrence.occurrence_id,
+            "input_binding_specs": {
+                "target": {
+                    "kind": "current_occurrence_anchor",
+                    "source_role": "destination",
+                }
+            },
+        }
+        factory.enqueue(path, [
+            FakeReply.tool("propose_runtime_automation_atomic", draft),
+            FakeReply.tool(
+                "report_runtime_status", {"status": "cannot_resolve"},
+            ),
+        ])
+        outcome = RuntimeAutomationOutcome(
+            r0_passed=True,
+            trial={"r1": {"admission_eligible": r1_passed}},
+            r1_passed=r1_passed,
+        )
+        runtime.node_executor.automation_coordinator = SimpleNamespace(
+            process_draft=lambda **_kwargs: outcome,
+        )
+        if path == "runtime_preparation":
+            runtime.node_executor.run_preparation_session(
+                occurrence, invocations, ctx,
+            )
+        else:
+            runtime.node_executor.run_seeded_fresh(occurrence, ctx)
+        factory.assert_exhausted()
+        return (
+            dict(ctx.trace_builder.trace.metadata.get("v32_metrics") or {}),
+            list(ctx.trace_builder.trace.metadata.get("r3_events") or []),
+        )
+
+    preparation_metrics, preparation_events = execute(
+        "runtime_preparation",
+    )
+    seeded_metrics, seeded_events = execute("runtime_seeded")
+    metric_keys = {
+        "runtime_automation_atomic_proposal_count",
+        "runtime_automation_r0_pass_count",
+        "runtime_tool_trial_count",
+        (
+            "runtime_tool_trial_r1_pass_count"
+            if r1_passed
+            else "runtime_tool_trial_r1_reject_count"
+        ),
+    }
+
+    assert {
+        key: preparation_metrics.get(key) for key in metric_keys
+    } == {key: 1 for key in metric_keys}
+    assert {
+        key: seeded_metrics.get(key) for key in metric_keys
+    } == {key: 1 for key in metric_keys}
+    assert [
+        item["event_type"] for item in preparation_events
+        if item["event_type"] == "runtime_automation_proposed"
+    ] == [
+        "runtime_automation_proposed",
+    ]
+    assert [
+        item["event_type"] for item in seeded_events
+        if item["event_type"] == "runtime_automation_proposed"
+    ] == [
+        "runtime_automation_proposed",
+    ]
 
 
 def test_node_environment_action_requires_intent_but_dynamic_does_not() -> None:

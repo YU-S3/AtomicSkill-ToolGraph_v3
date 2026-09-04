@@ -117,25 +117,31 @@ class ExtractorSession:
                 preconditions=[_predicate(value) for value in item["preconditions"]],
                 effects=[_predicate(value) for value in item["effects"]], rationale=str(item["rationale"]),
                 support_event_ids=[str(value) for value in item.get("support_event_ids", [])],
+                shared_precondition_event_ids=[
+                    str(value)
+                    for value in item.get(
+                        "shared_precondition_event_ids", []
+                    )
+                ],
                 precondition_witness_refs=[str(value) for value in item.get("precondition_witness_refs", [])],
                 effect_witness_refs=[str(value) for value in item.get("effect_witness_refs", [])],
                 ordering_constraints=[dict(value) for value in item.get("ordering_constraints", [])],
-                # Fresh-output Atomic learning depends on EFFECT_WITNESS
-                # derivations reaching the Atomicizer verbatim.  Input-identity
-                # claims stay code-derived by value matching: the model's
-                # claimed input role is not a strict authority shape here, and
-                # a mismatched claim must not reject an admissible occurrence.
+                input_provenance_refs={
+                    str(role): str(authority_ref)
+                    for role, authority_ref in dict(
+                        item["input_provenance_refs"]
+                    ).items()
+                },
+                input_provenance_contract="code_authority_v3_2",
+                # Every output derivation is an explicit E1 authority claim.
+                # Preserve it verbatim for deterministic code validation;
+                # neither INPUT_IDENTITY nor EFFECT_WITNESS may be inferred
+                # from coincident concrete values at this boundary.
                 output_derivations={
                     str(role): dict(raw)
                     for role, raw in dict(
-                        item.get("output_derivations") or {}
+                        item["output_derivations"]
                     ).items()
-                    if isinstance(raw, Mapping)
-                    and str(
-                        raw.get("kind")
-                        if raw.get("kind") is not None
-                        else raw.get("type", "")
-                    ).casefold() == "effect_witness"
                 },
             ))
         return proposals

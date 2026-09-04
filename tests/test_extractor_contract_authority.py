@@ -79,7 +79,15 @@ def _normalized() -> dict:
     return {
         "trace_id": "trace",
         "source_task": {},
-        "runtime_spans": [],
+        "runtime_spans": [{
+            "span_id": "span",
+            "kind": "full_dynamic",
+            "occurrence_id": "phase",
+            "action_start": 0,
+            "action_end": 1,
+            "parent_span_id": None,
+            "closed": True,
+        }],
         "validations": [],
         "actions": [{
             "event_index": 0,

@@ -212,6 +212,7 @@ class ImplementationExecutionResult:
     failure_code: str = ""
     node_status: NodeExecutionStatus = NodeExecutionStatus.NOT_STARTED
     terminal_interrupted: bool = False
+    atomic_witness_refs: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -21,6 +22,18 @@ from ..core.serialization import to_primitive
 
 _NONEMPTY = {"type": "string", "minLength": 1}
 _INDEX = {"type": ["integer", "null"], "minimum": 0}
+
+# F2 is a distinct, pre-v3.2 extraction transport.  It is intentionally kept
+# on the explicit legacy migration schema until its own code-authority context
+# is versioned; this must not weaken current success Extractor E1 proposals.
+FAILURE_ATOMIC_EXTRACTION_SCHEMA = copy.deepcopy(
+    ATOMIC_EXTRACTION_SCHEMA
+)
+FAILURE_ATOMIC_EXTRACTION_SCHEMA["required"] = [
+    field_name
+    for field_name in FAILURE_ATOMIC_EXTRACTION_SCHEMA["required"]
+    if field_name != "input_provenance_refs"
+]
 
 PLAN_STEP_ALIGNMENT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -119,7 +132,7 @@ FAILURE_EXTRACTION_SCHEMA: dict[str, Any] = {
                 ],
                 "additionalProperties": False,
                 "properties": {
-                    "atomic_proposal": ATOMIC_EXTRACTION_SCHEMA,
+                    "atomic_proposal": FAILURE_ATOMIC_EXTRACTION_SCHEMA,
                     "aligned_plan_step_ids": {
                         "type": "array", "minItems": 1, "uniqueItems": True,
                         "items": _NONEMPTY,

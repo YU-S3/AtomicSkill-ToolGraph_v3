@@ -227,6 +227,24 @@ class RepairabilityGate:
         related_composite_hints: Iterable[Mapping[str, Any]] = (),
     ) -> RepairabilityDecision:
         results = list(search_results)
+        validation_passed = bool(getattr(validation, "passed", True))
+        if not validation_passed:
+            requirement_ids = tuple(
+                str(item.requirement_id)
+                for item in bundle.requirements
+                if bool(item.required)
+            )
+            return RepairabilityDecision(
+                True,
+                "planner_requirement_bundle_invalid",
+                requirement_ids,
+                _candidate_refs(results),
+                ({
+                    "stage": "bundle_validation",
+                    "passed": False,
+                    "detail": to_primitive(validation),
+                },),
+            )
         required_uncovered = [
             result for result in results
             if not bool(
@@ -245,31 +263,7 @@ class RepairabilityGate:
                 False, "planner_repair_not_required", (), (), (),
             )
 
-        validation_passed = bool(getattr(validation, "passed", True))
         diagnostics: list[dict[str, Any]] = []
-        if not validation_passed:
-            diagnostics.append({
-                "stage": "bundle_validation",
-                "passed": False,
-                "detail": to_primitive(validation),
-            })
-            requirement_ids = [
-                _result_diagnostics(
-                    result,
-                    repairable=True,
-                    hard_gap=False,
-                    reason_code="planner_requirement_bundle_invalid",
-                )["requirement_id"]
-                for result in required_uncovered
-            ]
-            return RepairabilityDecision(
-                True,
-                "planner_requirement_bundle_invalid",
-                tuple(requirement_ids),
-                _candidate_refs(results),
-                tuple(diagnostics),
-            )
-
         related_hints = list(related_composite_hints)
         per_result: list[tuple[Any, bool, str]] = []
         for result in required_uncovered:

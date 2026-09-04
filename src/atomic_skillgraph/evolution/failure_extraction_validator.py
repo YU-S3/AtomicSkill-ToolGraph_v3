@@ -150,6 +150,7 @@ def _predicate(value: dict[str, Any]) -> SemanticPredicate:
         dict(value.get("args") or {}),
         int(value.get("cardinality", 1)),
         str(value.get("distinct_by", "")),
+        value.get("effect_domain", "world"),
     )
 
 

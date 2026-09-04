@@ -52,6 +52,7 @@ def _predicate(value: Any) -> SemanticPredicate:
     return SemanticPredicate(
         str(value["predicate"]), args,
         int(value.get("cardinality", 1)), str(value.get("distinct_by", "")),
+        value.get("effect_domain", "world"),
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, replace
 from typing import Any
@@ -13,7 +14,11 @@ from ..core.bindings import (
 from ..core.contracts import AbstractAtomicSkill, ImplementationAtom, ToolAsset
 from ..core.refs import SkillRef, ToolRef
 from ..core.status import SkillStatus, ToolStatus
-from ..tooling.ir import walk_program_nodes
+from ..tooling.ir import (
+    normalize_return_output_sources,
+    normalize_tool_program,
+    walk_program_nodes,
+)
 from ..tooling.proposal import ToolProposal, ToolProvenance
 from .atomicizer import CanonicalAtomicOccurrence
 from .portability import CanonicalCapabilityLabel
@@ -202,9 +207,19 @@ class ToolCompiler:
 
         if proposal.decision == "no_tool":
             return CompiledKnowledge(occurrence, atomic, None, None)
-        program = proposal.program
-        if not program:
+        if not proposal.program:
             raise ValueError("ToolProposal cannot compile an empty Tool IR program")
+        # Static validation works on a normalized projection and must not be
+        # relied upon to mutate the submitted proposal.  Persist a detached,
+        # canonical program explicitly so a legacy single-output RETURN has
+        # the same shape at compile, admission, and runtime boundaries.
+        program = normalize_tool_program(copy.deepcopy(proposal.program))
+        output_roles = {str(item.name) for item in atomic.outputs}
+        for node in walk_program_nodes(program):
+            if str(node.get("op", "")) == "RETURN":
+                node["output_sources"] = normalize_return_output_sources(
+                    node, output_roles,
+                )
         action_nodes = [
             node for node in walk_program_nodes(program)
             if str(node.get("op", "")) == "ACTION"

@@ -37,6 +37,8 @@ def lexical_similarity(left: str, right: str) -> float:
 def predicate_compatible(required: SemanticPredicate, offered: SemanticPredicate) -> bool:
     if required.predicate.casefold() != offered.predicate.casefold():
         return False
+    if required.effect_domain is not offered.effect_domain:
+        return False
     if offered.cardinality < required.cardinality:
         return False
     required_keys = set(required.args)
@@ -58,6 +60,7 @@ def _diagnose_required_effect(
         candidate
         for candidate in offered
         if required.predicate.casefold() == candidate.predicate.casefold()
+        and required.effect_domain is candidate.effect_domain
     ]
     if not same_predicate:
         return PredicateCompatibilityDetail(
@@ -240,6 +243,7 @@ def complete_composite_contract_diagnosis(
                 tuple(sorted(map(str, effect.args))),
                 int(effect.cardinality),
                 str(effect.distinct_by),
+                effect.effect_domain.value,
             )
             for effect in contract.target_effects
         )

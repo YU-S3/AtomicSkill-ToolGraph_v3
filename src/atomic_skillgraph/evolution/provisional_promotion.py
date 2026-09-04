@@ -76,6 +76,7 @@ def _predicate(raw: Any, bindings: dict[str, Any]) -> SemanticPredicate:
             dict(raw.get("args") or {}),
             int(raw.get("cardinality", 1)),
             str(raw.get("distinct_by", "")),
+            raw.get("effect_domain", "world"),
         )
     return SemanticPredicate(
         value.predicate,
@@ -85,6 +86,7 @@ def _predicate(raw: Any, bindings: dict[str, Any]) -> SemanticPredicate:
         },
         value.cardinality,
         value.distinct_by,
+        value.effect_domain,
     )
 
 

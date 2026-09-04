@@ -172,32 +172,66 @@ def test_scripted_provider_matches_replay_session_protocol() -> None:
 
 
 def _e1_take(item: str, *, start: int = 0) -> dict:
+    event_id = f"r{start:03d}_a001"
     return {
         "phase_id": f"take_{start}",
         "intent": "take target item",
         "event_start": start,
         "event_end": start + 1,
+        "support_event_ids": [event_id],
         "input_roles": {"item": item},
+        "input_provenance_refs": {
+            "item": f"action_arg:{event_id}:item",
+        },
         "output_roles": {"held_object": item},
+        "output_derivations": {
+            "held_object": {
+                "kind": "input_identity", "input_role": "item",
+            },
+        },
         "preconditions": [],
-        "effects": [{"predicate": "agent.holds", "args": {"object": item}}],
+        "precondition_witness_refs": [],
+        "effects": [{
+            "predicate": "agent.holds",
+            "args": {"object": item},
+            "effect_domain": "world",
+        }],
+        "effect_witness_refs": [f"action:{event_id}:revision:{start + 1}"],
         "rationale": "The accepted TAKE transition establishes possession.",
     }
 
 
 def _e1_examine(item: str, *, start: int) -> dict:
+    event_id = f"r{start:03d}_a001"
     return {
         "phase_id": f"examine_{start}",
         "intent": "observe held item",
         "event_start": start,
         "event_end": start + 1,
+        "support_event_ids": [event_id],
         # This role is deliberately an explicit symbolic entity.  The strict
         # R2 semantic authority must not rely on the retired entity/string
         # compatibility heuristic when constructing the DataFlow candidate.
         "input_roles": {"target_object": item},
+        "input_provenance_refs": {
+            "target_object": (
+                f"fixture_input:{event_id}:target_object"
+            ),
+        },
         "output_roles": {"observed_object": item},
+        "output_derivations": {
+            "observed_object": {
+                "kind": "input_identity", "input_role": "target_object",
+            },
+        },
         "preconditions": [],
-        "effects": [{"predicate": "object.observed", "args": {"object": item}}],
+        "precondition_witness_refs": [],
+        "effects": [{
+            "predicate": "object.observed",
+            "args": {"object": item},
+            "effect_domain": "evidence",
+        }],
+        "effect_witness_refs": [f"action:{event_id}:revision:{start + 1}"],
         "rationale": "The accepted EXAMINE transition establishes observation.",
     }
 
@@ -218,6 +252,23 @@ def _extract_and_register(
     data_edge: bool = False,
 ) -> dict:
     normalized = TraceNormalizer().build(trace)
+    # The FakeHarness fixture exposes the second occurrence's semantic target
+    # as an explicit code-owned boundary alias. Production adapters must
+    # project any equivalent alias themselves; the Atomicizer never invents it.
+    boundary_inputs = normalized["boundary_authorities"]["inputs"]
+    for occurrence in e1_occurrences:
+        for role, authority_ref in dict(
+            occurrence.get("input_provenance_refs") or {}
+        ).items():
+            if not str(authority_ref).startswith("fixture_input:"):
+                continue
+            boundary_inputs.append({
+                "authority_ref": str(authority_ref),
+                "role": str(role),
+                "value": dict(occurrence["input_roles"])[role],
+                "kind": "fixture_boundary_input",
+                "source_kind": "fixture_boundary_input",
+            })
     session = factory.new_session(
         "extractor",
         [FakeReply.structured({"occurrences": e1_occurrences})],

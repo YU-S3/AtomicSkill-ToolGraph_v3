@@ -106,6 +106,34 @@ class TraceNormalizer:
             })
         spans = [to_primitive(item) for item in trace.runtime_spans if item.learnable]
         validations = [to_primitive(item) for item in trace.validations]
+        input_authorities: list[dict[str, Any]] = []
+        seen_input_authorities: set[tuple[str, str, str]] = set()
+        for action in actions:
+            if action.get("accepted") is not True:
+                continue
+            event_id = str(
+                action.get("event_id", action.get("action_id", ""))
+            )
+            if not event_id:
+                continue
+            for raw_role, value in dict(
+                action.get("arguments") or {}
+            ).items():
+                role = str(raw_role)
+                authority_ref = f"action_arg:{event_id}:{role}"
+                identity = (authority_ref, role, repr(value))
+                if identity in seen_input_authorities:
+                    continue
+                seen_input_authorities.add(identity)
+                input_authorities.append({
+                    "authority_ref": authority_ref,
+                    "event_id": event_id,
+                    "argument_role": role,
+                    "kind": "action_argument",
+                    "source_kind": "action_argument",
+                    "role": role,
+                    "value": value,
+                })
         return {
             "trace_id": trace.trace_id, "task_goal": trace.task.goal,
             "source_task": {
@@ -125,4 +153,8 @@ class TraceNormalizer:
             "node_records": [to_primitive(item) for item in trace.node_records],
             "implementation_invocations": [to_primitive(item) for item in trace.implementation_invocations],
             "tool_executions": [to_primitive(item) for item in trace.tool_executions],
+            "boundary_authorities": {
+                "inputs": input_authorities,
+                "effects": [],
+            },
         }

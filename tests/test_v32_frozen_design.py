@@ -172,6 +172,11 @@ def _ir_tool() -> ToolAsset:
                     "argument_mapping": {
                         "item": {"kind": "skill_input", "source_role": "item"}
                     },
+                    "expected_effects": [{
+                        "predicate": "agent.holds",
+                        "args": {"object": "$item"},
+                        "effect_domain": "world",
+                    }],
                 },
                 {
                     "node_id": "return_held",
@@ -386,7 +391,15 @@ def test_success_evolution_tool_builder_compiles_ir_tool(tmp_path: Any) -> None:
             "event_index": 0,
             "span_id": "span_1",
         }],
-        "runtime_spans": [],
+        "runtime_spans": [{
+            "span_id": "span_1",
+            "kind": "runtime_seeded",
+            "occurrence_id": "occ_take",
+            "action_start": 0,
+            "action_end": 1,
+            "parent_span_id": None,
+            "learnable": True,
+        }],
         "before_state_facts": [],
         "after_state_facts": [{
             "predicate": "agent.holds",
@@ -455,6 +468,11 @@ def test_success_evolution_tool_builder_compiles_ir_tool(tmp_path: Any) -> None:
                         "argument_mapping": {
                             "item": {"kind": "skill_input", "source_role": "item"}
                         },
+                        "expected_effects": [{
+                            "predicate": "agent.holds",
+                            "args": {"object": "$item"},
+                            "effect_domain": "world",
+                        }],
                     },
                     {
                         "node_id": "return_held",

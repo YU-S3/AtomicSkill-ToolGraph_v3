@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from ..core.contracts import AbstractAtomicSkill
 from ..core.results import ToolCallPreflightResult
@@ -32,6 +32,106 @@ class RuntimeAutomationOutcome:
     r1_report: dict[str, Any] = field(default_factory=dict)
     failure_code: str = ""
     message: str = ""
+
+
+def _fact_identity(value: Mapping[str, Any]) -> tuple[str, str]:
+    return (
+        str(value.get("predicate", "")).casefold(),
+        repr(sorted(dict(value.get("args") or {}).items())),
+    )
+
+
+def _trial_harness_effect_event_authorities(
+    *,
+    baseline_facts: list[dict[str, Any]],
+    evidence_snapshots: list[dict[str, Any]],
+    environment_actions: list[Any],
+    trial_event_start: int,
+    trial_event_end: int,
+    occurrence_id: str,
+    predicate_domains: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    """Attribute occurrence-local Harness fact deltas to real trial events.
+
+    The evidence state is updated immediately after each accepted Harness
+    transition. Comparing those code-owned snapshots gives the exact event
+    that established a richer semantic fact (for example
+    ``entity.discovered_at``), without asking the later E1 bridge to guess an
+    owner from the last action in the trial.
+    """
+
+    if (
+        trial_event_start < 0
+        or trial_event_end < trial_event_start
+        or trial_event_end >= len(environment_actions)
+    ):
+        return []
+
+    revision_events: dict[int, int] = {}
+    ambiguous_revisions: set[int] = set()
+    for event_index in range(trial_event_start, trial_event_end + 1):
+        raw = environment_actions[event_index]
+        action = dict(raw) if isinstance(raw, Mapping) else dict(to_primitive(raw))
+        if action.get("accepted") is not True:
+            continue
+        revision = action.get("new_revision")
+        if isinstance(revision, bool) or not isinstance(revision, int):
+            continue
+        if revision in revision_events:
+            ambiguous_revisions.add(revision)
+            continue
+        revision_events[revision] = event_index
+    for revision in ambiguous_revisions:
+        revision_events.pop(revision, None)
+
+    previous = {
+        _fact_identity(item): dict(item)
+        for item in baseline_facts
+        if isinstance(item, Mapping) and str(item.get("predicate", ""))
+    }
+    authorities: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, int, int]] = set()
+    for raw_snapshot in evidence_snapshots:
+        if not isinstance(raw_snapshot, Mapping):
+            continue
+        if str(raw_snapshot.get("occurrence_id", "")) != str(occurrence_id):
+            continue
+        revision = raw_snapshot.get("revision")
+        if (
+            isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision not in revision_events
+        ):
+            continue
+        current = {
+            _fact_identity(item): dict(item)
+            for item in list(raw_snapshot.get("active_facts") or [])
+            if isinstance(item, Mapping) and str(item.get("predicate", ""))
+        }
+        for identity in sorted(set(current) - set(previous)):
+            fact = current[identity]
+            predicate = str(fact.get("predicate", ""))
+            effect_domain = str(predicate_domains.get(predicate, ""))
+            if not effect_domain:
+                # Predicate vocabulary/domain is Harness authority. A richer
+                # fact absent from that interface cannot become E1 authority.
+                continue
+            event_index = revision_events[revision]
+            key = (identity[0], identity[1], event_index, revision)
+            if key in seen:
+                continue
+            seen.add(key)
+            authorities.append({
+                "predicate": predicate,
+                "args": dict(fact.get("args") or {}),
+                "effect_domain": effect_domain,
+                "event_index": int(event_index),
+                "revision": int(revision),
+                "source_kind": "occurrence_action_delta",
+                "source_occurrence_id": str(occurrence_id),
+            })
+        previous = current
+    return authorities
 
 
 class _TaskLocalInvocation:
@@ -210,9 +310,52 @@ class RuntimeAutomationCoordinator:
             str(compiled.implementation.ref),
             normalized_arguments=dict(trial_bindings),
         )
+        trace_actions = getattr(
+            getattr(ctx.trace_builder, "trace", None),
+            "environment_actions",
+            (),
+        )
+        trial_event_start = len(trace_actions)
+        trace_metadata = getattr(ctx.trace_builder.trace, "metadata", None)
+        evidence_snapshots = (
+            trace_metadata.setdefault("atomic_evidence_snapshots", [])
+            if isinstance(trace_metadata, dict)
+            else []
+        )
+        evidence_snapshot_start = len(evidence_snapshots)
+        try:
+            baseline_occurrence_facts = (
+                ctx.atomic_evidence_for(occurrence).authoritative_facts()
+            )
+        except (AttributeError, KeyError):
+            baseline_occurrence_facts = []
         result = self.implementation_runner.run(
             _TaskLocalInvocation(compiled), preflight, occurrence, ctx,
             agent_prepared=False,
+        )
+        trial_event_end = len(getattr(
+            getattr(ctx.trace_builder, "trace", None),
+            "environment_actions",
+            (),
+        )) - 1
+        predicate_domains = {
+            str(item.predicate): str(item.effect_domain)
+            for item in ctx.harness.semantic_predicate_schema()
+        }
+        r1_effect_event_authorities = (
+            _trial_harness_effect_event_authorities(
+                baseline_facts=list(baseline_occurrence_facts),
+                evidence_snapshots=[
+                    dict(item)
+                    for item in evidence_snapshots[evidence_snapshot_start:]
+                    if isinstance(item, Mapping)
+                ],
+                environment_actions=list(trace_actions),
+                trial_event_start=int(trial_event_start),
+                trial_event_end=int(trial_event_end),
+                occurrence_id=str(occurrence.occurrence_id),
+                predicate_domains=predicate_domains,
+            )
         )
         tool_results = list(result.tool_results)
         tool_completed = bool(
@@ -229,18 +372,55 @@ class RuntimeAutomationCoordinator:
             and all(value not in (None, "") for value in result.validated_outputs.values())
         )
         atomic_effect_passed = bool(result.atomic_effect_passed)
+        executed_path_effects_passed = bool(
+            tool_results
+            and all(
+                int(getattr(tool, "executed_step_count", 0) or 0) == 0
+                or (
+                    len(list(dict(
+                        getattr(tool, "tool_path_evidence", {}) or {}
+                    ).get("step_effect_results", [])))
+                    >= int(getattr(tool, "executed_step_count", 0) or 0)
+                    and all(
+                        isinstance(item, dict)
+                        and item.get("step_effect_passed") is True
+                        for item in list(dict(
+                            getattr(tool, "tool_path_evidence", {}) or {}
+                        ).get("step_effect_results", []))
+                    )
+                )
+                for tool in tool_results
+            )
+        )
         r1_passed = bool(
             result.started
             and atomic_effect_passed
-            and tool_completed
-            and outputs_valid
-        )
-        admission_eligible = bool(
-            atomic_effect_passed
+            and executed_path_effects_passed
             and tool_completed
             and outputs_valid
             and not tool_intrinsic_failure
             and not terminal_interrupted
+        )
+        admission_eligible = bool(
+            result.started
+            and atomic_effect_passed
+            and executed_path_effects_passed
+            and tool_completed
+            and outputs_valid
+            and not tool_intrinsic_failure
+            and not terminal_interrupted
+        )
+        # A benchmark-terminal prefix cannot admit the original Tool, but its
+        # executed prefix still supplies positive task-local Atomic evidence
+        # to E1.  Downstream replay/admission remains responsible for any
+        # shorter Tool that the Success Extractor proposes from that prefix.
+        e1_effect_eligible = bool(
+            result.started
+            and atomic_effect_passed
+            and executed_path_effects_passed
+            and outputs_valid
+            and not tool_intrinsic_failure
+            and (admission_eligible or terminal_interrupted)
         )
         input_authorities: dict[str, dict[str, Any]] = {}
         for role, raw in (dict(getattr(draft, "input_binding_specs", None) or {})).items():
@@ -254,15 +434,18 @@ class RuntimeAutomationCoordinator:
                 "value": trial_bindings[role],
                 "authority_ref": f"runtime_input:{draft.draft_id}:{role}",
             }
-        r1_witness_refs: list[str] = []
+        tool_path_witness_refs: list[str] = []
         for tool_result in result.tool_results:
             evidence = dict(getattr(tool_result, "tool_path_evidence", {}) or {})
-            r1_witness_refs.extend(
+            tool_path_witness_refs.extend(
                 str(item) for item in evidence.get("evidence_refs", [])
             )
             for step in evidence.get("step_effect_results", []):
                 if isinstance(step, dict) and step.get("witness_refs"):
-                    r1_witness_refs.extend(map(str, step.get("witness_refs", [])))
+                    tool_path_witness_refs.extend(map(str, step.get("witness_refs", [])))
+        r1_witness_refs = list(dict.fromkeys(
+            str(ref) for ref in result.atomic_witness_refs
+        ))
         trial = {
             "draft_id": draft.draft_id,
             "atomic_ref": str(atomic.ref),
@@ -271,29 +454,35 @@ class RuntimeAutomationCoordinator:
             "trial_bindings": to_primitive(trial_bindings),
             "input_authorities": to_primitive(input_authorities),
             "r1_outputs": to_primitive(result.validated_outputs),
-            "r1_witness_refs": list(dict.fromkeys(r1_witness_refs)),
+            "r1_witness_refs": r1_witness_refs,
+            "tool_path_witness_refs": list(dict.fromkeys(tool_path_witness_refs)),
             "result": to_primitive(result),
             "r1": {
+                "started": bool(result.started),
                 "atomic_effect_passed": atomic_effect_passed,
-                "executed_path_effects_passed": all(
-                    not dict(tool.tool_path_evidence or {}).get(
-                        "step_effect_results", []
-                    )
-                    or all(
-                        bool(item.get("step_effect_passed", True))
-                        for item in dict(tool.tool_path_evidence or {}).get(
-                            "step_effect_results", []
-                        )
-                    )
-                    for tool in tool_results
-                ),
+                "executed_path_effects_passed": executed_path_effects_passed,
                 "tool_completed": tool_completed,
                 "terminal_interrupted": terminal_interrupted,
                 "outputs_valid": outputs_valid,
+                "tool_intrinsic_failure": tool_intrinsic_failure,
                 "admission_eligible": admission_eligible,
+                "e1_effect_eligible": e1_effect_eligible,
             },
             "terminal_interrupted": terminal_interrupted,
+            "trial_event_start": int(trial_event_start),
+            "trial_event_end": int(trial_event_end),
+            "r1_effect_event_authorities": to_primitive(
+                r1_effect_event_authorities
+            ),
         }
+        if e1_effect_eligible:
+            trial.update({
+                "declared_effects": to_primitive(list(compiled.atomic.effects)),
+                "output_derivations": to_primitive(dict(
+                    compiled.atomic.validator_spec.get("output_derivations") or {}
+                )),
+                "after_revision": int(tool_results[-1].after_revision),
+            })
         ctx.runtime_tool_trials[draft.draft_id] = trial
         return RuntimeAutomationOutcome(
             True, to_primitive(r0),
@@ -346,12 +535,6 @@ class RuntimeAutomationCoordinator:
                 value = None
             if value is not None:
                 bindings[role] = value
-        if not specs:
-            bindings = {
-                role: binding.value
-                for role, binding in snapshot.items()
-                if binding.value is not None
-            }
         return bindings
 
     def _synthetic_occurrence(self, draft: Any, ctx: Any, occurrence: Any):

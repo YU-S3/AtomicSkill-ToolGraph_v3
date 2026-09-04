@@ -172,6 +172,7 @@ def _requirement_roles(requirement: CapabilityRequirement) -> set[str]:
 def _predicate_shape_matches(required: SemanticPredicate, offered: SemanticPredicate) -> bool:
     return (
         required.predicate.casefold() == offered.predicate.casefold()
+        and required.effect_domain is offered.effect_domain
         and set(required.args).issubset(offered.args)
     )
 
@@ -522,6 +523,7 @@ def _canonical_requirement_predicate(
         "args": args,
         "cardinality": int(predicate.cardinality),
         "distinct_by": str(predicate.distinct_by),
+        "effect_domain": predicate.effect_domain.value,
     }
 
 

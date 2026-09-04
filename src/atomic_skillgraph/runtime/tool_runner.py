@@ -21,6 +21,7 @@ from ..tooling.ir import (
     normalize_return_output_sources,
     resolve_collection,
     resolve_return_sources,
+    walk_program_nodes,
 )
 
 
@@ -168,11 +169,50 @@ class ToolRunner:
         return ToolExecutionState(
             bindings=dict(bindings),
             catalog=[dict(item) for item in catalog],
-            semantic_facts=[dict(item) for item in facts],
+            semantic_facts=self._semantic_facts_with_domains(
+                facts, ctx.harness,
+            ),
             binding_evidence=[dict(item) for item in binding_evidence],
             max_actions=int(tool.artifact.get("max_actions", 0) or 0),
             max_control_steps=self._control_step_limit(tool, ctx),
         )
+
+    @staticmethod
+    def _semantic_facts_with_domains(
+        facts: Any,
+        harness: Any,
+    ) -> list[dict[str, Any]]:
+        """Attach the Harness-declared domain to validator-channel facts."""
+
+        schema_method = getattr(harness, "semantic_predicate_schema", None)
+        domains: dict[str, str] = {}
+        if callable(schema_method):
+            try:
+                for raw in schema_method():
+                    item = to_primitive(raw)
+                    if not isinstance(item, dict):
+                        continue
+                    predicate = str(item.get("predicate", "")).casefold()
+                    domain = str(item.get("effect_domain", ""))
+                    if predicate and domain in {"world", "evidence"}:
+                        domains[predicate] = domain
+            except Exception:
+                domains = {}
+        result: list[dict[str, Any]] = []
+        for raw in facts or ():
+            if not isinstance(raw, dict):
+                continue
+            fact = dict(raw)
+            predicate = str(fact.get("predicate", "")).casefold()
+            declared_domain = domains.get(predicate)
+            if declared_domain:
+                fact["effect_domain"] = declared_domain
+            elif str(fact.get("effect_domain", "")) not in {
+                "world", "evidence",
+            }:
+                fact["effect_domain"] = ""
+            result.append(fact)
+        return result
 
     @staticmethod
     def _control_step_limit(tool: ToolAsset, ctx: Any) -> int:
@@ -183,12 +223,10 @@ class ToolRunner:
         total interpreter node visits of nested control flow.
         """
 
-        program = [
-            dict(node)
-            for node in tool.artifact.get("program", [])
-            if isinstance(node, dict)
-        ]
-        flat_node_count = max(1, len(ToolRunner._walk_for_count(program)))
+        program = tool.artifact.get("program", [])
+        flat_node_count = max(
+            1, ToolRunner._program_node_count(program),
+        )
         global_cap = max(
             1, int(getattr(ctx, "global_action_budget", 100) or 100)
         )
@@ -197,6 +235,73 @@ class ToolRunner:
             global_cap,
         )
         return max(1, effective_action_cap * flat_node_count)
+
+    @staticmethod
+    def _program_node_count(program: Any) -> int:
+        """Shared-walker metric that remains total for malformed artifacts."""
+
+        try:
+            return len(walk_program_nodes(program))
+        except (KeyError, TypeError, ValueError, RecursionError):
+            return 0
+
+    @staticmethod
+    def _program_path_id(state: ToolExecutionState) -> str:
+        return "/".join(["program", *state.path_tokens])
+
+    @staticmethod
+    def _selector_requires_match(source: Any) -> bool:
+        if not isinstance(source, dict):
+            return False
+        return (
+            str(source.get("source", "")).casefold()
+            in {"action_catalog", "semantic_evidence", "binding_evidence"}
+            and ("where" in source or "project" in source)
+        )
+
+    @staticmethod
+    def _tool_ir_failure_detail_layer(failure_code: str) -> str:
+        if failure_code == "tool_step_effect_violation":
+            return "tool_effect"
+        if failure_code in {"tool_primitive_rejected", "tool_execution_error"}:
+            return "tool_step"
+        return "tool_ir" if failure_code else ""
+
+    def _tool_path_evidence(
+        self,
+        state: ToolExecutionState,
+        *,
+        outputs: dict[str, Any],
+        terminal_interrupted: bool,
+        final_effect_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        failure_code = str(state.failure_code or "")
+        return {
+            "program_path_id": self._program_path_id(state),
+            "executed_node_ids": list(state.executed_nodes),
+            "program_node_id": str(state.program_node_id),
+            # The global credit layer remains ``tool``.  This nested field is
+            # the frozen Tool-IR diagnostic boundary.
+            "failure_layer": self._tool_ir_failure_detail_layer(
+                failure_code
+            ),
+            "failure_code": failure_code,
+            "validated_paths": sorted(set(state.validated_paths)),
+            "unvalidated_paths": sorted(set(state.unvalidated_paths)),
+            "loop_iteration_counts": dict(state.loop_iteration_counts),
+            "stop_condition_witnesses": list(
+                state.stop_condition_witnesses
+            ),
+            "control_step_count": int(state.executed_control_step_count),
+            "control_step_limit": int(state.max_control_steps),
+            "step_effect_results": [
+                dict(item) for item in state.step_effect_results
+            ],
+            "final_effect_result": dict(final_effect_result),
+            "outputs": to_primitive(outputs),
+            "evidence_refs": list(dict.fromkeys(state.evidence_refs)),
+            "terminal_interrupted": bool(terminal_interrupted),
+        }
 
     def _resolve_action_arguments(
         self, node: dict[str, Any], state: ToolExecutionState,
@@ -241,12 +346,13 @@ class ToolRunner:
                 "program_node_id": str(node.get("node_id", "")),
             },
         )
-        state.executed_nodes.append(str(node.get("node_id", "")))
         state.executed_action_count += 1
         snapshot_method = getattr(ctx, "tool_evidence_snapshot", None)
         if callable(snapshot_method):
             snapshot = snapshot_method()
-            state.semantic_facts = [dict(item) for item in snapshot.get("semantic_facts", [])]
+            state.semantic_facts = self._semantic_facts_with_domains(
+                snapshot.get("semantic_facts", []), ctx.harness,
+            )
             state.binding_evidence = [dict(item) for item in snapshot.get("binding_evidence", [])]
             state.catalog = [dict(item) for item in snapshot.get("action_catalog", [])]
         else:
@@ -261,9 +367,13 @@ class ToolRunner:
             ]
             channel_snapshot = getattr(ctx.harness.validator_channel(), "snapshot", lambda: {})()
             if isinstance(channel_snapshot, dict):
-                state.semantic_facts = [dict(item) for item in channel_snapshot.get("facts", [])]
+                state.semantic_facts = self._semantic_facts_with_domains(
+                    channel_snapshot.get("facts", []), ctx.harness,
+                )
             elif isinstance(channel_snapshot, list):
-                state.semantic_facts = [dict(item) for item in channel_snapshot]
+                state.semantic_facts = self._semantic_facts_with_domains(
+                    channel_snapshot, ctx.harness,
+                )
         return {
             "accepted": bool(result.accepted),
             "won": bool(result.won),
@@ -280,22 +390,136 @@ class ToolRunner:
         # Fresh RETURN outputs are the authoritative values for output-role
         # effect references in the post-program final-effect validation.
         for key, value in state.outputs.items():
-            merged.setdefault(key, value)
+            merged[key] = value
         return merged
+
+    @staticmethod
+    def _step_effect_resolution(
+        effect: dict[str, Any],
+        state: ToolExecutionState,
+        *,
+        input_roles: set[str],
+        output_roles: set[str],
+    ) -> tuple[dict[str, Any], set[str], list[str]]:
+        """Resolve one step Effect and identify legal fresh-output slots.
+
+        Only an argument whose formal reference names a declared output that
+        has not yet been produced may be a wildcard.  A missing declared
+        input, an unknown role, an out-of-scope local, or an unsupported
+        BindingExpression is an error and can never be widened to a wildcard.
+        """
+
+        resolved = {
+            "predicate": str(effect.get("predicate", "")),
+            "args": {},
+            "cardinality": int(effect.get("cardinality", 1) or 1),
+            "distinct_by": str(effect.get("distinct_by", "")),
+            "effect_domain": str(effect.get("effect_domain", "world")),
+        }
+        wildcard_arguments: set[str] = set()
+        errors: list[str] = []
+        for raw_argument_role, raw in dict(effect.get("args") or {}).items():
+            argument_role = str(raw_argument_role)
+            source_role = ""
+            source_kind = ""
+            if isinstance(raw, str) and raw.startswith("$"):
+                source_role = raw[1:]
+                source_kind = "formal"
+            elif isinstance(raw, BindingExpression):
+                if raw.kind is BindingExprKind.CONSTANT:
+                    resolved["args"][argument_role] = raw.constant
+                    continue
+                if raw.kind is not BindingExprKind.SKILL_INPUT:
+                    errors.append(
+                        f"{argument_role}: unsupported BindingExpression "
+                        f"kind {raw.kind.value}"
+                    )
+                    continue
+                source_role = str(raw.source_role)
+                source_kind = str(raw.kind.value)
+            elif isinstance(raw, dict) and "kind" in raw:
+                source_kind = str(raw.get("kind", "")).casefold()
+                if source_kind == "constant":
+                    resolved["args"][argument_role] = raw.get("constant")
+                    continue
+                if source_kind in {"skill_input", "local_variable"}:
+                    source_role = str(raw.get("source_role", ""))
+                else:
+                    errors.append(
+                        f"{argument_role}: unsupported BindingExpression "
+                        f"kind {source_kind or '<empty>'}"
+                    )
+                    continue
+            else:
+                resolved["args"][argument_role] = raw
+                continue
+
+            if source_kind == "local_variable":
+                if (
+                    source_role not in state.local
+                    or state.local.get(source_role) in (None, "")
+                ):
+                    errors.append(
+                        f"{argument_role}: local {source_role or '<empty>'} "
+                        "is unavailable"
+                    )
+                else:
+                    resolved["args"][argument_role] = state.local[source_role]
+                continue
+
+            # A same-named input/output remains an input authority until a
+            # fresh output is actually produced; absence must fail closed.
+            if source_role in input_roles:
+                if (
+                    source_role not in state.bindings
+                    or state.bindings.get(source_role) in (None, "")
+                ):
+                    errors.append(
+                        f"{argument_role}: input {source_role} is unavailable"
+                    )
+                else:
+                    resolved["args"][argument_role] = state.bindings[source_role]
+            elif source_role in state.local:
+                value = state.local.get(source_role)
+                if value in (None, ""):
+                    errors.append(
+                        f"{argument_role}: local {source_role} is unavailable"
+                    )
+                else:
+                    resolved["args"][argument_role] = value
+            elif source_role in output_roles:
+                if source_role in state.outputs:
+                    value = state.outputs.get(source_role)
+                    if value in (None, ""):
+                        errors.append(
+                            f"{argument_role}: output {source_role} is invalid"
+                        )
+                    else:
+                        resolved["args"][argument_role] = value
+                else:
+                    resolved["args"][argument_role] = None
+                    wildcard_arguments.add(argument_role)
+            else:
+                errors.append(
+                    f"{argument_role}: unknown formal role "
+                    f"{source_role or '<empty>'}"
+                )
+        return resolved, wildcard_arguments, errors
 
     def _resolved_effect(
         self, effect: dict[str, Any], state: ToolExecutionState,
     ) -> dict[str, Any]:
         """Resolve serialized BindingExpression effect args for Harness validation."""
 
+        effect_bindings = self._effect_bindings(state)
         args: dict[str, Any] = {}
         for role, raw in dict(effect.get("args") or {}).items():
             if isinstance(raw, dict) and raw.get("kind") == "skill_input":
-                args[role] = state.bindings.get(str(raw.get("source_role", "")))
+                args[role] = effect_bindings.get(str(raw.get("source_role", "")))
             elif isinstance(raw, dict) and raw.get("kind") == "constant":
                 args[role] = raw.get("constant")
             elif isinstance(raw, str) and raw.startswith("$"):
-                args[role] = state.bindings.get(raw[1:])
+                args[role] = effect_bindings.get(raw[1:])
             else:
                 args[role] = raw
         return {
@@ -307,7 +531,12 @@ class ToolRunner:
         }
 
     def _validate_step_effects(
-        self, node: dict[str, Any], ctx: Any, state: ToolExecutionState,
+        self,
+        node: dict[str, Any],
+        ctx: Any,
+        state: ToolExecutionState,
+        *,
+        tool: ToolAsset,
     ) -> dict[str, Any]:
         expected = [dict(item) if isinstance(item, dict) else to_primitive(item) for item in node.get("expected_effects", [])]
         report = {
@@ -321,24 +550,97 @@ class ToolRunner:
         if not expected:
             state.step_effect_results.append(report)
             return report
+        input_roles = set(map(str, (
+            tool.signature.get("properties", {}) or {}
+        )))
+        output_roles = set(map(str, (
+            tool.interface.get("output_schema", {}).get("properties", {})
+            or {}
+        )))
+        resolutions = [
+            self._step_effect_resolution(
+                effect,
+                state,
+                input_roles=input_roles,
+                output_roles=output_roles,
+            )
+            for effect in expected
+        ]
+        resolution_errors = [
+            message
+            for _effect, _wildcards, errors in resolutions
+            for message in errors
+        ]
+        has_fresh_output = any(wildcards for _effect, wildcards, _errors in resolutions)
+        observed: list[dict[str, Any]] = []
         passed = False
         validate_effect = getattr(ctx.harness.validator_channel(), "validate_atomic_effect", None)
-        if callable(validate_effect):
+        if not resolution_errors and not has_fresh_output and callable(validate_effect):
             try:
                 passed = bool(validate_effect({
-                    "effects": [
-                        self._resolved_effect(effect, state)
-                        for effect in expected
-                    ],
+                    "effects": [effect for effect, _wildcards, _errors in resolutions],
                     "bindings": self._effect_bindings(state),
                 }).passed)
             except Exception:
                 passed = False
+        if not passed and not resolution_errors and has_fresh_output:
+            # A step may establish a declared fresh output whose concrete value
+            # is published only by a later RETURN.  Match only that corresponding
+            # predicate parameter as a wildcard; all other arguments and the
+            # Effect domain remain exact.
+            all_effects_observed = True
+            for effect, wildcard_arguments, _errors in resolutions:
+                matches = [
+                    fact for fact in state.semantic_facts
+                    if str(fact.get("predicate", "")).casefold()
+                    == str(effect.get("predicate", "")).casefold()
+                    and str(fact.get("effect_domain", "")).casefold()
+                    == str(effect.get("effect_domain", "world")).casefold()
+                    and all(
+                        (
+                            dict(fact.get("args") or {}).get(role)
+                            not in (None, "")
+                            if role in wildcard_arguments
+                            else dict(fact.get("args") or {}).get(role)
+                            == expected_value
+                        )
+                        for role, expected_value in dict(
+                            effect.get("args") or {}
+                        ).items()
+                    )
+                ]
+                needed = max(1, int(effect.get("cardinality", 1) or 1))
+                distinct_by = str(effect.get("distinct_by", ""))
+                if distinct_by:
+                    sufficient = len({
+                        dict(fact.get("args") or {}).get(distinct_by)
+                        for fact in matches
+                        if dict(fact.get("args") or {}).get(distinct_by)
+                        not in (None, "")
+                    }) >= needed
+                else:
+                    sufficient = len(matches) >= needed
+                all_effects_observed = (
+                    all_effects_observed and sufficient
+                )
+                observed.extend(matches)
+            if all_effects_observed:
+                report.update({
+                    "observed_effects": [dict(item) for item in observed],
+                    "step_effect_passed": True,
+                    "witness_refs": [
+                        "semantic_fact:"
+                        + str(item.get("predicate", ""))
+                        + ":"
+                        + repr(sorted(dict(item.get("args") or {}).items()))
+                        for item in observed
+                    ],
+                })
+                state.step_effect_results.append(report)
+                return report
+        if resolution_errors:
+            report["resolution_errors"] = resolution_errors
         if not passed:
-            observed = [
-                fact for fact in state.semantic_facts
-                if any(str(fact.get("predicate", "")) == str(effect.get("predicate", "")) for effect in expected)
-            ]
             report.update({
                 "observed_effects": [dict(item) for item in observed],
                 "missing_effects": expected,
@@ -360,6 +662,8 @@ class ToolRunner:
         """
 
         for node in nodes:
+            node_id = str(node.get("node_id", ""))
+            state.program_node_id = node_id
             state.executed_control_step_count += 1
             if (
                 state.max_control_steps
@@ -370,10 +674,11 @@ class ToolRunner:
                     f"Tool IR control-step bound {state.max_control_steps} "
                     f"exhausted at node {node.get('node_id')}"
                 )
-                state.program_node_id = str(node.get("node_id", ""))
                 return "FAIL_TOOL"
             if state.failure_code or terminal:
                 return "BENCHMARK_TERMINAL" if terminal else "FAIL_TOOL"
+            state.executed_nodes.append(node_id)
+            state.path_tokens.append(node_id)
             opcode = str(node.get("op", ""))
             if opcode == "ACTION":
                 if state.max_actions and state.executed_action_count >= state.max_actions:
@@ -395,7 +700,9 @@ class ToolRunner:
                     state.program_node_id = str(node.get("node_id", ""))
                     state.stop_condition_witnesses.append(f"rejected:{node.get('node_id')}")
                     return "FAIL_TOOL"
-                effect_report = self._validate_step_effects(node, ctx, state)
+                effect_report = self._validate_step_effects(
+                    node, ctx, state, tool=tool,
+                )
                 if not effect_report["step_effect_passed"]:
                     state.failure_code = "tool_step_effect_violation"
                     state.failure_message = (
@@ -415,6 +722,9 @@ class ToolRunner:
                 condition = dict(node.get("condition") or {})
                 branch_taken = evaluate_condition(condition, state)
                 branch = node.get("then_branch") if branch_taken else node.get("else_branch")
+                state.path_tokens.append(
+                    f"{node_id}:{'then' if branch_taken else 'else'}"
+                )
                 state.validated_paths.append(
                     f"{node.get('node_id')}:then" if branch_taken else f"{node.get('node_id')}:else"
                 )
@@ -429,16 +739,31 @@ class ToolRunner:
                 if signal:
                     return signal
             elif opcode == "FOR_EACH":
+                collection_source = dict(
+                    node.get("collection_source") or {}
+                )
                 values = resolve_collection(
-                    dict(node.get("collection_source") or {}), state,
+                    collection_source, state,
                     semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None),
                 )
+                if (
+                    not values
+                    and self._selector_requires_match(collection_source)
+                ):
+                    state.failure_code = "tool_ir_selector_no_match"
+                    state.failure_message = (
+                        f"selector at {node_id} matched no collection values"
+                    )
+                    return "FAIL_TOOL"
                 max_iterations = int(node.get("max_iterations", len(values)) or 0)
                 variable = str(node.get("iteration_variable", ""))
                 count = 0
                 for value in values:
                     if count >= max_iterations or state.failure_code or terminal:
                         break
+                    state.path_tokens.append(
+                        f"{node_id}:iteration:{count + 1}"
+                    )
                     state.local[variable] = value
                     signal = self._execute_ir_nodes(
                         list(node.get("body") or []), state, ctx,
@@ -473,12 +798,32 @@ class ToolRunner:
                     ),
                 )
                 outputs, refs = resolve_return_sources(
-                    output_sources, state,
+                    output_sources,
+                    state,
+                    semantic_compatible=getattr(
+                        ctx.harness,
+                        "semantic_value_compatible",
+                        None,
+                    ),
                 )
                 if any(value is None for value in outputs.values()):
-                    state.failure_code = "tool_ir_return_output_unresolved"
-                    state.failure_message = f"RETURN {node.get('node_id')} produced an unresolved output"
-                    state.program_node_id = str(node.get("node_id", ""))
+                    selector_miss = any(
+                        outputs.get(role) is None
+                        and self._selector_requires_match(
+                            output_sources.get(role)
+                        )
+                        for role in outputs
+                    )
+                    state.failure_code = (
+                        "tool_ir_selector_no_match"
+                        if selector_miss
+                        else "tool_ir_return_output_unresolved"
+                    )
+                    state.failure_message = (
+                        f"RETURN {node_id} selector matched no value"
+                        if selector_miss
+                        else f"RETURN {node_id} produced an unresolved output"
+                    )
                     return "FAIL_TOOL"
                 state.outputs.update(outputs)
                 state.evidence_refs.extend(refs)
@@ -499,16 +844,42 @@ class ToolRunner:
                 program, state, ctx, occurrence_id=occurrence_id,
                 span_id=span_id, tool=tool, terminal=terminal,
             )
-        except (KeyError, TypeError, ValueError) as exc:
+        except (AttributeError, KeyError, TypeError, ValueError, RecursionError) as exc:
+            raw_code = str(exc).split(":", 1)[0]
+            state.failure_code = (
+                raw_code
+                if raw_code.startswith("tool_ir_")
+                or raw_code == "tool_step_effect_violation"
+                else "tool_ir_execution_error"
+            )
+            state.failure_message = str(exc)
+            total_nodes = self._program_node_count(program)
+            path_id = self._program_path_id(state)
+            final_effect_result = {
+                "passed": False,
+                "observed_effects": [],
+                "missing_effects": [],
+                "failure_code": state.failure_code,
+            }
             ctx.trace_builder.finish_span(span_id)
             result = ToolExecutionResult(
-                str(tool.ref), True, bool(state.executed_nodes), False,
+                str(tool.ref), True, state.executed_action_count > 0, False,
                 ctx.world_revision != before_revision, state.executed_action_count, None,
                 [], {}, before_revision, ctx.world_revision,
-                "tool", "tool_ir_execution_error", str(exc),
-                intrinsic_failure=False,
+                "tool", state.failure_code, state.failure_message,
+                intrinsic_failure=True,
                 executed_node_count=len(state.executed_nodes),
-                path_id=",".join(state.executed_nodes),
+                remaining_node_count=max(
+                    0, total_nodes - len(set(state.executed_nodes))
+                ),
+                path_id=path_id,
+                program_node_id=state.program_node_id,
+                tool_path_evidence=self._tool_path_evidence(
+                    state,
+                    outputs={},
+                    terminal_interrupted=False,
+                    final_effect_result=final_effect_result,
+                ),
             )
             ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(
                 f"tool_attempt_{uuid.uuid4().hex}", occurrence_id, str(tool.ref),
@@ -562,10 +933,12 @@ class ToolRunner:
             failure_message = "Tool IR ended without RETURN or benchmark terminal"
         elif failure_code:
             failure_layer = "tool"
-        total_nodes = len(self._walk_for_count(program))
-        path_id = ",".join(state.executed_nodes)
+        state.failure_code = failure_code
+        state.failure_message = failure_message
+        total_nodes = self._program_node_count(program)
+        path_id = self._program_path_id(state)
         result = ToolExecutionResult(
-            str(tool.ref), True, bool(state.executed_nodes), completed,
+            str(tool.ref), True, state.executed_action_count > 0, completed,
             ctx.world_revision != before_revision,
             state.executed_action_count, None,
             state.bindings, outputs, before_revision, ctx.world_revision,
@@ -573,7 +946,9 @@ class ToolRunner:
             terminal_interrupted=terminal_interrupted,
             intrinsic_failure=bool(failure_code and not terminal_interrupted),
             executed_node_count=len(state.executed_nodes),
-            remaining_node_count=max(0, total_nodes - len(state.executed_nodes)),
+            remaining_node_count=max(
+                0, total_nodes - len(set(state.executed_nodes))
+            ),
             path_id=path_id,
             program_node_id=state.program_node_id or (
                 str(state.executed_nodes[-1]) if state.executed_nodes else ""
@@ -586,37 +961,16 @@ class ToolRunner:
             unvalidated_paths=sorted(set(state.unvalidated_paths)),
             stop_condition_witnesses=list(state.stop_condition_witnesses),
             atomic_effect_passed=atomic_effect_passed,
-            tool_path_evidence={
-                "program_path_id": path_id,
-                "executed_node_ids": list(state.executed_nodes),
-                "validated_paths": sorted(set(state.validated_paths)),
-                "unvalidated_paths": sorted(set(state.unvalidated_paths)),
-                "loop_iteration_counts": dict(state.loop_iteration_counts),
-                "stop_condition_witnesses": list(state.stop_condition_witnesses),
-                "control_step_count": int(state.executed_control_step_count),
-                "control_step_limit": int(state.max_control_steps),
-                "step_effect_results": [dict(item) for item in state.step_effect_results],
-                "final_effect_result": final_effect_result,
-                "outputs": to_primitive(outputs),
-                "evidence_refs": list(dict.fromkeys(state.evidence_refs)),
-                "terminal_interrupted": terminal_interrupted,
-            },
+            tool_path_evidence=self._tool_path_evidence(
+                state,
+                outputs=outputs,
+                terminal_interrupted=terminal_interrupted,
+                final_effect_result=final_effect_result,
+            ),
         )
         ctx.trace_builder.finish_span(span_id)
         ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(
             f"tool_attempt_{uuid.uuid4().hex}", occurrence_id, str(tool.ref),
             to_primitive(result), span_id,
         ))
-        return result
-
-    @staticmethod
-    def _walk_for_count(program: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for node in program:
-            result.append(node)
-            if node.get("op") == "IF":
-                result.extend(ToolRunner._walk_for_count(list(node.get("then_branch") or [])))
-                result.extend(ToolRunner._walk_for_count(list(node.get("else_branch") or [])))
-            elif node.get("op") == "FOR_EACH":
-                result.extend(ToolRunner._walk_for_count(list(node.get("body") or [])))
         return result
