@@ -1,0 +1,41 @@
+# Baseline comparison experiment source lock.
+#
+# All formal baseline runs must be reproducible from this file.  External
+# repositories are pinned by commit; the local SkillOpt snapshot (which has no
+# .git metadata) is additionally pinned by SHA-256 hashes of its key files so
+# bootstrap can fail closed on any drift.
+schema_version: 1
+
+ours:
+  repo: https://github.com/YU-S3/AtomicSkill-ToolGraph_v3
+  design_commit: ee2432465831c4a9a60da7102dafec3003d71672
+
+skillopt:
+  repo: https://github.com/microsoft/SkillOpt
+  commit: db46cd9ae7ce12f1dbd73c945185816aa738751d
+  license: MIT
+  # The local source snapshot has no .git directory, so the pinned commit
+  # cannot be verified with git.  These key-file hashes pin the snapshot
+  # content itself; bootstrap fails closed on any mismatch.
+  local_snapshot_verification: key_file_sha256
+  key_files:
+    skillopt/engine/trainer.py: ff71a1480ee7c7c21a2574bb429eeb7dc0c88da0ea018feb22da4fa00b663a7f
+    skillopt/envs/base.py: ea8c650e8bce460be047a03183cf17fbc49b436345cd1b1484093f763c6c64d7
+    skillopt/envs/alfworld/adapter.py: 15fa76d3e5ad6694a2bbe670b53cab301127493433d2a575f2f02e5e7e98083f
+    skillopt/envs/alfworld/rollout.py: eaacb4e895e4b399801b0496ee4cd4de51820a484bfa856e3804f5d47e298a20
+    skillopt/envs/alfworld/dataloader.py: 3dff2eb535576c109c770d5a90a7a6e9d9442bd15c8035ff77a3f942766ecb7b
+    skillopt/envs/alfworld/skills/initial.md: 01bd29e825b81715e7b592e135a9a9d6d0f812a5e84dcd56b51cc1075247f941
+    LICENSE: 9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15
+    pyproject.toml: 217f76ba938e6525c038dc55a0d0ed22cdb9e2c23fc069cec23ca1f3c829e49c
+
+# Baselines planned by the design document.  Only skillopt (B3) is
+# implemented in this round; other methods are recorded for provenance.
+methods:
+  b3_skillopt: implemented
+  b0_dynamic: not_implemented
+  b1_static_skill: not_implemented
+  b2_expel: not_implemented
+  b4u_skillgen: not_implemented
+  b4s_skillgen: not_implemented
+  b5_skilldag: not_implemented
+  b6_flowevo: not_implemented
