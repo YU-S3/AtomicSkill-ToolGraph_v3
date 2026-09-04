@@ -20,6 +20,10 @@ env/
 build/
 dist/
 *.egg-info/
+.venv_b3_skillopt/
+
+# Baseline external checkouts (verified via baseline_lock.yaml, never committed)
+.external/
 
 # v3 mutable knowledge, traces, manifests, reports, and SQLite sidecars
 data_v3/

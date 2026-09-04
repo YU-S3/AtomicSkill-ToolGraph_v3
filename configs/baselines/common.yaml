@@ -1,0 +1,15 @@
+# Common baseline configuration: frozen model identity and outer protocol.
+schema_version: 1
+
+campaign_id: pilot
+run_seed: 42
+max_environment_actions: 100
+
+# Per-method worker venv (created by bootstrap_external.py --setup-worker-venv).
+worker_python: .venv_b3_skillopt/bin/python
+
+model:
+  provider: openai_compatible
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-flash
+  api_key_env: MODEL_API_KEY

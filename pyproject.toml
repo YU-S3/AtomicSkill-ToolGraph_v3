@@ -21,5 +21,5 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "experiments/tests", "src/atomic_skillgraph/governance/tests"]
+testpaths = ["tests", "experiments/tests", "experiments/baselines/tests", "src/atomic_skillgraph/governance/tests"]
 addopts = "-p no:cacheprovider"
