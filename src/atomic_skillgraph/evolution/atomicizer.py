@@ -395,6 +395,11 @@ def _input_authorities(
             for ref in {
                 f"action_arg:{event_id}:{role}",
                 f"action:{event_id}:revision:{event.get('after_revision', '')}",
+                # The E1 context exposes the normalized trace's action_id
+                # verbatim (e.g. ``r039_a010``); accept the model's natural
+                # echo of that code-authoritative event identity as a
+                # role-scoped authority reference.
+                f"action:{event_id}",
             }:
                 authority = {**base_authority, "authority_ref": ref}
                 identity = _authority_ref_identity(authority)
@@ -473,6 +478,29 @@ def _normalize_output_derivations(
                 "input_role": input_role,
             }
         elif kind == "effect_witness":
+            derivations[output_role] = {
+                "kind": "effect_witness",
+                "predicate": str(derivation.get("predicate", "")),
+                "argument_role": str(derivation.get("argument_role", "")),
+            }
+        elif "input_role" in derivation:
+            # The transport vocabulary may omit or misspell the kind/type
+            # spelling.  An authoritative input_role binding is the same
+            # semantic claim as an explicit input_identity derivation and is
+            # validated with identical strictness below.
+            input_role = str(derivation.get("input_role", ""))
+            if input_role not in inputs or inputs[input_role] != value:
+                raise ValueError(
+                    f"Atomic input_identity derivation invalid: {phase_id}.{output_role}"
+                )
+            derivations[output_role] = {
+                "kind": "input_identity",
+                "input_role": input_role,
+            }
+        elif "predicate" in derivation:
+            # Same tolerance for the effect_witness spelling: the predicate
+            # and argument role are still checked against the declared
+            # Effects and their authoritative witnesses before admission.
             derivations[output_role] = {
                 "kind": "effect_witness",
                 "predicate": str(derivation.get("predicate", "")),

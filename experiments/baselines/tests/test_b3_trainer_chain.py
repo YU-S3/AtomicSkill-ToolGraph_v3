@@ -22,13 +22,15 @@ from pathlib import Path
 
 import pytest
 
+# The upstream SkillOpt package exists only in the per-method worker venv.
+# Skip this module elsewhere BEFORE importing the adapter modules below.
+skillopt = pytest.importorskip("skillopt")
+
 from experiments.baselines.b3_skillopt.common_alfworld_adapter import (
     CommonALFWorldSkillOptAdapter,
 )
 from experiments.baselines.b3_skillopt.episode_runner import SkillOptTextEpisodeRunner
 from experiments.baselines.common.manifest import ManifestTask, TaskManifestSet
-
-skillopt = pytest.importorskip("skillopt")
 
 _APPENDED_GUIDANCE = "When the target object is on a table, take it from there first."
 
