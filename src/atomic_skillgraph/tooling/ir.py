@@ -35,6 +35,8 @@ class ToolExecutionState:
     stop_condition_witnesses: list[str] = field(default_factory=list)
     executed_action_count: int = 0
     max_actions: int = 0
+    executed_control_step_count: int = 0
+    max_control_steps: int = 0
     step_effect_results: list[dict[str, Any]] = field(default_factory=list)
     failure_code: str = ""
     failure_message: str = ""

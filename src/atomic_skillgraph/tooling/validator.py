@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
+from ..core.bindings import BindingExprKind, BindingExpression
 from ..core.contracts import AbstractAtomicSkill, ParameterSpec, SemanticPredicate
 from ..core.results import ValidationResult
 from ..core.serialization import to_primitive
@@ -316,6 +317,98 @@ def _boundary_spec_signature(value: Any) -> tuple[str, str, bool, bool, str, str
         bool(value.runtime_resolvable),
         str(value.required_resolution),
     )
+
+
+def _effect_formal_references(
+    draft: RuntimeAutomationAtomicDraft,
+) -> dict[str, list[tuple[str, str]]]:
+    """Collect ``(predicate, argument_role)`` authorities per output role.
+
+    A formal reference is either a ``$<role>`` string argument or a
+    ``{"kind": "skill_input", "source_role": <role>}`` mapping argument of a
+    declared Effect.  References to a role that is not a declared output are
+    fail-closed R0 invalid: effect formal references are the only authority
+    that can derive a fresh output, so an undeclared target cannot be
+    attributed and must never be silently skipped.
+    """
+
+    output_roles = {str(item.name) for item in draft.outputs}
+    authorities: dict[str, list[tuple[str, str]]] = {}
+    for predicate in draft.effects:
+        predicate_name = str(predicate.predicate)
+        for argument_role, raw in dict(predicate.args).items():
+            source_role = ""
+            if isinstance(raw, str) and raw.startswith("$"):
+                source_role = raw[1:]
+            elif isinstance(raw, Mapping) and "kind" in raw:
+                expression = BindingExpression.from_dict(dict(raw))
+                if expression.kind is BindingExprKind.SKILL_INPUT:
+                    source_role = str(expression.source_role)
+            if not source_role:
+                continue
+            if source_role not in output_roles:
+                raise ValueError(
+                    "runtime_automation_r0_output_derivation_invalid: effect "
+                    f"{predicate_name} references undeclared output role "
+                    f"{source_role}"
+                )
+            authorities.setdefault(source_role, []).append(
+                (predicate_name, str(argument_role))
+            )
+    return authorities
+
+
+def normalize_runtime_output_derivations(
+    draft: RuntimeAutomationAtomicDraft,
+) -> dict[str, dict[str, str]]:
+    """One shared, fail-closed output-derivation authority for task-local
+    Runtime Automation drafts.
+
+    Both ``ToolStaticValidator.validate_automation_draft`` (R0) and
+    ``RuntimeAutomationCoordinator._draft_atomic`` call exactly this function;
+    no second derivation logic may exist.  For each required output:
+
+    * INPUT_IDENTITY: a declared input role with the same name exists;
+    * EFFECT_WITNESS: exactly one ``(predicate, argument_role)`` formal
+      reference across the declared Effects;
+
+    otherwise the draft is rejected with
+    ``runtime_automation_r0_output_derivation_invalid``.
+    """
+
+    input_roles = {str(item.name) for item in draft.inputs}
+    required_outputs = [
+        str(item.name) for item in draft.outputs if bool(item.required)
+    ]
+    authorities = _effect_formal_references(draft)
+    derivations: dict[str, dict[str, str]] = {}
+    for output_role in required_outputs:
+        if output_role in input_roles:
+            derivations[output_role] = {
+                "kind": "input_identity",
+                "input_role": output_role,
+            }
+            continue
+        candidates = authorities.get(output_role) or []
+        unique = sorted({(predicate, role) for predicate, role in candidates})
+        if not unique:
+            raise ValueError(
+                "runtime_automation_r0_output_derivation_invalid: required "
+                f"output {output_role} has no legal derivation"
+            )
+        if len(unique) != 1:
+            raise ValueError(
+                "runtime_automation_r0_output_derivation_invalid: output "
+                f"{output_role} has multiple Effect witness authorities "
+                f"{unique!r}"
+            )
+        predicate, argument_role = unique[0]
+        derivations[output_role] = {
+            "kind": "effect_witness",
+            "predicate": predicate,
+            "argument_role": argument_role,
+        }
+    return derivations
 
 
 def _boundary_exact(proposal: Any, atomic: AbstractAtomicSkill) -> bool:
@@ -645,6 +738,12 @@ class ToolStaticValidator:
             for role, value in dict(predicate.args).items():
                 if isinstance(value, str) and value.startswith("$") and value[1:] not in names:
                     fail("runtime_automation_r0_role_closure", f"predicate {predicate.predicate} references unknown role {value}")
+        try:
+            normalize_runtime_output_derivations(draft)
+            checks["draft_output_derivations"] = True
+        except ValueError as exc:
+            checks["draft_output_derivations"] = False
+            fail("runtime_automation_r0_output_derivation_invalid", str(exc))
         predicate_schema = _predicate_schema(harness)
         known_predicates = {str(item.get("predicate", "")).casefold() for item in predicate_schema}
         if known_predicates:
@@ -759,4 +858,8 @@ def _as_semantic(value: Any) -> SemanticPredicate:
     )
 
 
-__all__ = ["ToolStaticReport", "ToolStaticValidator"]
+__all__ = [
+    "ToolStaticReport",
+    "ToolStaticValidator",
+    "normalize_runtime_output_derivations",
+]

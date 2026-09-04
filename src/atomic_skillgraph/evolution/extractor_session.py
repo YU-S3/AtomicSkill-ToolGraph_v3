@@ -120,6 +120,10 @@ class ExtractorSession:
                 precondition_witness_refs=[str(value) for value in item.get("precondition_witness_refs", [])],
                 effect_witness_refs=[str(value) for value in item.get("effect_witness_refs", [])],
                 ordering_constraints=[dict(value) for value in item.get("ordering_constraints", [])],
+                # The E1 schema declares both authorities; fresh-output Atomic
+                # learning depends on them reaching the Atomicizer verbatim.
+                input_provenance_refs=dict(item.get("input_provenance_refs") or {}),
+                output_derivations=dict(item.get("output_derivations") or {}),
             ))
         return proposals
 

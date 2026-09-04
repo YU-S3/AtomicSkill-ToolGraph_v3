@@ -1141,7 +1141,12 @@ class NodeExecutor:
                 role: {"kind": "constant", "constant": value}
                 for role, value in arguments.items()
             },
-            implementation_candidates=[],
+            implementation_candidates=[
+                str(item.ref)
+                for item in self.invocation_compiler.skills.implementations_for(
+                    support_ref, mode=self.invocation_compiler.mode,
+                )
+            ],
             expected_effects=list(support_atomic.effects),
         )
         ctx.begin_occurrence(support_occurrence)
@@ -1167,6 +1172,7 @@ class NodeExecutor:
             "support_occurrence_id": support_occurrence.occurrence_id,
             "passed": passed,
             "result": to_primitive(result) if result is not None else None,
+            "new_revision": ctx.world_revision,
         }
         v32_metrics = ctx.trace_builder.trace.metadata.setdefault(
             "v32_metrics", {}
@@ -1185,10 +1191,24 @@ class NodeExecutor:
                 and consumer_role in blocked_input_roles
             }
             if support_outputs:
+                support_refs: list[str] = []
+                for record in reversed(ctx.trace_builder.trace.validations):
+                    if (
+                        record.occurrence_id == support_occurrence.occurrence_id
+                        and record.level in {"atomic", "already_satisfied"}
+                    ):
+                        support_refs = list(record.result.get("witness_refs", []))
+                        if support_refs:
+                            break
+                if not support_refs:
+                    support_refs = [
+                        f"validator:occurrence:{support_occurrence.occurrence_id}"
+                        f":revision:{ctx.world_revision}"
+                    ]
                 ctx.binding_store.publish_validated_outputs(
                     occurrence,
                     support_outputs,
-                    [],
+                    support_refs,
                     ctx.world_revision,
                 )
                 ctx.validated_outputs[occurrence.occurrence_id] = dict(
@@ -1401,6 +1421,7 @@ class NodeExecutor:
                             payload = {
                                 "accepted": True,
                                 "draft_id": draft.draft_id,
+                                "new_revision": ctx.world_revision,
                                 **to_primitive(outcome),
                             }
                     self._augment_runtime_payload(
@@ -1751,6 +1772,7 @@ class NodeExecutor:
                                 v32_metrics["runtime_automation_r0_reject_count"] = int(
                                     v32_metrics.get("runtime_automation_r0_reject_count", 0)
                                 ) + 1
+                            payload["new_revision"] = ctx.world_revision
                             payload.update(to_primitive(outcome))
                         else:
                             payload.update({"r0_passed": True, "stage": "r0_pass"})

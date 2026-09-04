@@ -191,22 +191,25 @@ class CompositeRetriever:
         def _effect_signature_compatible(
             signature: dict[str, Any], target: Any,
         ) -> bool:
-            predicate = str(signature.get("predicate", "")).casefold()
-            if predicate != str(target.predicate).casefold():
+            # R2.1 freeze: fail-closed exact shape.  No cross-cardinality or
+            # cross-domain generalization is allowed this round.
+            if str(signature.get("predicate", "")).casefold() != str(
+                target.predicate
+            ).casefold():
                 return False
-            domain = str(signature.get("effect_domain", ""))
-            if domain and domain != str(target.effect_domain.value):
+            if str(signature.get("effect_domain", "")) != str(
+                target.effect_domain.value
+            ):
                 return False
-            roles = set(map(str, signature.get("argument_roles") or ()))
-            if roles and roles != set(map(str, target.args)):
+            if sorted(map(str, signature.get("argument_roles") or ())) != sorted(
+                map(str, target.args)
+            ):
                 return False
-            cardinality = int(signature.get("cardinality", 1) or 1)
-            target_cardinality = max(1, int(target.cardinality))
-            if cardinality > target_cardinality:
+            if int(signature.get("cardinality", 1) or 1) != max(
+                1, int(target.cardinality)
+            ):
                 return False
-            distinct_by = str(signature.get("distinct_by", ""))
-            target_distinct_by = str(target.distinct_by)
-            if target_distinct_by and distinct_by != target_distinct_by:
+            if str(signature.get("distinct_by", "")) != str(target.distinct_by):
                 return False
             return True
 
