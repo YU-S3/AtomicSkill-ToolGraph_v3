@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
 from ..agents.context_builder import ContextBuilder
 from ..agents.structured_submission import (
@@ -120,11 +120,23 @@ class ExtractorSession:
                 precondition_witness_refs=[str(value) for value in item.get("precondition_witness_refs", [])],
                 effect_witness_refs=[str(value) for value in item.get("effect_witness_refs", [])],
                 ordering_constraints=[dict(value) for value in item.get("ordering_constraints", [])],
-                # Fresh-output Atomic learning depends on the E1 derivation
-                # authorities reaching the Atomicizer verbatim.  Input
-                # provenance keeps its value-matching fallback: the model's
-                # reference vocabulary is not a strict authority shape here.
-                output_derivations=dict(item.get("output_derivations") or {}),
+                # Fresh-output Atomic learning depends on EFFECT_WITNESS
+                # derivations reaching the Atomicizer verbatim.  Input-identity
+                # claims stay code-derived by value matching: the model's
+                # claimed input role is not a strict authority shape here, and
+                # a mismatched claim must not reject an admissible occurrence.
+                output_derivations={
+                    str(role): dict(raw)
+                    for role, raw in dict(
+                        item.get("output_derivations") or {}
+                    ).items()
+                    if isinstance(raw, Mapping)
+                    and str(
+                        raw.get("kind")
+                        if raw.get("kind") is not None
+                        else raw.get("type", "")
+                    ).casefold() == "effect_witness"
+                },
             ))
         return proposals
 
