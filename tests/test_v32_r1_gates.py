@@ -1503,6 +1503,21 @@ def test_r2_4_tool_builder_boundary_exactness() -> None:
     ).passed is False
 
 
+def test_r21_e1_output_derivation_type_vocabulary_tolerated() -> None:
+    from atomic_skillgraph.evolution.atomicizer import Atomicizer
+
+    proposal = _atomicizer_proposal("p", start=0, end=1, support=["e0", "e1"])
+    # The E1 transport may spell the same derivation vocabulary as "type".
+    proposal.output_derivations = {
+        "result": {"type": "INPUT_IDENTITY", "input_role": "item"}
+    }
+    canonical = Atomicizer().validate_and_canonicalize(
+        [proposal], _atomicizer_trace(),
+    )
+    assert len(canonical) == 1
+    assert canonical[0].output_derivations["result"]["kind"] == "input_identity"
+
+
 def _locate_draft() -> RuntimeAutomationAtomicDraft:
     return RuntimeAutomationAtomicDraft(
         draft_id="draft_locate", intent="locate target",

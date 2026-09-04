@@ -455,7 +455,13 @@ def _normalize_output_derivations(
             }
             continue
         derivation = dict(raw) if isinstance(raw, Mapping) else {}
-        kind = str(derivation.get("kind", "")).casefold()
+        # The E1 transport may carry the same derivation vocabulary as
+        # ``type``; normalize both spellings in this single authority.
+        kind = str(
+            derivation.get("kind")
+            if derivation.get("kind") is not None
+            else derivation.get("type", "")
+        ).casefold()
         if kind == "input_identity":
             input_role = str(derivation.get("input_role", ""))
             if input_role not in inputs or inputs[input_role] != value:
