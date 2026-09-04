@@ -39,6 +39,16 @@ def _record(
     )
 
 
+def _has_fact(
+    facts: list[dict], predicate: str, args: dict[str, str],
+) -> bool:
+    return any(
+        item.get("predicate") == predicate
+        and item.get("args") == args
+        for item in facts
+    )
+
+
 def test_goal_roles_and_look_contract_keep_object_and_light_distinct() -> None:
     assert _goal_roles("look at book under the desklamp.") == {
         "object": "book", "light_source": "desklamp",
@@ -153,12 +163,15 @@ def test_state_facts_replace_stale_holds_and_locations() -> None:
     channel = AlfWorldValidatorChannel()
     _record(channel, 1, "TAKE", object="apple_1", source="cabinet_1")
     facts = channel.snapshot()["facts"]
-    assert {"predicate": "agent.holds", "args": {"object": "apple_1"}} in facts
+    assert _has_fact(facts, "agent.holds", {"object": "apple_1"})
 
     _record(channel, 2, "PUT", object="apple_1", destination="fridge_1")
     facts = channel.snapshot()["facts"]
-    assert {"predicate": "agent.holds", "args": {"object": "apple_1"}} not in facts
-    assert {"predicate": "object.at_location", "args": {"location": "fridge_1", "object": "apple_1"}} in facts
+    assert not _has_fact(facts, "agent.holds", {"object": "apple_1"})
+    assert _has_fact(
+        facts, "object.at_location",
+        {"location": "fridge_1", "object": "apple_1"},
+    )
 
     _record(channel, 3, "TAKE", object="apple_1", source="fridge_1")
     facts = channel.snapshot()["facts"]
@@ -171,23 +184,24 @@ def test_navigation_container_and_light_actions_publish_current_atomic_facts() -
     _record(channel, 2, "OPEN", object="cabinet_1")
     _record(channel, 3, "TOGGLE_ON", object="desklamp_1")
     facts = channel.snapshot()["facts"]
-    assert {"predicate": "agent.at_location", "args": {"location": "cabinet_1"}} in facts
-    assert {"predicate": "container.open", "args": {"container": "cabinet_1"}} in facts
-    assert {"predicate": "light.on", "args": {"light": "desklamp_1"}} in facts
+    assert _has_fact(facts, "agent.at_location", {"location": "cabinet_1"})
+    assert _has_fact(facts, "container.open", {"container": "cabinet_1"})
+    assert _has_fact(facts, "light.on", {"light": "desklamp_1"})
 
     _record(channel, 4, "GO_TO", destination="desk_1")
     _record(channel, 5, "CLOSE", object="cabinet_1")
     _record(channel, 6, "TOGGLE_OFF", object="desklamp_1")
     facts = channel.snapshot()["facts"]
-    assert {"predicate": "agent.at_location", "args": {"location": "desk_1"}} in facts
+    assert _has_fact(facts, "agent.at_location", {"location": "desk_1"})
     assert not any(
-        item == {"predicate": "agent.at_location", "args": {"location": "cabinet_1"}}
+        item.get("predicate") == "agent.at_location"
+        and item.get("args") == {"location": "cabinet_1"}
         for item in facts
     )
-    assert {"predicate": "container.closed", "args": {"container": "cabinet_1"}} in facts
-    assert {"predicate": "container.open", "args": {"container": "cabinet_1"}} not in facts
-    assert {"predicate": "light.off", "args": {"light": "desklamp_1"}} in facts
-    assert {"predicate": "light.on", "args": {"light": "desklamp_1"}} not in facts
+    assert _has_fact(facts, "container.closed", {"container": "cabinet_1"})
+    assert not _has_fact(facts, "container.open", {"container": "cabinet_1"})
+    assert _has_fact(facts, "light.off", {"light": "desklamp_1"})
+    assert not _has_fact(facts, "light.on", {"light": "desklamp_1"})
 
 
 def test_atomic_effect_requires_concrete_binding_and_current_fact() -> None:
@@ -212,13 +226,19 @@ def test_look_witness_is_derived_from_current_conjunctive_state() -> None:
         "predicate": "object.observed_with",
         "args": {"light": "desklamp_1", "object": "book_1"},
     }
-    assert expected in channel.snapshot()["facts"]  # TAKE -> USE
+    assert _has_fact(
+        channel.snapshot()["facts"], expected["predicate"], expected["args"]
+    )  # TAKE -> USE
 
     _record(channel, 4, "USE", observation="You turn off the lamp.", object="desklamp_1")
-    assert expected not in channel.snapshot()["facts"]  # light off
+    assert not _has_fact(
+        channel.snapshot()["facts"], expected["predicate"], expected["args"]
+    )  # light off
     _record(channel, 5, "USE", observation="You turn on the lamp.", object="desklamp_1")
     _record(channel, 6, "PUT", object="book_1", destination="desk_1")
-    assert expected not in channel.snapshot()["facts"]  # no longer held
+    assert not _has_fact(
+        channel.snapshot()["facts"], expected["predicate"], expected["args"]
+    )  # no longer held
 
 
 def test_look_witness_is_order_independent_and_location_scoped() -> None:
@@ -230,14 +250,22 @@ def test_look_witness_is_order_independent_and_location_scoped() -> None:
     _record(channel, 1, "GO_TO", destination="desk_1")
     _record(channel, 2, "USE", object="desklamp_1")
     _record(channel, 3, "TAKE", object="book_1", source="desk_1")
-    assert expected in channel.snapshot()["facts"]  # USE -> TAKE
+    assert _has_fact(
+        channel.snapshot()["facts"], expected["predicate"], expected["args"]
+    )  # USE -> TAKE
 
     _record(channel, 4, "GO_TO", destination="cabinet_1")
-    assert expected not in channel.snapshot()["facts"]
+    assert not _has_fact(
+        channel.snapshot()["facts"], expected["predicate"], expected["args"]
+    )
     _record(channel, 5, "GO_TO", destination="desk_1")
-    assert expected in channel.snapshot()["facts"]
+    assert _has_fact(
+        channel.snapshot()["facts"], expected["predicate"], expected["args"]
+    )
     _record(channel, 6, "USE", observation="You turn off the lamp.", object="desklamp_1")
-    assert expected not in channel.snapshot()["facts"]
+    assert not _has_fact(
+        channel.snapshot()["facts"], expected["predicate"], expected["args"]
+    )
 
 
 def test_look_witness_does_not_cross_light_location() -> None:
@@ -273,10 +301,11 @@ def test_toggle_on_uses_the_same_location_derived_look_semantics() -> None:
     _record(channel, 1, "GO_TO", destination="desk_1")
     _record(channel, 2, "TOGGLE_ON", object="desklamp_1")
     _record(channel, 3, "TAKE", object="book_1", source="desk_1")
-    assert {
-        "predicate": "object.observed_with",
-        "args": {"light": "desklamp_1", "object": "book_1"},
-    } in channel.snapshot()["facts"]
+    assert _has_fact(
+        channel.snapshot()["facts"],
+        "object.observed_with",
+        {"light": "desklamp_1", "object": "book_1"},
+    )
 
 
 def test_slice_is_structured_at_adapter_boundary() -> None:

@@ -36,7 +36,7 @@ from .core.errors import (
     FailureEnvelope,
     FailureLayer,
 )
-from .core.refs import content_hash
+from .core.refs import canonical_json, content_hash
 from .core.serialization import atomic_write_json, to_primitive
 from .core.status import RuntimeMode, SkillStatus
 from .evolution.admission import Admission
@@ -2324,6 +2324,7 @@ class AtomicSkillGraphSystem:
         identity = (
             str(fact.get("predicate", "")).casefold(),
             repr(sorted(dict(fact.get("args") or {}).items())),
+            str(fact.get("effect_domain", "")).casefold(),
         )
         exact = [
             action for action in indexed
@@ -2331,6 +2332,7 @@ class AtomicSkillGraphSystem:
                 (
                     str(raw.get("predicate", "")).casefold(),
                     repr(sorted(dict(raw.get("args") or {}).items())),
+                    str(raw.get("effect_domain", "")).casefold(),
                 ) == identity
                 for raw in list(
                     action.get("authoritative_positive_effects") or []
@@ -2358,12 +2360,9 @@ class AtomicSkillGraphSystem:
             raw_identity = (
                 str(raw.get("predicate", "")).casefold(),
                 repr(sorted(dict(raw.get("args") or {}).items())),
+                str(raw.get("effect_domain", "")).casefold(),
             )
             if raw_identity != identity:
-                continue
-            raw_domain = str(raw.get("effect_domain", "")).casefold()
-            fact_domain = str(fact.get("effect_domain", "")).casefold()
-            if not raw_domain or (fact_domain and raw_domain != fact_domain):
                 continue
             event_index = raw.get("event_index")
             revision = raw.get("revision")
@@ -2428,7 +2427,7 @@ class AtomicSkillGraphSystem:
                 return role in bindings, bindings.get(role)
             return True, raw
 
-        resolved_effects: dict[str, list[dict[str, Any]]] = {}
+        resolved_effects: list[dict[str, Any]] = []
         for raw_effect in list(trial.get("declared_effects") or []):
             if not isinstance(raw_effect, Mapping):
                 continue
@@ -2444,9 +2443,7 @@ class AtomicSkillGraphSystem:
                     break
                 arguments[str(argument_role)] = value
             if closed and arguments:
-                resolved_effects.setdefault(
-                    predicate.casefold(), []
-                ).append({
+                resolved_effects.append({
                     "predicate": predicate,
                     "args": arguments,
                     "cardinality": max(
@@ -2462,40 +2459,123 @@ class AtomicSkillGraphSystem:
 
         revision = int(trial.get("after_revision", 0) or 0)
         authorities: list[dict[str, Any]] = []
-        for facts in resolved_effects.values():
-            for fact in facts:
-                expected_ref = (
-                    AtomicSkillGraphSystem._runtime_effect_witness_ref(
-                        fact, revision=revision,
-                    )
+        seen: set[tuple[str, int, str, str, str]] = set()
+        trial_occurrence_ids = {
+            str(authority.get("source_occurrence_id", ""))
+            for authority in dict(trial.get("input_authorities") or {}).values()
+            if isinstance(authority, Mapping)
+            and str(authority.get("source_occurrence_id", ""))
+        }
+        for raw_fact in list(
+            trial.get("r1_effect_event_authorities") or []
+        ):
+            if not isinstance(raw_fact, Mapping):
+                continue
+            if str(raw_fact.get("source_kind", "")) != (
+                "occurrence_action_delta"
+            ):
+                continue
+            source_occurrence_id = str(
+                raw_fact.get("source_occurrence_id", "")
+            )
+            if (
+                not source_occurrence_id
+                or (
+                    trial_occurrence_ids
+                    and source_occurrence_id not in trial_occurrence_ids
                 )
-                exact_refs = [
-                    witness_ref for witness_ref in witness_refs
-                    if witness_ref == expected_ref
-                ]
-                if len(exact_refs) != 1:
-                    # A validator ref that cannot be mapped to exactly one
-                    # predicate+binding fact is not E1 Effect authority.
-                    continue
-                event_index = AtomicSkillGraphSystem._runtime_effect_event_index(
-                    trial, list(actions or []), fact,
-                )
-                if actions is not None and event_index is None:
-                    continue
-                authority = {
-                    **fact,
-                    "witness_ref": exact_refs[0],
-                    "revision": revision,
-                    "source_kind": "runtime_trial_r1",
-                    "draft_id": str(trial.get("draft_id", "")),
-                }
-                if event_index is not None:
-                    authority["event_index"] = int(event_index)
-                authorities.append(authority)
+            ):
+                continue
+            fact = {
+                "predicate": str(raw_fact.get("predicate", "")),
+                "args": dict(raw_fact.get("args") or {}),
+                "effect_domain": str(raw_fact.get("effect_domain", "")),
+            }
+            if (
+                not fact["predicate"]
+                or not fact["args"]
+                or fact["effect_domain"] not in {"world", "evidence"}
+            ):
+                continue
+            matching_declarations = [
+                declared
+                for declared in resolved_effects
+                if str(declared.get("predicate", "")).casefold()
+                == fact["predicate"].casefold()
+                and canonical_json(dict(declared.get("args") or {}))
+                == canonical_json(fact["args"])
+                and str(declared.get("effect_domain", "")).casefold()
+                == fact["effect_domain"].casefold()
+            ]
+            if len(matching_declarations) != 1:
+                # Snapshot truth must have one exact declared-Effect owner;
+                # declarations cannot manufacture or ambiguously claim it.
+                continue
+            expected_ref = AtomicSkillGraphSystem._runtime_effect_witness_ref(
+                fact, revision=revision,
+            )
+            exact_refs = [
+                witness_ref for witness_ref in witness_refs
+                if witness_ref == expected_ref
+            ]
+            if len(exact_refs) != 1:
+                continue
+            event_index = AtomicSkillGraphSystem._runtime_effect_event_index(
+                trial, list(actions or []), fact,
+            )
+            if event_index is None:
+                continue
+            raw_event_index = raw_fact.get("event_index")
+            raw_revision = raw_fact.get("revision")
+            if (
+                isinstance(raw_event_index, bool)
+                or not isinstance(raw_event_index, int)
+                or raw_event_index != event_index
+                or isinstance(raw_revision, bool)
+                or not isinstance(raw_revision, int)
+            ):
+                continue
+            event_owners = [
+                action
+                for fallback, action in enumerate(list(actions or []))
+                if bool(action.get("accepted"))
+                and int(action.get("event_index", fallback)) == event_index
+                and int(action.get("after_revision", -1)) == raw_revision
+            ]
+            if len(event_owners) != 1:
+                continue
+            declared = matching_declarations[0]
+            identity = (
+                exact_refs[0],
+                event_index,
+                fact["predicate"],
+                canonical_json(fact["args"]),
+                fact["effect_domain"],
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            authorities.append({
+                **fact,
+                "cardinality": int(declared.get("cardinality", 1)),
+                "distinct_by": str(declared.get("distinct_by", "")),
+                "witness_ref": exact_refs[0],
+                "revision": revision,
+                "source_kind": "runtime_trial_r1",
+                "draft_id": str(trial.get("draft_id", "")),
+                "event_index": int(event_index),
+            })
         return authorities
 
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
         normalized = self.normalizer.build(trace)
+        current_v32 = (
+            str(normalized.get("semantic_authority_source", ""))
+            == "validator_snapshot_v3_2"
+        )
+        trace.metadata["semantic_authority_source"] = str(
+            normalized.get("semantic_authority_source", "")
+        )
         boundary_inputs: list[dict[str, Any]] = [
             dict(item)
             for item in list(
@@ -2543,10 +2623,55 @@ class AtomicSkillGraphSystem:
                 if identity not in seen_boundary_inputs:
                     seen_boundary_inputs.add(identity)
                     boundary_inputs.append(projected_authority)
-        runtime_effect_facts: list[dict[str, Any]] = []
-        for trial in list(trace.metadata.get("runtime_tool_trials", {}).values()):
-            if not isinstance(trial, dict):
+        runtime_trials = [
+            trial
+            for trial in list(
+                trace.metadata.get("runtime_tool_trials", {}).values()
+            )
+            if isinstance(trial, dict)
+        ]
+        # Every Runtime Automation trial range is isolated from the ordinary
+        # snapshot-delta projection, including failed/ineligible trials.  Its
+        # events may reach E1 only through the existing R1 eligibility bridge.
+        runtime_trial_event_indexes: set[int] = set()
+        for trial in runtime_trials:
+            start = trial.get("trial_event_start")
+            end = trial.get("trial_event_end")
+            malformed_range = (
+                isinstance(start, bool)
+                or not isinstance(start, int)
+                or isinstance(end, bool)
+                or not isinstance(end, int)
+                or start < 0
+                or end < start - 1
+                or start > len(normalized.get("actions", []))
+                or end >= len(normalized.get("actions", []))
+            )
+            empty_range = (
+                not malformed_range
+                and isinstance(start, int)
+                and isinstance(end, int)
+                and end == start - 1
+            )
+            if empty_range and bool(
+                dict(trial.get("r1") or {}).get("started", False)
+                or dict(trial.get("result") or {}).get("started", False)
+            ):
+                malformed_range = True
+            if malformed_range:
+                if current_v32:
+                    raise AtomicSkillGraphError(
+                        "semantic_snapshot_integrity_error",
+                        "Runtime Automation trial has an invalid event range",
+                        layer=FailureLayer.INFRASTRUCTURE,
+                    )
                 continue
+            if empty_range:
+                continue
+            runtime_trial_event_indexes.update(range(start, end + 1))
+
+        runtime_effect_facts: list[dict[str, Any]] = []
+        for trial in runtime_trials:
             if not self._runtime_trial_e1_effect_eligible(trial):
                 continue
             for role, authority in dict(trial.get("input_authorities") or {}).items():
@@ -2590,7 +2715,7 @@ class AtomicSkillGraphSystem:
                     trial, list(normalized.get("actions") or []),
                 )
             )
-        if runtime_effect_facts:
+        if runtime_effect_facts and not current_v32:
             normalized.setdefault("after_state_facts", []).extend(
                 runtime_effect_facts
             )
@@ -2598,29 +2723,75 @@ class AtomicSkillGraphSystem:
             self.harness, "semantic_predicate_schema", None
         )
         predicate_domains = {
-            str(item.name): str(item.effect_domain)
+            str(item.predicate): str(item.effect_domain)
             for item in (
                 predicate_schema() if callable(predicate_schema) else ()
             )
         }
         boundary_effects: list[dict[str, Any]] = []
-        for action in normalized.get("actions", []):
+        for fallback_index, action in enumerate(
+            normalized.get("actions", [])
+        ):
+            event_index = action.get("event_index", fallback_index)
+            if (
+                action.get("accepted") is not True
+                or isinstance(event_index, bool)
+                or not isinstance(event_index, int)
+                or event_index in runtime_trial_event_indexes
+            ):
+                continue
             for raw_fact in action.get("authoritative_positive_effects", []):
                 if not isinstance(raw_fact, dict):
                     continue
-                witness_ref = str(
-                    raw_fact.get("witness_ref")
-                    or action.get("event_id", action.get("action_id", ""))
-                )
+                effect_domain = str(raw_fact.get("effect_domain", ""))
+                raw_revision = raw_fact.get("revision")
+                raw_event_index = raw_fact.get("event_index")
+                raw_source_kind = str(raw_fact.get("source_kind", ""))
+                witness_ref = str(raw_fact.get("witness_ref", ""))
+                if current_v32 and (
+                    effect_domain not in {"world", "evidence"}
+                    or not witness_ref
+                    or isinstance(raw_revision, bool)
+                    or not isinstance(raw_revision, int)
+                    or raw_revision != action.get("after_revision")
+                    or isinstance(raw_event_index, bool)
+                    or not isinstance(raw_event_index, int)
+                    or raw_event_index != event_index
+                    or raw_source_kind != "semantic_snapshot_delta"
+                ):
+                    raise AtomicSkillGraphError(
+                        "semantic_snapshot_integrity_error",
+                        "snapshot-derived boundary effect metadata is inconsistent",
+                        layer=FailureLayer.INFRASTRUCTURE,
+                    )
+                if not witness_ref:
+                    witness_ref = str(
+                        action.get("event_id", action.get("action_id", ""))
+                    )
                 boundary_effects.append({
                     "witness_ref": witness_ref,
                     "predicate": str(raw_fact.get("predicate", "")),
                     "args": dict(raw_fact.get("args") or {}),
-                    "effect_domain": str(
-                        raw_fact.get("effect_domain")
-                        or predicate_domains.get(
-                            str(raw_fact.get("predicate", "")), ""
+                    "effect_domain": effect_domain or predicate_domains.get(
+                        str(raw_fact.get("predicate", "")), ""
+                    ),
+                    "event_index": int(event_index),
+                    "revision": int(
+                        raw_fact.get(
+                            "revision", action.get("after_revision", 0)
                         )
+                    ),
+                    "source_kind": str(
+                        raw_source_kind
+                        or (
+                            "semantic_snapshot_delta"
+                            if current_v32
+                            else "legacy_action_reducer"
+                        )
+                    ),
+                    "action_id": str(
+                        raw_fact.get("action_id")
+                        or action.get("action_id", "")
                     ),
                 })
         boundary_effects.extend({
@@ -2631,10 +2802,42 @@ class AtomicSkillGraphSystem:
             "source_kind": "runtime_trial_r1",
             "draft_id": str(fact.get("draft_id", "")),
             "event_index": int(fact.get("event_index", -1)),
+            "revision": int(fact.get("revision", 0)),
         } for fact in runtime_effect_facts)
+
+        deduplicated_effects: list[dict[str, Any]] = []
+        seen_effects: set[tuple[str, int, str, str, str]] = set()
+        witness_facts: dict[str, tuple[str, str, str]] = {}
+        for effect in boundary_effects:
+            witness_ref = str(effect.get("witness_ref", ""))
+            semantic_identity = (
+                str(effect.get("predicate", "")),
+                canonical_json(dict(effect.get("args") or {})),
+                str(effect.get("effect_domain", "")),
+            )
+            previous_identity = witness_facts.setdefault(
+                witness_ref, semantic_identity,
+            )
+            if witness_ref and previous_identity != semantic_identity:
+                raise AtomicSkillGraphError(
+                    "semantic_snapshot_integrity_error",
+                    "one semantic witness_ref identifies conflicting facts",
+                    layer=FailureLayer.INFRASTRUCTURE,
+                )
+            identity = (
+                witness_ref,
+                int(effect.get("event_index", -1)),
+                semantic_identity[0],
+                semantic_identity[1],
+                semantic_identity[2],
+            )
+            if identity in seen_effects:
+                continue
+            seen_effects.add(identity)
+            deduplicated_effects.append(effect)
         normalized["boundary_authorities"] = {
             "inputs": boundary_inputs,
-            "effects": boundary_effects,
+            "effects": deduplicated_effects,
         }
         extractor = ExtractorSession(self._extractor_session(task.task_id))
         contract = self.harness.task_contract(task)

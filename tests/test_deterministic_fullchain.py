@@ -252,6 +252,17 @@ def _extract_and_register(
     data_edge: bool = False,
 ) -> dict:
     normalized = TraceNormalizer().build(trace)
+    normalized["boundary_authorities"]["effects"] = [
+        {
+            **dict(fact),
+            "event_index": int(action["event_index"]),
+            "revision": int(action["after_revision"]),
+            "source_kind": "semantic_snapshot_delta",
+        }
+        for action in normalized["actions"]
+        if action["accepted"] is True
+        for fact in action["authoritative_positive_effects"]
+    ]
     # The FakeHarness fixture exposes the second occurrence's semantic target
     # as an explicit code-owned boundary alias. Production adapters must
     # project any equivalent alias themselves; the Atomicizer never invents it.

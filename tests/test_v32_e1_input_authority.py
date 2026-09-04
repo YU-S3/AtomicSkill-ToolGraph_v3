@@ -39,6 +39,16 @@ def _normalized(authority: dict[str, object] | None) -> dict[str, object]:
             "before_revision": 0,
             "after_revision": 1,
             "span_id": "span",
+            "authoritative_before_state_facts": [],
+            "authoritative_positive_effects": [{
+                "predicate": "agent.holds",
+                "args": {"object": "apple_1"},
+                "effect_domain": "world",
+                "witness_ref": "action:e0:revision:1",
+                "event_index": 0,
+                "revision": 1,
+                "source_kind": "semantic_snapshot_delta",
+            }],
         }],
         "runtime_spans": [{
             "span_id": "span",
@@ -50,7 +60,18 @@ def _normalized(authority: dict[str, object] | None) -> dict[str, object]:
             "learnable": True,
         }],
         "validations": [],
-        "boundary_authorities": {"inputs": inputs, "effects": []},
+        "boundary_authorities": {
+            "inputs": inputs,
+            "effects": [{
+                "predicate": "agent.holds",
+                "args": {"object": "apple_1"},
+                "effect_domain": "world",
+                "witness_ref": "action:e0:revision:1",
+                "event_index": 0,
+                "revision": 1,
+                "source_kind": "semantic_snapshot_delta",
+            }],
+        },
     }
 
 

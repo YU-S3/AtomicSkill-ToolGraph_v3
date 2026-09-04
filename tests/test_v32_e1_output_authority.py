@@ -37,6 +37,16 @@ def _normalized() -> dict[str, object]:
                 "before_revision": 0,
                 "after_revision": 1,
                 "span_id": "span",
+                "authoritative_before_state_facts": [],
+                "authoritative_positive_effects": [{
+                    "predicate": "agent.at_location",
+                    "args": {"location": "desk_1"},
+                    "effect_domain": "world",
+                    "witness_ref": "action:e0:revision:1",
+                    "event_index": 0,
+                    "revision": 1,
+                    "source_kind": "semantic_snapshot_delta",
+                }],
             },
             {
                 "event_index": 1,
@@ -48,6 +58,22 @@ def _normalized() -> dict[str, object]:
                 "before_revision": 1,
                 "after_revision": 2,
                 "span_id": "span",
+                "authoritative_before_state_facts": [{
+                    "predicate": "agent.at_location",
+                    "args": {"location": "desk_1"},
+                    "effect_domain": "world",
+                    "witness_ref": "action:e0:revision:1",
+                    "revision": 1,
+                }],
+                "authoritative_positive_effects": [{
+                    "predicate": "agent.holds",
+                    "args": {"object": "apple_1"},
+                    "effect_domain": "world",
+                    "witness_ref": "action:e1:revision:2",
+                    "event_index": 1,
+                    "revision": 2,
+                    "source_kind": "semantic_snapshot_delta",
+                }],
             },
         ],
         "runtime_spans": [{
@@ -81,7 +107,15 @@ def _normalized() -> dict[str, object]:
                     "value": "desk_1",
                 },
             ],
-            "effects": [],
+            "effects": [{
+                "predicate": "agent.holds",
+                "args": {"object": "apple_1"},
+                "effect_domain": "world",
+                "witness_ref": "action:e1:revision:2",
+                "event_index": 1,
+                "revision": 2,
+                "source_kind": "semantic_snapshot_delta",
+            }],
         },
     }
 

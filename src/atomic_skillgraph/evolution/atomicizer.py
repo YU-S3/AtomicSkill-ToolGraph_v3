@@ -200,11 +200,13 @@ def _argument(arguments: dict[str, Any], *aliases: str) -> Any:
 
 
 def reduce_action_state(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Reconstruct the current action-derived state without stale witnesses.
+    """Legacy action-only reconstruction; never current v3.2 authority.
 
-    TraceNormalizer intentionally does not expose private validator snapshots.
-    Its fallback therefore has to be a reducer, not a monotonic bag of every
-    historical action effect: TAKE→PUT no longer witnesses ``agent.holds``;
+    This compatibility reducer is retained for historical fixtures, trace
+    repair, and migration paths whose ``method_patch`` is not ``3.2``.  A
+    formal current v3.2 Trace must consume Validator semantic snapshots and
+    must never silently fall back here.  For legacy callers, TAKE→PUT no
+    longer witnesses ``agent.holds``;
     HEAT→COOL no longer witnesses ``object.heated``; and opposing open/light
     transitions replace one another.  Each surviving fact retains the action
     index that most recently established it so an Atomic effect can be tied to
@@ -973,12 +975,29 @@ class Atomicizer:
             )
 
             bindings = {**inputs, **outputs}
-            prefix_facts = reduce_action_state(list(events[:proposal.event_start]))
-            prefix_facts += _normalized_state_facts(
-                normalized_trace,
-                key="before_state_facts",
-                revision=int(selected[0].get("before_revision", 0)),
-            )
+            if current_e1_authority:
+                # Current E1 can only cite the exact Validator state at the
+                # occurrence boundary.  Action-only reconstruction and the
+                # historical before_state_facts bridge are legacy-only.
+                prefix_facts = [
+                    dict(fact)
+                    for fact in list(
+                        events[proposal.event_start].get(
+                            "authoritative_before_state_facts"
+                        )
+                        or []
+                    )
+                    if isinstance(fact, Mapping)
+                ]
+            else:
+                prefix_facts = reduce_action_state(
+                    list(events[:proposal.event_start])
+                )
+                prefix_facts += _normalized_state_facts(
+                    normalized_trace,
+                    key="before_state_facts",
+                    revision=int(selected[0].get("before_revision", 0)),
+                )
             if len(set(proposal.precondition_witness_refs)) != len(
                 proposal.precondition_witness_refs
             ):
@@ -1028,30 +1047,55 @@ class Atomicizer:
                         f"{witness_ref}"
                     )
 
-            effect_facts = [
-                fact
-                for fact in reduce_action_state(
-                    list(events[:proposal.event_end + 1])
-                )
-                if int(fact.get("event_index", -1)) in support_indices
-            ]
-            normalized_effect_facts = _normalized_state_facts(
-                normalized_trace,
-                key="after_state_facts",
-                revision=int(selected[-1].get("after_revision", 0)),
-            )
-            for fact in normalized_effect_facts:
-                if str(fact.get("source_kind", "")) == "runtime_trial_r1":
+            if current_e1_authority:
+                # The final System-produced boundary is the sole current E1
+                # Effect entry point.  In particular, after_state_facts may
+                # no longer smuggle a Runtime trial around its R1 gate.
+                effect_facts = []
+                for raw_fact in list(
+                    dict(
+                        normalized_trace.get("boundary_authorities") or {}
+                    ).get("effects")
+                    or []
+                ):
+                    if not isinstance(raw_fact, Mapping):
+                        continue
+                    fact = dict(raw_fact)
                     event_index = fact.get("event_index")
+                    revision = fact.get("revision")
+                    source_kind = str(fact.get("source_kind", ""))
                     if (
-                        not str(fact.get("draft_id", ""))
-                        or not str(fact.get("witness_ref", ""))
-                        or isinstance(event_index, bool)
+                        isinstance(event_index, bool)
                         or not isinstance(event_index, int)
                         or event_index not in support_indices
+                        or isinstance(revision, bool)
+                        or not isinstance(revision, int)
+                        or source_kind not in {
+                            "semantic_snapshot_delta",
+                            "runtime_trial_r1",
+                        }
+                        or not str(fact.get("witness_ref", ""))
                     ):
                         continue
-                effect_facts.append(fact)
+                    if (
+                        source_kind == "runtime_trial_r1"
+                        and not str(fact.get("draft_id", ""))
+                    ):
+                        continue
+                    effect_facts.append(fact)
+            else:
+                effect_facts = [
+                    fact
+                    for fact in reduce_action_state(
+                        list(events[:proposal.event_end + 1])
+                    )
+                    if int(fact.get("event_index", -1)) in support_indices
+                ]
+                effect_facts.extend(_normalized_state_facts(
+                    normalized_trace,
+                    key="after_state_facts",
+                    revision=int(selected[-1].get("after_revision", 0)),
+                ))
             if len(set(proposal.effect_witness_refs)) != len(
                 proposal.effect_witness_refs
             ):

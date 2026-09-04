@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from ..core.contracts import TaskContract
 from ..core.results import RuntimeLinearPlan
@@ -93,11 +94,19 @@ class TaskRuntimeContext:
             budget.global_action_budget, 0, budget.token_limits, trace_builder,
             harness, task, budget, progress,
         )
+        reset_snapshot = harness.validator_channel().snapshot()
+        context._record_semantic_state_snapshot(
+            reset_snapshot,
+            origin="reset",
+            action_id="",
+            occurrence_id="",
+            accepted=True,
+        )
         context.exploration_memory.observe_catalog(
             reset.catalog,
             revision=reset.new_revision,
             current_facts=normalized_facts(
-                harness.validator_channel().snapshot()
+                reset_snapshot
             ).values(),
         )
         progress.record("task_reset")
@@ -248,18 +257,55 @@ class TaskRuntimeContext:
             return
         self.last_failed_invocation = None
 
+    def _record_semantic_state_snapshot(
+        self,
+        snapshot: Mapping[str, Any],
+        *,
+        origin: str,
+        action_id: str = "",
+        occurrence_id: str = "",
+        accepted: bool = True,
+    ) -> None:
+        """Persist one unmodified Validator state in the task-local Trace.
+
+        This is an audit projection only.  It does not infer Effects or alter
+        bindings, grounding evidence, or occurrence-owned Atomic evidence.
+        """
+
+        timeline = self.trace_builder.trace.metadata.setdefault(
+            "semantic_state_snapshots", []
+        )
+        timeline.append({
+            "sequence_index": len(timeline),
+            "revision": copy.deepcopy(snapshot.get("revision")),
+            "origin": str(origin),
+            "action_id": str(action_id),
+            "occurrence_id": str(occurrence_id),
+            "accepted": bool(accepted),
+            "done": copy.deepcopy(snapshot.get("done")),
+            "won": copy.deepcopy(snapshot.get("won")),
+            "facts": copy.deepcopy(snapshot.get("facts")),
+        })
+
     def update_after_action(self, result: Any, record: dict[str, Any]) -> None:
         self.observation = result.observation
         self.world_revision = result.new_revision
         self.action_catalog = list(result.catalog)
         self.action_history.append(record)
         self.used_actions = self.budget.used_global_actions
+        validator_snapshot = self.harness.validator_channel().snapshot()
+        occurrence_id = str(record.get("occurrence_id") or self.active_occurrence_id)
+        self._record_semantic_state_snapshot(
+            validator_snapshot,
+            origin=str(record.get("origin") or "environment_action"),
+            action_id=str(record.get("action_id") or ""),
+            occurrence_id=occurrence_id,
+            accepted=bool(result.accepted),
+        )
         self.binding_store.invalidate_revision(self.world_revision)
         self.evidence_store.replace_action_catalog(self.action_catalog, self.world_revision)
         self.task_progress.record("environment_action")
-        validator_snapshot = self.harness.validator_channel().snapshot()
         facts = normalized_facts(validator_snapshot).values()
-        occurrence_id = str(record.get("occurrence_id") or self.active_occurrence_id)
         state = self.occurrence_evidence.get(occurrence_id)
         if state is not None:
             state.reconcile(

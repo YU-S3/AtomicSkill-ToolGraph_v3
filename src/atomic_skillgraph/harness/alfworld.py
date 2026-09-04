@@ -142,6 +142,76 @@ _ACTION_PATTERNS: list[tuple[str, re.Pattern[str], tuple[str, ...]]] = [
 ]
 
 
+# The ALFWorld predicate vocabulary has exactly one code authority.  Both the
+# public Harness schema and private Validator snapshots are projections of
+# these specs; neither boundary maintains its own predicate/domain table.
+_ALFWORLD_PREDICATE_SPECS: tuple[PredicateSpec, ...] = (
+    PredicateSpec(
+        "agent.holds", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "agent.at_location", "world", ("location",),
+        {"location": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.at_location", "world", ("object", "location"),
+        {"object": "entity", "location": "entity"},
+        "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.heated", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.cleaned", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.cooled", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.sliced", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "container.open", "world", ("container",),
+        {"container": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "container.closed", "world", ("container",),
+        {"container": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "light.on", "world", ("light",),
+        {"light": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "light.off", "world", ("light",),
+        {"light": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.observed", "evidence", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.observed_with", "world", ("object", "light"),
+        {"object": "entity", "light": "entity"},
+        "alfworld_terminal_certificate",
+    ),
+    PredicateSpec(
+        "entity.discovered_at", "evidence", ("entity", "location"),
+        {"entity": "entity", "location": "entity"},
+        "alfworld_action_catalog",
+    ),
+)
+
+_ALFWORLD_PREDICATE_DOMAINS = {
+    spec.predicate: spec.effect_domain for spec in _ALFWORLD_PREDICATE_SPECS
+}
+
+
 def parse_alfworld_action(raw_action: Any) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
     """The only ALFWorld raw-command parser used by v3 runtime."""
     text = re.sub(r"\s+", " ", str(raw_action).strip())
@@ -341,9 +411,27 @@ class AlfWorldValidatorChannel:
         self._rebuild_facts()
 
     def snapshot(self) -> dict[str, Any]:
+        facts: list[dict[str, Any]] = []
+        for predicate, argument_items in sorted(self._facts):
+            arguments = dict(argument_items)
+            effect_domain = _ALFWORLD_PREDICATE_DOMAINS.get(predicate)
+            if effect_domain is None:
+                raise AtomicSkillGraphError(
+                    "semantic_snapshot_integrity_error",
+                    f"ALFWorld semantic fact has no predicate schema: {predicate}",
+                    layer=FailureLayer.INFRASTRUCTURE,
+                )
+            facts.append({
+                "predicate": predicate,
+                "args": arguments,
+                "effect_domain": effect_domain,
+                "witness_ref": self._fact_ref(
+                    self.revision, predicate, arguments,
+                ),
+            })
         return {
             "revision": self.revision, "done": self.done, "won": self.won,
-            "facts": [{"predicate": predicate, "args": dict(arguments)} for predicate, arguments in sorted(self._facts)],
+            "facts": facts,
             "validation_strength": self.validation_strength,
         }
 
@@ -1275,92 +1363,7 @@ class AlfWorldAdapter:
         return self._validator
 
     def semantic_predicate_schema(self) -> list[PredicateSpec]:
-        return [
-            PredicateSpec(
-                "agent.holds",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "agent.at_location",
-                "world",
-                ("location",),
-                {"location": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.at_location",
-                "world",
-                ("object", "location"),
-                {"object": "entity", "location": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.heated",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.cleaned",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.cooled",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.sliced",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "container.open",
-                "world",
-                ("container",),
-                {"container": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "light.on",
-                "world",
-                ("light",),
-                {"light": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.observed",
-                "evidence",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.observed_with",
-                "world",
-                ("object", "light"),
-                {"object": "entity", "light": "entity"},
-                "alfworld_terminal_certificate",
-            ),
-            PredicateSpec(
-                "entity.discovered_at",
-                "evidence",
-                ("entity", "location"),
-                {"entity": "entity", "location": "entity"},
-                "alfworld_action_catalog",
-            ),
-        ]
+        return list(_ALFWORLD_PREDICATE_SPECS)
 
     def primitive_action_schema(self) -> list[dict[str, Any]]:
         """Single parser-derived source of truth for Builder/Runtime/Static."""

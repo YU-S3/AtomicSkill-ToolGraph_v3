@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+from collections.abc import Mapping
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -384,19 +385,9 @@ def run_provider_probe(config_path: str | Path) -> int:
 def run_deterministic() -> int:
     command = [
         sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-        "tests/test_deterministic_fullchain.py", "tests/test_agent_finalization.py",
-        "tests/test_failure_extraction_view.py", "tests/test_failure_extractor.py",
-        "tests/test_deepseek_protocol.py",
-        "tests/test_r3_runtime_state.py",
-        "tests/test_r3_semantic_anchors.py",
-        "tests/test_r21_replay_report.py",
-        "tests/test_v32_frozen_design.py",
-        "tests/test_extractor_contract_authority.py",
-        "tests/test_v32_r1_gates.py",
-        "tests/test_v32_r21_cross_task_reuse.py",
-        "src/atomic_skillgraph/governance/tests/test_governance.py",
-        "experiments/tests/test_protocol_report.py",
-        "experiments/tests/test_failure_extractor_smoke.py",
+        "tests",
+        "experiments/tests",
+        "src/atomic_skillgraph/governance/tests",
     ]
     completed = subprocess.run(command, cwd=REPO_ROOT, check=False)
     if completed.returncode:
@@ -404,11 +395,7 @@ def run_deterministic() -> int:
     print(json.dumps({
         "passed": True,
         "gate": "deterministic_no_api_fullchain",
-        "episodes": 4,
-        "coverage": [
-            "dynamic_to_evolution", "candidate_direct", "preflight_to_fresh_seeded",
-            "task_rescue", "ledger_exactly_once", "token_reconciliation", "frozen_digest",
-        ],
+        "collection": "full_ours_test_roots",
     }, ensure_ascii=False, indent=2))
     return 0
 
@@ -942,6 +929,351 @@ def run_failure_extractor_smoke(config_path: str | Path) -> int:
         return 0 if result["passed"] else 1
 
 
+def _snapshot_state_identity(snapshot: Mapping[str, Any]) -> str | None:
+    """Return the canonical semantic state certified by one snapshot.
+
+    Runner-side auditing intentionally validates only the frozen snapshot
+    contract.  It never derives a fact from an ALFWorld action or observation.
+    """
+
+    facts = snapshot.get("facts")
+    if not isinstance(facts, list):
+        return None
+    canonical_facts: list[str] = []
+    fact_identities: set[tuple[str, str]] = set()
+    for raw_fact in facts:
+        if not isinstance(raw_fact, Mapping):
+            return None
+        predicate = str(raw_fact.get("predicate", ""))
+        arguments = raw_fact.get("args")
+        effect_domain = str(raw_fact.get("effect_domain", ""))
+        witness_ref = str(raw_fact.get("witness_ref", ""))
+        if (
+            not predicate
+            or not isinstance(arguments, Mapping)
+            or effect_domain not in {"world", "evidence"}
+            or not witness_ref
+        ):
+            return None
+        arguments_json = json.dumps(
+            dict(arguments), ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"),
+        )
+        fact_identity = (predicate, arguments_json)
+        if fact_identity in fact_identities:
+            return None
+        fact_identities.add(fact_identity)
+        canonical_facts.append(json.dumps({
+            "predicate": predicate,
+            "args": dict(arguments),
+            "effect_domain": effect_domain,
+            "witness_ref": witness_ref,
+        }, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    if not isinstance(snapshot.get("done"), bool):
+        return None
+    if not isinstance(snapshot.get("won"), bool):
+        return None
+    return json.dumps({
+        "done": snapshot["done"],
+        "won": snapshot["won"],
+        "facts": sorted(canonical_facts),
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _look_at_authority_smoke_audit(
+    trace: object,
+    normalized: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Audit the returned trace without manufacturing semantic authority."""
+
+    metadata = dict(getattr(trace, "metadata", {}) or {})
+    raw_snapshots = metadata.get("semantic_state_snapshots")
+    snapshots = (
+        [dict(item) for item in raw_snapshots if isinstance(item, Mapping)]
+        if isinstance(raw_snapshots, list)
+        else []
+    )
+    actions: list[dict[str, Any]] = []
+    for raw_action in getattr(trace, "environment_actions", ()):
+        item = to_primitive(raw_action)
+        if isinstance(item, Mapping):
+            actions.append(dict(item))
+        elif hasattr(item, "__dict__"):
+            actions.append(dict(vars(item)))
+    normalized_actions = [
+        dict(item)
+        for item in normalized.get("actions", ())
+        if isinstance(item, Mapping)
+    ]
+
+    snapshot_contract = bool(snapshots) and len(snapshots) == len(raw_snapshots)
+    sequence_complete = snapshot_contract and all(
+        not isinstance(snapshot.get("sequence_index"), bool)
+        and isinstance(snapshot.get("sequence_index"), int)
+        and snapshot["sequence_index"] == index
+        and not isinstance(snapshot.get("revision"), bool)
+        and isinstance(snapshot.get("revision"), int)
+        and isinstance(snapshot.get("origin"), str)
+        and isinstance(snapshot.get("action_id"), str)
+        and isinstance(snapshot.get("occurrence_id"), str)
+        and isinstance(snapshot.get("accepted"), bool)
+        and _snapshot_state_identity(snapshot) is not None
+        for index, snapshot in enumerate(snapshots)
+    )
+
+    revision_states: dict[int, str] = {}
+    revision_consistent = sequence_complete
+    if revision_consistent:
+        for snapshot in snapshots:
+            revision = int(snapshot["revision"])
+            state = _snapshot_state_identity(snapshot)
+            assert state is not None
+            previous = revision_states.setdefault(revision, state)
+            if previous != state:
+                revision_consistent = False
+                break
+
+    reset_snapshot_present = bool(snapshots) and all((
+        snapshots[0].get("sequence_index") == 0,
+        snapshots[0].get("origin") == "reset",
+        snapshots[0].get("action_id") == "",
+        snapshots[0].get("occurrence_id") == "",
+        snapshots[0].get("accepted") is True,
+    ))
+    every_step_snapshot_present = (
+        sequence_complete
+        and len(snapshots) == len(actions) + 1
+    )
+    action_timeline_consistent = every_step_snapshot_present
+    if action_timeline_consistent:
+        for index, action in enumerate(actions):
+            before = snapshots[index]
+            after = snapshots[index + 1]
+            revision = action.get("revision")
+            new_revision = action.get("new_revision")
+            if (
+                isinstance(revision, bool)
+                or not isinstance(revision, int)
+                or isinstance(new_revision, bool)
+                or not isinstance(new_revision, int)
+                or before.get("revision") != revision
+                or after.get("revision") != new_revision
+                or after.get("action_id") != str(action.get("action_id", ""))
+                or after.get("accepted") is not action.get("accepted")
+                or after.get("origin") == "reset"
+                or revision not in revision_states
+                or new_revision not in revision_states
+            ):
+                action_timeline_consistent = False
+                break
+
+    failure_codes = [
+        str(
+            failure.get("code", "")
+            if isinstance(failure, Mapping)
+            else getattr(failure, "code", "")
+        )
+        for failure in getattr(trace, "failures", ())
+    ]
+    extraction = dict(metadata.get("extraction") or {})
+    extraction_error_code = str(extraction.get("error_code", ""))
+    semantic_integrity_error_absent = (
+        "semantic_snapshot_integrity_error" not in failure_codes
+        and extraction_error_code != "semantic_snapshot_integrity_error"
+    )
+    task = getattr(trace, "task", None)
+    task_type = str(
+        task.get("task_type", "")
+        if isinstance(task, Mapping)
+        else getattr(task, "task_type", "")
+    )
+    checks = {
+        "method_patch_3_2": str(metadata.get("method_patch", "")) == "3.2",
+        "look_at_task_selected": task_type == "look_at_obj_in_light",
+        "benchmark_success": getattr(trace, "benchmark_success", False) is True,
+        "task_contract_success": (
+            getattr(trace, "task_contract_success", False) is True
+        ),
+        "infrastructure_failure_absent": (
+            getattr(trace, "infrastructure_failure", True) is False
+        ),
+        "resource_usage_complete": (
+            getattr(trace, "resource_usage_complete", False) is True
+        ),
+        "semantic_state_snapshots_present": bool(snapshots),
+        "semantic_snapshot_contract_valid": sequence_complete,
+        "reset_snapshot_present": reset_snapshot_present,
+        "every_environment_step_snapshotted": every_step_snapshot_present,
+        "semantic_revisions_consistent": revision_consistent,
+        "environment_action_timeline_consistent": action_timeline_consistent,
+        "normalizer_action_projection_complete": (
+            len(normalized_actions) == len(actions)
+        ),
+        "validator_snapshot_authority_used": str(
+            normalized.get("semantic_authority_source", "")
+        ) == "validator_snapshot_v3_2",
+        "success_evolution_attempted": extraction.get("attempted") is True,
+        "semantic_snapshot_integrity_error_absent": (
+            semantic_integrity_error_absent
+        ),
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "environment_action_count": len(actions),
+        "semantic_snapshot_count": len(snapshots),
+        "semantic_revision_count": len(revision_states),
+        "normalizer_semantic_authority_source": str(
+            normalized.get("semantic_authority_source", "")
+        ),
+        "extraction_attempted": extraction.get("attempted") is True,
+        "extraction_error_code": extraction_error_code,
+        "failure_codes": failure_codes,
+    }
+
+
+def run_look_at_authority_smoke(config_path: str | Path) -> int:
+    """Run one real look-at task through the normal online System pipeline."""
+
+    config_path = _path(config_path)
+    config = copy.deepcopy(load_config(config_path))
+    validate_deepseek_formal_llm(config)
+    base_output = _path(
+        (config.get("experiment") or {}).get(
+            "output_dir", "runs/alfworld_train_full_30"
+        )
+    )
+    capability = ensure_provider_capability(
+        config,
+        output_dir=base_output,
+        config_hash=hash_config(config_path),
+        code_hash=hash_code(REPO_ROOT),
+        run_if_missing=False,
+    )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    smoke_root = base_output.parent / f"{base_output.name}_look_at_authority_smoke"
+    output = smoke_root / f"run_{stamp}_{os.getpid()}"
+    if output.exists():
+        raise FileExistsError(output)
+
+    experiment = dict(config.get("experiment") or {})
+    experiment.update({
+        "name": f"look_at_authority_smoke_{stamp}",
+        "phase": "smoke",
+        "condition": "full",
+        "runtime_mode": "online",
+        "freeze_skills": False,
+        "initialize_v3_bank": "empty",
+        "output_dir": str(output),
+    })
+    config["experiment"] = experiment
+    config["data_dir"] = str(output / "data_v3")
+    config["trace_data_dir"] = str(output)
+
+    with AtomicSkillGraphSystem(config, readonly=False) as system:
+        preflight = system.preflight(
+            require_api_key=True,
+            initialize_harness=True,
+            require_empty_bank=True,
+        )
+        empty_bank = system.is_empty_knowledge_bank()
+        configuration_checks = {
+            "preflight_passed": preflight.get("passed") is True,
+            "alfworld_0_4_2": preflight.get("alfworld_version") is True,
+            "method_patch_3_2": str(config.get("method_patch", "")) == "3.2",
+            "runtime_mode_online": experiment.get("runtime_mode") == "online",
+            "fresh_empty_bank": empty_bank,
+            "provider_capability_passed": capability.get("passed") is True,
+        }
+        if not all(configuration_checks.values()):
+            result = {
+                "passed": False,
+                "gate": "real_look_at_authority",
+                "output_dir": str(output),
+                "configuration_checks": configuration_checks,
+                "preflight": preflight,
+            }
+            atomic_write_json(output / "look_at_authority_smoke_result.json", result)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 1
+
+        tasks = system.harness.load_balanced_tasks(
+            ["look_at_obj_in_light"], 1,
+        )
+        if (
+            len(tasks) != 1
+            or tasks[0].task_type != "look_at_obj_in_light"
+            or not task_signature(tasks[0])
+        ):
+            raise RuntimeError(
+                "look-at authority smoke requires exactly one distinct "
+                "balanced-loader look_at_obj_in_light task"
+            )
+        task = tasks[0]
+        initial_digest = system.knowledge_digest()
+        task_item = TaskManifest.from_task(
+            task,
+            ordinal=0,
+            knowledge_milestone=f"isolated_smoke_selection:{initial_digest}",
+            split=str(system.harness.split),
+        )
+        atomic_write_json(output / "task_manifest.json", {
+            "schema_version": 3,
+            "task_manifest_hash": hash_task_manifest((task_item,)),
+            "tasks": [task_item.to_dict()],
+        })
+
+        try:
+            trace = system.run_task(task)
+            normalized = system.normalizer.build(trace)
+        except Exception as exc:
+            result = {
+                "passed": False,
+                "gate": "real_look_at_authority",
+                "task_returned": False,
+                "output_dir": str(output),
+                "selected_task_id": task.task_id,
+                "selected_task_signature": task_signature(task),
+                "error_type": type(exc).__name__,
+                "error_code": str(getattr(exc, "code", "")),
+                "error": str(exc),
+            }
+            atomic_write_json(output / "look_at_authority_smoke_result.json", result)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 1
+
+        audit = _look_at_authority_smoke_audit(trace, normalized)
+        persisted_traces = list(system.traces.iter_payloads())
+        validate_formal_usage(persisted_traces)
+        validate_usage_event_persistence(system.usage.events, persisted_traces)
+        write_reports(
+            [trace], output / "reports", stem="look_at_authority_smoke",
+        )
+        result = {
+            **audit,
+            "passed": bool(
+                capability.get("passed") is True
+                and preflight.get("passed") is True
+                and empty_bank
+                and audit["passed"]
+            ),
+            "gate": "real_look_at_authority",
+            "task_returned": True,
+            "output_dir": str(output),
+            "trace_id": trace.trace_id,
+            "trace_path": str(system.traces.root / f"{trace.trace_id}.json"),
+            "report_dir": str(output / "reports"),
+            "selected_task_id": task.task_id,
+            "selected_task_signature": task_signature(task),
+            "provider_capability_passed": capability.get("passed") is True,
+            "preflight_passed": preflight.get("passed") is True,
+            "fresh_empty_bank": empty_bank,
+        }
+        atomic_write_json(output / "look_at_authority_smoke_result.json", result)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["passed"] else 1
+
+
 def run_real_alfworld(config_path: str | Path) -> int:
     config_path = _path(config_path)
     config = copy.deepcopy(load_config(config_path))
@@ -1106,6 +1438,7 @@ def main(argv: list[str] | None = None) -> int:
     modes.add_argument("--provider-probe", action="store_true")
     modes.add_argument("--deterministic", action="store_true")
     modes.add_argument("--real-alfworld", action="store_true")
+    modes.add_argument("--look-at-authority", action="store_true")
     modes.add_argument("--failure-extractor", action="store_true")
     parser.add_argument("--config", default="configs/default.yaml")
     args = parser.parse_args(argv)
@@ -1117,6 +1450,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_deterministic()
     if args.failure_extractor:
         return run_failure_extractor_smoke(args.config)
+    if args.look_at_authority:
+        return run_look_at_authority_smoke(args.config)
     return run_real_alfworld(args.config)
 
 

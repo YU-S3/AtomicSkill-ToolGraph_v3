@@ -610,7 +610,12 @@ def _task_local_locate_proposal() -> dict[str, Any]:
     }
 
 
-def _take_e1(target: str, location: str, event_id: str) -> dict[str, Any]:
+def _take_e1(
+    target: str,
+    location: str,
+    event_id: str,
+    witness_ref: str,
+) -> dict[str, Any]:
     return {
         "phase_id": "take_p1",
         "intent": "take target object",
@@ -635,7 +640,7 @@ def _take_e1(target: str, location: str, event_id: str) -> dict[str, Any]:
             "args": {"object": target},
             "effect_domain": "world",
         }],
-        "effect_witness_refs": [f"action:{event_id}:revision:1"],
+        "effect_witness_refs": [witness_ref],
         "rationale": "The accepted TAKE transition establishes possession.",
     }
 
@@ -651,7 +656,16 @@ def _register_take_graph(
     ledger: EvidenceLedger,
     projection: LifecycleProjection,
 ) -> dict[str, Any]:
+    trace.metadata["method_patch"] = "3.2"
     normalized = TraceNormalizer().build(trace)
+    take_effect = next(
+        fact
+        for fact in normalized["actions"][0][
+            "authoritative_positive_effects"
+        ]
+        if fact["predicate"] == "agent.holds"
+    )
+    normalized["boundary_authorities"]["effects"] = [dict(take_effect)]
     session = factory.new_session(
         "extractor",
         [FakeReply.structured({"occurrences": [
@@ -659,6 +673,7 @@ def _register_take_graph(
                 str(task.context["target_item"]),
                 _room_for(task.context["target_item"]),
                 str(trace.environment_actions[0].action_id),
+                str(take_effect["witness_ref"]),
             ),
         ]})],
     )
@@ -749,6 +764,7 @@ def _learn_locate(
     projection: LifecycleProjection,
     graph: GraphStore,
 ) -> dict[str, Any]:
+    trace.metadata["method_patch"] = "3.2"
     normalized = TraceNormalizer().build(trace)
     trials = dict(trace.metadata.get("runtime_tool_trials") or {})
     trial = dict(trials["locate_1"])
@@ -773,18 +789,12 @@ def _learn_locate(
     assert effect_facts
     normalized["boundary_authorities"] = {
         "inputs": boundary_inputs,
-        "effects": [{
-            "witness_ref": str(fact["witness_ref"]),
-            "predicate": str(fact["predicate"]),
-            "args": dict(fact["args"]),
-            "effect_domain": str(fact["effect_domain"]),
-        } for fact in effect_facts],
+        "effects": [dict(fact) for fact in effect_facts],
     }
     search = next(
         action for action in normalized["actions"]
         if action["action_type"] == "SEARCH"
     )
-    normalized["after_state_facts"] = effect_facts
     session = factory.new_session(
         "extractor",
         [FakeReply.structured({"occurrences": [

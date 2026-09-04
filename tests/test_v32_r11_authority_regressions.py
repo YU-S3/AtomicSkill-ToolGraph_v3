@@ -145,10 +145,32 @@ def test_only_admission_eligible_runtime_trial_projects_real_r1_authority() -> N
             },
         },
         "after_revision": 4,
+        "trial_event_start": 0,
+        "trial_event_end": 0,
+        "r1_effect_event_authorities": [{
+            "predicate": "entity.discovered_at",
+            "args": {
+                "entity": "cup_3",
+                "location": "countertop_2",
+            },
+            "effect_domain": "evidence",
+            "event_index": 0,
+            "revision": 4,
+            "source_kind": "occurrence_action_delta",
+            "source_occurrence_id": "occ",
+        }],
         "r1": {"admission_eligible": True},
     }
+    actions = [{
+        "event_index": 0,
+        "accepted": True,
+        "after_revision": 4,
+        "authoritative_positive_effects": [],
+    }]
 
-    facts = AtomicSkillGraphSystem._runtime_trial_effect_authorities(trial)
+    facts = AtomicSkillGraphSystem._runtime_trial_effect_authorities(
+        trial, actions,
+    )
 
     assert facts == [{
         "predicate": "entity.discovered_at",
@@ -166,6 +188,7 @@ def test_only_admission_eligible_runtime_trial_projects_real_r1_authority() -> N
         "revision": 4,
         "source_kind": "runtime_trial_r1",
         "draft_id": "locate_1",
+        "event_index": 0,
     }]
     assert all(
         fact["witness_ref"] != "semantic_evidence:entity"
@@ -177,7 +200,9 @@ def test_only_admission_eligible_runtime_trial_projects_real_r1_authority() -> N
         "r1": {"admission_eligible": False},
     }
     assert (
-        AtomicSkillGraphSystem._runtime_trial_effect_authorities(rejected)
+        AtomicSkillGraphSystem._runtime_trial_effect_authorities(
+            rejected, actions,
+        )
         == []
     )
 
@@ -292,6 +317,7 @@ def test_prepare_evolution_exposes_runtime_r1_fact_to_e1(
     system.normalizer = SimpleNamespace(build=lambda _trace: {
         "trace_id": "trace",
         "source_task": {},
+        "semantic_authority_source": "validator_snapshot_v3_2",
         "actions": [{
             "event_index": 0,
             "action_id": "a1",
@@ -305,6 +331,7 @@ def test_prepare_evolution_exposes_runtime_r1_fact_to_e1(
         }],
         "runtime_spans": [],
         "validations": [],
+        "boundary_authorities": {"inputs": [], "effects": []},
     })
     system._extractor_session = lambda _task_id: object()
     system.skills = object()
@@ -372,11 +399,7 @@ def test_prepare_evolution_exposes_runtime_r1_fact_to_e1(
     with pytest.raises(RuntimeError, match="captured"):
         system._prepare_evolution(trace, SimpleNamespace(task_id="task"))
 
-    assert captured["after_state_facts"][0]["witness_ref"] == (
-        "alfworld_action_fact:r4:entity.discovered_at:"
-        "entity=cup_3,location=countertop_2"
-    )
-    assert captured["after_state_facts"][0]["event_index"] == 0
+    assert "after_state_facts" not in captured
     assert captured["boundary_authorities"]["inputs"][0] == {
         "authority_ref": "runtime_input:locate_1:target",
         "draft_id": "locate_1",
@@ -400,6 +423,7 @@ def test_prepare_evolution_exposes_runtime_r1_fact_to_e1(
         "source_kind": "runtime_trial_r1",
         "draft_id": "locate_1",
         "event_index": 0,
+        "revision": 4,
     }
 
 
@@ -450,10 +474,50 @@ def test_runtime_trial_effect_refs_are_not_cross_paired_between_effects() -> Non
             },
         },
         "after_revision": 8,
+        "trial_event_start": 0,
+        "trial_event_end": 1,
+        "r1_effect_event_authorities": [
+            {
+                "predicate": "entity.discovered_at",
+                "args": {
+                    "entity": "cup_3", "location": "countertop_2",
+                },
+                "effect_domain": "evidence",
+                "event_index": 0,
+                "revision": 7,
+                "source_kind": "occurrence_action_delta",
+                "source_occurrence_id": "occ",
+            },
+            {
+                "predicate": "agent.at_location",
+                "args": {"location": "kitchen_1"},
+                "effect_domain": "world",
+                "event_index": 1,
+                "revision": 8,
+                "source_kind": "occurrence_action_delta",
+                "source_occurrence_id": "occ",
+            },
+        ],
         "r1": {"admission_eligible": True},
     }
+    actions = [
+        {
+            "event_index": 0,
+            "accepted": True,
+            "after_revision": 7,
+            "authoritative_positive_effects": [],
+        },
+        {
+            "event_index": 1,
+            "accepted": True,
+            "after_revision": 8,
+            "authoritative_positive_effects": [],
+        },
+    ]
 
-    facts = AtomicSkillGraphSystem._runtime_trial_effect_authorities(trial)
+    facts = AtomicSkillGraphSystem._runtime_trial_effect_authorities(
+        trial, actions,
+    )
 
     assert len(facts) == 2
     by_predicate = {fact["predicate"]: fact for fact in facts}
@@ -484,6 +548,15 @@ def test_terminal_interrupted_runtime_prefix_remains_e1_effect_authority() -> No
         "after_revision": 3,
         "trial_event_start": 0,
         "trial_event_end": 0,
+        "r1_effect_event_authorities": [{
+            "predicate": "agent.holds",
+            "args": {"object": "apple_1"},
+            "effect_domain": "world",
+            "event_index": 0,
+            "revision": 3,
+            "source_kind": "occurrence_action_delta",
+            "source_occurrence_id": "occ",
+        }],
         "result": {"started": True, "tool_results": [{
             "intrinsic_failure": False,
         }]},
@@ -505,6 +578,7 @@ def test_terminal_interrupted_runtime_prefix_remains_e1_effect_authority() -> No
         "authoritative_positive_effects": [{
             "predicate": "agent.holds",
             "args": {"object": "apple_1"},
+            "effect_domain": "world",
         }],
     }]
 

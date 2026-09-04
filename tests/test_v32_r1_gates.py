@@ -117,8 +117,16 @@ def test_gate11_use_actual_result_does_not_toggle() -> None:
             observation="You turn on the lamp.",
         )
     facts = channel.snapshot()["facts"]
-    assert {"predicate": "light.on", "args": {"light": "lamp_1"}} in facts
-    assert {"predicate": "light.off", "args": {"light": "lamp_1"}} not in facts
+    assert any(
+        item["predicate"] == "light.on"
+        and item["args"] == {"light": "lamp_1"}
+        for item in facts
+    )
+    assert not any(
+        item["predicate"] == "light.off"
+        and item["args"] == {"light": "lamp_1"}
+        for item in facts
+    )
 
 
 def test_gate10_entity_discovered_at_from_catalog() -> None:
@@ -127,10 +135,13 @@ def test_gate10_entity_discovered_at_from_catalog() -> None:
         HarnessActionSpec("take", 0, "TAKE", {"object": "cup_3", "source": "countertop_2"}, "", "", {}),
     ])
     facts = channel.snapshot()["facts"]
-    assert {
-        "predicate": "entity.discovered_at",
-        "args": {"entity": "cup_3", "location": "countertop_2"},
-    } in facts
+    assert any(
+        item["predicate"] == "entity.discovered_at"
+        and item["args"] == {
+            "entity": "cup_3", "location": "countertop_2",
+        }
+        for item in facts
+    )
 
 
 def test_gate8_and_gate9_catalog_semantic_selectors() -> None:

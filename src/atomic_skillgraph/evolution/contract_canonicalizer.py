@@ -272,6 +272,23 @@ def _identity_payload(
             ),
         )
 
+    validator_contract = to_primitive(
+        _rewrite_validator_spec(
+            atomic.validator_spec,
+            input_role_map,
+            output_role_map,
+        )
+    )
+    # Output witness refs identify one concrete validation event, not the
+    # reusable output-derivation contract.  Keep them in the persisted
+    # validator_spec for audit, but exclude only this task-local provenance
+    # leaf from cross-trace Atomic identity.
+    output_derivations = validator_contract.get("output_derivations")
+    if isinstance(output_derivations, dict):
+        for raw_derivation in output_derivations.values():
+            if isinstance(raw_derivation, dict):
+                raw_derivation.pop("witness_refs", None)
+
     return {
         "inputs": sorted(
             (parameter("input", item) for item in atomic.inputs),
@@ -283,13 +300,7 @@ def _identity_payload(
         ),
         "preconditions": predicates(atomic.preconditions),
         "effects": predicates(atomic.effects),
-        "validator_contract": to_primitive(
-            _rewrite_validator_spec(
-                atomic.validator_spec,
-                input_role_map,
-                output_role_map,
-            )
-        ),
+        "validator_contract": validator_contract,
     }
 
 

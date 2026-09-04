@@ -25,7 +25,10 @@ from atomic_skillgraph.evolution.atomicizer import (
 from atomic_skillgraph.evolution.composite_builder import CompositeBuilder
 from atomic_skillgraph.evolution.extractor_session import ExtractorSession
 from atomic_skillgraph.evolution.trace_normalizer import TraceNormalizer
-from atomic_skillgraph.harness.alfworld import AlfWorldContractMatcher
+from atomic_skillgraph.harness.alfworld import (
+    AlfWorldContractMatcher,
+    AlfWorldValidatorChannel,
+)
 from atomic_skillgraph.traces.schema import (
     EnvironmentActionRecord,
     RuntimeSpan,
@@ -76,7 +79,62 @@ def _observed_with_trace() -> tuple[TraceRecord, TaskContract]:
     trace.runtime_spans = [RuntimeSpan(
         "span", "full_dynamic", "", 0, 3, None, True,
     )]
+    trace.metadata["method_patch"] = "3.2"
+
+    def fact(
+        revision: int, predicate: str, args: dict, domain: str = "world",
+    ) -> dict:
+        return {
+            "predicate": predicate,
+            "args": args,
+            "effect_domain": domain,
+            "witness_ref": AlfWorldValidatorChannel._fact_ref(
+                revision, predicate, args,
+            ),
+        }
+
+    states = [
+        [],
+        [fact(1, "agent.at_location", {"location": "desk_1"})],
+        [
+            fact(2, "agent.at_location", {"location": "desk_1"}),
+            fact(2, "agent.holds", {"object": "alarmclock_1"}),
+        ],
+        [
+            fact(3, "agent.at_location", {"location": "desk_1"}),
+            fact(3, "agent.holds", {"object": "alarmclock_1"}),
+            fact(3, "light.on", {"light": "desklamp_1"}),
+            fact(3, "object.observed_with", {
+                "object": "alarmclock_1", "light": "desklamp_1",
+            }),
+        ],
+    ]
+    trace.metadata["semantic_state_snapshots"] = [
+        {
+            "sequence_index": revision,
+            "revision": revision,
+            "origin": "reset" if revision == 0 else "environment_action",
+            "action_id": "" if revision == 0 else trace.environment_actions[
+                revision - 1
+            ].action_id,
+            "occurrence_id": "",
+            "accepted": True,
+            "done": revision == 3,
+            "won": revision == 3,
+            "facts": facts,
+        }
+        for revision, facts in enumerate(states)
+    ]
     return trace, contract
+
+
+def _project_normal_effect_boundary(normalized: dict) -> None:
+    normalized["boundary_authorities"]["effects"] = [
+        dict(fact)
+        for action in normalized["actions"]
+        if action["accepted"] is True
+        for fact in action["authoritative_positive_effects"]
+    ]
 
 
 def _e1_occurrences() -> list[dict]:
@@ -109,7 +167,9 @@ def _e1_occurrences() -> list[dict]:
                 "args": {"object": "alarmclock_1"},
                 "effect_domain": "world",
             }],
-            "effect_witness_refs": ["action:r001_a001:revision:2"],
+            "effect_witness_refs": [
+                "alfworld_action_fact:r2:agent.holds:object=alarmclock_1"
+            ],
             "rationale": "Accepted TAKE establishes the held object.",
         },
         {
@@ -145,7 +205,7 @@ def _e1_occurrences() -> list[dict]:
                 "effect_domain": "world",
             }],
             "precondition_witness_refs": [
-                "action:r001_a001:revision:2",
+                "alfworld_action_fact:r2:agent.holds:object=alarmclock_1",
             ],
             "effects": [{
                 "predicate": "object.observed_with",
@@ -155,7 +215,10 @@ def _e1_occurrences() -> list[dict]:
                 },
                 "effect_domain": "world",
             }],
-            "effect_witness_refs": ["action:r002_a001:revision:3"],
+            "effect_witness_refs": [
+                "alfworld_action_fact:r3:object.observed_with:"
+                "light=desklamp_1,object=alarmclock_1"
+            ],
             "rationale": "Current held/light/location state establishes the relation.",
         },
     ]
@@ -164,8 +227,12 @@ def _e1_occurrences() -> list[dict]:
 def test_real_trace_authority_half_open_e1_and_state_derived_effect() -> None:
     trace, contract = _observed_with_trace()
     normalized = TraceNormalizer().build(trace)
+    _project_normal_effect_boundary(normalized)
 
     _go_to, take, use = normalized["actions"]
+    assert normalized["semantic_authority_source"] == (
+        "validator_snapshot_v3_2"
+    )
     assert "observation" not in take
     assert (take["extractor_event_start"], take["extractor_event_end_exclusive"]) == (1, 2)
     assert take["input_role_candidates"] == {
@@ -209,6 +276,7 @@ def test_real_trace_authority_half_open_e1_and_state_derived_effect() -> None:
 def test_e2_authority_exposes_binding_identity_and_accepts_dataflow() -> None:
     trace, contract = _observed_with_trace()
     normalized = TraceNormalizer().build(trace)
+    _project_normal_effect_boundary(normalized)
 
     def e2_reply(request):
         candidates = request.policy_context["new_edge_candidates"]
@@ -261,6 +329,7 @@ def test_e2_authority_exposes_binding_identity_and_accepts_dataflow() -> None:
 def test_invalid_e1_extra_is_rejected_without_discarding_valid_causal_occurrences() -> None:
     trace, _contract = _observed_with_trace()
     normalized = TraceNormalizer().build(trace)
+    _project_normal_effect_boundary(normalized)
     provider = ScriptedAgentProvider([
         FakeReply.structured({"occurrences": _e1_occurrences()}),
     ])
