@@ -433,10 +433,10 @@ def test_success_evolution_tool_builder_compiles_ir_tool(tmp_path: Any) -> None:
                 "atomic_ref": str(proposal.proposed_ref),
                 "inputs": [{
                     "name": "item",
-                    "semantic_type": "entity",
+                    "semantic_type": "string",
                     "required": True,
                     "runtime_resolvable": True,
-                    "required_resolution": "concrete",
+                    "required_resolution": "semantic",
                     "description": "",
                 }],
                 "outputs": [{

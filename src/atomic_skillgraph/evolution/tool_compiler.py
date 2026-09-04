@@ -211,15 +211,15 @@ class ToolCompiler:
         ]
         tool_properties = {
             str(item.name): {"type": "string"}
-            for item in proposal.inputs or atomic.inputs
+            for item in atomic.inputs
         }
         output_properties = {
             str(item.name): {"type": "string"}
-            for item in proposal.outputs or atomic.outputs
+            for item in atomic.outputs
         }
         output_mapping: dict[str, Any] = {}
         implementation_output_mapping: dict[str, Any] = {}
-        for output in proposal.outputs or atomic.outputs:
+        for output in atomic.outputs:
             role = str(output.name)
             source = next(
                 (
@@ -311,7 +311,7 @@ class ToolCompiler:
             str(item.name): BindingExpression(
                 BindingExprKind.SKILL_INPUT, source_role=str(item.name),
             )
-            for item in proposal.inputs or atomic.inputs
+            for item in atomic.inputs
         }
         constraints = []
         if action_nodes:

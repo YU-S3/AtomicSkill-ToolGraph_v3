@@ -349,6 +349,12 @@ class ContextBuilder:
             "Use the minimal reusable procedure needed to realize the Atomic. "
             "Do not copy every event in the evidence envelope. "
             "Do not add task-specific workflow knowledge. "
+            "The supplied Atomic boundary is immutable. "
+            "You MUST NOT add, remove, rename, or change any Atomic input/output "
+            "role, semantic type, requiredness, or required resolution. "
+            "Echo the supplied Atomic inputs/outputs exactly in ToolProposal. "
+            "Use local variables and structured selectors for all internal "
+            "temporary values. "
             "Every branch, output, and expected effect must be representable in "
             "the supplied Harness interface. "
             'RETURN.output_sources must use exactly one of: '

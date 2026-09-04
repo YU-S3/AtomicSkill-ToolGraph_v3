@@ -162,6 +162,14 @@ def evaluate_condition(condition: Any, state: ToolExecutionState) -> bool:
     raise ValueError("tool_ir_condition_operator_unsupported")
 
 
+_SELECTOR_META_FIELDS = frozenset({
+    "action_type",
+    "predicate",
+    "argument_role",
+    "semantic_compatible_with",
+})
+
+
 def _selector_entries(
     source: Mapping[str, Any],
     entries: Sequence[Mapping[str, Any]],
@@ -191,7 +199,7 @@ def _selector_entries(
         )
         ok = True
         for raw_role, expected in where.items():
-            if raw_role in {"action_type", "argument_role", "semantic_compatible_with"}:
+            if raw_role in _SELECTOR_META_FIELDS:
                 continue
             if raw_role.endswith("_in"):
                 roles = [str(value) for value in expected] if isinstance(expected, (list, tuple)) else [str(expected)]
@@ -456,6 +464,7 @@ __all__ = [
     "ToolExecutionState",
     "evaluate_condition",
     "normalize_tool_program",
+    "_SELECTOR_META_FIELDS",
     "normalize_return_output_sources",
     "walk_program_nodes",
     "program_paths",

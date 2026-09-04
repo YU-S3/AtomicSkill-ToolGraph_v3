@@ -299,6 +299,34 @@ def _concrete_ids_from_nodes(nodes: list[dict[str, Any]]) -> list[str]:
     ]
 
 
+def _boundary_spec_signature(value: Any) -> tuple[str, str, bool, bool, str, str]:
+    if isinstance(value, Mapping):
+        value = ParameterSpec(
+            name=str(value.get("name", "")),
+            semantic_type=str(value.get("semantic_type", "entity")),
+            required=bool(value.get("required", True)),
+            runtime_resolvable=bool(value.get("runtime_resolvable", False)),
+            required_resolution=str(value.get("required_resolution", "semantic")),
+            description=str(value.get("description", "")),
+        )
+    return (
+        str(value.name),
+        str(value.semantic_type),
+        bool(value.required),
+        bool(value.runtime_resolvable),
+        str(value.required_resolution),
+    )
+
+
+def _boundary_exact(proposal: Any, atomic: AbstractAtomicSkill) -> bool:
+    return (
+        sorted(_boundary_spec_signature(item) for item in proposal.inputs)
+        == sorted(_boundary_spec_signature(item) for item in atomic.inputs)
+        and sorted(_boundary_spec_signature(item) for item in proposal.outputs)
+        == sorted(_boundary_spec_signature(item) for item in atomic.outputs)
+    )
+
+
 class ToolStaticValidator:
     """All checks are deterministic and code-authoritative."""
 
@@ -320,6 +348,21 @@ class ToolStaticValidator:
         if proposal.decision == "no_tool":
             checks["no_tool"] = True
             return ToolStaticReport(True, checks, [], ["NO_TOOL"], {})
+
+        if not _boundary_exact(proposal, atomic):
+            return ToolStaticReport(
+                False,
+                {"tool_builder_atomic_boundary": False},
+                ["tool_builder_atomic_boundary_mismatch"],
+                [
+                    "ToolProposal must echo the immutable Atomic input/output boundary exactly",
+                    f"atomic_inputs={[_boundary_spec_signature(item) for item in atomic.inputs]}",
+                    f"proposal_inputs={[_boundary_spec_signature(item) for item in proposal.inputs]}",
+                    f"atomic_outputs={[_boundary_spec_signature(item) for item in atomic.outputs]}",
+                    f"proposal_outputs={[_boundary_spec_signature(item) for item in proposal.outputs]}",
+                ],
+                {},
+            )
 
         try:
             program = normalize_tool_program(proposal.program)

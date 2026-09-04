@@ -104,6 +104,12 @@ class ImplementationRunner:
         bindings = ctx.binding_store.snapshot_for_node(occurrence)
         bindings.update({item.role: item for item in preflight.binding_updates})
         if compiled.atomic.validator_spec.get("output_derivations"):
+            try:
+                authoritative_evidence_facts = (
+                    ctx.atomic_evidence_for(occurrence).authoritative_facts()
+                )
+            except (AttributeError, KeyError):
+                authoritative_evidence_facts = []
             atomic_validation = self.validation.atomic.validate_execution_result(
                 compiled.atomic,
                 occurrence,
@@ -111,6 +117,7 @@ class ImplementationRunner:
                 output_candidates,
                 ctx.harness.validator_channel(),
                 current_revision=ctx.world_revision,
+                authoritative_evidence_facts=authoritative_evidence_facts,
             )
         else:
             atomic_validation = self.validation.atomic.validate(

@@ -1361,3 +1361,136 @@ def test_gate36_terminal_empirical_current_contract_subset_gate() -> None:
             mode="online", harness_profile="fake_v3",
         )
         assert ineligible.terminal_empirical_candidates == []
+
+
+def test_r2_2_semantic_evidence_selector_and_return() -> None:
+    from atomic_skillgraph.tooling.ir import resolve_collection, resolve_return_sources
+
+    state = ToolExecutionState(semantic_facts=[
+        {
+            "predicate": "entity.discovered_at",
+            "args": {"entity": "cup_3", "location": "countertop_2"},
+        }
+    ])
+    values = resolve_collection({
+        "source": "semantic_evidence",
+        "where": {"predicate": "entity.discovered_at"},
+        "project": {"kind": "argument", "role": "entity"},
+    }, state)
+    assert values == ["cup_3"]
+    outputs, refs = resolve_return_sources({
+        "entity": {
+            "source": "semantic_evidence",
+            "where": {"predicate": "entity.discovered_at"},
+            "project": {"kind": "argument", "role": "entity"},
+        }
+    }, state)
+    assert outputs == {"entity": "cup_3"}
+    assert refs
+
+
+def test_r2_3_terminal_empirical_all_signatures_subset() -> None:
+    from atomic_skillgraph.evolution.composite_builder import CompositeBuilder
+    from atomic_skillgraph.evolution.extractor_session import CompositeExtractionProposal
+    from atomic_skillgraph.knowledge.artifact_store import ArtifactStore
+    from atomic_skillgraph.knowledge.database import StateDatabase
+    from atomic_skillgraph.knowledge.skill_registry import SkillRegistry
+    from atomic_skillgraph.planner.composite_retriever import CompositeRetriever
+
+    import tempfile
+    from pathlib import Path as _Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        database = StateDatabase(_Path(tmp) / "state.sqlite3")
+        artifacts = ArtifactStore(_Path(tmp), database)
+        skills = SkillRegistry(artifacts, database)
+        canonical = [_terminal_canonical_occurrence()]
+        skills.register_atomic(replace(
+            _atomic("atomic_observe_terminal"), ref=canonical[0].proposed_ref,
+        ))
+        candidate = CompositeBuilder().validate_and_build(
+            CompositeExtractionProposal(
+                control_sequence=["occ_1"], existing_edges=[], new_edges=[],
+                summary="observe prefix", guideline={}, insight={},
+            ),
+            canonical,
+            TaskContract([
+                SemanticPredicate("object.observed", {"object": "cup_1"}),
+            ]),
+            task_bindings={"item": "cup_1"},
+            terminal_certificate={
+                "benchmark_won": True, "source_trace_id": "tr",
+                "terminal_revision": 1,
+                "executed_occurrence_ids": ["occ_1"],
+                "skipped_planned_occurrence_ids": [],
+                "observed_task_contract_coverage": {},
+            },
+        )
+        # Inject a second historical signature that is incompatible with a
+        # clean+at_location current task.
+        metadata = dict(candidate.metadata)
+        certificate = dict(metadata.get("terminal_certificate") or {})
+        certificate["covered_effect_signatures"] = [
+            {
+                "predicate": "object.observed", "effect_domain": "evidence",
+                "argument_roles": ["object"], "cardinality": 1, "distinct_by": "",
+            },
+            {
+                "predicate": "object.observed", "effect_domain": "world",
+                "argument_roles": ["object", "location"],
+                "cardinality": 1, "distinct_by": "",
+            },
+        ]
+        metadata["terminal_certificate"] = certificate
+        candidate = replace(candidate, metadata=metadata)
+        skills.register_composite(candidate)
+        retriever = CompositeRetriever(skills)
+        ineligible = retriever.retrieve_terminal(
+            SimpleNamespace(task_id="t_clean", goal="clean"),
+            TaskContract([
+                SemanticPredicate("object.cleaned", {"object": "cup_1"}),
+                SemanticPredicate("object.at_location", {"object": "cup_1"}),
+            ]),
+            mode="online", harness_profile="fake_v3",
+        )
+        assert ineligible.terminal_empirical_candidates == []
+
+
+def test_r2_4_tool_builder_boundary_exactness() -> None:
+    from atomic_skillgraph.core.refs import SkillRef
+
+    atomic = _atomic("atomic_boundary")
+    atomic.ref = SkillRef.parse(str(atomic.ref))
+    atomic.effects = [
+        SemanticPredicate("object.observed", {"object": "$found"})
+    ]
+    base = ToolProposal(
+        proposal_version="1", decision="create", summary="locate",
+        atomic_ref=str(atomic.ref),
+        inputs=list(atomic.inputs),
+        outputs=list(atomic.outputs),
+        program=[
+            {
+                "node_id": "ret", "op": "RETURN",
+                "output_sources": {
+                    "found": {"source": "tool_input", "field": "target"}
+                },
+            }
+        ],
+        max_actions=1,
+        final_effects=atomic.effects,
+        evidence_outputs=[], path_expectations=[], rationale="",
+    )
+    assert ToolStaticValidator().validate_proposal(
+        base, atomic, FakeHarness(),
+    ).passed
+    changed = replace(base, inputs=[ParameterSpec("semantic_target", "entity")])
+    report = ToolStaticValidator().validate_proposal(
+        changed, atomic, FakeHarness(),
+    )
+    assert report.passed is False
+    assert "tool_builder_atomic_boundary_mismatch" in report.failure_codes
+    extra = replace(base, inputs=[*base.inputs, ParameterSpec("current_location", "entity")])
+    assert ToolStaticValidator().validate_proposal(
+        extra, atomic, FakeHarness(),
+    ).passed is False

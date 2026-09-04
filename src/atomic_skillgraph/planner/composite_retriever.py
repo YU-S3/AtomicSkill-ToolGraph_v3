@@ -188,6 +188,28 @@ class CompositeRetriever:
         ranked: list[tuple[float, str, CompositeSkill]] = []
         composites = self.skills.composites(mode=mode)
 
+        def _effect_signature_compatible(
+            signature: dict[str, Any], target: Any,
+        ) -> bool:
+            predicate = str(signature.get("predicate", "")).casefold()
+            if predicate != str(target.predicate).casefold():
+                return False
+            domain = str(signature.get("effect_domain", ""))
+            if domain and domain != str(target.effect_domain.value):
+                return False
+            roles = set(map(str, signature.get("argument_roles") or ()))
+            if roles and roles != set(map(str, target.args)):
+                return False
+            cardinality = int(signature.get("cardinality", 1) or 1)
+            target_cardinality = max(1, int(target.cardinality))
+            if cardinality > target_cardinality:
+                return False
+            distinct_by = str(signature.get("distinct_by", ""))
+            target_distinct_by = str(target.distinct_by)
+            if target_distinct_by and distinct_by != target_distinct_by:
+                return False
+            return True
+
         def _compatible_subset(composite: CompositeSkill) -> bool:
             certificate = dict(
                 composite.metadata.get("terminal_certificate") or {}
@@ -209,22 +231,12 @@ class CompositeRetriever:
                 return False
             targets = list(contract.target_effects)
             for signature in signatures:
-                predicate = str(signature.get("predicate", "")).casefold()
-                roles = set(map(str, signature.get("argument_roles") or ()))
-                domain = str(signature.get("effect_domain", ""))
-                matched = False
-                for target in targets:
-                    if target.predicate.casefold() != predicate:
-                        continue
-                    if roles and roles != set(map(str, target.args)):
-                        continue
-                    if domain and domain != str(target.effect_domain.value):
-                        continue
-                    matched = True
-                    break
-                if matched:
-                    return True
-            return False
+                if not any(
+                    _effect_signature_compatible(signature, target)
+                    for target in targets
+                ):
+                    return False
+            return True
 
         def terminal_compatible(composite: CompositeSkill) -> bool:
             completion = dict(
