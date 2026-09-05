@@ -102,7 +102,6 @@ from .evolution.typed_repairs import TypedRepairEngine
 from .governance import (
     CandidateUsePolicy,
     CreditAssigner,
-    CreditOutcome,
     CreditAttempt,
     CreditTrace,
     EvidenceLedger,
@@ -3585,29 +3584,6 @@ class AtomicSkillGraphSystem:
             )
             for index, state in enumerate(evidence.assets())
         )
-        if (
-            composite_ref is not None
-            and prepared.composite is not None
-            and dict(prepared.composite.metadata.get("completion_authority") or {}).get("kind")
-            == "terminal_empirical"
-            and bool(getattr(trace, "benchmark_success", False))
-            and not bool(getattr(trace, "task_rescue_required", False))
-        ):
-            attempts = attempts + (CreditAttempt(
-                artifact_ref=str(composite_ref),
-                artifact_kind="composite",
-                occurrence_id="graph",
-                attempt_id=f"composite:{composite_ref}:source_terminal_success",
-                sequence_no=len(attempts),
-                started=True,
-                outcome=CreditOutcome.SELF_SUFFICIENT_SUCCESS,
-                metadata={
-                    "completion_authority": "terminal_empirical",
-                    "benchmark_won": True,
-                    "task_rescue_required": False,
-                    "source": "terminal_empirical_candidate_creation",
-                },
-            ),)
         events = self.credit.assign(CreditTrace(
             trace.task.task_id, trace.trace_id, attempts
         ))
