@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,11 +23,15 @@ from atomic_skillgraph.core.refs import SkillRef
 from atomic_skillgraph.core.results import (
     AtomicEffectResolution,
     RuntimeOccurrence,
+    ValidationResult,
 )
 from atomic_skillgraph.core.status import SkillStatus
 from atomic_skillgraph.harness.alfworld import AlfWorldValidatorChannel
 from atomic_skillgraph.harness.protocol import HarnessActionSpec
+from atomic_skillgraph.runtime.binding_store import RuntimeBindingStore
+from atomic_skillgraph.runtime.node_executor import NodeExecutor
 from atomic_skillgraph.validation.atomic_validator import AtomicValidator
+from atomic_skillgraph.validation.engine import ValidationEngine
 
 
 def _action(
@@ -415,3 +420,371 @@ def test_passed_resolution_without_witnesses_fails_closed() -> None:
 
     assert result.passed is False
     assert result.failure_code == "atomic_effect_witness_missing"
+
+
+def _different_name_effect_output_atomic() -> AbstractAtomicSkill:
+    effect = SemanticPredicate(
+        "agent.at_location",
+        {"location": BindingExpression(
+            BindingExprKind.SKILL_INPUT,
+            source_role="arrived_location",
+        )},
+    )
+    return AbstractAtomicSkill(
+        SkillRef("atomic_effect_output_partition", "1.0.0"),
+        "navigate to a destination",
+        [ParameterSpec("destination", "entity")],
+        [ParameterSpec("arrived_location", "entity")],
+        [],
+        [effect],
+        {
+            "validator_id": "harness_atomic_effect",
+            "output_derivations": {
+                "arrived_location": {
+                    "kind": "effect_witness",
+                    "predicate": "agent.at_location",
+                    "argument_role": "location",
+                }
+            },
+        },
+        [],
+        {},
+        {},
+        SkillStatus.CANDIDATE,
+    )
+
+
+def _effect_output_occurrence(
+    atomic: AbstractAtomicSkill,
+) -> RuntimeOccurrence:
+    return RuntimeOccurrence(
+        "effect_output_step",
+        "effect_output_occurrence",
+        atomic.ref,
+        [],
+        {},
+        [],
+        list(atomic.effects),
+    )
+
+
+def _grounded(role: str, value: str) -> RuntimeBinding:
+    return RuntimeBinding(
+        role,
+        value,
+        "entity",
+        BindingSource.HARNESS_EVIDENCE,
+        BindingStatus.GROUNDED,
+        BindingResolution.CONCRETE,
+        [f"test:{role}:{value}"],
+        1,
+    )
+
+
+@pytest.mark.parametrize("factory", [_alf_at, _fake_at])
+def test_gate46_different_name_effect_witness_output_is_partitioned(
+    factory: Callable[[], object],
+) -> None:
+    atomic = _different_name_effect_output_atomic()
+    resolution = AtomicValidator().resolve_current_effect(
+        atomic,
+        _effect_output_occurrence(atomic),
+        {"destination": _grounded("destination", "cabinet_3")},
+        factory(),
+        semantic_anchors={},
+        preferred_values=["cabinet_3"],
+        current_revision=1,
+    )
+
+    assert resolution.passed is True
+    assert resolution.resolved_bindings == {}
+    assert resolution.output_candidates == {
+        "arrived_location": "cabinet_3",
+    }
+    assert set(resolution.resolved_bindings) <= {
+        item.name for item in atomic.inputs
+    }
+    assert set(resolution.output_candidates) <= {
+        item.name for item in atomic.outputs
+    }
+
+
+def test_gate47_node_executor_keeps_fresh_output_out_of_input_store() -> None:
+    atomic = _different_name_effect_output_atomic()
+    occurrence = _effect_output_occurrence(atomic)
+    channel = _fake_at()
+    binding_store = RuntimeBindingStore()
+    binding_store.commit_grounded(
+        occurrence.occurrence_id,
+        {"destination": _grounded("destination", "cabinet_3")},
+    )
+    compiler = SimpleNamespace(
+        skills=SimpleNamespace(get_atomic=lambda _ref: atomic),
+    )
+    executor = NodeExecutor(
+        compiler,
+        ValidationEngine(),
+        lambda *_args, **_kwargs: None,
+    )
+    ctx = SimpleNamespace(
+        binding_store=binding_store,
+        harness=SimpleNamespace(validator_channel=lambda: channel),
+        trace_builder=SimpleNamespace(
+            trace=SimpleNamespace(validations=[]),
+        ),
+        world_revision=1,
+        clear_failed_invocation=lambda *_args: None,
+    )
+
+    result = executor._complete_from_current_effect(
+        occurrence,
+        ctx,
+        mode="preparation",
+        preferred_values=["cabinet_3"],
+    )
+
+    assert result is not None
+    assert result.atomic_effect_passed is True
+    assert result.validated_outputs == {
+        "arrived_location": "cabinet_3",
+    }
+    stored_inputs = binding_store.snapshot_for_node(occurrence)
+    assert set(stored_inputs) == {"destination"}
+    assert stored_inputs["destination"].value == "cabinet_3"
+    assert "arrived_location" not in stored_inputs
+
+
+def test_gate48_multiple_fresh_outputs_are_partitioned() -> None:
+    channel = FakeValidatorChannel()
+    channel.record_fact(
+        "entity.discovered_at",
+        {"entity": "cup_3", "location": "countertop_2"},
+        1,
+    )
+    effect = SemanticPredicate(
+        "entity.discovered_at",
+        {
+            "entity": BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role="found_entity",
+            ),
+            "location": BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role="found_location",
+            ),
+        },
+        effect_domain="evidence",
+    )
+    atomic = AbstractAtomicSkill(
+        SkillRef("atomic_multi_effect_outputs", "1.0.0"),
+        "find entity and location",
+        [],
+        [
+            ParameterSpec("found_entity", "entity"),
+            ParameterSpec("found_location", "entity"),
+        ],
+        [],
+        [effect],
+        {
+            "output_derivations": {
+                "found_entity": {
+                    "kind": "effect_witness",
+                    "predicate": "entity.discovered_at",
+                    "argument_role": "entity",
+                },
+                "found_location": {
+                    "kind": "effect_witness",
+                    "predicate": "entity.discovered_at",
+                    "argument_role": "location",
+                },
+            }
+        },
+        [],
+        {},
+        {},
+        SkillStatus.CANDIDATE,
+    )
+    occurrence = RuntimeOccurrence(
+        "multi", "multi", atomic.ref, [], {}, [], [effect],
+    )
+
+    resolution = AtomicValidator().resolve_current_effect(
+        atomic,
+        occurrence,
+        {},
+        channel,
+        semantic_anchors={},
+        preferred_values=["cup_3", "countertop_2"],
+        current_revision=1,
+    )
+
+    assert resolution.passed is True
+    assert resolution.resolved_bindings == {}
+    assert resolution.output_candidates == {
+        "found_entity": "cup_3",
+        "found_location": "countertop_2",
+    }
+    assert set(resolution.resolved_bindings) <= {
+        item.name for item in atomic.inputs
+    }
+    assert set(resolution.output_candidates) <= {
+        item.name for item in atomic.outputs
+    }
+
+
+def test_gate49_mixed_input_and_fresh_output_are_partitioned() -> None:
+    channel = FakeValidatorChannel()
+    channel.record_fact(
+        "relation",
+        {"query": "cup", "entity": "cup_3"},
+        1,
+    )
+    effect = SemanticPredicate(
+        "relation",
+        {
+            "query": BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role="target",
+            ),
+            "entity": BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role="found_entity",
+            ),
+        },
+        effect_domain="evidence",
+    )
+    atomic = AbstractAtomicSkill(
+        SkillRef("atomic_mixed_effect_roles", "1.0.0"),
+        "find the requested entity",
+        [ParameterSpec("target", "entity")],
+        [ParameterSpec("found_entity", "entity")],
+        [],
+        [effect],
+        {
+            "output_derivations": {
+                "found_entity": {
+                    "kind": "effect_witness",
+                    "predicate": "relation",
+                    "argument_role": "entity",
+                }
+            }
+        },
+        [],
+        {},
+        {},
+        SkillStatus.CANDIDATE,
+    )
+    occurrence = RuntimeOccurrence(
+        "mixed", "mixed", atomic.ref, [], {}, [], [effect],
+    )
+
+    resolution = AtomicValidator().resolve_current_effect(
+        atomic,
+        occurrence,
+        {"target": _grounded("target", "cup")},
+        channel,
+        semantic_anchors={},
+        preferred_values=["cup_3"],
+        current_revision=1,
+    )
+
+    assert resolution.passed is True
+    assert resolution.resolved_bindings == {"target": "cup"}
+    assert resolution.output_candidates == {"found_entity": "cup_3"}
+    assert set(resolution.resolved_bindings) <= {
+        item.name for item in atomic.inputs
+    }
+    assert set(resolution.output_candidates) <= {
+        item.name for item in atomic.outputs
+    }
+
+
+class _RawResolutionChannel:
+    def __init__(
+        self,
+        *,
+        resolved_bindings: dict[str, object],
+        output_candidates: dict[str, object],
+    ) -> None:
+        self.resolved_bindings = resolved_bindings
+        self.output_candidates = output_candidates
+        self.final_validation_called = False
+
+    def resolve_atomic_effect(self, _request) -> AtomicEffectResolution:
+        return AtomicEffectResolution(
+            True,
+            resolved_bindings=dict(self.resolved_bindings),
+            output_candidates=dict(self.output_candidates),
+            witness_refs=["validator:r1:agent.at_location:location=cabinet_3"],
+        )
+
+    def validate_atomic_effect(self, _request) -> ValidationResult:
+        self.final_validation_called = True
+        return ValidationResult.ok("atomic", effect_witness=True)
+
+
+@pytest.mark.parametrize(
+    ("resolved_bindings", "output_candidates", "failure_code", "bad_role"),
+    [
+        (
+            {"not_declared_role": "x"},
+            {},
+            "atomic_effect_resolved_role_invalid",
+            "not_declared_role",
+        ),
+        (
+            {},
+            {"not_declared_output": "x"},
+            "atomic_effect_output_role_invalid",
+            "not_declared_output",
+        ),
+    ],
+)
+def test_gate50_unknown_resolver_roles_fail_closed(
+    resolved_bindings: dict[str, object],
+    output_candidates: dict[str, object],
+    failure_code: str,
+    bad_role: str,
+) -> None:
+    atomic = _different_name_effect_output_atomic()
+    channel = _RawResolutionChannel(
+        resolved_bindings=resolved_bindings,
+        output_candidates=output_candidates,
+    )
+
+    resolution = AtomicValidator().resolve_current_effect(
+        atomic,
+        _effect_output_occurrence(atomic),
+        {},
+        channel,
+        semantic_anchors={},
+        preferred_values=[],
+        current_revision=1,
+    )
+
+    assert resolution.passed is False
+    assert resolution.failure_code == failure_code
+    assert bad_role in resolution.message
+    assert channel.final_validation_called is False
+
+
+def test_gate51_conflicting_effect_witness_output_sources_fail_closed() -> None:
+    atomic = _different_name_effect_output_atomic()
+    channel = _RawResolutionChannel(
+        resolved_bindings={"arrived_location": "cabinet_3"},
+        output_candidates={"arrived_location": "cabinet_4"},
+    )
+
+    resolution = AtomicValidator().resolve_current_effect(
+        atomic,
+        _effect_output_occurrence(atomic),
+        {},
+        channel,
+        semantic_anchors={},
+        preferred_values=[],
+        current_revision=1,
+    )
+
+    assert resolution.passed is False
+    assert resolution.failure_code == "atomic_output_effect_witness_mismatch"
+    assert channel.final_validation_called is False

@@ -241,11 +241,17 @@ class AtomicValidator:
                 not in (None, "")
             )
         }
-        output_identity = list(
-            atomic.validator_spec.get("output_identity") or []
-        )
         input_roles = {item.name for item in atomic.inputs}
         output_roles = {item.name for item in atomic.outputs}
+        derivations = self._output_derivations(atomic)
+        output_identity = [
+            {
+                "output_role": str(role),
+                "input_role": str(derivation.get("input_role", "")),
+            }
+            for role, derivation in derivations.items()
+            if derivation.get("kind") == "input_identity"
+        ]
         claims = {
             str(role): value
             for role, value in dict(preferred_bindings or {}).items()
@@ -290,43 +296,115 @@ class AtomicValidator:
         })
         if not resolution.passed:
             return resolution
+
+        # Harness resolvers expose raw Effect source-role assignments.  In
+        # v3.2 those source roles may name either an immutable Atomic input or
+        # a fresh Atomic output.  This validator is the single adapter that
+        # partitions the raw result into the two Runtime-facing channels.
+        raw_resolved = {
+            str(role): value
+            for role, value in dict(resolution.resolved_bindings).items()
+        }
+        raw_outputs = {
+            str(role): value
+            for role, value in dict(resolution.output_candidates).items()
+        }
+        unknown_resolved_roles = sorted(
+            set(raw_resolved) - input_roles - output_roles
+        )
+        if unknown_resolved_roles:
+            return AtomicEffectResolution(
+                False,
+                witness_refs=list(resolution.witness_refs),
+                checks=dict(resolution.checks),
+                failure_code="atomic_effect_resolved_role_invalid",
+                message=(
+                    "Atomic effect resolver returned roles outside the "
+                    "declared input/output boundary: "
+                    f"{unknown_resolved_roles!r}"
+                ),
+            )
+        unknown_output_roles = sorted(set(raw_outputs) - output_roles)
+        if unknown_output_roles:
+            return AtomicEffectResolution(
+                False,
+                witness_refs=list(resolution.witness_refs),
+                checks=dict(resolution.checks),
+                failure_code="atomic_effect_output_role_invalid",
+                message=(
+                    "Atomic effect resolver returned output candidates outside "
+                    f"the declared output boundary: {unknown_output_roles!r}"
+                ),
+            )
+
+        resolved_inputs = {
+            role: value
+            for role, value in raw_resolved.items()
+            if role in input_roles
+        }
+        outputs = {
+            role: value
+            for role, value in raw_outputs.items()
+            if role in output_roles
+        }
         if not resolution.witness_refs:
             return AtomicEffectResolution(
                 False,
-                resolved_bindings=dict(resolution.resolved_bindings),
-                output_candidates=dict(resolution.output_candidates),
+                resolved_bindings=resolved_inputs,
+                output_candidates=outputs,
                 checks=dict(resolution.checks),
                 failure_code="atomic_effect_witness_missing",
                 message="Passed Atomic effect resolution requires validator witnesses",
             )
 
-        merged = {**plain, **resolution.resolved_bindings}
-        outputs = dict(resolution.output_candidates)
-        for item in output_identity:
-            output_role = str(item.get("output_role", ""))
-            input_role = str(item.get("input_role", ""))
-            if output_role and input_role in merged:
+        merged_inputs = {**plain, **resolved_inputs}
+        for output_role, derivation in derivations.items():
+            kind = str(derivation.get("kind", ""))
+            if kind == "input_identity":
+                input_role = str(derivation.get("input_role", ""))
+                if input_role not in merged_inputs:
+                    continue
                 if (
                     output_role in outputs
-                    and outputs[output_role] != merged[input_role]
+                    and outputs[output_role] != merged_inputs[input_role]
                 ):
                     return AtomicEffectResolution(
                         False,
-                        resolved_bindings=dict(resolution.resolved_bindings),
+                        resolved_bindings=resolved_inputs,
                         output_candidates=outputs,
                         witness_refs=list(resolution.witness_refs),
                         checks=dict(resolution.checks),
                         failure_code="atomic_output_identity_mismatch",
                         message="Validator output conflicts with explicit output identity",
                     )
-                outputs[output_role] = merged[input_role]
-        # Contextual outputs without an identity mapping may still be supplied
-        # directly by a validator resolver.  No role-name substring heuristic
-        # is used here.
+                outputs[output_role] = merged_inputs[input_role]
+            elif kind == "effect_witness" and output_role in raw_resolved:
+                witnessed_value = raw_resolved[output_role]
+                if (
+                    output_role in outputs
+                    and outputs[output_role] != witnessed_value
+                ):
+                    return AtomicEffectResolution(
+                        False,
+                        resolved_bindings=resolved_inputs,
+                        output_candidates=outputs,
+                        witness_refs=list(resolution.witness_refs),
+                        checks=dict(resolution.checks),
+                        failure_code="atomic_output_effect_witness_mismatch",
+                        message=(
+                            "Validator output conflicts with authoritative "
+                            "Effect witness"
+                        ),
+                    )
+                outputs[output_role] = witnessed_value
+
+        # Fresh outputs can be source roles in the Effect itself, so final
+        # validation must see them even though they never enter input state.
+        final_bindings = {**plain, **resolved_inputs, **outputs}
         final = self.validate(
             atomic,
             occurrence,
-            merged,
+            final_bindings,
             validator_channel,
             outputs,
         )
@@ -334,7 +412,7 @@ class AtomicValidator:
         if not final.passed:
             return AtomicEffectResolution(
                 False,
-                resolved_bindings=dict(resolution.resolved_bindings),
+                resolved_bindings=resolved_inputs,
                 output_candidates=outputs,
                 witness_refs=list(resolution.witness_refs),
                 checks=checks,
@@ -351,7 +429,7 @@ class AtomicValidator:
             )
         return AtomicEffectResolution(
             True,
-            resolved_bindings=dict(resolution.resolved_bindings),
+            resolved_bindings=resolved_inputs,
             output_candidates=outputs,
             witness_refs=list(dict.fromkeys([
                 *resolution.witness_refs,
