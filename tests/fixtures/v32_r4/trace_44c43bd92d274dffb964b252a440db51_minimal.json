@@ -1,0 +1,323 @@
+{
+  "fixture_version": "v3.2-r4-real-trace-minimal-v1",
+  "source": {
+    "trace_file": "trace_44c43bd92d274dffb964b252a440db51.json",
+    "trace_sha256": "2d4cb747e89c04c31e1e8489e358fa72544aa7662d7a9ef472b9f90659d2dfd2",
+    "trace_id": "trace_44c43bd92d274dffb964b252a440db51",
+    "task_id": "alfworld_train_18_pick_and_place_simple",
+    "source_event_interval": [12, 13],
+    "classification": "verbatim_native_submissions_from_historical_trace",
+    "notes": [
+      "The E1 and ToolBuilder native-call argument objects below are copied from the SHA-verified historical Trace.",
+      "The normalized projection retains only facts required to replay this occurrence; unrelated discovery facts are intentionally omitted.",
+      "The replay interval is rebased from [12,13) to [0,1); action_id, revisions, authorities, and witnesses are unchanged."
+    ]
+  },
+  "e1_native_submission_original": {
+    "occurrences": [
+      {
+        "phase_id": "phase_place_held_object",
+        "intent": "place_held_object_at_destination",
+        "event_start": 12,
+        "event_end": 13,
+        "support_event_ids": ["r012_a018"],
+        "input_roles": {
+          "destination": "bed_1",
+          "object": "book_1"
+        },
+        "input_provenance_refs": {
+          "destination": "action_arg:r012_a018:destination",
+          "object": "action_arg:r012_a018:object"
+        },
+        "output_roles": {
+          "placed_object": "book_1"
+        },
+        "output_derivations": {
+          "placed_object": {
+            "kind": "effect_witness",
+            "predicate": "object.at_location",
+            "argument_role": "object"
+          }
+        },
+        "preconditions": [
+          {
+            "predicate": "agent.at_location",
+            "args": {"location": "bed_1"},
+            "effect_domain": "world"
+          },
+          {
+            "predicate": "agent.holds",
+            "args": {"object": "book_1"},
+            "effect_domain": "world"
+          }
+        ],
+        "precondition_witness_refs": [
+          "alfworld_action_fact:r12:agent.at_location:location=bed_1",
+          "alfworld_action_fact:r12:agent.holds:object=book_1"
+        ],
+        "effects": [
+          {
+            "predicate": "object.at_location",
+            "args": {
+              "location": "bed_1",
+              "object": "book_1"
+            },
+            "effect_domain": "world"
+          }
+        ],
+        "effect_witness_refs": [
+          "alfworld_action_fact:r13:object.at_location:location=bed_1,object=book_1"
+        ],
+        "rationale": "The agent, already located at the destination while holding the object, performs the placement transition; the authoritative positive result is that the object is located at the destination. Search and navigation preceding this transition are incidental detours and are not claimed."
+      }
+    ]
+  },
+  "replay_rebase": {
+    "source_event_start": 12,
+    "source_event_end": 13,
+    "replay_event_start": 0,
+    "replay_event_end": 1
+  },
+  "normalized_trace_minimal": {
+    "trace_id": "trace_44c43bd92d274dffb964b252a440db51",
+    "source_task": {
+      "task_id": "alfworld_train_18_pick_and_place_simple"
+    },
+    "semantic_authority_source": "validator_snapshot_v3_2",
+    "actions": [
+      {
+        "event_index": 0,
+        "source_event_index": 12,
+        "action_id": "r012_a018",
+        "action_type": "MOVE",
+        "arguments": {
+          "destination": "bed_1",
+          "object": "book_1"
+        },
+        "accepted": true,
+        "before_revision": 12,
+        "after_revision": 13,
+        "done": true,
+        "won": true,
+        "span_id": "span_bfd92e6eb86949cd9b54f390af9ec425",
+        "extractor_event_start": 0,
+        "extractor_event_end_exclusive": 1,
+        "input_role_candidates": {
+          "destination": "bed_1",
+          "object": "book_1"
+        },
+        "authoritative_before_state_facts": [
+          {
+            "predicate": "agent.at_location",
+            "args": {"location": "bed_1"},
+            "effect_domain": "world",
+            "witness_ref": "alfworld_action_fact:r12:agent.at_location:location=bed_1",
+            "revision": 12
+          },
+          {
+            "predicate": "agent.holds",
+            "args": {"object": "book_1"},
+            "effect_domain": "world",
+            "witness_ref": "alfworld_action_fact:r12:agent.holds:object=book_1",
+            "revision": 12
+          }
+        ],
+        "authoritative_positive_effects": [
+          {
+            "predicate": "object.at_location",
+            "args": {
+              "location": "bed_1",
+              "object": "book_1"
+            },
+            "effect_domain": "world",
+            "witness_ref": "alfworld_action_fact:r13:object.at_location:location=bed_1,object=book_1",
+            "revision": 13,
+            "event_index": 0,
+            "source_kind": "semantic_snapshot_delta",
+            "action_id": "r012_a018"
+          }
+        ],
+        "authoritative_negative_effects": [
+          {
+            "predicate": "agent.holds",
+            "args": {"object": "book_1"},
+            "effect_domain": "world",
+            "witness_ref": "alfworld_action_fact:r12:agent.holds:object=book_1",
+            "revision": 12,
+            "event_index": 0,
+            "source_kind": "semantic_snapshot_delta",
+            "action_id": "r012_a018"
+          }
+        ],
+        "authoritative_terminal_effect_certificates": []
+      }
+    ],
+    "runtime_spans": [
+      {
+        "action_end": 1,
+        "action_start": 0,
+        "kind": "runtime_seeded",
+        "learnable": true,
+        "occurrence_id": "occ_trace_180ba8784329426f87c0ddcaf9fa9a2b_001",
+        "parent_span_id": null,
+        "span_id": "span_bfd92e6eb86949cd9b54f390af9ec425"
+      }
+    ],
+    "validations": [],
+    "boundary_authorities": {
+      "inputs": [
+        {
+          "authority_ref": "action_arg:r012_a018:destination",
+          "event_id": "r012_a018",
+          "argument_role": "destination",
+          "kind": "action_argument",
+          "source_kind": "action_argument",
+          "role": "destination",
+          "value": "bed_1"
+        },
+        {
+          "authority_ref": "action_arg:r012_a018:object",
+          "event_id": "r012_a018",
+          "argument_role": "object",
+          "kind": "action_argument",
+          "source_kind": "action_argument",
+          "role": "object",
+          "value": "book_1"
+        }
+      ],
+      "effects": [
+        {
+          "witness_ref": "alfworld_action_fact:r13:object.at_location:location=bed_1,object=book_1",
+          "predicate": "object.at_location",
+          "args": {
+            "location": "bed_1",
+            "object": "book_1"
+          },
+          "effect_domain": "world",
+          "event_index": 0,
+          "revision": 13,
+          "source_kind": "semantic_snapshot_delta",
+          "action_id": "r012_a018"
+        }
+      ]
+    }
+  },
+  "tool_builder_native_submission_original": {
+    "classification": "verbatim_historical_model_output_invalid",
+    "expected_static_failure_codes": ["tool_ir_final_effects_missing"],
+    "value": {
+      "proposal_version": "1.0",
+      "decision": "create",
+      "summary": "Place the held object at the given destination with a single accepted MOVE(object, destination) action, then return the placed object (the same entity as the object input).",
+      "atomic_ref": "place_held_object_at_destination",
+      "inputs": [
+        {
+          "name": "destination",
+          "semantic_type": "entity",
+          "required": true,
+          "runtime_resolvable": true,
+          "required_resolution": "concrete",
+          "description": ""
+        },
+        {
+          "name": "object",
+          "semantic_type": "entity",
+          "required": true,
+          "runtime_resolvable": true,
+          "required_resolution": "concrete",
+          "description": ""
+        }
+      ],
+      "outputs": [
+        {
+          "name": "placed_object",
+          "semantic_type": "entity",
+          "required": true,
+          "runtime_resolvable": false,
+          "required_resolution": "semantic",
+          "description": ""
+        }
+      ],
+      "program": [
+        {
+          "node_id": "act_move_place",
+          "op": "ACTION",
+          "action_type": "MOVE",
+          "argument_mapping": {
+            "object": {"kind": "skill_input", "source_role": "object"},
+            "destination": {"kind": "skill_input", "source_role": "destination"}
+          },
+          "expected_effects": [
+            {
+              "predicate": "object.at_location",
+              "args": {
+                "location": {"kind": "skill_input", "source_role": "destination"},
+                "object": {"kind": "skill_input", "source_role": "object"}
+              },
+              "cardinality": 1,
+              "effect_domain": "world"
+            }
+          ]
+        },
+        {
+          "node_id": "return_placed",
+          "op": "RETURN",
+          "output_sources": {
+            "placed_object": {"source": "tool_input", "field": "object"}
+          }
+        }
+      ],
+      "max_actions": 1,
+      "final_effects": [
+        {
+          "predicate": "object.at_location",
+          "args": {
+            "location": {"kind": "skill_input", "source_role": "destination"},
+            "object": {"kind": "skill_input", "source_role": "object"}
+          },
+          "cardinality": 1,
+          "effect_domain": "world"
+        }
+      ],
+      "evidence_outputs": [
+        {"role": "placed_object", "source": "tool_input", "field": "object"}
+      ],
+      "path_expectations": [
+        {
+          "step": 1,
+          "op": "ACTION",
+          "action_type": "MOVE",
+          "arguments": {
+            "object": {"kind": "skill_input", "source_role": "object"},
+            "destination": {"kind": "skill_input", "source_role": "destination"}
+          },
+          "produced_world_effect": "object.at_location(destination, object)"
+        },
+        {
+          "step": 2,
+          "op": "RETURN",
+          "output_role": "placed_object",
+          "source": "tool_input",
+          "field": "object"
+        }
+      ],
+      "rationale": "The Atomic contract requires that a currently held object ends up at the destination (world effect object.at_location with location=destination and object=placed_object), with preconditions agent.at_location(destination) and agent.holds(object) guaranteed to hold before invocation. The single accepted evidence action is MOVE(object=book_1, destination=bed_1), whose authoritative world effect is exactly object.at_location. Therefore the minimal reusable bounded procedure is one ACTION node issuing MOVE with the object and destination skill inputs and asserting the object.at_location world effect, followed by RETURN. No FOR_EACH is warranted: the bounded evidence contains one structurally isomorphic action repetition, and no iteration or task-workflow knowledge (navigation/taking) belongs inside the Atomic. placed_object is the same entity as the object input (the witness of the object.at_location effect's object argument), so it is returned unambiguously from tool input object, with the action's expected-effect check providing the placement evidence. This is safe, reusable across AlfWorld episodes, free of episode/benchmark constants, and bounded to a single action."
+    }
+  },
+  "human_authored_legal_control": {
+    "classification": "human_authored_legal_control_not_model_output",
+    "base": "tool_builder_native_submission_original.value",
+    "operations": [
+      {
+        "op": "replace",
+        "path": "/atomic_ref",
+        "value": "$CANONICAL_ATOMIC_REF"
+      },
+      {
+        "op": "replace",
+        "path": "/final_effects/0/args/object/source_role",
+        "value": "placed_object"
+      }
+    ]
+  }
+}

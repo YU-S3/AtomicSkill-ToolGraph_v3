@@ -18,13 +18,18 @@ from typing import Any, Mapping
 from atomic_skillgraph.core.bindings import BindingExprKind, BindingExpression
 from atomic_skillgraph.core.contracts import (
     AbstractAtomicSkill,
+    CapabilityRequirement,
     ContractSource,
     EffectDomain,
     ParameterSpec,
     SemanticPredicate,
     TaskContract,
 )
-from atomic_skillgraph.core.results import PrimitiveToolStep, RuntimeLinearPlan
+from atomic_skillgraph.core.results import (
+    PrimitiveToolStep,
+    RuntimeLinearPlan,
+    RuntimeOccurrence,
+)
 from atomic_skillgraph.core.serialization import to_primitive
 from atomic_skillgraph.core.status import RuntimeMode, SkillStatus, ToolStatus
 from atomic_skillgraph.evolution.admission import Admission
@@ -37,6 +42,10 @@ from atomic_skillgraph.evolution.trace_normalizer import TraceNormalizer
 from atomic_skillgraph.governance.credit import CreditAssigner
 from atomic_skillgraph.governance.ledger import EvidenceLedger
 from atomic_skillgraph.governance.projections import LifecycleProjection
+from atomic_skillgraph.governance.lifecycle import (
+    LifecycleController,
+    LifecyclePolicy,
+)
 from atomic_skillgraph.harness.action_catalog import HarnessActionCatalog
 from atomic_skillgraph.harness.alfworld import AlfWorldValidatorChannel
 from atomic_skillgraph.harness.protocol import (
@@ -51,6 +60,7 @@ from atomic_skillgraph.knowledge.graph_store import GraphStore
 from atomic_skillgraph.knowledge.skill_registry import SkillRegistry
 from atomic_skillgraph.knowledge.tool_registry import ToolRegistry
 from atomic_skillgraph.planner.pipeline import PlannerPipeline
+from atomic_skillgraph.planner.atomic_retriever import AtomicRetriever
 from atomic_skillgraph.runtime.budget import RuntimeBudget
 from atomic_skillgraph.runtime.invocation_compiler import InvocationCompiler
 from atomic_skillgraph.runtime.orchestrator import RuntimeOrchestrator
@@ -61,6 +71,7 @@ from atomic_skillgraph.tooling.proposal import ToolProvenance
 from atomic_skillgraph.tooling.validator import ToolStaticValidator
 from atomic_skillgraph.traces.schema import TaskRecord, TraceBuilder, TraceRecord
 from atomic_skillgraph.validation.engine import ValidationEngine
+from atomic_skillgraph.system import AtomicSkillGraphSystem
 from experiments.fakes import FakeAgentFactory, FakeReply
 
 import re
@@ -1041,6 +1052,326 @@ def test_gate29_cross_task_runtime_tool_reuse(tmp_path: Path) -> None:
         and dict(change.get("current") or {}).get("value") == _room_for("mug_1")
     ]
     assert published
+
+    factory.assert_exhausted()
+    artifacts.verify_all()
+    database.close()
+
+
+def test_r4_system_retained_atomic_is_retrieved_and_runs_seeded_for_new_entity(
+    tmp_path: Path,
+) -> None:
+    """A rejected Success-Evolution Tool cannot make its valid Atomic unusable."""
+
+    data_dir = tmp_path / "r4_atomic_only_bank"
+    database = StateDatabase(data_dir / "state.sqlite3")
+    artifacts = ArtifactStore(data_dir, database)
+    skills = SkillRegistry(artifacts, database)
+    tools = ToolRegistry(artifacts, database)
+    graph = GraphStore(database, skills)
+    ledger = EvidenceLedger(database)
+    projection = LifecycleProjection(database, ledger)
+    validation = ValidationEngine()
+    harness = LocatingHarness()
+    factory = FakeAgentFactory()
+    planner = PlannerPipeline(skills, graph, factory)
+    invocation_compiler = InvocationCompiler(
+        skills, tools, harness, mode=RuntimeMode.ONLINE,
+    )
+    runtime = RuntimeOrchestrator(
+        planner,
+        harness,
+        invocation_compiler,
+        validation,
+        factory,
+        runtime_config={
+            "global_action_budget": 20,
+            "node_action_budget": 10,
+            "learned_toolcall_repair_limit": 2,
+        },
+    )
+    runtime.attach_runtime_automation(
+        tool_builder_factory=lambda kind, occurrence_id: factory.new_session(
+            "tool_builder",
+            [FakeReply.tool("create_tool", _task_local_locate_proposal())],
+        ),
+        tool_compiler=ToolCompiler(),
+    )
+
+    # Give Task A one stored TAKE node; its task-local Runtime Automation then
+    # discovers the missing location before the original node performs TAKE.
+    factory.enqueue(
+        "runtime_dynamic",
+        [FakeReply.tool("environment_action", {"action_id": "r000_a002"})],
+    )
+    bootstrap_task = _locating_task("r4_bootstrap", "orange_1")
+    bootstrap_trace = runtime.run_task(bootstrap_task)
+    take_refs = _register_take_graph(
+        bootstrap_trace,
+        bootstrap_task,
+        factory,
+        skills,
+        tools,
+        validation,
+        harness,
+        ledger,
+        projection,
+    )
+    assert take_refs["atomic_ref"]
+
+    task_a = _locating_task("r4_task_a", "apple_1")
+    factory.enqueue(
+        "runtime_preparation",
+        [
+            FakeReply.tool(
+                "propose_runtime_automation_atomic", _locate_draft_call(),
+            ),
+            FakeReply.tool("environment_action", {
+                "action_id": "r001_a002",
+                "intent": "attempt_current_atomic",
+            }),
+        ],
+    )
+    trace_a = runtime.run_task(task_a)
+    assert trace_a.benchmark_success is True
+    trace_a.metadata["method_patch"] = "3.2"
+
+    # Build the exact E1 wire submission from the code-authoritative trial
+    # witnesses.  A separate preview performs real Extractor conversion and
+    # real Atomicizer validation solely to construct the Builder fixture's
+    # immutable boundary; it does not register anything.
+    normalized = TraceNormalizer().build(trace_a)
+    trial = dict(trace_a.metadata["runtime_tool_trials"]["locate_1"])
+    runtime_inputs = [
+        {
+            **dict(authority),
+            "draft_id": str(trial.get("draft_id", "")),
+            "trial_event_start": int(trial["trial_event_start"]),
+            "trial_event_end": int(trial["trial_event_end"]),
+            "source_kind": str(authority.get("kind", "")),
+            "role": role,
+        }
+        for role, authority in dict(trial.get("input_authorities") or {}).items()
+    ]
+    runtime_effects = AtomicSkillGraphSystem._runtime_trial_effect_authorities(
+        trial, list(normalized.get("actions") or []),
+    )
+    assert runtime_effects
+    normalized["boundary_authorities"] = {
+        "inputs": runtime_inputs,
+        "effects": [dict(item) for item in runtime_effects],
+    }
+    search = next(
+        action for action in normalized["actions"]
+        if action["action_type"] == "SEARCH"
+    )
+    e1_wire = _locate_e1(
+        "apple_1",
+        _room_for("apple_1"),
+        str(search["action_id"]),
+        str(runtime_effects[0]["witness_ref"]),
+    )
+    preview = ExtractorSession(factory.new_session(
+        "extractor", [FakeReply.structured({"occurrences": [e1_wire]})],
+    ))
+    preview_occurrence = Atomicizer().validate_and_canonicalize(
+        preview.propose_atomics(normalized), normalized,
+    )[0]
+    preview_atomic = _atomic_view(preview_occurrence)
+    rejected_tool_payload = _locate_proposal(preview_atomic)
+    # The Atomic's final Effect uses its fresh output roles.  Returning the
+    # input role here is schema-valid but a strict Tool static mismatch.
+    rejected_tool_payload["final_effects"][0]["args"]["entity"] = {
+        "kind": "skill_input", "source_role": "target",
+    }
+
+    extractor_session = factory.new_session(
+        "extractor",
+        [
+            FakeReply.structured({"occurrences": [e1_wire]}),
+            FakeReply.structured({
+                "selected_existing_edge_ids": [],
+                "selected_new_edge_candidate_ids": [],
+                "summary": "locate target entity",
+                "guideline": {"terminal_empirical": True},
+                "insight": {"source": "r4_fixture"},
+            }),
+        ],
+    )
+    builder_session = factory.new_session(
+        "tool_builder",
+        [FakeReply.tool("create_tool", rejected_tool_payload)],
+    )
+
+    # Run the production System preparation/application methods against the
+    # same registries used by Runtime.  Atomicizer, static validation, staging,
+    # Registry, evidence, and Lifecycle are all real components.
+    evolution = object.__new__(AtomicSkillGraphSystem)
+    evolution.config = {"method_patch": "3.2"}
+    evolution.usage = factory.usage_ledger
+    evolution.mode = RuntimeMode.ONLINE
+    evolution.readonly = False
+    evolution.normalizer = TraceNormalizer()
+    evolution.atomicizer = Atomicizer()
+    evolution.skills = skills
+    evolution.tools = tools
+    evolution.graph = graph
+    evolution.aligner = Aligner(skills, tools)
+    evolution._extractor_session = lambda _task_id: extractor_session
+    evolution._tool_builder_session = lambda *_args: builder_session
+    evolution.harness = harness
+    evolution.validation = validation
+    evolution.tool_compiler = ToolCompiler()
+    evolution.tool_static_validator = ToolStaticValidator()
+    evolution.admission = Admission(validation.tool)
+    evolution.composite_builder = CompositeBuilder()
+    evolution.credit = CreditAssigner()
+    evolution.ledger = ledger
+    evolution.projection = projection
+    evolution.lifecycle = LifecycleController(
+        database, projection, LifecyclePolicy(),
+    )
+    evolution.repair_store = None
+    evolution.gap_diagnoser = type("NoGap", (), {
+        "diagnose": staticmethod(lambda *_args, **_kwargs: {}),
+    })()
+
+    tools_before = set(map(str, tools.list_refs()))
+    implementations_before = set(map(str, skills.list_refs("implementation")))
+    prepared = evolution._prepare_evolution(trace_a, task_a)
+    assert len(prepared.compiled) == 1
+    assert prepared.compiled[0].tool is None
+    assert prepared.compiled[0].implementation is None
+    applied = evolution._apply_evolution(prepared, trace_a, task_a)
+
+    assert len(applied["atomic_refs"]) == 1
+    assert applied["tool_refs"] == []
+    assert applied["implementation_refs"] == []
+    assert set(map(str, tools.list_refs())) == tools_before
+    assert set(map(str, skills.list_refs("implementation"))) == (
+        implementations_before
+    )
+    build_record = trace_a.metadata["evolution_tool_builds"][0]
+    assert build_record["outcome"] == "static_rejected"
+    assert build_record["atomic_registered"] is True
+    assert trace_a.metadata["v32_metrics"][
+        "atomic_only_retained_after_tool_rejection_count"
+    ] == 1
+
+    learned_ref = applied["atomic_refs"][0]
+    learned = skills.get_atomic(learned_ref)
+    assert learned.status is SkillStatus.CANDIDATE
+    assert skills.implementations_for(
+        learned_ref, mode=RuntimeMode.ONLINE,
+    ) == []
+
+    # A real bank retrieval for the same contract returns the retained Atomic.
+    requirement = CapabilityRequirement(
+        "locate_required",
+        "locate target entity",
+        copy.deepcopy(learned.effects),
+        copy.deepcopy(learned.inputs),
+        copy.deepcopy(learned.outputs),
+        copy.deepcopy(learned.preconditions),
+        ["discover entity location"],
+        True,
+        "Task B needs the reusable locate capability",
+    )
+    search_batch = AtomicRetriever(skills).retrieve(
+        [requirement],
+        mode=RuntimeMode.ONLINE,
+        harness_profile=harness.profile_name,
+        task_id="r4_task_b",
+    )
+    assert str(learned_ref) in search_batch.refs
+
+    # Execute that retrieved Atomic through the existing fresh Seeded path for
+    # a different concrete entity.  No Implementation or Tool is available.
+    task_b = _locating_task("r4_task_b", "mug_1", expose_object=False)
+    locate_contract = TaskContract(
+        target_effects=[SemanticPredicate(
+            "entity.discovered_at",
+            {
+                "entity": "mug_1",
+                "location": _room_for("mug_1"),
+            },
+            effect_domain=EffectDomain.EVIDENCE,
+        )],
+        source=ContractSource.ADAPTER_DERIVED,
+        confidence=1.0,
+        validator_id="r4_locate_task",
+    )
+    occurrence = RuntimeOccurrence(
+        "locate_step",
+        "locate_task_b",
+        learned_ref,
+        [requirement.requirement_id],
+        {
+            "target": BindingExpression(
+                BindingExprKind.CONSTANT, constant="mug_1",
+            ),
+        },
+        [],
+        copy.deepcopy(learned.effects),
+    )
+    plan = RuntimeLinearPlan(
+        task_b.task_id,
+        "atomic_composition",
+        None,
+        [occurrence],
+        [occurrence.step_id],
+        [],
+        [],
+        locate_contract,
+        {"final_outcome": "atomic_composition"},
+    )
+    trace_b = TraceRecord.create(
+        TaskRecord(
+            task_b.task_id,
+            task_b.benchmark,
+            task_b.goal,
+            task_b.task_type,
+            str(task_b.metadata["task_signature"]),
+            dict(task_b.metadata),
+        ),
+        to_primitive(locate_contract),
+        {},
+        {"source": "atomic_composition"},
+    )
+    ctx = TaskRuntimeContext.create(
+        task_b,
+        plan,
+        harness,
+        TraceBuilder(trace_b),
+        RuntimeBudget(global_action_budget=10, node_action_budget=5),
+    )
+    ctx.binding_store.resolve_occurrence_specs(
+        occurrence, ctx.world_revision,
+    )
+    factory.enqueue(
+        "runtime_seeded",
+        [FakeReply.tool("environment_action", {
+            "action_id": "r000_a001",
+            "intent": "attempt_current_atomic",
+        })],
+    )
+    seeded = runtime.node_executor.run_seeded_fresh(occurrence, ctx)
+
+    # ``started`` is reserved for a Learned Implementation invocation.  The
+    # Seeded Agent succeeded without one, so the immutable attempt flag stays
+    # false even though its environment action is recorded below.
+    assert seeded.started is False
+    assert seeded.atomic_effect_passed is True
+    assert seeded.validated_outputs == {
+        "entity": "mug_1",
+        "location": _room_for("mug_1"),
+    }
+    assert trace_b.environment_actions[0].action_type == "SEARCH"
+    assert trace_b.agent_sessions[-1].session_type == "SeededSession"
+    assert not any(
+        str(item.tool_ref) not in tools_before
+        for item in trace_b.tool_executions
+    )
 
     factory.assert_exhausted()
     artifacts.verify_all()

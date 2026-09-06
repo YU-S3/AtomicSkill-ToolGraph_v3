@@ -199,6 +199,41 @@ V32_METHOD_METRICS = (
     "tool_stop_condition_witness_count",
 )
 
+R4_LEARNING_DIAGNOSTICS_VERSION = "v3.2-r4"
+LEGACY_LEARNING_DIAGNOSTICS_VERSION = "legacy_mixed_or_incomplete"
+
+# These counters share one occurrence-level authority in R4.  Keeping the
+# complete family together prevents the reporter from accidentally combining
+# Atomicizer rejection counts with later ToolBuilder failures.
+R4_LEARNING_METRICS = (
+    "extractor_e1_proposal_count",
+    "extractor_e1_validated_occurrence_count",
+    "extractor_e1_rejection_count",
+    "tool_builder_call_count",
+    "tool_builder_proposal_count",
+    "tool_builder_no_tool_count",
+    "tool_builder_submission_rejection_count",
+    "tool_builder_static_pass_count",
+    "tool_builder_static_rejection_count",
+    "tool_builder_aborted_count",
+    "atomic_only_prepared_after_tool_rejection_count",
+    "atomic_only_retained_after_tool_rejection_count",
+    "atomic_staged_occurrence_count",
+)
+
+R4_NEW_LEARNING_METRICS = tuple(
+    name
+    for name in R4_LEARNING_METRICS
+    if name not in V32_METHOD_METRICS and name not in EXTRACTOR_QUALITY_METRICS
+)
+
+R4_LEARNING_RECORD_FIELDS = (
+    "evolution_tool_builds",
+    "extraction_occurrence_rejections",
+    "tool_build_rejections",
+    "knowledge_preparation_rejections",
+)
+
 R22_FAILURE_EXTRACTOR_METRICS = (
     "failure_extractor_f1_input_event_count",
     "failure_extractor_f1_prompt_chars",
@@ -298,7 +333,10 @@ REPORT_COLUMNS = (
     "node_token_budget_exhausted_count",
     *R21_RUNTIME_METRICS,
     *R31_RUNTIME_METRICS,
+    "learning_diagnostics_version",
+    *R4_LEARNING_RECORD_FIELDS,
     *V32_METHOD_METRICS,
+    *R4_NEW_LEARNING_METRICS,
     "replay_full_catalog_count_at_last_request",
     "runtime_prompt_tokens",
     "runtime_completion_tokens",
@@ -332,6 +370,294 @@ class ReportPaths:
     markdown: Path
 
 
+def _r4_learning_metrics(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Read and validate the versioned R4 learning authority.
+
+    R4 deliberately stores one record per validated E1 occurrence.  The
+    reporter accepts the persisted counters only when they reconcile with
+    those records.  Traces from before R4 retain their historical fields, but
+    fields introduced by R4 remain unknown rather than being manufactured as
+    zeroes.
+    """
+
+    declared_version = str(
+        metadata.get("learning_diagnostics_version", "") or ""
+    ).strip()
+    if declared_version != R4_LEARNING_DIAGNOSTICS_VERSION:
+        return {
+            "is_r4": False,
+            "learning_diagnostics_version": (
+                LEGACY_LEARNING_DIAGNOSTICS_VERSION
+            ),
+            **{name: None for name in R4_LEARNING_RECORD_FIELDS},
+            **{name: None for name in R4_NEW_LEARNING_METRICS},
+        }
+
+    explicit = _mapping(metadata.get("v32_metrics", {}))
+    missing_metrics = [
+        name for name in R4_LEARNING_METRICS if name not in explicit
+    ]
+    if missing_metrics:
+        raise ValueError(
+            "R4 learning diagnostics are missing explicit counters: "
+            + ", ".join(missing_metrics)
+        )
+    metrics = {
+        name: _nonnegative_integer(explicit[name])
+        for name in R4_LEARNING_METRICS
+    }
+
+    records: dict[str, list[dict[str, Any]]] = {}
+    for field_name in R4_LEARNING_RECORD_FIELDS:
+        if field_name not in metadata:
+            raise ValueError(
+                f"R4 learning diagnostics are missing {field_name}"
+            )
+        raw_records = metadata[field_name]
+        if not isinstance(raw_records, (list, tuple)):
+            raise ValueError(
+                f"R4 learning diagnostic {field_name} must be a list"
+            )
+        records[field_name] = []
+        for index, raw in enumerate(raw_records):
+            if not isinstance(raw, Mapping):
+                raise ValueError(
+                    f"R4 learning diagnostic {field_name}[{index}] "
+                    "must be an object"
+                )
+            records[field_name].append(_mapping(raw))
+
+    rejection_fields = (
+        "extraction_occurrence_rejections",
+        "tool_build_rejections",
+        "knowledge_preparation_rejections",
+    )
+    for field_name in rejection_fields:
+        for index, rejection in enumerate(records[field_name]):
+            for required in ("stage", "phase_id", "error_code", "messages"):
+                if required not in rejection:
+                    raise ValueError(
+                        f"R4 learning diagnostic {field_name}[{index}] "
+                        f"is missing {required}"
+                    )
+            for required in ("stage", "phase_id", "error_code"):
+                if not str(rejection[required]).strip():
+                    raise ValueError(
+                        f"R4 learning diagnostic {field_name}[{index}]."
+                        f"{required} must be non-empty"
+                    )
+            if not isinstance(rejection["messages"], (list, tuple)):
+                raise ValueError(
+                    f"R4 learning diagnostic {field_name}[{index}].messages "
+                    "must be a list"
+                )
+            if "failure_codes" in rejection and not isinstance(
+                rejection["failure_codes"], (list, tuple)
+            ):
+                raise ValueError(
+                    f"R4 learning diagnostic {field_name}[{index}]."
+                    "failure_codes must be a list"
+                )
+
+    builds = records["evolution_tool_builds"]
+    required_build_fields = (
+        "occurrence_id",
+        "phase_id",
+        "atomic_ref",
+        "source",
+        "outcome",
+        "builder_entered",
+        "session_id",
+        "proposal_received",
+        "static_checked",
+        "static_passed",
+        "atomic_only_prepared",
+        "atomic_registered",
+        "registered_atomic_ref",
+        "failure_stage",
+        "error_code",
+        "failure_codes",
+        "messages",
+    )
+    allowed_outcomes = frozenset({
+        "exact_reuse",
+        "created",
+        "no_tool",
+        "submission_rejected",
+        "static_rejected",
+        "legacy_compiled",
+        "aborted",
+    })
+    for index, build in enumerate(builds):
+        missing = [name for name in required_build_fields if name not in build]
+        if missing:
+            raise ValueError(
+                f"R4 evolution_tool_builds[{index}] is missing: "
+                + ", ".join(missing)
+            )
+        for required in ("occurrence_id", "phase_id", "atomic_ref", "source"):
+            if not str(build[required]).strip():
+                raise ValueError(
+                    f"R4 evolution_tool_builds[{index}].{required} "
+                    "must be non-empty"
+                )
+        outcome = str(build["outcome"])
+        if outcome not in allowed_outcomes:
+            raise ValueError(
+                f"R4 evolution_tool_builds[{index}] has invalid final outcome: "
+                f"{outcome!r}"
+            )
+        for flag in (
+            "builder_entered",
+            "proposal_received",
+            "static_checked",
+            "atomic_only_prepared",
+            "atomic_registered",
+        ):
+            if not isinstance(build[flag], bool):
+                raise ValueError(
+                    f"R4 evolution_tool_builds[{index}].{flag} must be boolean"
+                )
+        if build["static_passed"] is not None and not isinstance(
+            build["static_passed"], bool
+        ):
+            raise ValueError(
+                f"R4 evolution_tool_builds[{index}].static_passed "
+                "must be boolean or null"
+            )
+        if not isinstance(build["failure_codes"], (list, tuple)):
+            raise ValueError(
+                f"R4 evolution_tool_builds[{index}].failure_codes must be a list"
+            )
+        if not isinstance(build["messages"], (list, tuple)):
+            raise ValueError(
+                f"R4 evolution_tool_builds[{index}].messages must be a list"
+            )
+        if build["static_checked"] is False and build["static_passed"] is not None:
+            raise ValueError(
+                f"R4 evolution_tool_builds[{index}] supplies static_passed "
+                "without a static check"
+            )
+
+    record_counts = {
+        "tool_builder_call_count": sum(
+            bool(item["builder_entered"]) for item in builds
+        ),
+        "tool_builder_proposal_count": sum(
+            bool(item["proposal_received"]) for item in builds
+        ),
+        "tool_builder_no_tool_count": sum(
+            item["outcome"] == "no_tool" for item in builds
+        ),
+        "tool_builder_submission_rejection_count": sum(
+            item["outcome"] == "submission_rejected" for item in builds
+        ),
+        "tool_builder_static_pass_count": sum(
+            item["static_checked"] and item["static_passed"] is True
+            for item in builds
+        ),
+        "tool_builder_static_rejection_count": sum(
+            item["static_checked"] and item["static_passed"] is False
+            for item in builds
+        ),
+        "tool_builder_aborted_count": sum(
+            item["builder_entered"] and item["outcome"] == "aborted"
+            for item in builds
+        ),
+        "atomic_only_prepared_after_tool_rejection_count": sum(
+            item["outcome"] in {"submission_rejected", "static_rejected"}
+            and item["atomic_only_prepared"]
+            for item in builds
+        ),
+        "atomic_only_retained_after_tool_rejection_count": sum(
+            item["outcome"] in {"submission_rejected", "static_rejected"}
+            and item["atomic_only_prepared"]
+            and item["atomic_registered"]
+            for item in builds
+        ),
+    }
+    for name, derived_count in record_counts.items():
+        if metrics[name] != derived_count:
+            raise ValueError(
+                f"R4 learning counter {name}={metrics[name]} does not match "
+                f"occurrence records={derived_count}"
+            )
+
+    proposed = metrics["extractor_e1_proposal_count"]
+    validated = metrics["extractor_e1_validated_occurrence_count"]
+    rejected = metrics["extractor_e1_rejection_count"]
+    e1_validation_interrupted = any(
+        item.get("stage") == "atomicizer"
+        and item.get("error_code") == "extractor_e1_atomicizer_unexpected"
+        for item in records["knowledge_preparation_rejections"]
+    )
+    if proposed != validated + rejected and not e1_validation_interrupted:
+        raise ValueError(
+            "R4 E1 proposal accounting must satisfy proposed=validated+rejected"
+        )
+    if len(builds) > validated:
+        raise ValueError(
+            "R4 evolution_tool_builds exceed the E1 validated count"
+        )
+    if len(builds) < validated:
+        missing_build_records = validated - len(builds)
+        build_occurrence_ids = {
+            str(item["occurrence_id"]) for item in builds
+        }
+        pre_builder_rejection_ids = [
+            str(item.get("occurrence_id", ""))
+            for item in records["knowledge_preparation_rejections"]
+            if item.get("stage") == "atomic_view"
+            and str(item.get("occurrence_id", ""))
+            and str(item.get("occurrence_id", ""))
+            not in build_occurrence_ids
+        ]
+        unique_pre_builder_ids = set(pre_builder_rejection_ids)
+        precisely_explained_before_builder = (
+            len(pre_builder_rejection_ids) == len(unique_pre_builder_ids)
+            and len(unique_pre_builder_ids) == missing_build_records
+        )
+        interrupted_during_build = any(
+            item["outcome"] == "aborted" for item in builds
+        )
+        if not (
+            interrupted_during_build or precisely_explained_before_builder
+        ):
+            raise ValueError(
+                "R4 E1 validated occurrences lack tool-path records without "
+                "an aborted interruption or exact atomic_view rejection"
+            )
+    if rejected != len(records["extraction_occurrence_rejections"]):
+        raise ValueError(
+            "R4 E1 rejection count does not match rejection records"
+        )
+    if (
+        metrics["tool_builder_submission_rejection_count"]
+        + metrics["tool_builder_static_rejection_count"]
+        != len(records["tool_build_rejections"])
+    ):
+        raise ValueError(
+            "R4 ToolBuilder rejection counts do not match rejection records"
+        )
+    if all(
+        not item["proposal_received"] or item["static_checked"]
+        for item in builds
+    ) and metrics["tool_builder_proposal_count"] != (
+        metrics["tool_builder_static_pass_count"]
+        + metrics["tool_builder_static_rejection_count"]
+    ):
+        raise ValueError(
+            "R4 completed ToolBuilder proposal accounting does not reconcile"
+        )
+
+    return {
+        "is_r4": True,
+        "learning_diagnostics_version": R4_LEARNING_DIAGNOSTICS_VERSION,
+        **records,
+        **metrics,
+    }
+
+
 def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
     """Convert one structured v3 trace into a stable experiment row."""
 
@@ -340,6 +666,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
     plan = _mapping(_field(trace, "runtime_plan", {}))
     metadata = _mapping(_field(trace, "metadata", {}))
     quality = _mapping(metadata.get("extractor_quality", {}))
+    r4_learning = _r4_learning_metrics(metadata)
     nodes = [_mapping(item) for item in _sequence(_field(trace, "node_records", []))]
     statuses = [_enum_value(item.get("status", "not_started")) for item in nodes]
 
@@ -390,7 +717,15 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         planner_atomic_full_coverage=planner_atomic_full_coverage,
         planner_p2_used=planner_p2_used,
     )
-    extraction = _extraction_diagnostic(trace, metadata, quality, usage)
+    extraction = _extraction_diagnostic(
+        trace,
+        metadata,
+        quality,
+        usage,
+        r4_learning=(
+            r4_learning if _boolean(r4_learning.get("is_r4")) else None
+        ),
+    )
     failure_extractor = _failure_extractor_diagnostic(
         trace, metadata=metadata, usage=usage,
     )
@@ -418,6 +753,9 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         nodes=nodes,
         invocations=invocations,
         executions=executions,
+        r4_learning=(
+            r4_learning if _boolean(r4_learning.get("is_r4")) else None
+        ),
     )
     row: dict[str, Any] = {
         "trace_id": str(_field(trace, "trace_id", "")),
@@ -540,12 +878,29 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         ),
         **r21_runtime,
         **r31_runtime,
+        "learning_diagnostics_version": r4_learning[
+            "learning_diagnostics_version"
+        ],
+        **{
+            name: r4_learning.get(name)
+            for name in R4_LEARNING_RECORD_FIELDS
+        },
         **v32_metrics,
         **failure_extractor,
         **v31_metrics,
         **{
             name: _integer(quality.get(name, 0))
             for name in EXTRACTOR_QUALITY_METRICS
+        },
+        **{
+            name: r4_learning.get(name)
+            for name in R4_LEARNING_METRICS
+            if _boolean(r4_learning.get("is_r4"))
+        },
+        **{
+            name: None
+            for name in R4_NEW_LEARNING_METRICS
+            if not _boolean(r4_learning.get("is_r4"))
         },
         **extraction,
         "artifact_growth": _first_present(
@@ -683,6 +1038,46 @@ def summarize_traces(
         for item in resource_rows
     )
 
+    learning_rows_by_version: dict[str, list[Mapping[str, Any]]] = {}
+    for row in task_rows:
+        version = str(
+            row.get("learning_diagnostics_version")
+            or LEGACY_LEARNING_DIAGNOSTICS_VERSION
+        )
+        learning_rows_by_version.setdefault(version, []).append(row)
+
+    learning_diagnostics_by_version: dict[str, dict[str, Any]] = {}
+    for version, version_rows in sorted(learning_rows_by_version.items()):
+        grouped_metrics: dict[str, int | None] = {}
+        for name in R4_LEARNING_METRICS:
+            values = [row.get(name) for row in version_rows]
+            grouped_metrics[name] = (
+                None
+                if any(value is None for value in values)
+                else sum(_nonnegative_integer(value) for value in values)
+            )
+        learning_diagnostics_by_version[version] = {
+            "task_count": len(version_rows),
+            **grouped_metrics,
+        }
+
+    if not learning_diagnostics_by_version:
+        top_level_learning_metrics: dict[str, int | None] = {
+            name: 0 for name in R4_LEARNING_METRICS
+        }
+    elif len(learning_diagnostics_by_version) == 1:
+        only_group = next(iter(learning_diagnostics_by_version.values()))
+        top_level_learning_metrics = {
+            name: only_group[name] for name in R4_LEARNING_METRICS
+        }
+    else:
+        # A top-level total would silently combine the R4 stage-separated
+        # authority with legacy mixed/incomplete counters.  Consumers must use
+        # the version groups instead.
+        top_level_learning_metrics = {
+            name: None for name in R4_LEARNING_METRICS
+        }
+
     return {
         "schema_version": 3,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -787,6 +1182,7 @@ def summarize_traces(
         **{
             name: sum(_integer(row.get(name, 0)) for row in task_rows)
             for name in V32_METHOD_METRICS
+            if name not in R4_LEARNING_METRICS
         },
         **{
             name: sum(_integer(row.get(name, 0)) for row in task_rows)
@@ -817,7 +1213,10 @@ def summarize_traces(
                 _integer(row.get(name, 0)) for row in task_rows
             )
             for name in EXTRACTOR_QUALITY_METRICS
+            if name not in R4_LEARNING_METRICS
         },
+        **top_level_learning_metrics,
+        "learning_diagnostics_by_version": learning_diagnostics_by_version,
         "planner_atomic_full_coverage_count": sum(
             _boolean(row.get("planner_atomic_full_coverage"))
             for row in task_rows
@@ -1003,6 +1402,7 @@ def render_markdown(
     quality = tuple(
         (name, summary.get(name, 0))
         for name in EXTRACTOR_QUALITY_METRICS
+        if name not in R4_LEARNING_METRICS
     ) + (
         (
             "planner_p1r_reason_distribution",
@@ -1079,7 +1479,74 @@ def render_markdown(
     lines.extend(_markdown_pairs(tuple(
         (name, summary.get(name, 0))
         for name in V32_METHOD_METRICS
+        if name not in R4_LEARNING_METRICS
     )))
+    learning_groups = _mapping(
+        summary.get("learning_diagnostics_by_version", {})
+    )
+    r4_group = _mapping(
+        learning_groups.get(R4_LEARNING_DIAGNOSTICS_VERSION, {})
+    )
+    legacy_group = _mapping(
+        learning_groups.get(LEGACY_LEARNING_DIAGNOSTICS_VERSION, {})
+    )
+    lines.extend(["", "## Learning diagnostics by version", ""])
+    lines.extend(_markdown_pairs(tuple(
+        (version, _mapping(group).get("task_count", 0))
+        for version, group in sorted(learning_groups.items())
+    )))
+    if len(learning_groups) > 1:
+        lines.extend([
+            "",
+            "> Mixed diagnostic versions are shown separately; no top-level "
+            "learning-stage total or pass rate is computed.",
+        ])
+
+    lines.extend(["", "### E1 Atomic validation (v3.2-r4)", ""])
+    lines.extend(_markdown_pairs((
+        ("Tasks", r4_group.get("task_count", 0)),
+        (
+            "extractor_e1_proposal_count",
+            r4_group.get("extractor_e1_proposal_count"),
+        ),
+        (
+            "extractor_e1_validated_occurrence_count",
+            r4_group.get("extractor_e1_validated_occurrence_count"),
+        ),
+        (
+            "extractor_e1_rejection_count",
+            r4_group.get("extractor_e1_rejection_count"),
+        ),
+        (
+            "atomic_staged_occurrence_count",
+            r4_group.get("atomic_staged_occurrence_count"),
+        ),
+    )))
+    lines.extend(["", "### ToolBuilder construction (v3.2-r4)", ""])
+    lines.extend(_markdown_pairs(tuple(
+        (name, r4_group.get(name))
+        for name in R4_LEARNING_METRICS
+        if name.startswith("tool_builder_")
+        or name.startswith("atomic_only_")
+    )))
+
+    if legacy_group:
+        lines.extend([
+            "",
+            "### Legacy mixed or incomplete learning diagnostics",
+            "",
+            "> `legacy_mixed_or_incomplete`: E1 fields may include later "
+            "ToolBuilder failures, ToolBuilder failures may be undercounted, "
+            "and `n/a` values cannot be compared directly with v3.2-r4.",
+            "",
+        ])
+        lines.extend(_markdown_pairs((
+            ("Tasks", legacy_group.get("task_count", 0)),
+            *tuple(
+                (name, legacy_group.get(name))
+                for name in R4_LEARNING_METRICS
+            ),
+        )))
     lines.extend(["", "### Runtime token decomposition", ""])
     lines.append(
         "| Bucket | Calls | Prompt | Completion | Reasoning | Avg total/call | "
@@ -1180,13 +1647,87 @@ def render_markdown(
                     _yes_no(row.get("extraction_prepared")),
                     _yes_no(row.get("extraction_applied")),
                     _markdown_cell(row.get("extraction_error_code", "")),
-                    row.get("e1_proposed", 0),
-                    row.get("e1_validated", 0),
-                    row.get("e1_rejected", 0),
+                    _display(row.get("e1_proposed")),
+                    _display(row.get("e1_validated")),
+                    _display(row.get("e1_rejected")),
                     "n/a" if coverage is None else _yes_no(coverage),
                     _yes_no(row.get("e2_attempted")),
                     row.get("e2_selected_existing_edges", 0),
                     row.get("e2_selected_new_edges", 0),
+                )
+            )
+
+    if rows:
+        lines.extend(["", "## Per-task learning diagnostics", ""])
+        lines.append(
+            "| Task | Version | E1 proposed | E1 valid | E1 rejected | "
+            "Atomic staged | Builder calls | Create proposals | NO_TOOL | "
+            "Submission rejected | Static passed | Static rejected | "
+            "Builder aborted | Atomic retained after rejection |"
+        )
+        lines.append(
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+            "---:|---:|---:|"
+        )
+        for row in rows:
+            lines.append(
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | "
+                "{} | {} | {} | {} |".format(
+                    _markdown_cell(row.get("task_id", "")),
+                    _markdown_cell(row.get(
+                        "learning_diagnostics_version",
+                        LEGACY_LEARNING_DIAGNOSTICS_VERSION,
+                    )),
+                    _display(row.get("extractor_e1_proposal_count")),
+                    _display(row.get(
+                        "extractor_e1_validated_occurrence_count"
+                    )),
+                    _display(row.get("extractor_e1_rejection_count")),
+                    _display(row.get("atomic_staged_occurrence_count")),
+                    _display(row.get("tool_builder_call_count")),
+                    _display(row.get("tool_builder_proposal_count")),
+                    _display(row.get("tool_builder_no_tool_count")),
+                    _display(row.get(
+                        "tool_builder_submission_rejection_count"
+                    )),
+                    _display(row.get("tool_builder_static_pass_count")),
+                    _display(row.get("tool_builder_static_rejection_count")),
+                    _display(row.get("tool_builder_aborted_count")),
+                    _display(row.get(
+                        "atomic_only_retained_after_tool_rejection_count"
+                    )),
+                )
+            )
+
+    rejection_rows: list[tuple[Mapping[str, Any], str, Mapping[str, Any]]] = []
+    for row in rows:
+        for field_name in (
+            "extraction_occurrence_rejections",
+            "tool_build_rejections",
+            "knowledge_preparation_rejections",
+        ):
+            for rejection in _sequence(row.get(field_name)):
+                rejection_rows.append((row, field_name, _mapping(rejection)))
+    if rejection_rows:
+        lines.extend(["", "## Learning rejection details", ""])
+        lines.append(
+            "| Task | Source | Stage | Phase | Error code | Failure codes | Messages |"
+        )
+        lines.append("|---|---|---|---|---|---|---|")
+        for row, field_name, rejection in rejection_rows:
+            lines.append(
+                "| {} | {} | {} | {} | {} | {} | {} |".format(
+                    _markdown_cell(row.get("task_id", "")),
+                    _markdown_cell(field_name),
+                    _markdown_cell(rejection.get("stage", "")),
+                    _markdown_cell(rejection.get("phase_id", "")),
+                    _markdown_cell(rejection.get("error_code", "")),
+                    _markdown_cell(_canonical_json(
+                        _sequence(rejection.get("failure_codes", []))
+                    )),
+                    _markdown_cell(_canonical_json(
+                        _sequence(rejection.get("messages", []))
+                    )),
                 )
             )
 
@@ -1827,6 +2368,8 @@ def _extraction_diagnostic(
     metadata: Mapping[str, Any],
     quality: Mapping[str, Any],
     usage: Mapping[str, Any],
+    *,
+    r4_learning: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     extraction = _mapping(metadata.get("extraction", {}))
     applied_payload = _mapping(metadata.get("evolution_applied", {}))
@@ -1842,18 +2385,29 @@ def _extraction_diagnostic(
     stage = str(extraction.get("stage", ""))
     if not stage:
         stage = "applied" if applied else "prepared" if prepared else ""
-    proposed = _integer(extraction.get(
-        "e1_proposed",
-        quality.get("extractor_e1_proposal_count", 0),
-    ))
-    validated = _integer(extraction.get(
-        "e1_validated",
-        quality.get("extractor_e1_validated_occurrence_count", 0),
-    ))
-    rejected = _integer(extraction.get(
-        "e1_rejected",
-        quality.get("extractor_e1_rejection_count", 0),
-    ))
+    if r4_learning is not None:
+        proposed = _nonnegative_integer(
+            r4_learning["extractor_e1_proposal_count"]
+        )
+        validated = _nonnegative_integer(
+            r4_learning["extractor_e1_validated_occurrence_count"]
+        )
+        rejected = _nonnegative_integer(
+            r4_learning["extractor_e1_rejection_count"]
+        )
+    else:
+        proposed = _integer(extraction.get(
+            "e1_proposed",
+            quality.get("extractor_e1_proposal_count", 0),
+        ))
+        validated = _integer(extraction.get(
+            "e1_validated",
+            quality.get("extractor_e1_validated_occurrence_count", 0),
+        ))
+        rejected = _integer(extraction.get(
+            "e1_rejected",
+            quality.get("extractor_e1_rejection_count", 0),
+        ))
     coverage_value = extraction.get("e1_contract_coverage_passed")
     coverage = None if coverage_value is None else _boolean(coverage_value)
     e2_attempted = _boolean(extraction.get(
@@ -2498,13 +3052,14 @@ def _v32_method_metrics(
     nodes: Sequence[Mapping[str, Any]],
     invocations: Sequence[Mapping[str, Any]],
     executions: Sequence[Mapping[str, Any]],
-) -> dict[str, int]:
+    r4_learning: Mapping[str, Any] | None = None,
+) -> dict[str, int | None]:
     """Derive v3.2 counters from structured Trace authority only."""
 
     explicit = _mapping(metadata.get("v32_metrics", {}))
     planner_repairability = _mapping(planner.get("repairability", {}))
     diagnostics = planner_repairability.get("diagnostics") or ()
-    result: dict[str, int] = {
+    result: dict[str, int | None] = {
         name: _integer(explicit.get(name, 0))
         for name in V32_METHOD_METRICS
     }
@@ -2569,9 +3124,12 @@ def _v32_method_metrics(
     derived("task_terminal_with_remaining_occurrences_count", int(
         result["terminal_skipped_occurrence_count"] > 0
     ))
-    derived("tool_builder_proposal_count", int(
-        result["tool_builder_call_count"] - result["tool_builder_no_tool_count"]
-    ))
+    # A rejected native submission consumes a Builder call without yielding a
+    # create proposal.  Therefore call_count - no_tool_count is not evidence of
+    # proposal_count.  R4 provides the exact value below; an older trace must
+    # have serialized it explicitly or remain unknown.
+    if "tool_builder_proposal_count" not in explicit:
+        result["tool_builder_proposal_count"] = None
     derived("tool_validated_path_count", sum(
         len(_sequence(_mapping(item.get("result", {})).get("validated_paths", ())))
         for item in executions
@@ -2593,6 +3151,10 @@ def _v32_method_metrics(
     tool_action_total = sum(tool_action_count(item) for item in executions)
     derived("runtime_tool_internal_action_count", tool_action_total)
     derived("runtime_tool_llm_bypassed_action_count", tool_action_total)
+    if r4_learning is not None:
+        for name in R4_LEARNING_METRICS:
+            if name in result:
+                result[name] = _nonnegative_integer(r4_learning[name])
     return result
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
@@ -9,6 +10,19 @@ from typing import Any, Mapping
 from ..core.bindings import BindingExpression, BindingExprKind
 from ..core.contracts import ParameterSpec, SemanticPredicate
 from ..core.refs import SkillRef, content_hash
+
+
+class AtomicProposalBatchRejected(ValueError):
+    """Every proposed E1 occurrence was rejected by Atomic validation."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        rejections: list[dict[str, str]],
+    ) -> None:
+        super().__init__(message)
+        self.rejections = copy.deepcopy(rejections)
 
 
 @dataclass
@@ -770,7 +784,10 @@ class Atomicizer:
             canonical = candidate
         if not canonical:
             detail = rejections[0]["error"] if rejections else "no proposals"
-            raise ValueError(f"Extractor E1 produced no valid Atomic occurrences: {detail}")
+            raise AtomicProposalBatchRejected(
+                f"Extractor E1 produced no valid Atomic occurrences: {detail}",
+                rejections=rejections,
+            )
         return canonical, rejections
 
     def validate_and_canonicalize(

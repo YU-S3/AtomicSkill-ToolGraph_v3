@@ -868,9 +868,10 @@ def test_gate21_tool_builder_context_has_no_provenance_leakage() -> None:
     from atomic_skillgraph.agents.context_builder import ContextBuilder
 
     atomic = _atomic()
-    provenance = SimpleNamespace(
-        source="success_evolution", task_id="task_secret", trace_id="trace_secret",
-        occurrence_id="occ_secret", draft_id="",
+    provenance = ToolProvenance(
+        source="success_evolution", task_id="task_secret",
+        source_trace_id="trace_secret", occurrence_id="occ_secret", draft_id="",
+        atomic_ref="skill://gate21_atomic@1.0.0",
     )
     prompt = ContextBuilder().tool_builder(
         atomic=atomic,
@@ -883,6 +884,7 @@ def test_gate21_tool_builder_context_has_no_provenance_leakage() -> None:
     assert "trace_secret" not in prompt
     assert "occ_secret" not in prompt
     assert "source_kind" in prompt
+    assert "skill://gate21_atomic@1.0.0" in prompt
 
 
 def test_gate12_runtime_automation_input_binding_specs_resolve() -> None:

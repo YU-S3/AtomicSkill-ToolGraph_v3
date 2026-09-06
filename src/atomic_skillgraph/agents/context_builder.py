@@ -299,6 +299,10 @@ class ContextBuilder:
         local_failures: Iterable[Any] | None = None,
     ) -> str:
         atomic_mapping = _as_mapping(atomic)
+        provenance_mapping = _as_mapping(provenance)
+        atomic_ref = provenance_mapping.get("atomic_ref")
+        if not isinstance(atomic_ref, str) or not atomic_ref.strip():
+            raise ValueError("ToolBuilder provenance atomic_ref must be non-empty")
         atomic_view = _project(
             atomic,
             ("summary", "inputs", "outputs", "preconditions", "effects"),
@@ -314,15 +318,16 @@ class ContextBuilder:
         ))
         source_kind = (
             "success_evolution"
-            if getattr(provenance, "source", "") == "success_evolution"
+            if provenance_mapping.get("source") == "success_evolution"
             else "runtime_automation"
-            if getattr(provenance, "source", "") == "runtime_automation"
-            else str(getattr(provenance, "source", "unknown"))
+            if provenance_mapping.get("source") == "runtime_automation"
+            else str(provenance_mapping.get("source", "unknown"))
         )
         # The frozen ToolBuilder context never includes the complete task goal,
         # full trace, full planner history, full skill bank, or old Tool bodies.
         payload = {
             "canonical_atomic": atomic_view,
+            "atomic_ref": atomic_ref,
             "atomic_output_derivations": _policy_value(dict(
                 dict(atomic_mapping.get("validator_spec") or {}).get(
                     "output_derivations"
@@ -360,42 +365,48 @@ class ContextBuilder:
             "source_kind": source_kind,
         }
         return _render(
-            "You are ToolBuilder, the only v3.2 Tool Program author. "
-            "You implement one already-proposed Atomic. "
-            "The Atomic contract is authoritative. "
-            "The source trace is evidence, not a program to replay. "
-            "Use the minimal reusable procedure needed to realize the Atomic. "
-            "Do not copy every event in the evidence envelope. "
-            "Do not add task-specific workflow knowledge. "
-            "The supplied Atomic boundary is immutable. "
-            "You MUST NOT add, remove, rename, or change any Atomic input/output "
-            "role, semantic type, requiredness, or required resolution. "
-            "Echo the supplied Atomic inputs/outputs exactly in ToolProposal. "
-            "Use local variables and structured selectors for all internal "
-            "temporary values. "
-            "Every ACTION node must declare non-empty expected_effects using "
-            "only the supplied Harness predicate vocabulary; these are checked "
-            "after that exact accepted action. "
-            "Every branch, output, and expected effect must be representable in "
-            "the supplied Harness interface. "
-            "For success-evolution evidence, propose FOR_EACH only when the "
-            "bounded Atomic evidence contains at least two structurally "
-            "isomorphic distinct repetitions. Runtime automation may instead "
-            "earn loop path evidence in its task-local R1 trial. "
-            'RETURN.output_sources must use exactly one of: '
-            '{"source":"tool_input","field":"<input_role>"}, '
-            '{"source":"local_variable","field":"<loop_variable>"}, '
-            '{"source":"semantic_evidence","where":{"predicate":"..."},'
-            '"project":{"kind":"argument","role":"..."}}, '
-            'or {"source":"constant","value":"..."}. '
-            'Do not use kind=data_flow or kind=skill_input inside RETURN. '
-            'evidence_outputs entries must use '
-            '{"role":"<output_role>","source":"tool_input","field":"<input_role>"} '
-            'or the same semantic_evidence form; omit evidence_outputs when no '
-            'structured source is available. '
-            "Return decision=no_tool if no safe reusable bounded implementation "
-            "is justified. "
-            "Call only the offered create_tool submission.",
+            """You are the ToolBuilder. Submit exactly one native create_tool call for the supplied Atomic, or submit decision=no_tool. Do not execute environment actions. Do not return a program as prose, Markdown, or standalone JSON.
+
+AUTHORITY AND IMMUTABLE FIELDS
+The supplied canonical_atomic defines the capability. The supplied atomic_ref is its identity. Echo atomic_ref exactly. Echo canonical_atomic.inputs and canonical_atomic.outputs exactly, including each role name, semantic_type, required, runtime_resolvable, and required_resolution. Do not add, delete, rename, or reinterpret a boundary role.
+Only the supplied Harness action/predicate interfaces and structured evidence may justify the implementation. Do not invent an action, predicate, argument role, current fact, or output. Do not copy an episode entity identifier into a reusable program constant.
+
+KEEP THREE DIFFERENT THINGS SEPARATE
+1. ACTION.argument_mapping says how to call a primitive now.
+2. ACTION.expected_effects says what must be true immediately after that particular action.
+3. ToolProposal.final_effects is the Atomic's final contract, not a restatement in your preferred variable names.
+For a create proposal, copy canonical_atomic.effects into final_effects without changing predicate names, argument keys, formal source_role values, cardinality, distinct_by, or effect_domain. Do not rename a final output role to an input role just because RETURN will give them the same concrete value. Do not add extra final effects.
+For example, when the supplied final Effect uses source_role="result" and RETURN maps result to input item, the final Effect must still use "result", not "item". A step-level Effect may use "item" when that is the value justified immediately after the step. The example names are illustrative; use only this Atomic's actual roles.
+
+ACTION ARGUMENTS AND STEP EFFECTS
+Use an action_type from harness_interface.primitive_actions and exactly its declared argument roles. In ACTION.argument_mapping, use {"kind":"skill_input","source_role":"<declared input>"}; a loop-local value inside its valid loop body uses {"kind":"local_variable","source_role":"<iteration variable>"}. Use constant only for a genuinely portable literal allowed by the interface, never for an episode entity or task identifier.
+Every ACTION needs a non-empty expected_effects list. Each effect must use the supplied predicate vocabulary, its exact argument roles, and its declared effect_domain. State only effects justified after that exact action; do not place later effects on an earlier step.
+Within ACTION.expected_effects, formal references use {"kind":"skill_input","source_role":"<formal role>"} or the supported $role notation; a definitely defined loop-local value may use {"kind":"local_variable","source_role":"<iteration variable>"}. A declared fresh output may be referenced only when the current action's structured evidence can resolve it. Prefer a currently known input/local value when it already names the affected entity.
+Do NOT use kind=tool_output, kind=data_flow, or kind=adapter_transform in ACTION.expected_effects. Adding source_step does not make tool_output valid in this field. Do not confuse the broader graph BindingExpression vocabulary with the narrower Tool IR field rules.
+
+RETURN AND OUTPUT DERIVATIONS
+RETURN.output_sources is an object keyed by the actual Atomic output roles. Do not put a selector directly at the top level of output_sources.
+For an input identity, use:
+{"<output_role>":{"source":"tool_input","field":"<input_role>"}}
+For a loop local, use source=local_variable and field=<iteration variable> within its valid scope.
+For a value read from structured semantic evidence, use:
+{"<output_role>":{"source":"semantic_evidence","where":{"predicate":"<supplied predicate>"},"project":{"kind":"argument","role":"<predicate argument role>"}}}
+Add the supported filters required to select the correct value. A selector must resolve the required identity; do not rely on an arbitrary first match. Do not infer selector results from prose.
+Follow atomic_output_derivations. An input_identity must return that input's exact identity. An effect_witness must agree with the declared predicate argument and the real witness; an output name alone is not evidence. A direct input return is permissible only when the implementation and contract prove it is that same witnessed identity.
+Do not use kind=skill_input, kind=tool_output, or kind=data_flow as a RETURN source. RETURN uses source/field/project, not argument_mapping's kind/source_role form.
+Every successful return path must supply the required outputs. Loop variables do not exist outside their loop bodies. Put shared work after IF branches only when its required values are available on both branches.
+
+BOUNDING AND SAFETY
+Use only ACTION, IF, FOR_EACH, STOP_WHEN, RETURN. Give nodes unique non-empty node_id values. Keep nesting within the existing maximum of four levels. Set a positive max_actions that bounds actual primitive actions; control nodes do not count as primitive actions. Bound every FOR_EACH with a positive max_iterations.
+In success_evolution, propose FOR_EACH only when the supplied evidence contains at least two structurally isomorphic distinct repetitions. In runtime_automation, loop behavior may instead earn evidence through the existing task-local R1 trial. Do not change this distinction.
+Use only supported condition/selector sources and operators. No Python, shell, filesystem, network, hidden model calls, task-family branches, or episode-specific constants.
+Evidence_outputs are optional: use [] when unnecessary. When supplied, each entry must name an actual output role and a supported source. Path expectations describe what must be verified; never claim that an unexecuted path has already passed.
+
+NO_TOOL IS A VALID DECISION, NOT A FAKE EXECUTABLE
+If no safe, reusable, bounded implementation can satisfy the supplied contract, submit decision=no_tool with a specific rationale. Still include every field required by the offered native-tool schema: proposal_version="1", a non-empty summary, the supplied atomic_ref, the supplied input/output lists, program=[], max_actions=1, final_effects=[], evidence_outputs=[], path_expectations=[], and rationale. The value 1 is a schema-compatible placeholder, not permission to execute an action. Code does not compile or run a no_tool proposal.
+
+FINAL CHECK BEFORE THE SINGLE SUBMISSION
+Check the immutable boundary, exact final_effects copy, each ACTION's argument/step-effect rules, required RETURN output keys, local scopes, bounds, and portability. If any required value or effect cannot be justified, choose no_tool rather than inventing it. Do this within the existing call and token budget; do not request an additional repair turn.""",
             payload,
             sort_keys=False,
         )
@@ -499,7 +510,11 @@ All episode-specific values belong only in input_roles/output_roles.
 Never copy a concrete value into intent, rationale intended as a long-term
 summary, or any reusable guideline.
 
-event_start is inclusive and event_end is exclusive.
+event_start is inclusive and event_end is exclusive in this submission. A single event at index i uses [i, i+1). Code performs the exclusive-to-inclusive conversion; do not subtract one yourself.
+The precondition boundary is exactly canonical_trace.actions[event_start].authoritative_before_state_facts. It is not the state before an arbitrary support event and not any historical state inside the envelope.
+Choose the smallest evidence envelope that contains the necessary support events without moving the entry boundary earlier than the stated preconditions. A fact created by a support/setup event inside the envelope is an intermediate fact, not an entry precondition. Either describe the occurrence from an earlier valid entry state with that setup included, or start the core occurrence after setup and cite its actual entry-state witnesses. Do not erase necessary preconditions merely to pass validation; do not attach later witnesses to an earlier start.
+An event at index i normally creates its after-state at that action's after_revision. The event index and world revision are different fields. Copy the supplied references; never build a witness string by arithmetic.
+Temporal envelopes may overlap, but support_event_ids determine event ownership. Preserve the existing shared-precondition and independent-Effect ownership rules below.
 Temporal evidence envelopes may overlap when Atomics share prerequisite context.
 support_event_ids, not envelope overlap, define effect-producing event ownership.
 Do not assign the same effect-producing support event to multiple independent
@@ -512,9 +527,14 @@ not shared_precondition_event_ids. Code accepts shared support ownership only
 when the event is not claimed as an Effect witness by two independent Atomics.
 
 input_roles:
-- non-empty;
+- non-empty; every role has a concrete value supported by one supplied authority;
 - unique role-to-concrete-value bindings;
-- every input must reference one supplied input_provenance_refs authority.
+- input_provenance_refs keys must exactly equal input_roles keys;
+- for every input role r, select exactly one supplied boundary_authorities.inputs entry a with a.role == r and a.value == input_roles[r]; then copy a.authority_ref exactly;
+- do not rename an input to a more descriptive alias while citing an authority for a different role. If a.role is object, using light or container as the input key with that same reference is invalid under this interface;
+- this equality applies to the Atomic input role and the input authority role, not to a predicate's argument name. A predicate argument such as location may legitimately refer to an input named destination;
+- do not invent a new input authority, derive one from prose, or borrow an authority outside the supplied event/lineage boundary;
+- if no permitted authority supplies a required input, revise the proposed occurrence using the actual evidence; do not fabricate a match.
 
 output_roles:
 - non-empty;
@@ -526,9 +546,14 @@ Do not derive an output from observation prose.
 Use only supplied boundary_authorities / effect witness refs.
 
 preconditions:
-- may be empty;
-- include only facts semantically necessary for the core transition;
-- copy only code-authoritative before-state facts.
+- may be empty only when the proposed transition genuinely needs no declared entry facts;
+- include only necessary facts present in canonical_trace.actions[event_start].authoritative_before_state_facts;
+- precondition_witness_refs must name those exact entry-state certificates, with matching predicate, arguments, and effect_domain;
+- a fact may persist across revisions, but its certificate at a later revision is not interchangeable with the certificate at the entry boundary;
+- facts established inside the selected envelope are not entry preconditions;
+- preserve the supplied predicate argument keys and effect_domain; do not infer a precondition from task wording or observation prose.
+
+Boundary example, for syntax only: if event 5 establishes fact P, event 6 uses P to establish Q, and P was absent before event 5, an occurrence starting at 5 cannot cite P as an entry precondition. An occurrence selecting event 6 alone uses [6,7) and may cite the P certificate supplied in actions[6].authoritative_before_state_facts. Use the actual event IDs/revisions and facts from this trace, not these example numbers.
 
 effects:
 - non-empty;
@@ -555,6 +580,8 @@ required inside that occurrence.
   causal occurrence lineage. Do not include unrelated actions merely to make
   the interval contiguous. Precondition and effect witnesses must be explicit.
   Only extract causal capabilities supported before benchmark terminal success.
+
+Before the one native submission, verify every proposed occurrence independently: [event_start,event_end) contains its support_event_ids; each input's authority has the same role and value; every precondition reference belongs to the exact entry snapshot; every Effect reference belongs to the selected support events and matches the declared predicate/domain; every output has one legal input_identity or effect_witness derivation. Do not change correct sibling occurrences to hide an invalid one. This self-check adds no tool call and no retry.
 
 Call the offered native submission tool exactly once.""",
             {

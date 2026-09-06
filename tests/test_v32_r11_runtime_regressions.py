@@ -29,7 +29,11 @@ from atomic_skillgraph.planner.repairability import (
     RepairabilityGate,
 )
 from atomic_skillgraph.tooling.ir import ToolExecutionState
-from atomic_skillgraph.tooling.proposal import RuntimeAutomationAtomicDraft, ToolProposal
+from atomic_skillgraph.tooling.proposal import (
+    RuntimeAutomationAtomicDraft,
+    ToolProposal,
+    ToolProvenance,
+)
 from atomic_skillgraph.tooling.validator import ToolStaticValidator
 from atomic_skillgraph.validation.tool_validator import ToolValidator
 
@@ -468,7 +472,12 @@ def test_tool_builder_context_exposes_only_bounded_occurrence_authority() -> Non
     witness = "alfworld_action_fact:r2:agent.at_location:location=cabinet_1"
     prompt = ContextBuilder().tool_builder(
         atomic=_builder_atomic(),
-        provenance=SimpleNamespace(source="success_evolution"),
+        provenance=ToolProvenance(
+            source="success_evolution",
+            atomic_ref="skill://builder_context_fixture@1.0.0",
+            source_trace_id="trace_fixture",
+            occurrence_id="occurrence_fixture",
+        ),
         evidence_support=[{
             "event_id": "event_1",
             "action_type": "GO_TO",
@@ -492,6 +501,7 @@ def test_tool_builder_context_exposes_only_bounded_occurrence_authority() -> Non
     _instruction, raw_payload = prompt.split("\n\nPOLICY_CONTEXT_JSON\n", 1)
     payload = json.loads(raw_payload)
 
+    assert payload["atomic_ref"] == "skill://builder_context_fixture@1.0.0"
     assert payload["atomic_output_derivations"] == {
         "result": {
             "kind": "input_identity",

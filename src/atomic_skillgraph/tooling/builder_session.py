@@ -19,6 +19,10 @@ from ..core.contracts import AbstractAtomicSkill
 from .proposal import ToolProposal, ToolProvenance, tool_proposal_from_dict
 
 
+class ToolProposalParseError(ValueError):
+    """The submitted ToolBuilder payload could not become a ToolProposal."""
+
+
 class ToolBuilderSession:
     def __init__(self, session: Any) -> None:
         self.session = session
@@ -58,7 +62,12 @@ class ToolBuilderSession:
             ),
             schema=TOOL_PROPOSAL_SCHEMA,
         )
-        return tool_proposal_from_dict(submission.value)
+        try:
+            return tool_proposal_from_dict(submission.value)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ToolProposalParseError(
+                f"ToolBuilder proposal payload could not be parsed: {exc}"
+            ) from exc
 
 
-__all__ = ["ToolBuilderSession"]
+__all__ = ["ToolBuilderSession", "ToolProposalParseError"]

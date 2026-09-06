@@ -41,7 +41,7 @@ from .core.serialization import atomic_write_json, to_primitive
 from .core.status import RuntimeMode, SkillStatus
 from .evolution.admission import Admission
 from .evolution.aligner import Aligner
-from .evolution.atomicizer import Atomicizer
+from .evolution.atomicizer import AtomicProposalBatchRejected, Atomicizer
 from .evolution.composite_builder import CompositeBuilder
 from .evolution.composite_repair_session import CompositeSequenceProposalSession
 from .evolution.composite_repairs import CompositeSequenceRepairEngine
@@ -88,7 +88,7 @@ from .evolution.tool_compiler import (
     ToolCompiler,
     rewrite_capability_labels,
 )
-from .tooling.builder_session import ToolBuilderSession
+from .tooling.builder_session import ToolBuilderSession, ToolProposalParseError
 from .tooling.proposal import ToolProvenance
 from .tooling.validator import ToolStaticValidator
 from .evolution.trace_normalizer import TraceNormalizer
@@ -350,6 +350,31 @@ class _PreparedEvolution:
     gap_diagnosis: dict[str, Any]
     source_composite_ref: str
     composite_rejection: dict[str, str] | None = None
+
+
+class _ToolBuildContentRejected(ValueError):
+    """A narrowly recognized model-authored ToolBuilder content rejection."""
+
+    def __init__(
+        self,
+        *,
+        stage: str,
+        error_code: str,
+        failure_codes: list[str],
+        messages: list[str],
+        phase_id: str,
+        occurrence_id: str,
+    ) -> None:
+        normalized_messages = [str(item) for item in messages]
+        super().__init__("; ".join(normalized_messages) or error_code)
+        self.stage = str(stage)
+        self.error_code = str(error_code)
+        self.failure_codes = copy.deepcopy(
+            [str(item) for item in failure_codes]
+        )
+        self.messages = copy.deepcopy(normalized_messages)
+        self.phase_id = str(phase_id)
+        self.occurrence_id = str(occurrence_id)
 
 
 class AtomicSkillGraphSystem:
@@ -2114,6 +2139,189 @@ class AtomicSkillGraphSystem:
             )
         return None
 
+    @staticmethod
+    def _r4_trace_metadata(trace: TraceRecord) -> dict[str, Any]:
+        metadata = getattr(trace, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            setattr(trace, "metadata", metadata)
+        return metadata
+
+    @classmethod
+    def _initialize_r4_learning_diagnostics(cls, trace: TraceRecord) -> None:
+        metadata = cls._r4_trace_metadata(trace)
+        metadata["learning_diagnostics_version"] = "v3.2-r4"
+        metadata["evolution_tool_builds"] = []
+        metadata["extraction_occurrence_rejections"] = []
+        metadata["tool_build_rejections"] = []
+        metadata["knowledge_preparation_rejections"] = []
+        metrics = metadata.get("v32_metrics")
+        if not isinstance(metrics, dict):
+            metrics = {}
+            metadata["v32_metrics"] = metrics
+        metrics.update({
+            "extractor_e1_proposal_count": 0,
+            "extractor_e1_validated_occurrence_count": 0,
+            "extractor_e1_rejection_count": 0,
+            "tool_builder_call_count": 0,
+            "tool_builder_proposal_count": 0,
+            "tool_builder_no_tool_count": 0,
+            "tool_builder_submission_rejection_count": 0,
+            "tool_builder_static_pass_count": 0,
+            "tool_builder_static_rejection_count": 0,
+            "tool_builder_aborted_count": 0,
+            "atomic_only_prepared_after_tool_rejection_count": 0,
+            "atomic_only_retained_after_tool_rejection_count": 0,
+            "atomic_staged_occurrence_count": 0,
+        })
+
+    @classmethod
+    def _new_r4_tool_build_record(
+        cls,
+        trace: TraceRecord,
+        occurrence: Any,
+        atomic_view: AbstractAtomicSkill,
+    ) -> dict[str, Any]:
+        metadata = cls._r4_trace_metadata(trace)
+        metadata.setdefault("learning_diagnostics_version", "v3.2-r4")
+        records = metadata.setdefault("evolution_tool_builds", [])
+        if not isinstance(records, list):
+            records = []
+            metadata["evolution_tool_builds"] = records
+        record: dict[str, Any] = {
+            "occurrence_id": str(getattr(occurrence, "occurrence_id", "")),
+            "phase_id": str(getattr(occurrence, "phase_id", "")),
+            "atomic_ref": str(atomic_view.ref),
+            "source": "success_evolution",
+            "outcome": "pending",
+            "builder_entered": False,
+            "session_id": "",
+            "proposal_received": False,
+            "static_checked": False,
+            "static_passed": None,
+            "atomic_only_prepared": False,
+            "atomic_registered": False,
+            "registered_atomic_ref": "",
+            "failure_stage": "",
+            "error_code": "",
+            "failure_codes": [],
+            "messages": [],
+        }
+        records.append(record)
+        return record
+
+    @classmethod
+    def _r4_tool_build_record(
+        cls,
+        trace: TraceRecord,
+        occurrence_id: str,
+    ) -> dict[str, Any] | None:
+        records = cls._r4_trace_metadata(trace).get("evolution_tool_builds")
+        if not isinstance(records, list):
+            return None
+        for record in reversed(records):
+            if (
+                isinstance(record, dict)
+                and str(record.get("occurrence_id", "")) == str(occurrence_id)
+            ):
+                return record
+        return None
+
+    @classmethod
+    def _finalize_r4_learning_metrics(
+        cls,
+        trace: TraceRecord,
+        *,
+        atomic_staged_occurrence_count: int | None = None,
+    ) -> None:
+        metadata = cls._r4_trace_metadata(trace)
+        records = metadata.get("evolution_tool_builds")
+        if not isinstance(records, list):
+            records = []
+        records = [item for item in records if isinstance(item, Mapping)]
+        metrics = metadata.setdefault("v32_metrics", {})
+        if not isinstance(metrics, dict):
+            metrics = {}
+            metadata["v32_metrics"] = metrics
+        rejected_outcomes = {"submission_rejected", "static_rejected"}
+        metrics.update({
+            "tool_builder_call_count": sum(
+                bool(item.get("builder_entered")) for item in records
+            ),
+            "tool_builder_proposal_count": sum(
+                bool(item.get("proposal_received")) for item in records
+            ),
+            "tool_builder_no_tool_count": sum(
+                item.get("outcome") == "no_tool" for item in records
+            ),
+            "tool_builder_submission_rejection_count": sum(
+                item.get("outcome") == "submission_rejected"
+                for item in records
+            ),
+            "tool_builder_static_pass_count": sum(
+                item.get("static_checked") is True
+                and item.get("static_passed") is True
+                for item in records
+            ),
+            "tool_builder_static_rejection_count": sum(
+                item.get("static_checked") is True
+                and item.get("static_passed") is False
+                for item in records
+            ),
+            "tool_builder_aborted_count": sum(
+                item.get("builder_entered") is True
+                and item.get("outcome") == "aborted"
+                for item in records
+            ),
+            "atomic_only_prepared_after_tool_rejection_count": sum(
+                item.get("outcome") in rejected_outcomes
+                and item.get("atomic_only_prepared") is True
+                for item in records
+            ),
+            "atomic_only_retained_after_tool_rejection_count": sum(
+                item.get("outcome") in rejected_outcomes
+                and item.get("atomic_only_prepared") is True
+                and item.get("atomic_registered") is True
+                for item in records
+            ),
+        })
+        if atomic_staged_occurrence_count is not None:
+            metrics["atomic_staged_occurrence_count"] = int(
+                atomic_staged_occurrence_count
+            )
+        else:
+            metrics.setdefault("atomic_staged_occurrence_count", 0)
+
+    @staticmethod
+    def _r4_builder_return_metrics(record: Mapping[str, Any]) -> dict[str, int]:
+        return {
+            "call_count": int(bool(record.get("builder_entered"))),
+            "no_tool_count": int(record.get("outcome") == "no_tool"),
+            "static_pass_count": int(
+                record.get("static_checked") is True
+                and record.get("static_passed") is True
+            ),
+            "static_reject_count": int(
+                record.get("static_checked") is True
+                and record.get("static_passed") is False
+            ),
+        }
+
+    def _stage_atomic_only_occurrence(
+        self,
+        occurrence: Any,
+        atomic_view: AbstractAtomicSkill,
+    ) -> CompiledKnowledge:
+        staged = self.aligner.stage_atomic(atomic_view)
+        staged_occurrence = (
+            self.aligner.atomic_canonicalizer.rewrite_canonical_occurrence(
+                occurrence,
+                staged,
+                atomic_ref=staged.atomic.ref,
+            )
+        )
+        return CompiledKnowledge(staged_occurrence, staged.atomic, None, None)
+
     def _build_tool_for_occurrence(
         self,
         occurrence: Any,
@@ -2123,93 +2331,192 @@ class AtomicSkillGraphSystem:
     ) -> tuple[CompiledKnowledge | None, dict[str, int]]:
         """Success Evolution Tool path: exact reuse else ToolBuilder + static gate."""
 
-        metrics = {
-            "call_count": 0,
-            "no_tool_count": 0,
-            "static_pass_count": 0,
-            "static_reject_count": 0,
-        }
-        if (
-            getattr(self, "config", None) is None
-            or getattr(self, "usage", None) is None
-            or not hasattr(self, "_tool_builder_session")
-        ):
-            # Legacy deterministic unit fixtures construct System objects without
-            # the v3.2 tooling configuration.  The formal runner always has both.
-            compiled = self.tool_compiler.compile([occurrence])
-            return compiled[0], metrics
-        exact = self._existing_executable_reuse(occurrence, atomic_view)
-        if exact is not None:
-            return exact, metrics
-        provenance = ToolProvenance(
-            source="success_evolution",
-            atomic_ref=str(atomic_view.ref),
-            source_trace_id=str(getattr(trace, "trace_id", normalized.get("trace_id", ""))),
-            occurrence_id=occurrence.occurrence_id,
-            task_id=str(getattr(getattr(trace, "task", None), "task_id", "")),
-        )
-        evidence_support = [
-            item for item in occurrence.action_events
-        ]
-        actions = list(normalized.get("actions") or [])
-        before_facts = []
-        after_facts = []
-        for item in normalized.get("before_state_facts", ()):
-            if int(item.get("revision", -1)) == int(
-                evidence_support[0].get("before_revision", -1)
-            ) if evidence_support else False:
-                before_facts.append(item)
-        for item in normalized.get("after_state_facts", ()):
-            if int(item.get("revision", -1)) == int(
-                evidence_support[-1].get("after_revision", -1)
-            ) if evidence_support else False:
-                after_facts.append(item)
-        action_schema = getattr(self.harness, "primitive_action_schema", None)
-        primitive_actions = (
-            [dict(item) for item in action_schema()]
-            if callable(action_schema)
-            else []
-        )
-        session = self._tool_builder_session(
-            "tool_builder_evolution", occurrence.occurrence_id,
-        )
-        builder = ToolBuilderSession(session)
-        proposal = builder.build(
-            atomic=atomic_view,
-            provenance=provenance,
-            evidence_support=evidence_support,
-            semantic_delta={
-                "before_facts": before_facts,
-                "after_facts": after_facts,
-            },
-            harness_interface={
-                "profile": self.harness.profile_name,
-                "predicate_vocabulary": to_primitive(
-                    self.harness.semantic_predicate_schema()
+        record = self._new_r4_tool_build_record(trace, occurrence, atomic_view)
+        stage = "legacy_compile"
+        try:
+            if (
+                getattr(self, "config", None) is None
+                or getattr(self, "usage", None) is None
+                or not hasattr(self, "_tool_builder_session")
+            ):
+                # Legacy deterministic unit fixtures construct System objects
+                # without v3.2 tooling configuration.  Formal runs never do.
+                compiled = self.tool_compiler.compile([occurrence])
+                record["outcome"] = "legacy_compiled"
+                return compiled[0], self._r4_builder_return_metrics(record)
+
+            stage = "exact_reuse"
+            exact = self._existing_executable_reuse(occurrence, atomic_view)
+            if exact is not None:
+                record["outcome"] = "exact_reuse"
+                return exact, self._r4_builder_return_metrics(record)
+
+            provenance = ToolProvenance(
+                source="success_evolution",
+                atomic_ref=str(atomic_view.ref),
+                source_trace_id=str(
+                    getattr(trace, "trace_id", normalized.get("trace_id", ""))
                 ),
-                "primitive_actions": primitive_actions,
-            },
-            bucket="tool_builder_evolution",
-        )
-        metrics["call_count"] = 1
-        if proposal.decision == "no_tool":
-            metrics["no_tool_count"] = 1
-            return None, metrics
-        static = self.tool_static_validator.validate_proposal(
-            proposal, atomic_view, self.harness,
-            historical_evidence_support=evidence_support,
-        )
-        if not static.passed:
-            metrics["static_reject_count"] = 1
-            raise ValueError(
-                "ToolBuilder proposal failed static validation: "
-                + "; ".join(static.messages)
+                occurrence_id=occurrence.occurrence_id,
+                task_id=str(getattr(getattr(trace, "task", None), "task_id", "")),
             )
-        metrics["static_pass_count"] = 1
-        item = self.tool_compiler.compile_proposal(
-            occurrence, atomic_view, proposal, provenance,
-        )
-        return item, metrics
+            evidence_support = list(occurrence.action_events)
+            before_facts = []
+            after_facts = []
+            for item in normalized.get("before_state_facts", ()):
+                if (
+                    evidence_support
+                    and int(item.get("revision", -1))
+                    == int(evidence_support[0].get("before_revision", -1))
+                ):
+                    before_facts.append(item)
+            for item in normalized.get("after_state_facts", ()):
+                if (
+                    evidence_support
+                    and int(item.get("revision", -1))
+                    == int(evidence_support[-1].get("after_revision", -1))
+                ):
+                    after_facts.append(item)
+            action_schema = getattr(self.harness, "primitive_action_schema", None)
+            primitive_actions = (
+                [dict(item) for item in action_schema()]
+                if callable(action_schema)
+                else []
+            )
+
+            stage = "tool_builder_session"
+            session = self._tool_builder_session(
+                "tool_builder_evolution", occurrence.occurrence_id,
+            )
+            record["session_id"] = str(getattr(session, "session_id", ""))
+            builder = ToolBuilderSession(session)
+            stage = "tool_builder_submission"
+            record["builder_entered"] = True
+            try:
+                proposal = builder.build(
+                    atomic=atomic_view,
+                    provenance=provenance,
+                    evidence_support=evidence_support,
+                    semantic_delta={
+                        "before_facts": before_facts,
+                        "after_facts": after_facts,
+                    },
+                    harness_interface={
+                        "profile": self.harness.profile_name,
+                        "predicate_vocabulary": to_primitive(
+                            self.harness.semantic_predicate_schema()
+                        ),
+                        "primitive_actions": primitive_actions,
+                    },
+                    bucket="tool_builder_evolution",
+                )
+            except ToolProposalParseError as exc:
+                messages = [self._sanitize_failure_message(exc)]
+                record.update({
+                    "outcome": "submission_rejected",
+                    "failure_stage": stage,
+                    "error_code": "tool_builder_submission_rejected",
+                    "failure_codes": [],
+                    "messages": messages,
+                })
+                raise _ToolBuildContentRejected(
+                    stage=stage,
+                    error_code="tool_builder_submission_rejected",
+                    failure_codes=[],
+                    messages=messages,
+                    phase_id=str(getattr(occurrence, "phase_id", "")),
+                    occurrence_id=str(occurrence.occurrence_id),
+                ) from exc
+            except AgentProtocolError as exc:
+                if not (
+                    getattr(exc, "layer", None) == FailureLayer.RUNTIME_AGENT
+                    and str(getattr(exc, "code", "")) in {
+                        "runtime_agent_schema_error",
+                        "runtime_agent_multiple_tool_calls",
+                    }
+                ):
+                    raise
+                original_code = str(exc.code)
+                messages = [self._sanitize_failure_message(exc)]
+                record.update({
+                    "outcome": "submission_rejected",
+                    "failure_stage": stage,
+                    "error_code": "tool_builder_submission_rejected",
+                    "failure_codes": [original_code],
+                    "messages": messages,
+                })
+                raise _ToolBuildContentRejected(
+                    stage=stage,
+                    error_code="tool_builder_submission_rejected",
+                    failure_codes=[original_code],
+                    messages=messages,
+                    phase_id=str(getattr(occurrence, "phase_id", "")),
+                    occurrence_id=str(occurrence.occurrence_id),
+                ) from exc
+
+            if proposal.decision == "no_tool":
+                record["outcome"] = "no_tool"
+                return None, self._r4_builder_return_metrics(record)
+
+            record["proposal_received"] = True
+            record["proposal_final_effects"] = to_primitive(
+                proposal.final_effects
+            )
+            record["atomic_final_effects"] = to_primitive(atomic_view.effects)
+            stage = "tool_static"
+            static = self.tool_static_validator.validate_proposal(
+                proposal, atomic_view, self.harness,
+                historical_evidence_support=evidence_support,
+            )
+            static_messages = [str(item) for item in static.messages]
+            if not static.passed and not static_messages:
+                static_messages = ["Tool proposal failed static validation"]
+            record.update({
+                "static_checked": True,
+                "static_passed": bool(static.passed),
+                "static_checks": copy.deepcopy(dict(static.checks)),
+                "static_paths": to_primitive(static.paths),
+                "failure_codes": copy.deepcopy(
+                    [str(item) for item in static.failure_codes]
+                ),
+                "messages": copy.deepcopy(static_messages),
+            })
+            if not static.passed:
+                record.update({
+                    "outcome": "static_rejected",
+                    "failure_stage": stage,
+                    "error_code": "tool_builder_static_rejected",
+                })
+                raise _ToolBuildContentRejected(
+                    stage=stage,
+                    error_code="tool_builder_static_rejected",
+                    failure_codes=list(record["failure_codes"]),
+                    messages=list(record["messages"]),
+                    phase_id=str(getattr(occurrence, "phase_id", "")),
+                    occurrence_id=str(occurrence.occurrence_id),
+                )
+
+            stage = "tool_compile"
+            item = self.tool_compiler.compile_proposal(
+                occurrence, atomic_view, proposal, provenance,
+            )
+            record["outcome"] = "created"
+            return item, self._r4_builder_return_metrics(record)
+        except _ToolBuildContentRejected:
+            raise
+        except Exception as exc:
+            if record.get("outcome") == "pending":
+                original_code = str(getattr(exc, "code", ""))
+                record.update({
+                    "outcome": "aborted",
+                    "failure_stage": stage,
+                    "error_code": original_code,
+                    "failure_codes": [original_code] if original_code else [],
+                    "messages": [self._sanitize_failure_message(exc)],
+                })
+            raise
+        finally:
+            self._finalize_r4_learning_metrics(trace)
 
     @staticmethod
     def _terminal_empirical_certificate(
@@ -2567,6 +2874,7 @@ class AtomicSkillGraphSystem:
         return authorities
 
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
+        self._initialize_r4_learning_diagnostics(trace)
         normalized = self.normalizer.build(trace)
         current_v32 = (
             str(normalized.get("semantic_authority_source", ""))
@@ -2871,26 +3179,44 @@ class AtomicSkillGraphSystem:
             ),
         )
         try:
-            canonical, occurrence_rejections = (
+            canonical, raw_atomicizer_rejections = (
                 self.atomicizer.validate_proposed_subset(
                     proposals, normalized,
                 )
             )
-        except ValueError as exc:
-            trace.metadata["extractor_quality"] = {
+        except AtomicProposalBatchRejected as exc:
+            atomicizer_rejections = [
+                {
+                    **copy.deepcopy(dict(item)),
+                    "stage": "atomicizer",
+                    "error_code": "extractor_e1_occurrence_rejected",
+                    "messages": [str(item.get("error", ""))],
+                }
+                for item in exc.rejections
+            ]
+            trace.metadata["extraction_occurrence_rejections"] = (
+                atomicizer_rejections
+            )
+            quality = {
                 "extractor_e1_proposal_count": len(proposals),
                 "extractor_e1_validated_occurrence_count": 0,
-                "extractor_e1_rejection_count": len(proposals),
+                "extractor_e1_rejection_count": len(atomicizer_rejections),
                 "extractor_e1_contract_coverage_passed": False,
                 "known_atomic_contract_payload_count": len(
                     known_atomic_contracts
                 ),
             }
+            trace.metadata["extractor_quality"] = quality
+            trace.metadata["v32_metrics"].update({
+                "extractor_e1_proposal_count": len(proposals),
+                "extractor_e1_validated_occurrence_count": 0,
+                "extractor_e1_rejection_count": len(atomicizer_rejections),
+            })
             trace.metadata["extraction"] = {
                 **dict(trace.metadata.get("extraction") or {}),
                 "e1_proposed": len(proposals),
                 "e1_validated": 0,
-                "e1_rejected": len(proposals),
+                "e1_rejected": len(atomicizer_rejections),
                 "e1_contract_coverage_passed": False,
             }
             raise ExtractionContentError(
@@ -2898,53 +3224,109 @@ class AtomicSkillGraphSystem:
                 "extractor_e1_occurrence_rejected",
                 str(exc),
             ) from exc
+        except ValueError as exc:
+            # Preserve the pre-R4 fail-closed boundary for an unexpected
+            # Atomicizer ValueError.  Do not fabricate per-proposal reasons.
+            trace.metadata["knowledge_preparation_rejections"].append({
+                "phase_id": "atomicizer_batch",
+                "stage": "atomicizer",
+                "error_type": type(exc).__name__,
+                "error_code": "extractor_e1_atomicizer_unexpected",
+                "failure_codes": [],
+                "messages": [
+                    self._sanitize_failure_message(exc)
+                    or type(exc).__name__
+                ],
+            })
+            trace.metadata["extractor_quality"] = {
+                "extractor_e1_proposal_count": len(proposals),
+                "extractor_e1_validated_occurrence_count": 0,
+                "extractor_e1_rejection_count": 0,
+                "extractor_e1_contract_coverage_passed": False,
+                "known_atomic_contract_payload_count": len(
+                    known_atomic_contracts
+                ),
+            }
+            trace.metadata["v32_metrics"].update({
+                "extractor_e1_proposal_count": len(proposals),
+                "extractor_e1_validated_occurrence_count": 0,
+                "extractor_e1_rejection_count": 0,
+            })
+            raise ExtractionContentError(
+                "e1",
+                "extractor_e1_occurrence_rejected",
+                str(exc),
+            ) from exc
+
+        atomicizer_rejections = [
+            {
+                **copy.deepcopy(dict(item)),
+                "stage": "atomicizer",
+                "error_code": "extractor_e1_occurrence_rejected",
+                "messages": [str(item.get("error", ""))],
+            }
+            for item in raw_atomicizer_rejections
+        ]
+        trace.metadata["extraction_occurrence_rejections"] = (
+            atomicizer_rejections
+        )
+        quality = {
+            "extractor_e1_proposal_count": len(proposals),
+            "extractor_e1_validated_occurrence_count": len(canonical),
+            "extractor_e1_rejection_count": len(atomicizer_rejections),
+            "known_atomic_contract_payload_count": len(
+                known_atomic_contracts
+            ),
+        }
+        trace.metadata["extractor_quality"] = quality
+        trace.metadata["v32_metrics"].update({
+            "extractor_e1_proposal_count": len(proposals),
+            "extractor_e1_validated_occurrence_count": len(canonical),
+            "extractor_e1_rejection_count": len(atomicizer_rejections),
+        })
+        trace.metadata["extraction"] = {
+            **dict(trace.metadata.get("extraction") or {}),
+            "e1_proposed": len(proposals),
+            "e1_validated": len(canonical),
+            "e1_rejected": len(atomicizer_rejections),
+        }
         # Compile and canonicalize each independently validated occurrence
         # before considering Composite coverage.  A content-invalid occurrence
         # must not discard unrelated, admission-ready Atomic knowledge from the
         # same E1 response.
         provisional: list[CompiledKnowledge] = []
-        tool_builder_calls = 0
-        tool_builder_no_tool = 0
-        tool_builder_static_pass = 0
-        tool_builder_static_reject = 0
         for occurrence in canonical:
-            occurrence_stage = "compile"
+            occurrence_stage = "atomic_view"
             try:
                 atomic_view = self._canonical_atomic_for_occurrence(occurrence)
                 if atomic_view is None:
                     raise RuntimeError("canonical occurrence has no Atomic view")
-                item, builder_metrics = self._build_tool_for_occurrence(
+                occurrence_stage = "tool_build"
+                item, _builder_metrics = self._build_tool_for_occurrence(
                     occurrence, atomic_view, normalized, trace,
                 )
-                tool_builder_calls += int(builder_metrics.get("call_count", 0))
-                tool_builder_no_tool += int(builder_metrics.get("no_tool_count", 0))
-                tool_builder_static_pass += int(builder_metrics.get("static_pass_count", 0))
-                tool_builder_static_reject += int(builder_metrics.get("static_reject_count", 0))
                 if item is None:
                     # NO_TOOL is an explicit, valid Builder decision.  The Atomic
                     # remains learnable and may be executed by a Seeded Agent.
-                    alignment = self.aligner.resolve_atomic(atomic_view)
-                    staged = self.aligner.stage_atomic(atomic_view)
-                    staged_occurrence = (
-                        self.aligner.atomic_canonicalizer
-                        .rewrite_canonical_occurrence(
-                            occurrence,
-                            staged,
-                            atomic_ref=staged.atomic.ref,
+                    occurrence_stage = "atomic_only_stage"
+                    provisional.append(
+                        self._stage_atomic_only_occurrence(
+                            occurrence, atomic_view,
                         )
                     )
-                    provisional.append(CompiledKnowledge(
-                        staged_occurrence,
-                        staged.atomic,
-                        None,
-                        None,
-                    ))
+                    record = self._r4_tool_build_record(
+                        trace, occurrence.occurrence_id,
+                    )
+                    if record is not None:
+                        record["atomic_only_prepared"] = True
                     continue
+                occurrence_stage = "atomic_stage"
                 bundle = self.aligner.stage_atomic(
                     item.atomic,
                     item.tool,
                     item.implementation,
                 )
+                occurrence_stage = "canonical_rewrite"
                 staged_occurrence = (
                     self.aligner.atomic_canonicalizer
                     .rewrite_canonical_occurrence(
@@ -2953,12 +3335,72 @@ class AtomicSkillGraphSystem:
                         atomic_ref=bundle.atomic.ref,
                     )
                 )
-            except ValueError as exc:
-                occurrence_rejections.append({
-                    "phase_id": str(occurrence.phase_id),
+            except _ToolBuildContentRejected as exc:
+                rejection = {
+                    "occurrence_id": exc.occurrence_id,
+                    "phase_id": exc.phase_id,
+                    "stage": exc.stage,
                     "error_type": type(exc).__name__,
-                    "error": str(exc),
-                    "stage": occurrence_stage,
+                    "error_code": exc.error_code,
+                    "failure_codes": copy.deepcopy(exc.failure_codes),
+                    "messages": copy.deepcopy(exc.messages),
+                }
+                trace.metadata["tool_build_rejections"].append(rejection)
+                try:
+                    staged_atomic_only = self._stage_atomic_only_occurrence(
+                        occurrence, atomic_view,
+                    )
+                except ValueError as staging_exc:
+                    staging_error_code = str(
+                        getattr(staging_exc, "code", "")
+                        or "knowledge_preparation_failed"
+                    )
+                    trace.metadata["knowledge_preparation_rejections"].append({
+                        "occurrence_id": str(occurrence.occurrence_id),
+                        "phase_id": str(occurrence.phase_id),
+                        "stage": "atomic_only_stage_after_tool_rejection",
+                        "error_type": type(staging_exc).__name__,
+                        "error_code": staging_error_code,
+                        "failure_codes": [],
+                        "messages": [
+                            self._sanitize_failure_message(staging_exc)
+                            or type(staging_exc).__name__
+                        ],
+                    })
+                    continue
+                record = self._r4_tool_build_record(
+                    trace, occurrence.occurrence_id,
+                )
+                if record is not None:
+                    record["atomic_only_prepared"] = True
+                provisional.append(staged_atomic_only)
+                continue
+            except ValueError as exc:
+                build_record = self._r4_tool_build_record(
+                    trace, occurrence.occurrence_id,
+                )
+                failure_stage = occurrence_stage
+                if (
+                    occurrence_stage == "tool_build"
+                    and build_record is not None
+                    and str(build_record.get("failure_stage", "")).strip()
+                ):
+                    failure_stage = str(build_record["failure_stage"])
+                preparation_error_code = str(
+                    getattr(exc, "code", "")
+                    or "knowledge_preparation_failed"
+                )
+                trace.metadata["knowledge_preparation_rejections"].append({
+                    "occurrence_id": str(occurrence.occurrence_id),
+                    "phase_id": str(occurrence.phase_id),
+                    "stage": failure_stage,
+                    "error_type": type(exc).__name__,
+                    "error_code": preparation_error_code,
+                    "failure_codes": [],
+                    "messages": [
+                        self._sanitize_failure_message(exc)
+                        or type(exc).__name__
+                    ],
                 })
                 continue
             provisional.append(CompiledKnowledge(
@@ -2967,32 +3409,19 @@ class AtomicSkillGraphSystem:
                 bundle.tool,
                 bundle.implementation,
             ))
-        trace.metadata.setdefault("v32_metrics", {}).update({
-            "tool_builder_call_count": tool_builder_calls,
-            "tool_builder_no_tool_count": tool_builder_no_tool,
-            "tool_builder_static_pass_count": tool_builder_static_pass,
-            "tool_builder_static_rejection_count": tool_builder_static_reject,
-        })
+        self._finalize_r4_learning_metrics(
+            trace,
+            atomic_staged_occurrence_count=len(provisional),
+        )
 
         if not provisional:
-            quality = {
-                "extractor_e1_proposal_count": len(proposals),
-                "extractor_e1_validated_occurrence_count": 0,
-                "extractor_e1_rejection_count": len(occurrence_rejections),
-                "extractor_e1_contract_coverage_passed": False,
-                "known_atomic_contract_payload_count": len(
-                    known_atomic_contracts
-                ),
-            }
+            quality["extractor_e1_contract_coverage_passed"] = False
             trace.metadata["extractor_quality"] = quality
-            trace.metadata["extraction_occurrence_rejections"] = (
-                occurrence_rejections
-            )
             trace.metadata["extraction"] = {
                 **dict(trace.metadata.get("extraction") or {}),
                 "e1_proposed": len(proposals),
-                "e1_validated": 0,
-                "e1_rejected": len(occurrence_rejections),
+                "e1_validated": len(canonical),
+                "e1_rejected": len(atomicizer_rejections),
                 "e1_contract_coverage_passed": False,
             }
             raise ExtractionContentError(
@@ -3000,19 +3429,6 @@ class AtomicSkillGraphSystem:
                 "extractor_e1_occurrence_rejected",
                 "Extractor E1 produced no independently compilable Atomic "
                 "occurrences",
-            )
-
-        quality = {
-            "extractor_e1_proposal_count": len(proposals),
-            "extractor_e1_validated_occurrence_count": len(provisional),
-            "extractor_e1_rejection_count": len(occurrence_rejections),
-            "known_atomic_contract_payload_count": len(
-                known_atomic_contracts
-            ),
-        }
-        if occurrence_rejections:
-            trace.metadata["extraction_occurrence_rejections"] = (
-                occurrence_rejections
             )
 
         # Resolve one label per final staged Atomic ref.  This also makes two
@@ -3061,8 +3477,8 @@ class AtomicSkillGraphSystem:
         trace.metadata["extraction"] = {
             **dict(trace.metadata.get("extraction") or {}),
             "e1_proposed": len(proposals),
-            "e1_validated": len(staged_compiled),
-            "e1_rejected": len(occurrence_rejections),
+            "e1_validated": len(canonical),
+            "e1_rejected": len(atomicizer_rejections),
             "e1_contract_coverage_passed": coverage.passed,
         }
         quality.update({
@@ -3340,15 +3756,30 @@ class AtomicSkillGraphSystem:
             atomic_reuse_count += int(atomic_alignment.reused)
             atomic_new_count += int(not atomic_alignment.reused)
             atomic_ref = self.aligner.align_atomic(item.atomic)
+            tool_build_record = self._r4_tool_build_record(
+                trace, item.occurrence.occurrence_id,
+            )
+            if tool_build_record is not None:
+                tool_build_record["atomic_registered"] = True
+                tool_build_record["registered_atomic_ref"] = str(atomic_ref)
+            self._finalize_r4_learning_metrics(trace)
             if item.tool is None or item.implementation is None:
                 atomic_refs.append(atomic_ref)
                 by_occurrence[item.occurrence.occurrence_id] = atomic_ref
+                atomic_only_reason = (
+                    "tool_builder_rejected_atomic_only"
+                    if tool_build_record is not None
+                    and tool_build_record.get("outcome") in {
+                        "submission_rejected", "static_rejected",
+                    }
+                    else "tool_builder_no_tool_atomic_only"
+                )
                 evidence.record(
                     str(atomic_ref),
                     "atomic",
                     occurrence_id=item.occurrence.occurrence_id,
                     passed=True,
-                    reason="tool_builder_no_tool_atomic_only",
+                    reason=atomic_only_reason,
                 )
                 continue
             admitted_tool = self.admission.admit_tool(
@@ -3565,6 +3996,7 @@ class AtomicSkillGraphSystem:
                 },
             })
         trace.metadata["extractor_quality"] = quality
+        self._finalize_r4_learning_metrics(trace)
 
         attempts = tuple(
             CreditAttempt(

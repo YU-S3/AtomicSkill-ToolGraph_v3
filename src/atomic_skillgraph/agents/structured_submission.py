@@ -208,13 +208,18 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         "event_start": {
             "type": "integer",
             "minimum": 0,
-            "description": "Inclusive index of the first selected canonical action event.",
+            "description": (
+                "Inclusive entry index. Its exact precondition boundary is "
+                "canonical_trace.actions[event_start].authoritative_before_state_facts."
+            ),
         },
         "event_end": {
             "type": "integer",
             "minimum": 1,
             "description": (
-                "Exclusive index after the last selected event; a single event i uses [i,i+1)."
+                "Exclusive index after the last selected event; a single event i "
+                "uses [i,i+1). Code performs the exclusive-to-inclusive conversion; "
+                "the submitter must not subtract one."
             ),
         },
         "support_event_ids": {
@@ -224,7 +229,7 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "items": {"type": "string", "minLength": 1},
             "description": (
                 "Explicit accepted events that actually support this Atomic. "
-                "They must lie within the event_start..event_end evidence envelope and "
+                "They must lie within the [event_start,event_end) evidence envelope and "
                 "may be non-contiguous."
             ),
         },
@@ -242,12 +247,23 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "type": "array",
             "uniqueItems": True,
             "items": {"type": "string", "minLength": 1},
+            "description": (
+                "Exact entry-snapshot certificates for the declared preconditions "
+                "from canonical_trace.actions[event_start].authoritative_before_state_facts. "
+                "Predicate, arguments, and effect_domain must match; a certificate "
+                "from a later revision is not interchangeable."
+            ),
         },
         "effect_witness_refs": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": True,
             "items": {"type": "string", "minLength": 1},
+            "description": (
+                "Supplied authoritative positive-Effect or narrow terminal-certificate "
+                "references belonging to the selected support events and matching the "
+                "declared predicate, arguments, and effect_domain."
+            ),
         },
         "ordering_constraints": {
             "type": "array",
@@ -260,7 +276,9 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "additionalProperties": NONEMPTY_STRING_SCHEMA,
             "description": (
                 "One supplied code-authoritative boundary input reference for "
-                "every input_roles key. Code requires the key sets to match."
+                "every input_roles key. Key sets must match, and each referenced "
+                "boundary_authorities.inputs entry must have the same role as the "
+                "key and the same value as input_roles[key]."
             ),
         },
         "output_derivations": {
@@ -308,8 +326,9 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "type": "object",
             "minProperties": 1,
             "description": (
-                "Non-empty role-to-concrete-value bindings backed exactly by "
-                "the supplied boundary_authorities.inputs references."
+                "Non-empty role-to-concrete-value bindings. Every role and value "
+                "must exactly match one supplied boundary_authorities.inputs entry; "
+                "predicate argument names do not rename these input roles."
             ),
         },
         "output_roles": {
@@ -323,7 +342,11 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         "preconditions": {
             "type": "array",
             "items": PREDICATE_SCHEMA,
-            "description": "Only facts present in authoritative_before_state_facts.",
+            "description": (
+                "Only necessary facts present in canonical_trace.actions[event_start]."
+                "authoritative_before_state_facts. Facts established inside the "
+                "selected envelope are not entry preconditions."
+            ),
         },
         "effects": {
             "type": "array",
@@ -448,6 +471,12 @@ TOOL_IR_PROGRAM_NODE_SCHEMA: dict[str, Any] = {
         "argument_mapping": {
             "type": "object",
             "additionalProperties": BINDING_EXPRESSION_SCHEMA,
+            "description": (
+                "Tool IR ACTION arguments use skill_input for a declared Atomic input "
+                "or constant only for a portable interface literal; a local_variable "
+                "is permitted only inside its valid loop body. Graph-only data_flow, "
+                "tool_output, and adapter_transform bindings are not valid here."
+            ),
         },
         "condition": {"type": "object"},
         "then_branch": {"type": "array", "items": {"type": "object"}},
@@ -456,8 +485,24 @@ TOOL_IR_PROGRAM_NODE_SCHEMA: dict[str, Any] = {
         "iteration_variable": {"type": "string"},
         "body": {"type": "array", "items": {"type": "object"}},
         "max_iterations": {"type": "integer", "minimum": 1},
-        "output_sources": {"type": "object"},
-        "expected_effects": {"type": "array", "items": PREDICATE_SCHEMA},
+        "output_sources": {
+            "type": "object",
+            "description": (
+                "RETURN mapping keyed by actual Atomic output roles, using Tool IR "
+                "source/field/project selectors such as tool_input, in-scope "
+                "local_variable, or structured semantic_evidence."
+            ),
+        },
+        "expected_effects": {
+            "type": "array",
+            "items": PREDICATE_SCHEMA,
+            "description": (
+                "Non-empty immediate post-action Effects. Formal references use "
+                "skill_input (or supported $role notation) and an in-scope loop "
+                "local_variable only; tool_output, data_flow, and adapter_transform "
+                "are invalid in this Tool IR field."
+            ),
+        },
     },
 }
 
@@ -473,12 +518,31 @@ TOOL_PROPOSAL_SCHEMA: dict[str, Any] = {
         "proposal_version": NONEMPTY_STRING_SCHEMA,
         "decision": {"type": "string", "enum": ["create", "no_tool"]},
         "summary": NONEMPTY_STRING_SCHEMA,
-        "atomic_ref": NONEMPTY_STRING_SCHEMA,
-        "inputs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
-        "outputs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
+        "atomic_ref": {
+            **NONEMPTY_STRING_SCHEMA,
+            "description": "Echo the supplied atomic_ref identity exactly.",
+        },
+        "inputs": {
+            "type": "array",
+            "items": PARAMETER_SPEC_SCHEMA,
+            "description": "Echo canonical_atomic.inputs exactly without boundary changes.",
+        },
+        "outputs": {
+            "type": "array",
+            "items": PARAMETER_SPEC_SCHEMA,
+            "description": "Echo canonical_atomic.outputs exactly without boundary changes.",
+        },
         "program": {"type": "array", "items": TOOL_IR_PROGRAM_NODE_SCHEMA},
         "max_actions": {"type": "integer", "minimum": 1},
-        "final_effects": {"type": "array", "items": PREDICATE_SCHEMA},
+        "final_effects": {
+            "type": "array",
+            "items": PREDICATE_SCHEMA,
+            "description": (
+                "For decision=create, copy canonical_atomic.effects exactly, including "
+                "predicate names, argument keys, formal source_role values, cardinality, "
+                "distinct_by, and effect_domain; do not rename output roles to inputs."
+            ),
+        },
         "evidence_outputs": {"type": "array", "items": {"type": "object"}},
         "path_expectations": {"type": "array", "items": {"type": "object"}},
         "rationale": NONEMPTY_STRING_SCHEMA,
