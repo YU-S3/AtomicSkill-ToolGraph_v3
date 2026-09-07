@@ -18,7 +18,13 @@ from ..core.status import RuntimeMode, skill_status_usable
 from ..knowledge.graph_store import GraphStore
 from ..knowledge.skill_registry import SkillRegistry
 from .multiplicity import RequirementExpansion, normalized_constraints
-from .repeat_constraints import formal_repeat_role, unit_effect_role_mappings
+from .repeat_constraints import (
+    _input_identity_source_role,
+    _repeat_scoped_support_owners,
+    _required_repeat_step_owners,
+    formal_repeat_role,
+    unit_effect_role_mappings,
+)
 
 
 def _predicate_shape_compatible(required: Any, offered: Any) -> bool:
@@ -358,6 +364,56 @@ def _atomic_parameter_types(value: Any) -> dict[str, str]:
     }
 
 
+def _atomic_boundary_types(
+    value: Any,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return separate Atomic input/output type namespaces."""
+
+    return (
+        {
+            str(item.name): str(item.semantic_type)
+            for item in getattr(value, "inputs", ())
+        },
+        {
+            str(item.name): str(item.semantic_type)
+            for item in getattr(value, "outputs", ())
+        },
+    )
+
+
+def _identity_flow_types_compatible(
+    source_atomic: Any,
+    target_atomic: Any,
+    *,
+    source_input_role: str,
+    source_output_role: str,
+    target_input_role: str,
+) -> bool:
+    """Prove type closure across input -> identity output -> consumer."""
+
+    source_inputs, source_outputs = _atomic_boundary_types(source_atomic)
+    target_inputs, _target_outputs = _atomic_boundary_types(target_atomic)
+    if (
+        source_input_role not in source_inputs
+        or source_output_role not in source_outputs
+        or target_input_role not in target_inputs
+    ):
+        return False
+    types = (
+        source_inputs[source_input_role],
+        source_outputs[source_output_role],
+        target_inputs[target_input_role],
+    )
+    return all(
+        semantic_types_compatible(left, right)
+        for left, right in (
+            (types[0], types[1]),
+            (types[1], types[2]),
+            (types[0], types[2]),
+        )
+    )
+
+
 def validate_runtime_repeat_contract(
     plan: RuntimeLinearPlan,
     atomics: dict[str, Any],
@@ -407,7 +463,16 @@ def validate_runtime_repeat_contract(
     unit_effect_witnessed = True
     formal_role_authority = True
     formal_roles_declared = True
+    support_identity_authority = True
     globally_owned_steps: set[str] = set()
+    control_position = {
+        step_id: index
+        for index, step_id in enumerate(plan.control_sequence)
+    }
+    occurrence_by_step = {
+        occurrence.step_id: occurrence
+        for occurrence in plan.occurrences
+    }
 
     for constraint in runtime:
         basis = formal_repeat.get(str(constraint.basis_constraint_id))
@@ -487,6 +552,7 @@ def validate_runtime_repeat_contract(
             iteration_witness = False
             iteration_authority = False
             aggregate_present = False
+            unit_effect_steps: set[str] = set()
             for step_id in iteration:
                 atomic = atomics.get(step_id)
                 if atomic is None:
@@ -498,6 +564,7 @@ def validate_runtime_repeat_contract(
                 if len(mappings) != 1:
                     continue
                 iteration_witness = True
+                unit_effect_steps.add(step_id)
                 formal_to_atomic = mappings[0]
                 runtime_to_atomic = constraint.step_role_bindings.get(
                     step_id, {},
@@ -526,6 +593,68 @@ def validate_runtime_repeat_contract(
                 )
                 if distinct_covered and shared_covered:
                     iteration_authority = True
+
+            # A repeat-scoped support step has no unit Effect witness of its
+            # own.  Its role map is authoritative only when an explicit,
+            # forward DATA_FLOW inside this iteration carries an output whose
+            # Atomic derivation preserves the mapped input identity into a
+            # downstream step carrying the same formal repeat role.
+            iteration_set = set(iteration)
+            for step_id in iteration:
+                occurrence = occurrence_by_step.get(step_id)
+                if (
+                    step_id in unit_effect_steps
+                    or occurrence is None
+                    or _occurrence_instance_ids(occurrence)
+                ):
+                    continue
+                role_map = dict(
+                    constraint.step_role_bindings.get(step_id, {})
+                )
+                if not role_map:
+                    continue
+                source_atomic = atomics.get(step_id)
+                if source_atomic is None:
+                    support_identity_authority = False
+                    continue
+                for block_role, source_input_role in role_map.items():
+                    proven = False
+                    for edge in plan.data_edges:
+                        if (
+                            edge.source_step != step_id
+                            or edge.target_step not in iteration_set
+                            or control_position.get(
+                                edge.source_step, 10**9,
+                            ) >= control_position.get(
+                                edge.target_step, -1,
+                            )
+                        ):
+                            continue
+                        target_role_map = dict(
+                            constraint.step_role_bindings.get(
+                                edge.target_step, {},
+                            )
+                        )
+                        if target_role_map.get(block_role) != edge.target_role:
+                            continue
+                        if _input_identity_source_role(
+                            source_atomic, edge.source_role,
+                        ) != source_input_role:
+                            continue
+                        target_atomic = atomics.get(edge.target_step)
+                        if target_atomic is None or not (
+                            _identity_flow_types_compatible(
+                                source_atomic,
+                                target_atomic,
+                                source_input_role=source_input_role,
+                                source_output_role=edge.source_role,
+                                target_input_role=edge.target_role,
+                            )
+                        ):
+                            continue
+                        proven = True
+                        break
+                    support_identity_authority &= proven
             unit_effect_witnessed &= (
                 iteration_witness and not aggregate_present
             )
@@ -542,6 +671,9 @@ def validate_runtime_repeat_contract(
         "runtime_repeat_unit_effect_witnessed": unit_effect_witnessed,
         "runtime_repeat_formal_roles_declared": formal_roles_declared,
         "runtime_repeat_formal_role_authority": formal_role_authority,
+        "runtime_repeat_support_identity_authority": (
+            support_identity_authority
+        ),
     })
     passed = all(checks.values())
     return ValidationResult(
@@ -563,6 +695,7 @@ def _repeat_instance_validation(
     position: dict[str, int],
     instance_candidates: dict[str, set[str]] | None,
     support_step_ids: set[str] | None = None,
+    support_step_authority: dict[str, bool] | None = None,
 ) -> tuple[dict[str, bool], list[str]]:
     """Validate instance authority and serial RepeatBlock structure.
 
@@ -574,6 +707,7 @@ def _repeat_instance_validation(
     checks: dict[str, bool] = {}
     codes: list[str] = []
     support_step_ids = set(support_step_ids or ())
+    support_step_authority = dict(support_step_authority or {})
     by_instance = {
         item.instance_id: item
         for item in expansion.instances
@@ -582,6 +716,9 @@ def _repeat_instance_validation(
         item.block_id: item
         for item in expansion.repeat_blocks
     }
+    by_step = {item.step_id: item for item in plan.occurrences}
+    required_step_owners = _required_repeat_step_owners(plan, expansion)
+    support_step_owners = _repeat_scoped_support_owners(plan, expansion)
     claims: dict[str, list[str]] = {
         instance_id: [] for instance_id in by_instance
     }
@@ -591,12 +728,69 @@ def _repeat_instance_validation(
     candidate_authority = True
     repeat_role_maps = True
     repeat_role_types = True
+    repeat_support_role_bindings_authorized = True
     occurrence_one_iteration = True
     nonrepeat_role_maps_empty = True
 
     # Track which block roles are observable in each iteration.  Runtime can
     # enforce only roles that P2 maps onto real Atomic boundary/effect roles.
     mapped_roles_by_iteration: dict[tuple[str, int], set[str]] = {}
+
+    def support_identity_obligations(
+        step_id: str,
+    ) -> tuple[list[tuple[tuple[str, int], str, str]], bool]:
+        """Return identity-proven repeat roles supplied by one support step."""
+
+        source_atomic = atomics.get(step_id)
+        if source_atomic is None:
+            return [], True
+        obligations: list[tuple[tuple[str, int], str, str]] = []
+        invalid_identity_path = False
+        for edge in plan.data_edges:
+            if edge.source_step != step_id:
+                continue
+            owner = required_step_owners.get(edge.target_step)
+            target = by_step.get(edge.target_step)
+            target_atomic = atomics.get(edge.target_step)
+            if owner is None or target is None or target_atomic is None:
+                continue
+            block = by_block.get(owner[0])
+            if block is None:
+                continue
+            allowed_roles = {
+                *map(str, block.distinct_roles),
+                *map(str, block.shared_roles),
+            }
+            target_role_bindings = dict(
+                getattr(target, "repeat_role_bindings", {}) or {},
+            )
+            matching_block_roles = [
+                str(block_role)
+                for block_role, target_role in target_role_bindings.items()
+                if str(block_role) in allowed_roles
+                and str(target_role) == str(edge.target_role)
+            ]
+            if not matching_block_roles:
+                continue
+            identity_input_role = _input_identity_source_role(
+                source_atomic, edge.source_role,
+            )
+            if not identity_input_role:
+                continue
+            if not _identity_flow_types_compatible(
+                source_atomic,
+                target_atomic,
+                source_input_role=identity_input_role,
+                source_output_role=edge.source_role,
+                target_input_role=edge.target_role,
+            ):
+                invalid_identity_path = True
+                continue
+            obligations.extend(
+                (owner, block_role, identity_input_role)
+                for block_role in matching_block_roles
+            )
+        return obligations, invalid_identity_path
 
     for occurrence in plan.occurrences:
         instance_ids = _occurrence_instance_ids(occurrence)
@@ -633,7 +827,65 @@ def _repeat_instance_validation(
             getattr(occurrence, "repeat_role_bindings", {}) or {}
         )
         if not repeat_instances:
-            nonrepeat_role_maps_empty &= not role_bindings
+            obligations, invalid_identity_path = (
+                support_identity_obligations(occurrence.step_id)
+            )
+            if not role_bindings:
+                # An identity-proven producer of a repeat-bound value must be
+                # scoped even if a repair proposal tries to delete its map.
+                repeat_support_role_bindings_authorized &= not (
+                    obligations or invalid_identity_path
+                )
+                continue
+
+            owner = support_step_owners.get(occurrence.step_id)
+            if owner is None:
+                nonrepeat_role_maps_empty = False
+                repeat_support_role_bindings_authorized = False
+                continue
+            block = by_block.get(owner[0])
+            atomic = atomics.get(occurrence.step_id)
+            allowed_block_roles = (
+                {
+                    *map(str, block.distinct_roles),
+                    *map(str, block.shared_roles),
+                }
+                if block is not None
+                else set()
+            )
+            expected_bindings: dict[str, str] = {}
+            obligation_owners: set[tuple[str, int]] = set()
+            obligations_consistent = not invalid_identity_path
+            for obligation_owner, block_role, atomic_role in obligations:
+                obligation_owners.add(obligation_owner)
+                previous = expected_bindings.get(block_role)
+                if previous is not None and previous != atomic_role:
+                    obligations_consistent = False
+                expected_bindings[block_role] = atomic_role
+            source_input_roles = {
+                str(item.name)
+                for item in getattr(atomic, "inputs", ())
+            } if atomic is not None else set()
+            authorized = bool(
+                occurrence.step_id in support_step_ids
+                and support_step_authority.get(occurrence.step_id, False)
+                and block is not None
+                and obligation_owners == {owner}
+                and obligations_consistent
+                and expected_bindings
+                and role_bindings == expected_bindings
+                and set(role_bindings).issubset(allowed_block_roles)
+                and all(
+                    bool(block_role)
+                    and bool(atomic_role)
+                    and atomic_role in source_input_roles
+                    for block_role, atomic_role in role_bindings.items()
+                )
+            )
+            repeat_support_role_bindings_authorized &= authorized
+            mapped_roles_by_iteration.setdefault(owner, set()).update(
+                role_bindings
+            )
             continue
 
         block_id, repeat_index = next(iter(repeat_owners))
@@ -697,6 +949,9 @@ def _repeat_instance_validation(
     serial_order = True
     all_iteration_roles_mapped = True
     expected_iteration_steps: dict[str, tuple[tuple[str, ...], ...]] = {}
+    owned_steps = dict(required_step_owners)
+    for step_id, owner in support_step_owners.items():
+        owned_steps.setdefault(step_id, owner)
     for block in expansion.repeat_blocks:
         iterations: list[tuple[str, ...]] = []
         previous_last = -1
@@ -705,8 +960,7 @@ def _repeat_instance_validation(
             *block.shared_roles,
         }
         for repeat_index in range(block.count):
-            steps: list[str] = []
-            member_positions: list[int] = []
+            required_positions: list[int] = []
             for requirement_id in block.ordered_requirement_ids:
                 instance_id = (
                     f"{block.block_id}::{repeat_index}::"
@@ -718,27 +972,40 @@ def _repeat_instance_validation(
                         position.get(step_id, 10**9), step_id,
                     ),
                 )
-                steps.extend(covered)
-                member_positions.extend(
+                required_positions.extend(
                     position.get(step_id, 10**9)
                     for step_id in covered
                 )
-            iterations.append(tuple(steps))
-            if len(member_positions) != len(
+            iteration_steps = sorted(
+                (
+                    step_id
+                    for step_id, owner in owned_steps.items()
+                    if owner == (block.block_id, repeat_index)
+                ),
+                key=lambda step_id: (
+                    position.get(step_id, 10**9), step_id,
+                ),
+            )
+            iterations.append(tuple(iteration_steps))
+            if len(required_positions) != len(
                 block.ordered_requirement_ids
             ):
                 serial_order = False
             elif any(
                 left >= right
                 for left, right in zip(
-                    member_positions, member_positions[1:]
+                    required_positions, required_positions[1:]
                 )
             ):
                 serial_order = False
-            elif member_positions and member_positions[0] <= previous_last:
+            iteration_positions = [
+                position.get(step_id, 10**9)
+                for step_id in iteration_steps
+            ]
+            if iteration_positions and iteration_positions[0] <= previous_last:
                 serial_order = False
-            if member_positions:
-                previous_last = member_positions[-1]
+            if iteration_positions:
+                previous_last = iteration_positions[-1]
             all_iteration_roles_mapped &= expected_roles.issubset(
                 mapped_roles_by_iteration.get(
                     (block.block_id, repeat_index), set(),
@@ -753,7 +1020,6 @@ def _repeat_instance_validation(
         len(runtime_constraints) == len(plan.repeat_constraints)
         and set(runtime_constraints) == set(by_block)
     )
-    by_step = {item.step_id: item for item in plan.occurrences}
     for block_id, block in by_block.items():
         constraint = runtime_constraints.get(block_id)
         if constraint is None:
@@ -800,6 +1066,9 @@ def _repeat_instance_validation(
         "repeat_serial_order": serial_order,
         "repeat_role_bindings_valid": repeat_role_maps,
         "repeat_role_semantic_types_compatible": repeat_role_types,
+        "repeat_support_role_bindings_authorized": (
+            repeat_support_role_bindings_authorized
+        ),
         "repeat_iteration_roles_mapped": all_iteration_roles_mapped,
         "nonrepeat_role_bindings_empty": nonrepeat_role_maps_empty,
         "runtime_repeat_constraints_match": repeat_constraint_integrity,
@@ -823,6 +1092,7 @@ def _repeat_instance_validation(
     if not all((
         repeat_role_maps,
         repeat_role_types,
+        repeat_support_role_bindings_authorized,
         all_iteration_roles_mapped,
         nonrepeat_role_maps_empty,
     )):
@@ -1102,16 +1372,19 @@ class PlannerValidator:
         support_occurrences_authorized = True
         support_outputs_consumed = True
         support_data_flow_mappings_valid = True
+        support_step_authority: dict[str, bool] = {}
         for step_id in sorted(support_step_ids):
             occurrence = by_step[step_id]
             producer_ref = str(occurrence.node_ref)
-            support_occurrences_authorized &= producer_ref in support_refs
+            step_authorized = producer_ref in support_refs
+            support_occurrences_authorized &= step_authorized
             outgoing = [
                 edge for edge in plan.data_edges
                 if edge.source_step == step_id
             ]
             if not outgoing:
                 support_outputs_consumed = False
+                support_step_authority[step_id] = False
                 continue
             for edge in outgoing:
                 target = by_step.get(edge.target_step)
@@ -1121,6 +1394,7 @@ class PlannerValidator:
                 if target is None or not target_instance_ids:
                     support_outputs_consumed = False
                     support_data_flow_mappings_valid = False
+                    step_authorized = False
                     continue
                 consumer_ref = str(target.node_ref)
                 mapping_valid = any(
@@ -1134,6 +1408,8 @@ class PlannerValidator:
                     for instance_id in target_instance_ids
                 )
                 support_data_flow_mappings_valid &= mapping_valid
+                step_authorized &= mapping_valid
+            support_step_authority[step_id] = step_authorized
         checks["support_occurrences_authorized"] = (
             support_occurrences_authorized
         )
@@ -1197,6 +1473,7 @@ class PlannerValidator:
                 position,
                 instance_candidates,
                 support_step_ids,
+                support_step_authority,
             )
             checks.update(repeat_checks)
             errors.extend(repeat_codes)

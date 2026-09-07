@@ -13,6 +13,7 @@ from atomic_skillgraph.core.contracts import (
     SemanticPredicate,
     TaskContract,
 )
+from atomic_skillgraph.core.edges import GraphEdge, GraphEdgeType
 from atomic_skillgraph.core.refs import SkillRef
 from atomic_skillgraph.core.status import RuntimeMode, SkillStatus
 from atomic_skillgraph.planner.compiler import PlanCompiler
@@ -136,6 +137,19 @@ class _Skills:
         return list(self._composites)
 
 
+class _MultipleAtomicSkills(_Skills):
+    def __init__(
+        self,
+        atomics: tuple[AbstractAtomicSkill, ...],
+        composites: list[CompositeSkill] | None = None,
+    ) -> None:
+        super().__init__(atomics[0], composites)
+        self._atomics = {str(item.ref): item for item in atomics}
+
+    def get_atomic(self, ref: SkillRef) -> AbstractAtomicSkill:
+        return self._atomics[str(ref)]
+
+
 class _Graph:
     @staticmethod
     def existing_edge_by_id(
@@ -203,6 +217,221 @@ def test_stored_composite_compiles_formal_repeat_authority() -> None:
             "y": "repeat:cc_repeat_p:y:shared",
         },
     }
+
+
+def _identity_support_atomic(
+    logical_id: str,
+    *,
+    derivation_kind: str = "input_identity",
+) -> AbstractAtomicSkill:
+    derivation = (
+        {"kind": "input_identity", "input_role": "item"}
+        if derivation_kind == "input_identity"
+        else {
+            "kind": "effect_witness",
+            "predicate": "agent.holds",
+            "argument_role": "item",
+        }
+    )
+    return AbstractAtomicSkill(
+        ref=SkillRef(logical_id, "1.0.0"),
+        summary=logical_id,
+        inputs=[
+            ParameterSpec("item", "entity"),
+            ParameterSpec("source", "entity"),
+        ],
+        outputs=[ParameterSpec("acquired_item", "entity")],
+        preconditions=[],
+        effects=[SemanticPredicate(
+            "agent.holds", {"item": _input("acquired_item")},
+        )],
+        validator_spec={
+            "output_derivations": {"acquired_item": derivation},
+        },
+        failure_modes=[],
+        guideline={},
+        metadata={"harness_profiles": ["repeat_test"]},
+        status=SkillStatus.ACTIVE,
+    )
+
+
+def _stored_support_composite(
+    logical_id: str,
+    support: AbstractAtomicSkill,
+    unit: AbstractAtomicSkill,
+    contract: TaskContract,
+) -> CompositeSkill:
+    occurrences: list[CompositeOccurrence] = []
+    edges: list[GraphEdge] = []
+    sequence: list[str] = []
+    for repeat_index in range(2):
+        acquire_id = f"acquire_{repeat_index}"
+        place_id = f"place_{repeat_index}"
+        occurrences.extend([
+            CompositeOccurrence(
+                step_id=acquire_id,
+                occurrence_id=f"occ_{acquire_id}",
+                node_ref=support.ref,
+                binding_specs={
+                    "item": _input("x"),
+                    "source": BindingExpression(
+                        BindingExprKind.CONSTANT,
+                        constant=f"source_{repeat_index + 1}",
+                    ),
+                },
+            ),
+            CompositeOccurrence(
+                step_id=place_id,
+                occurrence_id=f"occ_{place_id}",
+                node_ref=unit.ref,
+                binding_specs={
+                    "item": BindingExpression(
+                        BindingExprKind.DATA_FLOW,
+                        source_step=acquire_id,
+                        source_role="acquired_item",
+                    ),
+                    "destination": _input("y"),
+                },
+            ),
+        ])
+        edges.append(GraphEdge(
+            edge_id=f"flow_{repeat_index}",
+            edge_type=GraphEdgeType.DATA_FLOW,
+            source_step=acquire_id,
+            target_step=place_id,
+            source_role="acquired_item",
+            target_role="item",
+            origin="extractor_validated",
+        ))
+        sequence.extend((acquire_id, place_id))
+    return CompositeSkill(
+        ref=SkillRef(logical_id, "1.0.0"),
+        summary="identity-preserving support and repeat unit",
+        occurrences=occurrences,
+        control_sequence=sequence,
+        data_edges=edges,
+        dependency_edges=[],
+        goal_contract=contract,
+        guideline={},
+        insight={},
+        validator_spec={},
+        metadata={"harness_profiles": ["repeat_test"]},
+        status=SkillStatus.ACTIVE,
+    )
+
+
+def test_stored_repeat_compiles_identity_producer_into_iteration() -> None:
+    contract = _repeat_contract()
+    support = _identity_support_atomic("stored_acquire")
+    unit = _atomic("stored_place")
+    composite = _stored_support_composite(
+        "stored_support_repeat", support, unit, contract,
+    )
+    skills = _MultipleAtomicSkills((support, unit), [composite])
+
+    plan = _compile(composite, contract, skills)
+
+    assert plan.repeat_constraints[0].iteration_steps == (
+        ("acquire_0", "place_0"),
+        ("acquire_1", "place_1"),
+    )
+    assert plan.repeat_constraints[0].step_role_bindings == {
+        "acquire_0": {"x": "item"},
+        "place_0": {"x": "item", "y": "destination"},
+        "acquire_1": {"x": "item"},
+        "place_1": {"x": "item", "y": "destination"},
+    }
+    report = PlannerValidator(skills, _Graph()).validate(
+        plan,
+        mode=RuntimeMode.ONLINE,
+        harness_profile="repeat_test",
+    )
+    assert report.passed is True, report
+    assert report.checks[
+        "runtime_repeat_support_identity_authority"
+    ] is True
+
+
+def test_stored_repeat_without_input_identity_fails_closed() -> None:
+    contract = _repeat_contract()
+    support = _identity_support_atomic(
+        "stored_fresh_support", derivation_kind="effect_witness",
+    )
+    unit = _atomic("stored_fresh_place")
+    composite = _stored_support_composite(
+        "stored_unprovable_repeat", support, unit, contract,
+    )
+    skills = _MultipleAtomicSkills((support, unit), [composite])
+
+    plan = _compile(composite, contract, skills)
+
+    assert plan.repeat_constraints == []
+    report = PlannerValidator(skills, _Graph()).validate(
+        plan,
+        mode=RuntimeMode.ONLINE,
+        harness_profile="repeat_test",
+    )
+    assert report.passed is False
+    assert "planner_repeat_block_invalid" in report.failure_codes
+
+
+def test_stored_repeat_does_not_mix_current_and_legacy_derivations() -> None:
+    contract = _repeat_contract()
+    support = _identity_support_atomic("stored_mixed_derivation_support")
+    support.validator_spec = {
+        "output_derivations": {
+            "different_output": {
+                "kind": "input_identity",
+                "input_role": "item",
+            },
+        },
+        "output_identity": [{
+            "output_role": "acquired_item",
+            "input_role": "item",
+        }],
+    }
+    unit = _atomic("stored_mixed_derivation_place")
+    composite = _stored_support_composite(
+        "stored_mixed_derivation_repeat", support, unit, contract,
+    )
+    skills = _MultipleAtomicSkills((support, unit), [composite])
+
+    # Runtime Atomic validation treats any non-empty output_derivations map as
+    # authoritative for the whole output namespace. Planner compilation must
+    # not fill a missing current entry from the legacy projection.
+    plan = _compile(composite, contract, skills)
+    assert plan.repeat_constraints == []
+
+
+def test_stored_repeat_identity_kind_and_types_match_runtime_authority() -> None:
+    contract = _repeat_contract()
+    unit = _atomic("stored_exact_authority_place")
+
+    uppercase = _identity_support_atomic("stored_uppercase_identity")
+    uppercase.validator_spec["output_derivations"]["acquired_item"][
+        "kind"
+    ] = "INPUT_IDENTITY"
+    uppercase_composite = _stored_support_composite(
+        "stored_uppercase_repeat", uppercase, unit, contract,
+    )
+    uppercase_skills = _MultipleAtomicSkills(
+        (uppercase, unit), [uppercase_composite],
+    )
+    assert _compile(
+        uppercase_composite, contract, uppercase_skills,
+    ).repeat_constraints == []
+
+    untyped = _identity_support_atomic("stored_untyped_identity")
+    untyped.inputs[0] = ParameterSpec("item", "")
+    untyped_composite = _stored_support_composite(
+        "stored_untyped_repeat", untyped, unit, contract,
+    )
+    untyped_skills = _MultipleAtomicSkills(
+        (untyped, unit), [untyped_composite],
+    )
+    assert _compile(
+        untyped_composite, contract, untyped_skills,
+    ).repeat_constraints == []
 
 
 def test_stored_repeat_runtime_enforces_distinct_and_shared_values() -> None:
@@ -359,7 +588,17 @@ def test_p0_repeat_rejection_is_audited_and_next_candidate_is_tried() -> None:
     )
 
     plan = pipeline.build_plan(
-        SimpleNamespace(task_id="p0_repeat", goal="invalid first"),
+        SimpleNamespace(
+            task_id="p0_repeat",
+            goal="invalid first",
+            context={
+                "semantic_bindings": {
+                    "x": "target_family",
+                    "y": "destination_family",
+                },
+                "binding_types": {"x": "entity", "y": "entity"},
+            },
+        ),
         harness,
         mode=RuntimeMode.ONLINE,
     )

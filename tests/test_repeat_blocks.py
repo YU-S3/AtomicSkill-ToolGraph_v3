@@ -18,6 +18,7 @@ from atomic_skillgraph.core.contracts import (
     ParameterSpec,
     PlannerRequirementBundle,
     PlannerWorkflowProposal,
+    ProposedEdge,
     ProposedOccurrence,
     RepeatBlock,
     SemanticPredicate,
@@ -37,6 +38,7 @@ from atomic_skillgraph.governance.lifecycle import CandidateUsePolicy
 from atomic_skillgraph.planner.compiler import PlanCompiler
 from atomic_skillgraph.planner.composite_retriever import CompositeRetriever
 from atomic_skillgraph.planner.multiplicity import (
+    RequirementExpansion,
     RequirementBundleValidator,
     RequirementMultiplicityCompiler,
 )
@@ -71,6 +73,7 @@ def _atomic(
     outputs: tuple[str, ...] = (),
     preconditions: tuple[SemanticPredicate, ...] = (),
     effects: tuple[SemanticPredicate, ...],
+    validator_spec: dict[str, Any] | None = None,
 ) -> AbstractAtomicSkill:
     return AbstractAtomicSkill(
         ref=SkillRef(logical_id, "1.0.0"),
@@ -79,7 +82,11 @@ def _atomic(
         outputs=[ParameterSpec(role, "entity") for role in outputs],
         preconditions=list(preconditions),
         effects=list(effects),
-        validator_spec={"validator_id": "repeat_test"},
+        validator_spec=(
+            {"validator_id": "repeat_test"}
+            if validator_spec is None
+            else dict(validator_spec)
+        ),
         failure_modes=[],
         guideline={},
         metadata={"harness_profiles": ["repeat_test"]},
@@ -267,6 +274,161 @@ def _proposal(
     )
 
 
+def _support_producer_fixture() -> tuple[
+    TaskContract,
+    RequirementExpansion,
+    AbstractAtomicSkill,
+    AbstractAtomicSkill,
+    PlannerWorkflowProposal,
+    list[dict[str, Any]],
+]:
+    """Generic repeat-unit plan with an identity-preserving support step."""
+
+    contract = TaskContract(
+        target_effects=[SemanticPredicate(
+            "P",
+            {"x": "target", "y": "destination"},
+            cardinality=2,
+            distinct_by="x",
+        )],
+        cardinality_constraints=[{
+            "constraint_id": "cc_repeat_p",
+            "predicate": "P",
+            "count": 2,
+            "distinct_by": "x",
+            "shared_roles": ["y"],
+            "composition_mode": "repeat_unit",
+        }],
+    )
+    requirement = CapabilityRequirement(
+        requirement_id="req_place",
+        intent="place one item",
+        desired_effects=[SemanticPredicate(
+            "P", {"x": "$item", "y": "$destination"},
+        )],
+        expected_inputs=[
+            ParameterSpec("item", "entity"),
+            ParameterSpec("destination", "entity"),
+        ],
+        expected_outputs=[],
+        precondition_hints=[SemanticPredicate(
+            "agent.holds", {"item": "$item"},
+        )],
+        semantic_variants=[],
+        required=True,
+        rationale="one repeat unit",
+    )
+    block = RepeatBlock(
+        block_id="repeat_p",
+        count=2,
+        ordered_requirement_ids=("req_place",),
+        distinct_roles=("item",),
+        shared_roles=("destination",),
+        basis_constraint_id="cc_repeat_p",
+        basis_role_map={"x": "item", "y": "destination"},
+        execution_policy="serial",
+    )
+    expansion = RequirementMultiplicityCompiler().expand(
+        PlannerRequirementBundle(
+            requirements=[requirement],
+            repeat_blocks=[block],
+        ),
+        contract,
+    )
+    acquire = _atomic(
+        "acquire_support",
+        inputs=("item", "source"),
+        outputs=("acquired_item",),
+        effects=(SemanticPredicate(
+            "agent.holds", {"item": _input("acquired_item")},
+        ),),
+        validator_spec={
+            "validator_id": "repeat_test",
+            "output_derivations": {
+                "acquired_item": {
+                    "kind": "input_identity",
+                    "input_role": "item",
+                },
+            },
+        },
+    )
+    place = _atomic(
+        "place_required",
+        inputs=("item", "destination"),
+        preconditions=(SemanticPredicate(
+            "agent.holds", {"item": _input("item")},
+        ),),
+        effects=(SemanticPredicate(
+            "P", {"x": _input("item"), "y": _input("destination")},
+        ),),
+    )
+
+    steps: list[ProposedOccurrence] = []
+    edges: list[ProposedEdge] = []
+    support_candidates: list[dict[str, Any]] = []
+    coverage: dict[str, list[str]] = {}
+    for repeat_index in range(2):
+        acquire_id = f"acquire_{repeat_index}"
+        place_id = f"place_{repeat_index}"
+        instance_id = f"repeat_p::{repeat_index}::req_place"
+        steps.extend([
+            ProposedOccurrence(
+                step_id=acquire_id,
+                occurrence_id=f"occ_{acquire_id}",
+                node_ref=acquire.ref,
+                requirement_ids=[],
+                binding_specs={
+                    "item": _constant(f"item_{repeat_index + 1}"),
+                    "source": _constant(f"source_{repeat_index + 1}"),
+                },
+                repeat_role_bindings={"item": "item"},
+            ),
+            ProposedOccurrence(
+                step_id=place_id,
+                occurrence_id=f"occ_{place_id}",
+                node_ref=place.ref,
+                requirement_ids=[instance_id],
+                binding_specs={
+                    "destination": _constant("shared_destination"),
+                },
+                requirement_instance_ids=[instance_id],
+                repeat_role_bindings={
+                    "item": "item",
+                    "destination": "destination",
+                },
+            ),
+        ])
+        edges.append(ProposedEdge(
+            edge_id=f"flow_{repeat_index}",
+            edge_type="data_flow",
+            source_step=acquire_id,
+            target_step=place_id,
+            source_role="acquired_item",
+            target_role="item",
+        ))
+        support_candidates.append({
+            "atomic_ref": str(acquire.ref),
+            "consumer_requirement_instance_id": instance_id,
+            "role_mappings": [{
+                "producer_role": "acquired_item",
+                "consumer_role": "item",
+                "consumer_atomic_ref": str(place.ref),
+            }],
+        })
+        coverage[instance_id] = [place_id]
+    proposal = PlannerWorkflowProposal(
+        steps=steps,
+        control_sequence=[item.step_id for item in steps],
+        data_edges=edges,
+        dependency_edges=[],
+        requirement_coverage=coverage,
+    )
+    return (
+        contract, expansion, acquire, place, proposal,
+        support_candidates,
+    )
+
+
 def test_repeat_unit_constraint_requires_exactly_one_repeat_block() -> None:
     contract, bundle, _acquire, _place = _delivery_fixture()
     aggregate_place = replace(
@@ -407,6 +569,211 @@ def test_compiler_and_validator_accept_same_atomic_ref_in_serial_instances() -> 
     assert report.checks["repeat_requirement_instances_exactly_once"] is True
     assert report.checks["repeat_serial_order"] is True
     assert report.checks["runtime_repeat_constraints_match"] is True
+
+
+def _compile_support_producer_plan(
+    proposal: PlannerWorkflowProposal,
+    contract: TaskContract,
+    expansion: RequirementExpansion,
+    acquire: AbstractAtomicSkill,
+    place: AbstractAtomicSkill,
+) -> RuntimeLinearPlan:
+    return PlanCompiler(_Skills(acquire, place)).compile(
+        proposal,
+        SimpleNamespace(task_id="support_repeat_task"),
+        contract,
+        mode=RuntimeMode.ONLINE,
+        audit={},
+        expansion=expansion,
+    )
+
+
+def _validate_support_producer_plan(
+    plan: RuntimeLinearPlan,
+    expansion: RequirementExpansion,
+    acquire: AbstractAtomicSkill,
+    place: AbstractAtomicSkill,
+    support_candidates: list[dict[str, Any]],
+) -> ValidationResult:
+    return PlannerValidator(_Skills(acquire, place), _Graph()).validate(
+        plan,
+        mode=RuntimeMode.ONLINE,
+        harness_profile="repeat_test",
+        expansion=expansion,
+        instance_candidates={
+            instance.instance_id: {str(place.ref)}
+            for instance in expansion.instances
+        },
+        support_candidates=support_candidates,
+    )
+
+
+def test_repeat_support_producer_is_compiled_into_its_iteration() -> None:
+    (
+        contract, expansion, acquire, place, proposal,
+        support_candidates,
+    ) = _support_producer_fixture()
+    plan = _compile_support_producer_plan(
+        proposal, contract, expansion, acquire, place,
+    )
+
+    assert plan.repeat_constraints == [RuntimeRepeatConstraint(
+        block_id="repeat_p",
+        count=2,
+        iteration_steps=(
+            ("acquire_0", "place_0"),
+            ("acquire_1", "place_1"),
+        ),
+        distinct_roles=("x",),
+        shared_roles=("y",),
+        step_role_bindings={
+            "acquire_0": {"x": "item"},
+            "place_0": {"x": "item", "y": "destination"},
+            "acquire_1": {"x": "item"},
+            "place_1": {"x": "item", "y": "destination"},
+        },
+        basis_constraint_id="cc_repeat_p",
+    )]
+    report = _validate_support_producer_plan(
+        plan, expansion, acquire, place, support_candidates,
+    )
+    assert report.passed is True, report
+    assert report.checks[
+        "repeat_support_role_bindings_authorized"
+    ] is True
+    assert report.checks[
+        "runtime_repeat_support_identity_authority"
+    ] is True
+
+
+def test_repeat_support_scope_requires_retrieval_authority() -> None:
+    contract, expansion, acquire, place, proposal, _candidates = (
+        _support_producer_fixture()
+    )
+    plan = _compile_support_producer_plan(
+        proposal, contract, expansion, acquire, place,
+    )
+
+    report = _validate_support_producer_plan(
+        plan, expansion, acquire, place, [],
+    )
+
+    assert report.passed is False
+    assert report.checks["support_occurrences_authorized"] is False
+    assert report.checks[
+        "repeat_support_role_bindings_authorized"
+    ] is False
+
+
+def test_repeat_support_producer_mapping_is_mandatory() -> None:
+    (
+        contract, expansion, acquire, place, proposal,
+        support_candidates,
+    ) = _support_producer_fixture()
+    for occurrence in proposal.steps:
+        if not occurrence.requirement_instance_ids:
+            occurrence.repeat_role_bindings = {}
+    plan = _compile_support_producer_plan(
+        proposal, contract, expansion, acquire, place,
+    )
+
+    assert plan.repeat_constraints[0].iteration_steps == (
+        ("place_0",), ("place_1",),
+    )
+    report = _validate_support_producer_plan(
+        plan, expansion, acquire, place, support_candidates,
+    )
+    assert report.passed is False
+    assert report.checks[
+        "repeat_support_role_bindings_authorized"
+    ] is False
+    assert "planner_repeat_role_invalid" in report.failure_codes
+
+
+def test_repeat_support_producer_wrong_input_identity_mapping_fails() -> None:
+    (
+        contract, expansion, acquire, place, proposal,
+        support_candidates,
+    ) = _support_producer_fixture()
+    for occurrence in proposal.steps:
+        if not occurrence.requirement_instance_ids:
+            occurrence.repeat_role_bindings = {"item": "source"}
+    plan = _compile_support_producer_plan(
+        proposal, contract, expansion, acquire, place,
+    )
+    report = _validate_support_producer_plan(
+        plan, expansion, acquire, place, support_candidates,
+    )
+
+    assert report.passed is False
+    assert report.checks[
+        "repeat_support_role_bindings_authorized"
+    ] is False
+    assert "planner_repeat_role_invalid" in report.failure_codes
+
+
+def test_repeat_support_producer_cannot_span_iterations() -> None:
+    (
+        contract, expansion, acquire, place, proposal,
+        support_candidates,
+    ) = _support_producer_fixture()
+    proposal.steps = [
+        occurrence for occurrence in proposal.steps
+        if occurrence.step_id != "acquire_1"
+    ]
+    proposal.control_sequence = [
+        step_id for step_id in proposal.control_sequence
+        if step_id != "acquire_1"
+    ]
+    proposal.data_edges[1] = replace(
+        proposal.data_edges[1], source_step="acquire_0",
+    )
+    plan = _compile_support_producer_plan(
+        proposal, contract, expansion, acquire, place,
+    )
+
+    assert plan.repeat_constraints[0].iteration_steps == (
+        ("place_0",), ("place_1",),
+    )
+    report = _validate_support_producer_plan(
+        plan, expansion, acquire, place, support_candidates,
+    )
+    assert report.passed is False
+    assert report.checks[
+        "repeat_support_role_bindings_authorized"
+    ] is False
+    assert "planner_repeat_role_invalid" in report.failure_codes
+
+
+def test_repeat_distinctness_is_enforced_at_support_producer() -> None:
+    (
+        contract, expansion, acquire, place, proposal,
+        _support_candidates,
+    ) = _support_producer_fixture()
+    constraint = _compile_support_producer_plan(
+        proposal, contract, expansion, acquire, place,
+    ).repeat_constraints
+    store = RuntimeBindingStore()
+    store.configure_repeat_constraints(constraint)
+
+    assert store.preflight_repeat_bindings(
+        "acquire_0", {"item": "item_a", "source": "source_a"},
+    ).passed is True
+    assert store.commit_repeat_bindings(
+        "acquire_0",
+        {"item": "item_a", "source": "source_a"},
+        effect_passed=True,
+    ).passed is True
+    reused = store.preflight_repeat_bindings(
+        "acquire_1", {"item": "item_a", "source": "source_b"},
+    )
+    assert reused.passed is False
+    assert reused.failure_codes == [
+        "runtime_repetition_distinctness_violation",
+    ]
+    assert store.preflight_repeat_bindings(
+        "acquire_1", {"item": "item_b", "source": "source_b"},
+    ).passed is True
 
 
 def test_validator_rejects_duplicate_occurrence_instance_and_bad_order() -> None:
