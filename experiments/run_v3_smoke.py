@@ -1302,6 +1302,7 @@ def run_real_alfworld(config_path: str | Path) -> int:
     })
     config["experiment"] = experiment
     config["data_dir"] = str(output / "data_v3")
+    config["trace_data_dir"] = str(output)
     with AtomicSkillGraphSystem(config, readonly=False) as system:
         preflight = system.preflight(require_api_key=True, initialize_harness=True)
         if not preflight["passed"]:
