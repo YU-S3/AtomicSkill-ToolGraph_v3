@@ -7,6 +7,7 @@ family, object, or benchmark workflow knowledge.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
@@ -56,6 +57,23 @@ _FORBIDDEN_CODE_MARKERS = (
     "socket", "requests.", "pathlib", "/proc/", "C:\\",
 )
 _CONCRETE_ID_RE = re.compile(r"(?:^|[ _])(?:[a-z0-9]+[ _])?\d+$", re.IGNORECASE)
+_WHOLE_INSTANCE_RE = re.compile(
+    r"[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*[ _]+[0-9]+",
+    re.ASCII,
+)
+_CANONICAL_INSTANCE_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_])[A-Za-z][A-Za-z0-9]*"
+    r"(?:_[A-Za-z0-9]+)*_[0-9]+(?![A-Za-z0-9_])",
+    re.ASCII,
+)
+
+
+@dataclass(frozen=True)
+class EpisodeLiteralHit:
+    field_path: str
+    value: str
+    matched_text: str
+    category: str  # executable_literal | annotation
 
 
 @dataclass
@@ -502,43 +520,602 @@ def _iter_string_values(value: Any) -> Iterable[str]:
             yield from _iter_string_values(item)
 
 
-def _concrete_ids_from_nodes(nodes: list[dict[str, Any]]) -> list[str]:
-    found: list[str] = []
-    for node in walk_program_nodes(nodes):
-        opcode = str(node.get("op", ""))
-        if opcode == "ACTION":
-            for raw in dict(node.get("argument_mapping") or {}).values():
-                expression = _selector_source(raw)
-                if str(expression.get("kind", "")).casefold() == "constant":
-                    found.append(str(expression.get("constant", "")))
-        elif opcode in {"IF", "STOP_WHEN"}:
-            condition = _selector_source(node.get("condition"))
-            if condition.get("value") is not None:
-                found.append(str(condition.get("value")))
-        elif opcode == "FOR_EACH":
-            source = _selector_source(node.get("collection_source"))
-            if source.get("source") == "local_deterministic":
-                found.extend(_iter_string_values(source.get("values") or []))
-            for item in _iter_string_values(source.get("where") or {}):
-                found.append(item)
-        elif opcode == "RETURN":
-            for raw in dict(node.get("output_sources") or {}).values():
-                spec = _selector_source(raw) if isinstance(raw, Mapping) else {}
-                source = str(spec.get("source", "")).casefold()
-                kind = str(spec.get("kind", "")).casefold()
-                if source == "constant" or kind == "constant":
-                    constant = (
-                        spec.get("value")
-                        if "value" in spec else spec.get("constant")
-                    )
-                    found.extend(_iter_string_values(constant))
-        for raw in node.get("expected_effects") or ():
-            found.extend(str(item) for item in _iter_string_values(raw) if item != "$")
-        found.extend(str(item) for item in _iter_string_values(node.get("path_expectations") or []))
-    return [
-        value for value in found
-        if value and _CONCRETE_ID_RE.search(value.casefold())
+def _field_path(parent: str, key: Any) -> str:
+    text = str(key)
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", text, re.ASCII):
+        return f"{parent}.{text}"
+    return f"{parent}[{json.dumps(text, ensure_ascii=False)}]"
+
+
+def _normalize_instance_name(value: str) -> str | None:
+    text = value.strip()
+    if not _WHOLE_INSTANCE_RE.fullmatch(text):
+        return None
+    return re.sub(r"[ _]+", "_", text.casefold())
+
+
+def _instance_matches(
+    value: Any,
+    known_instances: Iterable[str],
+    *,
+    annotation: bool,
+) -> list[str]:
+    """Return lexical instance matches without changing native scalar types."""
+
+    if not isinstance(value, str):
+        return []
+    if not annotation and _normalize_instance_name(value) is not None:
+        return [value]
+
+    spans = [
+        (match.start(), match.end(), match.group(0))
+        for match in _CANONICAL_INSTANCE_TOKEN_RE.finditer(value)
     ]
+    for raw in known_instances:
+        normalized = _normalize_instance_name(str(raw))
+        if normalized is None:
+            continue
+        stem, number = normalized.rsplit("_", 1)
+        stem_pattern = r"[ _]+".join(
+            re.escape(part) for part in stem.split("_")
+        )
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9_])"
+            + stem_pattern
+            + r"[ _]+"
+            + re.escape(number)
+            + r"(?![A-Za-z0-9_])",
+            re.IGNORECASE | re.ASCII,
+        )
+        spans.extend(
+            (match.start(), match.end(), match.group(0))
+            for match in pattern.finditer(value)
+        )
+    return [text for _start, _end, text in sorted(set(spans))]
+
+
+def _mask_formal_reference_spans(text: str, formal_roles: set[str]) -> str:
+    """Mask only explicit references whose roles are actually declared."""
+
+    characters = list(text)
+    spans: set[tuple[int, int]] = set()
+    for role in formal_roles:
+        if not role:
+            continue
+        escaped = re.escape(role)
+        patterns = (
+            re.compile(
+                r"(?<![A-Za-z0-9_])\$" + escaped + r"(?![A-Za-z0-9_])",
+                re.ASCII,
+            ),
+            re.compile(
+                r"<\s*" + escaped
+                + r"\s+(?:input|output|local(?:\s+variable)?)\s*>",
+                re.IGNORECASE | re.ASCII,
+            ),
+        )
+        for pattern in patterns:
+            spans.update((match.start(), match.end()) for match in pattern.finditer(text))
+    for start, end in spans:
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
+def _append_literal_hits(
+    hits: list[EpisodeLiteralHit],
+    value: Any,
+    field_path: str,
+    known_instances: tuple[str, ...],
+) -> None:
+    """Recursively inspect data values from an executable-literal field."""
+
+    if isinstance(value, str):
+        for matched in _instance_matches(
+            value, known_instances, annotation=False,
+        ):
+            hits.append(EpisodeLiteralHit(
+                field_path, value, matched, "executable_literal",
+            ))
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _append_literal_hits(
+                hits, item, _field_path(field_path, key), known_instances,
+            )
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _append_literal_hits(
+                hits, item, f"{field_path}[{index}]", known_instances,
+            )
+        return
+    if isinstance(value, set):
+        for index, item in enumerate(sorted(value, key=repr)):
+            _append_literal_hits(
+                hits, item, f"{field_path}[{index}]", known_instances,
+            )
+
+
+def _append_annotation_hits(
+    hits: list[EpisodeLiteralHit],
+    value: Any,
+    field_path: str,
+    known_instances: tuple[str, ...],
+    formal_roles: set[str],
+) -> None:
+    if isinstance(value, str):
+        masked = _mask_formal_reference_spans(value, formal_roles)
+        for matched in _instance_matches(
+            masked, known_instances, annotation=True,
+        ):
+            # Masking preserves offsets, so recover the exact original text.
+            start = masked.find(matched)
+            original = value[start:start + len(matched)] if start >= 0 else matched
+            hits.append(EpisodeLiteralHit(
+                field_path, value, original, "annotation",
+            ))
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _append_annotation_hits(
+                hits, item, _field_path(field_path, key),
+                known_instances, formal_roles,
+            )
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _append_annotation_hits(
+                hits, item, f"{field_path}[{index}]",
+                known_instances, formal_roles,
+            )
+
+
+def _scan_selector_literals(
+    hits: list[EpisodeLiteralHit],
+    selector: Mapping[str, Any],
+    field_path: str,
+    known_instances: tuple[str, ...],
+) -> None:
+    """Inspect actual selector comparisons, never its reference vocabulary."""
+
+    source = str(selector.get("source", "")).casefold()
+    if source == "local_deterministic" and "values" in selector:
+        _append_literal_hits(
+            hits, selector.get("values"),
+            _field_path(field_path, "values"), known_instances,
+        )
+    where = selector.get("where")
+    if not isinstance(where, Mapping):
+        return
+    for key, value in where.items():
+        # These fields identify schema vocabulary or a formally scoped lookup.
+        if key in {
+            "action_type", "predicate", "argument_role",
+            "semantic_compatible_with",
+        }:
+            continue
+        _append_literal_hits(
+            hits, value, _field_path(_field_path(field_path, "where"), key),
+            known_instances,
+        )
+
+
+def _scan_effect_argument_literal(
+    hits: list[EpisodeLiteralHit],
+    value: Any,
+    field_path: str,
+    known_instances: tuple[str, ...],
+) -> None:
+    if isinstance(value, BindingExpression):
+        if value.kind is BindingExprKind.CONSTANT:
+            _append_literal_hits(
+                hits, value.constant, _field_path(field_path, "constant"),
+                known_instances,
+            )
+        return
+    if isinstance(value, Mapping) and "kind" in value:
+        if str(value.get("kind", "")).casefold() == "constant":
+            _append_literal_hits(
+                hits, value.get("constant"),
+                _field_path(field_path, "constant"), known_instances,
+            )
+        # Other kinds remain subject to the existing scope/schema validator.
+        return
+    if isinstance(value, str) and value.startswith("$"):
+        return
+    _append_literal_hits(hits, value, field_path, known_instances)
+
+
+def _scan_path_expectation(
+    hits: list[EpisodeLiteralHit],
+    value: Any,
+    field_path: str,
+    known_instances: tuple[str, ...],
+    formal_roles: set[str],
+    known_path_refs: set[str],
+    boundary_roles: set[str],
+    local_roles: set[str],
+) -> None:
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _scan_path_expectation(
+                hits, item, f"{field_path}[{index}]",
+                known_instances, formal_roles, known_path_refs,
+                boundary_roles, local_roles,
+            )
+        return
+    if not isinstance(value, Mapping):
+        _append_annotation_hits(
+            hits, value, field_path, known_instances, formal_roles,
+        )
+        return
+    # A path-expectation record is annotation metadata, not a
+    # BindingExpression.  Only fields at this recognized record boundary are
+    # syntax.  Values of descriptive fields are scanned as one annotation
+    # subtree, so a nested object cannot hide an instance by naming one of
+    # its keys ``field``, ``kind``, or another syntax word.
+    syntax_fields = {
+        "op", "action_type", "source", "field", "predicate",
+        "effect_domain", "distinct_by", "kind", "project", "argument_role",
+    }
+    path_reference_fields = {"path", "step", "node_id", "source_step"}
+    role_reference_fields = {"role", "output_role", "source_role"}
+    quantity_fields = {"cardinality", "max_iterations", "max_actions"}
+    for key, item in value.items():
+        if key in {"arguments", "args"} and isinstance(item, Mapping):
+            for role, expression in item.items():
+                expression_path = _field_path(
+                    _field_path(field_path, key), role,
+                )
+                if not isinstance(expression, Mapping):
+                    _append_annotation_hits(
+                        hits, expression, expression_path,
+                        known_instances, formal_roles,
+                    )
+                    continue
+                kind = str(expression.get("kind", "")).casefold()
+                if kind == "constant" and "constant" in expression:
+                    _append_literal_hits(
+                        hits,
+                        expression.get("constant"),
+                        _field_path(expression_path, "constant"),
+                        known_instances,
+                    )
+                for expression_key, expression_value in expression.items():
+                    if expression_key == "kind":
+                        continue
+                    if expression_key == "constant" and kind == "constant":
+                        continue
+                    if expression_key == "source_role" and isinstance(
+                        expression_value, str,
+                    ):
+                        formal = (
+                            kind == "skill_input"
+                            and expression_value in boundary_roles
+                        ) or (
+                            kind == "local_variable"
+                            and expression_value in local_roles
+                        )
+                        if formal:
+                            continue
+                    _append_annotation_hits(
+                        hits,
+                        expression_value,
+                        _field_path(expression_path, expression_key),
+                        known_instances,
+                        formal_roles,
+                    )
+            continue
+        if key in syntax_fields:
+            continue
+        if (
+            key in path_reference_fields
+            and isinstance(item, str)
+            and item in known_path_refs
+        ):
+            continue
+        if (
+            key in role_reference_fields
+            and isinstance(item, str)
+            and item in formal_roles
+        ):
+            continue
+        if (
+            key in quantity_fields
+            and not isinstance(item, bool)
+            and isinstance(item, (int, float))
+        ):
+            continue
+        _append_annotation_hits(
+            hits,
+            item,
+            _field_path(field_path, key),
+            known_instances,
+            formal_roles,
+        )
+
+
+def _scan_evidence_output(
+    hits: list[EpisodeLiteralHit],
+    item: Mapping[str, Any],
+    field_path: str,
+    known_instances: tuple[str, ...],
+    formal_roles: set[str],
+) -> None:
+    source = str(item.get("source", "")).casefold()
+    kind = str(item.get("kind", "")).casefold()
+    if source == "constant" and "value" in item:
+        _append_literal_hits(
+            hits, item.get("value"), _field_path(field_path, "value"),
+            known_instances,
+        )
+    if kind == "constant" and "constant" in item:
+        _append_literal_hits(
+            hits, item.get("constant"),
+            _field_path(field_path, "constant"), known_instances,
+        )
+    _scan_selector_literals(hits, item, field_path, known_instances)
+    recognized = {
+        "source", "kind", "field", "role", "source_role", "source_step",
+        "project", "where", "distinct",
+    }
+    for key, value in item.items():
+        if key in recognized:
+            continue
+        if key == "value" and source == "constant":
+            continue
+        if key == "constant" and kind == "constant":
+            continue
+        _append_annotation_hits(
+            hits, value, _field_path(field_path, key),
+            known_instances, formal_roles,
+        )
+
+
+def _program_episode_literal_hits(
+    program: list[dict[str, Any]],
+    *,
+    known_instances: tuple[str, ...],
+    boundary_roles: set[str],
+) -> tuple[
+    list[EpisodeLiteralHit],
+    dict[str, set[str]],
+    dict[str, set[str]],
+]:
+    hits: list[EpisodeLiteralHit] = []
+    node_scopes: dict[str, set[str]] = {}
+    node_local_scopes: dict[str, set[str]] = {}
+
+    def visit(
+        nodes: list[dict[str, Any]],
+        prefix: str,
+        available_locals: set[str],
+    ) -> None:
+        for index, node in enumerate(nodes):
+            node_path = f"{prefix}[{index}]"
+            scope = set(boundary_roles) | set(available_locals)
+            node_id = str(node.get("node_id", ""))
+            node_scopes.setdefault(node_id, scope)
+            # Keep the true local namespace separately.  It cannot be
+            # recovered by subtracting boundary roles because a FOR_EACH
+            # local is permitted to shadow a same-named Tool input.
+            node_local_scopes.setdefault(node_id, set(available_locals))
+            opcode = str(node.get("op", ""))
+            if opcode == "ACTION":
+                mapping = node.get("argument_mapping")
+                if isinstance(mapping, Mapping):
+                    for role, raw in mapping.items():
+                        argument_path = _field_path(
+                            _field_path(node_path, "argument_mapping"), role,
+                        )
+                        if isinstance(raw, BindingExpression):
+                            if raw.kind is BindingExprKind.CONSTANT:
+                                _append_literal_hits(
+                                    hits, raw.constant,
+                                    _field_path(argument_path, "constant"),
+                                    known_instances,
+                                )
+                        elif isinstance(raw, Mapping) and str(
+                            raw.get("kind", "")
+                        ).casefold() == "constant":
+                            _append_literal_hits(
+                                hits, raw.get("constant"),
+                                _field_path(argument_path, "constant"),
+                                known_instances,
+                            )
+                effects = node.get("expected_effects")
+                if isinstance(effects, (list, tuple)):
+                    for effect_index, effect in enumerate(effects):
+                        args = (
+                            effect.args
+                            if isinstance(effect, SemanticPredicate)
+                            else effect.get("args", {})
+                            if isinstance(effect, Mapping)
+                            else {}
+                        )
+                        if not isinstance(args, Mapping):
+                            continue
+                        effect_path = (
+                            f"{_field_path(node_path, 'expected_effects')}"
+                            f"[{effect_index}].args"
+                        )
+                        for role, raw in args.items():
+                            _scan_effect_argument_literal(
+                                hits, raw, _field_path(effect_path, role),
+                                known_instances,
+                            )
+            elif opcode in {"IF", "STOP_WHEN"}:
+                condition = node.get("condition")
+                if isinstance(condition, Mapping) and "value" in condition:
+                    _append_literal_hits(
+                        hits, condition.get("value"),
+                        _field_path(
+                            _field_path(node_path, "condition"), "value",
+                        ),
+                        known_instances,
+                    )
+            elif opcode == "FOR_EACH":
+                selector = node.get("collection_source")
+                if isinstance(selector, Mapping):
+                    _scan_selector_literals(
+                        hits, selector,
+                        _field_path(node_path, "collection_source"),
+                        known_instances,
+                    )
+            elif opcode == "RETURN":
+                outputs = node.get("output_sources")
+                if isinstance(outputs, Mapping):
+                    for role, raw in outputs.items():
+                        output_path = _field_path(
+                            _field_path(node_path, "output_sources"), role,
+                        )
+                        if not isinstance(raw, Mapping):
+                            continue
+                        source = str(raw.get("source", "")).casefold()
+                        kind = str(raw.get("kind", "")).casefold()
+                        if source == "constant":
+                            _append_literal_hits(
+                                hits, raw.get("value"),
+                                _field_path(output_path, "value"),
+                                known_instances,
+                            )
+                        elif kind == "constant":
+                            _append_literal_hits(
+                                hits, raw.get("constant"),
+                                _field_path(output_path, "constant"),
+                                known_instances,
+                            )
+                        else:
+                            _scan_selector_literals(
+                                hits, raw, output_path, known_instances,
+                            )
+
+            if opcode == "IF":
+                visit(
+                    list(node.get("then_branch") or []),
+                    _field_path(node_path, "then_branch"),
+                    available_locals,
+                )
+                visit(
+                    list(node.get("else_branch") or []),
+                    _field_path(node_path, "else_branch"),
+                    available_locals,
+                )
+            elif opcode == "FOR_EACH":
+                variable = str(node.get("iteration_variable", ""))
+                visit(
+                    list(node.get("body") or []),
+                    _field_path(node_path, "body"),
+                    available_locals | ({variable} if variable else set()),
+                )
+
+    visit(program, "program", set())
+    return hits, node_scopes, node_local_scopes
+
+
+def _collect_public_instances(
+    historical_evidence_support: tuple[Any, ...] | None,
+    harness: Any,
+) -> tuple[str, ...]:
+    instances: list[str] = []
+    seen: set[str] = set()
+
+    def collect(value: Any) -> None:
+        if isinstance(value, str):
+            normalized = _normalize_instance_name(value)
+            if normalized is not None and normalized not in seen:
+                seen.add(normalized)
+                instances.append(normalized)
+        elif isinstance(value, Mapping):
+            for nested in value.values():
+                collect(nested)
+        elif isinstance(value, (list, tuple, set)):
+            for nested in value:
+                collect(nested)
+
+    for raw in historical_evidence_support or ():
+        action = _historical_action(raw)
+        if not action or not bool(action.get("accepted", True)):
+            continue
+        arguments = action.get("arguments")
+        if isinstance(arguments, Mapping):
+            collect(arguments)
+    action_catalog = getattr(harness, "action_catalog", None)
+    if callable(action_catalog):
+        try:
+            catalog = action_catalog()
+        except Exception:
+            catalog = ()
+        for raw in catalog or ():
+            action = to_primitive(raw)
+            if not isinstance(action, Mapping):
+                continue
+            arguments = action.get("arguments")
+            if isinstance(arguments, Mapping):
+                collect(arguments)
+    return tuple(instances)
+
+
+def _proposal_episode_literal_hits(
+    proposal: ToolProposal,
+    program: list[dict[str, Any]],
+    *,
+    known_instances: tuple[str, ...],
+) -> list[EpisodeLiteralHit]:
+    boundary_roles = {
+        str(item.name) for item in [*proposal.inputs, *proposal.outputs]
+        if str(item.name)
+    }
+    hits, node_scopes, node_local_scopes = _program_episode_literal_hits(
+        program,
+        known_instances=known_instances,
+        boundary_roles=boundary_roles,
+    )
+    path_data = program_paths(program)
+    known_path_refs = set(node_scopes) | set(path_data.get("path_ids", ()))
+    for index, raw in enumerate(proposal.path_expectations):
+        path = f"path_expectations[{index}]"
+        node_id = ""
+        if isinstance(raw, Mapping):
+            for reference_field in ("path", "node_id", "source_step"):
+                referenced_node = str(raw.get(reference_field, ""))
+                candidate = referenced_node.rsplit("/", 1)[-1]
+                if candidate in node_scopes:
+                    node_id = candidate
+                    break
+        formal_roles = set(boundary_roles) | set(node_scopes.get(node_id, set()))
+        local_roles = set(node_local_scopes.get(node_id, set()))
+        _scan_path_expectation(
+            hits, raw, path, known_instances, formal_roles, known_path_refs,
+            boundary_roles, local_roles,
+        )
+    for index, raw in enumerate(proposal.evidence_outputs):
+        path = f"evidence_outputs[{index}]"
+        if isinstance(raw, Mapping):
+            _scan_evidence_output(
+                hits, raw, path, known_instances, boundary_roles,
+            )
+        else:
+            _append_literal_hits(hits, raw, path, known_instances)
+    unique: list[EpisodeLiteralHit] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for hit in hits:
+        identity = (
+            hit.field_path, hit.value, hit.matched_text, hit.category,
+        )
+        if identity not in seen:
+            seen.add(identity)
+            unique.append(hit)
+    return unique
+
+
+def _concrete_ids_from_nodes(nodes: list[dict[str, Any]]) -> list[str]:
+    """Compatibility projection for tests importing the legacy helper."""
+
+    hits, _scopes, _local_scopes = _program_episode_literal_hits(
+        nodes, known_instances=(), boundary_roles=set(),
+    )
+    return [hit.matched_text for hit in hits]
 
 
 def _boundary_spec_signature(value: Any) -> tuple[str, str, bool, bool, str, str]:
@@ -736,6 +1313,14 @@ class ToolStaticValidator:
         *,
         historical_evidence_support: Iterable[Any] | None = None,
     ) -> ToolStaticReport:
+        # An evidence iterator is shared by loop validation and the public
+        # instance-name scanner.  Materialize it once so neither consumer can
+        # silently deprive the other of evidence.
+        history_support = (
+            None
+            if historical_evidence_support is None
+            else tuple(historical_evidence_support)
+        )
         checks: dict[str, bool] = {}
         codes: list[str] = []
         messages: list[str] = []
@@ -884,9 +1469,9 @@ class ToolStaticValidator:
                 if not variable:
                     fail("tool_ir_for_each_variable_invalid", f"FOR_EACH {node.get('node_id')} lacks iteration_variable")
                 if (
-                    historical_evidence_support is not None
+                    history_support is not None
                     and not _historical_loop_supported(
-                        node, historical_evidence_support,
+                        node, history_support,
                     )
                 ):
                     fail(
@@ -1075,20 +1660,21 @@ class ToolStaticValidator:
         if arbitrary:
             fail("tool_ir_arbitrary_code", f"forbidden executable marker(s): {arbitrary}")
 
-        concrete_ids = _concrete_ids_from_nodes(program)
-        for raw in proposal.path_expectations:
-            concrete_ids.extend(
-                value for value in _iter_string_values(raw)
-                if value and _CONCRETE_ID_RE.search(value.casefold())
+        known_instances = _collect_public_instances(history_support, harness)
+        episode_literal_hits = _proposal_episode_literal_hits(
+            proposal, program, known_instances=known_instances,
+        )
+        checks["tool_ir_no_episode_concrete_ids"] = not episode_literal_hits
+        if episode_literal_hits:
+            details = "; ".join(
+                "episode concrete literal: "
+                f"path={hit.field_path}; "
+                f"value={json.dumps(hit.value, ensure_ascii=False)}; "
+                f"matched_text={json.dumps(hit.matched_text, ensure_ascii=False)}; "
+                f"category={hit.category}"
+                for hit in episode_literal_hits
             )
-        for raw in proposal.evidence_outputs:
-            concrete_ids.extend(
-                value for value in _iter_string_values(raw)
-                if value and _CONCRETE_ID_RE.search(value.casefold())
-            )
-        checks["tool_ir_no_episode_concrete_ids"] = not concrete_ids
-        if concrete_ids:
-            fail("tool_ir_episode_concrete_id", f"episode concrete constant(s): {list(dict.fromkeys(concrete_ids))[:5]}")
+            fail("tool_ir_episode_concrete_id", details)
 
         # 8. Evidence outputs are deterministically verifiable.
         evidence_ok = True

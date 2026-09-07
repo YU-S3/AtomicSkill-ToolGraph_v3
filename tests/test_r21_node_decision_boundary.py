@@ -155,6 +155,105 @@ def test_support_atomic_missing_mapped_output_is_not_success(
     assert evidence_calls == []
 
 
+@pytest.mark.parametrize(
+    ("case", "expected_error"),
+    [
+        ("candidate_invalid", "runtime_support_candidate_invalid"),
+        ("atomic_unavailable", "runtime_support_atomic_unavailable"),
+        ("output_mapping_invalid", "support_atomic_output_mapping_invalid"),
+    ],
+)
+def test_support_atomic_rejections_share_final_runtime_projection(
+    monkeypatch,
+    case: str,
+    expected_error: str,
+) -> None:
+    support_ref = "skill://support_rejected@1.0.0"
+    candidate = SupportCandidate(
+        atomic_ref=support_ref,
+        score=1.0,
+        supplied_roles=("entity",),
+        output_roles=("entity",),
+        effect_predicates=(),
+        diagnostics=(),
+        role_mappings=(
+            SupportRoleMapping(
+                "entity", "object", "entity", "relation_verified",
+                "concrete", "evidence",
+            ),
+        ),
+    )
+    executor = NodeExecutor.__new__(NodeExecutor)
+
+    def get_atomic(_ref):
+        if case == "atomic_unavailable":
+            raise KeyError(str(_ref))
+        return SimpleNamespace()
+
+    executor.invocation_compiler = SimpleNamespace(
+        skills=SimpleNamespace(get_atomic=get_atomic),
+    )
+    augmented: list[tuple[dict, object, dict]] = []
+    recorded: list[tuple[tuple, dict]] = []
+
+    def augment(payload, context, **kwargs):
+        augmented.append((payload, context, dict(kwargs)))
+        return payload
+
+    monkeypatch.setattr(executor, "_augment_runtime_payload", augment)
+    monkeypatch.setattr(
+        executor,
+        "_record_control_call",
+        lambda *args, **kwargs: recorded.append((args, dict(kwargs))),
+    )
+    call = SimpleNamespace(
+        call_id="support-reject-call",
+        name="invoke_support_atomic",
+        arguments={
+            "support_atomic_ref": support_ref,
+            "arguments": {},
+            "output_mapping": (
+                {"entity": "wrong_role"}
+                if case == "output_mapping_invalid"
+                else {"entity": "object"}
+            ),
+        },
+    )
+    session = SimpleNamespace(session_id="support-reject-session")
+    occurrence = SimpleNamespace(
+        step_id="blocked-step",
+        occurrence_id="blocked-occurrence",
+    )
+    context = SimpleNamespace()
+    blocked_atomic = SimpleNamespace()
+    plan_context = SimpleNamespace()
+
+    payload = executor._invoke_support_atomic_call(
+        call,
+        session,
+        occurrence,
+        context,
+        blocked_atomic,
+        [] if case == "candidate_invalid" else [candidate],
+        plan_context_plan=plan_context,
+    )
+
+    assert payload == {"accepted": False, "error": expected_error}
+    assert len(augmented) == 1
+    assert augmented[0][0] is payload
+    assert augmented[0][1] is context
+    assert augmented[0][2] == {
+        "occurrence": occurrence,
+        "atomic": blocked_atomic,
+        "plan_context_plan": plan_context,
+        "session_id": "support-reject-session",
+        "tool_call_id": "support-reject-call",
+    }
+    assert len(recorded) == 1
+    assert recorded[0][1]["call_kind"] == "support_atomic_invocation"
+    assert recorded[0][1]["result"] is payload
+
+
 @pytest.mark.parametrize("r1_passed", [True, False])
 def test_seeded_and_preparation_runtime_automation_share_r1_metrics(
     r1_passed: bool,
@@ -618,9 +717,9 @@ def test_status_surface_and_node_prompt_define_three_distinct_meanings() -> None
         item["content"] for item in session.snapshot["messages"]
         if item["role"] == "user"
     )
-    assert "Use cannot_resolve only" in prompt
-    assert "Use plan_conflict only" in prompt
-    assert "Use give_up" in prompt
+    assert "cannot_resolve means evidence/search is insufficient" in prompt
+    assert "plan_conflict requires a public-evidence conflict" in prompt
+    assert "give_up ends this route without claiming a formal conflict" in prompt
     factory.assert_exhausted()
 
 

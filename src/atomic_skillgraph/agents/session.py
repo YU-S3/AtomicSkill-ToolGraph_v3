@@ -111,6 +111,7 @@ class ReplayAgentSession:
         self._replay_action_window_compaction_count = 0
         self._replay_pruned_action_count = 0
         self._r3_events: list[dict[str, Any]] = []
+        self._runtime_request_context_audits: list[dict[str, Any]] = []
         self._protocol_failures: list[ProtocolFailureRecord] = []
         self._terminal_protocol_failure: AgentProtocolError | None = None
         self._finalized = False
@@ -334,6 +335,9 @@ class ReplayAgentSession:
                 ),
                 "replay_pruned_action_count": self._replay_pruned_action_count,
                 "r3_events": copy.deepcopy(self._r3_events),
+                "runtime_request_context_audits": copy.deepcopy(
+                    self._runtime_request_context_audits
+                ),
                 "semantic_budget": (
                     None
                     if self._semantic_max_turns is None
@@ -384,6 +388,10 @@ class ReplayAgentSession:
                 set_context = getattr(self._provider, "set_request_context", None)
                 if callable(set_context):
                     set_context(session_id=self._session_id, stage=self._usage_bucket.value)
+                self._record_runtime_request_context_audit(
+                    tools,
+                    repair_in_progress=repair_in_progress,
+                )
                 turn = self._provider.complete(
                     copy.deepcopy(self._messages),
                     tools=list(tools) or None,
@@ -888,6 +896,53 @@ class ReplayAgentSession:
                 "recent_action_count": recent_count,
                 "action_window_size": _RUNTIME_REPLAY_ACTION_WINDOW,
             },
+        })
+
+    def _record_runtime_request_context_audit(
+        self,
+        tools: list[NativeToolSpec],
+        *,
+        repair_in_progress: bool,
+    ) -> None:
+        """Record the safe Runtime input immediately before provider dispatch.
+
+        This audit observes the already-compacted replay view.  It deliberately
+        does not mutate the live messages or tool declarations, and it is kept
+        independent from provider-call and usage counters.
+        """
+
+        if not self._usage_bucket.value.startswith("runtime_"):
+            return
+        safe_messages = _safe_messages_snapshot(self._messages)
+        safe_tools = [
+            {
+                "name": item.name,
+                "description": item.description,
+                "input_schema": copy.deepcopy(item.input_schema),
+            }
+            for item in tools
+        ]
+        safe_snapshot = {
+            "messages": safe_messages,
+            "tools": safe_tools,
+        }
+        encoded = json.dumps(
+            safe_snapshot,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        self._runtime_request_context_audits.append({
+            "request_sequence": len(self._runtime_request_context_audits),
+            "session_id": self._session_id,
+            "usage_bucket": self._usage_bucket.value,
+            "repair_in_progress": bool(repair_in_progress),
+            "messages": safe_messages,
+            "tools": safe_tools,
+            "safe_snapshot_sha256": hashlib.sha256(encoded).hexdigest(),
+            "safe_snapshot_utf8_bytes": len(encoded),
+            "safe_snapshot_is_not_http_request": True,
         })
 
     def _compact_initial_runtime_history(self, limit: int) -> tuple[int, int]:

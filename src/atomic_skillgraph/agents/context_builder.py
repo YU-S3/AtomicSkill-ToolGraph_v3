@@ -7,11 +7,18 @@ whole persistent graph, keeping those channels separated by construction.
 
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import is_dataclass
 from typing import Any, Iterable, Mapping
 
 from ..core.serialization import to_primitive
+from .runtime_policy_projection import project_runtime_payload
+from .runtime_prompt_texts import (
+    DYNAMIC_PROMPT,
+    PREPARATION_PROMPT,
+    SEEDED_PROMPT,
+)
 
 
 _ATOMIC_RUNTIME_FIELDS = ("summary", "inputs", "outputs", "preconditions", "effects")
@@ -54,6 +61,7 @@ class ContextBuilder:
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
         support_atomic_candidates: Iterable[Any] = (),
         runtime_automation_drafts: Iterable[Any] = (),
+        projection_audit: dict[str, Any] | None = None,
     ) -> str:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
@@ -113,45 +121,12 @@ class ContextBuilder:
                 _policy_value(item) for item in runtime_automation_drafts
             ],
         }
+        projected, audit = project_runtime_payload(payload)
+        if projection_audit is not None:
+            projection_audit.update(copy.deepcopy(audit))
         return _render(
-            "Prepare and execute only the current Atomic occurrence. Mark each "
-            "environment_action as explore or attempt_current_atomic. An explore action "
-            "collects public evidence and never commits the current Atomic merely because "
-            "its effect happens to be true. Use validate_current_atomic when the current "
-            "accepted-action-derived state already proves the Atomic and no new environment "
-            "action is needed. current_state_snapshot.downstream_obligations describes how current outputs are "
-            "consumed by the already-validated Runtime plan. It is semantic intent, never "
-            "current evidence, and you decide which concrete current entities satisfy it. "
-            "Use cannot_resolve only when this occurrence may still be valid but public "
-            "evidence is insufficient or search is incomplete. current_state_snapshot is "
-            "the code-authoritative current status; exploration_memory is historical and "
-            "must not be treated as current truth. Use plan_conflict only "
-            "when the formal occurrence, a hard semantic anchor, or a downstream obligation "
-            "conflicts with public evidence and the same rigid graph cannot solve the task. "
-            "Use give_up to terminate this route without asserting such a formal conflict. "
-            "task_semantic_context describes the whole-task goal; only "
-            "current_state_snapshot.semantic_anchors constrains "
-            "learned invocation arguments. Stored Atomic summaries and learned-implementation "
-            "descriptions are portable semantic guidance, never current bindings or evidence. "
-            "Resolve missing unanchored arguments by "
-            "instantiating that relational intent with task_semantic_context and current environment "
-            "evidence; do not copy a same-named task field or the task's final destination merely "
-            "because its name or type matches. Explore first when the required current relation is "
-            "not yet evidenced. This prohibition applies only to roles absent from "
-            "current_state_snapshot.semantic_anchors. When a role is explicitly anchored there, ground a "
-            "compatible concrete current entity for that anchor, including when it is the task's final "
-            "destination. Before executing a repetitive, mechanical, low-semantic-value action "
-            "sequence, prefer propose_runtime_automation_atomic when the loop object, condition, "
-            "and stop condition can be expressed by the current structured action/evidence "
-            "interface. The proposal is an Atomic draft, never source code. "
-            "For a learned invocation, call the exact native-tool name shown in "
-            "allowed_implementation_invocations.name; never derive or extend a tool name from an "
-            "artifact description or identifier, and copy canonical values exactly from the latest "
-            "public catalog arguments: current_action_catalog.actions[].arguments initially, "
-            "then action_catalog.actions[].arguments in environment tool results. Use only "
-            "native tools; "
-            "never encode an action in prose.",
-            payload,
+            PREPARATION_PROMPT,
+            projected,
             sort_keys=False,
         )
 
@@ -173,6 +148,7 @@ class ContextBuilder:
         current_state_snapshot: Mapping[str, Any] | None = None,
         exploration_memory: Mapping[str, Any] | None = None,
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
+        projection_audit: dict[str, Any] | None = None,
     ) -> str:
         ready = (
             dict(execution_ready_bindings)
@@ -215,28 +191,12 @@ class ContextBuilder:
                 else None
             ),
         }
+        projected, audit = project_runtime_payload(payload)
+        if projection_audit is not None:
+            projection_audit.update(copy.deepcopy(audit))
         return _render(
-            "Solve only the current Atomic occurrence with environment_action and "
-            "validate_current_atomic. Mark every environment action as explore or "
-            "attempt_current_atomic. Exploration never commits the Atomic merely because "
-            "its effect happens to be true. current_state_snapshot.downstream_obligations describes how current "
-            "outputs are consumed by the already-validated Runtime plan; use it as semantic "
-            "intent, never current evidence, and choose concrete entities yourself. "
-            "task_semantic_context describes the whole-task goal; only "
-            "current_state_snapshot.semantic_anchors constrains this occurrence. "
-            "current_state_snapshot is current authority; exploration_memory is historical. "
-            "Stored Atomic summaries "
-            "and guidelines are portable semantic guidance, never current bindings or evidence. "
-            "Resolve missing unanchored arguments by "
-            "instantiating that relational intent with task_semantic_context and current environment "
-            "evidence; do not copy a same-named task field or the task's final destination merely "
-            "because its name or type matches. Explore first when the required current relation is "
-            "not yet evidenced. This prohibition applies only to roles absent from "
-            "current_state_snapshot.semantic_anchors. When a role is explicitly anchored there, ground a "
-            "compatible concrete current entity for that anchor, including when it is the task's final "
-            "destination. This is a fresh Seeded session and contains no failed Tool body or "
-            "failed Implementation mapping.",
-            payload,
+            SEEDED_PROMPT,
+            projected,
             sort_keys=False,
         )
 
@@ -252,6 +212,7 @@ class ContextBuilder:
         rescue_method_guidance: Mapping[str, Any] | None = None,
         exploration_memory: Mapping[str, Any] | None = None,
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
+        projection_audit: dict[str, Any] | None = None,
     ) -> str:
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
@@ -275,15 +236,12 @@ class ContextBuilder:
             payload["rescue_method_guidance"] = _policy_value(
                 dict(rescue_method_guidance)
             )
+        projected, audit = project_runtime_payload(payload)
+        if projection_audit is not None:
+            projection_audit.update(copy.deepcopy(audit))
         return _render(
-            "Solve the task through native environment_action calls. The orchestrator, not prose, "
-            "determines completion. task_progress is descriptive validator-backed state, "
-            "not an action policy. Choose actions yourself. When public state and current "
-            "actions make it possible to complete an already-started unsatisfied obligation, "
-            "prefer making measurable progress before unrelated exploration. "
-            "rescue_method_guidance, when present, is portable non-binding method context and "
-            "must not be treated as current evidence or a hard concrete anchor.",
-            payload,
+            DYNAMIC_PROMPT,
+            projected,
             sort_keys=False,
         )
 

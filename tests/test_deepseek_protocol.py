@@ -686,14 +686,14 @@ def test_context_builder_separates_grounding_authorities() -> None:
     assert payload["current_action_catalog"]["actions"][0]["arguments"] == {
         "destination": "coffeetable_1",
     }
-    assert "copy canonical values exactly" in payload_text
-    assert "action_catalog.actions[].arguments in environment tool results" in payload_text
-    assert "portable semantic guidance" in payload_text
-    assert "never current bindings or evidence" in payload_text
+    assert "canonical argument values from the newest public catalog" in payload_text
+    assert "Read the selected action's action_type and arguments" in payload_text
+    assert "portable guidance" in payload_text
+    assert "never bindings or evidence" in payload_text
     assert "the task's final destination" in payload_text
-    assert "applies only to roles absent" in payload_text
-    assert "When a role is explicitly anchored there" in payload_text
-    assert "call the exact native-tool name" in payload_text
+    assert "For unanchored roles" in payload_text
+    assert "Explicitly anchored roles may use that destination" in payload_text
+    assert "Copy its exact native-tool name" in payload_text
     assert payload["allowed_implementation_invocations"] == [{
         "name": "invoke_impl_0123456789abcdef",
         "description": "navigate to source",
@@ -727,9 +727,9 @@ def test_context_builder_separates_grounding_authorities() -> None:
         "destination"
     ]
     assert seeded_payload["recent_accepted_actions"] == []
-    assert "portable semantic guidance" in seeded_text
-    assert "never current bindings or evidence" in seeded_text
-    assert "When a role is explicitly anchored there" in seeded_text
+    assert "portable guidance" in seeded_text
+    assert "never bindings or evidence" in seeded_text
+    assert "Explicitly anchored roles may use that destination" in seeded_text
 
 
 def test_deepseek_payload_has_thinking_and_reasoning_effort() -> None:

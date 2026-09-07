@@ -7,6 +7,7 @@ from dataclasses import asdict
 from typing import Any, Callable
 
 from ..agents.context_builder import ContextBuilder
+from ..agents.runtime_policy_projection import project_runtime_payload
 from ..agents.structured_submission import RUNTIME_AUTOMATION_ATOMIC_SCHEMA
 from ..agents.protocol import AgentTurn, NativeToolSpec, SchemaValidationError, validate_schema_instance
 from ..core.bindings import (
@@ -362,7 +363,12 @@ class NodeExecutor:
         occurrence: Any | None = None,
         atomic: Any | None = None,
         plan_context_plan: Any | None = None,
+        session_id: str = "",
+        tool_call_id: str = "",
     ) -> dict[str, Any]:
+        audit_occurrence_id = (
+            "" if occurrence is None else str(occurrence.occurrence_id)
+        )
         if occurrence is not None and atomic is not None:
             payload["current_state_snapshot"] = self._current_state_snapshot(
                 occurrence,
@@ -396,7 +402,67 @@ class NodeExecutor:
         payload["recent_accepted_actions"] = ctx.relevant_history(
             occurrence_id,
         ) if hasattr(ctx, "relevant_history") else []
+        projected, audit = project_runtime_payload(payload)
+        self._record_runtime_context_projection(
+            ctx,
+            audit,
+            session_id=session_id,
+            occurrence_id=audit_occurrence_id,
+            origin="tool_result",
+            tool_call_id=tool_call_id,
+        )
+        # Some callers intentionally ignore this method's return value.  Keep
+        # the historical in-place augmentation contract while replacing only
+        # the policy-facing message dictionary with its projected deep copy.
+        payload.clear()
+        payload.update(projected)
         return payload
+
+    @staticmethod
+    def _record_runtime_context_projection(
+        ctx: Any,
+        audit: dict[str, Any],
+        *,
+        session_id: str,
+        occurrence_id: str,
+        origin: str,
+        tool_call_id: str = "",
+    ) -> None:
+        trace = ctx.trace_builder.trace
+        metadata = getattr(trace, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            setattr(trace, "metadata", metadata)
+        metadata["runtime_context_projection_version"] = "v3.2-r5"
+        raw_revision = getattr(ctx, "world_revision", None)
+        record = dict(to_primitive(audit))
+        record.update({
+            "projection_version": "v3.2-r5",
+            "session_id": session_id or None,
+            "occurrence_id": occurrence_id,
+            "revision": None if raw_revision is None else int(raw_revision),
+            "origin": origin,
+            "tool_call_id": tool_call_id or None,
+        })
+        audits = metadata.setdefault("runtime_context_projection_audits", [])
+        # Node-level environment results are augmented once on return from the
+        # harness and may be augmented again after Atomic validation is added.
+        # Retain the final view that can actually be submitted, not an internal
+        # intermediate snapshot for the same native ToolCall.
+        if session_id and tool_call_id:
+            for index in range(len(audits) - 1, -1, -1):
+                existing = audits[index]
+                if (
+                    existing.get("session_id") == session_id
+                    and existing.get("tool_call_id") == tool_call_id
+                    and existing.get("origin") == origin
+                ):
+                    audits[index] = record
+                    break
+            else:
+                audits.append(record)
+        else:
+            audits.append(record)
 
     @staticmethod
     def _rescue_method_guidance(ctx: Any) -> dict[str, Any] | None:
@@ -597,6 +663,8 @@ class NodeExecutor:
                     occurrence=occurrence,
                     atomic=atomic,
                     plan_context_plan=plan_context_plan,
+                    session_id=session.session_id,
+                    tool_call_id=call.call_id,
                 ), spec
         loop = loop_guard.inspect(
             action_type=spec.action_type,
@@ -636,6 +704,8 @@ class NodeExecutor:
                 occurrence=occurrence,
                 atomic=atomic,
                 plan_context_plan=plan_context_plan,
+                session_id=session.session_id,
+                tool_call_id=call.call_id,
             ), spec
         ctx.budget.consume_action()
         result = ctx.harness.execute_action(action_id, spec.revision)
@@ -679,6 +749,8 @@ class NodeExecutor:
             occurrence=occurrence,
             atomic=atomic,
             plan_context_plan=plan_context_plan,
+            session_id=session.session_id,
+            tool_call_id=call.call_id,
         ), spec
 
     def _complete_from_current_effect(
@@ -1117,6 +1189,7 @@ class NodeExecutor:
             )
         self._augment_runtime_payload(
             payload, ctx, occurrence=occurrence, atomic=atomic,
+            session_id=session.session_id, tool_call_id=call.call_id,
         )
         self._record_control_call(
             call,
@@ -1189,6 +1262,26 @@ class NodeExecutor:
         candidates: list[Any],
         plan_context_plan: Any | None = None,
     ) -> dict[str, Any]:
+        def finalize(payload: dict[str, Any]) -> dict[str, Any]:
+            self._augment_runtime_payload(
+                payload,
+                ctx,
+                occurrence=occurrence,
+                atomic=atomic,
+                plan_context_plan=plan_context_plan,
+                session_id=session.session_id,
+                tool_call_id=call.call_id,
+            )
+            self._record_control_call(
+                call,
+                session,
+                occurrence,
+                ctx,
+                call_kind="support_atomic_invocation",
+                result=payload,
+            )
+            return payload
+
         support_ref = SkillRef.parse(str(call.arguments["support_atomic_ref"]))
         candidate = next(
             (item for item in candidates if str(item.atomic_ref) == str(support_ref)),
@@ -1199,11 +1292,7 @@ class NodeExecutor:
                 "accepted": False,
                 "error": "runtime_support_candidate_invalid",
             }
-            self._record_control_call(
-                call, session, occurrence, ctx,
-                call_kind="support_atomic_invocation", result=payload,
-            )
-            return payload
+            return finalize(payload)
         try:
             support_atomic = self.invocation_compiler.skills.get_atomic(support_ref)
         except KeyError:
@@ -1211,11 +1300,7 @@ class NodeExecutor:
                 "accepted": False,
                 "error": "runtime_support_atomic_unavailable",
             }
-            self._record_control_call(
-                call, session, occurrence, ctx,
-                call_kind="support_atomic_invocation", result=payload,
-            )
-            return payload
+            return finalize(payload)
         arguments = dict(call.arguments.get("arguments") or {})
         output_mapping = self._resolve_support_output_mapping(
             call, candidate,
@@ -1225,11 +1310,7 @@ class NodeExecutor:
                 "accepted": False,
                 "error": "support_atomic_output_mapping_invalid",
             }
-            self._record_control_call(
-                call, session, occurrence, ctx,
-                call_kind="support_atomic_invocation", result=payload,
-            )
-            return payload
+            return finalize(payload)
         support_occurrence = RuntimeOccurrence(
             step_id=f"support_for_{occurrence.step_id}",
             occurrence_id=f"support_{occurrence.occurrence_id}_{uuid.uuid4().hex[:8]}",
@@ -1344,15 +1425,7 @@ class NodeExecutor:
             })
         # Return active context to the blocked occurrence.
         ctx.begin_occurrence(occurrence)
-        self._augment_runtime_payload(
-            payload, ctx, occurrence=occurrence, atomic=atomic,
-            plan_context_plan=plan_context_plan,
-        )
-        self._record_control_call(
-            call, session, occurrence, ctx,
-            call_kind="support_atomic_invocation", result=payload,
-        )
-        return payload
+        return finalize(payload)
 
     def run_preparation_session(
         self, occurrence: Any, invocations: list[CompiledInvocation], ctx: Any,
@@ -1393,6 +1466,7 @@ class NodeExecutor:
             metrics = ctx.trace_builder.trace.metadata.setdefault("v32_metrics", {})
             metrics["runtime_support_retrieval_count"] = int(metrics.get("runtime_support_retrieval_count", 0)) + 1
             metrics["runtime_support_candidate_count"] = int(metrics.get("runtime_support_candidate_count", 0)) + len(support_candidates)
+        projection_audit: dict[str, Any] = {}
         prompt = self.context_builder.runtime_node(
             task_goal=ctx.task_goal, atomic_contract=atomic,
             task_semantic_context=prompt_bindings["task_semantic_context"],
@@ -1418,6 +1492,7 @@ class NodeExecutor:
                 == occurrence.occurrence_id
                 else None
             ),
+            projection_audit=projection_audit,
         )
         tools = self._node_tools(
             ctx, atomic, invocations=invocations, allow_plan_conflict=True,
@@ -1426,6 +1501,13 @@ class NodeExecutor:
         preflight_failures = 0
         loop_guard = ActionLoopGuard()
         try:
+            self._record_runtime_context_projection(
+                ctx,
+                projection_audit,
+                session_id=session.session_id,
+                occurrence_id=occurrence.occurrence_id,
+                origin="initial",
+            )
             turn = session.next_turn(prompt, tools=tools)
             while True:
                 self._record_turn(session, turn, ctx)
@@ -1451,6 +1533,8 @@ class NodeExecutor:
                     self._augment_runtime_payload(
                         payload, ctx, occurrence=occurrence, atomic=atomic,
                         plan_context_plan=plan_context_plan,
+                        session_id=session.session_id,
+                        tool_call_id=call.call_id,
                     )
                     tools = self._node_tools(
                         ctx, atomic, invocations=invocations,
@@ -1532,6 +1616,8 @@ class NodeExecutor:
                         occurrence=occurrence,
                         atomic=atomic,
                         plan_context_plan=plan_context_plan,
+                        session_id=session.session_id,
+                        tool_call_id=call.call_id,
                     )
                     tools = self._node_tools(
                         ctx, atomic, invocations=invocations,
@@ -1668,7 +1754,9 @@ class NodeExecutor:
                             preflight_failures <= learned_call_repair_limit
                         ),
                     }, ctx, occurrence=occurrence, atomic=atomic,
-                        plan_context_plan=plan_context_plan)
+                        plan_context_plan=plan_context_plan,
+                        session_id=session.session_id,
+                        tool_call_id=call.call_id)
                     if preflight_failures > learned_call_repair_limit:
                         self._finalize_tool_result(session, call.call_id, payload, tools)
                         return self.not_started(occurrence, failure_code=preflight.failure_code)
@@ -1724,6 +1812,7 @@ class NodeExecutor:
         prompt_bindings = ctx.binding_store.runtime_prompt_projection(
             occurrence, atomic.inputs,
         )
+        projection_audit: dict[str, Any] = {}
         prompt = self.context_builder.seeded_node(
             task_goal=ctx.task_goal, atomic_contract=atomic,
             task_semantic_context=prompt_bindings["task_semantic_context"],
@@ -1746,10 +1835,18 @@ class NodeExecutor:
                 == occurrence.occurrence_id
                 else None
             ),
+            projection_audit=projection_audit,
         )
         tools = self._node_tools(ctx, atomic)
         loop_guard = ActionLoopGuard()
         try:
+            self._record_runtime_context_projection(
+                ctx,
+                projection_audit,
+                session_id=session.session_id,
+                occurrence_id=occurrence.occurrence_id,
+                origin="initial",
+            )
             turn = session.next_turn(prompt, tools=tools)
             while True:
                 self._record_turn(session, turn, ctx)
@@ -1769,6 +1866,8 @@ class NodeExecutor:
                     self._augment_runtime_payload(
                         payload, ctx, occurrence=occurrence, atomic=atomic,
                         plan_context_plan=plan_context_plan,
+                        session_id=session.session_id,
+                        tool_call_id=call.call_id,
                     )
                     tools = self._node_tools(ctx, atomic)
                     turn = session.submit_tool_result(
@@ -1849,6 +1948,8 @@ class NodeExecutor:
                     occurrence=occurrence,
                     atomic=atomic,
                     plan_context_plan=plan_context_plan,
+                    session_id=session.session_id,
+                    tool_call_id=call.call_id,
                 )
                 tools = self._node_tools(ctx, atomic)
                 if effect is not None:
@@ -1915,6 +2016,7 @@ class NodeExecutor:
             ][-5:]
         )
         memory = getattr(ctx, "exploration_memory", None)
+        projection_audit: dict[str, Any] = {}
         prompt = self.context_builder.dynamic_task(
             task_goal=ctx.task_goal, observation=ctx.observation, action_catalog=ctx.action_catalog,
             relevant_action_history=recent_actions, remaining_budget=ctx.budget.snapshot(),
@@ -1926,6 +2028,7 @@ class NodeExecutor:
             rescue_method_guidance=(
                 self._rescue_method_guidance(ctx) if rescue else None
             ),
+            projection_audit=projection_audit,
         )
         if cold_start_continuation:
             import json
@@ -1973,6 +2076,13 @@ class NodeExecutor:
             )
             if terminal.passed:
                 return outcome(terminal)
+            self._record_runtime_context_projection(
+                ctx,
+                projection_audit,
+                session_id=session.session_id,
+                occurrence_id="",
+                origin="initial",
+            )
             turn = session.next_turn(prompt, tools=tools)
             while True:
                 self._record_turn(session, turn, ctx)

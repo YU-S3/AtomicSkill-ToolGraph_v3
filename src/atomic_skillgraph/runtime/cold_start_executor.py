@@ -120,6 +120,7 @@ class ProvisionalNodeExecutor:
         prompt_bindings = ctx.binding_store.runtime_prompt_projection(
             occurrence, atomic.inputs,
         )
+        projection_audit: dict[str, Any] = {}
         prompt = self.node_executor.context_builder.seeded_node(
             task_goal=ctx.task_goal,
             atomic_contract=atomic,
@@ -135,6 +136,7 @@ class ProvisionalNodeExecutor:
             action_catalog=ctx.action_catalog,
             relevant_action_history=ctx.relevant_history(occurrence.occurrence_id),
             remaining_budget=ctx.budget.snapshot(),
+            projection_audit=projection_audit,
         )
         tools = self.node_executor._node_tools(ctx, atomic)
         loop_guard = ActionLoopGuard()
@@ -142,6 +144,13 @@ class ProvisionalNodeExecutor:
         resolved: dict[str, Any] = {}
         witness_refs: list[str] = []
         try:
+            self.node_executor._record_runtime_context_projection(
+                ctx,
+                projection_audit,
+                session_id=session.session_id,
+                occurrence_id=occurrence.occurrence_id,
+                origin="initial",
+            )
             turn = session.next_turn(prompt, tools=tools)
             while True:
                 self.node_executor._record_turn(session, turn, ctx)
@@ -151,6 +160,27 @@ class ProvisionalNodeExecutor:
                         session, call.call_id, {"accepted": True}, tools,
                     )
                     break
+                if call.name == "propose_runtime_automation_atomic":
+                    payload = self.node_executor._process_runtime_automation_call(
+                        call,
+                        ctx,
+                        occurrence,
+                    )
+                    self.node_executor._augment_runtime_payload(
+                        payload,
+                        ctx,
+                        occurrence=occurrence,
+                        atomic=atomic,
+                        session_id=session.session_id,
+                        tool_call_id=call.call_id,
+                    )
+                    tools = self.node_executor._node_tools(ctx, atomic)
+                    turn = session.submit_tool_result(
+                        call.call_id,
+                        payload,
+                        tools=tools,
+                    )
+                    continue
                 if call.name == "validate_current_atomic":
                     effect, payload = (
                         self.node_executor._validate_current_atomic_call(
@@ -181,6 +211,7 @@ class ProvisionalNodeExecutor:
                     span_id=span.span_id,
                     origin="runtime_provisional_seeded",
                     loop_guard=loop_guard,
+                    atomic=atomic,
                 )
                 progress_tracker.record("environment_action")
                 tools = self.node_executor._node_tools(ctx, atomic)
@@ -233,6 +264,21 @@ class ProvisionalNodeExecutor:
                             "provisional Atomic"
                         ),
                     }
+                if call.arguments["intent"] == "attempt_current_atomic":
+                    # ``_execute_environment_call`` projected the harness
+                    # result before provisional Atomic validation existed.
+                    # Re-project the complete result that can actually be
+                    # returned to this live Seeded session.  The projection
+                    # audit helper replaces the intermediate record for the
+                    # same ToolCall with this final view.
+                    self.node_executor._augment_runtime_payload(
+                        payload,
+                        ctx,
+                        occurrence=occurrence,
+                        atomic=atomic,
+                        session_id=session.session_id,
+                        tool_call_id=call.call_id,
+                    )
                 if effect is not None:
                     self.node_executor._finalize_tool_result(
                         session, call.call_id, payload, tools,

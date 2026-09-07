@@ -10,6 +10,7 @@ from atomic_skillgraph.agents.protocol import (
     SchemaValidationError,
     validate_schema_instance,
 )
+from atomic_skillgraph.agents.runtime_policy_projection import digest
 from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
 from atomic_skillgraph.core.contracts import (
     CapabilityRequirement,
@@ -36,6 +37,7 @@ from atomic_skillgraph.planner.multiplicity import (
     RequirementInstance,
 )
 from atomic_skillgraph.runtime.binding_store import RuntimeBindingStore
+from atomic_skillgraph.runtime.automation import RuntimeAutomationOutcome
 from atomic_skillgraph.runtime.cold_start_executor import ProvisionalNodeExecutor
 from atomic_skillgraph.runtime.node_executor import NodeExecutor
 from atomic_skillgraph.runtime.orchestrator import RuntimeOrchestrator
@@ -530,6 +532,115 @@ class _StatusSession:
         return {"session_id": self.session_id}
 
 
+class _ProvisionalEnvironmentSession:
+    def __init__(self) -> None:
+        self.session_id = "provisional-environment-session"
+        self.final_payload: dict | None = None
+
+    def next_turn(self, prompt: str, *, tools: list[object]) -> AgentTurn:
+        return AgentTurn(
+            "",
+            [NativeToolCall(
+                "provisional-action-call",
+                "environment_action",
+                {
+                    "action_id": "r000_a001",
+                    "intent": "attempt_current_atomic",
+                },
+            )],
+            "tool_calls",
+            1,
+            1,
+            2,
+            0,
+            1.0,
+        )
+
+    def finalize_tool_result(self, call_id: str, result: dict) -> None:
+        assert call_id == "provisional-action-call"
+        self.final_payload = dict(result)
+
+    def snapshot(self) -> dict:
+        return {"session_id": self.session_id}
+
+
+class _ProvisionalAutomationSession:
+    def __init__(self, *, r1_passed: bool) -> None:
+        self.session_id = "provisional-automation-session"
+        self.r1_passed = r1_passed
+        self.offered: list[list[str]] = []
+        self.submitted_payload: dict | None = None
+        self.submitted_session_id = ""
+        self.finalized = False
+
+    def next_turn(self, prompt: str, *, tools: list[object]) -> AgentTurn:
+        self.offered.append([item.name for item in tools])
+        assert "propose_runtime_automation_atomic" in self.offered[-1]
+        return AgentTurn(
+            "",
+            [NativeToolCall(
+                "provisional-automation-call",
+                "propose_runtime_automation_atomic",
+                {
+                    "draft_id": "provisional-automation-draft",
+                    "intent": "resolve navigation target",
+                    "inputs": [{"name": "target", "semantic_type": "entity"}],
+                    "outputs": [],
+                    "preconditions": [],
+                    "effects": [{
+                        "predicate": "agent.at_location",
+                        "args": {"location": "$target"},
+                        "effect_domain": "world",
+                    }],
+                    "rationale": "bounded task-local trial",
+                    "source_occurrence_id": "cold::step-1",
+                    "input_binding_specs": {
+                        "target": {
+                            "kind": "current_occurrence_anchor",
+                            "source_role": "destination",
+                        },
+                    },
+                },
+            )],
+            "tool_calls",
+            1,
+            1,
+            2,
+            0,
+            1.0,
+        )
+
+    def submit_tool_result(
+        self, call_id: str, result: dict, *, tools: list[object],
+    ) -> AgentTurn:
+        assert call_id == "provisional-automation-call"
+        self.submitted_session_id = self.session_id
+        self.submitted_payload = dict(result)
+        self.offered.append([item.name for item in tools])
+        return AgentTurn(
+            "",
+            [NativeToolCall(
+                "provisional-status-call",
+                "report_runtime_status",
+                {"status": "cannot_resolve"},
+            )],
+            "tool_calls",
+            1,
+            1,
+            2,
+            0,
+            1.0,
+        )
+
+    def finalize_tool_result(self, call_id: str, result: dict) -> None:
+        assert call_id == "provisional-status-call"
+        assert result == {"accepted": True}
+        self.finalized = True
+
+    def snapshot(self) -> dict:
+        return {"session_id": self.session_id}
+
+
 class _Progress:
     def record(self, source: str) -> SimpleNamespace:
         return SimpleNamespace(progress_digest=f"progress::{source}")
@@ -687,6 +798,245 @@ def test_provisional_scaffold_session_has_no_learned_invocation_tool() -> None:
     assert len(offered) == 1
     assert "environment_action" in offered[0]
     assert all(not name.startswith("invoke_") for name in offered[0])
+    metadata = ctx.trace_builder.trace.metadata
+    assert metadata["runtime_context_projection_version"] == "v3.2-r5"
+    initial_audits = [
+        item
+        for item in metadata["runtime_context_projection_audits"]
+        if item["origin"] == "initial"
+    ]
+    assert len(initial_audits) == 1
+    assert initial_audits[0]["session_id"] == (
+        "runtime_provisional_seeded::cold::step-1"
+    )
+    assert initial_audits[0]["occurrence_id"] == "cold::step-1"
+    assert initial_audits[0]["tool_call_id"] is None
+
+
+def test_provisional_environment_followup_audits_the_final_atomic_result() -> None:
+    session = _ProvisionalEnvironmentSession()
+    executor = NodeExecutor.__new__(NodeExecutor)
+    executor.session_factory = lambda *_args: session
+    executor.context_builder = SimpleNamespace(
+        seeded_node=lambda *, projection_audit, **_kwargs: (
+            projection_audit.update({
+                "projection_version": "v3.2-r5",
+                "removed_fields": [],
+                "downstream_projection": "original_absent",
+            })
+            or "seeded prompt"
+        ),
+    )
+    executor._node_tools = lambda *_args, **_kwargs: []
+    executor._current_state_snapshot = (
+        lambda occurrence, atomic, context, **_kwargs: {
+            "current_atomic": {"atomic_ref": str(atomic.ref)},
+            "remaining_budget": context.budget.snapshot(),
+        }
+    )
+    seen_environment_atomics: list[object] = []
+
+    def execute_environment(
+        call, live_session, occurrence, context, *, atomic, **_kwargs,
+    ):
+        seen_environment_atomics.append(atomic)
+        payload = {
+            "accepted": False,
+            "observation": "rejected",
+            "done": True,
+            "won": False,
+            "new_revision": context.world_revision,
+        }
+        executor._augment_runtime_payload(
+            payload,
+            context,
+            occurrence=occurrence,
+            atomic=atomic,
+            session_id=live_session.session_id,
+            tool_call_id=call.call_id,
+        )
+        return payload, SimpleNamespace(arguments={})
+
+    executor._execute_environment_call = execute_environment
+    trace_builder = _trace_builder()
+    ctx = SimpleNamespace(
+        binding_store=SimpleNamespace(
+            resolve_occurrence_specs=lambda *_args, **_kwargs: None,
+            runtime_prompt_projection=lambda *_args, **_kwargs: {
+                "task_semantic_context": {},
+                "occurrence_semantic_anchors": {},
+                "execution_ready_bindings": {},
+                "missing_or_insufficient_bindings": [],
+            },
+        ),
+        world_revision=0,
+        trace_builder=trace_builder,
+        task_goal="goal",
+        observation="observation",
+        action_catalog=[],
+        budget=_Budget(),
+        last_failed_invocation=None,
+        exploration_memory=SimpleNamespace(policy_view=lambda: {}),
+        relevant_history=lambda _occurrence_id: [],
+    )
+    provisional = SimpleNamespace(
+        provisional_ref="provisional://atomic_x@1.0.0",
+        contract_signature="x",
+        canonical_intent="move an object",
+        atomic_contract={
+            "inputs": [],
+            "outputs": [],
+            "preconditions": [],
+            "effects": [],
+            "validator_spec": {},
+        },
+        seeded_guideline={"strategy": "use current affordances"},
+        harness_profile="fake",
+        status=ProvisionalStatus.TRIAL_READY,
+    )
+    step = _step(
+        1,
+        ColdStartCandidateSource.PROVISIONAL,
+        provisional.provisional_ref,
+        ColdStartExecutionMode.SEEDED_ONLY,
+    )
+
+    ProvisionalNodeExecutor(executor).execute(
+        provisional,
+        ctx,
+        step,
+        progress_tracker=_Progress(),
+    )
+
+    assert len(seen_environment_atomics) == 1
+    assert session.final_payload is not None
+    assert session.final_payload["atomic_validation"]["failure_code"] == (
+        "environment_action_rejected"
+    )
+    assert session.final_payload["current_state_snapshot"]["current_atomic"] == {
+        "atomic_ref": str(seen_environment_atomics[0].ref),
+    }
+    tool_result_audits = [
+        item
+        for item in trace_builder.trace.metadata[
+            "runtime_context_projection_audits"
+        ]
+        if item["origin"] == "tool_result"
+    ]
+    assert len(tool_result_audits) == 1
+    assert tool_result_audits[0]["session_id"] == session.session_id
+    assert tool_result_audits[0]["tool_call_id"] == "provisional-action-call"
+    assert tool_result_audits[0]["after_payload_sha256"] == digest(
+        session.final_payload
+    )
+
+
+@pytest.mark.parametrize("r1_passed", [True, False])
+def test_provisional_automation_followup_preserves_result_and_projection(
+    r1_passed: bool,
+) -> None:
+    session = _ProvisionalAutomationSession(r1_passed=r1_passed)
+    executor = NodeExecutor(
+        SimpleNamespace(),
+        SimpleNamespace(tool=SimpleNamespace()),
+        lambda *_args: session,
+    )
+    outcome = RuntimeAutomationOutcome(
+        r0_passed=True,
+        trial={"r1": {"admission_eligible": r1_passed}},
+        r1_passed=r1_passed,
+    )
+    executor.automation_coordinator = SimpleNamespace(
+        process_draft=lambda **_kwargs: outcome,
+    )
+    binding_store = RuntimeBindingStore()
+    r3_events: list[tuple[str, str, dict]] = []
+    trace_builder = _trace_builder()
+    ctx = SimpleNamespace(
+        binding_store=binding_store,
+        world_revision=0,
+        trace_builder=trace_builder,
+        task_goal="goal",
+        observation="observation",
+        action_catalog=[],
+        budget=_Budget(),
+        validated_outputs={},
+        evidence_store=SimpleNamespace(),
+        relevant_history=lambda _occurrence_id: [],
+        grounding_state_by_occurrence={},
+        exploration_memory=SimpleNamespace(policy_view=lambda: {}),
+        last_failed_invocation=None,
+        runtime_automation_drafts={},
+        record_r3_event=lambda event_type, *, occurrence_id, details: (
+            r3_events.append((event_type, occurrence_id, dict(details)))
+        ),
+    )
+    provisional = SimpleNamespace(
+        provisional_ref="provisional://atomic_x@1.0.0",
+        contract_signature="x",
+        canonical_intent="move an object",
+        atomic_contract={
+            "inputs": [],
+            "outputs": [],
+            "preconditions": [],
+            "effects": [],
+            "validator_spec": {},
+        },
+        seeded_guideline={"strategy": "use current affordances"},
+        harness_profile="fake",
+        status=ProvisionalStatus.TRIAL_READY,
+    )
+    step = _step(
+        1,
+        ColdStartCandidateSource.PROVISIONAL,
+        provisional.provisional_ref,
+        ColdStartExecutionMode.SEEDED_ONLY,
+    )
+
+    ProvisionalNodeExecutor(executor).execute(
+        provisional,
+        ctx,
+        step,
+        progress_tracker=_Progress(),
+    )
+
+    assert session.submitted_session_id == session.session_id
+    assert session.finalized is True
+    assert len(session.offered) == 2
+    assert session.submitted_payload is not None
+    assert session.submitted_payload["r0_passed"] is True
+    assert session.submitted_payload["r1_passed"] is r1_passed
+    assert session.submitted_payload["trial"] == {
+        "r1": {"admission_eligible": r1_passed},
+    }
+    assert r3_events == [(
+        "runtime_automation_proposed",
+        "cold::step-1",
+        {"draft_id": "provisional-automation-draft"},
+    )]
+    metrics = trace_builder.trace.metadata["v32_metrics"]
+    assert metrics["runtime_automation_atomic_proposal_count"] == 1
+    assert metrics["runtime_automation_r0_pass_count"] == 1
+    assert metrics["runtime_tool_trial_count"] == 1
+    r1_metric = (
+        "runtime_tool_trial_r1_pass_count"
+        if r1_passed
+        else "runtime_tool_trial_r1_reject_count"
+    )
+    assert metrics[r1_metric] == 1
+    tool_result_audits = [
+        item
+        for item in trace_builder.trace.metadata[
+            "runtime_context_projection_audits"
+        ]
+        if item["origin"] == "tool_result"
+        and item["tool_call_id"] == "provisional-automation-call"
+    ]
+    assert len(tool_result_audits) == 1
+    assert tool_result_audits[0]["session_id"] == session.session_id
+    assert tool_result_audits[0]["after_payload_sha256"] == digest(
+        session.submitted_payload
+    )
 
 
 def test_cold_continuation_session_is_fresh_and_never_graph_credit() -> None:
