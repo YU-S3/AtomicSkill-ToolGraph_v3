@@ -47,6 +47,16 @@ def test_formal_configs_freeze_the_exact_six_task_types_and_counts() -> None:
     assert tuple(labels) == ALFWORLD_FORMAL_TASK_TYPES
     assert (per_type, total) == (10, 60)
 
+    train_replay = load_config(
+        ROOT / "configs" / "alfworld_frozen_train30_replay_b6a82ed.yaml"
+    )
+    labels, per_type, total = frozen_selection(train_replay)
+    assert tuple(labels) == ALFWORLD_FORMAL_TASK_TYPES
+    assert (per_type, total) == (5, 30)
+    assert train_replay["harness"]["task_selection"][
+        "require_disjoint_from_train_manifest"
+    ] is False
+
     reordered = copy.deepcopy(train)
     selection = reordered["harness"]["task_selection"]
     selection["task_types"] = list(reversed(selection["task_types"]))

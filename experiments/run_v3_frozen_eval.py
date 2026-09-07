@@ -1,4 +1,4 @@
-"""Formal read-only ALFWorld held-out 6×10=60 frozen evaluator."""
+"""Formal read-only ALFWorld frozen evaluation and source-train replay."""
 
 from __future__ import annotations
 
@@ -46,6 +46,11 @@ def _path(value: str | Path) -> Path:
     return path.resolve() if path.is_absolute() else (REPO_ROOT / path).resolve()
 
 
+def _is_source_train_replay(config: dict[str, Any]) -> bool:
+    experiment = dict(config.get("experiment") or {})
+    return experiment.get("phase") == "frozen_train_replay"
+
+
 def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
     selection = dict((config.get("harness") or {}).get("task_selection") or {})
     labels = [str(item) for item in selection.get("task_types", [])]
@@ -55,11 +60,21 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
         raise ProtocolError(
             "formal frozen eval requires the six ALFWorld task types in frozen order"
         )
-    if per_type != 10 or total != 60:
-        raise ProtocolError("formal frozen eval requires six task types × ten = 60")
+    source_train_replay = _is_source_train_replay(config)
+    expected_per_type, expected_total = (5, 30) if source_train_replay else (10, 60)
+    if per_type != expected_per_type or total != expected_total:
+        label = "source-train replay" if source_train_replay else "held-out eval"
+        raise ProtocolError(
+            f"formal frozen {label} requires six task types × "
+            f"{expected_per_type} = {expected_total}"
+        )
     if total != len(labels) * per_type or selection.get("require_exact_count") is not True:
         raise ProtocolError("formal frozen selection must require the exact balanced count")
-    if selection.get("require_disjoint_from_train_manifest") is not True:
+    require_disjoint = selection.get("require_disjoint_from_train_manifest")
+    if source_train_replay:
+        if require_disjoint is not False:
+            raise ProtocolError("frozen source-train replay must use the train manifest")
+    elif require_disjoint is not True:
         raise ProtocolError("frozen held-out manifest must be disjoint from train")
     return labels, per_type, total
 
@@ -71,6 +86,13 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     selection = dict(harness.get("task_selection") or {})
     planner = dict(config.get("planner") or {})
     cold_start = dict(config.get("cold_start") or {})
+    source_train_replay = _is_source_train_replay(config)
+    expected_name = (
+        "alfworld_frozen_train30_replay_b6a82ed"
+        if source_train_replay
+        else "alfworld_frozen_eval_60"
+    )
+    expected_split = "train" if source_train_replay else "eval_out_of_distribution"
     expected = {
         "method_patch": (config.get("method_patch"), "3.2"),
         "planner.max_repeat_count": (planner.get("max_repeat_count"), 4),
@@ -81,7 +103,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
             planner.get("cold_start_c1_repair_limit"), 1
         ),
         "cold_start": (cold_start, {"enabled": False}),
-        "experiment.name": (experiment.get("name"), "alfworld_frozen_eval_60"),
+        "experiment.name": (experiment.get("name"), expected_name),
         "experiment.condition": (experiment.get("condition"), "full"),
         "experiment.freeze_skills": (experiment.get("freeze_skills"), True),
         "experiment.seed": (experiment.get("seed"), 42),
@@ -99,7 +121,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         ),
         "harness.adapter": (harness.get("adapter"), "alfworld_v3"),
         "harness.alfworld_data_env": (harness.get("alfworld_data_env"), "ALFWORLD_DATA"),
-        "harness.split": (harness.get("split"), "eval_out_of_distribution"),
+        "harness.split": (harness.get("split"), expected_split),
         "harness.max_steps": (harness.get("max_steps"), 100),
         "harness.task_selection.policy": (
             selection.get("policy"), "balanced_fixed_manifest"
@@ -124,6 +146,15 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         mismatches.append("source_frozen_snapshot_dir must be <source_train_run_dir>/frozen/data_v3")
     if output_dir == frozen_dir or frozen_dir in output_dir.parents:
         mismatches.append("eval output_dir must be outside the read-only frozen snapshot")
+    require_source_code_match = experiment.get("require_source_code_match", True)
+    if not isinstance(require_source_code_match, bool):
+        mismatches.append("experiment.require_source_code_match must be boolean")
+    if source_train_replay:
+        expected_revision = experiment.get("source_git_revision")
+        if expected_revision != "b6a82ed47a2685e69a1fa052f70cd269f63e63c0":
+            mismatches.append(
+                "frozen source-train replay must pin source_git_revision to b6a82ed"
+            )
     max_task_attempts = experiment.get("max_task_attempts")
     if (
         isinstance(max_task_attempts, bool)
@@ -143,6 +174,8 @@ def _verify_source_train(
     frozen_digest: str,
     current_code_digest: str,
     current_llm_hash: str,
+    require_source_code_match: bool = True,
+    expected_source_git_revision: str = "",
 ) -> None:
     """Bind one frozen bank to the completed immutable full-30 source run."""
     if train_manifest.phase != "train":
@@ -171,7 +204,11 @@ def _verify_source_train(
     }
     if freeze_manifest.get("provenance") != expected_provenance:
         raise ProtocolError("frozen snapshot provenance does not match source train manifest")
-    if train_manifest.code_commit != current_code_digest:
+    if expected_source_git_revision and str(
+        metadata.get("git_revision", "")
+    ) != expected_source_git_revision:
+        raise ProtocolError("source train git revision differs from the configured revision")
+    if require_source_code_match and train_manifest.code_commit != current_code_digest:
         raise ProtocolError("frozen evaluation code differs from the source train code")
     if str(metadata.get("llm_config_hash", "")) != current_llm_hash:
         raise ProtocolError("frozen evaluation LLM configuration differs from source train")
@@ -246,8 +283,15 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
     config_path = _path(config_path)
     config = load_config(config_path)
     experiment = dict(config.get("experiment") or {})
-    if experiment.get("phase") != "frozen_eval" or experiment.get("runtime_mode") != "frozen":
-        raise ProtocolError("frozen runner requires phase=frozen_eval/runtime_mode=frozen")
+    phase = str(experiment.get("phase", ""))
+    if phase not in {"frozen_eval", "frozen_train_replay"} or experiment.get(
+        "runtime_mode"
+    ) != "frozen":
+        raise ProtocolError(
+            "frozen runner requires phase=frozen_eval|frozen_train_replay "
+            "and runtime_mode=frozen"
+        )
+    source_train_replay = phase == "frozen_train_replay"
     labels, per_type, expected_total = _selection(config)
     output_dir = _path(experiment.get("output_dir", "runs/alfworld_frozen_eval_60"))
     _validate_formal_config(config, output_dir)
@@ -291,7 +335,9 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
 
         tasks = system.harness.load_balanced_tasks(labels, per_type)
         if len(tasks) != expected_total:
-            raise ProtocolError(f"held-out loader returned {len(tasks)} tasks, expected 60")
+            raise ProtocolError(
+                f"frozen loader returned {len(tasks)} tasks, expected {expected_total}"
+            )
         counts = {label: sum(task.task_type == label for task in tasks) for label in labels}
         if any(value != per_type for value in counts.values()):
             raise ProtocolError(f"balanced held-out task counts changed: {counts}")
@@ -322,11 +368,31 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             frozen_digest=digest_before,
             current_code_digest=code_digest,
             current_llm_hash=hash_config(config.get("llm") or {}),
+            require_source_code_match=bool(
+                experiment.get("require_source_code_match", True)
+            ),
+            expected_source_git_revision=str(
+                experiment.get("source_git_revision", "")
+            ),
         )
         train_signatures = {item.task_signature for item in train_manifest.tasks}
-        overlap = train_signatures & {item.task_signature for item in task_items}
-        if overlap:
-            raise ProtocolError(f"held-out manifest overlaps train signatures ({len(overlap)})")
+        if source_train_replay:
+            replay_identity = [
+                (item.task_id, item.task_signature) for item in task_items
+            ]
+            train_identity = [
+                (item.task_id, item.task_signature) for item in train_manifest.tasks
+            ]
+            if replay_identity != train_identity:
+                raise ProtocolError(
+                    "frozen source-train replay tasks differ from the immutable train manifest"
+                )
+        else:
+            overlap = train_signatures & {item.task_signature for item in task_items}
+            if overlap:
+                raise ProtocolError(
+                    f"held-out manifest overlaps train signatures ({len(overlap)})"
+                )
 
         state_db = StateDatabase(output_dir / "run_state.sqlite3")
         try:
@@ -342,7 +408,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 )
             else:
                 manifest = RunManifest.create(
-                    run_id=run_id, phase="frozen_eval",
+                    run_id=run_id, phase=phase,
                     config_hash=config_digest, code_commit=code_digest,
                     knowledge_digest=digest_before, tasks=task_items,
                     metadata={
@@ -350,6 +416,14 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                         "environment": {"alfworld_version": "0.4.2"},
                         "task_types": labels, "tasks_per_type": per_type,
                         "total_tasks": expected_total,
+                        "source_git_revision": str(
+                            train_manifest.metadata.get("git_revision", "")
+                        ),
+                        "source_code_commit": train_manifest.code_commit,
+                        "evaluator_code_commit": code_digest,
+                        "source_code_match_required": bool(
+                            experiment.get("require_source_code_match", True)
+                        ),
                     },
                 )
                 store.persist_before_run(manifest)
@@ -460,9 +534,19 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 "usage_trace_coverage": usage_coverage,
                 "frozen_v31_guards": frozen_v31_guards,
             }, ensure_ascii=False), flush=True)
+            report_stem = (
+                "frozen_train30_replay_b6a82ed"
+                if source_train_replay
+                else "frozen_eval_60"
+            )
+            report_title = (
+                "AtomicSkillGraph v3 ALFWorld Frozen Train-30 Replay (b6a82ed bank)"
+                if source_train_replay
+                else "AtomicSkillGraph v3 ALFWorld Frozen Held-out Eval"
+            )
             write_reports(
-                traces, output_dir / "reports", stem="frozen_eval_60",
-                title="AtomicSkillGraph v3 ALFWorld Frozen Held-out Eval",
+                traces, output_dir / "reports", stem=report_stem,
+                title=report_title,
                 auxiliary_usage_traces=attempt_usage_traces,
             )
             if system.knowledge_digest() != digest_before:

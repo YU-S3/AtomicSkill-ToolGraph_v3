@@ -1,0 +1,139 @@
+# Read-only replay of the exact Full-30 train manifest against the frozen Skill
+# bank produced by git revision b6a82ed47a2685e69a1fa052f70cd269f63e63c0.
+# Runtime/evaluator code is the current main revision and is recorded separately;
+# the source bank and its training provenance remain immutable.
+schema_version: 3
+method_patch: "3.2"
+
+data_dir: runs/alfworld_train_full_30_v32/frozen/data_v3
+trace_data_dir: runs/alfworld_frozen_train30_replay_b6a82ed
+
+llm:
+  provider: openai_compatible
+  dialect: deepseek_v4_chat
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
+  api_key_env: MODEL_API_KEY
+  connect_timeout_seconds: 15
+  max_retries: 4
+  retry_backoff_seconds: 2
+  max_retry_after_seconds: 30
+  protocol:
+    endpoint_path: "/chat/completions"
+    structured_output_transport: native_submission_tool
+    token_limit_field: max_tokens
+    thinking_type: enabled
+    send_reasoning_effort: true
+    replay_reasoning_content_with_tools: true
+    send_response_format: false
+    send_tool_choice: false
+    send_parallel_tool_calls: false
+    send_temperature: false
+    strict_tools: false
+    require_usage: true
+
+  planner:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 4
+    max_total_tokens_per_task: 120000
+
+  runtime:
+    reasoning_effort: low
+    max_completion_tokens: 32768
+    request_timeout_seconds: 180
+    max_total_tokens_per_node: 100000
+    max_total_tokens_per_task: 300000
+    learned_toolcall_repair_limit: 2
+    protocol_repair_limit: 1
+
+  extractor:
+    reasoning_effort: high
+    max_completion_tokens: 131072
+    request_timeout_seconds: 600
+    max_turns: 2
+    max_total_tokens_per_task: 262144
+
+  tool_builder:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
+
+  evolution_repair:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
+    max_total_tokens_per_batch: 120000
+
+planner:
+  composite_top_k: 5
+  atomic_top_k_per_requirement: 3
+  max_atomic_top_k: 5
+  requirement_repair_limit: 1
+  graph_repair_limit: 1
+  max_repeat_count: 4
+  max_runtime_occurrences: 16
+  cold_start_c1_repair_limit: 1
+
+cold_start:
+  enabled: false
+
+runtime:
+  global_action_budget: 100
+  node_action_budget: 35
+  max_implementation_candidates: 3
+
+lifecycle:
+  maintenance_interval_successes: 5
+  atomic_active_independent_support: 2
+  implementation_active_direct_successes: 2
+  tool_active_started_successes: 2
+  tool_preferred_min_started: 5
+  composite_active_self_sufficient_successes: 2
+
+extraction:
+  extract_full_dynamic_success: false
+  extract_task_rescue_success: false
+  extract_novel_seeded_success: false
+  skip_stable_direct_success: true
+
+experiment:
+  name: alfworld_frozen_train30_replay_b6a82ed
+  phase: frozen_train_replay
+  condition: full
+  runtime_mode: frozen
+  freeze_skills: true
+  seed: 42
+  output_dir: runs/alfworld_frozen_train30_replay_b6a82ed
+  task_manifest_path: runs/alfworld_frozen_train30_replay_b6a82ed/task_manifest.json
+  source_train_run_dir: runs/alfworld_train_full_30_v32
+  source_frozen_snapshot_dir: runs/alfworld_train_full_30_v32/frozen/data_v3
+  source_git_revision: b6a82ed47a2685e69a1fa052f70cd269f63e63c0
+  require_source_code_match: false
+  require_knowledge_digest_unchanged: true
+  allow_eval_traces_and_metrics: true
+  allow_long_term_knowledge_writes: false
+  resume_completed_task_boundary_only: true
+  max_task_attempts: 3
+
+harness:
+  adapter: alfworld_v3
+  alfworld_data_env: ALFWORLD_DATA
+  split: train
+  max_steps: 100
+  task_selection:
+    policy: balanced_fixed_manifest
+    task_types:
+      - pick_and_place_simple
+      - look_at_obj_in_light
+      - pick_clean_then_place_in_recep
+      - pick_heat_then_place_in_recep
+      - pick_cool_then_place_in_recep
+      - pick_two_obj_and_place
+    tasks_per_type: 5
+    total_tasks: 30
+    require_exact_count: true
+    require_disjoint_from_train_manifest: false
