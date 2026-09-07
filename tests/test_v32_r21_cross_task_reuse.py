@@ -96,6 +96,13 @@ def _locating_task(
     }
     if expose_object:
         context["semantic_bindings"] = {"object": target_item}
+    else:
+        # The task role remains authoritative even when its concrete episode
+        # instance is deliberately withheld from Runtime.  This mirrors the
+        # ALFWorld adapter, which exposes a semantic family such as ``mug``.
+        context["semantic_bindings"] = {
+            "object": re.sub(r"(?:_|\s)\d+$", "", target_item),
+        }
     return HarnessTask(
         task_id=task_id,
         goal=f"Hold the target item ({target_item}).",

@@ -515,9 +515,9 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     assert replay.duplicate_count == len(direct_events)
     assert ledger.count() == count_before_replay
 
-    # Episode 3: the task withholds a task binding.  Preparation proposes a
-    # schema-valid but ungrounded instance, explicitly stops, and a separately
-    # created fresh Seeded session solves the Atomic through environment_action.
+    # Episode 3: the task declares the role but withholds its episode identity.
+    # Preparation proposes a schema-valid but ungrounded instance, explicitly
+    # stops, and a fresh Seeded session solves via environment_action.
     factory.enqueue(
             "runtime_preparation",
             [
@@ -536,9 +536,11 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     implementation_failures_before = projection.stats(
         str(implementation_ref), "implementation"
     ).failure_count
-    episode3 = runtime.run_task(
-        fake_task("episode-3", "banana_1", expose_binding=False)
-    )
+    task3 = fake_task("episode-3", "banana_1", expose_binding=False)
+    # Keep the formal task-role namespace available while withholding an
+    # episode identity. Runtime Preparation must still ground banana_1.
+    task3.context["semantic_bindings"] = {"item": None}
+    episode3 = runtime.run_task(task3)
     assert episode3.node_records[0].status is NodeExecutionStatus.SEEDED_SUCCESS
     assert episode3.node_records[0].direct_result["started"] is False
     assert episode3.node_records[0].seeded_result["started"] is False
@@ -551,7 +553,9 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
         and call.preflight_result.get("passed") is False
     ]
     assert len(rejected_calls) == 1
-    assert rejected_calls[0].preflight_result["failure_code"] == "runtime_binding_not_concrete"
+    assert rejected_calls[0].preflight_result["failure_code"] == (
+        "runtime_semantic_anchor_mismatch"
+    )
     preparation = [item for item in episode3.agent_sessions if item.session_type == "RuntimePreparationSession"]
     seeded = [item for item in episode3.agent_sessions if item.session_type == "SeededSession"]
     assert len(preparation) == len(seeded) == 1
