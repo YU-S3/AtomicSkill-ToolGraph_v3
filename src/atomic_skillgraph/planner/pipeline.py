@@ -80,6 +80,33 @@ def _require_supplied_atomic_refs(
         )
 
 
+def _task_binding_interface(task: Any) -> dict[str, dict[str, Any]]:
+    """Project the exact task-role namespace seeded by Runtime.
+
+    Keep this lookup order synchronized with
+    ``RuntimeBindingStore.seed_task_bindings``.  The mapping keys are the
+    authoritative role names; their values are task semantics exposed to the
+    Planner only to prevent role/value confusion.
+    """
+
+    context = dict(getattr(task, "context", {}) or {})
+    values = dict(
+        context.get("semantic_bindings")
+        or context.get("semantic_params")
+        or context.get("bindings")
+        or {}
+    )
+    types = dict(context.get("binding_types") or {})
+    return {
+        str(role): {
+            "semantic_value": value,
+            "semantic_type": str(types.get(role, "")),
+        }
+        for role, value in values.items()
+        if str(role)
+    }
+
+
 class PlannerPipeline:
     def __init__(
         self, skills: SkillRegistry, graph: GraphStore, session_factory: Callable[[Any, Any], Any],
@@ -130,6 +157,8 @@ class PlannerPipeline:
         mode = RuntimeMode(mode)
         contract = normalize_task_contract(harness.task_contract(task))
         audit = PlannerAudit()
+        task_binding_interface = _task_binding_interface(task)
+        task_binding_roles = set(task_binding_interface)
 
         p0 = self.composite_retriever.retrieve_complete(
             task, contract, mode=mode, harness_profile=harness.profile_name,
@@ -141,7 +170,12 @@ class PlannerPipeline:
             provisional_audit["selected_composite"] = str(composite.ref)
             provisional_audit["final_outcome"] = "stored_composite"
             plan = self.compiler.from_composite(task, contract, composite, mode=mode, audit=provisional_audit)
-            report = self.validator.validate(plan, mode=mode, harness_profile=harness.profile_name)
+            report = self.validator.validate(
+                plan,
+                mode=mode,
+                harness_profile=harness.profile_name,
+                task_binding_roles=task_binding_roles,
+            )
             if report.passed:
                 return plan
             audit.composite_rejections.append({
@@ -171,7 +205,10 @@ class PlannerPipeline:
                 audit=provisional_audit,
             )
             report = self.validator.validate(
-                plan, mode=mode, harness_profile=harness.profile_name,
+                plan,
+                mode=mode,
+                harness_profile=harness.profile_name,
+                task_binding_roles=task_binding_roles,
             )
             if report.passed:
                 return plan
@@ -391,15 +428,6 @@ class PlannerPipeline:
                             for value in outputs
                             if str(value.get("name", ""))
                         }
-                task_roles = {
-                    str(role)
-                    for source in (
-                        task.context.get("semantic_bindings", {}),
-                        task.context.get("goal_roles", {}),
-                    )
-                    if isinstance(source, dict)
-                    for role in source
-                }
                 cold_validation = self.cold_start_validator.validate(
                     cold_proposal, expansion,
                     verified_candidates=verified_refs,
@@ -411,7 +439,7 @@ class PlannerPipeline:
                         candidate_runtime_resolvable_roles
                     ),
                     candidate_output_roles=candidate_output_roles,
-                    task_roles=task_roles,
+                    task_roles=task_binding_roles,
                     scaffold_max_steps=self.scaffold_max_steps,
                 )
                 audit.cold_start_validation = to_primitive(cold_validation)
@@ -435,7 +463,7 @@ class PlannerPipeline:
                             candidate_runtime_resolvable_roles
                         ),
                         candidate_output_roles=candidate_output_roles,
-                        task_roles=task_roles,
+                        task_roles=task_binding_roles,
                         scaffold_max_steps=self.scaffold_max_steps,
                     )
                     audit.cold_start_repair_validation = to_primitive(cold_validation)
@@ -463,7 +491,7 @@ class PlannerPipeline:
                     candidate_runtime_resolvable_roles
                 ),
                 candidate_output_roles=candidate_output_roles,
-                task_roles=task_roles,
+                task_roles=task_binding_roles,
             )
             if not scaffold.executable_step_ids:
                 audit.final_outcome = "full_dynamic"
@@ -529,6 +557,7 @@ class PlannerPipeline:
                 hints,
                 support_candidates=support_candidates,
                 authoritative_contracts=authoritative,
+                task_binding_interface=task_binding_interface,
             )
             audit.workflow_p2 = to_primitive(proposal)
             _require_supplied_atomic_refs(proposal, supplied_refs)
@@ -543,6 +572,7 @@ class PlannerPipeline:
                 plan, mode=mode, required_requirement_ids=required_ids, harness_profile=harness.profile_name,
                 expansion=expansion, instance_candidates=instance_candidates,
                 support_candidates=support_candidates,
+                task_binding_roles=task_binding_roles,
             )
             audit.validation_p2 = to_primitive(report)
             if not report.passed:
@@ -552,6 +582,7 @@ class PlannerPipeline:
                     authoritative,
                     existing_edges,
                     support_candidates=support_candidates,
+                    task_binding_interface=task_binding_interface,
                 )
                 audit.workflow_p2r = to_primitive(proposal)
                 _require_supplied_atomic_refs(proposal, supplied_refs)
@@ -563,6 +594,7 @@ class PlannerPipeline:
                     plan, mode=mode, required_requirement_ids=required_ids, harness_profile=harness.profile_name,
                     expansion=expansion, instance_candidates=instance_candidates,
                     support_candidates=support_candidates,
+                    task_binding_roles=task_binding_roles,
                 )
                 audit.validation_p2r = to_primitive(report)
             if not report.passed:

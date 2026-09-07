@@ -274,6 +274,7 @@ class WorkflowAgent:
         *,
         support_candidates: Any = (),
         authoritative_contracts: Any = (),
+        task_binding_interface: Mapping[str, Any] | None = None,
     ) -> PlannerWorkflowProposal:
         compact = getattr(self.session, "compact_completed_structured_phases", None)
         if callable(compact):
@@ -307,7 +308,11 @@ class WorkflowAgent:
             "Atomic ref. Use them to determine graph bindings and input/output "
             "compatibility; do not invent roles or predicates. The interface list is "
             "not another ranking and does not change candidate membership/order.\n"
+            "For BindingExprKind.SKILL_INPUT, source_role MUST be one of the keys "
+            "in Task binding interface. A semantic_value is a value, never a role name.\n"
             f"Task: {task.goal}\nContract: {_json_payload(to_primitive(contract))}\n"
+            f"Task binding interface: "
+            f"{_json_payload(to_primitive(dict(task_binding_interface or {})))}\n"
             f"Requirements: {_json_payload(_requirement_expansion_projection(requirements))}\n"
             f"Required candidates: {_json_payload(_candidate_projection(candidates))}\n"
             f"Support candidates and formal mappings: "
@@ -331,6 +336,7 @@ class WorkflowAgent:
         existing_edges: Any,
         *,
         support_candidates: Any = (),
+        task_binding_interface: Mapping[str, Any] | None = None,
     ) -> PlannerWorkflowProposal:
         compact = getattr(self.session, "compact_completed_structured_phases", None)
         if callable(compact):
@@ -343,8 +349,12 @@ class WorkflowAgent:
             "forge existing edges, or add another control path. Call only the offered submit tool.\n"
             "Authoritative contracts are bounded interface projections; omitted lifecycle, "
             "guideline, and provenance fields grant no Planner authority.\n"
+            "For BindingExprKind.SKILL_INPUT, source_role MUST be one of the keys "
+            "in Task binding interface. A semantic_value is a value, never a role name.\n"
             f"Proposal: {_json_payload(to_primitive(proposal))}\n"
             f"Validation errors: {_json_payload(_validation_projection(validation))}\n"
+            f"Task binding interface: "
+            f"{_json_payload(to_primitive(dict(task_binding_interface or {})))}\n"
             f"Authoritative contracts: "
             f"{_json_payload(_authoritative_contract_projection(authoritative_contracts))}\n"
             f"Support candidates and formal mappings: "

@@ -910,6 +910,7 @@ class PlannerValidator:
         expansion: RequirementExpansion | None = None,
         instance_candidates: dict[str, set[str]] | None = None,
         support_candidates: list[Any] | None = None,
+        task_binding_roles: set[str] | None = None,
     ) -> ValidationResult:
         checks: dict[str, bool] = {}
         errors: list[str] = []
@@ -1225,7 +1226,10 @@ class PlannerValidator:
 
         incoming = {(edge.target_step, edge.target_role) for edge in plan.data_edges}
         closure = True
+        non_task_role_closure = True
         expressions_consistent = True
+        skill_input_source_roles_authorized = True
+        unauthorized_skill_input_targets: set[tuple[str, str]] = set()
         for step_id, atomic in atomics.items():
             occurrence = by_step[step_id]
             input_names = {item.name for item in atomic.inputs}
@@ -1260,6 +1264,22 @@ class PlannerValidator:
                     # resolution has no live Tool output namespace.
                     expressions_consistent = False
                     expression_sources[target_role] = False
+                elif expression.kind is BindingExprKind.SKILL_INPUT:
+                    if (step_id, target_role) in incoming:
+                        # A task expression plus an explicit incoming edge
+                        # would give this input two authorities.
+                        expressions_consistent = False
+                        checks["one_authoritative_producer"] = False
+                    role_ok = (
+                        task_binding_roles is None
+                        or expression.source_role in task_binding_roles
+                    )
+                    skill_input_source_roles_authorized &= role_ok
+                    expression_sources[target_role] = role_ok
+                    if not role_ok:
+                        unauthorized_skill_input_targets.add(
+                            (step_id, target_role)
+                        )
                 else:
                     if (step_id, target_role) in incoming:
                         # A local/task/transform expression plus an explicit
@@ -1278,12 +1298,22 @@ class PlannerValidator:
                 sourced = sourced or expression_sources.get(parameter.name, False)
                 if not sourced and not parameter.runtime_resolvable:
                     closure = False
+                    if (
+                        step_id,
+                        parameter.name,
+                    ) not in unauthorized_skill_input_targets:
+                        non_task_role_closure = False
+        checks["skill_input_source_roles_authorized"] = (
+            skill_input_source_roles_authorized
+        )
         checks["data_flow_expression_consistent"] = expressions_consistent
         checks["required_inputs_closed"] = closure
         checks["identity_cardinality_preserved"] = _identity_cardinality_preserved(
             plan, offered_effects, task_role_usage
         )
-        if not closure or not expressions_consistent:
+        if not skill_input_source_roles_authorized:
+            errors.append("planner_task_binding_role_invalid")
+        if not non_task_role_closure or not expressions_consistent:
             errors.append("data_flow_error")
         if not checks["identity_cardinality_preserved"] and not terminal_empirical:
             errors.append("task_contract_mismatch")
