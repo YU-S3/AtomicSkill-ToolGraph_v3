@@ -13,6 +13,7 @@ from atomic_skillgraph.agents import (
 from atomic_skillgraph.agents.structured_submission import (
     ATOMIC_EXTRACTION_SCHEMA,
 )
+from atomic_skillgraph.core.bindings import BindingExprKind, BindingExpression
 from atomic_skillgraph.core.contracts import EffectDomain, SemanticPredicate
 from atomic_skillgraph.evolution.atomicizer import (
     AtomicOccurrenceProposal,
@@ -285,6 +286,99 @@ def test_current_e1_effect_domain_is_part_of_witness_authority() -> None:
         Atomicizer().validate_and_canonicalize(
             [wrong_domain], _normalized(),
         )
+
+
+def test_r6_precondition_rejects_output_only_role_even_with_witness() -> None:
+    normalized = _normalized()
+    normalized["actions"][1]["authoritative_before_state_facts"][0][
+        "args"
+    ]["location"] = "apple_1"
+    proposal = _proposal()
+    proposal.preconditions = [SemanticPredicate(
+        "agent.at_location",
+        {
+            "location": BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role="held_item",
+            )
+        },
+    )]
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"Atomic precondition references unavailable input role: "
+            r"take\.held_item"
+        ),
+    ):
+        Atomicizer().validate_and_canonicalize([proposal], normalized)
+
+
+def test_r6_effect_retains_fresh_output_role() -> None:
+    normalized = _normalized()
+    normalized["boundary_authorities"]["effects"] = [{
+        "predicate": "entity.related",
+        "args": {"target": "apple_1", "entity": "mug_2"},
+        "effect_domain": "world",
+        "witness_ref": "action:e1:revision:2:fresh",
+        "event_index": 1,
+        "revision": 2,
+        "source_kind": "semantic_snapshot_delta",
+    }]
+    proposal = _proposal()
+    proposal.output_roles = {"found_entity": "mug_2"}
+    proposal.output_derivations = {
+        "found_entity": {
+            "kind": "effect_witness",
+            "predicate": "entity.related",
+            "argument_role": "entity",
+        }
+    }
+    proposal.preconditions = []
+    proposal.precondition_witness_refs = []
+    proposal.effects = [SemanticPredicate(
+        "entity.related",
+        {
+            "target": BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role="item",
+            ),
+            "entity": BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role="found_entity",
+            ),
+        },
+    )]
+    proposal.effect_witness_refs = ["action:e1:revision:2:fresh"]
+
+    canonical = Atomicizer().validate_and_canonicalize(
+        [proposal], normalized,
+    )
+
+    entity = canonical[0].effects[0].args["entity"]
+    assert isinstance(entity, BindingExpression)
+    assert entity.source_role == "found_entity"
+
+
+def test_r6_precondition_retains_input_role() -> None:
+    proposal = _proposal()
+    proposal.preconditions = [SemanticPredicate(
+        "agent.at_location",
+        {
+            "location": BindingExpression(
+                BindingExprKind.SKILL_INPUT,
+                source_role="destination",
+            )
+        },
+    )]
+
+    canonical = Atomicizer().validate_and_canonicalize(
+        [proposal], _normalized(),
+    )
+
+    location = canonical[0].preconditions[0].args["location"]
+    assert isinstance(location, BindingExpression)
+    assert location.source_role == "destination"
 
 
 def test_legacy_internal_proposal_keeps_isolated_migration_behavior() -> None:

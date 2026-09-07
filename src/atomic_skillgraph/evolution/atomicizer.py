@@ -393,9 +393,15 @@ def _canonical_predicate(
     inputs: dict[str, Any],
     outputs: dict[str, Any],
     output_derivations: Mapping[str, Any] | None = None,
+    *,
+    allow_output_roles: bool,
 ) -> SemanticPredicate:
     arguments: dict[str, Any] = {}
-    combined = {**inputs, **outputs}
+    combined = (
+        {**inputs, **outputs}
+        if allow_output_roles
+        else dict(inputs)
+    )
     for name, value in predicate.args.items():
         if isinstance(value, BindingExpression):
             if value.kind is not BindingExprKind.CONSTANT and value.source_role not in combined:
@@ -419,7 +425,12 @@ def _canonical_predicate(
             role for role, bound in combined.items() if bound == value
         ]
         if isinstance(value, str) and value.startswith("$"):
-            matches = [value[1:]]
+            source_role = value[1:]
+            if source_role not in combined:
+                raise ValueError(
+                    f"predicate references unknown role: {source_role}"
+                )
+            matches = [source_role]
         if not matches and isinstance(value, str) and re.search(r"(?:_|\s)\d+$", value):
             raise ValueError(f"concrete instance in predicate is not bound to a role: {value}")
         arguments[name] = BindingExpression(BindingExprKind.SKILL_INPUT, source_role=matches[0]) if matches else value
@@ -991,7 +1002,32 @@ class Atomicizer:
                 require_explicit=current_e1_authority,
             )
 
-            bindings = {**inputs, **outputs}
+            # Preconditions are entry-state claims, so only roles available
+            # before the occurrence may resolve them.  Effects run after the
+            # occurrence and may additionally name witness-derived outputs.
+            precondition_bindings = dict(inputs)
+            effect_bindings = {**inputs, **outputs}
+            try:
+                canonical_preconditions = [
+                    _canonical_predicate(
+                        item,
+                        inputs,
+                        {},
+                        {},
+                        allow_output_roles=False,
+                    )
+                    for item in proposal.preconditions
+                ]
+            except ValueError as error:
+                marker = "predicate references unknown role: "
+                message = str(error)
+                if message.startswith(marker):
+                    source_role = message[len(marker):]
+                    raise ValueError(
+                        "Atomic precondition references unavailable input "
+                        f"role: {proposal.phase_id}.{source_role}"
+                    ) from error
+                raise
             if current_e1_authority:
                 # Current E1 can only cite the exact Validator state at the
                 # occurrence boundary.  Action-only reconstruction and the
@@ -1040,9 +1076,11 @@ class Atomicizer:
                     "Atomic precondition witnesses must be explicit: "
                     f"{proposal.phase_id}"
                 )
-            for precondition in proposal.preconditions:
+            for precondition in canonical_preconditions:
                 if not _predicate_has_witnesses(
-                    precondition, explicit_precondition_facts, bindings,
+                    precondition,
+                    explicit_precondition_facts,
+                    precondition_bindings,
                     require_domain=current_e1_authority,
                 ):
                     raise ValueError(f"Atomic precondition lacks before-state witness: {proposal.phase_id}")
@@ -1053,10 +1091,12 @@ class Atomicizer:
                 ]
                 if not facts or not any(
                     _fact_matches(
-                        precondition, fact, bindings,
+                        precondition,
+                        fact,
+                        precondition_bindings,
                         require_domain=current_e1_authority,
                     )
-                    for precondition in proposal.preconditions
+                    for precondition in canonical_preconditions
                     for fact in facts
                 ):
                     raise ValueError(
@@ -1139,7 +1179,7 @@ class Atomicizer:
                     if _fact_matches(
                         effect,
                         effect_facts[fact_index],
-                        bindings,
+                        effect_bindings,
                         require_domain=current_e1_authority,
                     )
                 ]
@@ -1195,7 +1235,9 @@ class Atomicizer:
                 ]
                 if not facts or not any(
                     _fact_matches(
-                        effect, fact, bindings,
+                        effect,
+                        fact,
+                        effect_bindings,
                         require_domain=current_e1_authority,
                     )
                     for effect in proposal.effects
@@ -1290,15 +1332,14 @@ class Atomicizer:
                 for fact_index in effect_witness_indexes
             )
             validation_refs.extend(derivation_effect_refs)
-            preconditions = [
-                _canonical_predicate(
-                    item, inputs, outputs, output_derivations,
-                )
-                for item in proposal.preconditions
-            ]
+            preconditions = canonical_preconditions
             effects = [
                 _canonical_predicate(
-                    item, inputs, outputs, output_derivations,
+                    item,
+                    inputs,
+                    outputs,
+                    output_derivations,
+                    allow_output_roles=True,
                 )
                 for item in proposal.effects
             ]
