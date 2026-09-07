@@ -1,9 +1,10 @@
-# Fixed held-out evaluation of the frozen bank produced by full-30 training.
-# Frozen evaluation may write eval traces/metrics, but never long-term knowledge.
+# R6 fresh empty-bank Full-30. Method settings and budgets remain identical
+# to the frozen v3.2 full protocol; only the isolated run directory differs.
 schema_version: 3
 method_patch: "3.2"
 
-data_dir: runs/alfworld_train_full_30_v32/frozen/data_v3
+data_dir: runs/alfworld_train_full_30_r6/data_v3
+trace_data_dir: runs/alfworld_train_full_30_r6
 
 llm:
   provider: openai_compatible
@@ -76,7 +77,15 @@ planner:
   cold_start_c1_repair_limit: 1
 
 cold_start:
-  enabled: false
+  enabled: true
+  provisional_top_k_per_requirement: 3
+  failure_experience_top_k: 2
+  scaffold_max_steps: 8
+  failure_extractor_enabled: true
+  source_replay_required: true
+  provisional_suppress_consecutive_failures: 3
+  promotion_requires_strict_task_success: true
+  experience_confirm_independent_tasks: 2
 
 runtime:
   global_action_budget: 100
@@ -92,32 +101,29 @@ lifecycle:
   composite_active_self_sufficient_successes: 2
 
 extraction:
-  extract_full_dynamic_success: false
-  extract_task_rescue_success: false
-  extract_novel_seeded_success: false
+  extract_full_dynamic_success: true
+  extract_task_rescue_success: true
+  extract_novel_seeded_success: true
   skip_stable_direct_success: true
 
 experiment:
-  name: alfworld_frozen_eval_60
-  phase: frozen_eval
+  name: alfworld_train_full_30_r6
+  phase: train
   condition: full
-  runtime_mode: frozen
-  freeze_skills: true
+  runtime_mode: online
+  freeze_skills: false
   seed: 42
-  output_dir: runs/alfworld_frozen_eval_60
-  task_manifest_path: runs/alfworld_frozen_eval_60/task_manifest.json
-  source_train_run_dir: runs/alfworld_train_full_30_v32
-  source_frozen_snapshot_dir: runs/alfworld_train_full_30_v32/frozen/data_v3
-  require_knowledge_digest_unchanged: true
-  allow_eval_traces_and_metrics: true
-  allow_long_term_knowledge_writes: false
+  output_dir: runs/alfworld_train_full_30_r6
+  task_manifest_path: runs/alfworld_train_full_30_r6/task_manifest.json
+  frozen_snapshot_dir: runs/alfworld_train_full_30_r6/frozen/data_v3
+  initialize_v3_bank: empty
   resume_completed_task_boundary_only: true
   max_task_attempts: 3
 
 harness:
   adapter: alfworld_v3
   alfworld_data_env: ALFWORLD_DATA
-  split: eval_out_of_distribution
+  split: train
   max_steps: 100
   task_selection:
     policy: balanced_fixed_manifest
@@ -128,7 +134,6 @@ harness:
       - pick_heat_then_place_in_recep
       - pick_cool_then_place_in_recep
       - pick_two_obj_and_place
-    tasks_per_type: 10
-    total_tasks: 60
+    tasks_per_type: 5
+    total_tasks: 30
     require_exact_count: true
-    require_disjoint_from_train_manifest: true

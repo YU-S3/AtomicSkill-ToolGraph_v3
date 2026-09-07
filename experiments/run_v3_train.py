@@ -72,6 +72,10 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     selection = dict(harness.get("task_selection") or {})
     planner = dict(config.get("planner") or {})
     cold_start = dict(config.get("cold_start") or {})
+    allowed_run_names = {
+        "alfworld_train_full_30_v32",
+        "alfworld_train_full_30_r6",
+    }
     expected = {
         "method_patch": (config.get("method_patch"), "3.2"),
         "planner.max_repeat_count": (planner.get("max_repeat_count"), 4),
@@ -117,7 +121,6 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         "cold_start.experience_confirm_independent_tasks": (
             cold_start.get("experience_confirm_independent_tasks"), 2
         ),
-        "experiment.name": (experiment.get("name"), "alfworld_train_full_30_v32"),
         "experiment.condition": (experiment.get("condition"), "full"),
         "experiment.freeze_skills": (experiment.get("freeze_skills"), False),
         "experiment.seed": (experiment.get("seed"), 42),
@@ -138,6 +141,10 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         for name, (actual, wanted) in expected.items()
         if actual != wanted
     ]
+    if experiment.get("name") not in allowed_run_names:
+        mismatches.append(
+            "experiment.name must identify the formal Full-30 train protocol"
+        )
     if _path(config.get("data_dir", "")) != output_dir / "data_v3":
         mismatches.append("data_dir must be <output_dir>/data_v3")
     if _path(config.get("trace_data_dir", output_dir)) != output_dir:

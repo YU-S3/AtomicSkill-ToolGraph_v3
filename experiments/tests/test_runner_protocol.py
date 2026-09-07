@@ -22,13 +22,17 @@ from experiments.protocol import (
     artifact_growth_audit,
     load_task_report_traces,
 )
-from experiments.run_v3_frozen_eval import _selection as frozen_selection
+from experiments.run_v3_frozen_eval import (
+    _selection as frozen_selection,
+    _validate_formal_config as validate_frozen_formal_config,
+)
 from experiments.run_v3_smoke import _validate_configured_task_manifest
 from experiments.run_v3_train import (
     _referenced_run_maintenance_trace_ids,
     _run_final_batch_maintenance,
     _select_run_maintenance_traces,
     _selection as train_selection,
+    _validate_formal_config as validate_train_formal_config,
 )
 from experiments.report import summarize_traces, write_reports
 
@@ -42,10 +46,24 @@ def test_formal_configs_freeze_the_exact_six_task_types_and_counts() -> None:
     assert tuple(labels) == ALFWORLD_FORMAL_TASK_TYPES
     assert (per_type, total) == (5, 30)
 
+    r6_train = load_config(ROOT / "configs" / "alfworld_train_full_30_r6.yaml")
+    labels, per_type, total = train_selection(r6_train)
+    assert tuple(labels) == ALFWORLD_FORMAL_TASK_TYPES
+    assert (per_type, total) == (5, 30)
+
     frozen = load_config(ROOT / "configs" / "alfworld_frozen_eval.yaml")
     labels, per_type, total = frozen_selection(frozen)
     assert tuple(labels) == ALFWORLD_FORMAL_TASK_TYPES
     assert (per_type, total) == (10, 60)
+
+    for replay_config in (
+        "alfworld_frozen_eval_60_r6.yaml",
+        "alfworld_frozen_eval_60_b6a82ed.yaml",
+    ):
+        frozen_replay = load_config(ROOT / "configs" / replay_config)
+        labels, per_type, total = frozen_selection(frozen_replay)
+        assert tuple(labels) == ALFWORLD_FORMAL_TASK_TYPES
+        assert (per_type, total) == (10, 60)
 
     train_replay = load_config(
         ROOT / "configs" / "alfworld_frozen_train30_replay_b6a82ed.yaml"
@@ -67,6 +85,53 @@ def test_formal_configs_freeze_the_exact_six_task_types_and_counts() -> None:
     substituted["harness"]["task_selection"]["task_types"][-1] = "unknown"
     with pytest.raises(ProtocolError, match="six ALFWorld task types"):
         train_selection(substituted)
+
+
+def _configured_output(config: dict[str, object]) -> Path:
+    experiment = dict(config["experiment"])  # type: ignore[arg-type]
+    return (ROOT / str(experiment["output_dir"])).resolve()
+
+
+def test_r6_train_and_frozen_eval_names_are_bound_to_their_sources() -> None:
+    r6_train = load_config(ROOT / "configs" / "alfworld_train_full_30_r6.yaml")
+    validate_train_formal_config(r6_train, _configured_output(r6_train))
+    assert r6_train["experiment"]["initialize_v3_bank"] == "empty"
+
+    r6_eval = load_config(ROOT / "configs" / "alfworld_frozen_eval_60_r6.yaml")
+    validate_frozen_formal_config(r6_eval, _configured_output(r6_eval))
+    assert r6_eval["experiment"]["require_source_code_match"] is True
+
+    wrong_r6_source = copy.deepcopy(r6_eval)
+    wrong_r6_source["data_dir"] = (
+        "runs/b6a82ed_100pct_source/alfworld_train_full_30_v32/frozen/data_v3"
+    )
+    wrong_r6_source["experiment"].update({
+        "source_train_run_dir": (
+            "runs/b6a82ed_100pct_source/alfworld_train_full_30_v32"
+        ),
+        "source_frozen_snapshot_dir": wrong_r6_source["data_dir"],
+        "require_source_code_match": False,
+    })
+    with pytest.raises(ProtocolError, match="R6 Frozen-60"):
+        validate_frozen_formal_config(
+            wrong_r6_source, _configured_output(wrong_r6_source),
+        )
+
+    b6_eval = load_config(
+        ROOT / "configs" / "alfworld_frozen_eval_60_b6a82ed.yaml"
+    )
+    validate_frozen_formal_config(b6_eval, _configured_output(b6_eval))
+    assert b6_eval["experiment"]["source_git_revision"] == (
+        "b6a82ed47a2685e69a1fa052f70cd269f63e63c0"
+    )
+    assert b6_eval["experiment"]["require_source_code_match"] is False
+
+    unpinned_b6 = copy.deepcopy(b6_eval)
+    unpinned_b6["experiment"].pop("source_git_revision")
+    with pytest.raises(ProtocolError, match="pin source_git_revision"):
+        validate_frozen_formal_config(
+            unpinned_b6, _configured_output(unpinned_b6),
+        )
 
 
 @dataclass

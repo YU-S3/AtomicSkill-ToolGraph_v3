@@ -87,10 +87,14 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     planner = dict(config.get("planner") or {})
     cold_start = dict(config.get("cold_start") or {})
     source_train_replay = _is_source_train_replay(config)
-    expected_name = (
-        "alfworld_frozen_train30_replay_b6a82ed"
+    allowed_run_names = (
+        {"alfworld_frozen_train30_replay_b6a82ed"}
         if source_train_replay
-        else "alfworld_frozen_eval_60"
+        else {
+            "alfworld_frozen_eval_60",
+            "alfworld_frozen_eval_60_r6",
+            "alfworld_frozen_eval_60_b6a82ed",
+        }
     )
     expected_split = "train" if source_train_replay else "eval_out_of_distribution"
     expected = {
@@ -103,7 +107,6 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
             planner.get("cold_start_c1_repair_limit"), 1
         ),
         "cold_start": (cold_start, {"enabled": False}),
-        "experiment.name": (experiment.get("name"), expected_name),
         "experiment.condition": (experiment.get("condition"), "full"),
         "experiment.freeze_skills": (experiment.get("freeze_skills"), True),
         "experiment.seed": (experiment.get("seed"), 42),
@@ -132,6 +135,10 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         for name, (actual, wanted) in expected.items()
         if actual != wanted
     ]
+    if experiment.get("name") not in allowed_run_names:
+        mismatches.append(
+            "experiment.name must identify the selected formal frozen protocol"
+        )
     frozen_dir = _path(experiment.get("source_frozen_snapshot_dir", ""))
     if _path(config.get("data_dir", "")) != frozen_dir:
         mismatches.append("data_dir must equal source_frozen_snapshot_dir")
@@ -149,12 +156,43 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     require_source_code_match = experiment.get("require_source_code_match", True)
     if not isinstance(require_source_code_match, bool):
         mismatches.append("experiment.require_source_code_match must be boolean")
+    run_name = str(experiment.get("name", ""))
+    source_revision = experiment.get("source_git_revision")
     if source_train_replay:
         expected_revision = experiment.get("source_git_revision")
         if expected_revision != "b6a82ed47a2685e69a1fa052f70cd269f63e63c0":
             mismatches.append(
                 "frozen source-train replay must pin source_git_revision to b6a82ed"
             )
+    elif run_name == "alfworld_frozen_eval_60_r6":
+        if train_dir.name != "alfworld_train_full_30_r6":
+            mismatches.append(
+                "R6 Frozen-60 must use the alfworld_train_full_30_r6 source"
+            )
+        if require_source_code_match is not True:
+            mismatches.append("R6 Frozen-60 must require source code match")
+        if source_revision not in (None, ""):
+            mismatches.append("R6 Frozen-60 must not override source revision")
+    elif run_name == "alfworld_frozen_eval_60_b6a82ed":
+        if train_dir.name != "alfworld_train_full_30_v32":
+            mismatches.append(
+                "b6a82ed Frozen-60 must use the preserved Full-30 source"
+            )
+        if source_revision != "b6a82ed47a2685e69a1fa052f70cd269f63e63c0":
+            mismatches.append("b6a82ed Frozen-60 must pin source_git_revision")
+        if require_source_code_match is not False:
+            mismatches.append(
+                "b6a82ed Frozen-60 must record cross-revision evaluation"
+            )
+    elif not source_train_replay:
+        if train_dir.name != "alfworld_train_full_30_v32":
+            mismatches.append(
+                "standard Frozen-60 must use the standard Full-30 source"
+            )
+        if require_source_code_match is not True:
+            mismatches.append("standard Frozen-60 must require source code match")
+        if source_revision not in (None, ""):
+            mismatches.append("standard Frozen-60 must not override source revision")
     max_task_attempts = experiment.get("max_task_attempts")
     if (
         isinstance(max_task_attempts, bool)
@@ -537,7 +575,11 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             report_stem = (
                 "frozen_train30_replay_b6a82ed"
                 if source_train_replay
-                else "frozen_eval_60"
+                else (
+                    "frozen_eval_60"
+                    if run_id == "alfworld_frozen_eval_60"
+                    else run_id
+                )
             )
             report_title = (
                 "AtomicSkillGraph v3 ALFWorld Frozen Train-30 Replay (b6a82ed bank)"

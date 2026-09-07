@@ -1,9 +1,9 @@
-# Fixed held-out evaluation of the frozen bank produced by full-30 training.
-# Frozen evaluation may write eval traces/metrics, but never long-term knowledge.
+# Held-out 6x10 Frozen-60 evaluation of the isolated R6 Full-30 bank.
 schema_version: 3
 method_patch: "3.2"
 
-data_dir: runs/alfworld_train_full_30_v32/frozen/data_v3
+data_dir: runs/alfworld_train_full_30_r6/frozen/data_v3
+trace_data_dir: runs/alfworld_frozen_eval_60_r6
 
 llm:
   provider: openai_compatible
@@ -98,16 +98,17 @@ extraction:
   skip_stable_direct_success: true
 
 experiment:
-  name: alfworld_frozen_eval_60
+  name: alfworld_frozen_eval_60_r6
   phase: frozen_eval
   condition: full
   runtime_mode: frozen
   freeze_skills: true
   seed: 42
-  output_dir: runs/alfworld_frozen_eval_60
-  task_manifest_path: runs/alfworld_frozen_eval_60/task_manifest.json
-  source_train_run_dir: runs/alfworld_train_full_30_v32
-  source_frozen_snapshot_dir: runs/alfworld_train_full_30_v32/frozen/data_v3
+  output_dir: runs/alfworld_frozen_eval_60_r6
+  task_manifest_path: runs/alfworld_frozen_eval_60_r6/task_manifest.json
+  source_train_run_dir: runs/alfworld_train_full_30_r6
+  source_frozen_snapshot_dir: runs/alfworld_train_full_30_r6/frozen/data_v3
+  require_source_code_match: true
   require_knowledge_digest_unchanged: true
   allow_eval_traces_and_metrics: true
   allow_long_term_knowledge_writes: false
