@@ -1284,10 +1284,19 @@ def _protocol_repair_message(
         if len(tools) == 1 and tools[0].name.startswith("submit_")
         else "Return exactly one native tool call using one of the offered tools."
     )
+    detail = _protocol_failure_detail(failure)
     return (
         "PROTOCOL REPAIR REQUIRED. The previous response was rejected and no action was executed. "
-        f"Violation: {failure.code}. {expected} Do not encode action arguments in prose or Markdown."
+        f"Violation: {failure.code}. Validation detail: {detail}. {expected} "
+        "Correct only the rejected protocol/schema issue. "
+        "Do not encode action arguments in prose or Markdown."
     )
+
+
+def _protocol_failure_detail(failure: AgentProtocolError) -> str:
+    """Return bounded deterministic validator detail for the sole repair turn."""
+
+    return " ".join(str(failure).split())[:1200]
 
 
 def _tool_call_dict(call: NativeToolCall) -> dict[str, Any]:
