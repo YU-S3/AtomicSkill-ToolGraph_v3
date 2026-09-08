@@ -3511,7 +3511,88 @@ class AtomicSkillGraphSystem:
         compiled = staged_compiled
         composite = None
         composite_rejection: dict[str, str] | None = None
-        quality["extractor_e2_attempted"] = False
+        quality.update({
+            "extractor_e2_attempted": False,
+            "extractor_e2_protocol_repair_count": 0,
+            "extractor_e2_repair_attempt_count": 0,
+            "extractor_e2_repair_success_count": 0,
+            "extractor_e2_repair_failure_count": 0,
+        })
+
+        def record_e2_selection(proposal: Any) -> None:
+            quality.update({
+                "extractor_e2_selected_existing_edge_count": len(
+                    proposal.existing_edges
+                ),
+                "extractor_e2_selected_new_edge_count": len(
+                    proposal.new_edges
+                ),
+            })
+            trace.metadata["extraction"] = {
+                **dict(trace.metadata.get("extraction") or {}),
+                "e2_selected_existing_edges": len(
+                    proposal.existing_edges
+                ),
+                "e2_selected_new_edges": len(proposal.new_edges),
+            }
+
+        def validate_e2_with_one_repair(
+            proposal: Any,
+            existing_edges: list[Any],
+            **builder_options: Any,
+        ) -> Any:
+            def validate(candidate: Any) -> Any:
+                return self.composite_builder.validate_and_build(
+                    candidate,
+                    staged_occurrences,
+                    contract,
+                    **builder_options,
+                )
+
+            try:
+                return validate(proposal)
+            except ValueError as initial_error:
+                initial_detail = self._sanitize_failure_message(
+                    initial_error
+                )
+                quality["extractor_e2_repair_attempt_count"] += 1
+                trace.metadata["extraction"] = {
+                    **dict(trace.metadata.get("extraction") or {}),
+                    "e2_initial_validation_error": initial_detail,
+                    "e2_repair_attempted": True,
+                    "e2_repair_applied": False,
+                    "e2_repair_error": "",
+                }
+                try:
+                    repaired = extractor.repair_composite(
+                        proposal,
+                        initial_error,
+                        staged_occurrences,
+                        existing_edges,
+                        contract_matcher=matcher,
+                    )
+                    record_e2_selection(repaired)
+                    result = validate(repaired)
+                except (ValueError, BudgetExhausted) as repair_error:
+                    quality["extractor_e2_repair_failure_count"] += 1
+                    trace.metadata["extraction"] = {
+                        **dict(trace.metadata.get("extraction") or {}),
+                        "e2_repair_attempted": True,
+                        "e2_repair_applied": False,
+                        "e2_repair_error": self._sanitize_failure_message(
+                            repair_error
+                        ),
+                    }
+                    raise
+                quality["extractor_e2_repair_success_count"] += 1
+                trace.metadata["extraction"] = {
+                    **dict(trace.metadata.get("extraction") or {}),
+                    "e2_repair_attempted": True,
+                    "e2_repair_applied": True,
+                    "e2_repair_error": "",
+                }
+                return result
+
         if coverage.passed:
             try:
                 existing = self.graph.existing_edges(
@@ -3531,27 +3612,10 @@ class AtomicSkillGraphSystem:
                     existing,
                     contract_matcher=matcher,
                 )
-                quality.update({
-                    "extractor_e2_selected_existing_edge_count": len(
-                        composite_proposal.existing_edges
-                    ),
-                    "extractor_e2_selected_new_edge_count": len(
-                        composite_proposal.new_edges
-                    ),
-                })
-                trace.metadata["extraction"] = {
-                    **dict(trace.metadata.get("extraction") or {}),
-                    "e2_selected_existing_edges": len(
-                        composite_proposal.existing_edges
-                    ),
-                    "e2_selected_new_edges": len(
-                        composite_proposal.new_edges
-                    ),
-                }
-                composite = self.composite_builder.validate_and_build(
+                record_e2_selection(composite_proposal)
+                composite = validate_e2_with_one_repair(
                     composite_proposal,
-                    staged_occurrences,
-                    contract,
+                    existing,
                     existing_edge_evidence=existing,
                     contract_matcher=matcher,
                     task_bindings=dict(
@@ -3618,18 +3682,10 @@ class AtomicSkillGraphSystem:
                         existing,
                         contract_matcher=matcher,
                     )
-                    quality.update({
-                        "extractor_e2_selected_existing_edge_count": len(
-                            composite_proposal.existing_edges
-                        ),
-                        "extractor_e2_selected_new_edge_count": len(
-                            composite_proposal.new_edges
-                        ),
-                    })
-                    composite = self.composite_builder.validate_and_build(
+                    record_e2_selection(composite_proposal)
+                    composite = validate_e2_with_one_repair(
                         composite_proposal,
-                        staged_occurrences,
-                        contract,
+                        existing,
                         existing_edge_evidence=existing,
                         contract_matcher=matcher,
                         task_bindings=dict(
@@ -3724,6 +3780,9 @@ class AtomicSkillGraphSystem:
         # The partial-admission event is emitted only after admission actually
         # runs.  Preparation alone cannot claim an admitted artifact.
         quality["partial_atomic_admission_count"] = 0
+        quality["extractor_e2_protocol_repair_count"] = int(
+            getattr(extractor, "e2_protocol_repair_count", 0) or 0
+        )
         trace.metadata["extractor_quality"] = quality
         diagnosis = self.gap_diagnoser.diagnose(
             trace, [item.atomic for item in compiled],

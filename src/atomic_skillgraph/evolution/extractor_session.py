@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -39,6 +40,18 @@ class CompositeExtractionProposal:
     insight: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class CompositeExtractionAuthority:
+    """Deterministic code authority shared by initial E2 and its sole repair."""
+
+    canonical_control_sequence: tuple[str, ...]
+    canonical_occurrences: tuple[dict[str, Any], ...]
+    new_edge_candidates: tuple[Any, ...]
+    new_edge_candidate_ids: frozenset[str]
+    existing_edge_views: tuple[dict[str, Any], ...]
+    existing_edge_by_id: dict[str, dict[str, Any]]
+
+
 class ExtractionContentError(ValueError):
     """A staged Extractor submission/content rejection, never task failure."""
 
@@ -56,6 +69,169 @@ def _predicate(value: dict[str, Any]) -> SemanticPredicate:
     )
 
 
+def _composite_authority(
+    authoritative_occurrences: list[CanonicalAtomicOccurrence],
+    existing_edges: list[Any],
+    *,
+    contract_matcher: ContractMatcher | None = None,
+) -> CompositeExtractionAuthority:
+    """Project one immutable-in-practice E2 candidate view without LLM state."""
+
+    identity_by_value: dict[str, str] = {}
+
+    def identity(value: Any) -> str:
+        key = repr(value)
+        if key not in identity_by_value:
+            identity_by_value[key] = (
+                f"binding_{len(identity_by_value) + 1:03d}"
+            )
+        return identity_by_value[key]
+
+    canonical_occurrences = tuple(
+        {
+            "occurrence_id": item.occurrence_id,
+            "skill_ref": str(item.proposed_ref),
+            "intent": item.intent,
+            "inputs": to_primitive(item.input_specs),
+            "outputs": to_primitive(item.output_specs),
+            "effects": to_primitive(item.effects),
+            "input_binding_identities": {
+                role: identity(value)
+                for role, value in item.input_bindings.items()
+            },
+            "output_binding_identities": {
+                role: identity(value)
+                for role, value in item.output_bindings.items()
+            },
+        }
+        for item in authoritative_occurrences
+    )
+    matcher = contract_matcher or ExactContractMatcher()
+    edge_builder = CompositeEdgeCandidateBuilder()
+    candidates = edge_builder.build(
+        authoritative_occurrences,
+        matcher=matcher,
+    )
+    existing_views, existing_by_id = (
+        edge_builder.existing_edge_materializations(
+            authoritative_occurrences,
+            existing_edges,
+        )
+    )
+    return CompositeExtractionAuthority(
+        canonical_control_sequence=tuple(
+            item.occurrence_id for item in authoritative_occurrences
+        ),
+        canonical_occurrences=canonical_occurrences,
+        new_edge_candidates=tuple(candidates),
+        new_edge_candidate_ids=frozenset(
+            item.candidate_id for item in candidates
+        ),
+        existing_edge_views=tuple(existing_views),
+        existing_edge_by_id=dict(existing_by_id),
+    )
+
+
+def _proposal_from_payload(
+    payload: Mapping[str, Any],
+    authority: CompositeExtractionAuthority,
+    *,
+    stage: str,
+) -> CompositeExtractionProposal:
+    selected_existing_ids = [
+        str(item) for item in payload["selected_existing_edge_ids"]
+    ]
+    unknown_existing = sorted(
+        set(selected_existing_ids) - set(authority.existing_edge_by_id)
+    )
+    if unknown_existing:
+        raise ExtractionContentError(
+            stage,
+            (
+                "extractor_e2_existing_edge_selection_invalid"
+                if stage == "e2"
+                else "extractor_e2_repair_existing_edge_selection_invalid"
+            ),
+            "E2 selected unknown/inapplicable existing edge IDs: "
+            + ", ".join(unknown_existing),
+        )
+    selected_candidate_ids = [
+        str(item) for item in payload["selected_new_edge_candidate_ids"]
+    ]
+    unknown_candidates = sorted(
+        set(selected_candidate_ids) - authority.new_edge_candidate_ids
+    )
+    if unknown_candidates:
+        raise ExtractionContentError(
+            stage,
+            (
+                "extractor_e2_new_edge_selection_invalid"
+                if stage == "e2"
+                else "extractor_e2_repair_new_edge_selection_invalid"
+            ),
+            "E2 selected unknown edge candidate IDs: "
+            + ", ".join(unknown_candidates),
+        )
+    candidate_by_id = {
+        item.candidate_id: item for item in authority.new_edge_candidates
+    }
+    edge_builder = CompositeEdgeCandidateBuilder()
+    return CompositeExtractionProposal(
+        list(authority.canonical_control_sequence),
+        [
+            authority.existing_edge_by_id[item]
+            for item in selected_existing_ids
+        ],
+        [
+            edge_builder.materialize_candidate(candidate_by_id[item])
+            for item in selected_candidate_ids
+        ],
+        str(payload["summary"]),
+        dict(payload["guideline"]),
+        dict(payload["insight"]),
+    )
+
+
+def _e2_repair_prompt(
+    rejected_proposal: CompositeExtractionProposal,
+    rejection: Exception,
+    authority: CompositeExtractionAuthority,
+) -> str:
+    rejection_detail = " ".join(str(rejection).split())[:1200]
+    policy_context = {
+        "deterministic_rejection": rejection_detail,
+        "rejected_proposal": to_primitive(rejected_proposal),
+        "canonical_control_sequence": list(
+            authority.canonical_control_sequence
+        ),
+        "canonical_occurrences": to_primitive(
+            authority.canonical_occurrences
+        ),
+        "known_existing_edge_evidence": to_primitive(
+            authority.existing_edge_views
+        ),
+        "new_edge_candidates": to_primitive(
+            authority.new_edge_candidates
+        ),
+    }
+    instruction = (
+        "E2R COMPOSITE REPAIR. The previous schema-valid Composite proposal "
+        "was rejected by deterministic Composite validation. Return one "
+        "complete replacement proposal using the unchanged E2 output schema. "
+        "You may only re-select from the exact existing-edge IDs and new-edge "
+        "candidate IDs supplied below. Do not modify the canonical control "
+        "sequence, invent an edge, change an Atomic occurrence, add facts, or "
+        "perform retrieval."
+    )
+    return instruction + "\n\nPOLICY_CONTEXT_JSON\n" + json.dumps(
+        policy_context,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
 class ExtractorSession:
     def __init__(self, session: Any) -> None:
         self.session = session
@@ -63,6 +239,30 @@ class ExtractorSession:
         self.submissions = StructuredSubmissionClient()
         self._e1_complete = False
         self._e2_complete = False
+        self._e2_repair_complete = False
+        self._e2_protocol_repairs_before: int | None = None
+
+    def _protocol_repairs_used(self) -> int:
+        snapshot = getattr(self.session, "snapshot", None)
+        if not callable(snapshot):
+            return 0
+        value = snapshot().get("protocol_repairs_used", 0)
+        if isinstance(value, bool):
+            return 0
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0
+
+    @property
+    def e2_protocol_repair_count(self) -> int:
+        if self._e2_protocol_repairs_before is None:
+            return 0
+        return max(
+            0,
+            self._protocol_repairs_used()
+            - self._e2_protocol_repairs_before,
+        )
 
     def propose_atomics(
         self,
@@ -154,55 +354,28 @@ class ExtractorSession:
     ) -> CompositeExtractionProposal:
         if not self._e1_complete or self._e2_complete:
             raise RuntimeError("Extractor E2 requires one completed E1 and may run exactly once")
-        identity_by_value: dict[str, str] = {}
-
-        def identity(value: Any) -> str:
-            key = repr(value)
-            if key not in identity_by_value:
-                identity_by_value[key] = f"binding_{len(identity_by_value) + 1:03d}"
-            return identity_by_value[key]
-
-        authority = [
-            {
-                "occurrence_id": item.occurrence_id, "skill_ref": str(item.proposed_ref),
-                "intent": item.intent, "inputs": to_primitive(item.input_specs),
-                "outputs": to_primitive(item.output_specs), "effects": to_primitive(item.effects),
-                "input_binding_identities": {
-                    role: identity(value)
-                    for role, value in item.input_bindings.items()
-                },
-                "output_binding_identities": {
-                    role: identity(value)
-                    for role, value in item.output_bindings.items()
-                },
-            } for item in authoritative_occurrences
-        ]
-        matcher = contract_matcher or ExactContractMatcher()
-        edge_builder = CompositeEdgeCandidateBuilder()
-        candidates = edge_builder.build(
+        authority = _composite_authority(
             authoritative_occurrences,
-            matcher=matcher,
+            existing_edges,
+            contract_matcher=contract_matcher,
         )
-        candidate_by_id = {item.candidate_id: item for item in candidates}
-        existing_views, existing_by_id = (
-            edge_builder.existing_edge_materializations(
-                authoritative_occurrences,
-                existing_edges,
-            )
-        )
-        control_sequence = [
-            item.occurrence_id for item in authoritative_occurrences
-        ]
+        self._e2_protocol_repairs_before = self._protocol_repairs_used()
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("extractor_e2")
         try:
             payload = self.submissions.request(
                 self.session,
                 prompt=self.context.extractor_e2(
-                    canonical_occurrences=authority,
-                    canonical_control_sequence=control_sequence,
-                    known_existing_edge_evidence=existing_views,
-                    new_edge_candidates=to_primitive(candidates),
+                    canonical_occurrences=authority.canonical_occurrences,
+                    canonical_control_sequence=(
+                        authority.canonical_control_sequence
+                    ),
+                    known_existing_edge_evidence=(
+                        authority.existing_edge_views
+                    ),
+                    new_edge_candidates=to_primitive(
+                        authority.new_edge_candidates
+                    ),
                 ),
                 tool_name="submit_extractor_composite",
                 description=(
@@ -216,42 +389,57 @@ class ExtractorSession:
                 "extractor_e2_schema_rejected",
                 str(exc),
             ) from exc
+        proposal = _proposal_from_payload(payload, authority, stage="e2")
         self._e2_complete = True
-        selected_existing_ids = [
-            str(item) for item in payload["selected_existing_edge_ids"]
-        ]
-        unknown_existing = sorted(
-            set(selected_existing_ids) - set(existing_by_id)
-        )
-        if unknown_existing:
-            raise ExtractionContentError(
-                "e2",
-                "extractor_e2_existing_edge_selection_invalid",
-                "E2 selected unknown/inapplicable existing edge IDs: "
-                + ", ".join(unknown_existing),
+        return proposal
+
+    def repair_composite(
+        self,
+        rejected_proposal: CompositeExtractionProposal,
+        rejection: Exception,
+        authoritative_occurrences: list[CanonicalAtomicOccurrence],
+        existing_edges: list[Any],
+        *,
+        contract_matcher: ContractMatcher | None = None,
+    ) -> CompositeExtractionProposal:
+        if not self._e1_complete:
+            raise RuntimeError("Extractor E2R requires completed E1")
+        if not self._e2_complete:
+            raise RuntimeError(
+                "Extractor E2R requires one schema-valid initial E2"
             )
-        selected_candidate_ids = [
-            str(item)
-            for item in payload["selected_new_edge_candidate_ids"]
-        ]
-        unknown_candidates = sorted(
-            set(selected_candidate_ids) - set(candidate_by_id)
+        if self._e2_repair_complete:
+            raise RuntimeError("Extractor E2R may run exactly once")
+        self._e2_repair_complete = True
+        authority = _composite_authority(
+            authoritative_occurrences,
+            existing_edges,
+            contract_matcher=contract_matcher,
         )
-        if unknown_candidates:
+        if hasattr(self.session, "set_usage_bucket"):
+            self.session.set_usage_bucket("extractor_e2")
+        try:
+            payload = self.submissions.request(
+                self.session,
+                prompt=_e2_repair_prompt(
+                    rejected_proposal,
+                    rejection,
+                    authority,
+                ),
+                tool_name="submit_extractor_composite",
+                description=(
+                    "Replace the rejected Composite edge selection."
+                ),
+                schema=E2_SCHEMA,
+            ).value
+        except AgentProtocolError as exc:
             raise ExtractionContentError(
-                "e2",
-                "extractor_e2_new_edge_selection_invalid",
-                "E2 selected unknown edge candidate IDs: "
-                + ", ".join(unknown_candidates),
-            )
-        return CompositeExtractionProposal(
-            control_sequence,
-            [existing_by_id[item] for item in selected_existing_ids],
-            [
-                edge_builder.materialize_candidate(candidate_by_id[item])
-                for item in selected_candidate_ids
-            ],
-            str(payload["summary"]),
-            dict(payload["guideline"]),
-            dict(payload["insight"]),
+                "e2_repair",
+                "extractor_e2_repair_schema_rejected",
+                str(exc),
+            ) from exc
+        return _proposal_from_payload(
+            payload,
+            authority,
+            stage="e2_repair",
         )

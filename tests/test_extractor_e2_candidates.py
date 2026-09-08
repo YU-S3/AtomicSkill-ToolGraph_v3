@@ -110,6 +110,38 @@ def _session(reply) -> ExtractorSession:
     return extractor
 
 
+def _repair_session(*replies) -> tuple[
+    ExtractorSession, ScriptedAgentProvider,
+]:
+    provider = ScriptedAgentProvider([
+        FakeReply.structured(reply) for reply in replies
+    ])
+    extractor = ExtractorSession(ReplayAgentSession(
+        provider,
+        system_prompt="extractor",
+        usage_ledger=UsageLedger(),
+        usage_bucket="extractor_e2",
+    ))
+    extractor._e1_complete = True
+    return extractor, provider
+
+
+def _e2_payload(*candidate_ids: str) -> dict[str, object]:
+    return {
+        "selected_existing_edge_ids": [],
+        "selected_new_edge_candidate_ids": list(candidate_ids),
+        "summary": "compose reusable capabilities",
+        "guideline": {},
+        "insight": {},
+    }
+
+
+def _chain_contract() -> TaskContract:
+    return TaskContract(target_effects=[SemanticPredicate(
+        "state.done", {"object": "item_1"},
+    )])
+
+
 def test_dataflow_is_identity_typed_nearest_and_dependency_is_effect_based() -> None:
     first = _occurrence(
         "first",
@@ -246,10 +278,22 @@ def test_unknown_e2_ids_are_typed_semantic_rejections(
     payload,
     error_code,
 ) -> None:
+    extractor = _session(payload)
     with pytest.raises(ExtractionContentError) as caught:
-        _session(payload).propose_composite(_chain(), [])
+        extractor.propose_composite(_chain(), [])
     assert caught.value.stage == "e2"
     assert caught.value.error_code == error_code
+    assert extractor._e2_complete is False
+    with pytest.raises(
+        RuntimeError,
+        match="requires one schema-valid initial E2",
+    ):
+        extractor.repair_composite(
+            _e2_payload(),
+            caught.value,
+            _chain(),
+            [],
+        )
 
 
 def test_existing_edge_is_selected_only_by_known_id_and_code_maps_endpoints() -> None:
@@ -295,3 +339,149 @@ def test_existing_edge_is_selected_only_by_known_id_and_code_maps_endpoints() ->
         "source_role": "held_object",
         "target_role": "target_object",
     }
+
+
+def test_e2_repair_selects_missing_dataflow_from_frozen_candidates() -> None:
+    chain = _chain()
+    initial_context: dict[str, object] = {}
+
+    def initial_reply(request):
+        initial_context.update(request.policy_context)
+        return _e2_payload()
+
+    def repaired_reply(request):
+        context = request.policy_context
+        assert context["canonical_control_sequence"] == [
+            "source", "target",
+        ]
+        assert context["canonical_occurrences"] == initial_context[
+            "canonical_occurrences"
+        ]
+        assert context["known_existing_edge_evidence"] == initial_context[
+            "known_existing_edge_evidence"
+        ]
+        assert context["new_edge_candidates"] == initial_context[
+            "new_edge_candidates"
+        ]
+        candidate = next(
+            item for item in context["new_edge_candidates"]
+            if item["edge_type"] == "data_flow"
+        )
+        return _e2_payload(candidate["candidate_id"])
+
+    extractor, provider = _repair_session(
+        initial_reply,
+        repaired_reply,
+    )
+    proposal = extractor.propose_composite(chain, [])
+    builder = CompositeBuilder()
+    with pytest.raises(
+        ValueError,
+        match="reused required input must have explicit DataFlow",
+    ) as rejected:
+        builder.validate_and_build(
+            proposal,
+            chain,
+            _chain_contract(),
+            contract_matcher=ExactContractMatcher(),
+            task_bindings={"object": "item_1"},
+        )
+
+    repaired = extractor.repair_composite(
+        proposal,
+        rejected.value,
+        chain,
+        [],
+        contract_matcher=ExactContractMatcher(),
+    )
+    composite = builder.validate_and_build(
+        repaired,
+        chain,
+        _chain_contract(),
+        contract_matcher=ExactContractMatcher(),
+        task_bindings={"object": "item_1"},
+    )
+
+    assert repaired.control_sequence == ["source", "target"]
+    assert len(repaired.new_edges) == 1
+    assert len(composite.data_edges) == 1
+    assert len(provider.requests) == 2
+    repair_context = provider.requests[1].policy_context
+    assert "reused required input" in repair_context[
+        "deterministic_rejection"
+    ]
+    assert repair_context["rejected_proposal"]["new_edges"] == []
+
+
+def test_e2_repair_restores_code_authoritative_control_sequence() -> None:
+    chain = _chain()
+    extractor, _provider = _repair_session(
+        _e2_payload(),
+        _e2_payload(),
+    )
+    proposal = extractor.propose_composite(chain, [])
+    proposal.control_sequence[:] = ["forged_by_rejected_proposal"]
+
+    repaired = extractor.repair_composite(
+        proposal,
+        ValueError("deterministic Composite rejection"),
+        chain,
+        [],
+    )
+
+    assert repaired.control_sequence == ["source", "target"]
+
+
+def test_e2_repair_rejects_unknown_candidate_and_is_consumed() -> None:
+    chain = _chain()
+    extractor, provider = _repair_session(
+        _e2_payload(),
+        _e2_payload("candidate_unknown"),
+    )
+    proposal = extractor.propose_composite(chain, [])
+
+    with pytest.raises(ExtractionContentError) as rejected:
+        extractor.repair_composite(
+            proposal,
+            ValueError("deterministic Composite rejection"),
+            chain,
+            [],
+        )
+
+    assert rejected.value.stage == "e2_repair"
+    assert rejected.value.error_code == (
+        "extractor_e2_repair_new_edge_selection_invalid"
+    )
+    with pytest.raises(RuntimeError, match="may run exactly once"):
+        extractor.repair_composite(
+            proposal,
+            ValueError("second repair forbidden"),
+            chain,
+            [],
+        )
+    assert len(provider.requests) == 2
+
+
+def test_schema_valid_e2_uses_no_semantic_repair_turn() -> None:
+    chain = _chain()
+
+    def initial_reply(request):
+        candidate = next(
+            item for item in request.policy_context["new_edge_candidates"]
+            if item["edge_type"] == "data_flow"
+        )
+        return _e2_payload(candidate["candidate_id"])
+
+    extractor, provider = _repair_session(initial_reply)
+    proposal = extractor.propose_composite(chain, [])
+    composite = CompositeBuilder().validate_and_build(
+        proposal,
+        chain,
+        _chain_contract(),
+        contract_matcher=ExactContractMatcher(),
+        task_bindings={"object": "item_1"},
+    )
+
+    assert len(composite.data_edges) == 1
+    assert len(provider.requests) == 1
+    assert extractor._e2_repair_complete is False
