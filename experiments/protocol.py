@@ -205,7 +205,7 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
         "planner": {
             "reasoning_effort": "high", "max_completion_tokens": 32768,
             "request_timeout_seconds": 300, "max_turns": 4,
-            "max_total_tokens_per_task": 120000,
+            "max_total_tokens_per_phase": 120000,
         },
         "runtime": {
             "reasoning_effort": "high", "max_completion_tokens": 32768,
@@ -247,6 +247,11 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
         mismatches.append(
             "removed hidden/visible token gates are configured: "
             + ", ".join(forbidden_config_fields)
+        )
+    if "max_total_tokens_per_task" in dict(llm.get("planner") or {}):
+        mismatches.append(
+            "llm.planner.max_total_tokens_per_task is forbidden; "
+            "use max_total_tokens_per_phase"
         )
     runtime = dict(config.get("runtime") or {})
     for name, wanted in (

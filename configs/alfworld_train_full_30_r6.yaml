@@ -35,7 +35,7 @@ llm:
     max_completion_tokens: 32768
     request_timeout_seconds: 300
     max_turns: 4
-    max_total_tokens_per_task: 120000
+    max_total_tokens_per_phase: 120000
 
   runtime:
     reasoning_effort: high

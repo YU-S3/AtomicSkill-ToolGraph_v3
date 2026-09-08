@@ -43,7 +43,12 @@ from atomic_skillgraph.core.contracts import (
 from atomic_skillgraph.core.serialization import to_primitive
 from atomic_skillgraph.system import AtomicSkillGraphSystem
 from atomic_skillgraph.traces.schema import ColdStartPlanRecord
-from experiments.fakes import FakeHarness, fake_task
+from experiments.fakes import (
+    FakeHarness,
+    FakeReply,
+    ScriptedAgentProvider,
+    fake_task,
+)
 from experiments.report import trace_to_row
 
 
@@ -147,6 +152,51 @@ def _success(
             "prompt_cache_hit_tokens": 2,
         },
     }
+
+
+def _submit_probe_stage(session: ReplayAgentSession, stage: str) -> None:
+    session.set_usage_bucket(stage)
+    result = StructuredSubmissionClient().request(
+        session,
+        prompt=f"submit {stage}",
+        tool_name="submit_probe",
+        description="submit one phase result",
+        schema=_tool().input_schema,
+    )
+    assert result.value == {"ok": True}
+
+
+def _phase_budget_session(
+    totals: list[int],
+    *,
+    initial_bucket: str = "planner_p1",
+    semantic_max_turns: int = 4,
+    budget_scope: str = "usage_bucket",
+) -> tuple[ReplayAgentSession, UsageLedger, ScriptedAgentProvider]:
+    provider = ScriptedAgentProvider([
+        FakeReply.structured(
+            {"ok": True},
+            prompt_tokens=total,
+            completion_tokens=0,
+            reasoning_tokens=0,
+        )
+        for total in totals
+    ])
+    ledger = UsageLedger()
+    session = ReplayAgentSession(
+        provider,
+        system_prompt="phase budget test",
+        usage_ledger=ledger,
+        usage_bucket=initial_bucket,
+        budget=AgentBudget(
+            structured_provider_turn_cap(1),
+            120000,
+            "planner_token_budget_exhausted",
+        ),
+        semantic_max_turns=semantic_max_turns,
+        budget_scope=budget_scope,
+    )
+    return session, ledger, provider
 
 
 def test_deepseek_payload_uses_max_tokens(
@@ -804,9 +854,144 @@ def test_structured_submission_uses_native_tool() -> None:
     assert session.pending_tool_call is None
 
 
-def test_same_session_supports_p1_p1r_p2_after_acknowledge() -> None:
-    from experiments.fakes import FakeReply, ScriptedAgentProvider
+@pytest.mark.parametrize("scope", ["", "task", "phase", None, []])
+def test_replay_session_rejects_unknown_budget_scope(scope: Any) -> None:
+    with pytest.raises(
+        ValueError,
+        match="budget_scope must be 'session' or 'usage_bucket'",
+    ):
+        ReplayAgentSession(
+            ScriptedAgentProvider(),
+            system_prompt="invalid scope",
+            usage_ledger=UsageLedger(),
+            usage_bucket="planner_p1",
+            budget=AgentBudget(2, 120000, "planner_token_budget_exhausted"),
+            budget_scope=scope,
+        )
 
+
+def test_pending_tool_call_blocks_even_a_same_bucket_assignment() -> None:
+    provider = ScriptedAgentProvider([
+        FakeReply.structured({"ok": True}),
+    ])
+    session = ReplayAgentSession(
+        provider,
+        system_prompt="pending guard",
+        usage_ledger=UsageLedger(),
+        usage_bucket="planner_p1",
+        budget=AgentBudget(2, 120000, "planner_token_budget_exhausted"),
+        budget_scope="usage_bucket",
+    )
+
+    turn = session.next_turn("submit", tools=[_tool()])
+    with pytest.raises(
+        AgentProtocolError,
+        match="cannot change usage bucket while a tool call is pending",
+    ):
+        session.set_usage_bucket("planner_p1")
+    session.acknowledge_tool_result(turn.tool_calls[0].call_id, {"ok": True})
+
+
+def test_usage_bucket_scope_allows_two_70k_planner_phases() -> None:
+    session, ledger, provider = _phase_budget_session([70000, 70000])
+
+    _submit_probe_stage(session, "planner_p1")
+    _submit_probe_stage(session, "planner_p2")
+
+    assert ledger.total().total_tokens == 140000
+    assert ledger.total("planner_p1").total_tokens == 70000
+    assert ledger.total("planner_p2").total_tokens == 70000
+    snapshot = session.snapshot()
+    assert snapshot["budget_scope"] == "usage_bucket"
+    assert [
+        (item["usage_bucket"], item["used_total_tokens"])
+        for item in snapshot["budget_phases"]
+    ] == [("planner_p1", 70000), ("planner_p2", 70000)]
+    assert len(provider.requests) == 2
+
+
+def test_repeated_same_bucket_does_not_refresh_phase_budget() -> None:
+    session, ledger, provider = _phase_budget_session(
+        [80000, 50000], initial_bucket="planner_p2",
+    )
+
+    _submit_probe_stage(session, "planner_p2")
+    session.set_usage_bucket("planner_p2")
+    with pytest.raises(BudgetExhausted) as exhausted:
+        _submit_probe_stage(session, "planner_p2")
+
+    assert exhausted.value.code == "planner_token_budget_exhausted"
+    assert ledger.total("planner_p2").total_tokens == 130000
+    assert len(provider.requests) == 2
+    phases = session.snapshot()["budget_phases"]
+    assert len(phases) == 1
+    assert phases[0]["usage_bucket"] == "planner_p2"
+    assert phases[0]["used_total_tokens"] == 130000
+
+
+def test_default_session_scope_still_shares_budget_across_bucket_labels() -> None:
+    session, ledger, provider = _phase_budget_session(
+        [70000, 70000], budget_scope="session",
+    )
+
+    _submit_probe_stage(session, "planner_p1")
+    with pytest.raises(BudgetExhausted):
+        _submit_probe_stage(session, "planner_p2")
+
+    snapshot = session.snapshot()
+    assert snapshot["budget_scope"] == "session"
+    assert snapshot["budget"]["used_total_tokens"] == 140000
+    assert len(snapshot["budget_phases"]) == 1
+    assert snapshot["budget_phases"][0]["usage_bucket"] == "planner_p2"
+    assert ledger.total().total_tokens == 140000
+    assert len(provider.requests) == 2
+
+
+def test_phase_budget_reset_does_not_reset_global_semantic_turn_cap() -> None:
+    session, _ledger, provider = _phase_budget_session([10, 10, 10, 10, 10])
+    for stage in (
+        "planner_p1",
+        "planner_p1_repair",
+        "planner_p2",
+        "planner_p2_repair",
+    ):
+        _submit_probe_stage(session, stage)
+
+    with pytest.raises(BudgetExhausted, match="semantic turn budget") as exhausted:
+        _submit_probe_stage(session, "planner_p2_repair")
+
+    assert exhausted.value.code == "planner_token_budget_exhausted"
+    assert len(provider.requests) == 4
+    snapshot = session.snapshot()
+    assert snapshot["accepted_turn_count"] == 4
+    assert snapshot["semantic_budget"] == {
+        "max_turns": 4,
+        "used_turns": 4,
+        "remaining_turns": 0,
+    }
+
+
+def test_cold_start_c1_and_c1r_have_independent_120k_budgets() -> None:
+    session, ledger, _provider = _phase_budget_session(
+        [80000, 80000],
+        initial_bucket="cold_start_c1",
+        semantic_max_turns=2,
+    )
+
+    _submit_probe_stage(session, "cold_start_c1")
+    _submit_probe_stage(session, "cold_start_c1_repair")
+
+    assert ledger.total().total_tokens == 160000
+    assert [
+        (item["usage_bucket"], item["used_total_tokens"])
+        for item in session.snapshot()["budget_phases"]
+    ] == [
+        ("cold_start_c1", 80000),
+        ("cold_start_c1_repair", 80000),
+    ]
+
+
+def test_same_session_supports_p1_p1r_p2_after_acknowledge() -> None:
     provider = ScriptedAgentProvider([
         FakeReply.structured({"ok": True}),
         FakeReply.structured({"ok": True}),
@@ -888,6 +1073,7 @@ def test_structured_phase_compaction_keeps_latest_deepseek_envelope() -> None:
     assert snapshot["session_id"] == "planner_compacted_session"
     assert snapshot["structured_phase_compaction_count"] == 1
     assert snapshot["structured_phase_pruned_message_count"] == 3
+    assert snapshot["budget_scope"] == "session"
     assert snapshot["budget"]["used_total_tokens"] == 30
     assert snapshot["budget"]["used_turns"] == 3
     assert snapshot["semantic_budget"]["used_turns"] == 3
@@ -1030,9 +1216,78 @@ def test_protocol_format_repair_quota_is_global_to_replay_session(
     assert snapshot["terminal_protocol_failure"] is not None
 
 
-def test_runtime_replay_keeps_only_latest_complete_protocol_envelope() -> None:
-    from experiments.fakes import FakeReply, ScriptedAgentProvider
+def test_phase_budget_switch_does_not_reset_global_protocol_repair_quota(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_DEEPSEEK_KEY", "secret-fixture-key")
+    no_call = {
+        "id": "response_no_call",
+        "choices": [{
+            "finish_reason": "stop",
+            "message": {
+                "content": "prose",
+                "reasoning_content": "private reasoning",
+            },
+        }],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+    }
+    responses = iter([
+        _Response(no_call, request_id="req_p1_bad"),
+        _Response(_success("call_p1_fixed", "submit_first"), request_id="req_p1_fixed"),
+        _Response(no_call, request_id="req_p2_bad"),
+        _Response(_success("call_forbidden", "submit_second"), request_id="req_forbidden"),
+    ])
+    posted: list[dict[str, Any]] = []
 
+    def post(_url, *, headers, json, timeout):
+        posted.append(json)
+        return next(responses)
+
+    monkeypatch.setattr("atomic_skillgraph.agents.provider.requests.post", post)
+    session = ReplayAgentSession(
+        OpenAICompatibleProvider(_config()),
+        system_prompt="planner",
+        usage_ledger=UsageLedger(),
+        usage_bucket="planner_p1",
+        budget=AgentBudget(
+            structured_provider_turn_cap(1),
+            120000,
+            "planner_token_budget_exhausted",
+        ),
+        semantic_max_turns=4,
+        budget_scope="usage_bucket",
+    )
+    client = StructuredSubmissionClient()
+    assert client.request(
+        session,
+        prompt="P1",
+        tool_name="submit_first",
+        description="submit P1",
+        schema=_tool().input_schema,
+    ).value == {"ok": True}
+
+    session.set_usage_bucket("planner_p2")
+    with pytest.raises(AgentProtocolError, match="no native tool call"):
+        client.request(
+            session,
+            prompt="P2",
+            tool_name="submit_second",
+            description="submit P2",
+            schema=_tool().input_schema,
+        )
+
+    assert len(posted) == 3
+    snapshot = session.snapshot()
+    assert snapshot["protocol_repairs_used"] == 1
+    assert snapshot["accepted_turn_count"] == 1
+    assert snapshot["terminal_protocol_failure"] is not None
+    assert [
+        (item["usage_bucket"], item["used_turns"])
+        for item in snapshot["budget_phases"]
+    ] == [("planner_p1", 2), ("planner_p2", 1)]
+
+
+def test_runtime_replay_keeps_only_latest_complete_protocol_envelope() -> None:
     def action_tool(action_id: str) -> NativeToolSpec:
         return NativeToolSpec(
             "environment_action",

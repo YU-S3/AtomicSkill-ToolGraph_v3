@@ -71,6 +71,7 @@ class ReplayAgentSession:
         budget: AgentBudget | None = None,
         semantic_max_turns: int | None = None,
         session_id: str | None = None,
+        budget_scope: str = "session",
     ) -> None:
         if not isinstance(system_prompt, str) or not system_prompt.strip():
             raise ValueError("Agent session requires a non-empty system_prompt")
@@ -83,7 +84,15 @@ class ReplayAgentSession:
         ]
         self._usage_ledger = usage_ledger
         self._usage_bucket = UsageBucket(usage_bucket)
+        if (
+            not isinstance(budget_scope, str)
+            or budget_scope not in {"session", "usage_bucket"}
+        ):
+            raise ValueError("budget_scope must be 'session' or 'usage_bucket'")
+        self._budget_scope = budget_scope
+        self._budget_template = budget
         self._budget_tracker = BudgetTracker(budget) if budget is not None else None
+        self._budget_phase_history: list[dict[str, Any]] = []
         if (
             semantic_max_turns is not None
             and (
@@ -143,13 +152,27 @@ class ReplayAgentSession:
                     "cannot change usage bucket while a tool call is pending",
                     layer=FailureLayer.RUNTIME_AGENT,
                 )
-            self._usage_bucket = UsageBucket(bucket)
+            next_bucket = UsageBucket(bucket)
+            if next_bucket is self._usage_bucket:
+                return
+            if (
+                self._budget_scope == "usage_bucket"
+                and self._budget_template is not None
+                and self._budget_tracker is not None
+            ):
+                self._budget_phase_history.append({
+                    "usage_bucket": self._usage_bucket.value,
+                    **self._budget_tracker.snapshot(),
+                })
+                self._budget_tracker = BudgetTracker(self._budget_template)
+            self._usage_bucket = next_bucket
 
     def compact_completed_structured_phases(self) -> None:
         """Prune superseded structured phases while preserving DeepSeek replay.
 
-        Planner stages share one session and one budget, but a later stage is
-        given the accepted semantic result explicitly in its own prompt.  Once
+        Planner stages share one session while their configured budget scope
+        may be phase-local.  A later stage is given the accepted semantic
+        result explicitly in its own prompt.  Once
         two structured ToolCall/result envelopes are complete, only the newest
         envelope is required for DeepSeek's exact ``reasoning_content`` replay.
         Older envelopes have already been recorded in the usage ledger and the
@@ -304,6 +327,12 @@ class ReplayAgentSession:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             pending = self._pending_call
+            budget_phases = copy.deepcopy(self._budget_phase_history)
+            if self._budget_tracker is not None:
+                budget_phases.append({
+                    "usage_bucket": self._usage_bucket.value,
+                    **self._budget_tracker.snapshot(),
+                })
             return {
                 "session_id": self._session_id,
                 "messages": _safe_messages_snapshot(self._messages),
@@ -350,6 +379,8 @@ class ReplayAgentSession:
                     }
                 ),
                 "usage_bucket": self._usage_bucket.value,
+                "budget_scope": self._budget_scope,
+                "budget_phases": budget_phases,
                 "budget": self._budget_tracker.snapshot() if self._budget_tracker else None,
                 "protocol_failures": [
                     {

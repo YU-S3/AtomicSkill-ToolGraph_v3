@@ -686,6 +686,7 @@ class AtomicSkillGraphSystem:
         max_tokens: int,
         exhaustion_code: str,
         semantic_max_turns: int | None = None,
+        budget_scope: str = "session",
     ) -> _SessionProxy:
         session = ReplayAgentSession(
             self._provider(stage),
@@ -694,6 +695,7 @@ class AtomicSkillGraphSystem:
             usage_bucket=bucket,
             budget=AgentBudget(max_turns, max_tokens, exhaustion_code),
             semantic_max_turns=semantic_max_turns,
+            budget_scope=budget_scope,
         )
         observed = _ObservedSession(
             session, session_type, occurrence_id, task_id, time.time(), []
@@ -763,13 +765,15 @@ class AtomicSkillGraphSystem:
     def _planner_session(self, task: HarnessTask, _contract: Any) -> _SessionProxy:
         cfg = self._stage_config("planner")
         semantic_max_turns = int(cfg.get("max_turns", 4))
+        phase_tokens = int(cfg.get("max_total_tokens_per_phase", 120000))
         return self._new_session(
             stage="planner", bucket=UsageBucket.PLANNER_P1,
             session_type="PlannerSession", occurrence_id="", task_id=task.task_id,
-            max_turns=structured_provider_turn_cap(semantic_max_turns),
-            max_tokens=int(cfg.get("max_total_tokens_per_task", 120000)),
+            max_turns=structured_provider_turn_cap(1),
+            max_tokens=phase_tokens,
             exhaustion_code="planner_token_budget_exhausted",
             semantic_max_turns=semantic_max_turns,
+            budget_scope="usage_bucket",
         )
 
     def _cold_start_session(self, task: HarnessTask, _contract: Any) -> _SessionProxy:
@@ -777,16 +781,18 @@ class AtomicSkillGraphSystem:
         # C1 + the sole C1R are independent from P1/P2 and use a fresh
         # Planner conversation while retaining the frozen Planner budget.
         semantic_max_turns = 2
+        phase_tokens = int(cfg.get("max_total_tokens_per_phase", 120000))
         return self._new_session(
             stage="planner",
             bucket=UsageBucket.COLD_START_C1,
             session_type="ColdStartPlannerSession",
             occurrence_id="",
             task_id=task.task_id,
-            max_turns=structured_provider_turn_cap(semantic_max_turns),
-            max_tokens=int(cfg.get("max_total_tokens_per_task", 120000)),
+            max_turns=structured_provider_turn_cap(1),
+            max_tokens=phase_tokens,
             exhaustion_code="planner_token_budget_exhausted",
             semantic_max_turns=semantic_max_turns,
+            budget_scope="usage_bucket",
         )
 
     def _runtime_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:

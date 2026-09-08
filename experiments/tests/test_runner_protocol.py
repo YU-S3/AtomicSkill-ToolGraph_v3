@@ -134,9 +134,13 @@ def test_r6_train_and_frozen_eval_names_are_bound_to_their_sources() -> None:
 
     unpinned_b6 = copy.deepcopy(b6_eval)
     # Reach the source-provenance guard rather than failing earlier on the
-    # intentionally legacy b6 reasoning/turn protocol.
+    # intentionally legacy b6 reasoning/turn/budget protocol.
     unpinned_b6["llm"]["runtime"]["reasoning_effort"] = "high"
     unpinned_b6["llm"]["extractor"]["max_turns"] = 3
+    unpinned_planner = unpinned_b6["llm"]["planner"]
+    unpinned_planner["max_total_tokens_per_phase"] = unpinned_planner.pop(
+        "max_total_tokens_per_task"
+    )
     unpinned_b6["experiment"].pop("source_git_revision")
     with pytest.raises(ProtocolError, match="pin source_git_revision"):
         validate_frozen_formal_config(
