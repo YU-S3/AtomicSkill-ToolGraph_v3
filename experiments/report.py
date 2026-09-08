@@ -76,6 +76,10 @@ EXTRACTOR_QUALITY_METRICS = (
     "extractor_e1_proposal_count",
     "extractor_e1_validated_occurrence_count",
     "extractor_e1_rejection_count",
+    "extractor_e2_protocol_repair_count",
+    "extractor_e2_repair_attempt_count",
+    "extractor_e2_repair_success_count",
+    "extractor_e2_repair_failure_count",
     "portable_intent_pass_count",
     "portable_intent_fallback_count",
     "known_contract_name_reuse_count",
@@ -84,6 +88,12 @@ EXTRACTOR_QUALITY_METRICS = (
     "atomic_new_contract_count",
     "composite_alignment_reuse_count",
     "artifact_label_concrete_term_violation_count",
+)
+
+REASONING_EFFORT_AUDIT_FIELDS = (
+    "configured_reasoning_effort",
+    "effective_reasoning_effort",
+    "reasoning_effort_source",
 )
 
 V31_METHOD_METRICS = (
@@ -268,6 +278,7 @@ REPORT_COLUMNS = (
     "task_signature",
     "benchmark",
     "environment",
+    *REASONING_EFFORT_AUDIT_FIELDS,
     "task_type",
     "benchmark_success",
     "task_contract_success",
@@ -358,6 +369,10 @@ REPORT_COLUMNS = (
     "e2_attempted",
     "e2_selected_existing_edges",
     "e2_selected_new_edges",
+    "e2_initial_validation_error",
+    "e2_repair_attempted",
+    "e2_repair_applied",
+    "e2_repair_error",
     "artifact_growth",
     "artifact_lifecycle",
 )
@@ -927,6 +942,7 @@ def summarize_traces(
     auxiliary_usage_traces: Iterable[Mapping[str, Any] | Any] = (),
     run_artifact_growth: Mapping[str, Any] | None = None,
     run_artifact_lifecycle: Mapping[str, Any] | None = None,
+    reasoning_effort_audit: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Aggregate all v3 design metrics without hiding zero denominators."""
 
@@ -945,6 +961,16 @@ def summarize_traces(
     ]
     resource_rows = [*rows, *auxiliary_rows]
     task_rows = rows
+    reasoning_audit = dict(reasoning_effort_audit or {})
+    if reasoning_audit:
+        missing_reasoning_fields = sorted(
+            set(REASONING_EFFORT_AUDIT_FIELDS) - set(reasoning_audit)
+        )
+        if missing_reasoning_fields:
+            raise ValueError(
+                "reasoning-effort audit is incomplete: "
+                + ", ".join(missing_reasoning_fields)
+            )
     task_count = len(task_rows)
     solved = [
         row for row in task_rows
@@ -1081,6 +1107,10 @@ def summarize_traces(
     return {
         "schema_version": 3,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        **{
+            name: str(reasoning_audit.get(name, ""))
+            for name in REASONING_EFFORT_AUDIT_FIELDS
+        },
         "task_count": task_count,
         "solved_task_count": len(solved),
         "official_alfworld_won_count": len(solved),
@@ -1360,6 +1390,12 @@ def render_markdown(
                 values[0] if len(values) == 1 else _canonical_json(values),
             )
             for name, values in sorted(environment.items())
+        )))
+    if summary.get("configured_reasoning_effort"):
+        lines.extend(["", "## Reasoning effort audit", ""])
+        lines.extend(_markdown_pairs(tuple(
+            (name, summary.get(name, ""))
+            for name in REASONING_EFFORT_AUDIT_FIELDS
         )))
     lines.extend(["", "## Outcome", ""])
     outcome = (
@@ -1788,16 +1824,30 @@ def write_reports(
     auxiliary_usage_traces: Iterable[Mapping[str, Any] | Any] = (),
     run_artifact_growth: Mapping[str, Any] | None = None,
     run_artifact_lifecycle: Mapping[str, Any] | None = None,
+    reasoning_effort_audit: Mapping[str, Any] | None = None,
 ) -> ReportPaths:
     """Emit task rows plus resource summaries from auxiliary immutable traces."""
 
     if not stem or Path(stem).name != stem:
         raise ValueError("report stem must be a non-empty filename stem")
     rows = [trace_to_row(trace) for trace in traces]
+    audit = dict(reasoning_effort_audit or {})
+    if audit:
+        missing = sorted(set(REASONING_EFFORT_AUDIT_FIELDS) - set(audit))
+        if missing:
+            raise ValueError(
+                "reasoning-effort audit is incomplete: " + ", ".join(missing)
+            )
+        projected = {
+            name: str(audit[name]) for name in REASONING_EFFORT_AUDIT_FIELDS
+        }
+        for row in rows:
+            row.update(projected)
     summary = summarize_traces(
         rows, auxiliary_usage_traces=auxiliary_usage_traces,
         run_artifact_growth=run_artifact_growth,
         run_artifact_lifecycle=run_artifact_lifecycle,
+        reasoning_effort_audit=audit,
     )
     root = Path(output_dir)
     paths = ReportPaths(
@@ -2431,6 +2481,16 @@ def _extraction_diagnostic(
         "e2_selected_new_edges": _integer(
             extraction.get("e2_selected_new_edges", 0)
         ),
+        "e2_initial_validation_error": str(
+            extraction.get("e2_initial_validation_error", "")
+        ),
+        "e2_repair_attempted": _boolean(
+            extraction.get("e2_repair_attempted", False)
+        ),
+        "e2_repair_applied": _boolean(
+            extraction.get("e2_repair_applied", False)
+        ),
+        "e2_repair_error": str(extraction.get("e2_repair_error", "")),
     }
 
 

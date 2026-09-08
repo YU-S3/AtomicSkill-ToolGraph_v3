@@ -450,7 +450,11 @@ def test_r21_formal_runtime_parameters_and_action_budgets_are_frozen() -> None:
     config = yaml.safe_load((ROOT / "configs" / "alfworld_train_full_30.yaml").read_text(
         encoding="utf-8"
     ))
-    validate_deepseek_formal_llm(config)
+    with pytest.raises(
+        ProtocolError,
+        match=r"llm\.runtime\.reasoning_effort",
+    ):
+        validate_deepseek_formal_llm(config)
     assert config["llm"]["runtime"] == {
         "reasoning_effort": "low",
         "max_completion_tokens": 32768,

@@ -25,6 +25,7 @@ from .protocol import (
     artifact_audit_snapshot,
     artifact_growth_audit,
     ensure_task_manifest,
+    formal_reasoning_effort_audit,
     hash_code,
     hash_config,
     load_task_report_traces,
@@ -848,6 +849,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             auxiliary_usage_traces=[*maintenance_traces, *attempt_usage_traces],
             run_artifact_growth=maintenance_audit["run_artifact_growth"],
             run_artifact_lifecycle=maintenance_audit["run_artifact_lifecycle"],
+            reasoning_effort_audit=formal_reasoning_effort_audit(config),
         )
         frozen_dir = _path(
             experiment.get("frozen_snapshot_dir", "runs/alfworld_train_full_30/frozen/data_v3")

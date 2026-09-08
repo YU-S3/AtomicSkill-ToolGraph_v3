@@ -208,15 +208,19 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
             "max_total_tokens_per_task": 120000,
         },
         "runtime": {
-            "reasoning_effort": "low", "max_completion_tokens": 32768,
+            "reasoning_effort": "high", "max_completion_tokens": 32768,
             "request_timeout_seconds": 180, "max_total_tokens_per_node": 100000,
             "max_total_tokens_per_task": 300000, "learned_toolcall_repair_limit": 2,
             "protocol_repair_limit": 1,
         },
         "extractor": {
             "reasoning_effort": "high", "max_completion_tokens": 131072,
-            "request_timeout_seconds": 600, "max_turns": 2,
+            "request_timeout_seconds": 600, "max_turns": 3,
             "max_total_tokens_per_task": 262144,
+        },
+        "tool_builder": {
+            "reasoning_effort": "high", "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300, "max_turns": 1,
         },
         "evolution_repair": {
             "reasoning_effort": "high", "max_completion_tokens": 32768,
@@ -235,7 +239,7 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
     ]
     forbidden_config_fields = sorted(
         f"llm.{stage}.{name}"
-        for stage in ("planner", "runtime", "extractor", "evolution_repair")
+        for stage in stage_expected
         for name in ("max_visible_tokens", "max_turns_per_node", "max_turns_per_task")
         if name in dict(llm.get(stage) or {})
     )
@@ -256,6 +260,23 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
             )
     if mismatches:
         raise ProtocolError("formal DeepSeek protocol mismatch: " + "; ".join(mismatches))
+
+
+def formal_reasoning_effort_audit(
+    config: Mapping[str, Any],
+) -> dict[str, str]:
+    """Project the validated Ours reasoning protocol into report metadata."""
+
+    # This is an experiment-adapter diagnostic, never provider authority.  The
+    # formal validator proves every generative stage explicitly requests high,
+    # so the effective value and its source do not depend on inference from a
+    # task's (possibly partial) set of provider sessions.
+    validate_deepseek_formal_llm(config)
+    return {
+        "configured_reasoning_effort": "high",
+        "effective_reasoning_effort": "high",
+        "reasoning_effort_source": "explicit_request",
+    }
 
 
 @dataclass(frozen=True)
@@ -2350,6 +2371,7 @@ __all__ = [
     "hash_knowledge",
     "hash_task_manifest",
     "ensure_task_manifest",
+    "formal_reasoning_effort_audit",
     "knowledge_digest",
     "sha256_json",
     "sanitize_error_text",

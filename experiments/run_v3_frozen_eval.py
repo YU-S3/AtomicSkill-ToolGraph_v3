@@ -22,6 +22,7 @@ from .protocol import (
     artifact_audit_snapshot,
     artifact_growth_audit,
     ensure_task_manifest,
+    formal_reasoning_effort_audit,
     hash_code,
     hash_config,
     hash_knowledge,
@@ -590,6 +591,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 traces, output_dir / "reports", stem=report_stem,
                 title=report_title,
                 auxiliary_usage_traces=attempt_usage_traces,
+                reasoning_effort_audit=formal_reasoning_effort_audit(config),
             )
             if system.knowledge_digest() != digest_before:
                 raise ProtocolError("knowledge digest guard failed after report generation")

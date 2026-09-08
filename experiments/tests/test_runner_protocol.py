@@ -120,13 +120,23 @@ def test_r6_train_and_frozen_eval_names_are_bound_to_their_sources() -> None:
     b6_eval = load_config(
         ROOT / "configs" / "alfworld_frozen_eval_60_b6a82ed.yaml"
     )
-    validate_frozen_formal_config(b6_eval, _configured_output(b6_eval))
+    with pytest.raises(
+        ProtocolError,
+        match=r"llm\.runtime\.reasoning_effort",
+    ):
+        validate_frozen_formal_config(b6_eval, _configured_output(b6_eval))
+    assert b6_eval["llm"]["runtime"]["reasoning_effort"] == "low"
+    assert b6_eval["llm"]["extractor"]["max_turns"] == 2
     assert b6_eval["experiment"]["source_git_revision"] == (
         "b6a82ed47a2685e69a1fa052f70cd269f63e63c0"
     )
     assert b6_eval["experiment"]["require_source_code_match"] is False
 
     unpinned_b6 = copy.deepcopy(b6_eval)
+    # Reach the source-provenance guard rather than failing earlier on the
+    # intentionally legacy b6 reasoning/turn protocol.
+    unpinned_b6["llm"]["runtime"]["reasoning_effort"] = "high"
+    unpinned_b6["llm"]["extractor"]["max_turns"] = 3
     unpinned_b6["experiment"].pop("source_git_revision")
     with pytest.raises(ProtocolError, match="pin source_git_revision"):
         validate_frozen_formal_config(
