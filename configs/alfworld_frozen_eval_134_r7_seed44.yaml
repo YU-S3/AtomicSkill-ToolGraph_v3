@@ -1,0 +1,136 @@
+# R7 Frozen-134 evaluation, seed 44, paired only with the corresponding
+# Full-120 source. The held-out set is the immutable baseline reference manifest.
+schema_version: 3
+method_patch: "3.2"
+
+data_dir: runs/alfworld_train_full_120_r7_seed44/frozen/data_v3
+trace_data_dir: runs/alfworld_frozen_eval_134_r7_seed44
+
+llm:
+  provider: openai_compatible
+  dialect: deepseek_v4_chat
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
+  api_key_env: MODEL_API_KEY
+  connect_timeout_seconds: 15
+  max_retries: 4
+  retry_backoff_seconds: 2
+  max_retry_after_seconds: 30
+  protocol:
+    endpoint_path: "/chat/completions"
+    structured_output_transport: native_submission_tool
+    token_limit_field: max_tokens
+    thinking_type: enabled
+    send_reasoning_effort: true
+    replay_reasoning_content_with_tools: true
+    send_response_format: false
+    send_tool_choice: false
+    send_parallel_tool_calls: false
+    send_temperature: false
+    strict_tools: false
+    require_usage: true
+  planner:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 4
+    max_total_tokens_per_phase: 120000
+  runtime:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 180
+    max_total_tokens_per_node: 100000
+    max_total_tokens_per_task: 300000
+    learned_toolcall_repair_limit: 2
+    protocol_repair_limit: 1
+  extractor:
+    reasoning_effort: high
+    max_completion_tokens: 131072
+    request_timeout_seconds: 600
+    max_turns: 3
+    max_total_tokens_per_task: 262144
+  tool_builder:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
+  evolution_repair:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
+    max_total_tokens_per_batch: 120000
+
+planner:
+  composite_top_k: 5
+  atomic_top_k_per_requirement: 3
+  max_atomic_top_k: 5
+  requirement_repair_limit: 1
+  graph_repair_limit: 1
+  max_repeat_count: 4
+  max_runtime_occurrences: 16
+  cold_start_c1_repair_limit: 1
+
+cold_start:
+  enabled: false
+
+runtime:
+  global_action_budget: 100
+  node_action_budget: 35
+  max_implementation_candidates: 3
+
+lifecycle:
+  maintenance_interval_successes: 5
+  atomic_active_independent_support: 2
+  implementation_active_direct_successes: 2
+  tool_active_started_successes: 2
+  tool_preferred_min_started: 5
+  composite_active_self_sufficient_successes: 2
+  candidate_exploration_seed: 44
+
+extraction:
+  extract_full_dynamic_success: false
+  extract_task_rescue_success: false
+  extract_novel_seeded_success: false
+  skip_stable_direct_success: true
+
+experiment:
+  name: alfworld_frozen_eval_134_r7_seed44
+  phase: frozen_eval
+  condition: full
+  runtime_mode: frozen
+  freeze_skills: true
+  seed: 44
+  output_dir: runs/alfworld_frozen_eval_134_r7_seed44
+  task_manifest_path: runs/alfworld_frozen_eval_134_r7_seed44/task_manifest.json
+  source_train_run_dir: runs/alfworld_train_full_120_r7_seed44
+  source_frozen_snapshot_dir: runs/alfworld_train_full_120_r7_seed44/frozen/data_v3
+  require_source_code_match: true
+  require_knowledge_digest_unchanged: true
+  allow_eval_traces_and_metrics: true
+  allow_long_term_knowledge_writes: false
+  resume_completed_task_boundary_only: true
+  max_task_attempts: 3
+
+harness:
+  adapter: alfworld_v3
+  alfworld_data_env: ALFWORLD_DATA
+  split: eval_out_of_distribution
+  max_steps: 100
+  task_selection:
+    policy: fixed_manifest
+    task_types:
+      - pick_and_place_simple
+      - look_at_obj_in_light
+      - pick_clean_then_place_in_recep
+      - pick_heat_then_place_in_recep
+      - pick_cool_then_place_in_recep
+      - pick_two_obj_and_place
+    tasks_per_type: 0
+    total_tasks: 134
+    require_exact_count: true
+    require_disjoint_from_train_manifest: true
+    reference_manifest_id: test_ood_full_134
+    reference_manifest_path: data/baseline_manifests/test_ood_full_134.json
+    train_reference_manifest_id: train_120
+    train_reference_manifest_path: data/baseline_manifests/train_120.json

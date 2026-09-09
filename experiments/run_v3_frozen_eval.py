@@ -37,9 +37,29 @@ from .report import (
     validate_usage_event_persistence,
     write_reports,
 )
+from .reference_manifest import (
+    ReferenceManifest,
+    load_formal_reference_manifest,
+    select_reference_tasks,
+    validate_reference_disjoint,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_LEGACY_FROZEN_EVAL_RUN_NAMES = frozenset({
+    "alfworld_frozen_eval_60",
+    "alfworld_frozen_eval_60_r6",
+    "alfworld_frozen_eval_60_b6a82ed",
+})
+_R7_FROZEN_EVAL_RUN_SEEDS = {
+    "alfworld_frozen_eval_134_r7_seed42": 42,
+    "alfworld_frozen_eval_134_r7_seed43": 43,
+    "alfworld_frozen_eval_134_r7_seed44": 44,
+}
+_R7_TRAIN_REFERENCE_ID = "train_120"
+_R7_TRAIN_REFERENCE_PATH = Path("data/baseline_manifests/train_120.json")
+_R7_TEST_REFERENCE_ID = "test_ood_full_134"
+_R7_TEST_REFERENCE_PATH = Path("data/baseline_manifests/test_ood_full_134.json")
 
 
 def _path(value: str | Path) -> Path:
@@ -52,6 +72,61 @@ def _is_source_train_replay(config: dict[str, Any]) -> bool:
     return experiment.get("phase") == "frozen_train_replay"
 
 
+def _frozen_protocol(config: dict[str, Any]) -> tuple[str, int, int, int]:
+    experiment = dict(config.get("experiment") or {})
+    name = str(experiment.get("name", ""))
+    if _is_source_train_replay(config):
+        if name != "alfworld_frozen_train30_replay_b6a82ed":
+            raise ProtocolError(
+                "experiment.name does not identify the allowed source-train replay"
+            )
+        return "legacy_train30_replay", 42, 5, 30
+    if name in _LEGACY_FROZEN_EVAL_RUN_NAMES:
+        return "legacy_frozen60", 42, 10, 60
+    if name in _R7_FROZEN_EVAL_RUN_SEEDS:
+        return "r7_frozen134", _R7_FROZEN_EVAL_RUN_SEEDS[name], 0, 134
+    raise ProtocolError(
+        "experiment.name does not identify an allowed formal frozen protocol"
+    )
+
+
+def _r7_reference_manifests(
+    config: dict[str, Any],
+) -> tuple[ReferenceManifest, ReferenceManifest] | None:
+    protocol, _, _, _ = _frozen_protocol(config)
+    if protocol != "r7_frozen134":
+        return None
+    selection = dict((config.get("harness") or {}).get("task_selection") or {})
+    expected_train_path = _path(_R7_TRAIN_REFERENCE_PATH)
+    expected_test_path = _path(_R7_TEST_REFERENCE_PATH)
+    train_path = _path(selection.get("train_reference_manifest_path", ""))
+    test_path = _path(selection.get("reference_manifest_path", ""))
+    if selection.get("train_reference_manifest_id") != _R7_TRAIN_REFERENCE_ID:
+        raise ProtocolError(
+            "R7 frozen eval train_reference_manifest_id must be 'train_120'"
+        )
+    if selection.get("reference_manifest_id") != _R7_TEST_REFERENCE_ID:
+        raise ProtocolError(
+            "R7 frozen eval reference_manifest_id must be 'test_ood_full_134'"
+        )
+    if train_path != expected_train_path:
+        raise ProtocolError(
+            "R7 frozen eval train_reference_manifest_path must identify the frozen train_120 manifest"
+        )
+    if test_path != expected_test_path:
+        raise ProtocolError(
+            "R7 frozen eval reference_manifest_path must identify the frozen test_ood_full_134 manifest"
+        )
+    train = load_formal_reference_manifest(
+        train_path, manifest_id=_R7_TRAIN_REFERENCE_ID,
+    )
+    test = load_formal_reference_manifest(
+        test_path, manifest_id=_R7_TEST_REFERENCE_ID,
+    )
+    validate_reference_disjoint(train, test)
+    return train, test
+
+
 def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
     selection = dict((config.get("harness") or {}).get("task_selection") or {})
     labels = [str(item) for item in selection.get("task_types", [])]
@@ -61,18 +136,23 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
         raise ProtocolError(
             "formal frozen eval requires the six ALFWorld task types in frozen order"
         )
-    source_train_replay = _is_source_train_replay(config)
-    expected_per_type, expected_total = (5, 30) if source_train_replay else (10, 60)
+    protocol, _, expected_per_type, expected_total = _frozen_protocol(config)
     if per_type != expected_per_type or total != expected_total:
-        label = "source-train replay" if source_train_replay else "held-out eval"
+        label = {
+            "legacy_train30_replay": "source-train replay",
+            "legacy_frozen60": "held-out eval",
+            "r7_frozen134": "R7 fixed-manifest held-out eval",
+        }[protocol]
         raise ProtocolError(
-            f"formal frozen {label} requires six task types × "
-            f"{expected_per_type} = {expected_total}"
+            f"formal frozen {label} has invalid task count: expected "
+            f"tasks_per_type={expected_per_type}, total_tasks={expected_total}"
         )
-    if total != len(labels) * per_type or selection.get("require_exact_count") is not True:
-        raise ProtocolError("formal frozen selection must require the exact balanced count")
+    if selection.get("require_exact_count") is not True:
+        raise ProtocolError("formal frozen selection must require the exact count")
+    if protocol != "r7_frozen134" and total != len(labels) * per_type:
+        raise ProtocolError("legacy formal frozen selection must use the exact balanced count")
     require_disjoint = selection.get("require_disjoint_from_train_manifest")
-    if source_train_replay:
+    if protocol == "legacy_train30_replay":
         if require_disjoint is not False:
             raise ProtocolError("frozen source-train replay must use the train manifest")
     elif require_disjoint is not True:
@@ -85,17 +165,15 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     experiment = dict(config.get("experiment") or {})
     harness = dict(config.get("harness") or {})
     selection = dict(harness.get("task_selection") or {})
+    lifecycle = dict(config.get("lifecycle") or {})
     planner = dict(config.get("planner") or {})
     cold_start = dict(config.get("cold_start") or {})
     source_train_replay = _is_source_train_replay(config)
+    protocol, expected_seed, _, _ = _frozen_protocol(config)
     allowed_run_names = (
         {"alfworld_frozen_train30_replay_b6a82ed"}
         if source_train_replay
-        else {
-            "alfworld_frozen_eval_60",
-            "alfworld_frozen_eval_60_r6",
-            "alfworld_frozen_eval_60_b6a82ed",
-        }
+        else _LEGACY_FROZEN_EVAL_RUN_NAMES | frozenset(_R7_FROZEN_EVAL_RUN_SEEDS)
     )
     expected_split = "train" if source_train_replay else "eval_out_of_distribution"
     expected = {
@@ -110,7 +188,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         "cold_start": (cold_start, {"enabled": False}),
         "experiment.condition": (experiment.get("condition"), "full"),
         "experiment.freeze_skills": (experiment.get("freeze_skills"), True),
-        "experiment.seed": (experiment.get("seed"), 42),
+        "experiment.seed": (experiment.get("seed"), expected_seed),
         "experiment.require_knowledge_digest_unchanged": (
             experiment.get("require_knowledge_digest_unchanged"), True
         ),
@@ -128,7 +206,8 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         "harness.split": (harness.get("split"), expected_split),
         "harness.max_steps": (harness.get("max_steps"), 100),
         "harness.task_selection.policy": (
-            selection.get("policy"), "balanced_fixed_manifest"
+            selection.get("policy"),
+            "fixed_manifest" if protocol == "r7_frozen134" else "balanced_fixed_manifest",
         ),
     }
     mismatches = [
@@ -159,7 +238,36 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         mismatches.append("experiment.require_source_code_match must be boolean")
     run_name = str(experiment.get("name", ""))
     source_revision = experiment.get("source_git_revision")
-    if source_train_replay:
+    if protocol == "r7_frozen134":
+        expected_train_name = f"alfworld_train_full_120_r7_seed{expected_seed}"
+        if train_dir.name != expected_train_name:
+            mismatches.append(
+                f"R7 Frozen-134 seed {expected_seed} must use source {expected_train_name}"
+            )
+        if require_source_code_match is not True:
+            mismatches.append("R7 Frozen-134 must require source code match")
+        if source_revision not in (None, ""):
+            mismatches.append("R7 Frozen-134 must not override source revision")
+        if lifecycle.get("candidate_exploration_seed") != expected_seed:
+            mismatches.append(
+                "lifecycle.candidate_exploration_seed must equal experiment.seed"
+            )
+        reference_paths = {
+            "reference_manifest_path": _R7_TEST_REFERENCE_PATH,
+            "train_reference_manifest_path": _R7_TRAIN_REFERENCE_PATH,
+        }
+        for field, relative in reference_paths.items():
+            if _path(selection.get(field, "")) != _path(relative):
+                mismatches.append(f"R7 frozen eval {field} differs from frozen protocol")
+        if selection.get("reference_manifest_id") != _R7_TEST_REFERENCE_ID:
+            mismatches.append(
+                "R7 frozen eval reference_manifest_id must be 'test_ood_full_134'"
+            )
+        if selection.get("train_reference_manifest_id") != _R7_TRAIN_REFERENCE_ID:
+            mismatches.append(
+                "R7 frozen eval train_reference_manifest_id must be 'train_120'"
+            )
+    elif source_train_replay:
         expected_revision = experiment.get("source_git_revision")
         if expected_revision != "b6a82ed47a2685e69a1fa052f70cd269f63e63c0":
             mismatches.append(
@@ -203,6 +311,8 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         mismatches.append("experiment.max_task_attempts must be a positive integer")
     if mismatches:
         raise ProtocolError("formal frozen config mismatch: " + "; ".join(mismatches))
+    if protocol == "r7_frozen134":
+        _r7_reference_manifests(config)
 
 
 def _verify_source_train(
@@ -215,22 +325,88 @@ def _verify_source_train(
     current_llm_hash: str,
     require_source_code_match: bool = True,
     expected_source_git_revision: str = "",
+    reference_train_manifest: ReferenceManifest | None = None,
+    expected_experiment_seed: int = 42,
 ) -> None:
-    """Bind one frozen bank to the completed immutable full-30 source run."""
+    """Bind one frozen bank to its completed immutable formal train source."""
     if train_manifest.phase != "train":
         raise ProtocolError("source manifest is not a train run")
     if train_run_dir.name != train_manifest.run_id:
         raise ProtocolError("source_train_run_dir basename differs from source run_id")
     metadata = train_manifest.metadata
+    expected_per_type = 20 if reference_train_manifest is not None else 5
+    expected_total = 120 if reference_train_manifest is not None else 30
     if (
         metadata.get("condition") != "full"
-        or int(metadata.get("tasks_per_type", 0)) != 5
-        or int(metadata.get("total_tasks", 0)) != 30
-        or len(train_manifest.tasks) != 30
+        or int(metadata.get("tasks_per_type", 0)) != expected_per_type
+        or int(metadata.get("total_tasks", 0)) != expected_total
+        or len(train_manifest.tasks) != expected_total
     ):
-        raise ProtocolError("source manifest is not the formal full 6×5 train run")
-    if len({item.task_signature for item in train_manifest.tasks}) != 30:
+        raise ProtocolError(
+            f"source manifest is not the formal full 6×{expected_per_type} train run"
+        )
+    if len({item.task_signature for item in train_manifest.tasks}) != expected_total:
         raise ProtocolError("source train manifest contains duplicate task signatures")
+    if reference_train_manifest is not None:
+        expected_reference_metadata = {
+            "reference_manifest_id": reference_train_manifest.manifest_id,
+            "reference_manifest_digest": reference_train_manifest.digest,
+            "reference_manifest_seed": reference_train_manifest.seed,
+            "reference_manifest_task_count": len(reference_train_manifest.tasks),
+            "reference_manifest_family_counts": {
+                label: sum(
+                    task.task_type == label
+                    for task in reference_train_manifest.tasks
+                )
+                for label in ALFWORLD_FORMAL_TASK_TYPES
+            },
+            "seed": expected_experiment_seed,
+            "final_batch_maintenance_milestone": "formal_full_120_final_batch",
+        }
+        for field, expected in expected_reference_metadata.items():
+            if metadata.get(field) != expected:
+                raise ProtocolError(
+                    f"source R7 train metadata {field} differs from frozen protocol"
+                )
+        observed_identity: list[tuple[Any, ...]] = []
+        for item in train_manifest.tasks:
+            try:
+                item_metadata = json.loads(item.metadata_json)
+            except json.JSONDecodeError as exc:
+                raise ProtocolError(
+                    f"source train task metadata is invalid JSON: {item.task_id}"
+                ) from exc
+            game_file = str(item_metadata.get("game_file", "")).replace("\\", "/")
+            observed_identity.append((
+                item.task_id,
+                item.task_signature,
+                str(item_metadata.get("task_type", "")),
+                item_metadata.get("env_index"),
+                game_file,
+                item.split,
+            ))
+        expected_identity = [
+            (
+                task.task_id,
+                task.task_signature,
+                task.task_type,
+                task.env_index,
+                task.gamefile_rel,
+                "train",
+            )
+            for task in reference_train_manifest.tasks
+        ]
+        for index, (observed, expected) in enumerate(
+            zip(observed_identity, expected_identity)
+        ):
+            if observed[:4] != expected[:4] or observed[5] != expected[5]:
+                raise ProtocolError(
+                    f"source R7 train task identity differs from reference at index {index}"
+                )
+            if not observed[4].endswith("/" + expected[4]) and observed[4] != expected[4]:
+                raise ProtocolError(
+                    f"source R7 train game file differs from reference at index {index}"
+                )
     expected_provenance = {
         "source_run_id": train_manifest.run_id,
         "source_run_manifest_hash": train_manifest.manifest_hash,
@@ -332,6 +508,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
         )
     source_train_replay = phase == "frozen_train_replay"
     labels, per_type, expected_total = _selection(config)
+    protocol, experiment_seed, _, _ = _frozen_protocol(config)
     output_dir = _path(experiment.get("output_dir", "runs/alfworld_frozen_eval_60"))
     _validate_formal_config(config, output_dir)
     max_task_attempts = int(experiment["max_task_attempts"])
@@ -372,14 +549,35 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
         if freeze_manifest.get("knowledge_digest") != digest_before:
             raise ProtocolError("frozen snapshot digest does not match its manifest")
 
-        tasks = system.harness.load_balanced_tasks(labels, per_type)
+        reference_manifests = _r7_reference_manifests(config)
+        if reference_manifests is None:
+            reference_train_manifest = None
+            reference_test_manifest = None
+            reference_disjoint_audit = None
+            tasks = system.harness.load_balanced_tasks(labels, per_type)
+        else:
+            reference_train_manifest, reference_test_manifest = reference_manifests
+            reference_disjoint_audit = validate_reference_disjoint(
+                reference_train_manifest, reference_test_manifest,
+            )
+            tasks = select_reference_tasks(system.harness, reference_test_manifest)
         if len(tasks) != expected_total:
             raise ProtocolError(
                 f"frozen loader returned {len(tasks)} tasks, expected {expected_total}"
             )
         counts = {label: sum(task.task_type == label for task in tasks) for label in labels}
-        if any(value != per_type for value in counts.values()):
-            raise ProtocolError(f"balanced held-out task counts changed: {counts}")
+        if reference_test_manifest is None:
+            if any(value != per_type for value in counts.values()):
+                raise ProtocolError(f"balanced held-out task counts changed: {counts}")
+        else:
+            expected_counts = {
+                label: sum(task.task_type == label for task in reference_test_manifest.tasks)
+                for label in labels
+            }
+            if counts != expected_counts:
+                raise ProtocolError(
+                    f"R7 frozen task counts differ from reference manifest: {counts}"
+                )
         validate_distinct_formal_tasks(tasks, expected_total=expected_total)
         task_items = tuple(
             TaskManifest(
@@ -413,6 +611,8 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             expected_source_git_revision=str(
                 experiment.get("source_git_revision", "")
             ),
+            reference_train_manifest=reference_train_manifest,
+            expected_experiment_seed=experiment_seed,
         )
         train_signatures = {item.task_signature for item in train_manifest.tasks}
         if source_train_replay:
@@ -462,6 +662,23 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                         "evaluator_code_commit": code_digest,
                         "source_code_match_required": bool(
                             experiment.get("require_source_code_match", True)
+                        ),
+                        **(
+                            {
+                                "seed": experiment_seed,
+                                "reference_manifest_id": reference_test_manifest.manifest_id,
+                                "reference_manifest_digest": reference_test_manifest.digest,
+                                "reference_manifest_seed": reference_test_manifest.seed,
+                                "reference_manifest_task_count": len(reference_test_manifest.tasks),
+                                "reference_manifest_family_counts": counts,
+                                "train_reference_manifest_id": reference_train_manifest.manifest_id,
+                                "train_reference_manifest_digest": reference_train_manifest.digest,
+                                "train_reference_manifest_seed": reference_train_manifest.seed,
+                                "reference_manifest_disjoint_audit": reference_disjoint_audit,
+                            }
+                            if reference_train_manifest is not None
+                            and reference_test_manifest is not None
+                            else {}
                         ),
                     },
                 )
@@ -577,15 +794,24 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 "frozen_train30_replay_b6a82ed"
                 if source_train_replay
                 else (
+                    f"frozen_eval_134_r7_seed{experiment_seed}"
+                    if protocol == "r7_frozen134"
+                    else (
                     "frozen_eval_60"
                     if run_id == "alfworld_frozen_eval_60"
                     else run_id
+                    )
                 )
             )
             report_title = (
                 "AtomicSkillGraph v3 ALFWorld Frozen Train-30 Replay (b6a82ed bank)"
                 if source_train_replay
-                else "AtomicSkillGraph v3 ALFWorld Frozen Held-out Eval"
+                else (
+                    f"AtomicSkillGraph v3 ALFWorld Frozen Held-out-134 R7 Eval "
+                    f"(seed {experiment_seed})"
+                    if protocol == "r7_frozen134"
+                    else "AtomicSkillGraph v3 ALFWorld Frozen Held-out Eval"
+                )
             )
             write_reports(
                 traces, output_dir / "reports", stem=report_stem,

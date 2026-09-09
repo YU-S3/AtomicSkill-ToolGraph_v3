@@ -1,8 +1,9 @@
-"""Formal ALFWorld full-method 6×5=30 online training runner."""
+"""Formal ALFWorld full-method online training runner."""
 
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import subprocess
 import sys
@@ -39,15 +40,70 @@ from .report import (
     validate_usage_event_persistence,
     write_reports,
 )
+from .reference_manifest import (
+    ReferenceManifest,
+    load_formal_reference_manifest,
+    select_reference_tasks,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _FINAL_MAINTENANCE_CHECKPOINT_ID = "__final_batch_maintenance__"
+_LEGACY_TRAIN_RUN_NAMES = frozenset({
+    "alfworld_train_full_30_v32",
+    "alfworld_train_full_30_r6",
+})
+_R7_TRAIN_RUN_SEEDS = {
+    "alfworld_train_full_120_r7_seed42": 42,
+    "alfworld_train_full_120_r7_seed43": 43,
+    "alfworld_train_full_120_r7_seed44": 44,
+}
+_R7_TRAIN_REFERENCE_PATH = Path("data/baseline_manifests/train_120.json")
+_R7_TRAIN_REFERENCE_ID = "train_120"
 
 
 def _path(value: str | Path) -> Path:
     path = Path(value).expanduser()
     return path.resolve() if path.is_absolute() else (REPO_ROOT / path).resolve()
+
+
+def _train_protocol(config: dict[str, Any]) -> tuple[str, int, int, int]:
+    name = str((config.get("experiment") or {}).get("name", ""))
+    if name in _LEGACY_TRAIN_RUN_NAMES:
+        return "legacy_full30", 42, 5, 30
+    if name in _R7_TRAIN_RUN_SEEDS:
+        return "r7_full120", _R7_TRAIN_RUN_SEEDS[name], 20, 120
+    raise ProtocolError(
+        "experiment.name does not identify an allowed formal train protocol"
+    )
+
+
+def _r7_train_reference_manifest(
+    config: dict[str, Any],
+) -> ReferenceManifest | None:
+    protocol, _, _, _ = _train_protocol(config)
+    if protocol != "r7_full120":
+        return None
+    selection = dict((config.get("harness") or {}).get("task_selection") or {})
+    manifest_id = str(selection.get("reference_manifest_id", ""))
+    manifest_path = _path(selection.get("reference_manifest_path", ""))
+    expected_path = _path(_R7_TRAIN_REFERENCE_PATH)
+    if manifest_id != _R7_TRAIN_REFERENCE_ID:
+        raise ProtocolError(
+            f"R7 train reference_manifest_id must be {_R7_TRAIN_REFERENCE_ID!r}"
+        )
+    if manifest_path != expected_path:
+        raise ProtocolError(
+            "R7 train reference_manifest_path must identify the frozen train_120 manifest"
+        )
+    return load_formal_reference_manifest(
+        manifest_path, manifest_id=_R7_TRAIN_REFERENCE_ID,
+    )
+
+
+def _final_maintenance_milestone(manifest: RunManifest) -> str:
+    value = str(manifest.metadata.get("final_batch_maintenance_milestone", ""))
+    return value or "formal_full_30_final_batch"
 
 
 def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
@@ -59,8 +115,13 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
         raise ProtocolError(
             "formal train protocol requires the six ALFWorld task types in frozen order"
         )
-    if per_type != 5 or total != 30:
-        raise ProtocolError("formal train protocol requires six task types × five = 30")
+    protocol, _, expected_per_type, expected_total = _train_protocol(config)
+    if per_type != expected_per_type or total != expected_total:
+        label = "R7 Full-120" if protocol == "r7_full120" else "Full-30"
+        raise ProtocolError(
+            f"formal {label} train protocol requires six task types × "
+            f"{expected_per_type} = {expected_total}"
+        )
     if total != len(task_types) * per_type or selection.get("require_exact_count") is not True:
         raise ProtocolError("formal train selection must require the exact balanced count")
     return task_types, per_type, total
@@ -71,12 +132,10 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     experiment = dict(config.get("experiment") or {})
     harness = dict(config.get("harness") or {})
     selection = dict(harness.get("task_selection") or {})
+    lifecycle = dict(config.get("lifecycle") or {})
     planner = dict(config.get("planner") or {})
     cold_start = dict(config.get("cold_start") or {})
-    allowed_run_names = {
-        "alfworld_train_full_30_v32",
-        "alfworld_train_full_30_r6",
-    }
+    protocol, expected_seed, _, _ = _train_protocol(config)
     expected = {
         "method_patch": (config.get("method_patch"), "3.2"),
         "planner.max_repeat_count": (planner.get("max_repeat_count"), 4),
@@ -124,7 +183,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         ),
         "experiment.condition": (experiment.get("condition"), "full"),
         "experiment.freeze_skills": (experiment.get("freeze_skills"), False),
-        "experiment.seed": (experiment.get("seed"), 42),
+        "experiment.seed": (experiment.get("seed"), expected_seed),
         "experiment.initialize_v3_bank": (experiment.get("initialize_v3_bank"), "empty"),
         "experiment.resume_completed_task_boundary_only": (
             experiment.get("resume_completed_task_boundary_only"), True
@@ -142,10 +201,18 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         for name, (actual, wanted) in expected.items()
         if actual != wanted
     ]
-    if experiment.get("name") not in allowed_run_names:
-        mismatches.append(
-            "experiment.name must identify the formal Full-30 train protocol"
-        )
+    if protocol == "r7_full120":
+        if lifecycle.get("candidate_exploration_seed") != expected_seed:
+            mismatches.append(
+                "lifecycle.candidate_exploration_seed must equal experiment.seed"
+            )
+        expected_reference_path = _path(_R7_TRAIN_REFERENCE_PATH)
+        if _path(selection.get("reference_manifest_path", "")) != expected_reference_path:
+            mismatches.append(
+                "R7 train reference_manifest_path must identify data/baseline_manifests/train_120.json"
+            )
+        if selection.get("reference_manifest_id") != _R7_TRAIN_REFERENCE_ID:
+            mismatches.append("R7 train reference_manifest_id must be 'train_120'")
     if _path(config.get("data_dir", "")) != output_dir / "data_v3":
         mismatches.append("data_dir must be <output_dir>/data_v3")
     if _path(config.get("trace_data_dir", output_dir)) != output_dir:
@@ -165,6 +232,8 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         mismatches.append("experiment.max_task_attempts must be a positive integer")
     if mismatches:
         raise ProtocolError("formal train config mismatch: " + "; ".join(mismatches))
+    if protocol == "r7_full120":
+        _r7_train_reference_manifest(config)
 
 
 def _task_manifests(tasks: list[Any], split: str, initial_digest: str) -> tuple[TaskManifest, ...]:
@@ -302,7 +371,7 @@ def _select_run_maintenance_traces(
             )
         if (
             trace_id == required_final_trace_id
-            and metadata.get("milestone") != "formal_full_30_final_batch"
+            and metadata.get("milestone") != _final_maintenance_milestone(manifest)
         ):
             raise ProtocolError("final batch maintenance Trace has the wrong milestone")
         seen.add(trace_id)
@@ -404,7 +473,7 @@ def _run_final_batch_maintenance(
         )
         result = system.run_maintenance(
             triggering_task_id=manifest.tasks[-1].task_id,
-            milestone="formal_full_30_final_batch",
+            milestone=_final_maintenance_milestone(manifest),
             finalize_pending=True,
         )
         if attempt_ledger is not None and maintenance_attempt is not None:
@@ -528,6 +597,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
     if experiment.get("phase") != "train" or experiment.get("runtime_mode") != "online":
         raise ProtocolError("train runner requires phase=train and runtime_mode=online")
     task_types, per_type, expected_total = _selection(config)
+    protocol, experiment_seed, _, _ = _train_protocol(config)
     output_dir = _path(experiment.get("output_dir", "runs/alfworld_train_full_30"))
     _validate_formal_config(config, output_dir)
     max_task_attempts = int(experiment["max_task_attempts"])
@@ -594,13 +664,23 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             )
         if not resume:
             if not system.is_empty_knowledge_bank():
-                raise ProtocolError("fresh full-30 training requires an empty schema-v3 bank")
-        tasks = system.harness.load_balanced_tasks(task_types, per_type)
+                raise ProtocolError("fresh formal training requires an empty schema-v3 bank")
+        reference_manifest = _r7_train_reference_manifest(config)
+        if reference_manifest is None:
+            tasks = system.harness.load_balanced_tasks(task_types, per_type)
+        else:
+            tasks = select_reference_tasks(system.harness, reference_manifest)
         if len(tasks) != expected_total:
-            raise ProtocolError(f"balanced loader returned {len(tasks)} tasks, expected 30")
+            raise ProtocolError(
+                f"formal train loader returned {len(tasks)} tasks, expected {expected_total}"
+            )
         counts = {label: sum(task.task_type == label for task in tasks) for label in task_types}
         if any(value != per_type for value in counts.values()):
-            raise ProtocolError(f"balanced task counts changed: {counts}")
+            raise ProtocolError(f"formal train task counts changed: {counts}")
+        if reference_manifest is not None and Counter(
+            task.task_type for task in tasks
+        ) != Counter(task.task_type for task in reference_manifest.tasks):
+            raise ProtocolError("selected R7 train family counts differ from reference manifest")
         validate_distinct_formal_tasks(tasks, expected_total=expected_total)
 
         current_digest = system.knowledge_digest()
@@ -629,7 +709,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             initial_artifact_snapshot = artifact_audit_snapshot(system.database)
             if int(initial_artifact_snapshot["artifact_index"]["total"]) != 0:
                 raise ProtocolError(
-                    "fresh Full-30 run-start artifact snapshot must be empty"
+                    "fresh formal train run-start artifact snapshot must be empty"
                 )
             task_items = _task_manifests(
                 tasks, str(system.harness.split), initial_digest
@@ -652,6 +732,21 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                     "initial_artifact_snapshot": initial_artifact_snapshot,
                     "initial_artifact_snapshot_digest": (
                         initial_artifact_snapshot["snapshot_digest"]
+                    ),
+                    **(
+                        {
+                            "seed": experiment_seed,
+                            "final_batch_maintenance_milestone": (
+                                "formal_full_120_final_batch"
+                            ),
+                            "reference_manifest_id": reference_manifest.manifest_id,
+                            "reference_manifest_digest": reference_manifest.digest,
+                            "reference_manifest_seed": reference_manifest.seed,
+                            "reference_manifest_task_count": len(reference_manifest.tasks),
+                            "reference_manifest_family_counts": dict(counts),
+                        }
+                        if reference_manifest is not None
+                        else {}
                     ),
                 },
             )
@@ -843,9 +938,19 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             system.usage.events, resource_traces,
         )
         print(json.dumps({"usage_trace_coverage": usage_coverage}, ensure_ascii=False), flush=True)
+        report_stem = (
+            f"train_full_120_r7_seed{experiment_seed}"
+            if protocol == "r7_full120"
+            else "train_full_30"
+        )
+        report_title = (
+            f"AtomicSkillGraph v3 ALFWorld Full-120 R7 Train (seed {experiment_seed})"
+            if protocol == "r7_full120"
+            else "AtomicSkillGraph v3 ALFWorld Full-30 Train"
+        )
         write_reports(
-            task_traces, output_dir / "reports", stem="train_full_30",
-            title="AtomicSkillGraph v3 ALFWorld Full-30 Train",
+            task_traces, output_dir / "reports", stem=report_stem,
+            title=report_title,
             auxiliary_usage_traces=[*maintenance_traces, *attempt_usage_traces],
             run_artifact_growth=maintenance_audit["run_artifact_growth"],
             run_artifact_lifecycle=maintenance_audit["run_artifact_lifecycle"],
