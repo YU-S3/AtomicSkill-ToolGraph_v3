@@ -467,15 +467,23 @@ def _input_authorities(
 
     authorities: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
+    accepted_events: dict[str, tuple[int, dict[str, Any]]] = {}
+    for index, event in enumerate(events):
+        event_id = str(event.get("event_id", event.get("action_id", "")))
+        event_index = event.get("event_index", index)
+        if (
+            event.get("accepted") is True
+            and event_id
+            and not isinstance(event_index, bool)
+            and isinstance(event_index, int)
+        ):
+            accepted_events[event_id] = (event_index, event)
     event_indexes = {
-        str(event.get("event_id", event.get("action_id", ""))): int(
-            event.get("event_index", index)
-        )
-        for index, event in enumerate(events)
-        if event.get("accepted") is True
-        and str(event.get("event_id", event.get("action_id", "")))
+        event_id: event_index
+        for event_id, (event_index, _event) in accepted_events.items()
     }
     boundary = dict(normalized_trace.get("boundary_authorities") or {})
+    boundary_inputs = list(boundary.get("inputs") or [])
     runtime_input_kinds = {
         "current_occurrence_anchor",
         "current_confirmed_binding",
@@ -486,11 +494,25 @@ def _input_authorities(
         "constant",
         "runtime_input",
     }
-    for raw in list(boundary.get("inputs") or []):
+    for raw in boundary_inputs:
         if not isinstance(raw, Mapping):
             continue
         authority = dict(raw)
         if not str(authority.get("authority_ref", "")):
+            continue
+        raw_kind = str(authority.get("kind", "")).casefold()
+        raw_source_kind = str(authority.get("source_kind", "")).casefold()
+        authority_ref = str(authority.get("authority_ref", ""))
+        alias_shaped = (
+            raw_kind == "semantic_alias"
+            or raw_source_kind == "semantic_snapshot_alias"
+            or authority_ref.startswith("semantic_alias:")
+        )
+        if alias_shaped and not (
+            raw_kind == "semantic_alias"
+            and raw_source_kind == "semantic_snapshot_alias"
+            and authority_ref.startswith("semantic_alias:")
+        ):
             continue
         authority_kind = str(
             authority.get("kind", authority.get("source_kind", ""))
@@ -500,6 +522,107 @@ def _input_authorities(
             if (
                 event_id not in event_indexes
                 or event_indexes[event_id] > through_event
+            ):
+                continue
+        elif authority_kind == "semantic_alias":
+            if str(normalized_trace.get("semantic_authority_source", "")) != (
+                "validator_snapshot_v3_2"
+            ):
+                continue
+            event_id = str(authority.get("event_id", ""))
+            event_record = accepted_events.get(event_id)
+            if event_record is None:
+                continue
+            event_index, event = event_record
+            alias_event_index = authority.get("event_index")
+            if (
+                isinstance(alias_event_index, bool)
+                or not isinstance(alias_event_index, int)
+                or alias_event_index != event_index
+                or event_index > through_event
+            ):
+                continue
+            source_role = str(authority.get("source_argument_role", ""))
+            semantic_role = str(authority.get("role", ""))
+            predicate_role = str(
+                authority.get("predicate_argument_role", "")
+            )
+            value = authority.get("value")
+            source_ref = str(authority.get("source_authority_ref", ""))
+            expected_source_ref = f"action_arg:{event_id}:{source_role}"
+            expected_alias_ref = (
+                f"semantic_alias:{event_id}:{source_role}:{semantic_role}"
+            )
+            arguments = dict(event.get("arguments") or {})
+            exact_source_roles = [
+                str(raw_role)
+                for raw_role, argument_value in arguments.items()
+                if type(argument_value) is type(value) and argument_value == value
+            ]
+            source_matches = [
+                dict(item)
+                for item in boundary_inputs
+                if isinstance(item, Mapping)
+                and str(item.get("kind", "")).casefold() == "action_argument"
+                and str(item.get("source_kind", "")).casefold()
+                == "action_argument"
+                and str(item.get("authority_ref", "")) == source_ref
+                and str(item.get("event_id", "")) == event_id
+                and str(item.get("role", "")) == source_role
+                and str(item.get("argument_role", "")) == source_role
+                and type(item.get("value")) is type(value)
+                and item.get("value") == value
+            ]
+            if (
+                str(authority.get("source_kind", ""))
+                != "semantic_snapshot_alias"
+                or not source_role
+                or not semantic_role
+                or source_role == semantic_role
+                or predicate_role != semantic_role
+                or str(authority.get("authority_ref", "")) != expected_alias_ref
+                or source_ref != expected_source_ref
+                or len(exact_source_roles) != 1
+                or exact_source_roles[0] != source_role
+                or len(source_matches) != 1
+            ):
+                continue
+            predicate = str(authority.get("predicate", ""))
+            witness_ref = str(authority.get("witness_ref", ""))
+            effect_domain = str(authority.get("effect_domain", ""))
+            positive_matches = []
+            for raw_effect in list(
+                event.get("authoritative_positive_effects") or []
+            ):
+                if not isinstance(raw_effect, Mapping):
+                    continue
+                effect = dict(raw_effect)
+                effect_args = effect.get("args")
+                effect_event_index = effect.get("event_index")
+                if not isinstance(effect_args, Mapping):
+                    continue
+                effect_value = effect_args.get(predicate_role)
+                if (
+                    str(effect.get("source_kind", ""))
+                    == "semantic_snapshot_delta"
+                    and not isinstance(effect_event_index, bool)
+                    and isinstance(effect_event_index, int)
+                    and effect_event_index == event_index
+                    and str(effect.get("action_id", ""))
+                    == str(event.get("action_id", ""))
+                    and str(effect.get("predicate", "")) == predicate
+                    and str(effect.get("witness_ref", "")) == witness_ref
+                    and str(effect.get("effect_domain", "")) == effect_domain
+                    and predicate_role in effect_args
+                    and type(effect_value) is type(value)
+                    and effect_value == value
+                ):
+                    positive_matches.append(effect)
+            if (
+                not predicate
+                or not witness_ref
+                or effect_domain not in {"world", "evidence"}
+                or len(positive_matches) != 1
             ):
                 continue
         is_runtime_input = (

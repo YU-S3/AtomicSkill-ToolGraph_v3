@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
-from typing import Any, Mapping
+from typing import AbstractSet, Any, Mapping
 
 from ..core.errors import AtomicSkillGraphError, FailureLayer
 from ..core.refs import canonical_json
@@ -29,6 +29,142 @@ def _state_delta(
         [item for item in after if _fact_identity(item) not in before_ids],
         [item for item in before if _fact_identity(item) not in after_ids],
     )
+
+
+def _same_concrete_identity(left: Any, right: Any) -> bool:
+    """Return the narrow identity relation used by E1 boundary authorities."""
+
+    return type(left) is type(right) and left == right
+
+
+def _semantic_alias_input_authorities(
+    actions: list[dict[str, Any]],
+    primitive_authorities: list[dict[str, Any]],
+    *,
+    excluded_event_indexes: AbstractSet[int] = frozenset(),
+) -> list[dict[str, Any]]:
+    """Project deterministic semantic-role aliases from one accepted action.
+
+    The current Validator snapshot delta is the semantic authority.  An alias
+    exists only when one (and only one) primitive argument of that same action
+    has the exact concrete identity named by a positive semantic fact.
+    """
+
+    primitive_by_ref = {
+        str(item.get("authority_ref", "")): item
+        for item in primitive_authorities
+        if str(item.get("kind", "")) == "action_argument"
+    }
+    candidates: list[dict[str, Any]] = []
+    for fallback_index, action in enumerate(actions):
+        if action.get("accepted") is not True:
+            continue
+        event_id = str(action.get("event_id", action.get("action_id", "")))
+        event_index = action.get("event_index", fallback_index)
+        if (
+            not event_id
+            or isinstance(event_index, bool)
+            or not isinstance(event_index, int)
+            or event_index in excluded_event_indexes
+        ):
+            continue
+        arguments = dict(action.get("arguments") or {})
+        effects = [
+            dict(item)
+            for item in list(action.get("authoritative_positive_effects") or [])
+            if isinstance(item, Mapping)
+        ]
+        effects.sort(key=lambda item: (
+            str(item.get("predicate", "")),
+            canonical_json(dict(item.get("args") or {})),
+            str(item.get("witness_ref", "")),
+        ))
+        for effect in effects:
+            if (
+                str(effect.get("source_kind", ""))
+                != "semantic_snapshot_delta"
+                or effect.get("event_index") != event_index
+                or str(effect.get("action_id", ""))
+                != str(action.get("action_id", ""))
+            ):
+                continue
+            predicate = str(effect.get("predicate", ""))
+            witness_ref = str(effect.get("witness_ref", ""))
+            effect_domain = str(effect.get("effect_domain", ""))
+            effect_args = effect.get("args")
+            if (
+                not predicate
+                or not witness_ref
+                or effect_domain not in {"world", "evidence"}
+                or not isinstance(effect_args, Mapping)
+            ):
+                continue
+            for raw_semantic_role, value in sorted(
+                effect_args.items(), key=lambda item: str(item[0])
+            ):
+                semantic_role = str(raw_semantic_role)
+                matching_roles = [
+                    str(raw_role)
+                    for raw_role, argument_value in arguments.items()
+                    if _same_concrete_identity(argument_value, value)
+                ]
+                if len(matching_roles) != 1:
+                    continue
+                source_role = matching_roles[0]
+                if source_role == semantic_role:
+                    continue
+                source_ref = f"action_arg:{event_id}:{source_role}"
+                source = primitive_by_ref.get(source_ref)
+                if (
+                    source is None
+                    or str(source.get("role", "")) != source_role
+                    or not _same_concrete_identity(source.get("value"), value)
+                ):
+                    continue
+                candidates.append({
+                    "authority_ref": (
+                        f"semantic_alias:{event_id}:{source_role}:"
+                        f"{semantic_role}"
+                    ),
+                    "event_id": event_id,
+                    "event_index": event_index,
+                    "kind": "semantic_alias",
+                    "source_kind": "semantic_snapshot_alias",
+                    "role": semantic_role,
+                    "value": copy.deepcopy(value),
+                    "source_authority_ref": source_ref,
+                    "source_argument_role": source_role,
+                    "predicate": predicate,
+                    "predicate_argument_role": semantic_role,
+                    "witness_ref": witness_ref,
+                    "effect_domain": effect_domain,
+                })
+
+    # A semantic role can be certified by more than one fact.  Keep the first
+    # proof under the frozen deterministic proof order.
+    candidates.sort(key=lambda item: (
+        str(item.get("predicate", "")),
+        str(item.get("predicate_argument_role", "")),
+        str(item.get("witness_ref", "")),
+        str(item.get("event_id", "")),
+        str(item.get("source_argument_role", "")),
+        str(item.get("role", "")),
+        repr(item.get("value")),
+    ))
+    aliases: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for candidate in candidates:
+        identity = (
+            str(candidate["event_id"]),
+            str(candidate["source_argument_role"]),
+            str(candidate["role"]),
+            repr(candidate.get("value")),
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        aliases.append(candidate)
+    return aliases
 
 
 def _semantic_snapshot_error(message: str) -> AtomicSkillGraphError:
@@ -333,6 +469,37 @@ class TraceNormalizer:
                     "role": role,
                     "value": value,
                 })
+        if current_v32:
+            runtime_trial_event_indexes: set[int] = set()
+            raw_trials = dict(
+                dict(getattr(trace, "metadata", {}) or {}).get(
+                    "runtime_tool_trials", {}
+                )
+                or {}
+            )
+            for raw_trial in raw_trials.values():
+                if not isinstance(raw_trial, Mapping):
+                    continue
+                start = raw_trial.get("trial_event_start")
+                end = raw_trial.get("trial_event_end")
+                if (
+                    isinstance(start, bool)
+                    or not isinstance(start, int)
+                    or isinstance(end, bool)
+                    or not isinstance(end, int)
+                    or start < 0
+                    or end < start
+                    or end >= len(actions)
+                ):
+                    continue
+                runtime_trial_event_indexes.update(range(start, end + 1))
+            input_authorities.extend(
+                _semantic_alias_input_authorities(
+                    actions,
+                    input_authorities,
+                    excluded_event_indexes=runtime_trial_event_indexes,
+                )
+            )
         return {
             "trace_id": trace.trace_id, "task_goal": trace.task.goal,
             "source_task": {
