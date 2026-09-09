@@ -1,0 +1,132 @@
+# R7 correctness gate: five online look-at tasks followed by five held-out
+# frozen look-at tasks. The runner rewrites all task data paths into one
+# timestamped child below experiment.output_dir.
+schema_version: 3
+method_patch: "3.2"
+
+data_dir: runs/alfworld_r7_look_targeted/data_v3
+trace_data_dir: runs/alfworld_r7_look_targeted
+
+llm:
+  provider: openai_compatible
+  dialect: deepseek_v4_chat
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
+  api_key_env: MODEL_API_KEY
+  connect_timeout_seconds: 15
+  max_retries: 4
+  retry_backoff_seconds: 2
+  max_retry_after_seconds: 30
+  protocol:
+    endpoint_path: "/chat/completions"
+    structured_output_transport: native_submission_tool
+    token_limit_field: max_tokens
+    thinking_type: enabled
+    send_reasoning_effort: true
+    replay_reasoning_content_with_tools: true
+    send_response_format: false
+    send_tool_choice: false
+    send_parallel_tool_calls: false
+    send_temperature: false
+    strict_tools: false
+    require_usage: true
+
+  planner:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 4
+    max_total_tokens_per_phase: 120000
+
+  runtime:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 180
+    max_total_tokens_per_node: 100000
+    max_total_tokens_per_task: 300000
+    learned_toolcall_repair_limit: 2
+    protocol_repair_limit: 1
+
+  extractor:
+    reasoning_effort: high
+    max_completion_tokens: 131072
+    request_timeout_seconds: 600
+    max_turns: 3
+    max_total_tokens_per_task: 262144
+
+  tool_builder:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
+
+  evolution_repair:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
+    max_total_tokens_per_batch: 120000
+
+planner:
+  composite_top_k: 5
+  atomic_top_k_per_requirement: 3
+  max_atomic_top_k: 5
+  requirement_repair_limit: 1
+  graph_repair_limit: 1
+  max_repeat_count: 4
+  max_runtime_occurrences: 16
+  cold_start_c1_repair_limit: 1
+
+cold_start:
+  enabled: true
+  provisional_top_k_per_requirement: 3
+  failure_experience_top_k: 2
+  scaffold_max_steps: 8
+  failure_extractor_enabled: true
+  source_replay_required: true
+  provisional_suppress_consecutive_failures: 3
+  promotion_requires_strict_task_success: true
+  experience_confirm_independent_tasks: 2
+
+runtime:
+  global_action_budget: 100
+  node_action_budget: 35
+  max_implementation_candidates: 3
+
+lifecycle:
+  maintenance_interval_successes: 5
+  atomic_active_independent_support: 2
+  implementation_active_direct_successes: 2
+  tool_active_started_successes: 2
+  tool_preferred_min_started: 5
+  composite_active_self_sufficient_successes: 2
+
+extraction:
+  extract_full_dynamic_success: true
+  extract_task_rescue_success: true
+  extract_novel_seeded_success: true
+  skip_stable_direct_success: true
+
+experiment:
+  name: alfworld_r7_look_targeted
+  phase: smoke
+  condition: full
+  runtime_mode: online
+  freeze_skills: false
+  seed: 42
+  output_dir: runs/alfworld_r7_look_targeted
+  initialize_v3_bank: empty
+  allow_long_term_knowledge_writes: true
+
+harness:
+  adapter: alfworld_v3
+  alfworld_data_env: ALFWORLD_DATA
+  split: train
+  max_steps: 100
+  task_selection:
+    policy: balanced_fixed_manifest
+    task_types:
+      - look_at_obj_in_light
+    tasks_per_type: 5
+    total_tasks: 5
+    require_exact_count: true

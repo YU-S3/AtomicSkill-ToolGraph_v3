@@ -1274,6 +1274,569 @@ def run_look_at_authority_smoke(config_path: str | Path) -> int:
         return 0 if result["passed"] else 1
 
 
+_R7_LOOK_TASK_TYPE = "look_at_obj_in_light"
+_R7_LOOK_TASK_COUNT = 5
+
+
+def _r7_valid_semantic_alias(raw: Mapping[str, Any]) -> bool:
+    event_id = str(raw.get("event_id", ""))
+    source_role = str(raw.get("source_argument_role", ""))
+    semantic_role = str(raw.get("role", ""))
+    event_index = raw.get("event_index")
+    return bool(
+        raw.get("kind") == "semantic_alias"
+        and raw.get("source_kind") == "semantic_snapshot_alias"
+        and event_id
+        and source_role
+        and semantic_role == str(raw.get("predicate_argument_role", ""))
+        and semantic_role != source_role
+        and raw.get("value") not in (None, "")
+        and not isinstance(event_index, bool)
+        and isinstance(event_index, int)
+        and event_index >= 0
+        and str(raw.get("authority_ref", ""))
+        == f"semantic_alias:{event_id}:{source_role}:{semantic_role}"
+        and str(raw.get("source_authority_ref", ""))
+        == f"action_arg:{event_id}:{source_role}"
+        and str(raw.get("predicate", ""))
+        and str(raw.get("witness_ref", ""))
+        and raw.get("effect_domain") in {"world", "evidence"}
+    )
+
+
+def _r7_look_targeted_audit(
+    *,
+    configuration_checks: Mapping[str, Any],
+    train_records: list[Mapping[str, Any]],
+    composite_records: list[Mapping[str, Any]],
+    eval_records: list[Mapping[str, Any]],
+    final_maintenance_pending_count: int | None,
+    digests: Mapping[str, str],
+) -> dict[str, Any]:
+    """Join R7 evidence into one fail-closed train-to-frozen chain audit."""
+
+    train_signatures = [str(item.get("task_signature", "")) for item in train_records]
+    eval_signatures = [str(item.get("task_signature", "")) for item in eval_records]
+    alias_trace_ids = {
+        str(item.get("trace_id", ""))
+        for item in train_records
+        if any(
+            _r7_valid_semantic_alias(alias)
+            and str(alias.get("role", "")) == "light"
+            for alias in item.get("semantic_aliases", ())
+            if isinstance(alias, Mapping)
+        )
+    }
+    e1_trace_ids = {
+        str(item.get("trace_id", ""))
+        for item in train_records
+        if item.get("e1_validated_object_observed") is True
+    }
+    authority_closed_trace_ids = alias_trace_ids & e1_trace_ids
+    chain_composite_refs = {
+        str(item.get("composite_ref", ""))
+        for item in composite_records
+        if item.get("task_contract_covered") is True
+        and item.get("goal_covers_object_observed") is True
+        and str(item.get("status", "")) == "active"
+        and authority_closed_trace_ids
+        & {str(value) for value in item.get("source_trace_ids", ())}
+    }
+    heldout_chain_records = [
+        item
+        for item in eval_records
+        if str(item.get("runtime_source", "")) == "stored_composite"
+        and str(item.get("source_composite_ref", "")) in chain_composite_refs
+        and item.get("benchmark_success") is True
+    ]
+    digest_values = [
+        str(digests.get(name, ""))
+        for name in (
+            "source_before_freeze",
+            "source_after_freeze",
+            "frozen_before_eval",
+            "frozen_after_eval",
+        )
+    ]
+    checks = {
+        "configuration": bool(configuration_checks)
+        and all(value is True for value in configuration_checks.values()),
+        "five_train_look_tasks_returned": (
+            len(train_records) == _R7_LOOK_TASK_COUNT
+            and all(
+                str(item.get("task_type", "")) == _R7_LOOK_TASK_TYPE
+                for item in train_records
+            )
+        ),
+        "five_eval_look_tasks_returned": (
+            len(eval_records) == _R7_LOOK_TASK_COUNT
+            and all(
+                str(item.get("task_type", "")) == _R7_LOOK_TASK_TYPE
+                for item in eval_records
+            )
+        ),
+        "task_signatures_unique_and_disjoint": (
+            len(train_signatures) == _R7_LOOK_TASK_COUNT
+            and len(eval_signatures) == _R7_LOOK_TASK_COUNT
+            and all(train_signatures)
+            and all(eval_signatures)
+            and len(set(train_signatures)) == _R7_LOOK_TASK_COUNT
+            and len(set(eval_signatures)) == _R7_LOOK_TASK_COUNT
+            and not set(train_signatures) & set(eval_signatures)
+        ),
+        "semantic_alias_light_authority_observed": bool(alias_trace_ids),
+        "e1_validated_object_observed": bool(e1_trace_ids),
+        "semantic_alias_to_e1_trace_joined": bool(authority_closed_trace_ids),
+        "task_contract_covered_active_composite": bool(chain_composite_refs),
+        "heldout_stored_composite_success": bool(heldout_chain_records),
+        "final_maintenance_queue_empty": (
+            not isinstance(final_maintenance_pending_count, bool)
+            and isinstance(final_maintenance_pending_count, int)
+            and final_maintenance_pending_count == 0
+        ),
+        "train_runtime_integrity": (
+            len(train_records) == _R7_LOOK_TASK_COUNT
+            and all(item.get("infrastructure_failure") is False for item in train_records)
+            and all(item.get("resource_usage_complete") is True for item in train_records)
+        ),
+        "eval_runtime_integrity": (
+            len(eval_records) == _R7_LOOK_TASK_COUNT
+            and all(item.get("infrastructure_failure") is False for item in eval_records)
+            and all(item.get("resource_usage_complete") is True for item in eval_records)
+        ),
+        "freeze_and_eval_digest_unchanged": (
+            all(digest_values)
+            and len(set(digest_values)) == 1
+        ),
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "train_task_count": len(train_records),
+        "eval_task_count": len(eval_records),
+        "train_successes": sum(
+            item.get("benchmark_success") is True for item in train_records
+        ),
+        "eval_successes": sum(
+            item.get("benchmark_success") is True for item in eval_records
+        ),
+        "semantic_alias_trace_ids": sorted(alias_trace_ids),
+        "e1_object_observed_trace_ids": sorted(e1_trace_ids),
+        "authority_closed_trace_ids": sorted(authority_closed_trace_ids),
+        "active_chain_composite_refs": sorted(chain_composite_refs),
+        "heldout_stored_composite_task_ids": sorted(
+            str(item.get("task_id", "")) for item in heldout_chain_records
+        ),
+        "digests": dict(digests),
+    }
+
+
+def _r7_task_record(
+    trace: object,
+    task: object,
+    *,
+    system: AtomicSkillGraphSystem,
+) -> dict[str, Any]:
+    normalized = system.normalizer.build(trace)
+    aliases = [
+        dict(item)
+        for item in dict(normalized.get("boundary_authorities") or {}).get(
+            "inputs", ()
+        )
+        if isinstance(item, Mapping) and item.get("kind") == "semantic_alias"
+    ]
+    metadata = dict(getattr(trace, "metadata", {}) or {})
+    quality = dict(metadata.get("extractor_quality") or {})
+    applied = dict(metadata.get("evolution_applied") or {})
+    observed_atomic_refs: list[str] = []
+    for raw_ref in applied.get("atomic_refs", ()):
+        try:
+            atomic = system.skills.get_atomic(str(raw_ref))
+        except (KeyError, ValueError):
+            continue
+        if any(
+            str(effect.predicate) == "object.observed_with"
+            for effect in atomic.effects
+        ):
+            observed_atomic_refs.append(str(raw_ref))
+    return {
+        "task_id": str(getattr(task, "task_id", "")),
+        "task_signature": task_signature(task),
+        "task_type": str(getattr(task, "task_type", "")),
+        "trace_id": str(getattr(trace, "trace_id", "")),
+        "benchmark_success": getattr(trace, "benchmark_success", False) is True,
+        "infrastructure_failure": (
+            getattr(trace, "infrastructure_failure", True) is True
+        ),
+        "resource_usage_complete": (
+            getattr(trace, "resource_usage_complete", False) is True
+        ),
+        "semantic_aliases": aliases,
+        "observed_atomic_refs": sorted(observed_atomic_refs),
+        "e1_validated_object_observed": bool(
+            observed_atomic_refs
+            and quality.get("extractor_e1_contract_coverage_passed") is True
+            and int(quality.get("extractor_e1_validated_occurrence_count", 0)) > 0
+        ),
+    }
+
+
+def _r7_composite_records(system: AtomicSkillGraphSystem) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for raw_ref in system.skills.list_refs("composite"):
+        composite = system.skills.get_composite(raw_ref)
+        records.append({
+            "composite_ref": str(composite.ref),
+            "status": str(getattr(composite.status, "value", composite.status)),
+            "task_contract_covered": (
+                dict(composite.validator_spec).get("task_contract_covered") is True
+            ),
+            "goal_covers_object_observed": any(
+                str(effect.predicate) == "object.observed_with"
+                for effect in composite.goal_contract.target_effects
+            ),
+            "source_trace_ids": sorted(
+                str(value)
+                for value in dict(composite.metadata).get("source_trace_ids", ())
+            ),
+        })
+    return records
+
+
+def _r7_eval_record(trace: object, task: object) -> dict[str, Any]:
+    runtime_plan = dict(getattr(trace, "runtime_plan", {}) or {})
+    return {
+        "task_id": str(getattr(task, "task_id", "")),
+        "task_signature": task_signature(task),
+        "task_type": str(getattr(task, "task_type", "")),
+        "trace_id": str(getattr(trace, "trace_id", "")),
+        "benchmark_success": getattr(trace, "benchmark_success", False) is True,
+        "infrastructure_failure": (
+            getattr(trace, "infrastructure_failure", True) is True
+        ),
+        "resource_usage_complete": (
+            getattr(trace, "resource_usage_complete", False) is True
+        ),
+        "runtime_source": str(runtime_plan.get("source", "")),
+        "source_composite_ref": str(
+            runtime_plan.get("source_composite_ref", "") or ""
+        ),
+    }
+
+
+def _write_r7_task_manifest(
+    path: Path,
+    tasks: list[object],
+    *,
+    split: str,
+    milestone: str,
+) -> tuple[TaskManifest, ...]:
+    items = tuple(
+        TaskManifest.from_task(
+            task,
+            ordinal=index,
+            knowledge_milestone=milestone,
+            split=split,
+        )
+        for index, task in enumerate(tasks)
+    )
+    atomic_write_json(path, {
+        "schema_version": 3,
+        "task_manifest_hash": hash_task_manifest(items),
+        "tasks": [item.to_dict() for item in items],
+    })
+    return items
+
+
+def _require_r7_look_selection(config: Mapping[str, Any]) -> None:
+    selection = dict(dict(config.get("harness") or {}).get("task_selection") or {})
+    if (
+        selection.get("policy") != "balanced_fixed_manifest"
+        or list(selection.get("task_types") or []) != [_R7_LOOK_TASK_TYPE]
+        or selection.get("tasks_per_type") != _R7_LOOK_TASK_COUNT
+        or selection.get("total_tasks") != _R7_LOOK_TASK_COUNT
+        or selection.get("require_exact_count") is not True
+    ):
+        raise ValueError(
+            "R7 look targeted config requires one fixed look-at family and five tasks"
+        )
+
+
+def _require_r7_selected_tasks(tasks: list[object], *, split: str) -> None:
+    signatures = [task_signature(task) for task in tasks]
+    task_ids = [str(getattr(task, "task_id", "")) for task in tasks]
+    if (
+        len(tasks) != _R7_LOOK_TASK_COUNT
+        or any(
+            str(getattr(task, "task_type", "")) != _R7_LOOK_TASK_TYPE
+            for task in tasks
+        )
+        or any(not value for value in signatures)
+        or any(not value for value in task_ids)
+        or len(set(signatures)) != _R7_LOOK_TASK_COUNT
+        or len(set(task_ids)) != _R7_LOOK_TASK_COUNT
+    ):
+        raise RuntimeError(
+            f"R7 targeted {split} selection is not five distinct look-at tasks"
+        )
+
+
+def run_r7_look_targeted(config_path: str | Path) -> int:
+    """Train five look tasks, freeze, and audit five held-out look tasks."""
+
+    config_path = _path(config_path)
+    config = copy.deepcopy(load_config(config_path))
+    base_output = _path(
+        dict(config.get("experiment") or {}).get(
+            "output_dir", "runs/alfworld_r7_look_targeted"
+        )
+    )
+    base_output.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    output = base_output / f"run_{stamp}_{os.getpid()}"
+    output.mkdir(parents=False, exist_ok=False)
+    result_path = output / "r7_look_targeted_result.json"
+
+    configuration_checks: dict[str, Any] = {}
+    train_records: list[Mapping[str, Any]] = []
+    composite_records: list[Mapping[str, Any]] = []
+    eval_records: list[Mapping[str, Any]] = []
+    pending_count: int | None = None
+    digests = {
+        "source_before_freeze": "",
+        "source_after_freeze": "",
+        "frozen_before_eval": "",
+        "frozen_after_eval": "",
+    }
+    error: Exception | None = None
+    try:
+        validate_deepseek_formal_llm(config)
+        _require_r7_look_selection(config)
+        capability = ensure_provider_capability(
+            config,
+            output_dir=base_output,
+            config_hash=hash_config(config_path),
+            code_hash=hash_code(REPO_ROOT),
+            run_if_missing=False,
+        )
+        configuration_checks["provider_capability_passed"] = (
+            capability.get("passed") is True
+        )
+        train_root = output / "train"
+        train_config = copy.deepcopy(config)
+        train_config["data_dir"] = str(train_root / "data_v3")
+        train_config["trace_data_dir"] = str(train_root)
+        train_experiment = dict(train_config.get("experiment") or {})
+        train_experiment.update({
+            "name": f"r7_look_targeted_train_{stamp}",
+            "phase": "smoke",
+            "condition": "full",
+            "runtime_mode": "online",
+            "freeze_skills": False,
+            "initialize_v3_bank": "empty",
+            "allow_long_term_knowledge_writes": True,
+            "output_dir": str(train_root),
+        })
+        train_config["experiment"] = train_experiment
+        frozen_dir = output / "frozen" / "data_v3"
+
+        train_traces: list[object] = []
+        with AtomicSkillGraphSystem(train_config, readonly=False) as system:
+            preflight = system.preflight(
+                require_api_key=True,
+                initialize_harness=True,
+                require_empty_bank=True,
+            )
+            empty_bank = system.is_empty_knowledge_bank()
+            configuration_checks.update({
+                "train_preflight_passed": preflight.get("passed") is True,
+                "fresh_empty_bank": empty_bank,
+                "method_patch_3_2": str(config.get("method_patch", "")) == "3.2",
+                "train_split": str(system.harness.split) == "train",
+            })
+            if not all(configuration_checks.values()):
+                raise RuntimeError("R7 targeted train configuration gate failed")
+            tasks = system.harness.load_balanced_tasks(
+                [_R7_LOOK_TASK_TYPE], _R7_LOOK_TASK_COUNT,
+            )
+            _require_r7_selected_tasks(tasks, split="train")
+            initial_digest = system.knowledge_digest()
+            _write_r7_task_manifest(
+                output / "train_task_manifest.json",
+                tasks,
+                split=str(system.harness.split),
+                milestone=f"empty_bank:{initial_digest}",
+            )
+            for task in tasks:
+                trace = system.run_task(task)
+                train_traces.append(trace)
+                train_records.append(_r7_task_record(
+                    trace, task, system=system,
+                ))
+                if trace.infrastructure_failure:
+                    raise RuntimeError(
+                        f"infrastructure failure at targeted train task {task.task_id}"
+                    )
+
+            maintenance = system.run_maintenance(
+                triggering_task_id=tasks[-1].task_id,
+                milestone="r7_look_targeted_final_batch",
+                finalize_pending=True,
+            )
+            raw_pending = getattr(maintenance, "pending_count", None)
+            pending_count = (
+                raw_pending
+                if not isinstance(raw_pending, bool) and isinstance(raw_pending, int)
+                else None
+            )
+            if pending_count != 0:
+                raise RuntimeError(
+                    "R7 targeted final maintenance left unresolved proposals"
+                )
+            composite_records = _r7_composite_records(system)
+            digests["source_before_freeze"] = system.knowledge_digest()
+            system.freeze(frozen_dir, provenance={
+                "gate": "r7_look_targeted",
+                "train_task_manifest": str(output / "train_task_manifest.json"),
+                "source_final_knowledge_digest": digests["source_before_freeze"],
+            })
+            digests["source_after_freeze"] = system.knowledge_digest()
+            persisted_train = list(system.traces.iter_payloads())
+            validate_formal_usage(persisted_train)
+            validate_usage_event_persistence(system.usage.events, persisted_train)
+            write_reports(
+                train_traces,
+                train_root / "reports",
+                stem="r7_look_targeted_train5",
+                title="AtomicSkillGraph v3.2 R7 Look-at Targeted Train-5",
+            )
+
+        eval_root = output / "eval"
+        eval_config = copy.deepcopy(config)
+        eval_config["data_dir"] = str(frozen_dir)
+        eval_config["trace_data_dir"] = str(eval_root)
+        eval_config["cold_start"] = {
+            **dict(eval_config.get("cold_start") or {}),
+            "enabled": False,
+        }
+        eval_config["extraction"] = {
+            **dict(eval_config.get("extraction") or {}),
+            "extract_full_dynamic_success": False,
+            "extract_task_rescue_success": False,
+            "extract_novel_seeded_success": False,
+        }
+        eval_config["harness"] = {
+            **dict(eval_config.get("harness") or {}),
+            "split": "eval_out_of_distribution",
+        }
+        eval_experiment = dict(eval_config.get("experiment") or {})
+        eval_experiment.pop("initialize_v3_bank", None)
+        eval_experiment.update({
+            "name": f"r7_look_targeted_eval_{stamp}",
+            "phase": "smoke",
+            "condition": "full",
+            "runtime_mode": "frozen",
+            "freeze_skills": True,
+            "allow_long_term_knowledge_writes": False,
+            "output_dir": str(eval_root),
+        })
+        eval_config["experiment"] = eval_experiment
+
+        eval_traces: list[object] = []
+        with AtomicSkillGraphSystem(eval_config) as system:
+            configuration_checks["frozen_system_readonly"] = bool(
+                system.readonly and system.database.readonly
+            )
+            preflight = system.preflight(
+                require_api_key=True,
+                initialize_harness=True,
+            )
+            configuration_checks.update({
+                "eval_preflight_passed": preflight.get("passed") is True,
+                "eval_split_valid_unseen": (
+                    str(system.harness.split) == "eval_out_of_distribution"
+                ),
+            })
+            digests["frozen_before_eval"] = system.knowledge_digest()
+            freeze_manifest_path = frozen_dir / "freeze_manifest.json"
+            freeze_manifest = json.loads(
+                freeze_manifest_path.read_text(encoding="utf-8")
+            )
+            configuration_checks["freeze_manifest_digest_match"] = (
+                str(freeze_manifest.get("knowledge_digest", ""))
+                == digests["frozen_before_eval"]
+            )
+            if not all(configuration_checks.values()):
+                raise RuntimeError("R7 targeted frozen configuration gate failed")
+
+            tasks = system.harness.load_balanced_tasks(
+                [_R7_LOOK_TASK_TYPE], _R7_LOOK_TASK_COUNT,
+            )
+            _require_r7_selected_tasks(tasks, split="valid_unseen")
+            train_signatures = {
+                str(item.get("task_signature", "")) for item in train_records
+            }
+            if train_signatures & {task_signature(task) for task in tasks}:
+                raise RuntimeError("R7 targeted train/eval signatures overlap")
+            _write_r7_task_manifest(
+                output / "eval_task_manifest.json",
+                tasks,
+                split=str(system.harness.split),
+                milestone=f"frozen:{digests['frozen_before_eval']}",
+            )
+            for task in tasks:
+                trace = system.run_task(task)
+                eval_traces.append(trace)
+                eval_records.append(_r7_eval_record(trace, task))
+                if trace.infrastructure_failure:
+                    raise RuntimeError(
+                        f"infrastructure failure at targeted eval task {task.task_id}"
+                    )
+                if system.knowledge_digest() != digests["frozen_before_eval"]:
+                    raise RuntimeError("R7 targeted frozen task changed knowledge")
+            digests["frozen_after_eval"] = system.knowledge_digest()
+            persisted_eval = list(system.traces.iter_payloads())
+            validate_formal_usage(persisted_eval)
+            validate_usage_event_persistence(system.usage.events, persisted_eval)
+            write_reports(
+                eval_traces,
+                eval_root / "reports",
+                stem="r7_look_targeted_eval5",
+                title="AtomicSkillGraph v3.2 R7 Look-at Targeted Held-out-5",
+            )
+    except Exception as exc:
+        error = exc
+
+    audit = _r7_look_targeted_audit(
+        configuration_checks=configuration_checks,
+        train_records=train_records,
+        composite_records=composite_records,
+        eval_records=eval_records,
+        final_maintenance_pending_count=pending_count,
+        digests=digests,
+    )
+    result = {
+        **audit,
+        "gate": "r7_look_targeted_full_chain",
+        "output_dir": str(output),
+        "train_task_manifest": str(output / "train_task_manifest.json"),
+        "eval_task_manifest": str(output / "eval_task_manifest.json"),
+        "frozen_snapshot": str(output / "frozen" / "data_v3"),
+        "configuration_checks": configuration_checks,
+        "composite_records": composite_records,
+    }
+    if error is not None:
+        result.update({
+            "passed": False,
+            "error_type": type(error).__name__,
+            "error_code": str(getattr(error, "code", "")),
+            "error": str(error),
+        })
+    atomic_write_json(result_path, result)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["passed"] else 1
+
+
 def run_real_alfworld(config_path: str | Path) -> int:
     config_path = _path(config_path)
     config = copy.deepcopy(load_config(config_path))
@@ -1440,6 +2003,7 @@ def main(argv: list[str] | None = None) -> int:
     modes.add_argument("--deterministic", action="store_true")
     modes.add_argument("--real-alfworld", action="store_true")
     modes.add_argument("--look-at-authority", action="store_true")
+    modes.add_argument("--r7-look-targeted", action="store_true")
     modes.add_argument("--failure-extractor", action="store_true")
     parser.add_argument("--config", default="configs/default.yaml")
     args = parser.parse_args(argv)
@@ -1453,6 +2017,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_failure_extractor_smoke(args.config)
     if args.look_at_authority:
         return run_look_at_authority_smoke(args.config)
+    if args.r7_look_targeted:
+        return run_r7_look_targeted(args.config)
     return run_real_alfworld(args.config)
 
 
