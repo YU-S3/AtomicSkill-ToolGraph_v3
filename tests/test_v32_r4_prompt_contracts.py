@@ -173,6 +173,43 @@ def test_extractor_e1_contains_only_the_frozen_boundary_replacements() -> None:
     assert "preconditions:\n- may be empty;" not in instruction
 
 
+def test_r7_b1_extractor_explains_code_owned_semantic_aliases() -> None:
+    prompt = ContextBuilder().extractor_e1(canonical_trace={"actions": []})
+    instruction = prompt.split(_POLICY_SEPARATOR, 1)[0]
+
+    assert "code-owned semantic_alias" in instruction
+    assert "copying its role, value, and authority_ref exactly" in instruction
+    assert "Never invent an alias" in instruction
+    assert "rename an action_argument authority yourself" in instruction
+
+
+def test_r7_b2_extractor_requires_predicate_role_closure() -> None:
+    prompt = ContextBuilder().extractor_e1(canonical_trace={"actions": []})
+    instruction = prompt.split(_POLICY_SEPARATOR, 1)[0]
+
+    assert (
+        "every episode concrete identity referenced by a precondition"
+    ) in instruction
+    assert (
+        "represented by one declared input role with a supplied input authority"
+    ) in instruction
+    assert (
+        "every non-fresh episode concrete identity referenced by an Effect"
+    ) in instruction
+
+
+def test_r7_b3_extractor_forbids_reclassifying_input_as_fresh_output() -> None:
+    prompt = ContextBuilder().extractor_e1(canonical_trace={"actions": []})
+    instruction = prompt.split(_POLICY_SEPARATOR, 1)[0]
+
+    assert (
+        "do not reclassify that existing identity as a fresh output"
+    ) in instruction
+    assert (
+        "distinct concrete identities happen to use the same primitive argument"
+    ) in instruction
+
+
 def test_r4_schema_changes_are_descriptive_not_structural() -> None:
     assert BINDING_EXPRESSION_SCHEMA["properties"]["kind"]["enum"] == [
         "skill_input",

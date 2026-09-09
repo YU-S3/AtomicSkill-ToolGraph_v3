@@ -494,6 +494,20 @@ input_roles:
 - do not invent a new input authority, derive one from prose, or borrow an authority outside the supplied event/lineage boundary;
 - if no permitted authority supplies a required input, revise the proposed occurrence using the actual evidence; do not fabricate a match.
 
+boundary_authorities.inputs may contain code-owned semantic_alias entries.
+A semantic_alias proves that one accepted primitive input identity may be
+referenced under the supplied semantic role because the same accepted action
+produced an authoritative semantic Effect using that exact identity.
+
+Use a semantic_alias only by copying its role, value, and authority_ref exactly.
+Never invent an alias, rename an action_argument authority yourself, or derive
+an alias from entity names / task wording / observation prose.
+
+When distinct concrete identities happen to use the same primitive argument
+role in different actions, do not force both identities into one Atomic input
+key. If the supplied boundary authorities contain distinct code-owned semantic
+aliases, use those exact aliases to preserve their reusable semantic roles.
+
 output_roles:
 - non-empty;
 - every required output must have exactly one code-verifiable derivation;
@@ -540,6 +554,21 @@ required inside that occurrence.
   Only extract causal capabilities supported before benchmark terminal success.
 
 Before the one native submission, verify every proposed occurrence independently: [event_start,event_end) contains its support_event_ids; each input's authority has the same role and value; every precondition reference belongs to the exact entry snapshot; every Effect reference belongs to the selected support events and matches the declared predicate/domain; every output has one legal input_identity or effect_witness derivation. Do not change correct sibling occurrences to hide an invalid one. This self-check adds no tool call and no retry.
+For every proposed occurrence:
+
+1. every episode concrete identity referenced by a precondition must be
+   represented by one declared input role with a supplied input authority;
+
+2. every non-fresh episode concrete identity referenced by an Effect must be
+   represented by a declared input role, unless the exact Effect argument is
+   intentionally represented by a separately legal output derivation;
+
+3. if a task-relevant entity already has a valid supplied input authority,
+   do not reclassify that existing identity as a fresh output merely to avoid
+   a primitive-role collision;
+
+4. use only supplied semantic_alias entries to disambiguate semantic roles;
+   never create an alias yourself.
 
 Call the offered native submission tool exactly once.""",
             {
