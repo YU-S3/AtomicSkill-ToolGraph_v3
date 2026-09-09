@@ -52,6 +52,9 @@ def _audit_inputs() -> dict[str, object]:
             "task_type": "look_at_obj_in_light",
             "trace_id": f"eval-trace-{index}",
             "benchmark_success": True,
+            "graph_self_sufficient_success": index == 0,
+            "task_rescue_required": False,
+            "task_contract_success": True,
             "infrastructure_failure": False,
             "resource_usage_complete": True,
             "runtime_source": "stored_composite" if index == 0 else "full_dynamic",
@@ -113,6 +116,7 @@ def test_r7_targeted_audit_accepts_one_continuous_authority_chain() -> None:
         "candidate_composite",
         "unrelated_composite_trace",
         "no_stored_composite",
+        "stored_composite_rescued_dynamically",
         "overlapping_signature",
         "pending_maintenance",
         "changed_frozen_digest",
@@ -136,6 +140,12 @@ def test_r7_targeted_audit_fails_closed_when_chain_breaks(
         inputs["eval_records"][0].update({
             "runtime_source": "full_dynamic",
             "source_composite_ref": "",
+        })
+    elif mutation == "stored_composite_rescued_dynamically":
+        inputs["eval_records"][0].update({
+            "benchmark_success": True,
+            "graph_self_sufficient_success": False,
+            "task_rescue_required": True,
         })
     elif mutation == "overlapping_signature":
         inputs["eval_records"][0]["task_signature"] = (

@@ -1348,6 +1348,8 @@ def _r7_look_targeted_audit(
         if str(item.get("runtime_source", "")) == "stored_composite"
         and str(item.get("source_composite_ref", "")) in chain_composite_refs
         and item.get("benchmark_success") is True
+        and item.get("graph_self_sufficient_success") is True
+        and item.get("task_rescue_required") is False
     ]
     digest_values = [
         str(digests.get(name, ""))
@@ -1511,6 +1513,15 @@ def _r7_eval_record(trace: object, task: object) -> dict[str, Any]:
         "task_type": str(getattr(task, "task_type", "")),
         "trace_id": str(getattr(trace, "trace_id", "")),
         "benchmark_success": getattr(trace, "benchmark_success", False) is True,
+        "graph_self_sufficient_success": (
+            getattr(trace, "graph_self_sufficient_success", False) is True
+        ),
+        "task_rescue_required": (
+            getattr(trace, "task_rescue_required", True) is True
+        ),
+        "task_contract_success": (
+            getattr(trace, "task_contract_success", False) is True
+        ),
         "infrastructure_failure": (
             getattr(trace, "infrastructure_failure", True) is True
         ),
