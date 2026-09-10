@@ -796,6 +796,159 @@ def artifact_audit_snapshot(database: Any) -> dict[str, Any]:
     return snapshot
 
 
+def active_composite_frozen_closure_audit(
+    database: Any,
+    skill_registry: Any,
+) -> dict[str, Any]:
+    """Audit whether every Active Composite is deployable in Frozen mode.
+
+    The artifact registry and code-owned ``CONTAINS`` graph are the only
+    authorities used here. Composite prose is deliberately ignored. The
+    artifact payload is read solely to enumerate its runtime occurrence refs,
+    which makes a missing structural relation fail closed.
+    """
+
+    connection = getattr(database, "connection", database)
+    active_rows = connection.execute(
+        "SELECT artifact_ref FROM artifact_index "
+        "WHERE artifact_kind='composite' AND status='active' "
+        "ORDER BY artifact_ref"
+    ).fetchall()
+    composite_audits: list[dict[str, Any]] = []
+    violations: list[dict[str, str]] = []
+    child_occurrence_count = 0
+    unique_child_refs: set[str] = set()
+
+    for row in active_rows:
+        composite_ref = str(row["artifact_ref"])
+        try:
+            composite = skill_registry.get_composite(composite_ref)
+            occurrence_child_refs = tuple(
+                str(occurrence.node_ref) for occurrence in composite.occurrences
+            )
+        except Exception as exc:
+            violation = {
+                "composite_ref": composite_ref,
+                "child_ref": "",
+                "reason": "active_composite_payload_unreadable",
+                "error_type": type(exc).__name__,
+            }
+            violations.append(violation)
+            composite_audits.append({
+                "composite_ref": composite_ref,
+                "runtime_child_refs": [],
+                "passed": False,
+                "violations": [violation],
+            })
+            continue
+
+        child_occurrence_count += len(occurrence_child_refs)
+        expected_child_refs = tuple(sorted(set(occurrence_child_refs)))
+        unique_child_refs.update(expected_child_refs)
+        related_child_refs = {
+            str(edge["target_ref"])
+            for edge in connection.execute(
+                "SELECT target_ref FROM graph_edges "
+                "WHERE source_ref=? AND relation='contains' ORDER BY target_ref",
+                (composite_ref,),
+            ).fetchall()
+        }
+        composite_violations: list[dict[str, str]] = []
+        for child_ref in expected_child_refs:
+            if child_ref not in related_child_refs:
+                composite_violations.append({
+                    "composite_ref": composite_ref,
+                    "child_ref": child_ref,
+                    "reason": "missing_contains_relation",
+                    "error_type": "",
+                })
+            child_row = connection.execute(
+                "SELECT artifact_kind,status FROM artifact_index WHERE artifact_ref=?",
+                (child_ref,),
+            ).fetchone()
+            if child_row is None:
+                composite_violations.append({
+                    "composite_ref": composite_ref,
+                    "child_ref": child_ref,
+                    "reason": "missing_child_artifact",
+                    "error_type": "",
+                })
+            elif str(child_row["artifact_kind"]) != "atomic":
+                composite_violations.append({
+                    "composite_ref": composite_ref,
+                    "child_ref": child_ref,
+                    "reason": "runtime_child_is_not_atomic",
+                    "error_type": "",
+                })
+            elif str(child_row["status"]) != "active":
+                composite_violations.append({
+                    "composite_ref": composite_ref,
+                    "child_ref": child_ref,
+                    "reason": "child_atomic_not_frozen_usable",
+                    "error_type": "",
+                })
+        violations.extend(composite_violations)
+        composite_audits.append({
+            "composite_ref": composite_ref,
+            "runtime_child_refs": list(expected_child_refs),
+            "passed": not composite_violations,
+            "violations": composite_violations,
+        })
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "active_composite_frozen_closure_passed": not violations,
+        "active_composite_count": len(active_rows),
+        "runtime_child_occurrence_count": child_occurrence_count,
+        "runtime_child_atomic_count": len(unique_child_refs),
+        "composites": composite_audits,
+        "violations": violations,
+    }
+
+
+def require_active_composite_frozen_closure(
+    database: Any,
+    skill_registry: Any,
+) -> dict[str, Any]:
+    """Fail closed before publishing a non-deployable formal snapshot."""
+
+    audit = active_composite_frozen_closure_audit(database, skill_registry)
+    if audit["active_composite_frozen_closure_passed"] is not True:
+        raise ProtocolError(
+            "active Composite Frozen dependency closure failed: "
+            + _canonical_json(audit["violations"])
+        )
+    return audit
+
+
+def write_run_observability(
+    path: str | Path,
+    *,
+    run_id: str,
+    run_started_at: str,
+    run_ended_at: str,
+    run_elapsed_seconds: float,
+) -> Path:
+    """Persist runner wall-clock metadata without mutating its manifest."""
+
+    if not _RUN_ID.fullmatch(run_id):
+        raise ValueError(f"unsafe or invalid run_id: {run_id!r}")
+    if not run_started_at.strip() or not run_ended_at.strip():
+        raise ValueError("run timing timestamps must be non-empty")
+    elapsed = float(run_elapsed_seconds)
+    if not math.isfinite(elapsed) or elapsed < 0:
+        raise ValueError("run_elapsed_seconds must be finite and non-negative")
+    target = Path(path)
+    _atomic_write_json(target, {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": run_id,
+        "run_started_at": run_started_at,
+        "run_ended_at": run_ended_at,
+        "run_elapsed_seconds": elapsed,
+    })
+    return target
+
+
 def artifact_growth_audit(
     before: Mapping[str, Any], after: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -2354,6 +2507,7 @@ __all__ = [
     "AttemptTraceLedger",
     "AttemptTraceRef",
     "audit_failed_attempt",
+    "active_composite_frozen_closure_audit",
     "artifact_audit_snapshot",
     "artifact_growth_audit",
     "load_task_report_traces",
@@ -2378,10 +2532,12 @@ __all__ = [
     "ensure_task_manifest",
     "formal_reasoning_effort_audit",
     "knowledge_digest",
+    "require_active_composite_frozen_closure",
     "sha256_json",
     "sanitize_error_text",
     "task_signature",
     "validate_deepseek_formal_llm",
     "validate_distinct_formal_tasks",
     "write_failure_receipt",
+    "write_run_observability",
 ]

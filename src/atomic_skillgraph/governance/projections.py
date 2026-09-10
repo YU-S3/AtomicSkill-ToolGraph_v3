@@ -107,6 +107,10 @@ class ArtifactStats:
         )
 
     @property
+    def independent_selected_task_count(self) -> int:
+        return len(self.event_task_ids.get(EvidenceEventType.SELECTED.value, ()))
+
+    @property
     def direct_success_count(self) -> int:
         return self.event_count(EvidenceEventType.DIRECT_SUCCESS)
 

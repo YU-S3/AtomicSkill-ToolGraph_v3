@@ -174,6 +174,29 @@ class RuntimeOrchestrator:
             token_limits=dict(config.get("token_limits", {})), turn_limits=dict(config.get("turn_limits", {})),
         )
 
+    def _reconcile_terminal_current_atomic(
+        self,
+        occurrence: RuntimeOccurrence,
+        ctx: TaskRuntimeContext,
+        *,
+        mode: str,
+    ) -> Any | None:
+        """Validate the current Atomic once more before a terminal skip.
+
+        This is deliberately only a deterministic state reconciliation.  The
+        delegated NodeExecutor path retains Atomic-effect and RepeatBlock
+        authority and cannot issue an Agent, environment, or Tool action.
+        """
+
+        if not _task_terminal(ctx):
+            return None
+        return self.node_executor._complete_from_current_effect(
+            occurrence,
+            ctx,
+            mode=mode,
+            preferred_values=[],
+        )
+
     def create_trace_builder(self, task: HarnessTask, *, attempt_id: str = "") -> TraceBuilder:
         """Create the immutable-at-finalization skeleton before Planner/API work."""
 
@@ -358,16 +381,29 @@ class RuntimeOrchestrator:
                 node.direct_result = to_primitive(direct)
                 final = direct
                 if _task_terminal(ctx) and not direct.atomic_effect_passed:
-                    node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
-                    trace = ctx.trace_builder.trace
-                    trace.metadata.setdefault("task_terminal", {})
-                    trace.metadata["task_terminal"].update({
-                        "during": "direct",
-                        "origin": ctx.terminal_origin,
-                        "revision": ctx.terminal_revision,
-                    })
-                    self._mark_remaining_terminal(ctx, index + 1)
-                    break
+                    reconciled = (
+                        self._reconcile_terminal_current_atomic(
+                            occurrence,
+                            ctx,
+                            mode="preparation",
+                        )
+                        if not direct.started
+                        else None
+                    )
+                    if reconciled is None:
+                        node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+                        trace = ctx.trace_builder.trace
+                        trace.metadata.setdefault("task_terminal", {})
+                        trace.metadata["task_terminal"].update({
+                            "during": "direct",
+                            "origin": ctx.terminal_origin,
+                            "revision": ctx.terminal_revision,
+                        })
+                        self._mark_remaining_terminal(ctx, index + 1)
+                        break
+                    direct = reconciled
+                    node.direct_result = to_primitive(direct)
+                    final = direct
                 if not direct.atomic_effect_passed:
                     if direct.failure_code == "runtime_plan_conflict":
                         node.status = direct.node_status
@@ -395,9 +431,18 @@ class RuntimeOrchestrator:
                     node.seeded_result = to_primitive(seeded)
                     final = seeded
                     if _task_terminal(ctx) and not seeded.atomic_effect_passed:
-                        node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
-                        self._mark_remaining_terminal(ctx, index + 1)
-                        break
+                        reconciled = self._reconcile_terminal_current_atomic(
+                            occurrence,
+                            ctx,
+                            mode="seeded",
+                        )
+                        if reconciled is None:
+                            node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+                            self._mark_remaining_terminal(ctx, index + 1)
+                            break
+                        seeded = reconciled
+                        node.seeded_result = to_primitive(seeded)
+                        final = seeded
                     if not seeded.atomic_effect_passed:
                         node.status = NodeExecutionStatus.SEEDED_FAILED
                         node.failure = {
@@ -802,8 +847,21 @@ class RuntimeOrchestrator:
         node.direct_result = to_primitive(direct)
         final = direct
         if _task_terminal(ctx) and not direct.atomic_effect_passed:
-            node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
-            return False, "benchmark_terminal", "goal_terminal"
+            reconciled = (
+                self._reconcile_terminal_current_atomic(
+                    occurrence,
+                    ctx,
+                    mode="preparation",
+                )
+                if not direct.started
+                else None
+            )
+            if reconciled is None:
+                node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+                return False, "benchmark_terminal", "goal_terminal"
+            direct = reconciled
+            node.direct_result = to_primitive(direct)
+            final = direct
         if not direct.atomic_effect_passed:
             if direct.failure_code == "runtime_plan_conflict":
                 node.status = direct.node_status
@@ -836,6 +894,18 @@ class RuntimeOrchestrator:
             )
             node.seeded_result = to_primitive(seeded)
             final = seeded
+            if _task_terminal(ctx) and not seeded.atomic_effect_passed:
+                reconciled = self._reconcile_terminal_current_atomic(
+                    occurrence,
+                    ctx,
+                    mode="seeded",
+                )
+                if reconciled is None:
+                    node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+                    return False, "benchmark_terminal", "goal_terminal"
+                seeded = reconciled
+                node.seeded_result = to_primitive(seeded)
+                final = seeded
         if not final.atomic_effect_passed:
             node.status = (
                 NodeExecutionStatus.SEEDED_FAILED

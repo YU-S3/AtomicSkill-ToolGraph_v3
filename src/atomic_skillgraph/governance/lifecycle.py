@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
 
+from ..core.refs import SkillRef
 from ..core.status import (
     RuntimeMode,
     SkillStatus,
@@ -27,6 +30,7 @@ class LifecycleThresholds:
     tool_preferred_reliability_lower_bound: float = 0.50
     tool_preferred_wilson_z: float = 1.96
     composite_active_self_sufficient_successes: int = 2
+    composite_candidate_zero_success_trial_limit: int = 3
 
     atomic_suppress_consecutive_failures: int = 3
     implementation_suppress_consecutive_failures: int = 3
@@ -48,6 +52,16 @@ class LifecycleThresholds:
         for name in integer_names:
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
+        zero_success_limit = self.composite_candidate_zero_success_trial_limit
+        if (
+            isinstance(zero_success_limit, bool)
+            or not isinstance(zero_success_limit, int)
+            or zero_success_limit <= 0
+        ):
+            raise ValueError(
+                "composite_candidate_zero_success_trial_limit must be a "
+                "positive integer"
+            )
         if self.tool_candidate_max_intrinsic_failures < 0:
             raise ValueError("tool_candidate_max_intrinsic_failures must be non-negative")
         if not 0.0 <= self.tool_preferred_reliability_lower_bound <= 1.0:
@@ -261,16 +275,26 @@ class LifecyclePolicy:
                 )
             return _keep(ref, "composite", status, "active_evidence_stable")
         if status is SkillStatus.CANDIDATE:
-            if (
-                stats.independent_self_sufficient_success_count
-                >= self.thresholds.composite_active_self_sufficient_successes
-            ):
+            successes = stats.independent_self_sufficient_success_count
+            if successes >= self.thresholds.composite_active_self_sufficient_successes:
                 return _move(
                     ref,
                     "composite",
                     status,
                     SkillStatus.ACTIVE,
                     "independent_graph_self_sufficient_successes",
+                )
+            if (
+                successes == 0
+                and stats.independent_selected_task_count
+                >= self.thresholds.composite_candidate_zero_success_trial_limit
+            ):
+                return _move(
+                    ref,
+                    "composite",
+                    status,
+                    SkillStatus.SUPPRESSED,
+                    "candidate_zero_success_after_independent_trials",
                 )
             return _keep(ref, "composite", status, "needs_self_sufficient_successes")
         if status in {SkillStatus.DRAFT, SkillStatus.SHADOW} and stats.validated_count:
@@ -342,8 +366,8 @@ class LifecycleController:
                     raise KeyError(artifact_ref)
                 rows.append(row)
 
-        decisions: list[LifecycleDecision] = []
-        logical_ids: set[str] = set()
+        raw_decisions: list[LifecycleDecision] = []
+        logical_id_by_ref: dict[str, str] = {}
         for row in rows:
             stats = self.projection.stats(row["artifact_ref"], row["artifact_kind"])
             decision = self.policy.review(
@@ -352,9 +376,35 @@ class LifecycleController:
                 str(row["status"]),
                 stats,
             )
+            raw_decisions.append(decision)
+            logical_id_by_ref[decision.artifact_ref] = str(row["logical_id"])
+
+        projected_statuses = {
+            decision.artifact_ref: decision.next_status
+            for decision in raw_decisions
+        }
+        decisions: list[LifecycleDecision] = []
+        logical_ids: set[str] = set()
+        for decision in raw_decisions:
+            if (
+                decision.artifact_kind == "composite"
+                and decision.current_status == SkillStatus.CANDIDATE.value
+                and decision.next_status == SkillStatus.ACTIVE.value
+            ):
+                closure_passed, _ = self._composite_frozen_closure(
+                    decision.artifact_ref,
+                    projected_statuses=projected_statuses,
+                )
+                if not closure_passed:
+                    decision = _keep(
+                        decision.artifact_ref,
+                        "composite",
+                        SkillStatus.CANDIDATE,
+                        "awaiting_frozen_child_closure",
+                    )
             decisions.append(decision)
             if decision.changed:
-                logical_ids.add(str(row["logical_id"]))
+                logical_ids.add(logical_id_by_ref[decision.artifact_ref])
 
         if logical_ids:
             with self.database.transaction() as connection:
@@ -373,6 +423,71 @@ class LifecycleController:
                     self._refresh_recommended(connection, logical_id)
 
         return LifecycleReviewResult(len(rows), tuple(decisions))
+
+    def _composite_frozen_closure(
+        self,
+        composite_ref: str,
+        *,
+        projected_statuses: dict[str, str] | None = None,
+    ) -> tuple[bool, tuple[str, ...]]:
+        """Return whether every declared child has an Active CONTAINS edge.
+
+        The immutable Composite occurrence list is the child authority.  Graph
+        relations must cover every referenced child, and every covered child
+        must exist as an Active Atomic.  A child that is Active now but is
+        projected to leave Active in this review batch also blocks promotion.
+        Candidate children projected to become Active still wait until the
+        next review, when that status is committed.  Missing or malformed
+        registry state is fail-closed rather than treated as an empty closure.
+        """
+
+        composite_row = self.database.execute(
+            "SELECT artifact_kind,file_path FROM artifact_index WHERE artifact_ref=?",
+            (composite_ref,),
+        ).fetchone()
+        if composite_row is None or str(composite_row["artifact_kind"]) != "composite":
+            return False, ()
+        try:
+            payload = json.loads(Path(str(composite_row["file_path"])).read_text("utf-8"))
+            occurrences = payload["occurrences"]
+            if not isinstance(occurrences, list):
+                return False, ()
+            child_refs: set[str] = set()
+            for occurrence in occurrences:
+                if not isinstance(occurrence, dict) or "node_ref" not in occurrence:
+                    return False, tuple(sorted(child_refs))
+                child_refs.add(_serialized_skill_ref(occurrence["node_ref"]))
+        except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            return False, ()
+
+        contains_refs = {
+            str(row["target_ref"])
+            for row in self.database.rows(
+                "SELECT target_ref FROM graph_edges "
+                "WHERE source_ref=? AND relation='contains'",
+                (composite_ref,),
+            )
+        }
+        blocked = set(child_refs - contains_refs)
+        if child_refs:
+            placeholders = ",".join("?" for _ in child_refs)
+            rows = self.database.rows(
+                "SELECT artifact_ref,artifact_kind,status FROM artifact_index "
+                f"WHERE artifact_ref IN ({placeholders})",
+                tuple(sorted(child_refs)),
+            )
+            frozen_usable = {
+                str(row["artifact_ref"])
+                for row in rows
+                if str(row["artifact_kind"]) == "atomic"
+                and str(row["status"]) == SkillStatus.ACTIVE.value
+                and (
+                    projected_statuses or {}
+                ).get(str(row["artifact_ref"]), str(row["status"]))
+                == SkillStatus.ACTIVE.value
+            }
+            blocked.update(child_refs - frozen_usable)
+        return not blocked, tuple(sorted(blocked))
 
     @staticmethod
     def _refresh_recommended(connection: object, logical_id: str) -> None:
@@ -479,6 +594,12 @@ def _move(ref: str, kind: str, current: object, target: object, reason: str) -> 
         str(getattr(target, "value", target)),
         reason,
     )
+
+
+def _serialized_skill_ref(value: object) -> str:
+    if isinstance(value, dict):
+        return str(SkillRef.from_dict(value))
+    return str(SkillRef.parse(str(value)))
 
 
 def _version_key(version: str) -> tuple[int, int, int, int, str]:

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from atomic_skillgraph.core.contracts import (
+    AbstractAtomicSkill,
     CompositeOccurrence,
     CompositeSkill,
     TaskContract,
@@ -63,6 +64,19 @@ def _credit_system(tmp_path) -> tuple[AtomicSkillGraphSystem, StateDatabase]:
     artifacts = ArtifactStore(tmp_path, database)
     skills = SkillRegistry(artifacts, database)
     tools = ToolRegistry(artifacts, database)
+    skills.register_atomic(AbstractAtomicSkill(
+        ref=SkillRef("atomic_terminal_fixture", "1.0.0"),
+        summary="terminal fixture atomic",
+        inputs=[],
+        outputs=[],
+        preconditions=[],
+        effects=[],
+        validator_spec={},
+        failure_modes=[],
+        guideline={},
+        metadata={},
+        status=SkillStatus.ACTIVE,
+    ))
 
     system = object.__new__(AtomicSkillGraphSystem)
     system.database = database
@@ -98,7 +112,20 @@ def _apply_terminal_creation(
         trace,
         SimpleNamespace(task_id="task_creation", context={}),
     )
-    return str(applied["composite_ref"]), trace
+    composite_ref = str(applied["composite_ref"])
+    with system.database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO graph_edges(edge_id,source_ref,target_ref,relation,metadata_json) "
+            "VALUES(?,?,?,?,?)",
+            (
+                "terminal-fixture-contains",
+                composite_ref,
+                "skill://atomic_terminal_fixture@1.0.0",
+                "contains",
+                "{}",
+            ),
+        )
+    return composite_ref, trace
 
 
 def _terminal_runtime_trace(

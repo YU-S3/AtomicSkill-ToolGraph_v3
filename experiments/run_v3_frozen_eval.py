@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 from atomic_skillgraph.knowledge.database import StateDatabase
@@ -27,9 +29,11 @@ from .protocol import (
     hash_config,
     hash_knowledge,
     load_task_report_traces,
+    require_active_composite_frozen_closure,
     task_signature,
     validate_deepseek_formal_llm,
     validate_distinct_formal_tasks,
+    write_run_observability,
 )
 from .report import (
     validate_frozen_v31_guards,
@@ -55,6 +59,11 @@ _R7_FROZEN_EVAL_RUN_SEEDS = {
     "alfworld_frozen_eval_134_r7_seed42": 42,
     "alfworld_frozen_eval_134_r7_seed43": 43,
     "alfworld_frozen_eval_134_r7_seed44": 44,
+}
+_R8_FROZEN_EVAL_RUN_SEEDS = {
+    "alfworld_frozen_eval_134_r8_seed42": 42,
+    "alfworld_frozen_eval_134_r8_seed43": 43,
+    "alfworld_frozen_eval_134_r8_seed44": 44,
 }
 _R7_TRAIN_REFERENCE_ID = "train_120"
 _R7_TRAIN_REFERENCE_PATH = Path("data/baseline_manifests/train_120.json")
@@ -85,6 +94,8 @@ def _frozen_protocol(config: dict[str, Any]) -> tuple[str, int, int, int]:
         return "legacy_frozen60", 42, 10, 60
     if name in _R7_FROZEN_EVAL_RUN_SEEDS:
         return "r7_frozen134", _R7_FROZEN_EVAL_RUN_SEEDS[name], 0, 134
+    if name in _R8_FROZEN_EVAL_RUN_SEEDS:
+        return "r8_frozen134", _R8_FROZEN_EVAL_RUN_SEEDS[name], 0, 134
     raise ProtocolError(
         "experiment.name does not identify an allowed formal frozen protocol"
     )
@@ -94,7 +105,7 @@ def _r7_reference_manifests(
     config: dict[str, Any],
 ) -> tuple[ReferenceManifest, ReferenceManifest] | None:
     protocol, _, _, _ = _frozen_protocol(config)
-    if protocol != "r7_frozen134":
+    if protocol not in {"r7_frozen134", "r8_frozen134"}:
         return None
     selection = dict((config.get("harness") or {}).get("task_selection") or {})
     expected_train_path = _path(_R7_TRAIN_REFERENCE_PATH)
@@ -103,19 +114,19 @@ def _r7_reference_manifests(
     test_path = _path(selection.get("reference_manifest_path", ""))
     if selection.get("train_reference_manifest_id") != _R7_TRAIN_REFERENCE_ID:
         raise ProtocolError(
-            "R7 frozen eval train_reference_manifest_id must be 'train_120'"
+            "fixed Frozen-134 train_reference_manifest_id must be 'train_120'"
         )
     if selection.get("reference_manifest_id") != _R7_TEST_REFERENCE_ID:
         raise ProtocolError(
-            "R7 frozen eval reference_manifest_id must be 'test_ood_full_134'"
+            "fixed Frozen-134 reference_manifest_id must be 'test_ood_full_134'"
         )
     if train_path != expected_train_path:
         raise ProtocolError(
-            "R7 frozen eval train_reference_manifest_path must identify the frozen train_120 manifest"
+            "fixed Frozen-134 train_reference_manifest_path must identify the frozen train_120 manifest"
         )
     if test_path != expected_test_path:
         raise ProtocolError(
-            "R7 frozen eval reference_manifest_path must identify the frozen test_ood_full_134 manifest"
+            "fixed Frozen-134 reference_manifest_path must identify the frozen test_ood_full_134 manifest"
         )
     train = load_formal_reference_manifest(
         train_path, manifest_id=_R7_TRAIN_REFERENCE_ID,
@@ -142,6 +153,7 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
             "legacy_train30_replay": "source-train replay",
             "legacy_frozen60": "held-out eval",
             "r7_frozen134": "R7 fixed-manifest held-out eval",
+            "r8_frozen134": "R8 fixed-manifest held-out eval",
         }[protocol]
         raise ProtocolError(
             f"formal frozen {label} has invalid task count: expected "
@@ -149,7 +161,7 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
         )
     if selection.get("require_exact_count") is not True:
         raise ProtocolError("formal frozen selection must require the exact count")
-    if protocol != "r7_frozen134" and total != len(labels) * per_type:
+    if protocol not in {"r7_frozen134", "r8_frozen134"} and total != len(labels) * per_type:
         raise ProtocolError("legacy formal frozen selection must use the exact balanced count")
     require_disjoint = selection.get("require_disjoint_from_train_manifest")
     if protocol == "legacy_train30_replay":
@@ -173,7 +185,11 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     allowed_run_names = (
         {"alfworld_frozen_train30_replay_b6a82ed"}
         if source_train_replay
-        else _LEGACY_FROZEN_EVAL_RUN_NAMES | frozenset(_R7_FROZEN_EVAL_RUN_SEEDS)
+        else (
+            _LEGACY_FROZEN_EVAL_RUN_NAMES
+            | frozenset(_R7_FROZEN_EVAL_RUN_SEEDS)
+            | frozenset(_R8_FROZEN_EVAL_RUN_SEEDS)
+        )
     )
     expected_split = "train" if source_train_replay else "eval_out_of_distribution"
     expected = {
@@ -207,7 +223,9 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         "harness.max_steps": (harness.get("max_steps"), 100),
         "harness.task_selection.policy": (
             selection.get("policy"),
-            "fixed_manifest" if protocol == "r7_frozen134" else "balanced_fixed_manifest",
+            "fixed_manifest"
+            if protocol in {"r7_frozen134", "r8_frozen134"}
+            else "balanced_fixed_manifest",
         ),
     }
     mismatches = [
@@ -238,16 +256,23 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         mismatches.append("experiment.require_source_code_match must be boolean")
     run_name = str(experiment.get("name", ""))
     source_revision = experiment.get("source_git_revision")
-    if protocol == "r7_frozen134":
-        expected_train_name = f"alfworld_train_full_120_r7_seed{expected_seed}"
+    if protocol in {"r7_frozen134", "r8_frozen134"}:
+        revision = "r8" if protocol == "r8_frozen134" else "r7"
+        expected_train_name = (
+            f"alfworld_train_full_120_{revision}_seed{expected_seed}"
+        )
         if train_dir.name != expected_train_name:
             mismatches.append(
-                f"R7 Frozen-134 seed {expected_seed} must use source {expected_train_name}"
+                f"{revision.upper()} Frozen-134 seed {expected_seed} must use source {expected_train_name}"
             )
         if require_source_code_match is not True:
-            mismatches.append("R7 Frozen-134 must require source code match")
+            mismatches.append(
+                f"{revision.upper()} Frozen-134 must require source code match"
+            )
         if source_revision not in (None, ""):
-            mismatches.append("R7 Frozen-134 must not override source revision")
+            mismatches.append(
+                f"{revision.upper()} Frozen-134 must not override source revision"
+            )
         if lifecycle.get("candidate_exploration_seed") != expected_seed:
             mismatches.append(
                 "lifecycle.candidate_exploration_seed must equal experiment.seed"
@@ -258,15 +283,30 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         }
         for field, relative in reference_paths.items():
             if _path(selection.get(field, "")) != _path(relative):
-                mismatches.append(f"R7 frozen eval {field} differs from frozen protocol")
+                mismatches.append(
+                    f"{revision.upper()} frozen eval {field} differs from frozen protocol"
+                )
         if selection.get("reference_manifest_id") != _R7_TEST_REFERENCE_ID:
             mismatches.append(
-                "R7 frozen eval reference_manifest_id must be 'test_ood_full_134'"
+                f"{revision.upper()} frozen eval reference_manifest_id must be 'test_ood_full_134'"
             )
         if selection.get("train_reference_manifest_id") != _R7_TRAIN_REFERENCE_ID:
             mismatches.append(
-                "R7 frozen eval train_reference_manifest_id must be 'train_120'"
+                f"{revision.upper()} frozen eval train_reference_manifest_id must be 'train_120'"
             )
+        if protocol == "r8_frozen134":
+            zero_success_limit = lifecycle.get(
+                "composite_candidate_zero_success_trial_limit"
+            )
+            if (
+                isinstance(zero_success_limit, bool)
+                or not isinstance(zero_success_limit, int)
+                or zero_success_limit != 3
+            ):
+                mismatches.append(
+                    "R8 lifecycle.composite_candidate_zero_success_trial_limit "
+                    "must be integer 3"
+                )
     elif source_train_replay:
         expected_revision = experiment.get("source_git_revision")
         if expected_revision != "b6a82ed47a2685e69a1fa052f70cd269f63e63c0":
@@ -311,7 +351,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         mismatches.append("experiment.max_task_attempts must be a positive integer")
     if mismatches:
         raise ProtocolError("formal frozen config mismatch: " + "; ".join(mismatches))
-    if protocol == "r7_frozen134":
+    if protocol in {"r7_frozen134", "r8_frozen134"}:
         _r7_reference_manifests(config)
 
 
@@ -327,6 +367,7 @@ def _verify_source_train(
     expected_source_git_revision: str = "",
     reference_train_manifest: ReferenceManifest | None = None,
     expected_experiment_seed: int = 42,
+    require_frozen_closure: bool = False,
 ) -> None:
     """Bind one frozen bank to its completed immutable formal train source."""
     if train_manifest.phase != "train":
@@ -366,7 +407,7 @@ def _verify_source_train(
         for field, expected in expected_reference_metadata.items():
             if metadata.get(field) != expected:
                 raise ProtocolError(
-                    f"source R7 train metadata {field} differs from frozen protocol"
+                    f"source fixed Full-120 train metadata {field} differs from frozen protocol"
                 )
         observed_identity: list[tuple[Any, ...]] = []
         for item in train_manifest.tasks:
@@ -401,11 +442,11 @@ def _verify_source_train(
         ):
             if observed[:4] != expected[:4] or observed[5] != expected[5]:
                 raise ProtocolError(
-                    f"source R7 train task identity differs from reference at index {index}"
+                    f"source fixed Full-120 task identity differs from reference at index {index}"
                 )
             if not observed[4].endswith("/" + expected[4]) and observed[4] != expected[4]:
                 raise ProtocolError(
-                    f"source R7 train game file differs from reference at index {index}"
+                    f"source fixed Full-120 game file differs from reference at index {index}"
                 )
     expected_provenance = {
         "source_run_id": train_manifest.run_id,
@@ -417,6 +458,27 @@ def _verify_source_train(
         "source_final_knowledge_digest": frozen_digest,
         "source_llm_config_hash": str(metadata.get("llm_config_hash", "")),
     }
+    if require_frozen_closure:
+        freeze_provenance = freeze_manifest.get("provenance")
+        if not isinstance(freeze_provenance, dict):
+            raise ProtocolError("R8 frozen snapshot provenance must be an object")
+        closure_audit = freeze_provenance.get(
+            "active_composite_frozen_closure_audit"
+        )
+        if not isinstance(closure_audit, dict):
+            raise ProtocolError(
+                "R8 frozen snapshot lacks its Active Composite closure audit"
+            )
+        if closure_audit.get(
+            "active_composite_frozen_closure_passed"
+        ) is not True:
+            raise ProtocolError(
+                "R8 frozen snapshot declares failed Active Composite closure"
+            )
+        expected_provenance.update({
+            "active_composite_frozen_closure_passed": True,
+            "active_composite_frozen_closure_audit": closure_audit,
+        })
     if freeze_manifest.get("provenance") != expected_provenance:
         raise ProtocolError("frozen snapshot provenance does not match source train manifest")
     if expected_source_git_revision and str(
@@ -495,6 +557,8 @@ def _verify_source_train(
 
 
 def run(config_path: str | Path, *, resume: bool = False) -> int:
+    invocation_started_monotonic = time.monotonic()
+    invocation_started_at = datetime.now(timezone.utc)
     config_path = _path(config_path)
     config = load_config(config_path)
     experiment = dict(config.get("experiment") or {})
@@ -548,6 +612,21 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
         freeze_manifest = json.loads(freeze_manifest_path.read_text(encoding="utf-8"))
         if freeze_manifest.get("knowledge_digest") != digest_before:
             raise ProtocolError("frozen snapshot digest does not match its manifest")
+        if protocol == "r8_frozen134":
+            closure_audit = require_active_composite_frozen_closure(
+                system.database, system.skills,
+            )
+            provenance = freeze_manifest.get("provenance")
+            if not isinstance(provenance, dict):
+                raise ProtocolError("R8 frozen snapshot provenance must be an object")
+            if provenance.get(
+                "active_composite_frozen_closure_passed"
+            ) is not True or provenance.get(
+                "active_composite_frozen_closure_audit"
+            ) != closure_audit:
+                raise ProtocolError(
+                    "R8 frozen snapshot Active Composite closure authority mismatch"
+                )
 
         reference_manifests = _r7_reference_manifests(config)
         if reference_manifests is None:
@@ -576,7 +655,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             }
             if counts != expected_counts:
                 raise ProtocolError(
-                    f"R7 frozen task counts differ from reference manifest: {counts}"
+                    f"fixed Frozen-134 task counts differ from reference manifest: {counts}"
                 )
         validate_distinct_formal_tasks(tasks, expected_total=expected_total)
         task_items = tuple(
@@ -613,6 +692,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             ),
             reference_train_manifest=reference_train_manifest,
             expected_experiment_seed=experiment_seed,
+            require_frozen_closure=(protocol == "r8_frozen134"),
         )
         train_signatures = {item.task_signature for item in train_manifest.tasks}
         if source_train_replay:
@@ -652,6 +732,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                     knowledge_digest=digest_before, tasks=task_items,
                     metadata={
                         "condition": "full", "source_train_run": train_manifest.run_id,
+                        "run_started_at": invocation_started_at.isoformat(),
                         "environment": {"alfworld_version": "0.4.2"},
                         "task_types": labels, "tasks_per_type": per_type,
                         "total_tasks": expected_total,
@@ -683,6 +764,9 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                     },
                 )
                 store.persist_before_run(manifest)
+            run_started_at = str(
+                manifest.metadata.get("run_started_at", manifest.created_at)
+            )
             ensure_task_manifest(
                 _path(experiment.get("task_manifest_path", "")), manifest
             )
@@ -794,8 +878,8 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 "frozen_train30_replay_b6a82ed"
                 if source_train_replay
                 else (
-                    f"frozen_eval_134_r7_seed{experiment_seed}"
-                    if protocol == "r7_frozen134"
+                    f"frozen_eval_134_{'r8' if protocol == 'r8_frozen134' else 'r7'}_seed{experiment_seed}"
+                    if protocol in {"r7_frozen134", "r8_frozen134"}
                     else (
                     "frozen_eval_60"
                     if run_id == "alfworld_frozen_eval_60"
@@ -807,9 +891,10 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 "AtomicSkillGraph v3 ALFWorld Frozen Train-30 Replay (b6a82ed bank)"
                 if source_train_replay
                 else (
-                    f"AtomicSkillGraph v3 ALFWorld Frozen Held-out-134 R7 Eval "
+                    f"AtomicSkillGraph v3 ALFWorld Frozen Held-out-134 "
+                    f"{'R8' if protocol == 'r8_frozen134' else 'R7'} Eval "
                     f"(seed {experiment_seed})"
-                    if protocol == "r7_frozen134"
+                    if protocol in {"r7_frozen134", "r8_frozen134"}
                     else "AtomicSkillGraph v3 ALFWorld Frozen Held-out Eval"
                 )
             )
@@ -821,11 +906,32 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             )
             if system.knowledge_digest() != digest_before:
                 raise ProtocolError("knowledge digest guard failed after report generation")
+            run_ended_at = datetime.now(timezone.utc)
+            if resume:
+                parsed_started_at = datetime.fromisoformat(
+                    run_started_at.replace("Z", "+00:00")
+                )
+                run_elapsed_seconds = max(
+                    0.0, (run_ended_at - parsed_started_at).total_seconds()
+                )
+            else:
+                run_elapsed_seconds = time.monotonic() - invocation_started_monotonic
+            timing_path = write_run_observability(
+                output_dir / "reports" / f"{report_stem}_run.json",
+                run_id=run_id,
+                run_started_at=run_started_at,
+                run_ended_at=run_ended_at.isoformat(),
+                run_elapsed_seconds=run_elapsed_seconds,
+            )
             store.mark_run_state(run_id, RunState.COMPLETED)
             print(json.dumps({
                 "run_id": run_id, "tasks": expected_total,
                 "knowledge_digest_before": digest_before,
                 "knowledge_digest_after": system.knowledge_digest(),
+                "run_started_at": run_started_at,
+                "run_ended_at": run_ended_at.isoformat(),
+                "run_elapsed_seconds": run_elapsed_seconds,
+                "run_observability": str(timing_path),
             }, ensure_ascii=False, indent=2))
         finally:
             state_db.close()

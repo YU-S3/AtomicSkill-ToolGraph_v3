@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from datetime import datetime, timezone
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,10 +32,12 @@ from .protocol import (
     hash_code,
     hash_config,
     load_task_report_traces,
+    require_active_composite_frozen_closure,
     sha256_json,
     task_signature,
     validate_deepseek_formal_llm,
     validate_distinct_formal_tasks,
+    write_run_observability,
 )
 from .report import (
     validate_formal_usage,
@@ -58,6 +62,11 @@ _R7_TRAIN_RUN_SEEDS = {
     "alfworld_train_full_120_r7_seed43": 43,
     "alfworld_train_full_120_r7_seed44": 44,
 }
+_R8_TRAIN_RUN_SEEDS = {
+    "alfworld_train_full_120_r8_seed42": 42,
+    "alfworld_train_full_120_r8_seed43": 43,
+    "alfworld_train_full_120_r8_seed44": 44,
+}
 _R7_TRAIN_REFERENCE_PATH = Path("data/baseline_manifests/train_120.json")
 _R7_TRAIN_REFERENCE_ID = "train_120"
 
@@ -73,6 +82,8 @@ def _train_protocol(config: dict[str, Any]) -> tuple[str, int, int, int]:
         return "legacy_full30", 42, 5, 30
     if name in _R7_TRAIN_RUN_SEEDS:
         return "r7_full120", _R7_TRAIN_RUN_SEEDS[name], 20, 120
+    if name in _R8_TRAIN_RUN_SEEDS:
+        return "r8_full120", _R8_TRAIN_RUN_SEEDS[name], 20, 120
     raise ProtocolError(
         "experiment.name does not identify an allowed formal train protocol"
     )
@@ -82,7 +93,7 @@ def _r7_train_reference_manifest(
     config: dict[str, Any],
 ) -> ReferenceManifest | None:
     protocol, _, _, _ = _train_protocol(config)
-    if protocol != "r7_full120":
+    if protocol not in {"r7_full120", "r8_full120"}:
         return None
     selection = dict((config.get("harness") or {}).get("task_selection") or {})
     manifest_id = str(selection.get("reference_manifest_id", ""))
@@ -90,11 +101,11 @@ def _r7_train_reference_manifest(
     expected_path = _path(_R7_TRAIN_REFERENCE_PATH)
     if manifest_id != _R7_TRAIN_REFERENCE_ID:
         raise ProtocolError(
-            f"R7 train reference_manifest_id must be {_R7_TRAIN_REFERENCE_ID!r}"
+            f"fixed Full-120 train reference_manifest_id must be {_R7_TRAIN_REFERENCE_ID!r}"
         )
     if manifest_path != expected_path:
         raise ProtocolError(
-            "R7 train reference_manifest_path must identify the frozen train_120 manifest"
+            "fixed Full-120 train reference_manifest_path must identify the frozen train_120 manifest"
         )
     return load_formal_reference_manifest(
         manifest_path, manifest_id=_R7_TRAIN_REFERENCE_ID,
@@ -117,7 +128,10 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
         )
     protocol, _, expected_per_type, expected_total = _train_protocol(config)
     if per_type != expected_per_type or total != expected_total:
-        label = "R7 Full-120" if protocol == "r7_full120" else "Full-30"
+        label = (
+            "R8 Full-120" if protocol == "r8_full120" else
+            "R7 Full-120" if protocol == "r7_full120" else "Full-30"
+        )
         raise ProtocolError(
             f"formal {label} train protocol requires six task types × "
             f"{expected_per_type} = {expected_total}"
@@ -201,7 +215,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         for name, (actual, wanted) in expected.items()
         if actual != wanted
     ]
-    if protocol == "r7_full120":
+    if protocol in {"r7_full120", "r8_full120"}:
         if lifecycle.get("candidate_exploration_seed") != expected_seed:
             mismatches.append(
                 "lifecycle.candidate_exploration_seed must equal experiment.seed"
@@ -209,10 +223,23 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         expected_reference_path = _path(_R7_TRAIN_REFERENCE_PATH)
         if _path(selection.get("reference_manifest_path", "")) != expected_reference_path:
             mismatches.append(
-                "R7 train reference_manifest_path must identify data/baseline_manifests/train_120.json"
+                "fixed Full-120 train reference_manifest_path must identify data/baseline_manifests/train_120.json"
             )
         if selection.get("reference_manifest_id") != _R7_TRAIN_REFERENCE_ID:
-            mismatches.append("R7 train reference_manifest_id must be 'train_120'")
+            mismatches.append("fixed Full-120 train reference_manifest_id must be 'train_120'")
+    if protocol == "r8_full120":
+        zero_success_limit = lifecycle.get(
+            "composite_candidate_zero_success_trial_limit"
+        )
+        if (
+            isinstance(zero_success_limit, bool)
+            or not isinstance(zero_success_limit, int)
+            or zero_success_limit != 3
+        ):
+            mismatches.append(
+                "R8 lifecycle.composite_candidate_zero_success_trial_limit "
+                "must be integer 3"
+            )
     if _path(config.get("data_dir", "")) != output_dir / "data_v3":
         mismatches.append("data_dir must be <output_dir>/data_v3")
     if _path(config.get("trace_data_dir", output_dir)) != output_dir:
@@ -232,7 +259,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         mismatches.append("experiment.max_task_attempts must be a positive integer")
     if mismatches:
         raise ProtocolError("formal train config mismatch: " + "; ".join(mismatches))
-    if protocol == "r7_full120":
+    if protocol in {"r7_full120", "r8_full120"}:
         _r7_train_reference_manifest(config)
 
 
@@ -591,6 +618,8 @@ def _run_final_batch_maintenance(
 
 
 def run(config_path: str | Path, *, resume: bool = False) -> int:
+    invocation_started_monotonic = time.monotonic()
+    invocation_started_at = datetime.now(timezone.utc)
     config_path = _path(config_path)
     config = load_config(config_path)
     experiment = dict(config.get("experiment") or {})
@@ -680,7 +709,9 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
         if reference_manifest is not None and Counter(
             task.task_type for task in tasks
         ) != Counter(task.task_type for task in reference_manifest.tasks):
-            raise ProtocolError("selected R7 train family counts differ from reference manifest")
+            raise ProtocolError(
+                "selected fixed Full-120 train family counts differ from reference manifest"
+            )
         validate_distinct_formal_tasks(tasks, expected_total=expected_total)
 
         current_digest = system.knowledge_digest()
@@ -723,6 +754,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 tasks=task_items,
                 metadata={
                     "condition": "full",
+                    "run_started_at": invocation_started_at.isoformat(),
                     "environment": {"alfworld_version": "0.4.2"},
                     "llm_config_hash": hash_config(config.get("llm") or {}),
                     "task_types": task_types,
@@ -751,6 +783,10 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 },
             )
             store.persist_before_run(manifest)
+
+        run_started_at = str(
+            manifest.metadata.get("run_started_at", manifest.created_at)
+        )
 
         _run_initial_artifact_snapshot(manifest)
         ensure_task_manifest(
@@ -938,16 +974,20 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             system.usage.events, resource_traces,
         )
         print(json.dumps({"usage_trace_coverage": usage_coverage}, ensure_ascii=False), flush=True)
-        report_stem = (
-            f"train_full_120_r7_seed{experiment_seed}"
-            if protocol == "r7_full120"
-            else "train_full_30"
-        )
-        report_title = (
-            f"AtomicSkillGraph v3 ALFWorld Full-120 R7 Train (seed {experiment_seed})"
-            if protocol == "r7_full120"
-            else "AtomicSkillGraph v3 ALFWorld Full-30 Train"
-        )
+        report_stem = {
+            "r7_full120": f"train_full_120_r7_seed{experiment_seed}",
+            "r8_full120": f"train_full_120_r8_seed{experiment_seed}",
+        }.get(protocol, "train_full_30")
+        report_title = {
+            "r7_full120": (
+                f"AtomicSkillGraph v3 ALFWorld Full-120 R7 Train "
+                f"(seed {experiment_seed})"
+            ),
+            "r8_full120": (
+                f"AtomicSkillGraph v3 ALFWorld Full-120 R8 Train "
+                f"(seed {experiment_seed})"
+            ),
+        }.get(protocol, "AtomicSkillGraph v3 ALFWorld Full-30 Train")
         write_reports(
             task_traces, output_dir / "reports", stem=report_stem,
             title=report_title,
@@ -959,6 +999,31 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
         frozen_dir = _path(
             experiment.get("frozen_snapshot_dir", "runs/alfworld_train_full_30/frozen/data_v3")
         )
+        closure_audit = (
+            require_active_composite_frozen_closure(
+                system.database, system.skills,
+            )
+            if protocol == "r8_full120"
+            else None
+        )
+        freeze_provenance = {
+            "source_run_id": manifest.run_id,
+            "source_run_manifest_hash": manifest.manifest_hash,
+            "source_config_hash": manifest.config_hash,
+            "source_code_commit": manifest.code_commit,
+            "source_task_manifest_hash": manifest.task_manifest_hash,
+            "source_initial_knowledge_digest": manifest.knowledge_digest,
+            "source_final_knowledge_digest": system.knowledge_digest(),
+            "source_llm_config_hash": str(manifest.metadata.get("llm_config_hash", "")),
+        }
+        if closure_audit is not None:
+            freeze_provenance.update({
+                "active_composite_frozen_closure_passed": True,
+                "active_composite_frozen_closure_audit": closure_audit,
+            })
+            print(json.dumps({
+                "formal_freeze_invariant": closure_audit,
+            }, ensure_ascii=False), flush=True)
         if frozen_dir.exists():
             manifest_path = frozen_dir / "freeze_manifest.json"
             if not resume or not manifest_path.is_file():
@@ -966,36 +1031,37 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             frozen_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if frozen_manifest.get("knowledge_digest") != system.knowledge_digest():
                 raise ProtocolError("existing frozen snapshot does not match completed train knowledge")
-            expected_provenance = {
-                "source_run_id": manifest.run_id,
-                "source_run_manifest_hash": manifest.manifest_hash,
-                "source_config_hash": manifest.config_hash,
-                "source_code_commit": manifest.code_commit,
-                "source_task_manifest_hash": manifest.task_manifest_hash,
-                "source_initial_knowledge_digest": manifest.knowledge_digest,
-                "source_final_knowledge_digest": system.knowledge_digest(),
-                "source_llm_config_hash": str(manifest.metadata.get("llm_config_hash", "")),
-            }
-            if frozen_manifest.get("provenance") != expected_provenance:
+            if frozen_manifest.get("provenance") != freeze_provenance:
                 raise ProtocolError("existing frozen snapshot provenance does not match train run")
         else:
-            final_digest = system.knowledge_digest()
-            system.freeze(frozen_dir, provenance={
-                "source_run_id": manifest.run_id,
-                "source_run_manifest_hash": manifest.manifest_hash,
-                "source_config_hash": manifest.config_hash,
-                "source_code_commit": manifest.code_commit,
-                "source_task_manifest_hash": manifest.task_manifest_hash,
-                "source_initial_knowledge_digest": manifest.knowledge_digest,
-                "source_final_knowledge_digest": final_digest,
-                "source_llm_config_hash": str(manifest.metadata.get("llm_config_hash", "")),
-            })
+            system.freeze(frozen_dir, provenance=freeze_provenance)
+        run_ended_at = datetime.now(timezone.utc)
+        if resume:
+            parsed_started_at = datetime.fromisoformat(
+                run_started_at.replace("Z", "+00:00")
+            )
+            run_elapsed_seconds = max(
+                0.0, (run_ended_at - parsed_started_at).total_seconds()
+            )
+        else:
+            run_elapsed_seconds = time.monotonic() - invocation_started_monotonic
+        timing_path = write_run_observability(
+            output_dir / "reports" / f"{report_stem}_run.json",
+            run_id=run_id,
+            run_started_at=run_started_at,
+            run_ended_at=run_ended_at.isoformat(),
+            run_elapsed_seconds=run_elapsed_seconds,
+        )
         store.mark_run_state(run_id, RunState.COMPLETED)
         print(json.dumps({
             "run_id": run_id,
             "tasks": expected_total,
             "frozen_snapshot": str(frozen_dir),
             "knowledge_digest": system.knowledge_digest(),
+            "run_started_at": run_started_at,
+            "run_ended_at": run_ended_at.isoformat(),
+            "run_elapsed_seconds": run_elapsed_seconds,
+            "run_observability": str(timing_path),
         }, ensure_ascii=False, indent=2))
     return 0
 

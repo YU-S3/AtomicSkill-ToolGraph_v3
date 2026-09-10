@@ -390,6 +390,18 @@ def test_semantic_alias_full_chain_reaches_frozen_stored_composite(
     composite_ref = aligner.align_composite(
         composite, {staged.occurrence_id: atomic_ref},
     )
+    with database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO graph_edges(edge_id,source_ref,target_ref,relation,metadata_json) "
+            "VALUES(?,?,?,?,?)",
+            (
+                "r7-semantic-alias-contains",
+                str(composite_ref),
+                str(atomic_ref),
+                "contains",
+                "{}",
+            ),
+        )
     evolution_events = CreditAssigner().assign_evolution(
         source_trace,
         [atomic_ref],
@@ -433,6 +445,10 @@ def test_semantic_alias_full_chain_reaches_frozen_stored_composite(
         LifecycleController(database, projection).review(refs)
 
     assert skills.get_atomic(atomic_ref).status is SkillStatus.ACTIVE
+    # R8-C intentionally evaluates closure against committed child status.
+    # The child became Active in the preceding review, so the next review can
+    # now promote its parent Composite.
+    LifecycleController(database, projection).review([str(composite_ref)])
     assert skills.get_composite(composite_ref).status is SkillStatus.ACTIVE
 
     frozen_runtime = RuntimeOrchestrator(

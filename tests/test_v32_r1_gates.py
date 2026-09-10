@@ -2291,6 +2291,14 @@ def test_gate26_terminal_empirical_promotion_requires_distinct_tasks() -> None:
         )
         ref = str(candidate.ref)
         skills.register_composite(candidate)
+        child_ref = str(canonical[0].proposed_ref)
+        skills.update_status(child_ref, SkillStatus.ACTIVE)
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO graph_edges(edge_id,source_ref,target_ref,relation,metadata_json) "
+                "VALUES(?,?,?,?,?)",
+                ("gate26-contains", ref, child_ref, "contains", "{}"),
+            )
         assert skills.get_composite(ref).status is SkillStatus.CANDIDATE
         assigner = CreditAssigner()
 
