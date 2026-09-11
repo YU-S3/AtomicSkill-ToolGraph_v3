@@ -163,8 +163,11 @@ class SkillOptTextEpisodeRunner:
         out_dir: str,
         rollout_id: str = "",
     ) -> EpisodeOutcome:
-        """Run one episode.  Target usage is the token-tracker delta across
-        this exact episode (one upstream rollout call per episode)."""
+        """Run one episode and persist usage for this exact execution scope.
+
+        Production usage comes from the episode-scoped provider observer; the
+        injected fixture path retains the SkillOpt token-tracker fallback.
+        """
 
         started = time.time()
         observer = None

@@ -15,6 +15,7 @@ import pytest
 
 pytest.importorskip("skillopt")
 
+from experiments.baselines.b3_skillopt import common_alfworld_adapter as adapter_module
 from experiments.baselines.b3_skillopt import provider_observer as provider_observer_module
 from experiments.baselines.b3_skillopt.common_alfworld_adapter import (
     CommonALFWorldSkillOptAdapter,
@@ -22,6 +23,7 @@ from experiments.baselines.b3_skillopt.common_alfworld_adapter import (
     _reconcile_episode_provider_usage,
 )
 from experiments.baselines.b3_skillopt.episode_runner import (
+    EpisodeOutcome,
     SkillOptTextEpisodeRunner,
     _ExactManifestEnvironment,
     _safe_error,
@@ -31,6 +33,7 @@ from experiments.baselines.b3_skillopt.provider_observer import ProviderCallExha
 from experiments.baselines.b3_skillopt.provider_observer import ObservedProviderFailure
 from experiments.baselines.common.manifest import ManifestTask, TaskManifestSet
 from experiments.baselines.common.schema import CommonEpisodeRecord
+from experiments.baselines.common.usage import RoleUsage
 
 
 
@@ -568,6 +571,94 @@ def test_provider_observer_records_rollout_identity_and_cursor(tmp_path: Path) -
         handle.write("{}\n")
     with pytest.raises(RuntimeError, match="differs from in-memory"):
         observer.events()
+
+
+def test_repeated_logical_rollout_uses_transaction_cursor_and_receipt_call_ids(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Slow-update prev/curr transactions may intentionally share rollout_id."""
+
+    adapter = _adapter(tmp_path)
+    adapter._injected_episode_runner = False
+    observer = ProviderCallObserver(
+        output_path=tmp_path / "provider_calls.jsonl",
+        method="b3_skillopt",
+        phase="train",
+        model="fixture-model",
+        reasoning_effort="high",
+        run_id="run_fixture",
+    )
+    monkeypatch.setattr(
+        adapter_module, "active_provider_observer", lambda: observer,
+    )
+    call_ids: list[str] = []
+
+    class RecordingRunner:
+        def run(self, task, skill_content, out_dir, rollout_id=""):
+            row, conversation = _successful_episode(task, skill_content, out_dir)
+            call_id = f"call_{len(call_ids) + 1}"
+            call_ids.append(call_id)
+            with observer.episode(str(task["task_id"]), rollout_id=rollout_id):
+                observer._record(
+                    call_id=call_id,
+                    logical_call_id=call_id,
+                    role="target",
+                    stage="rollout",
+                    status="succeeded",
+                    prompt_tokens=2,
+                    completion_tokens=1,
+                    total_tokens=3,
+                    reasoning_tokens=0,
+                    reasoning_tokens_status="reported",
+                )
+            return EpisodeOutcome(
+                task=dict(task),
+                skillopt_row=row,
+                conversation=conversation,
+                target_usage=RoleUsage(
+                    calls=1,
+                    prompt_tokens=2,
+                    completion_tokens=1,
+                    reasoning_tokens=0,
+                ),
+                actual_gamefile=str(task["gamefile"]),
+            )
+
+    adapter._episode_runner = RecordingRunner()
+    env = adapter.build_train_env(batch_size=1, seed=7)
+    skill = "# Unchanged slow-update skill\n"
+    slow_update_root = tmp_path / "slow_update" / "epoch_01"
+    previous_out = slow_update_root / "rollout_prev"
+    current_out = slow_update_root / "rollout_curr"
+
+    previous_rows = adapter.rollout(env, skill, str(previous_out))
+    current_rows = adapter.rollout(env, skill, str(current_out))
+    previous_receipt = json.loads(
+        (previous_out / "rollout_receipt.json").read_text(encoding="utf-8")
+    )
+    current_receipt = json.loads(
+        (current_out / "rollout_receipt.json").read_text(encoding="utf-8")
+    )
+
+    assert previous_rows == current_rows
+    assert (
+        previous_receipt["request"]["rollout_id"]
+        == current_receipt["request"]["rollout_id"]
+    )
+    assert previous_receipt["counts"]["provider_calls"] == 1
+    assert current_receipt["counts"]["provider_calls"] == 1
+    assert previous_receipt["provider_event_ids"] == ["call_1"]
+    assert current_receipt["provider_event_ids"] == ["call_2"]
+    assert set(previous_receipt["provider_event_ids"]).isdisjoint(
+        current_receipt["provider_event_ids"]
+    )
+    assert len(observer.events()) == 2
+
+    # Reopening one committed directory must use its receipt's exact call IDs,
+    # not both transactions that share the logical rollout identity.
+    assert adapter.rollout(env, skill, str(current_out)) == current_rows
+    assert call_ids == ["call_1", "call_2"]
 
 
 def test_provider_observer_injects_high_into_actual_sdk_boundary(

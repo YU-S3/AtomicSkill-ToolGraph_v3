@@ -406,14 +406,10 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
         observer = active_provider_observer()
         out_path = Path(out_dir)
         if (out_path / _RECEIPT_NAME).is_file():
-            cached_provider_events = (
-                observer.events_since(0, rollout_id=rollout_id)
-                if observer is not None else []
-            )
             return _load_committed_rollout(
                 out_path,
                 request,
-                provider_events=cached_provider_events,
+                observer=observer,
                 require_provider=not self._injected_episode_runner,
             )
         if (out_path / _FAILURE_NAME).exists():
@@ -497,7 +493,9 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
                 task_provider_events = (
                     [
                         event
-                        for event in observer.events_since(0, rollout_id=rollout_id)
+                        for event in observer.events_since(
+                            provider_cursor, rollout_id=rollout_id,
+                        )
                         if str(event.get("episode_task_id", ""))
                         == str(task.get("task_id", task.get("id", "")))
                     ]
@@ -1369,7 +1367,9 @@ def _provider_evidence_error(
         return None
     if not events:
         return "no provider call events were recorded"
-    expected_ids = {str(task.get("id", "")) for task in tasks}
+    expected_ids = {
+        str(task.get("task_id", task.get("id", ""))) for task in tasks
+    }
     observed_ids = {
         str(event.get("episode_task_id", ""))
         for event in events
@@ -1394,7 +1394,7 @@ def _reconcile_episode_provider_usage(
     required: bool,
     validate_persisted_reasoning: bool,
 ) -> None:
-    """Reconcile per-episode tracker deltas with provider-call evidence.
+    """Reconcile persisted episode usage with execution-scoped provider evidence.
 
     OpenAI-compatible ``completion_tokens`` already includes reasoning tokens;
     the latter is retained as a disaggregated field and is never added to the
@@ -1477,7 +1477,7 @@ def _reconcile_episode_provider_usage(
         ):
             raise RuntimeError(
                 f"episode {episode.task_id!r} provider usage does not reconcile "
-                "with SkillOpt's token tracker delta"
+                "with this transaction's provider-call evidence"
             )
         if episode.environment_actions != calls:
             raise RuntimeError(
@@ -1613,7 +1613,7 @@ def _load_committed_rollout(
     out_path: Path,
     expected_request: dict[str, Any],
     *,
-    provider_events: list[dict[str, Any]],
+    observer: Any | None,
     require_provider: bool,
 ) -> list[dict[str, Any]]:
     failure_path = out_path / _FAILURE_NAME
@@ -1641,6 +1641,11 @@ def _load_committed_rollout(
         raise RuntimeError(
             f"rollout completion receipt identity does not match this request: {out_path}"
         )
+    provider_events = _provider_events_named_by_receipt(
+        observer=observer,
+        receipt=receipt,
+        rollout_id=str(expected_request.get("rollout_id", "")),
+    )
     required_names = (_RESULTS_NAME, _EPISODES_NAME, _ACTIONS_NAME)
     file_hashes = receipt.get("files")
     if not isinstance(file_hashes, dict) or set(file_hashes) != set(required_names):
@@ -1693,6 +1698,49 @@ def _load_committed_rollout(
     ):
         raise RuntimeError("cached SkillOpt conversation hashes do not match receipt")
     return rows
+
+
+def _provider_events_named_by_receipt(
+    *,
+    observer: Any | None,
+    receipt: dict[str, Any],
+    rollout_id: str,
+) -> list[dict[str, Any]]:
+    """Resolve one committed transaction by its immutable call-id inventory.
+
+    SkillOpt's slow update intentionally evaluates the same task set and skill
+    in separate ``rollout_prev`` / ``rollout_curr`` directories.  Those calls
+    therefore have the same logical ``rollout_id``.  The receipt's ordered,
+    unique provider call IDs -- not the non-unique logical rollout ID -- are
+    the authority for replaying one committed transaction.
+    """
+
+    raw_ids = receipt.get("provider_event_ids")
+    if not isinstance(raw_ids, list) or any(
+        not isinstance(call_id, str) or not call_id for call_id in raw_ids
+    ):
+        raise RuntimeError("rollout completion receipt has invalid provider event ids")
+    if len(raw_ids) != len(set(raw_ids)):
+        raise RuntimeError("rollout completion receipt repeats a provider event id")
+    if observer is None:
+        return []
+
+    candidates = observer.events_since(0, rollout_id=rollout_id)
+    by_id: dict[str, dict[str, Any]] = {}
+    for event in candidates:
+        call_id = str(event.get("call_id", ""))
+        if not call_id or call_id in by_id:
+            raise RuntimeError(
+                "provider audit has an empty or duplicate call id for a rollout"
+            )
+        by_id[call_id] = event
+    missing = [call_id for call_id in raw_ids if call_id not in by_id]
+    if missing:
+        raise RuntimeError(
+            "provider audit is missing call ids named by the rollout receipt: "
+            f"{missing[:5]}"
+        )
+    return [by_id[call_id] for call_id in raw_ids]
 
 
 def _validate_action_coverage(
