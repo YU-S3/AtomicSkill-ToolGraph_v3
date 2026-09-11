@@ -10,6 +10,20 @@ from typing import Any, Mapping
 from ..core.bindings import BindingExpression, BindingExprKind
 from ..core.contracts import ParameterSpec, SemanticPredicate
 from ..core.refs import SkillRef, content_hash
+from ..core.semantic_types import semantic_types_compatible
+
+
+class AtomicProposalRejection(ValueError):
+    """One deterministic E1 occurrence rejection with machine-readable detail."""
+
+    def __init__(
+        self,
+        reason: str,
+        detail: Mapping[str, Any],
+    ) -> None:
+        self.reason = str(reason)
+        self.detail = copy.deepcopy(dict(detail))
+        super().__init__(f"{self.reason}: {self.detail!r}")
 
 
 class AtomicProposalBatchRejected(ValueError):
@@ -19,7 +33,7 @@ class AtomicProposalBatchRejected(ValueError):
         self,
         message: str,
         *,
-        rejections: list[dict[str, str]],
+        rejections: list[dict[str, Any]],
     ) -> None:
         super().__init__(message)
         self.rejections = copy.deepcopy(rejections)
@@ -133,6 +147,18 @@ def _semantic_type(role: str, value: Any) -> str:
         "object", "source", "location", "station", "destination",
         "entity", "receptacle", "container", "light", "tool",
     )) else "string"
+
+
+def _exact_identity_equal(left: Any, right: Any) -> bool:
+    """Compare concrete identities without coercion or semantic-family aliases."""
+
+    if type(left) is not type(right):
+        return False
+    try:
+        equal = left == right
+        return equal if isinstance(equal, bool) else bool(equal)
+    except (TypeError, ValueError):
+        return False
 
 
 def _resolve(value: Any, bindings: dict[str, Any]) -> Any:
@@ -771,6 +797,25 @@ def _normalize_output_derivations(
                 "" if require_explicit else derivation.get("type", "")
             )
         ).casefold()
+        output_semantic_type = _semantic_type(output_role, value)
+        matching_input_roles = sorted(
+            role
+            for role, input_value in inputs.items()
+            if output_semantic_type == "entity"
+            and semantic_types_compatible(
+                _semantic_type(role, input_value), output_semantic_type,
+            )
+            and _exact_identity_equal(input_value, value)
+        )
+        if kind == "effect_witness" and matching_input_roles:
+            raise AtomicProposalRejection(
+                "extractor_output_existing_identity_reclassified",
+                {
+                    "output_role": str(output_role),
+                    "matching_input_roles": matching_input_roles,
+                    "submitted_derivation_kind": kind,
+                },
+            )
         if kind == "input_identity":
             allowed_shape = (
                 {"kind", "input_role"}
@@ -889,7 +934,7 @@ class Atomicizer:
         self,
         proposals: list[AtomicOccurrenceProposal],
         normalized_trace: dict[str, Any],
-    ) -> tuple[list[CanonicalAtomicOccurrence], list[dict[str, str]]]:
+    ) -> tuple[list[CanonicalAtomicOccurrence], list[dict[str, Any]]]:
         """Reject invalid Agent proposals without fabricating replacement occurrences.
 
         A semantically invalid exploration proposal must not discard unrelated,
@@ -901,18 +946,25 @@ class Atomicizer:
 
         accepted: list[AtomicOccurrenceProposal] = []
         canonical: list[CanonicalAtomicOccurrence] = []
-        rejections: list[dict[str, str]] = []
+        rejections: list[dict[str, Any]] = []
         for proposal in proposals:
             try:
                 candidate = self.validate_and_canonicalize(
                     [*accepted, proposal], normalized_trace,
                 )
             except ValueError as exc:
-                rejections.append({
+                rejection: dict[str, Any] = {
                     "phase_id": str(proposal.phase_id),
                     "error_type": type(exc).__name__,
                     "error": str(exc),
-                })
+                }
+                reason = str(getattr(exc, "reason", ""))
+                detail = getattr(exc, "detail", None)
+                if reason:
+                    rejection["reason"] = reason
+                if isinstance(detail, Mapping):
+                    rejection["detail"] = copy.deepcopy(dict(detail))
+                rejections.append(rejection)
                 continue
             accepted.append(proposal)
             canonical = candidate
@@ -1072,8 +1124,6 @@ class Atomicizer:
                 raise ValueError("Atomic occurrence requires explicit input roles")
             inputs = dict(proposal.input_roles)
             outputs = dict(proposal.output_roles)
-            if len({repr(value) for value in inputs.values()}) != len(inputs):
-                raise ValueError(f"Atomic input identity is ambiguous: {proposal.phase_id}")
             authorities = _input_authorities(
                 normalized_trace,
                 events,
@@ -1426,7 +1476,14 @@ class Atomicizer:
                         and re.search(r"(?:_|\s)\d+$", value)
                     ):
                         continue
-                    input_owned = input_values.count(value) == 1
+                    # Exact primitive-role ownership remains deterministic even
+                    # when two declared inputs intentionally carry the same
+                    # concrete identity.  Value-only ownership still requires
+                    # uniqueness; no input role is guessed from equality.
+                    input_owned = (
+                        argument in inputs
+                        and _exact_identity_equal(inputs[argument], value)
+                    ) or input_values.count(value) == 1
                     fresh_output_owned = (
                         output_values.count(value) == 1
                         and any(

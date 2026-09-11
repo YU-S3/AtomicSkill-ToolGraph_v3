@@ -122,8 +122,8 @@ def test_all_e1_rejections_preserve_every_reason() -> None:
     proposals = [
         _invalid_proposal("missing_inputs", input_roles={}),
         _invalid_proposal(
-            "ambiguous_inputs",
-            input_roles={"object": "apple_1", "source": "apple_1"},
+            "missing_input_authority",
+            input_roles={"object": "apple_1"},
         ),
     ]
 
@@ -137,9 +137,12 @@ def test_all_e1_rejections_preserve_every_reason() -> None:
             "error": "Atomic occurrence requires explicit input roles",
         },
         {
-            "phase_id": "ambiguous_inputs",
+            "phase_id": "missing_input_authority",
             "error_type": "ValueError",
-            "error": "Atomic input identity is ambiguous: ambiguous_inputs",
+            "error": (
+                "Atomic input lacks code authority: "
+                "missing_input_authority.object"
+            ),
         },
     ]
     assert str(caught.value).endswith(

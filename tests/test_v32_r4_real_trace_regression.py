@@ -76,6 +76,14 @@ def _replay_proposal(fixture: Mapping[str, Any]) -> AtomicOccurrenceProposal:
     ]
     original["event_start"] = int(rebase["replay_event_start"])
     original["event_end"] = int(rebase["replay_event_end"])
+    # The frozen R4 fixture intentionally remains a verbatim historical
+    # submission.  Its placed object is nevertheless the declared ``object``
+    # input, so replay the unrelated ToolBuilder regression through the R9
+    # identity-lineage contract instead of relying on the old misclassification.
+    original["output_derivations"]["placed_object"] = {
+        "kind": "input_identity",
+        "input_role": "object",
+    }
     return AtomicOccurrenceProposal(
         phase_id=str(original["phase_id"]),
         intent=str(original["intent"]),
@@ -191,7 +199,7 @@ def _canonical_occurrence_and_atomic(
     return canonical[0], atomic
 
 
-def _human_authored_control(
+def _historical_r4_control(
     fixture: Mapping[str, Any], *, atomic_ref: str,
 ) -> dict[str, Any]:
     original = dict(fixture["tool_builder_native_submission_original"])
@@ -218,6 +226,16 @@ def _human_authored_control(
     payload["final_effects"][0]["args"]["object"]["source_role"] = (
         "placed_object"
     )
+    return payload
+
+
+def _r9_legal_control(
+    fixture: Mapping[str, Any], *, atomic_ref: str,
+) -> dict[str, Any]:
+    payload = copy.deepcopy(dict(
+        fixture["tool_builder_native_submission_original"]["value"]
+    ))
+    payload["atomic_ref"] = atomic_ref
     return payload
 
 
@@ -295,7 +313,7 @@ def _system_for_replay(
     return system, trace, task, database
 
 
-def test_real_trace_invalid_tool_payload_keeps_its_original_static_error() -> None:
+def test_real_trace_historical_tool_payload_passes_after_r9_lineage_fix() -> None:
     fixture = _load_fixture()
     source = dict(fixture["source"])
     assert source["trace_sha256"] == (
@@ -317,9 +335,8 @@ def test_real_trace_invalid_tool_payload_keeps_its_original_static_error() -> No
         tool_proposal_from_dict(payload), atomic, _FixtureHarness(),
     )
 
-    assert report.passed is False
-    assert report.failure_codes == original["expected_static_failure_codes"]
-    assert "placed_object" in report.messages[0]
+    assert report.passed is True
+    assert report.failure_codes == []
     assert payload == original["value"]
 
 
@@ -329,7 +346,10 @@ def test_real_trace_static_rejection_retains_valid_atomic_with_r4_diagnostics(
 ) -> None:
     fixture = _load_fixture()
     original = dict(fixture["tool_builder_native_submission_original"])
-    payload = copy.deepcopy(dict(original["value"]))
+    payload = _historical_r4_control(
+        fixture,
+        atomic_ref=str(original["value"]["atomic_ref"]),
+    )
     factory = FakeAgentFactory()
     builder_session = factory.new_session(
         "tool_builder",
@@ -375,15 +395,20 @@ def test_real_trace_static_rejection_retains_valid_atomic_with_r4_diagnostics(
     assert metrics["tool_builder_static_rejection_count"] == 1
     assert metrics["atomic_only_prepared_after_tool_rejection_count"] == 1
     assert metrics["atomic_only_retained_after_tool_rejection_count"] == 1
-    assert payload == original["value"]
+    assert original["value"]["final_effects"][0]["args"]["object"][
+        "source_role"
+    ] == "object"
+    assert payload["final_effects"][0]["args"]["object"][
+        "source_role"
+    ] == "placed_object"
     factory.assert_exhausted()
     database.close()
 
 
-def test_human_authored_legal_control_is_labeled_and_passes_static() -> None:
+def test_r9_input_identity_control_is_labeled_and_passes_static() -> None:
     fixture = _load_fixture()
     _occurrence, atomic = _canonical_occurrence_and_atomic(fixture)
-    payload = _human_authored_control(fixture, atomic_ref=str(atomic.ref))
+    payload = _r9_legal_control(fixture, atomic_ref=str(atomic.ref))
 
     validate_schema_instance(payload, TOOL_PROPOSAL_SCHEMA)
     report = ToolStaticValidator().validate_proposal(
@@ -397,4 +422,4 @@ def test_human_authored_legal_control_is_labeled_and_passes_static() -> None:
     ][0]["args"]["object"]["source_role"] == "object"
     assert payload["final_effects"][0]["args"]["object"][
         "source_role"
-    ] == "placed_object"
+    ] == "object"

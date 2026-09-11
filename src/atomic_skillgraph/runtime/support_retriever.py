@@ -8,19 +8,11 @@ benchmark workflow may enter this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable
 
-from ..core.bindings import (
-    BindingExprKind,
-    BindingExpression,
-    resolution_satisfies,
-)
-from ..core.contracts import AbstractAtomicSkill, EffectDomain
+from ..core.contracts import AbstractAtomicSkill
 from ..core.serialization import to_primitive
-from ..core.semantic_types import (
-    normalize_semantic_type,
-    semantic_types_compatible,
-)
+from ..core.support_authority import support_role_authority
 
 
 @dataclass(frozen=True)
@@ -50,45 +42,6 @@ def _predicate_name(value: Any) -> str:
     return str(getattr(value, "predicate", ""))
 
 
-def _referenced_roles(value: Any) -> set[str]:
-    roles: set[str] = set()
-    for raw in dict(getattr(value, "args", {}) or {}).values():
-        expression: BindingExpression | None = None
-        if isinstance(raw, BindingExpression):
-            expression = raw
-        elif isinstance(raw, Mapping) and "kind" in raw:
-            try:
-                expression = BindingExpression.from_dict(dict(raw))
-            except (KeyError, TypeError, ValueError):
-                expression = None
-        if expression is not None:
-            if expression.kind is BindingExprKind.SKILL_INPUT:
-                roles.add(str(expression.source_role))
-            continue
-        if isinstance(raw, str) and raw.startswith("$"):
-            roles.add(raw[1:])
-    return roles
-
-
-def _output_authority(
-    atomic: AbstractAtomicSkill,
-    output_role: str,
-    declared_resolution: str,
-) -> tuple[str, str]:
-    """Return the strongest contract-declared output authority."""
-
-    domains = {
-        str(effect.effect_domain.value)
-        for effect in atomic.effects
-        if output_role in _referenced_roles(effect)
-    }
-    if EffectDomain.EVIDENCE.value in domains:
-        return "relation_verified", EffectDomain.EVIDENCE.value
-    if EffectDomain.WORLD.value in domains:
-        return "concrete", EffectDomain.WORLD.value
-    return str(declared_resolution), ""
-
-
 class SupportAtomicRetriever:
     """Return formal-compatible support candidates, never workflow choices."""
 
@@ -116,47 +69,49 @@ class SupportAtomicRetriever:
                     required = blocked_inputs.get(consumer_role)
                     if required is None:
                         continue
-                    producer_resolution, effect_domain = _output_authority(
+                    authority = support_role_authority(
                         atomic,
                         str(output.name),
-                        str(output.required_resolution),
-                    )
-                    type_compatible = semantic_types_compatible(
-                        required.semantic_type, output.semantic_type,
-                    )
-                    resolution_compatible = resolution_satisfies(
-                        producer_resolution, required.required_resolution,
-                    )
-                    compatible = bool(
-                        type_compatible and resolution_compatible
+                        blocked_atomic,
+                        consumer_role,
                     )
                     diagnostics.append({
                         "producer_role": output.name,
                         "consumer_role": consumer_role,
-                        "compatible": bool(compatible),
-                        "semantic_type_compatible": bool(type_compatible),
-                        "resolution_compatible": bool(
-                            resolution_compatible
+                        "compatible": authority.authorized,
+                        "authority_reason": authority.reason,
+                        "semantic_role_authorized": bool(
+                            authority.semantic_alias_authorized
+                            or authority.relation_verified_exception
                         ),
                         "required_type": required.semantic_type,
                         "offered_type": output.semantic_type,
-                        "producer_resolution": producer_resolution,
-                        "required_resolution": required.required_resolution,
-                        "effect_domain": effect_domain,
+                        "producer_resolution": (
+                            authority.producer_resolution
+                        ),
+                        "required_resolution": (
+                            authority.required_resolution
+                        ),
+                        "effect_domain": authority.effect_domain,
+                        "producer_aliases": list(
+                            authority.producer_aliases
+                        ),
+                        "consumer_aliases": list(
+                            authority.consumer_aliases
+                        ),
+                        "relation_verified_exception": (
+                            authority.relation_verified_exception
+                        ),
                     })
-                    if not compatible:
+                    if not authority.authorized:
                         continue
                     mappings.append(SupportRoleMapping(
                         producer_role=str(output.name),
                         consumer_role=str(consumer_role),
-                        semantic_type=normalize_semantic_type(
-                            output.semantic_type or required.semantic_type,
-                        ),
-                        producer_resolution=producer_resolution,
-                        required_resolution=str(
-                            required.required_resolution
-                        ),
-                        effect_domain=effect_domain,
+                        semantic_type=authority.semantic_type,
+                        producer_resolution=authority.producer_resolution,
+                        required_resolution=authority.required_resolution,
+                        effect_domain=authority.effect_domain,
                     ))
                     if output.name not in supplied_roles:
                         supplied_roles.append(output.name)

@@ -320,7 +320,7 @@ def test_four_lifecycle_policies_and_online_frozen_candidate_rules() -> None:
         "skill://composite@1.0.0",
         "composite",
         validated_count=1,
-        event_task_ids={"self_sufficient_success": ["t1", "t2"]},
+        event_task_ids={"deployment_success": ["t1", "t2"]},
     )
     assert (
         policy.review_composite(composite.artifact_ref, SkillStatus.CANDIDATE, composite).next_status

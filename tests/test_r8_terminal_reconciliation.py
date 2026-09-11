@@ -234,7 +234,7 @@ def test_seeded_terminal_effect_reconciles_as_seeded_success(
     )
 
 
-def test_started_learned_invocation_is_not_reclassified_before_invocation(
+def test_started_learned_invocation_without_terminal_interruption_is_not_reconciled(
     monkeypatch,
 ) -> None:
     runtime, context, occurrence, _invocations, harness = (
@@ -256,9 +256,9 @@ def test_started_learned_invocation_is_not_reclassified_before_invocation(
             False,
             False,
             failure_layer="atomic",
-            failure_code="terminal_interrupted",
+            failure_code="atomic_effect_violation",
             node_status=NodeExecutionStatus.DIRECT_FAILED,
-            terminal_interrupted=True,
+            terminal_interrupted=False,
         )
 
     monkeypatch.setattr(
@@ -266,20 +266,13 @@ def test_started_learned_invocation_is_not_reclassified_before_invocation(
         "run_preparation_session",
         preparation,
     )
-    monkeypatch.setattr(
-        runtime,
-        "_reconcile_terminal_current_atomic",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("started invocation must retain terminal semantics")
-        ),
-    )
-
     trace = runtime.run_task(context.task)
 
     node = trace.node_records[0]
     assert node.status is NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
     assert node.direct_result["started"] is True
-    assert node.direct_result["terminal_interrupted"] is True
+    assert node.direct_result["terminal_interrupted"] is False
+    assert node.direct_result["terminal_effect_reconciled"] is False
     assert harness.execution_count == 1
 
 

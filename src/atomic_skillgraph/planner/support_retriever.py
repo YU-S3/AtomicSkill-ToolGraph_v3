@@ -10,10 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
-from ..core.bindings import BindingExprKind, BindingExpression, resolution_satisfies
-from ..core.contracts import AbstractAtomicSkill, EffectDomain
-from ..core.semantic_types import normalize_semantic_type, semantic_types_compatible
+from ..core.contracts import AbstractAtomicSkill
 from ..core.status import RuntimeMode, SkillStatus
+from ..core.support_authority import support_role_authority
 from ..knowledge.skill_registry import SkillRegistry
 
 
@@ -38,45 +37,6 @@ class PlannerSupportCandidate:
     effect_predicates: tuple[str, ...]
 
 
-def _referenced_roles(value: Any) -> set[str]:
-    roles: set[str] = set()
-    for raw in dict(getattr(value, "args", {}) or {}).values():
-        expression: BindingExpression | None = None
-        if isinstance(raw, BindingExpression):
-            expression = raw
-        elif isinstance(raw, Mapping) and "kind" in raw:
-            try:
-                expression = BindingExpression.from_dict(dict(raw))
-            except (KeyError, TypeError, ValueError):
-                expression = None
-        if expression is not None:
-            if expression.kind is BindingExprKind.SKILL_INPUT:
-                roles.add(str(expression.source_role))
-            continue
-        if isinstance(raw, str) and raw.startswith("$"):
-            roles.add(raw[1:])
-    return roles
-
-
-def _output_authority(
-    atomic: AbstractAtomicSkill,
-    output_role: str,
-    declared_resolution: str,
-) -> tuple[str, str]:
-    """Return the strongest contract-declared output resolution/domain."""
-
-    domains = {
-        str(effect.effect_domain.value)
-        for effect in atomic.effects
-        if output_role in _referenced_roles(effect)
-    }
-    if EffectDomain.EVIDENCE.value in domains:
-        return "relation_verified", EffectDomain.EVIDENCE.value
-    if EffectDomain.WORLD.value in domains:
-        return "concrete", EffectDomain.WORLD.value
-    return str(declared_resolution), ""
-
-
 class PlannerSupportAtomicRetriever:
     """Produce a bounded support pool for P2 without exposing the bank to P1."""
 
@@ -92,6 +52,9 @@ class PlannerSupportAtomicRetriever:
         self.skills = skills
         self.top_k = int(top_k)
         self.candidate_policy = candidate_policy
+        self.last_role_authority_rejection_count = 0
+        self.last_runtime_resolvable_role_exclusion_count = 0
+        self.last_diagnostics: tuple[dict[str, Any], ...] = ()
 
     def retrieve(
         self,
@@ -102,9 +65,17 @@ class PlannerSupportAtomicRetriever:
         task_id: str = "",
     ) -> list[PlannerSupportCandidate]:
         mode = RuntimeMode(mode)
+        self.last_role_authority_rejection_count = 0
+        self.last_runtime_resolvable_role_exclusion_count = 0
+        self.last_diagnostics = ()
         normal_atomics = self.skills.atomics(mode=mode)
         by_ref = {str(item.ref): item for item in normal_atomics}
         result: list[PlannerSupportCandidate] = []
+        runtime_exclusions: set[tuple[str, str, str]] = set()
+        authority_rejections: set[
+            tuple[str, str, str, str, str]
+        ] = set()
+        diagnostics: list[dict[str, Any]] = []
 
         for instance_id, raw_required in sorted(
             required_instance_candidates.items(), key=lambda item: str(item[0]),
@@ -115,6 +86,14 @@ class PlannerSupportAtomicRetriever:
             ]
             consumer_atomics = [item for item in consumer_atomics if item is not None]
             required_refs = {str(item.ref) for item in consumer_atomics}
+            for consumer in consumer_atomics:
+                for required in consumer.inputs:
+                    if required.required and required.runtime_resolvable:
+                        runtime_exclusions.add((
+                            str(instance_id),
+                            str(consumer.ref),
+                            str(required.name),
+                        ))
             ranked: list[tuple[float, str, AbstractAtomicSkill, tuple[PlannerSupportRoleMapping, ...]]] = []
 
             for producer in normal_atomics:
@@ -126,30 +105,63 @@ class PlannerSupportAtomicRetriever:
                     continue
                 mappings: list[PlannerSupportRoleMapping] = []
                 for output in producer.outputs:
-                    produced_resolution, effect_domain = _output_authority(
-                        producer,
-                        str(output.name),
-                        str(output.required_resolution),
-                    )
                     for consumer in consumer_atomics:
                         for required in consumer.inputs:
-                            if not required.required or not semantic_types_compatible(
-                                required.semantic_type, output.semantic_type,
-                            ):
+                            if not required.required:
                                 continue
-                            if not resolution_satisfies(
-                                produced_resolution, required.required_resolution,
-                            ):
+                            if required.runtime_resolvable:
+                                runtime_exclusions.add((
+                                    str(instance_id),
+                                    str(consumer.ref),
+                                    str(required.name),
+                                ))
+                                continue
+                            authority = support_role_authority(
+                                producer,
+                                str(output.name),
+                                consumer,
+                                str(required.name),
+                            )
+                            diagnostics.append({
+                                "producer_ref": producer_ref,
+                                "producer_role": str(output.name),
+                                "consumer_ref": str(consumer.ref),
+                                "consumer_role": str(required.name),
+                                "authorized": authority.authorized,
+                                "reason": authority.reason,
+                                "producer_aliases": list(
+                                    authority.producer_aliases
+                                ),
+                                "consumer_aliases": list(
+                                    authority.consumer_aliases
+                                ),
+                                "relation_verified_exception": (
+                                    authority.relation_verified_exception
+                                ),
+                            })
+                            if not authority.authorized:
+                                if authority.reason == (
+                                    "semantic_role_authority_missing"
+                                ):
+                                    authority_rejections.add((
+                                        str(instance_id),
+                                        producer_ref,
+                                        str(output.name),
+                                        str(consumer.ref),
+                                        str(required.name),
+                                    ))
                                 continue
                             mappings.append(PlannerSupportRoleMapping(
                                 producer_role=str(output.name),
                                 consumer_role=str(required.name),
-                                semantic_type=normalize_semantic_type(
-                                    output.semantic_type or required.semantic_type,
+                                semantic_type=authority.semantic_type,
+                                producer_resolution=(
+                                    authority.producer_resolution
                                 ),
-                                producer_resolution=produced_resolution,
-                                required_resolution=str(required.required_resolution),
-                                effect_domain=effect_domain,
+                                required_resolution=(
+                                    authority.required_resolution
+                                ),
+                                effect_domain=authority.effect_domain,
                                 consumer_atomic_ref=str(consumer.ref),
                             ))
                 unique_mappings = tuple(dict.fromkeys(mappings))
@@ -190,6 +202,13 @@ class PlannerSupportAtomicRetriever:
                         str(item.predicate) for item in producer.effects
                     })),
                 ))
+        self.last_role_authority_rejection_count = len(
+            authority_rejections
+        )
+        self.last_runtime_resolvable_role_exclusion_count = len(
+            runtime_exclusions
+        )
+        self.last_diagnostics = tuple(diagnostics)
         return result
 
 

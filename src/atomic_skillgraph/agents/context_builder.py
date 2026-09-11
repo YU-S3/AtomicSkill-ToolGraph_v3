@@ -486,7 +486,8 @@ when the event is not claimed as an Effect witness by two independent Atomics.
 
 input_roles:
 - non-empty; every role has a concrete value supported by one supplied authority;
-- unique role-to-concrete-value bindings;
+- role keys are unique; if multiple input roles carry the same concrete identity,
+  keep each role's explicit supplied authority and never choose a role by value alone;
 - input_provenance_refs keys must exactly equal input_roles keys;
 - for every input role r, select exactly one supplied boundary_authorities.inputs entry a with a.role == r and a.value == input_roles[r]; then copy a.authority_ref exactly;
 - do not rename an input to a more descriptive alias while citing an authority for a different role. If a.role is object, using light or container as the input key with that same reference is invalid under this interface;
@@ -516,6 +517,12 @@ output_roles:
 Do not invent an output value.
 Do not derive an output from observation prose.
 Use only supplied boundary_authorities / effect witness refs.
+
+For every entity output, perform this identity-lineage self-check:
+1. compare it against every declared input identity;
+2. if it is an existing input identity, use input_identity;
+3. effect_witness is only for an identity not already supplied by an input;
+4. never use effect_witness merely because a post-state predicate mentions the same entity.
 
 preconditions:
 - may be empty only when the proposed transition genuinely needs no declared entry facts;
@@ -553,7 +560,7 @@ required inside that occurrence.
   the interval contiguous. Precondition and effect witnesses must be explicit.
   Only extract causal capabilities supported before benchmark terminal success.
 
-Before the one native submission, verify every proposed occurrence independently: [event_start,event_end) contains its support_event_ids; each input's authority has the same role and value; every precondition reference belongs to the exact entry snapshot; every Effect reference belongs to the selected support events and matches the declared predicate/domain; every output has one legal input_identity or effect_witness derivation. Do not change correct sibling occurrences to hide an invalid one. This self-check adds no tool call and no retry.
+Before the one native submission, verify every proposed occurrence independently: [event_start,event_end) contains its support_event_ids; each input's authority has the same role and value; every precondition reference belongs to the exact entry snapshot; every Effect reference belongs to the selected support events and matches the declared predicate/domain; every output has one legal input_identity or effect_witness derivation, and every entity output equal to any declared input identity uses explicit input_identity rather than effect_witness. Do not change correct sibling occurrences to hide an invalid one. This self-check adds no tool call and no retry.
 For every proposed occurrence:
 
 1. every episode concrete identity referenced by a precondition must be

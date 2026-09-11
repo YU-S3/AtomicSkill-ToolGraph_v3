@@ -167,6 +167,7 @@ def _terminal_runtime_trace(
         "benchmark_success": True,
         "task_contract_success": True,
         "graph_self_sufficient_success": True,
+        "graph_full_completion": candidate_executed,
         "task_rescue_required": False,
         "node_records": [{
             "step_id": "step_terminal",
@@ -288,6 +289,7 @@ def test_gate45_terminal_empirical_credit_survives_periodic_maintenance(
 
     stats = system.projection.stats(composite_ref, "composite")
     assert stats.independent_self_sufficient_success_count == 2
+    assert stats.independent_deployment_success_count == 2
     lifecycle = system.lifecycle.review([composite_ref])
     assert lifecycle.changed_count == 1
     assert system.skills.get_composite(composite_ref).status is SkillStatus.ACTIVE

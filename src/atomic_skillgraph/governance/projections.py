@@ -18,6 +18,7 @@ _SUCCESS_EVENTS = frozenset(
         EvidenceEventType.AGENT_NODE_SUCCESS,
         EvidenceEventType.SEEDED_SUCCESS,
         EvidenceEventType.SELF_SUFFICIENT_SUCCESS,
+        EvidenceEventType.DEPLOYMENT_SUCCESS,
     }
 )
 _FAILURE_EVENTS = frozenset(
@@ -54,6 +55,9 @@ class ArtifactStats:
     intrinsic_failure_count: int = 0
     consecutive_intrinsic_failures: int = 0
     self_sufficient_success_count: int = 0
+    deployment_success_count: int = 0
+    deployment_unsuccessful_count: int = 0
+    consecutive_deployment_unsuccessful: int = 0
     task_rescue_count: int = 0
     goal_terminal_skip_count: int = 0
     preflight_rejected_count: int = 0
@@ -109,6 +113,26 @@ class ArtifactStats:
     @property
     def independent_selected_task_count(self) -> int:
         return len(self.event_task_ids.get(EvidenceEventType.SELECTED.value, ()))
+
+    @property
+    def independent_deployment_success_count(self) -> int:
+        return len(self.event_task_ids.get(EvidenceEventType.DEPLOYMENT_SUCCESS.value, ()))
+
+    @property
+    def independent_deployment_unsuccessful_count(self) -> int:
+        return len(
+            self.event_task_ids.get(EvidenceEventType.DEPLOYMENT_UNSUCCESSFUL.value, ())
+        )
+
+    @property
+    def independent_deployment_trial_count(self) -> int:
+        successful = set(
+            self.event_task_ids.get(EvidenceEventType.DEPLOYMENT_SUCCESS.value, ())
+        )
+        unsuccessful = set(
+            self.event_task_ids.get(EvidenceEventType.DEPLOYMENT_UNSUCCESSFUL.value, ())
+        )
+        return len(successful | unsuccessful)
 
     @property
     def direct_success_count(self) -> int:
@@ -174,6 +198,12 @@ class ArtifactStats:
             self.preflight_rejected_count += 1
         elif event.event is EvidenceEventType.SELF_SUFFICIENT_SUCCESS:
             self.self_sufficient_success_count += 1
+        elif event.event is EvidenceEventType.DEPLOYMENT_SUCCESS:
+            self.deployment_success_count += 1
+            self.consecutive_deployment_unsuccessful = 0
+        elif event.event is EvidenceEventType.DEPLOYMENT_UNSUCCESSFUL:
+            self.deployment_unsuccessful_count += 1
+            self.consecutive_deployment_unsuccessful += 1
         elif event.event is EvidenceEventType.TASK_RESCUE_REQUIRED:
             self.task_rescue_count += 1
         elif event.event is EvidenceEventType.GOAL_TERMINAL_SKIPPED:
@@ -243,6 +273,7 @@ class ArtifactStats:
             "already_satisfied": "already_satisfied",
             "direct_autonomous_success": "direct_autonomous",
             "direct_agent_prepared_success": "direct_agent_prepared",
+            "direct_terminal_effect_success": "direct_terminal_effect",
             "agent_completed_before_invocation": "agent_completed_before_invocation",
             "seeded_success": "seeded_success",
         }
@@ -269,6 +300,16 @@ class ArtifactStats:
             "intrinsic_failure_count": self.intrinsic_failure_count,
             "consecutive_intrinsic_failures": self.consecutive_intrinsic_failures,
             "self_sufficient_success_count": self.self_sufficient_success_count,
+            "deployment_success_count": self.deployment_success_count,
+            "deployment_unsuccessful_count": self.deployment_unsuccessful_count,
+            "consecutive_deployment_unsuccessful": self.consecutive_deployment_unsuccessful,
+            "independent_deployment_success_count": (
+                self.independent_deployment_success_count
+            ),
+            "independent_deployment_unsuccessful_count": (
+                self.independent_deployment_unsuccessful_count
+            ),
+            "independent_deployment_trial_count": self.independent_deployment_trial_count,
             "task_rescue_count": self.task_rescue_count,
             "goal_terminal_skip_count": self.goal_terminal_skip_count,
             "preflight_rejected_count": self.preflight_rejected_count,

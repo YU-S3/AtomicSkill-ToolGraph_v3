@@ -679,7 +679,9 @@ def test_gate18_support_role_mapping_is_explicit() -> None:
     blocked = AbstractAtomicSkill(
         ref="skill://atomic_heat@1.0.0",
         summary="heat",
-        inputs=[ParameterSpec("object", "entity")],
+        inputs=[ParameterSpec(
+            "object", "entity", required_resolution="relation_verified",
+        )],
         outputs=[],
         preconditions=[],
         effects=[SemanticPredicate("object.heated", {"object": "$object"})],
@@ -708,7 +710,7 @@ def test_gate18_support_role_mapping_is_explicit() -> None:
     assert mapping.producer_role == "entity"
     assert mapping.consumer_role == "object"
     assert mapping.producer_resolution == "relation_verified"
-    assert mapping.required_resolution == "semantic"
+    assert mapping.required_resolution == "relation_verified"
     assert mapping.effect_domain == "evidence"
 
 
@@ -2302,7 +2304,7 @@ def test_gate26_terminal_empirical_promotion_requires_distinct_tasks() -> None:
         assert skills.get_composite(ref).status is SkillStatus.CANDIDATE
         assigner = CreditAssigner()
 
-        def self_sufficient(task_id: str, trace_id: str, sequence: int):
+        def deployment_success(task_id: str, trace_id: str, sequence: int):
             return assigner.assign(CreditTrace(
                 task_id, trace_id,
                 (CreditAttempt(
@@ -2310,22 +2312,22 @@ def test_gate26_terminal_empirical_promotion_requires_distinct_tasks() -> None:
                     occurrence_id="graph",
                     attempt_id=f"composite:{ref}:graph:{task_id}",
                     sequence_no=sequence,
-                    outcome=CreditOutcome.SELF_SUFFICIENT_SUCCESS,
+                    outcome=CreditOutcome.DEPLOYMENT_SUCCESS,
                 ),),
             ))
 
-        ledger.append_transaction(self_sufficient("task_a", "trace_a1", 0))
-        ledger.append_transaction(self_sufficient("task_a", "trace_a2", 1))
+        ledger.append_transaction(deployment_success("task_a", "trace_a1", 0))
+        ledger.append_transaction(deployment_success("task_a", "trace_a2", 1))
         projection.consume_new_events()
         stats = projection.stats(ref, "composite")
-        assert stats.independent_self_sufficient_success_count == 1
+        assert stats.independent_deployment_success_count == 1
         LifecycleController(database, projection).review([ref])
         assert skills.get_composite(ref).status is SkillStatus.CANDIDATE
 
-        ledger.append_transaction(self_sufficient("task_b", "trace_b1", 2))
+        ledger.append_transaction(deployment_success("task_b", "trace_b1", 2))
         projection.consume_new_events()
         stats = projection.stats(ref, "composite")
-        assert stats.independent_self_sufficient_success_count == 2
+        assert stats.independent_deployment_success_count == 2
         LifecycleController(database, projection).review([ref])
         assert skills.get_composite(ref).status is SkillStatus.ACTIVE
 

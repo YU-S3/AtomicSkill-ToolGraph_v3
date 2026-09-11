@@ -63,6 +63,7 @@ _COMPLETED_NODE_STATUSES = frozenset(
         "already_satisfied",
         "direct_autonomous_success",
         "direct_agent_prepared_success",
+        "direct_terminal_effect_success",
         "agent_completed_before_invocation",
         "seeded_success",
     }
@@ -168,6 +169,23 @@ R31_RUNTIME_METRICS = (
     "partial_atomic_new_contract_count",
     "partial_atomic_tool_admission_count",
     "partial_atomic_implementation_admission_count",
+)
+
+R9_AUTHORITY_METRICS = (
+    "runtime_terminal_started_reconciliation_attempt_count",
+    "runtime_terminal_started_reconciliation_success_count",
+    "runtime_terminal_started_reconciliation_failure_count",
+    "stored_repeat_identity_closure_compile_count",
+    "stored_repeat_identity_closure_rejection_count",
+    "planner_support_role_authority_rejection_count",
+    "planner_support_runtime_resolvable_role_exclusion_count",
+    "planner_constant_authority_rejection_count",
+    "extractor_existing_identity_effect_witness_rejection_count",
+    "composite_deployment_trial_count",
+    "composite_deployment_success_count",
+    "composite_deployment_unsuccessful_count",
+    "candidate_activation_deadline_suppression_count",
+    "active_deployment_circuit_breaker_suppression_count",
 )
 
 V32_METHOD_METRICS = (
@@ -287,6 +305,7 @@ REPORT_COLUMNS = (
     "implementation_direct_success",
     "graph_self_sufficient_success",
     "graph_full_completion",
+    "composite_deployment_success",
     "learning_eligible",
     "infrastructure_failure",
     "resource_usage_complete",
@@ -344,6 +363,7 @@ REPORT_COLUMNS = (
     "node_token_budget_exhausted_count",
     *R21_RUNTIME_METRICS,
     *R31_RUNTIME_METRICS,
+    *R9_AUTHORITY_METRICS,
     "learning_diagnostics_version",
     *R4_LEARNING_RECORD_FIELDS,
     *V32_METHOD_METRICS,
@@ -761,6 +781,15 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         ),
     )
     r31_runtime = _r31_event_metrics(trace, metadata=metadata)
+    r9_metrics = _r9_authority_metrics(
+        trace,
+        planner=planner,
+        plan=plan,
+        metadata=metadata,
+        nodes=nodes,
+        invocations=invocations,
+        executions=executions,
+    )
     v32_metrics = _v32_method_metrics(
         trace,
         planner=planner,
@@ -794,6 +823,9 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         ),
         "graph_full_completion": _boolean(
             _field(trace, "graph_full_completion", False)
+        ),
+        "composite_deployment_success": bool(
+            r9_metrics["composite_deployment_success_count"]
         ),
         "learning_eligible": _boolean(_field(trace, "learning_eligible", False)),
         "infrastructure_failure": _boolean(
@@ -893,6 +925,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         ),
         **r21_runtime,
         **r31_runtime,
+        **r9_metrics,
         "learning_diagnostics_version": r4_learning[
             "learning_diagnostics_version"
         ],
@@ -1063,6 +1096,14 @@ def summarize_traces(
         _integer(item.get("runtime_reasoning_tokens", 0))
         for item in resource_rows
     )
+    r9_totals = {
+        name: sum(_integer(row.get(name, 0)) for row in task_rows)
+        for name in R9_AUTHORITY_METRICS
+    }
+    if run_artifact_lifecycle:
+        r9_totals.update(
+            _r9_lifecycle_suppression_metrics(run_artifact_lifecycle)
+        )
 
     learning_rows_by_version: dict[str, list[Mapping[str, Any]]] = {}
     for row in task_rows:
@@ -1126,6 +1167,16 @@ def summarize_traces(
                 for row in task_rows
             ),
             task_count,
+        ),
+        "composite_deployment_success_rate": _rate(
+            sum(
+                _integer(row.get("composite_deployment_success_count", 0))
+                for row in task_rows
+            ),
+            sum(
+                _integer(row.get("composite_deployment_trial_count", 0))
+                for row in task_rows
+            ),
         ),
         "direct_autonomous_rate": _rate(
             sum(
@@ -1209,6 +1260,7 @@ def summarize_traces(
             )
             for name in R31_RUNTIME_METRICS
         },
+        **r9_totals,
         **{
             name: sum(_integer(row.get(name, 0)) for row in task_rows)
             for name in V32_METHOD_METRICS
@@ -1510,6 +1562,14 @@ def render_markdown(
     lines.extend(_markdown_pairs(tuple(
         (name, summary.get(name, 0))
         for name in R31_RUNTIME_METRICS
+    )))
+    lines.extend(["", "## R9 authority and deployment evidence", ""])
+    lines.extend(_markdown_pairs((
+        (
+            "composite_deployment_success_rate",
+            _percent(summary.get("composite_deployment_success_rate")),
+        ),
+        *((name, summary.get(name, 0)) for name in R9_AUTHORITY_METRICS),
     )))
     lines.extend(["", "## v3.2 Agent-driven Tool evolution", ""])
     lines.extend(_markdown_pairs(tuple(
@@ -2823,6 +2883,183 @@ def _runtime_exhausted_session_counts(
     for session_id in exhausted_ids:
         counts[by_id[session_id]] += 1
     return counts
+
+
+def _r9_authority_metrics(
+    trace: Any,
+    *,
+    planner: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    nodes: Sequence[Mapping[str, Any]],
+    invocations: Sequence[Mapping[str, Any]],
+    executions: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    """Project R9 counters from explicit, structured runtime authority."""
+
+    explicit = {
+        **_mapping(metadata.get("v32_metrics", {})),
+        **_mapping(metadata.get("r9_metrics", {})),
+    }
+
+    def value(name: str, derived: int | bool = 0) -> int:
+        if name in explicit:
+            return _nonnegative_integer(explicit[name])
+        if name in planner:
+            return _nonnegative_integer(planner[name])
+        return _nonnegative_integer(derived)
+
+    reconciliation_attempts = sum(
+        _boolean(_mapping(node.get("direct_result", {})).get(
+            "terminal_effect_reconciliation_attempted", False
+        ))
+        for node in nodes
+    )
+    reconciliation_successes = sum(
+        _boolean(_mapping(node.get("direct_result", {})).get(
+            "terminal_effect_reconciled", False
+        ))
+        for node in nodes
+    )
+    if not reconciliation_attempts:
+        reconciliation_attempts = reconciliation_successes
+
+    source_composite_ref = str(plan.get("source_composite_ref") or "")
+    infrastructure_failure = _boolean(
+        _field(trace, "infrastructure_failure", False)
+    )
+    deployment_trial = bool(source_composite_ref and not infrastructure_failure)
+
+    graph_execution_evidence = False
+    for span in _sequence(_field(trace, "runtime_spans", [])):
+        item = _mapping(span)
+        if _integer(item.get("action_end", 0)) > _integer(
+            item.get("action_start", 0)
+        ):
+            graph_execution_evidence = True
+            break
+    if not graph_execution_evidence:
+        graph_execution_evidence = any(
+            _boolean(_mapping(item.get("result", {})).get("started", False))
+            for item in (*invocations, *executions)
+        ) or any(
+            _boolean(_mapping(node.get(name, {})).get("started", False))
+            for node in nodes
+            for name in ("direct_result", "seeded_result")
+        )
+
+    deployment_success = bool(
+        deployment_trial
+        and _boolean(_field(trace, "benchmark_success", False))
+        and _boolean(_field(trace, "task_contract_success", False))
+        and _boolean(_field(trace, "graph_self_sufficient_success", False))
+        and _boolean(_field(trace, "graph_full_completion", False))
+        and not _boolean(_field(trace, "task_rescue_required", False))
+        and graph_execution_evidence
+    )
+
+    rejection_records = [
+        _mapping(item)
+        for item in _sequence(metadata.get("extraction_occurrence_rejections", []))
+    ]
+    existing_identity_rejections = sum(
+        str(item.get("error_code", item.get("reason", "")))
+        == "extractor_output_existing_identity_reclassified"
+        for item in rejection_records
+    )
+
+    result = {name: 0 for name in R9_AUTHORITY_METRICS}
+    result.update({
+        "runtime_terminal_started_reconciliation_attempt_count": value(
+            "runtime_terminal_started_reconciliation_attempt_count",
+            reconciliation_attempts,
+        ),
+        "runtime_terminal_started_reconciliation_success_count": value(
+            "runtime_terminal_started_reconciliation_success_count",
+            reconciliation_successes,
+        ),
+        "runtime_terminal_started_reconciliation_failure_count": value(
+            "runtime_terminal_started_reconciliation_failure_count",
+            max(0, reconciliation_attempts - reconciliation_successes),
+        ),
+        "stored_repeat_identity_closure_compile_count": value(
+            "stored_repeat_identity_closure_compile_count"
+        ),
+        "stored_repeat_identity_closure_rejection_count": value(
+            "stored_repeat_identity_closure_rejection_count"
+        ),
+        "planner_support_role_authority_rejection_count": value(
+            "planner_support_role_authority_rejection_count"
+        ),
+        "planner_support_runtime_resolvable_role_exclusion_count": value(
+            "planner_support_runtime_resolvable_role_exclusion_count"
+        ),
+        "planner_constant_authority_rejection_count": value(
+            "planner_constant_authority_rejection_count"
+        ),
+        "extractor_existing_identity_effect_witness_rejection_count": value(
+            "extractor_existing_identity_effect_witness_rejection_count",
+            existing_identity_rejections,
+        ),
+        "composite_deployment_trial_count": int(deployment_trial),
+        "composite_deployment_success_count": int(deployment_success),
+        "composite_deployment_unsuccessful_count": int(
+            deployment_trial and not deployment_success
+        ),
+        "candidate_activation_deadline_suppression_count": value(
+            "candidate_activation_deadline_suppression_count"
+        ),
+        "active_deployment_circuit_breaker_suppression_count": value(
+            "active_deployment_circuit_breaker_suppression_count"
+        ),
+    })
+    return result
+
+
+def _r9_lifecycle_suppression_metrics(
+    snapshot: Mapping[str, Any],
+) -> dict[str, int]:
+    """Count R9 suppression outcomes from the final immutable projection."""
+
+    artifact_index = _mapping(snapshot.get("artifact_index", {}))
+    status_by_ref = {
+        str(item.get("artifact_ref", "")): (
+            str(item.get("artifact_kind", "")), str(item.get("status", ""))
+        )
+        for item in (
+            _mapping(raw) for raw in _sequence(artifact_index.get("records", []))
+        )
+    }
+    lifecycle = _mapping(snapshot.get("lifecycle_projection", {}))
+    deadline = 0
+    circuit_breaker = 0
+    for raw in _sequence(lifecycle.get("records", [])):
+        record = _mapping(raw)
+        artifact_ref = str(record.get("artifact_ref", ""))
+        kind, status = status_by_ref.get(artifact_ref, ("", ""))
+        if kind != "composite" or status != "suppressed":
+            continue
+        projection = _mapping(record.get("projection", {}))
+        event_task_ids = _mapping(projection.get("event_task_ids", {}))
+        successes = len(set(map(str, _sequence(
+            event_task_ids.get("deployment_success", [])
+        ))))
+        unsuccessful = set(map(str, _sequence(
+            event_task_ids.get("deployment_unsuccessful", [])
+        )))
+        trials = len(
+            set(map(str, _sequence(event_task_ids.get("deployment_success", []))))
+            | unsuccessful
+        )
+        consecutive = _integer(
+            projection.get("consecutive_deployment_unsuccessful", 0)
+        )
+        deadline += int(successes == 1 and trials >= 5)
+        circuit_breaker += int(successes >= 2 and consecutive >= 3)
+    return {
+        "candidate_activation_deadline_suppression_count": deadline,
+        "active_deployment_circuit_breaker_suppression_count": circuit_breaker,
+    }
 
 
 def _r31_event_metrics(

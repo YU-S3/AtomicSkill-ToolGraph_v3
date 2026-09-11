@@ -8,6 +8,7 @@ from ..core.bindings import BindingExprKind, BindingExpression
 from ..core.contracts import CompositeSkill, TaskContract
 from ..core.results import RuntimeRepeatConstraint
 from ..core.semantic_types import semantic_types_compatible
+from ..core.support_authority import input_identity_source_role
 from ..knowledge.skill_registry import SkillRegistry
 from .multiplicity import RequirementExpansion, normalized_constraints
 
@@ -130,27 +131,7 @@ def _input_identity_source_role(atomic: Any, output_role: str) -> str:
     compatibility projection.  Ambiguous legacy rows fail closed.
     """
 
-    validator_spec = dict(getattr(atomic, "validator_spec", {}) or {})
-    try:
-        derivations = dict(validator_spec.get("output_derivations") or {})
-    except (TypeError, ValueError):
-        return ""
-    if derivations:
-        raw = derivations.get(str(output_role))
-        if not isinstance(raw, dict):
-            return ""
-        if str(raw.get("kind", "")) != "input_identity":
-            return ""
-        input_role = str(raw.get("input_role", ""))
-        return input_role if input_role else ""
-    legacy = [
-        item
-        for item in list(validator_spec.get("output_identity") or ())
-        if isinstance(item, dict)
-        and str(item.get("output_role", "")) == str(output_role)
-        and str(item.get("input_role", ""))
-    ]
-    return str(legacy[0]["input_role"]) if len(legacy) == 1 else ""
+    return input_identity_source_role(atomic, output_role)
 
 
 def _parameter_types(value: Any, attribute: str) -> dict[str, str]:
@@ -179,15 +160,31 @@ def _source_role(raw: Any) -> str:
     return ""
 
 
-def _boundary_roles(atomic: Any) -> set[str]:
-    return {
-        str(spec.name)
-        for spec in (
-            *getattr(atomic, "inputs", ()),
-            *getattr(atomic, "outputs", ()),
-        )
-        if str(spec.name)
-    }
+def repeat_enforcement_input_role(
+    atomic: Any,
+    boundary_role: str,
+) -> str:
+    """Resolve a repeat effect role to a pre-action Atomic input role.
+
+    An output boundary carries executable identity authority only through an
+    explicit ``input_identity`` derivation.  Equality of names or observed
+    values is never used to guess a source input.
+    """
+
+    inputs = _parameter_types(atomic, "inputs")
+    outputs = _parameter_types(atomic, "outputs")
+    role = str(boundary_role)
+    if role in inputs:
+        return role
+    if role not in outputs:
+        return ""
+    input_role = _input_identity_source_role(atomic, role)
+    if (
+        input_role not in inputs
+        or not semantic_types_compatible(inputs[input_role], outputs[role])
+    ):
+        return ""
+    return input_role
 
 
 def unit_effect_role_mappings(
@@ -204,7 +201,6 @@ def unit_effect_role_mappings(
 
     if not predicate_roles:
         return [], False
-    boundary_roles = _boundary_roles(atomic)
     mappings: list[dict[str, str]] = []
     aggregate_present = False
     for effect in getattr(atomic, "effects", ()):
@@ -220,12 +216,14 @@ def unit_effect_role_mappings(
         if not predicate_roles.issubset(map(str, effect.args)):
             continue
         mapping = {
-            role: _source_role(effect.args[role])
+            role: repeat_enforcement_input_role(
+                atomic,
+                _source_role(effect.args[role]),
+            )
             for role in predicate_roles
         }
         if (
             all(mapping.values())
-            and set(mapping.values()).issubset(boundary_roles)
             and len(set(mapping.values())) == len(mapping)
         ):
             mappings.append(mapping)
@@ -257,6 +255,10 @@ def formal_repeat_role(block: Any, block_role: str) -> str:
 
 class RuntimeRepeatConstraintCompiler:
     """Compile only explicit formal repeat authority; never infer workflows."""
+
+    def __init__(self) -> None:
+        self.last_stored_identity_closure_compile_count = 0
+        self.last_stored_identity_closure_rejection_count = 0
 
     def from_requirement_expansion(
         self,
@@ -338,6 +340,8 @@ class RuntimeRepeatConstraintCompiler:
         or guessing a workflow grouping.
         """
 
+        self.last_stored_identity_closure_compile_count = 0
+        self.last_stored_identity_closure_rejection_count = 0
         try:
             task_constraints = normalized_constraints(contract)
             composite_constraints = normalized_constraints(
@@ -363,6 +367,11 @@ class RuntimeRepeatConstraintCompiler:
         except (KeyError, TypeError, ValueError):
             return []
 
+        formal_repeat_count = sum(
+            1
+            for value in task_constraints.values()
+            if value.get("composition_mode") == "repeat_unit"
+        )
         compiled: list[RuntimeRepeatConstraint] = []
         for basis_id, basis in task_constraints.items():
             if basis.get("composition_mode") != "repeat_unit":
@@ -410,10 +419,10 @@ class RuntimeRepeatConstraintCompiler:
 
             distinct_by = str(basis.get("distinct_by", ""))
             shared_roles = tuple(map(str, basis.get("shared_roles", ())))
-            repeat_roles = {
+            repeat_roles = tuple(dict.fromkeys((
                 *(value for value in (distinct_by,) if value),
                 *shared_roles,
-            }
+            )))
             position = {
                 step_id: index
                 for index, step_id in enumerate(
@@ -432,7 +441,13 @@ class RuntimeRepeatConstraintCompiler:
                 {step_id} for step_id, _mapping in candidates
             ]
             iteration_bindings: list[dict[str, dict[str, str]]] = [
-                {step_id: dict(mapping)}
+                {
+                    step_id: {
+                        formal_role: str(mapping.get(formal_role, ""))
+                        for formal_role in repeat_roles
+                        if str(mapping.get(formal_role, ""))
+                    },
+                }
                 for step_id, mapping in candidates
             ]
             owned_steps: dict[str, int] = {
@@ -440,81 +455,120 @@ class RuntimeRepeatConstraintCompiler:
                 for index, (step_id, _mapping) in enumerate(candidates)
             }
 
+            def close_identity_producer(
+                repeat_index: int,
+                target_step: str,
+                target_input_role: str,
+                formal_role: str,
+                visiting: set[tuple[int, str, str, str]],
+            ) -> bool:
+                """Close one repeat identity through explicit DataFlow.
+
+                Distinct identities may never be sourced from a step owned by
+                another iteration.  A shared identity may be sourced by an
+                earlier iteration, but that producer retains its original
+                ownership and is never inserted into the later iteration.
+                """
+
+                key = (
+                    repeat_index,
+                    str(target_step),
+                    str(target_input_role),
+                    str(formal_role),
+                )
+                if key in visiting:
+                    return False
+                edges = incoming.get((target_step, target_input_role), ())
+                if not edges:
+                    return True
+                if len(edges) != 1:
+                    return False
+                edge = edges[0]
+                source_step = str(edge.source_step)
+                source_role = str(edge.source_role)
+                source_atomic = atomics.get(source_step)
+                target_atomic = atomics.get(target_step)
+                if (
+                    source_atomic is None
+                    or target_atomic is None
+                    or position.get(source_step, 10**9)
+                    >= position.get(target_step, -1)
+                ):
+                    return False
+
+                source_outputs = _parameter_types(source_atomic, "outputs")
+                source_inputs = _parameter_types(source_atomic, "inputs")
+                target_inputs = _parameter_types(target_atomic, "inputs")
+                source_input_role = repeat_enforcement_input_role(
+                    source_atomic,
+                    source_role,
+                )
+                if (
+                    source_role not in source_outputs
+                    or target_input_role not in target_inputs
+                    or source_input_role not in source_inputs
+                    or not semantic_types_compatible(
+                        source_outputs[source_role],
+                        target_inputs[target_input_role],
+                    )
+                    or not semantic_types_compatible(
+                        source_inputs[source_input_role],
+                        source_outputs[source_role],
+                    )
+                    or not semantic_types_compatible(
+                        source_inputs[source_input_role],
+                        target_inputs[target_input_role],
+                    )
+                ):
+                    return False
+
+                previous_owner = owned_steps.get(source_step)
+                owner = repeat_index
+                if previous_owner is not None and previous_owner != repeat_index:
+                    if (
+                        formal_role not in shared_roles
+                        or previous_owner >= repeat_index
+                    ):
+                        return False
+                    owner = previous_owner
+                elif previous_owner is None:
+                    owned_steps[source_step] = repeat_index
+                    iteration_members[repeat_index].add(source_step)
+
+                source_bindings = iteration_bindings[owner].setdefault(
+                    source_step,
+                    {},
+                )
+                existing_role = source_bindings.get(formal_role)
+                if (
+                    existing_role is not None
+                    and existing_role != source_input_role
+                ):
+                    return False
+                source_bindings[formal_role] = source_input_role
+
+                return close_identity_producer(
+                    owner,
+                    source_step,
+                    source_input_role,
+                    formal_role,
+                    {*visiting, key},
+                )
+
             for repeat_index, (target_step, mapping) in enumerate(
                 candidates,
             ):
-                target_atomic = atomics[target_step]
-                target_inputs = _parameter_types(target_atomic, "inputs")
                 for formal_role in repeat_roles:
                     target_role = str(mapping.get(formal_role, ""))
-                    if not target_role:
-                        unprovable = True
-                        break
-                    edges = incoming.get((target_step, target_role), ())
-                    if not edges:
-                        continue
-                    if len(edges) != 1:
-                        unprovable = True
-                        break
-                    edge = edges[0]
-                    source_step = str(edge.source_step)
-                    source_role = str(edge.source_role)
-                    source_atomic = atomics.get(source_step)
-                    if (
-                        source_atomic is None
-                        or position.get(source_step, 10**9)
-                        >= position.get(target_step, -1)
+                    if not target_role or not close_identity_producer(
+                        repeat_index,
+                        target_step,
+                        target_role,
+                        formal_role,
+                        set(),
                     ):
                         unprovable = True
                         break
-                    source_outputs = _parameter_types(
-                        source_atomic, "outputs",
-                    )
-                    source_inputs = _parameter_types(
-                        source_atomic, "inputs",
-                    )
-                    source_input_role = _input_identity_source_role(
-                        source_atomic, source_role,
-                    )
-                    if (
-                        source_role not in source_outputs
-                        or target_role not in target_inputs
-                        or source_input_role not in source_inputs
-                        or not semantic_types_compatible(
-                            source_outputs[source_role],
-                            target_inputs[target_role],
-                        )
-                        or not semantic_types_compatible(
-                            source_inputs[source_input_role],
-                            source_outputs[source_role],
-                        )
-                        or not semantic_types_compatible(
-                            source_inputs[source_input_role],
-                            target_inputs[target_role],
-                        )
-                    ):
-                        unprovable = True
-                        break
-                    previous_owner = owned_steps.get(source_step)
-                    if (
-                        previous_owner is not None
-                        and previous_owner != repeat_index
-                    ):
-                        unprovable = True
-                        break
-                    owned_steps[source_step] = repeat_index
-                    iteration_members[repeat_index].add(source_step)
-                    source_bindings = iteration_bindings[
-                        repeat_index
-                    ].setdefault(source_step, {})
-                    existing_role = source_bindings.get(formal_role)
-                    if (
-                        existing_role is not None
-                        and existing_role != source_input_role
-                    ):
-                        unprovable = True
-                        break
-                    source_bindings[formal_role] = source_input_role
                 if unprovable:
                     break
             if unprovable:
@@ -543,6 +597,11 @@ class RuntimeRepeatConstraintCompiler:
                 shared_roles=shared_roles,
                 step_role_bindings=compiled_bindings,
             ))
+        self.last_stored_identity_closure_compile_count = len(compiled)
+        self.last_stored_identity_closure_rejection_count = max(
+            0,
+            formal_repeat_count - len(compiled),
+        )
         return compiled
 
 
@@ -552,5 +611,6 @@ __all__ = [
     "_repeat_scoped_support_owners",
     "_required_repeat_step_owners",
     "formal_repeat_role",
+    "repeat_enforcement_input_role",
     "unit_effect_role_mappings",
 ]

@@ -33,6 +33,7 @@ from .protocol import (
     hash_config,
     load_task_report_traces,
     require_active_composite_frozen_closure,
+    require_r9_formal_freeze_audit,
     sha256_json,
     task_signature,
     validate_deepseek_formal_llm,
@@ -67,6 +68,11 @@ _R8_TRAIN_RUN_SEEDS = {
     "alfworld_train_full_120_r8_seed43": 43,
     "alfworld_train_full_120_r8_seed44": 44,
 }
+_R9_TRAIN_RUN_SEEDS = {
+    "alfworld_train_full_120_r9_seed42": 42,
+    "alfworld_train_full_120_r9_seed43": 43,
+    "alfworld_train_full_120_r9_seed44": 44,
+}
 _R7_TRAIN_REFERENCE_PATH = Path("data/baseline_manifests/train_120.json")
 _R7_TRAIN_REFERENCE_ID = "train_120"
 
@@ -84,6 +90,8 @@ def _train_protocol(config: dict[str, Any]) -> tuple[str, int, int, int]:
         return "r7_full120", _R7_TRAIN_RUN_SEEDS[name], 20, 120
     if name in _R8_TRAIN_RUN_SEEDS:
         return "r8_full120", _R8_TRAIN_RUN_SEEDS[name], 20, 120
+    if name in _R9_TRAIN_RUN_SEEDS:
+        return "r9_full120", _R9_TRAIN_RUN_SEEDS[name], 20, 120
     raise ProtocolError(
         "experiment.name does not identify an allowed formal train protocol"
     )
@@ -93,7 +101,7 @@ def _r7_train_reference_manifest(
     config: dict[str, Any],
 ) -> ReferenceManifest | None:
     protocol, _, _, _ = _train_protocol(config)
-    if protocol not in {"r7_full120", "r8_full120"}:
+    if protocol not in {"r7_full120", "r8_full120", "r9_full120"}:
         return None
     selection = dict((config.get("harness") or {}).get("task_selection") or {})
     manifest_id = str(selection.get("reference_manifest_id", ""))
@@ -129,6 +137,7 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
     protocol, _, expected_per_type, expected_total = _train_protocol(config)
     if per_type != expected_per_type or total != expected_total:
         label = (
+            "R9 Full-120" if protocol == "r9_full120" else
             "R8 Full-120" if protocol == "r8_full120" else
             "R7 Full-120" if protocol == "r7_full120" else "Full-30"
         )
@@ -215,7 +224,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         for name, (actual, wanted) in expected.items()
         if actual != wanted
     ]
-    if protocol in {"r7_full120", "r8_full120"}:
+    if protocol in {"r7_full120", "r8_full120", "r9_full120"}:
         if lifecycle.get("candidate_exploration_seed") != expected_seed:
             mismatches.append(
                 "lifecycle.candidate_exploration_seed must equal experiment.seed"
@@ -240,6 +249,23 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
                 "R8 lifecycle.composite_candidate_zero_success_trial_limit "
                 "must be integer 3"
             )
+    if protocol == "r9_full120":
+        required_lifecycle = {
+            "composite_active_deployment_successes": 2,
+            "composite_candidate_zero_success_trial_limit": 3,
+            "composite_candidate_activation_trial_limit": 5,
+            "composite_active_consecutive_deployment_unsuccessful_limit": 3,
+        }
+        for field, wanted in required_lifecycle.items():
+            value = lifecycle.get(field)
+            if isinstance(value, bool) or not isinstance(value, int) or value != wanted:
+                mismatches.append(
+                    f"R9 lifecycle.{field} must be integer {wanted}"
+                )
+        if planner.get("literal_authorities") != {}:
+            mismatches.append(
+                "R9 formal ALFWorld planner.literal_authorities must be empty"
+            )
     if _path(config.get("data_dir", "")) != output_dir / "data_v3":
         mismatches.append("data_dir must be <output_dir>/data_v3")
     if _path(config.get("trace_data_dir", output_dir)) != output_dir:
@@ -259,7 +285,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         mismatches.append("experiment.max_task_attempts must be a positive integer")
     if mismatches:
         raise ProtocolError("formal train config mismatch: " + "; ".join(mismatches))
-    if protocol in {"r7_full120", "r8_full120"}:
+    if protocol in {"r7_full120", "r8_full120", "r9_full120"}:
         _r7_train_reference_manifest(config)
 
 
@@ -977,6 +1003,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
         report_stem = {
             "r7_full120": f"train_full_120_r7_seed{experiment_seed}",
             "r8_full120": f"train_full_120_r8_seed{experiment_seed}",
+            "r9_full120": f"train_full_120_r9_seed{experiment_seed}",
         }.get(protocol, "train_full_30")
         report_title = {
             "r7_full120": (
@@ -985,6 +1012,10 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             ),
             "r8_full120": (
                 f"AtomicSkillGraph v3 ALFWorld Full-120 R8 Train "
+                f"(seed {experiment_seed})"
+            ),
+            "r9_full120": (
+                f"AtomicSkillGraph v3 ALFWorld Full-120 R9 Train "
                 f"(seed {experiment_seed})"
             ),
         }.get(protocol, "AtomicSkillGraph v3 ALFWorld Full-30 Train")
@@ -1000,7 +1031,11 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             experiment.get("frozen_snapshot_dir", "runs/alfworld_train_full_30/frozen/data_v3")
         )
         closure_audit = (
-            require_active_composite_frozen_closure(
+            require_r9_formal_freeze_audit(
+                system.database, system.skills,
+            )
+            if protocol == "r9_full120"
+            else require_active_composite_frozen_closure(
                 system.database, system.skills,
             )
             if protocol == "r8_full120"
@@ -1017,10 +1052,16 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             "source_llm_config_hash": str(manifest.metadata.get("llm_config_hash", "")),
         }
         if closure_audit is not None:
-            freeze_provenance.update({
-                "active_composite_frozen_closure_passed": True,
-                "active_composite_frozen_closure_audit": closure_audit,
-            })
+            if protocol == "r9_full120":
+                freeze_provenance.update({
+                    "r9_formal_freeze_audit_passed": True,
+                    "r9_formal_freeze_audit": closure_audit,
+                })
+            else:
+                freeze_provenance.update({
+                    "active_composite_frozen_closure_passed": True,
+                    "active_composite_frozen_closure_audit": closure_audit,
+                })
             print(json.dumps({
                 "formal_freeze_invariant": closure_audit,
             }, ensure_ascii=False), flush=True)

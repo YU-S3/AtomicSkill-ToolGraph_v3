@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 import re
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..core.bindings import BindingExprKind, BindingExpression
 from ..core.edges import GraphEdgeType
 from ..core.contracts import IdentityRelation
 from ..core.results import RuntimeLinearPlan, ValidationResult
+from ..core.serialization import to_primitive
 from ..core.semantic_types import (
     normalize_semantic_type,
     semantic_types_compatible,
 )
 from ..core.status import RuntimeMode, skill_status_usable
+from ..core.support_authority import support_role_authority
 from ..knowledge.graph_store import GraphStore
 from ..knowledge.skill_registry import SkillRegistry
 from .multiplicity import RequirementExpansion, normalized_constraints
@@ -25,6 +29,71 @@ from .repeat_constraints import (
     formal_repeat_role,
     unit_effect_role_mappings,
 )
+
+
+def _normalized_literal_key(value: Any) -> str:
+    """Canonical, type-preserving key for exact literal authorization."""
+
+    primitive = to_primitive(value)
+    return json.dumps(
+        {
+            "python_type": type(primitive).__name__,
+            "value": primitive,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def planner_constant_authority_rejections(
+    plan: RuntimeLinearPlan,
+    literal_authorities: Mapping[str, Sequence[Any]],
+) -> list[dict[str, Any]]:
+    """Return every Planner CONSTANT lacking exact role-scoped authority."""
+
+    normalized_authorities: dict[str, set[str]] = {}
+    for role, values in dict(literal_authorities or {}).items():
+        raw_values: Sequence[Any]
+        if isinstance(values, (str, bytes)):
+            raw_values = (values,)
+        else:
+            raw_values = values
+        allowed: set[str] = set()
+        for value in raw_values:
+            try:
+                allowed.add(_normalized_literal_key(value))
+            except (TypeError, ValueError):
+                continue
+        normalized_authorities[str(role)] = allowed
+
+    rejections: list[dict[str, Any]] = []
+    for occurrence in plan.occurrences:
+        for target_role, raw_expression in dict(
+            occurrence.binding_specs or {},
+        ).items():
+            try:
+                expression = BindingExpression.from_dict(raw_expression)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if expression.kind is not BindingExprKind.CONSTANT:
+                continue
+            try:
+                literal_key = _normalized_literal_key(expression.constant)
+            except (TypeError, ValueError):
+                literal_key = ""
+            if literal_key in normalized_authorities.get(
+                str(target_role),
+                set(),
+            ):
+                continue
+            rejections.append({
+                "step_id": str(occurrence.step_id),
+                "target_role": str(target_role),
+                "constant": to_primitive(expression.constant),
+            })
+    return rejections
 
 
 def _predicate_shape_compatible(required: Any, offered: Any) -> bool:
@@ -331,19 +400,6 @@ def _occurrence_instance_ids(occurrence: Any) -> list[str]:
     )
 
 
-def _atomic_role_names(atomic: Any) -> set[str]:
-    roles = {
-        item.name
-        for item in [*getattr(atomic, "inputs", ()), *getattr(atomic, "outputs", ())]
-    }
-    for predicate in [
-        *getattr(atomic, "preconditions", ()),
-        *getattr(atomic, "effects", ()),
-    ]:
-        roles.update(map(str, predicate.args))
-    return roles
-
-
 def _parameter_types(value: Any) -> dict[str, str]:
     return {
         item.name: item.semantic_type
@@ -517,8 +573,13 @@ def validate_runtime_repeat_contract(
 
         for step_id, role_map in constraint.step_role_bindings.items():
             atomic = atomics.get(step_id)
-            boundary_types = (
-                _atomic_parameter_types(atomic) if atomic is not None else {}
+            input_types = (
+                {
+                    str(item.name): str(item.semantic_type)
+                    for item in getattr(atomic, "inputs", ())
+                }
+                if atomic is not None
+                else {}
             )
             declared_roles_valid &= set(role_map).issubset(
                 distinct_roles | shared_roles,
@@ -526,12 +587,12 @@ def validate_runtime_repeat_contract(
             for block_role, atomic_role in role_map.items():
                 mapped_roles_exist &= bool(
                     block_role and atomic_role
-                    and atomic_role in boundary_types
+                    and atomic_role in input_types
                 )
                 mapped_role_types_valid &= bool(
-                    atomic_role in boundary_types
+                    atomic_role in input_types
                     and normalize_semantic_type(
-                        boundary_types.get(atomic_role, ""),
+                        input_types.get(atomic_role, ""),
                     )
                 )
 
@@ -898,7 +959,9 @@ def _repeat_instance_validation(
             *block.distinct_roles,
             *block.shared_roles,
         }
-        atomic_roles = _atomic_role_names(atomic)
+        atomic_roles = {
+            str(item.name) for item in getattr(atomic, "inputs", ())
+        }
         repeat_role_maps &= (
             set(role_bindings).issubset(allowed_block_roles)
             and all(
@@ -1181,10 +1244,33 @@ class PlannerValidator:
         instance_candidates: dict[str, set[str]] | None = None,
         support_candidates: list[Any] | None = None,
         task_binding_roles: set[str] | None = None,
+        literal_authorities: Mapping[str, Sequence[Any]] | None = None,
     ) -> ValidationResult:
         checks: dict[str, bool] = {}
         errors: list[str] = []
         messages: list[str] = []
+
+        literal_rejections = (
+            []
+            if literal_authorities is None
+            else planner_constant_authority_rejections(
+                plan,
+                literal_authorities,
+            )
+        )
+        checks["planner_constant_authority_valid"] = not literal_rejections
+        if literal_rejections:
+            errors.append("planner_constant_authority_invalid")
+            messages.append(
+                "Planner CONSTANT bindings lack exact role-scoped literal "
+                "authority: "
+                + json.dumps(
+                    literal_rejections,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
 
         by_step = {item.step_id: item for item in plan.occurrences}
         checks["occurrence_limit"] = 0 < len(by_step) == len(plan.occurrences) <= self.max_occurrences
@@ -1334,6 +1420,8 @@ class PlannerValidator:
         support_mapping_authority: set[
             tuple[str, str, str, str, str]
         ] = set()
+        support_role_mappings_authorized = True
+        support_runtime_resolvable_roles_excluded = True
         for candidate in support_candidates:
             if isinstance(candidate, dict):
                 producer_ref = str(candidate.get("atomic_ref", ""))
@@ -1347,8 +1435,7 @@ class PlannerValidator:
                     candidate, "consumer_requirement_instance_id", "",
                 ))
                 role_mappings = getattr(candidate, "role_mappings", ()) or ()
-            if producer_ref:
-                support_refs.add(producer_ref)
+            candidate_has_authority = False
             for mapping in role_mappings:
                 if isinstance(mapping, dict):
                     producer_role = str(mapping.get("producer_role", ""))
@@ -1360,14 +1447,55 @@ class PlannerValidator:
                     consumer_ref = str(getattr(
                         mapping, "consumer_atomic_ref", "",
                     ))
-                if all((
+                identifiers_complete = all((
                     producer_ref, consumer_ref, instance_id,
                     producer_role, consumer_role,
-                )):
+                ))
+                producer_atomic = consumer_atomic = None
+                if identifiers_complete:
+                    try:
+                        producer_atomic = self.skills.get_atomic(producer_ref)
+                        consumer_atomic = self.skills.get_atomic(consumer_ref)
+                    except (KeyError, TypeError, ValueError):
+                        producer_atomic = consumer_atomic = None
+                required = next((
+                    item
+                    for item in getattr(consumer_atomic, "inputs", ())
+                    if str(item.name) == consumer_role
+                ), None)
+                necessity_authorized = bool(
+                    required is not None
+                    and required.required
+                    and not required.runtime_resolvable
+                )
+                if required is not None and required.runtime_resolvable:
+                    support_runtime_resolvable_roles_excluded = False
+                semantic_authority = (
+                    support_role_authority(
+                        producer_atomic,
+                        producer_role,
+                        consumer_atomic,
+                        consumer_role,
+                    )
+                    if producer_atomic is not None
+                    and consumer_atomic is not None
+                    else None
+                )
+                mapping_authorized = bool(
+                    identifiers_complete
+                    and necessity_authorized
+                    and semantic_authority is not None
+                    and semantic_authority.authorized
+                )
+                support_role_mappings_authorized &= mapping_authorized
+                if mapping_authorized:
                     support_mapping_authority.add((
                         producer_ref, consumer_ref, instance_id,
                         producer_role, consumer_role,
                     ))
+                    candidate_has_authority = True
+            if producer_ref and candidate_has_authority:
+                support_refs.add(producer_ref)
 
         support_occurrences_authorized = True
         support_outputs_consumed = True
@@ -1419,10 +1547,18 @@ class PlannerValidator:
         checks["support_data_flow_mappings_valid"] = (
             support_data_flow_mappings_valid
         )
+        checks["support_role_mappings_authorized"] = (
+            support_role_mappings_authorized
+        )
+        checks["support_runtime_resolvable_roles_excluded"] = (
+            support_runtime_resolvable_roles_excluded
+        )
         if not all((
             support_occurrences_authorized,
             support_outputs_consumed,
             support_data_flow_mappings_valid,
+            support_role_mappings_authorized,
+            support_runtime_resolvable_roles_excluded,
         )):
             errors.append("planner_support_atomic_invalid")
 

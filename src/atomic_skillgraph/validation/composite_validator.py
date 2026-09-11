@@ -16,6 +16,7 @@ class CompositeValidator:
         successful = {
             NodeExecutionStatus.ALREADY_SATISFIED, NodeExecutionStatus.DIRECT_AUTONOMOUS_SUCCESS,
             NodeExecutionStatus.DIRECT_AGENT_PREPARED_SUCCESS,
+            NodeExecutionStatus.DIRECT_TERMINAL_EFFECT_SUCCESS,
             NodeExecutionStatus.AGENT_COMPLETED_BEFORE_INVOCATION, NodeExecutionStatus.SEEDED_SUCCESS,
             NodeExecutionStatus.SKIPPED_GOAL_TERMINAL,
         }

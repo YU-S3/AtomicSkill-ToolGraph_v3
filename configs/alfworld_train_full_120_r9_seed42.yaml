@@ -1,0 +1,142 @@
+# R9 fresh empty-bank Full-120, seed 42. The task set is the immutable
+# train_120 reference manifest; method settings match the frozen R6 protocol.
+schema_version: 3
+method_patch: "3.2"
+
+data_dir: runs/alfworld_train_full_120_r9_seed42/data_v3
+trace_data_dir: runs/alfworld_train_full_120_r9_seed42
+
+llm:
+  provider: openai_compatible
+  dialect: deepseek_v4_chat
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
+  api_key_env: MODEL_API_KEY
+  connect_timeout_seconds: 15
+  max_retries: 4
+  retry_backoff_seconds: 2
+  max_retry_after_seconds: 30
+  protocol:
+    endpoint_path: "/chat/completions"
+    structured_output_transport: native_submission_tool
+    token_limit_field: max_tokens
+    thinking_type: enabled
+    send_reasoning_effort: true
+    replay_reasoning_content_with_tools: true
+    send_response_format: false
+    send_tool_choice: false
+    send_parallel_tool_calls: false
+    send_temperature: false
+    strict_tools: false
+    require_usage: true
+  planner:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 4
+    max_total_tokens_per_phase: 120000
+  runtime:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 180
+    max_total_tokens_per_node: 100000
+    max_total_tokens_per_task: 300000
+    learned_toolcall_repair_limit: 2
+    protocol_repair_limit: 1
+  extractor:
+    reasoning_effort: high
+    max_completion_tokens: 131072
+    request_timeout_seconds: 600
+    max_turns: 3
+    max_total_tokens_per_task: 262144
+  tool_builder:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
+  evolution_repair:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_turns: 1
+    max_total_tokens_per_batch: 120000
+
+planner:
+  composite_top_k: 5
+  atomic_top_k_per_requirement: 3
+  max_atomic_top_k: 5
+  requirement_repair_limit: 1
+  graph_repair_limit: 1
+  max_repeat_count: 4
+  max_runtime_occurrences: 16
+  cold_start_c1_repair_limit: 1
+  literal_authorities: {}
+
+cold_start:
+  enabled: true
+  provisional_top_k_per_requirement: 3
+  failure_experience_top_k: 2
+  scaffold_max_steps: 8
+  failure_extractor_enabled: true
+  source_replay_required: true
+  provisional_suppress_consecutive_failures: 3
+  promotion_requires_strict_task_success: true
+  experience_confirm_independent_tasks: 2
+
+runtime:
+  global_action_budget: 100
+  node_action_budget: 35
+  max_implementation_candidates: 3
+
+lifecycle:
+  maintenance_interval_successes: 5
+  atomic_active_independent_support: 2
+  implementation_active_direct_successes: 2
+  tool_active_started_successes: 2
+  tool_preferred_min_started: 5
+  composite_active_self_sufficient_successes: 2
+  composite_active_deployment_successes: 2
+  composite_candidate_zero_success_trial_limit: 3
+  composite_candidate_activation_trial_limit: 5
+  composite_active_consecutive_deployment_unsuccessful_limit: 3
+  candidate_exploration_seed: 42
+
+extraction:
+  extract_full_dynamic_success: true
+  extract_task_rescue_success: true
+  extract_novel_seeded_success: true
+  skip_stable_direct_success: true
+
+experiment:
+  name: alfworld_train_full_120_r9_seed42
+  phase: train
+  condition: full
+  runtime_mode: online
+  freeze_skills: false
+  seed: 42
+  output_dir: runs/alfworld_train_full_120_r9_seed42
+  task_manifest_path: runs/alfworld_train_full_120_r9_seed42/task_manifest.json
+  frozen_snapshot_dir: runs/alfworld_train_full_120_r9_seed42/frozen/data_v3
+  initialize_v3_bank: empty
+  resume_completed_task_boundary_only: true
+  max_task_attempts: 3
+
+harness:
+  adapter: alfworld_v3
+  alfworld_data_env: ALFWORLD_DATA
+  split: train
+  max_steps: 100
+  task_selection:
+    policy: balanced_fixed_manifest
+    task_types:
+      - pick_and_place_simple
+      - look_at_obj_in_light
+      - pick_clean_then_place_in_recep
+      - pick_heat_then_place_in_recep
+      - pick_cool_then_place_in_recep
+      - pick_two_obj_and_place
+    tasks_per_type: 20
+    total_tasks: 120
+    require_exact_count: true
+    reference_manifest_id: train_120
+    reference_manifest_path: data/baseline_manifests/train_120.json

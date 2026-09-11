@@ -921,6 +921,498 @@ def require_active_composite_frozen_closure(
     return audit
 
 
+def composite_deployment_evidence_audit(database: Any) -> dict[str, Any]:
+    """Audit the R9 exactly-one deployment outcome and Active evidence gates."""
+
+    connection = getattr(database, "connection", database)
+    rows = connection.execute(
+        "SELECT artifact_ref,task_id,trace_id,event_type FROM evidence_events "
+        "WHERE artifact_kind='composite' AND event_type IN "
+        "('selected','deployment_success','deployment_unsuccessful') "
+        "ORDER BY artifact_ref,trace_id,task_id,event_type,rowid"
+    ).fetchall()
+    task_sets: dict[str, dict[str, set[str]]] = {}
+    trace_counts: dict[str, dict[str, dict[str, int]]] = {}
+    for row in rows:
+        ref = str(row["artifact_ref"])
+        event_type = str(row["event_type"])
+        task_sets.setdefault(ref, {}).setdefault(event_type, set()).add(
+            str(row["task_id"])
+        )
+        trace_id = str(row["trace_id"])
+        by_event = trace_counts.setdefault(ref, {}).setdefault(trace_id, {})
+        by_event[event_type] = by_event.get(event_type, 0) + 1
+
+    active_refs = {
+        str(row["artifact_ref"])
+        for row in connection.execute(
+            "SELECT artifact_ref FROM artifact_index "
+            "WHERE artifact_kind='composite' AND status='active'"
+        ).fetchall()
+    }
+    refs = sorted(set(task_sets) | active_refs)
+    violations: list[dict[str, Any]] = []
+    composites: list[dict[str, Any]] = []
+    for ref in refs:
+        by_type = task_sets.get(ref, {})
+        selected = set(by_type.get("selected", set()))
+        successful = set(by_type.get("deployment_success", set()))
+        unsuccessful = set(by_type.get("deployment_unsuccessful", set()))
+        overlap = successful & unsuccessful
+        terminal = successful | unsuccessful
+        composite_violations: list[dict[str, Any]] = []
+        if overlap:
+            composite_violations.append({
+                "composite_ref": ref,
+                "reason": "deployment_outcomes_not_mutually_exclusive",
+                "task_ids": sorted(overlap),
+            })
+        if selected != terminal:
+            composite_violations.append({
+                "composite_ref": ref,
+                "reason": "selected_deployment_outcome_incomplete",
+                "missing_task_ids": sorted(selected - terminal),
+                "unselected_outcome_task_ids": sorted(terminal - selected),
+            })
+
+        # A Composite contributes one SELECTED event per selected occurrence,
+        # so occurrence counts are intentionally not compared with terminal
+        # counts. The selected trace is the deployment-trial identity: every
+        # such trace must carry exactly one terminal deployment outcome, and an
+        # outcome may not exist on a trace where the Composite was not selected.
+        selected_trace_ids = {
+            trace_id
+            for trace_id, counts in trace_counts.get(ref, {}).items()
+            if counts.get("selected", 0) > 0
+        }
+        outcome_trace_ids = {
+            trace_id
+            for trace_id, counts in trace_counts.get(ref, {}).items()
+            if counts.get("deployment_success", 0)
+            or counts.get("deployment_unsuccessful", 0)
+        }
+        missing_trace_ids: list[str] = []
+        ambiguous_trace_ids: list[str] = []
+        for trace_id in sorted(selected_trace_ids):
+            counts = trace_counts[ref][trace_id]
+            outcome_count = (
+                counts.get("deployment_success", 0)
+                + counts.get("deployment_unsuccessful", 0)
+            )
+            if outcome_count == 0:
+                missing_trace_ids.append(trace_id)
+            elif outcome_count != 1:
+                ambiguous_trace_ids.append(trace_id)
+        if missing_trace_ids or ambiguous_trace_ids:
+            composite_violations.append({
+                "composite_ref": ref,
+                "reason": "selected_trace_deployment_outcome_incomplete",
+                "missing_trace_ids": missing_trace_ids,
+                "ambiguous_trace_ids": ambiguous_trace_ids,
+            })
+        unselected_outcome_trace_ids = sorted(
+            outcome_trace_ids - selected_trace_ids
+        )
+        if unselected_outcome_trace_ids:
+            composite_violations.append({
+                "composite_ref": ref,
+                "reason": "deployment_outcome_without_selected_trace",
+                "trace_ids": unselected_outcome_trace_ids,
+            })
+
+        projection_row = connection.execute(
+            "SELECT projection_json FROM lifecycle_projection WHERE artifact_ref=?",
+            (ref,),
+        ).fetchone()
+        projection = (
+            json.loads(str(projection_row["projection_json"]))
+            if projection_row is not None
+            else {}
+        )
+        consecutive_unsuccessful = int(
+            projection.get("consecutive_deployment_unsuccessful", 0)
+        )
+        if ref in active_refs and len(successful) < 2:
+            composite_violations.append({
+                "composite_ref": ref,
+                "reason": "active_composite_lacks_deployment_successes",
+                "independent_deployment_success_count": len(successful),
+            })
+        if ref in active_refs and consecutive_unsuccessful >= 3:
+            composite_violations.append({
+                "composite_ref": ref,
+                "reason": "active_composite_deployment_circuit_breaker_due",
+                "consecutive_deployment_unsuccessful": consecutive_unsuccessful,
+            })
+        violations.extend(composite_violations)
+        composites.append({
+            "composite_ref": ref,
+            "active": ref in active_refs,
+            "selected_task_ids": sorted(selected),
+            "selected_trace_ids": sorted(selected_trace_ids),
+            "deployment_success_task_ids": sorted(successful),
+            "deployment_unsuccessful_task_ids": sorted(unsuccessful),
+            "deployment_outcome_trace_ids": sorted(outcome_trace_ids),
+            "consecutive_deployment_unsuccessful": consecutive_unsuccessful,
+            "passed": not composite_violations,
+            "violations": composite_violations,
+        })
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "composite_deployment_evidence_passed": not violations,
+        "active_composite_count": len(active_refs),
+        "selected_composite_count": sum(bool(
+            item["selected_task_ids"]
+        ) for item in composites),
+        "composite_deployment_trial_count": sum(
+            len(item["deployment_success_task_ids"])
+            + len(item["deployment_unsuccessful_task_ids"])
+            for item in composites
+        ),
+        "composite_deployment_success_count": sum(
+            len(item["deployment_success_task_ids"]) for item in composites
+        ),
+        "composite_deployment_unsuccessful_count": sum(
+            len(item["deployment_unsuccessful_task_ids"]) for item in composites
+        ),
+        "composites": composites,
+        "violations": violations,
+    }
+
+
+def atomic_output_derivation_audit(skill_registry: Any) -> dict[str, Any]:
+    """Verify that persisted Atomic outputs retain normalized lineage authority."""
+
+    from atomic_skillgraph.core.semantic_types import semantic_types_compatible
+
+    atomics: list[dict[str, Any]] = []
+    violations: list[dict[str, str]] = []
+    for atomic in skill_registry.atomics():
+        ref = str(atomic.ref)
+        inputs = {item.name: item for item in atomic.inputs}
+        outputs = {item.name: item for item in atomic.outputs}
+        raw_derivations = dict(atomic.validator_spec.get("output_derivations") or {})
+        atomic_violations: list[dict[str, str]] = []
+        for output_role, output in outputs.items():
+            raw = raw_derivations.get(output_role)
+            if not isinstance(raw, Mapping):
+                atomic_violations.append({
+                    "atomic_ref": ref,
+                    "output_role": output_role,
+                    "reason": "atomic_output_derivation_missing",
+                })
+                continue
+            derivation = dict(raw)
+            kind = str(derivation.get("kind", ""))
+            if kind == "input_identity":
+                input_role = str(derivation.get("input_role", ""))
+                source = inputs.get(input_role)
+                if source is None or not semantic_types_compatible(
+                    source.semantic_type, output.semantic_type
+                ):
+                    atomic_violations.append({
+                        "atomic_ref": ref,
+                        "output_role": output_role,
+                        "reason": "atomic_input_identity_derivation_invalid",
+                    })
+            elif kind == "effect_witness":
+                predicate = str(derivation.get("predicate", "")).casefold()
+                argument_role = str(derivation.get("argument_role", ""))
+                matches = [
+                    effect
+                    for effect in atomic.effects
+                    if effect.predicate.casefold() == predicate
+                    and argument_role in effect.args
+                ]
+                if not matches:
+                    atomic_violations.append({
+                        "atomic_ref": ref,
+                        "output_role": output_role,
+                        "reason": "atomic_effect_witness_derivation_invalid",
+                    })
+            else:
+                atomic_violations.append({
+                    "atomic_ref": ref,
+                    "output_role": output_role,
+                    "reason": "atomic_output_derivation_kind_invalid",
+                })
+        extra_roles = sorted(set(raw_derivations) - set(outputs))
+        for output_role in extra_roles:
+            atomic_violations.append({
+                "atomic_ref": ref,
+                "output_role": output_role,
+                "reason": "atomic_output_derivation_role_unknown",
+            })
+        violations.extend(atomic_violations)
+        atomics.append({
+            "atomic_ref": ref,
+            "output_count": len(outputs),
+            "derivation_count": len(raw_derivations),
+            "passed": not atomic_violations,
+            "violations": atomic_violations,
+        })
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "atomic_output_derivation_audit_passed": not violations,
+        "atomic_count": len(atomics),
+        "atomic_output_count": sum(item["output_count"] for item in atomics),
+        "atomics": atomics,
+        "violations": violations,
+    }
+
+
+def active_repeat_identity_closure_audit(
+    database: Any,
+    skill_registry: Any,
+) -> dict[str, Any]:
+    """Compile every Active Composite repeat through R9 identity authority.
+
+    The compiler is the single runtime authority. This audit does not infer
+    iterations or repair roles: every formal repeat constraint must compile
+    once, preserve its count/distinct/shared contract, and expose only Atomic
+    input roles at the pre-action enforcement boundary.
+    """
+
+    from atomic_skillgraph.planner.multiplicity import normalized_constraints
+    from atomic_skillgraph.planner.repeat_constraints import (
+        RuntimeRepeatConstraintCompiler,
+    )
+
+    connection = getattr(database, "connection", database)
+    active_refs = [
+        str(row["artifact_ref"])
+        for row in connection.execute(
+            "SELECT artifact_ref FROM artifact_index "
+            "WHERE artifact_kind='composite' AND status='active' "
+            "ORDER BY artifact_ref"
+        ).fetchall()
+    ]
+    composites: list[dict[str, Any]] = []
+    violations: list[dict[str, Any]] = []
+    expected_repeat_count = 0
+    compiled_repeat_count = 0
+
+    for composite_ref in active_refs:
+        composite_violations: list[dict[str, Any]] = []
+        expected: dict[str, dict[str, Any]] = {}
+        compiled: list[Any] = []
+        try:
+            composite = skill_registry.get_composite(composite_ref)
+            expected = {
+                constraint_id: value
+                for constraint_id, value in normalized_constraints(
+                    composite.goal_contract
+                ).items()
+                if value.get("composition_mode") == "repeat_unit"
+            }
+            compiler = RuntimeRepeatConstraintCompiler()
+            compiled = compiler.from_complete_composite(
+                composite,
+                composite.goal_contract,
+                skill_registry,
+            )
+        except Exception as exc:
+            composite_violations.append({
+                "composite_ref": composite_ref,
+                "reason": "active_repeat_identity_closure_unreadable",
+                "error_type": type(exc).__name__,
+            })
+            composite = None
+
+        expected_repeat_count += len(expected)
+        compiled_repeat_count += len(compiled)
+        compiled_by_basis: dict[str, list[Any]] = {}
+        for constraint in compiled:
+            compiled_by_basis.setdefault(
+                str(constraint.basis_constraint_id), []
+            ).append(constraint)
+
+        for basis_id, basis in sorted(expected.items()):
+            matches = compiled_by_basis.get(basis_id, [])
+            if len(matches) != 1:
+                composite_violations.append({
+                    "composite_ref": composite_ref,
+                    "basis_constraint_id": basis_id,
+                    "reason": "active_repeat_constraint_not_exactly_compiled",
+                    "compiled_count": len(matches),
+                })
+                continue
+            constraint = matches[0]
+            expected_count = int(basis.get("count", 0))
+            expected_distinct = tuple(
+                value
+                for value in (str(basis.get("distinct_by", "")),)
+                if value
+            )
+            expected_shared = tuple(map(str, basis.get("shared_roles", ())))
+            if (
+                int(constraint.count) != expected_count
+                or tuple(constraint.distinct_roles) != expected_distinct
+                or set(map(str, constraint.shared_roles)) != set(expected_shared)
+                or len(tuple(constraint.iteration_steps)) != expected_count
+                or any(not tuple(steps) for steps in constraint.iteration_steps)
+            ):
+                composite_violations.append({
+                    "composite_ref": composite_ref,
+                    "basis_constraint_id": basis_id,
+                    "reason": "active_repeat_constraint_contract_mismatch",
+                })
+
+            occurrence_by_step = {
+                str(item.step_id): item
+                for item in getattr(composite, "occurrences", ())
+            }
+            iteration_owners: dict[str, int] = {}
+            for iteration_index, steps in enumerate(
+                constraint.iteration_steps
+            ):
+                for step_id in map(str, steps):
+                    previous = iteration_owners.setdefault(
+                        step_id, iteration_index
+                    )
+                    if previous != iteration_index:
+                        composite_violations.append({
+                            "composite_ref": composite_ref,
+                            "basis_constraint_id": basis_id,
+                            "step_id": step_id,
+                            "reason": "active_repeat_step_has_multiple_iteration_owners",
+                        })
+
+            for step_id, role_map in dict(
+                constraint.step_role_bindings
+            ).items():
+                occurrence = occurrence_by_step.get(str(step_id))
+                if occurrence is None:
+                    composite_violations.append({
+                        "composite_ref": composite_ref,
+                        "basis_constraint_id": basis_id,
+                        "step_id": str(step_id),
+                        "reason": "active_repeat_binding_step_unknown",
+                    })
+                    continue
+                try:
+                    atomic = skill_registry.get_atomic(occurrence.node_ref)
+                    input_roles = {
+                        str(item.name) for item in atomic.inputs
+                    }
+                except Exception as exc:
+                    composite_violations.append({
+                        "composite_ref": composite_ref,
+                        "basis_constraint_id": basis_id,
+                        "step_id": str(step_id),
+                        "reason": "active_repeat_binding_atomic_unreadable",
+                        "error_type": type(exc).__name__,
+                    })
+                    continue
+                for formal_role, input_role in dict(role_map).items():
+                    if str(input_role) not in input_roles:
+                        composite_violations.append({
+                            "composite_ref": composite_ref,
+                            "basis_constraint_id": basis_id,
+                            "step_id": str(step_id),
+                            "formal_role": str(formal_role),
+                            "boundary_role": str(input_role),
+                            "reason": "active_repeat_enforcement_role_not_atomic_input",
+                        })
+
+        unexpected_basis_ids = sorted(set(compiled_by_basis) - set(expected))
+        if unexpected_basis_ids:
+            composite_violations.append({
+                "composite_ref": composite_ref,
+                "reason": "active_repeat_unexpected_compiled_constraint",
+                "basis_constraint_ids": unexpected_basis_ids,
+            })
+
+        violations.extend(composite_violations)
+        composites.append({
+            "composite_ref": composite_ref,
+            "expected_repeat_constraint_ids": sorted(expected),
+            "compiled_repeat_constraint_ids": sorted(compiled_by_basis),
+            "passed": not composite_violations,
+            "violations": composite_violations,
+        })
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "active_repeat_identity_closure_passed": not violations,
+        "active_composite_count": len(active_refs),
+        "expected_repeat_constraint_count": expected_repeat_count,
+        "stored_repeat_identity_closure_compile_count": compiled_repeat_count,
+        "stored_repeat_identity_closure_rejection_count": max(
+            0, expected_repeat_count - compiled_repeat_count
+        ),
+        "composites": composites,
+        "violations": violations,
+    }
+
+
+def r9_formal_freeze_audit(
+    database: Any,
+    skill_registry: Any,
+) -> dict[str, Any]:
+    """Return the immutable aggregate of every R9 formal freeze authority."""
+
+    child_closure = active_composite_frozen_closure_audit(
+        database, skill_registry
+    )
+    deployment = composite_deployment_evidence_audit(database)
+    repeat_closure = active_repeat_identity_closure_audit(
+        database, skill_registry
+    )
+    output_derivations = atomic_output_derivation_audit(skill_registry)
+    component_passes = {
+        "active_composite_frozen_closure": bool(
+            child_closure.get("active_composite_frozen_closure_passed", False)
+        ),
+        "composite_deployment_evidence": bool(
+            deployment.get("composite_deployment_evidence_passed", False)
+        ),
+        "active_repeat_identity_closure": bool(
+            repeat_closure.get("active_repeat_identity_closure_passed", False)
+        ),
+        "atomic_output_derivation": bool(
+            output_derivations.get("atomic_output_derivation_audit_passed", False)
+        ),
+    }
+    violations = [
+        {"audit": audit_name, **dict(item)}
+        for audit_name, audit in (
+            ("active_composite_frozen_closure", child_closure),
+            ("composite_deployment_evidence", deployment),
+            ("active_repeat_identity_closure", repeat_closure),
+            ("atomic_output_derivation", output_derivations),
+        )
+        for item in audit.get("violations", ())
+    ]
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "r9_formal_freeze_audit_passed": all(component_passes.values()),
+        "component_passes": component_passes,
+        "active_composite_frozen_closure": child_closure,
+        "composite_deployment_evidence": deployment,
+        "active_repeat_identity_closure": repeat_closure,
+        "atomic_output_derivation": output_derivations,
+        "violations": violations,
+    }
+
+
+def require_r9_formal_freeze_audit(
+    database: Any,
+    skill_registry: Any,
+) -> dict[str, Any]:
+    """Fail closed unless every R9 formal freeze authority is complete."""
+
+    audit = r9_formal_freeze_audit(database, skill_registry)
+    if audit["r9_formal_freeze_audit_passed"] is not True:
+        raise ProtocolError(
+            "R9 formal freeze authority failed: "
+            + _canonical_json(audit["violations"])
+        )
+    return audit
+
+
 def write_run_observability(
     path: str | Path,
     *,
@@ -2508,8 +3000,11 @@ __all__ = [
     "AttemptTraceRef",
     "audit_failed_attempt",
     "active_composite_frozen_closure_audit",
+    "active_repeat_identity_closure_audit",
     "artifact_audit_snapshot",
     "artifact_growth_audit",
+    "atomic_output_derivation_audit",
+    "composite_deployment_evidence_audit",
     "load_task_report_traces",
     "FieldMismatch",
     "ManifestExistsError",
@@ -2533,6 +3028,8 @@ __all__ = [
     "formal_reasoning_effort_audit",
     "knowledge_digest",
     "require_active_composite_frozen_closure",
+    "require_r9_formal_freeze_audit",
+    "r9_formal_freeze_audit",
     "sha256_json",
     "sanitize_error_text",
     "task_signature",

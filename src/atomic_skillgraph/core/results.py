@@ -124,6 +124,7 @@ class NodeExecutionStatus(str, Enum):
     ALREADY_SATISFIED = "already_satisfied"
     DIRECT_AUTONOMOUS_SUCCESS = "direct_autonomous_success"
     DIRECT_AGENT_PREPARED_SUCCESS = "direct_agent_prepared_success"
+    DIRECT_TERMINAL_EFFECT_SUCCESS = "direct_terminal_effect_success"
     AGENT_COMPLETED_BEFORE_INVOCATION = "agent_completed_before_invocation"
     SEEDED_SUCCESS = "seeded_success"
     FAILED_NOT_STARTED = "failed_not_started"
@@ -213,6 +214,7 @@ class ImplementationExecutionResult:
     node_status: NodeExecutionStatus = NodeExecutionStatus.NOT_STARTED
     terminal_interrupted: bool = False
     atomic_witness_refs: list[str] = field(default_factory=list)
+    terminal_effect_reconciled: bool = False
 
 
 @dataclass(frozen=True)

@@ -275,6 +275,7 @@ class WorkflowAgent:
         support_candidates: Any = (),
         authoritative_contracts: Any = (),
         task_binding_interface: Mapping[str, Any] | None = None,
+        literal_authorities: Mapping[str, Any] | None = None,
     ) -> PlannerWorkflowProposal:
         compact = getattr(self.session, "compact_completed_structured_phases", None)
         if callable(compact):
@@ -301,8 +302,9 @@ class WorkflowAgent:
             "occurrence.\n"
             "The Requirements payload carries each complete template contract once; "
             "instances reference it by template_requirement_id.\n"
-            "Every listed support role mapping has already passed deterministic type, "
-            "resolution, and Effect-domain compatibility checks.\n"
+            "Every listed support role mapping closes a non-runtime-resolvable "
+            "formal input and has already passed deterministic type, resolution, "
+            "Effect-domain, and semantic-role authority checks.\n"
             "Authoritative candidate interfaces contain the exact code-side inputs, "
             "outputs, preconditions, and effects for every supplied required/support "
             "Atomic ref. Use them to determine graph bindings and input/output "
@@ -310,9 +312,15 @@ class WorkflowAgent:
             "not another ranking and does not change candidate membership/order.\n"
             "For BindingExprKind.SKILL_INPUT, source_role MUST be one of the keys "
             "in Task binding interface. A semantic_value is a value, never a role name.\n"
+            "BindingExprKind.CONSTANT is allowed only when the target Atomic input "
+            "role and exact value appear in Allowed literal authorities. If that "
+            "mapping is empty, do not emit CONSTANT for any Atomic input. Runtime-"
+            "resolvable inputs may be left unbound for Runtime grounding.\n"
             f"Task: {task.goal}\nContract: {_json_payload(to_primitive(contract))}\n"
             f"Task binding interface: "
             f"{_json_payload(to_primitive(dict(task_binding_interface or {})))}\n"
+            f"Allowed literal authorities: "
+            f"{_json_payload(to_primitive(dict(literal_authorities or {})))}\n"
             f"Requirements: {_json_payload(_requirement_expansion_projection(requirements))}\n"
             f"Required candidates: {_json_payload(_candidate_projection(candidates))}\n"
             f"Support candidates and formal mappings: "
@@ -337,6 +345,7 @@ class WorkflowAgent:
         *,
         support_candidates: Any = (),
         task_binding_interface: Mapping[str, Any] | None = None,
+        literal_authorities: Mapping[str, Any] | None = None,
     ) -> PlannerWorkflowProposal:
         compact = getattr(self.session, "compact_completed_structured_phases", None)
         if callable(compact):
@@ -351,10 +360,16 @@ class WorkflowAgent:
             "guideline, and provenance fields grant no Planner authority.\n"
             "For BindingExprKind.SKILL_INPUT, source_role MUST be one of the keys "
             "in Task binding interface. A semantic_value is a value, never a role name.\n"
+            "BindingExprKind.CONSTANT is allowed only when the target Atomic input "
+            "role and exact value appear in Allowed literal authorities. If that "
+            "mapping is empty, do not emit CONSTANT for any Atomic input. Runtime-"
+            "resolvable inputs may be left unbound for Runtime grounding.\n"
             f"Proposal: {_json_payload(to_primitive(proposal))}\n"
             f"Validation errors: {_json_payload(_validation_projection(validation))}\n"
             f"Task binding interface: "
             f"{_json_payload(to_primitive(dict(task_binding_interface or {})))}\n"
+            f"Allowed literal authorities: "
+            f"{_json_payload(to_primitive(dict(literal_authorities or {})))}\n"
             f"Authoritative contracts: "
             f"{_json_payload(_authoritative_contract_projection(authoritative_contracts))}\n"
             f"Support candidates and formal mappings: "

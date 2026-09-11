@@ -30,7 +30,10 @@ class LifecycleThresholds:
     tool_preferred_reliability_lower_bound: float = 0.50
     tool_preferred_wilson_z: float = 1.96
     composite_active_self_sufficient_successes: int = 2
+    composite_active_deployment_successes: int = 2
     composite_candidate_zero_success_trial_limit: int = 3
+    composite_candidate_activation_trial_limit: int = 5
+    composite_active_consecutive_deployment_unsuccessful_limit: int = 3
 
     atomic_suppress_consecutive_failures: int = 3
     implementation_suppress_consecutive_failures: int = 3
@@ -52,16 +55,16 @@ class LifecycleThresholds:
         for name in integer_names:
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
-        zero_success_limit = self.composite_candidate_zero_success_trial_limit
-        if (
-            isinstance(zero_success_limit, bool)
-            or not isinstance(zero_success_limit, int)
-            or zero_success_limit <= 0
-        ):
-            raise ValueError(
-                "composite_candidate_zero_success_trial_limit must be a "
-                "positive integer"
-            )
+        strict_integer_names = (
+            "composite_active_deployment_successes",
+            "composite_candidate_zero_success_trial_limit",
+            "composite_candidate_activation_trial_limit",
+            "composite_active_consecutive_deployment_unsuccessful_limit",
+        )
+        for name in strict_integer_names:
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
         if self.tool_candidate_max_intrinsic_failures < 0:
             raise ValueError("tool_candidate_max_intrinsic_failures must be non-negative")
         if not 0.0 <= self.tool_preferred_reliability_lower_bound <= 1.0:
@@ -263,6 +266,17 @@ class LifecyclePolicy:
             if stats.stable_replacement:
                 return _move(ref, "composite", status, SkillStatus.SUPPRESSED, "superseded")
             if (
+                stats.consecutive_deployment_unsuccessful
+                >= self.thresholds.composite_active_consecutive_deployment_unsuccessful_limit
+            ):
+                return _move(
+                    ref,
+                    "composite",
+                    status,
+                    SkillStatus.SUPPRESSED,
+                    "repeated_empirical_deployment_unsuccessful",
+                )
+            if (
                 stats.consecutive_intrinsic_failures
                 >= self.thresholds.composite_suppress_consecutive_failures
             ):
@@ -275,18 +289,19 @@ class LifecyclePolicy:
                 )
             return _keep(ref, "composite", status, "active_evidence_stable")
         if status is SkillStatus.CANDIDATE:
-            successes = stats.independent_self_sufficient_success_count
-            if successes >= self.thresholds.composite_active_self_sufficient_successes:
+            successes = stats.independent_deployment_success_count
+            trials = stats.independent_deployment_trial_count
+            if successes >= self.thresholds.composite_active_deployment_successes:
                 return _move(
                     ref,
                     "composite",
                     status,
                     SkillStatus.ACTIVE,
-                    "independent_graph_self_sufficient_successes",
+                    "independent_deployment_successes",
                 )
             if (
                 successes == 0
-                and stats.independent_selected_task_count
+                and trials
                 >= self.thresholds.composite_candidate_zero_success_trial_limit
             ):
                 return _move(
@@ -296,7 +311,18 @@ class LifecyclePolicy:
                     SkillStatus.SUPPRESSED,
                     "candidate_zero_success_after_independent_trials",
                 )
-            return _keep(ref, "composite", status, "needs_self_sufficient_successes")
+            if (
+                trials >= self.thresholds.composite_candidate_activation_trial_limit
+                and successes < self.thresholds.composite_active_deployment_successes
+            ):
+                return _move(
+                    ref,
+                    "composite",
+                    status,
+                    SkillStatus.SUPPRESSED,
+                    "candidate_failed_to_activate_within_deployment_window",
+                )
+            return _keep(ref, "composite", status, "needs_deployment_successes")
         if status in {SkillStatus.DRAFT, SkillStatus.SHADOW} and stats.validated_count:
             return _move(
                 ref,

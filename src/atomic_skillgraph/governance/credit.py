@@ -26,6 +26,8 @@ class CreditOutcome(str, Enum):
     SEEDED_SUCCESS = EvidenceEventType.SEEDED_SUCCESS.value
     SEEDED_FAILURE = EvidenceEventType.SEEDED_FAILURE.value
     SELF_SUFFICIENT_SUCCESS = EvidenceEventType.SELF_SUFFICIENT_SUCCESS.value
+    DEPLOYMENT_SUCCESS = EvidenceEventType.DEPLOYMENT_SUCCESS.value
+    DEPLOYMENT_UNSUCCESSFUL = EvidenceEventType.DEPLOYMENT_UNSUCCESSFUL.value
     TASK_RESCUE_REQUIRED = EvidenceEventType.TASK_RESCUE_REQUIRED.value
     GOAL_TERMINAL_SKIPPED = EvidenceEventType.GOAL_TERMINAL_SKIPPED.value
     CONTRACT_MISMATCH = EvidenceEventType.CONTRACT_MISMATCH.value
@@ -36,6 +38,8 @@ _DIRECT_KINDS = frozenset({"atomic", "implementation", "tool"})
 _COMPOSITE_OUTCOMES = frozenset(
     {
         CreditOutcome.SELF_SUFFICIENT_SUCCESS,
+        CreditOutcome.DEPLOYMENT_SUCCESS,
+        CreditOutcome.DEPLOYMENT_UNSUCCESSFUL,
         CreditOutcome.TASK_RESCUE_REQUIRED,
         CreditOutcome.GOAL_TERMINAL_SKIPPED,
         CreditOutcome.CONTRACT_MISMATCH,
@@ -436,7 +440,11 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         )
         failure_layer = ""
         intrinsic = False
-        if status in {"direct_autonomous_success", "direct_agent_prepared_success"}:
+        if status in {
+            "direct_autonomous_success",
+            "direct_agent_prepared_success",
+            "direct_terminal_effect_success",
+        }:
             outcome = CreditOutcome.DIRECT_SUCCESS
             if not started:
                 raise CreditAssignmentError(
@@ -548,8 +556,70 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
                     failure_layer=composite_layer,
                 )
             )
+            sequence += 1
+
+        deployment_success = bool(
+            _field(trace, "benchmark_success", False)
+            and _field(trace, "task_contract_success", False)
+            and _field(trace, "graph_self_sufficient_success", False)
+            and _field(trace, "graph_full_completion", False)
+            and not _field(trace, "task_rescue_required", False)
+            and _trace_has_graph_execution_evidence(trace)
+        )
+        attempts.append(
+            CreditAttempt(
+                artifact_ref=composite_ref,
+                artifact_kind="composite",
+                occurrence_id="deployment",
+                attempt_id=f"composite:{composite_ref}:deployment",
+                sequence_no=sequence,
+                outcome=(
+                    CreditOutcome.DEPLOYMENT_SUCCESS
+                    if deployment_success
+                    else CreditOutcome.DEPLOYMENT_UNSUCCESSFUL
+                ),
+                metadata={
+                    "benchmark_success": bool(_field(trace, "benchmark_success", False)),
+                    "task_contract_success": bool(
+                        _field(trace, "task_contract_success", False)
+                    ),
+                    "graph_self_sufficient_success": bool(
+                        _field(trace, "graph_self_sufficient_success", False)
+                    ),
+                    "graph_full_completion": bool(
+                        _field(trace, "graph_full_completion", False)
+                    ),
+                    "task_rescue_required": bool(
+                        _field(trace, "task_rescue_required", False)
+                    ),
+                    "graph_execution_evidence": _trace_has_graph_execution_evidence(trace),
+                },
+            )
+        )
 
     return tuple(attempts)
+
+
+def _trace_has_graph_execution_evidence(trace: Mapping[str, Any] | Any) -> bool:
+    """Return code-authoritative evidence that a selected graph actually ran."""
+
+    for span in _field(trace, "runtime_spans", ()) or ():
+        try:
+            if int(_field(span, "action_end", 0)) > int(_field(span, "action_start", 0)):
+                return True
+        except (TypeError, ValueError):
+            continue
+    for name in ("implementation_invocations", "tool_executions"):
+        for record in _field(trace, name, ()) or ():
+            result = _field(record, "result", {}) or {}
+            if bool(_field(result, "started", False)):
+                return True
+    for node in _field(trace, "node_records", ()) or ():
+        for name in ("direct_result", "seeded_result"):
+            result = _field(node, name, {}) or {}
+            if bool(_field(result, "started", False)):
+                return True
+    return False
 
 
 def _field(value: Mapping[str, Any] | Any, name: str, default: Any = None) -> Any:

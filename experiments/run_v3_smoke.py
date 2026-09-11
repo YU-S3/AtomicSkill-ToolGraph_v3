@@ -405,6 +405,7 @@ def _actual_started_direct(trace: object) -> bool:
         status = getattr(getattr(node, "status", ""), "value", getattr(node, "status", ""))
         if status not in {
             "direct_autonomous_success", "direct_agent_prepared_success",
+            "direct_terminal_effect_success",
         }:
             continue
         occurrence_id = str(getattr(node, "occurrence_id", ""))

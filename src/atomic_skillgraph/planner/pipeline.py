@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable
 
 from ..core.contracts import PlannerAudit
@@ -33,8 +34,31 @@ from .multiplicity import (
     RequirementMultiplicityCompiler,
     normalize_task_contract,
 )
-from .validator import PlannerValidator
+from .validator import (
+    PlannerValidator,
+    planner_constant_authority_rejections,
+)
 from .workflow_agent import WorkflowAgent
+
+
+_R9_PLANNER_AUDIT_FIELDS = (
+    "stored_repeat_identity_closure_compile_count",
+    "stored_repeat_identity_closure_rejection_count",
+    "planner_support_role_authority_rejection_count",
+    "planner_support_runtime_resolvable_role_exclusion_count",
+    "planner_constant_authority_rejection_count",
+)
+
+
+def _planner_audit_payload(audit: PlannerAudit) -> dict[str, Any]:
+    """Serialize declared and extension Planner audit fields together."""
+
+    payload = dict(to_primitive(audit))
+    payload.update({
+        name: int(getattr(audit, name, 0))
+        for name in _R9_PLANNER_AUDIT_FIELDS
+    })
+    return payload
 
 
 def _is_planner_content_failure(exc: Exception) -> bool:
@@ -119,6 +143,7 @@ class PlannerPipeline:
         cold_start_session_factory: Callable[[Any, Any], Any] | None = None,
         scaffold_max_steps: int = 8,
         cold_start_repair_limit: int = 1,
+        literal_authorities: Mapping[str, Sequence[Any]] | None = None,
     ) -> None:
         self.skills, self.graph, self.session_factory = skills, graph, session_factory
         self.composite_retriever = CompositeRetriever(
@@ -147,8 +172,81 @@ class PlannerPipeline:
         self.cold_start_session_factory = cold_start_session_factory or session_factory
         self.cold_start_validator = ColdStartPlanValidator()
         self.scaffold_max_steps = int(scaffold_max_steps)
+        # The formal default is deliberately empty.  A future harness may
+        # provide role-scoped, code-owned scalar literals explicitly.
+        self.literal_authorities = {
+            str(role): (
+                (values,) if isinstance(values, (str, bytes)) else tuple(values)
+            )
+            for role, values in dict(literal_authorities or {}).items()
+        }
         if int(cold_start_repair_limit) != 1:
             raise ValueError("v3.1 permits exactly one C1R cold-start repair")
+
+    @staticmethod
+    def _increment_audit_counter(
+        audit: PlannerAudit,
+        field_name: str,
+        amount: int,
+    ) -> None:
+        setattr(
+            audit,
+            field_name,
+            int(getattr(audit, field_name, 0)) + int(amount),
+        )
+
+    def _record_repeat_compilation(
+        self,
+        audit: PlannerAudit,
+        plan: RuntimeLinearPlan,
+    ) -> None:
+        compiler = getattr(self.compiler, "repeat_compiler", None)
+        compile_count = int(getattr(
+            compiler,
+            "last_stored_identity_closure_compile_count",
+            0,
+        ))
+        rejection_count = int(getattr(
+            compiler,
+            "last_stored_identity_closure_rejection_count",
+            0,
+        ))
+        self._increment_audit_counter(
+            audit,
+            "stored_repeat_identity_closure_compile_count",
+            compile_count,
+        )
+        self._increment_audit_counter(
+            audit,
+            "stored_repeat_identity_closure_rejection_count",
+            rejection_count,
+        )
+        plan.planner_audit.update({
+            "stored_repeat_identity_closure_compile_count": int(getattr(
+                audit,
+                "stored_repeat_identity_closure_compile_count",
+                0,
+            )),
+            "stored_repeat_identity_closure_rejection_count": int(getattr(
+                audit,
+                "stored_repeat_identity_closure_rejection_count",
+                0,
+            )),
+        })
+
+    def _record_constant_rejections(
+        self,
+        audit: PlannerAudit,
+        plan: RuntimeLinearPlan,
+    ) -> None:
+        self._increment_audit_counter(
+            audit,
+            "planner_constant_authority_rejection_count",
+            len(planner_constant_authority_rejections(
+                plan,
+                dict(getattr(self, "literal_authorities", {}) or {}),
+            )),
+        )
 
     def build_plan(
         self, task: Any, harness: Any, *, mode: RuntimeMode | str = RuntimeMode.ONLINE,
@@ -157,6 +255,9 @@ class PlannerPipeline:
         mode = RuntimeMode(mode)
         contract = normalize_task_contract(harness.task_contract(task))
         audit = PlannerAudit()
+        literal_authorities = dict(
+            getattr(self, "literal_authorities", {}) or {},
+        )
         task_binding_interface = _task_binding_interface(task)
         task_binding_roles = set(task_binding_interface)
 
@@ -166,15 +267,18 @@ class PlannerPipeline:
         audit.composite_candidates = p0.audit_candidates
         audit.composite_rejections = p0.rejections
         for composite in p0.candidates:
-            provisional_audit = to_primitive(audit)
+            provisional_audit = _planner_audit_payload(audit)
             provisional_audit["selected_composite"] = str(composite.ref)
             provisional_audit["final_outcome"] = "stored_composite"
             plan = self.compiler.from_composite(task, contract, composite, mode=mode, audit=provisional_audit)
+            self._record_repeat_compilation(audit, plan)
+            self._record_constant_rejections(audit, plan)
             report = self.validator.validate(
                 plan,
                 mode=mode,
                 harness_profile=harness.profile_name,
                 task_binding_roles=task_binding_roles,
+                literal_authorities=literal_authorities,
             )
             if report.passed:
                 return plan
@@ -192,7 +296,7 @@ class PlannerPipeline:
             terminal_retrieval.terminal_empirical_audit
         )
         for composite in terminal_retrieval.terminal_empirical_candidates:
-            provisional_audit = to_primitive(audit)
+            provisional_audit = _planner_audit_payload(audit)
             provisional_audit["selected_composite"] = str(composite.ref)
             provisional_audit["final_outcome"] = "stored_composite"
             provisional_audit["selected_composite_authority"] = {
@@ -204,11 +308,14 @@ class PlannerPipeline:
                 task, contract, composite, mode=mode,
                 audit=provisional_audit,
             )
+            self._record_repeat_compilation(audit, plan)
+            self._record_constant_rejections(audit, plan)
             report = self.validator.validate(
                 plan,
                 mode=mode,
                 harness_profile=harness.profile_name,
                 task_binding_roles=task_binding_roles,
+                literal_authorities=literal_authorities,
             )
             if report.passed:
                 return plan
@@ -233,7 +340,7 @@ class PlannerPipeline:
                 task.task_id,
                 contract,
                 reason=audit.fallback_reason,
-                audit=to_primitive(audit),
+                audit=_planner_audit_payload(audit),
             )
 
         session = self.session_factory(task, contract)
@@ -250,7 +357,7 @@ class PlannerPipeline:
             )
             return RuntimeLinearPlan.full_dynamic(
                 task.task_id, contract, reason=audit.fallback_reason,
-                audit=to_primitive(audit),
+                audit=_planner_audit_payload(audit),
             )
         audit.requirements_p1 = to_primitive(bundle)
         validation = self.requirement_validator.validate(
@@ -307,7 +414,7 @@ class PlannerPipeline:
                 audit.fallback_reason = _planner_failure_reason(
                     exc, "planner_requirement_repair_failed",
                 )
-                return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=to_primitive(audit))
+                return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=_planner_audit_payload(audit))
         validation = self.requirement_validator.validate(
             bundle, contract,
             max_repeat_count=self.max_repeat_count,
@@ -317,7 +424,7 @@ class PlannerPipeline:
         if not validation.passed:
             audit.final_outcome = "full_dynamic"
             audit.fallback_reason = "planner_requirement_multiplicity_invalid"
-            return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=to_primitive(audit))
+            return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=_planner_audit_payload(audit))
 
         expansion = self.multiplicity_compiler.expand(bundle, contract)
         audit.requirement_expansion = to_primitive(expansion)
@@ -334,7 +441,7 @@ class PlannerPipeline:
                 audit.fallback_reason = "planner_requirement_uncovered"
                 return RuntimeLinearPlan.full_dynamic(
                     task.task_id, contract, reason=audit.fallback_reason,
-                    audit=to_primitive(audit),
+                    audit=_planner_audit_payload(audit),
                 )
             if self.provisional_retriever is None or self.failure_experience_retriever is None:
                 raise RuntimeError("online cold start is enabled but failure-side retrievers are not constructed")
@@ -474,14 +581,14 @@ class PlannerPipeline:
                 audit.fallback_reason = "cold_start_plan_invalid"
                 return RuntimeLinearPlan.full_dynamic(
                     task.task_id, contract, reason=audit.fallback_reason,
-                    audit=to_primitive(audit),
+                    audit=_planner_audit_payload(audit),
                 )
             if not cold_validation.passed:
                 audit.final_outcome = "full_dynamic"
                 audit.fallback_reason = "cold_start_plan_invalid"
                 return RuntimeLinearPlan.full_dynamic(
                     task.task_id, contract, reason=audit.fallback_reason,
-                    audit=to_primitive(audit),
+                    audit=_planner_audit_payload(audit),
                 )
             scaffold = self.cold_start_validator.scaffold(
                 cold_proposal,
@@ -498,14 +605,14 @@ class PlannerPipeline:
                 audit.fallback_reason = "cold_start_executable_prefix_empty"
                 plan = RuntimeLinearPlan.full_dynamic(
                     task.task_id, contract, reason=audit.fallback_reason,
-                    audit=to_primitive(audit),
+                    audit=_planner_audit_payload(audit),
                 )
                 plan.cold_start_plan = cold_proposal
                 plan.cold_start_scaffold = to_primitive(scaffold)
                 return plan
             plan = RuntimeLinearPlan.cold_start(
                 task.task_id, contract, proposal=cold_proposal,
-                scaffold=to_primitive(scaffold), audit=to_primitive(audit),
+                scaffold=to_primitive(scaffold), audit=_planner_audit_payload(audit),
             )
             plan.repeat_constraints = (
                 self.compiler.repeat_compiler.from_requirement_expansion(
@@ -522,6 +629,26 @@ class PlannerPipeline:
         )
         audit.support_atomic_candidates = to_primitive(support_candidates)
         audit.planner_support_atomic_candidate_count = len(support_candidates)
+        setattr(
+            audit,
+            "planner_support_role_authority_rejection_count",
+            int(getattr(
+                self.support_retriever,
+                "last_role_authority_rejection_count",
+                0,
+            )),
+        )
+        setattr(
+            audit,
+            "planner_support_runtime_resolvable_role_exclusion_count",
+            int(
+                getattr(
+                    self.support_retriever,
+                    "last_runtime_resolvable_role_exclusion_count",
+                    0,
+                )
+            ),
+        )
         # Preserve the retrieval-produced order while deduplicating only the
         # interface projection.  This does not re-rank, truncate, or otherwise
         # change either required or support candidate pools.
@@ -558,13 +685,15 @@ class PlannerPipeline:
                 support_candidates=support_candidates,
                 authoritative_contracts=authoritative,
                 task_binding_interface=task_binding_interface,
+                literal_authorities=literal_authorities,
             )
             audit.workflow_p2 = to_primitive(proposal)
             _require_supplied_atomic_refs(proposal, supplied_refs)
             plan = self.compiler.compile(
-                proposal, task, contract, mode=mode, audit=to_primitive(audit),
+                proposal, task, contract, mode=mode, audit=_planner_audit_payload(audit),
                 expansion=expansion,
             )
+            self._record_constant_rejections(audit, plan)
             required_ids = [
                 item.instance_id for item in expansion.instances if item.requirement.required
             ]
@@ -573,6 +702,7 @@ class PlannerPipeline:
                 expansion=expansion, instance_candidates=instance_candidates,
                 support_candidates=support_candidates,
                 task_binding_roles=task_binding_roles,
+                literal_authorities=literal_authorities,
             )
             audit.validation_p2 = to_primitive(report)
             if not report.passed:
@@ -583,24 +713,27 @@ class PlannerPipeline:
                     existing_edges,
                     support_candidates=support_candidates,
                     task_binding_interface=task_binding_interface,
+                    literal_authorities=literal_authorities,
                 )
                 audit.workflow_p2r = to_primitive(proposal)
                 _require_supplied_atomic_refs(proposal, supplied_refs)
                 plan = self.compiler.compile(
-                    proposal, task, contract, mode=mode, audit=to_primitive(audit),
+                    proposal, task, contract, mode=mode, audit=_planner_audit_payload(audit),
                     expansion=expansion,
                 )
+                self._record_constant_rejections(audit, plan)
                 report = self.validator.validate(
                     plan, mode=mode, required_requirement_ids=required_ids, harness_profile=harness.profile_name,
                     expansion=expansion, instance_candidates=instance_candidates,
                     support_candidates=support_candidates,
                     task_binding_roles=task_binding_roles,
+                    literal_authorities=literal_authorities,
                 )
                 audit.validation_p2r = to_primitive(report)
             if not report.passed:
                 audit.final_outcome = "full_dynamic"
                 audit.fallback_reason = "planner_graph_repair_failed"
-                return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=to_primitive(audit))
+                return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=_planner_audit_payload(audit))
         except Exception as exc:
             if not _is_planner_content_failure(exc):
                 raise
@@ -608,7 +741,7 @@ class PlannerPipeline:
             audit.fallback_reason = _planner_failure_reason(
                 exc, "planner_graph_repair_failed",
             )
-            return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=to_primitive(audit))
+            return RuntimeLinearPlan.full_dynamic(task.task_id, contract, reason=audit.fallback_reason, audit=_planner_audit_payload(audit))
         audit.support_atomic_selected = [
             {
                 "step_id": step.step_id,
@@ -627,7 +760,7 @@ class PlannerPipeline:
             audit.support_atomic_selected
         )
         audit.final_outcome = "atomic_composition"
-        plan.planner_audit = to_primitive(audit) | {
+        plan.planner_audit = _planner_audit_payload(audit) | {
             "requirement_coverage": plan.planner_audit.get("requirement_coverage", {}),
             "sequence_origin": "planner_proposed_sequence",
         }

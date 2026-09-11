@@ -124,6 +124,8 @@ def _promotion_projection(database: StateDatabase) -> LifecycleProjection:
         [
             _evidence(task_id="success-a", index=0, event=EvidenceEventType.SELF_SUFFICIENT_SUCCESS),
             _evidence(task_id="success-b", index=1, event=EvidenceEventType.SELF_SUFFICIENT_SUCCESS),
+            _evidence(task_id="success-a", index=0, event=EvidenceEventType.DEPLOYMENT_SUCCESS),
+            _evidence(task_id="success-b", index=1, event=EvidenceEventType.DEPLOYMENT_SUCCESS),
         ]
     )
     projection = LifecycleProjection(database, ledger)
@@ -202,7 +204,10 @@ def test_r8_composite_zero_success_viability_gate_preserves_activation() -> None
     zero_success = ArtifactStats(
         COMPOSITE_REF,
         "composite",
-        event_task_ids={"selected": ["task-a", "task-b", "task-c"]},
+        event_task_ids={
+            "selected": ["task-a", "task-b", "task-c"],
+            "deployment_unsuccessful": ["task-a", "task-b", "task-c"],
+        },
     )
     suppressed = policy.review_composite(
         COMPOSITE_REF, SkillStatus.CANDIDATE, zero_success
@@ -214,24 +219,25 @@ def test_r8_composite_zero_success_viability_gate_preserves_activation() -> None
         COMPOSITE_REF,
         "composite",
         event_task_ids={
-            "selected": [f"task-{index}" for index in range(10)],
-            "self_sufficient_success": ["task-0"],
+            "selected": [f"task-{index}" for index in range(4)],
+            "deployment_success": ["task-0"],
+            "deployment_unsuccessful": [f"task-{index}" for index in range(1, 4)],
         },
     )
     kept = policy.review_composite(COMPOSITE_REF, SkillStatus.CANDIDATE, one_success)
     assert kept.next_status == SkillStatus.CANDIDATE.value
-    assert kept.reason == "needs_self_sufficient_successes"
+    assert kept.reason == "needs_deployment_successes"
 
     two_successes = ArtifactStats(
         COMPOSITE_REF,
         "composite",
-        event_task_ids={"self_sufficient_success": ["task-a", "task-b"]},
+        event_task_ids={"deployment_success": ["task-a", "task-b"]},
     )
     promoted = policy.review_composite(
         COMPOSITE_REF, SkillStatus.CANDIDATE, two_successes
     )
     assert promoted.next_status == SkillStatus.ACTIVE.value
-    assert promoted.reason == "independent_graph_self_sufficient_successes"
+    assert promoted.reason == "independent_deployment_successes"
 
     with pytest.raises(ValueError, match="composite_candidate_zero_success_trial_limit"):
         LifecycleThresholds(composite_candidate_zero_success_trial_limit=0)

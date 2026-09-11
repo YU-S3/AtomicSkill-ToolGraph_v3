@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
+from ..core.bindings import BindingStatus
 from ..core.contracts import ColdStartCandidateSource
 from ..core.edges import GraphEdge, GraphEdgeType
 from ..core.refs import SkillRef
 from ..core.results import (
+    ImplementationExecutionResult,
     NodeExecutionStatus,
     RuntimeLinearPlan,
     RuntimeOccurrence,
@@ -180,7 +183,8 @@ class RuntimeOrchestrator:
         ctx: TaskRuntimeContext,
         *,
         mode: str,
-    ) -> Any | None:
+        started_result: ImplementationExecutionResult | None = None,
+    ) -> ImplementationExecutionResult | None:
         """Validate the current Atomic once more before a terminal skip.
 
         This is deliberately only a deterministic state reconciliation.  The
@@ -190,12 +194,128 @@ class RuntimeOrchestrator:
 
         if not _task_terminal(ctx):
             return None
-        return self.node_executor._complete_from_current_effect(
-            occurrence,
-            ctx,
-            mode=mode,
-            preferred_values=[],
+
+        if started_result is None:
+            # Preserve the R8 non-started and Seeded reconciliation behavior.
+            return self.node_executor._complete_from_current_effect(
+                occurrence,
+                ctx,
+                mode=mode,
+                preferred_values=[],
+            )
+
+        if not self._started_terminal_reconciliation_is_safe(started_result):
+            return None
+
+        exact_started_bindings = {
+            str(role): binding.value
+            for role, binding in dict(
+                getattr(started_result, "realized_bindings", {}) or {}
+            ).items()
+            if getattr(binding, "status", None) == BindingStatus.GROUNDED
+        }
+        metrics = ctx.trace_builder.trace.metadata.setdefault(
+            "v32_metrics", {},
         )
+        attempt_key = "runtime_terminal_started_reconciliation_attempt_count"
+        metrics[attempt_key] = int(metrics.get(attempt_key, 0)) + 1
+        resolutions: list[Any] = []
+        try:
+            reconciled = self.node_executor._complete_from_current_effect(
+                occurrence,
+                ctx,
+                mode=mode,
+                preferred_values=[],
+                preferred_bindings=exact_started_bindings,
+                resolution_out=resolutions,
+            )
+        except Exception:
+            failure_key = (
+                "runtime_terminal_started_reconciliation_failure_count"
+            )
+            metrics[failure_key] = int(metrics.get(failure_key, 0)) + 1
+            raise
+        if reconciled is None:
+            failure_key = "runtime_terminal_started_reconciliation_failure_count"
+            metrics[failure_key] = int(metrics.get(failure_key, 0)) + 1
+            return None
+
+        success_key = "runtime_terminal_started_reconciliation_success_count"
+        metrics[success_key] = int(metrics.get(success_key, 0)) + 1
+        witness_refs = list(dict.fromkeys(
+            str(ref)
+            for resolution in resolutions
+            if bool(getattr(resolution, "passed", False))
+            for ref in list(getattr(resolution, "witness_refs", []) or [])
+            if str(ref)
+        ))
+        merged = replace(
+            started_result,
+            atomic_effect_passed=True,
+            validated_outputs=dict(reconciled.validated_outputs),
+            after_state_ref=(
+                reconciled.after_state_ref or started_result.after_state_ref
+            ),
+            node_status=NodeExecutionStatus.DIRECT_TERMINAL_EFFECT_SUCCESS,
+            terminal_effect_reconciled=True,
+            atomic_witness_refs=witness_refs,
+        )
+        self._update_started_invocation_result(ctx, occurrence, merged)
+        return merged
+
+    @staticmethod
+    def _started_terminal_reconciliation_is_safe(result: Any) -> bool:
+        """Fail closed for intrinsic failures below the Atomic boundary."""
+
+        if not (
+            bool(getattr(result, "started", False))
+            and bool(getattr(result, "terminal_interrupted", False))
+            and not bool(getattr(result, "atomic_effect_passed", False))
+        ):
+            return False
+
+        raw_layer = getattr(result, "failure_layer", "")
+        failure_layer = str(getattr(raw_layer, "value", raw_layer) or "")
+        if failure_layer in {"implementation", "tool", "runtime_binding"}:
+            return False
+
+        failure_code = str(getattr(result, "failure_code", "") or "")
+        intrinsic_codes = {
+            "runtime_relation_not_grounded",
+            "stale_grounding_evidence",
+            "environment_action_rejected",
+        }
+        if (
+            failure_code in intrinsic_codes
+            or failure_code.startswith("implementation_")
+            or failure_code.startswith("tool_")
+            or failure_code.startswith("runtime_binding_")
+            or failure_code.startswith("runtime_repetition_")
+        ):
+            return False
+        return not any(
+            bool(getattr(tool_result, "intrinsic_failure", False))
+            for tool_result in list(getattr(result, "tool_results", []) or [])
+        )
+
+    @staticmethod
+    def _update_started_invocation_result(
+        ctx: TaskRuntimeContext,
+        occurrence: RuntimeOccurrence,
+        result: ImplementationExecutionResult,
+    ) -> None:
+        """Attach reconciliation to its invocation without rewriting Tool truth."""
+
+        for record in reversed(
+            ctx.trace_builder.trace.implementation_invocations
+        ):
+            if (
+                record.occurrence_id == occurrence.occurrence_id
+                and record.implementation_ref == result.implementation_ref
+                and bool(dict(record.result or {}).get("started", False))
+            ):
+                record.result = to_primitive(result)
+                return
 
     def create_trace_builder(self, task: HarnessTask, *, attempt_id: str = "") -> TraceBuilder:
         """Create the immutable-at-finalization skeleton before Planner/API work."""
@@ -381,14 +501,11 @@ class RuntimeOrchestrator:
                 node.direct_result = to_primitive(direct)
                 final = direct
                 if _task_terminal(ctx) and not direct.atomic_effect_passed:
-                    reconciled = (
-                        self._reconcile_terminal_current_atomic(
-                            occurrence,
-                            ctx,
-                            mode="preparation",
-                        )
-                        if not direct.started
-                        else None
+                    reconciled = self._reconcile_terminal_current_atomic(
+                        occurrence,
+                        ctx,
+                        mode="preparation",
+                        started_result=(direct if direct.started else None),
                     )
                     if reconciled is None:
                         node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
@@ -847,14 +964,11 @@ class RuntimeOrchestrator:
         node.direct_result = to_primitive(direct)
         final = direct
         if _task_terminal(ctx) and not direct.atomic_effect_passed:
-            reconciled = (
-                self._reconcile_terminal_current_atomic(
-                    occurrence,
-                    ctx,
-                    mode="preparation",
-                )
-                if not direct.started
-                else None
+            reconciled = self._reconcile_terminal_current_atomic(
+                occurrence,
+                ctx,
+                mode="preparation",
+                started_result=(direct if direct.started else None),
             )
             if reconciled is None:
                 node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL

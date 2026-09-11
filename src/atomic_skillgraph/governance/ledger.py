@@ -31,6 +31,8 @@ class EvidenceEventType(str, Enum):
     SEEDED_SUCCESS = "seeded_success"
     SEEDED_FAILURE = "seeded_failure"
     SELF_SUFFICIENT_SUCCESS = "self_sufficient_success"
+    DEPLOYMENT_SUCCESS = "deployment_success"
+    DEPLOYMENT_UNSUCCESSFUL = "deployment_unsuccessful"
     TASK_RESCUE_REQUIRED = "task_rescue_required"
     GOAL_TERMINAL_SKIPPED = "goal_terminal_skipped"
     CONTRACT_MISMATCH = "contract_mismatch"

@@ -543,6 +543,9 @@ class AtomicSkillGraphSystem:
             cold_start_repair_limit=int(
                 planner_config.get("cold_start_c1_repair_limit", 1)
             ),
+            literal_authorities=dict(
+                planner_config.get("literal_authorities") or {}
+            ),
         )
         self.invocation_compiler = InvocationCompiler(
             self.skills, self.tools, self.harness, mode=self.mode,
