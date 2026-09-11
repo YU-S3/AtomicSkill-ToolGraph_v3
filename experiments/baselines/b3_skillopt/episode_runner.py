@@ -35,6 +35,7 @@ class EpisodeOutcome:
     wall_time_ms: int = 0
     infrastructure_failure: bool = False
     infrastructure_error: str = ""
+    failure_kind: str = ""
     actual_gamefile: str = ""
 
 
@@ -185,6 +186,7 @@ class SkillOptTextEpisodeRunner:
                     infrastructure_error=(
                         "RuntimeError: provider observer is not installed"
                     ),
+                    failure_kind="protocol_failure",
                 )
             provider_cursor = observer.event_cursor()
         else:
@@ -202,8 +204,10 @@ class SkillOptTextEpisodeRunner:
                     wall_time_ms=int((time.time() - started) * 1000),
                     infrastructure_failure=True,
                     infrastructure_error=_safe_error(exc),
+                    failure_kind="protocol_failure",
                 )
         failure: BaseException | None = None
+        failure_kind = ""
         row: dict[str, Any] = {}
         conversation: list[dict[str, Any]] = []
         actual_gamefile = ""
@@ -230,10 +234,22 @@ class SkillOptTextEpisodeRunner:
         except ProviderCallExhausted as exc:
             # This is our boundary outside pinned SkillOpt.  The sentinel must
             # bypass upstream model fallbacks, then become a durable
-            # infrastructure outcome before the batch stops.
+            # failure outcome before the batch stops.  Only the frozen
+            # transient-code set is resumable infrastructure; permanent or
+            # audit failures remain protocol failures.
             failure = exc
+            failure_kind = (
+                "infrastructure_failure"
+                if exc.infrastructure_failure
+                else "protocol_failure"
+            )
         except Exception as exc:
             failure = exc
+            failure_kind = (
+                "infrastructure_failure"
+                if isinstance(exc, (ConnectionError, TimeoutError))
+                else "protocol_failure"
+            )
 
         try:
             if observer is not None:
@@ -264,6 +280,7 @@ class SkillOptTextEpisodeRunner:
             target_usage = RoleUsage()
             if failure is None:
                 failure = exc
+                failure_kind = "protocol_failure"
 
         if failure is not None:
             return EpisodeOutcome(
@@ -274,6 +291,7 @@ class SkillOptTextEpisodeRunner:
                 wall_time_ms=int((time.time() - started) * 1000),
                 infrastructure_failure=True,
                 infrastructure_error=_safe_error(failure),
+                failure_kind=failure_kind or "protocol_failure",
                 actual_gamefile=str(actual_gamefile),
             )
         return EpisodeOutcome(

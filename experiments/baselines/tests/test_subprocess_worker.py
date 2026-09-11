@@ -62,7 +62,7 @@ def test_worker_roundtrip_reads_only_identity_bound_phase_result(
             encoding="utf-8"
         )
     )
-    assert written_wire["schema_version"] == 2
+    assert written_wire["schema_version"] == 3
     assert written_wire["run_id"] == wire.run_id
     assert written_wire["identity"] == wire.identity
 

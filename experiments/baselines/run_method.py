@@ -114,16 +114,212 @@ def _controller_git_state() -> dict[str, Any]:
     def git(*args: str) -> str:
         completed = subprocess.run(
             ["git", *args], cwd=REPO_ROOT, check=False,
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
-        return completed.stdout.strip() if completed.returncode == 0 else ""
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "controller git inspection failed: "
+                + (completed.stderr.strip() or "unknown git error")
+            )
+        return completed.stdout.strip()
 
-    status = git("status", "--porcelain", "--untracked-files=all")
+    commit = git("rev-parse", "HEAD")
+    if len(commit) != 40:
+        raise RuntimeError("controller git HEAD is not a full commit id")
+    status = git(
+        "status", "--porcelain", "--untracked-files=all", "--",
+        "src", "experiments", "configs",
+    )
     return {
-        "commit": git("rev-parse", "HEAD"),
+        "commit": commit,
         "branch": git("branch", "--show-current"),
         "dirty": bool(status),
         "dirty_status_sha256": hashlib.sha256(status.encode("utf-8")).hexdigest(),
+        "source_scope": ["src", "experiments", "configs"],
+    }
+
+
+def _formal_config_digest(config: dict[str, Any]) -> str:
+    """Hash the seed-independent frozen method configuration."""
+
+    normalized = json.loads(json.dumps(config))
+    normalized.pop("protocol", None)
+    normalized["run_seed"] = "<campaign-seed>"
+    train = dict(normalized.get("train") or {})
+    train["seed"] = "<campaign-seed>"
+    normalized["train"] = train
+    return sha256_json(normalized)
+
+
+def _provider_retry_policy(config: dict[str, Any]) -> dict[str, Any]:
+    transport = dict(config.get("provider_transport") or {})
+    return {
+        "sdk_max_retries": int(transport.get("sdk_max_retries", -1)),
+        "attempts": int(transport.get("application_retry_limit", -1)),
+        "delays": [
+            float(value) for value in transport.get("retry_delays_seconds", [])
+        ],
+        "jitter_ratio": float(
+            transport.get("deterministic_jitter_ratio", -1)
+        ),
+    }
+
+
+def _validate_campaign_probe_receipt(
+    payload: dict[str, Any],
+    *,
+    campaign_root: Path,
+    model: ModelConfig,
+) -> None:
+    probe = dict(payload.get("provider_probe") or {})
+    receipt = dict(payload.get("provider_probe_receipt") or {})
+    report_path = Path(str(receipt.get("path", ""))).expanduser().resolve()
+    try:
+        report_path.relative_to(campaign_root.resolve())
+    except ValueError as exc:
+        raise ValueError("campaign provider-probe report is outside campaign root") from exc
+    if not report_path.is_file():
+        raise FileNotFoundError(
+            f"campaign provider-probe report is missing: {report_path}"
+        )
+    report_hash = _sha256_file(report_path)
+    if (
+        int(receipt.get("returncode", -1)) != 0
+        or str(receipt.get("sha256", "")) != report_hash
+        or str(probe.get("report_sha256", "")) != report_hash
+        or Path(str(probe.get("report_path", ""))).expanduser().resolve()
+        != report_path
+    ):
+        raise ValueError("campaign provider-probe receipt/hash is invalid")
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("campaign provider-probe report is unreadable") from exc
+    if not isinstance(report, dict) or dict(receipt.get("report") or {}) != report:
+        raise ValueError("campaign provider-probe receipt does not bind its report")
+    cap = int(payload.get("campaign_provider_max_inflight", 0))
+    requests = int(probe.get("requests", 0))
+    expected = {
+        "probe_kind": "campaign_provider_load",
+        "passed": True,
+        "campaign_id": str(payload.get("campaign_id", "")),
+        "run_id": str(payload.get("campaign_run_id", "")) + "_probe",
+        "model": model.model,
+        "reasoning_effort": model.reasoning_effort,
+        "concurrency": cap,
+        "requests": requests,
+        "max_completion_tokens": int(probe.get("max_completion_tokens", 0)),
+        "campaign_provider_max_inflight": cap,
+        "logical_calls_recorded": requests,
+        "completed_logical_calls": requests,
+        "failed_provider_calls": 0,
+        "exhausted_provider_calls": 0,
+        "permanent_provider_errors": 0,
+        "provider_evidence_complete": True,
+    }
+    mismatches = [
+        key for key, expected_value in expected.items()
+        if report.get(key) != expected_value
+    ]
+    if mismatches:
+        raise ValueError(
+            "campaign provider-probe report identity is invalid: "
+            + ", ".join(mismatches)
+        )
+    calls_path = Path(str(report.get("provider_calls_path", ""))).expanduser().resolve()
+    try:
+        calls_path.relative_to(report_path.parent.resolve())
+    except ValueError as exc:
+        raise ValueError("provider-probe calls sidecar is outside its probe dir") from exc
+    if (
+        not calls_path.is_file()
+        or _sha256_file(calls_path) != report.get("provider_calls_sha256")
+    ):
+        raise ValueError("provider-probe calls sidecar hash is invalid")
+
+
+def _load_campaign_descriptor(
+    path: str | Path,
+    *,
+    config: dict[str, Any],
+    source_lock: dict[str, Any],
+    model: ModelConfig,
+    train_manifest: TaskManifestSet,
+    validation_manifest: TaskManifestSet,
+    test_manifest: TaskManifestSet,
+    git_state: dict[str, Any],
+    code_digest: str,
+    seed: int,
+) -> dict[str, Any]:
+    lock_path = _path(path)
+    if not lock_path.is_file():
+        raise FileNotFoundError(f"campaign lock is missing: {lock_path}")
+    raw = lock_path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"campaign lock is unreadable: {lock_path}") from exc
+    if not isinstance(payload, dict) or int(payload.get("schema_version", 0)) != 1:
+        raise ValueError("campaign lock has an invalid schema version")
+    parallel = dict(config.get("parallel") or {})
+    transport = dict(config.get("provider_transport") or {})
+    expected_retry = {
+        "sdk_max_retries": int(transport.get("sdk_max_retries", -1)),
+        "attempts": int(transport.get("application_retry_limit", -1)),
+        "delays": [float(value) for value in transport.get("retry_delays_seconds", [])],
+        "jitter_ratio": float(transport.get("deterministic_jitter_ratio", -1)),
+    }
+    runtime_tree = dict(source_lock["skillopt"]["runtime_tree"])
+    checks = {
+        "method": payload.get("method") == _METHOD,
+        "seed": int(seed) in [int(value) for value in payload.get("seeds", [])],
+        "train_manifest": payload.get("train_manifest_digest") == train_manifest.digest,
+        "validation_manifest": payload.get("validation_manifest_digest")
+        == validation_manifest.digest,
+        "test_manifest": payload.get("test_manifest_digest") == test_manifest.digest,
+        "controller_commit": payload.get("controller_commit") == git_state.get("commit"),
+        "controller_code": payload.get("controller_code_digest") == code_digest,
+        "external_commit": payload.get("external_skillopt_commit")
+        == str(source_lock["skillopt"]["commit"]),
+        "external_runtime": payload.get("external_runtime_tree_digest")
+        == str(runtime_tree["sha256"]),
+        "model": payload.get("model") == model.model,
+        "reasoning_effort": payload.get("reasoning_effort") == model.reasoning_effort,
+        "formal_config": payload.get("formal_config_digest")
+        == _formal_config_digest(config),
+        "seed_lanes": int(payload.get("seed_lanes", 0))
+        == int(parallel.get("seed_lanes", 0)) == 3,
+        "provider_cap": int(payload.get("campaign_provider_max_inflight", 0))
+        == int(parallel.get("campaign_provider_max_inflight", 0)),
+        "retry_policy": payload.get("retry_policy") == expected_retry,
+        "provider_probe": dict(payload.get("provider_probe") or {}).get("passed") is True,
+    }
+    failed = sorted(name for name, passed in checks.items() if not passed)
+    if failed:
+        raise ValueError(
+            "campaign lock does not match this formal run: " + ", ".join(failed)
+        )
+    _validate_campaign_probe_receipt(
+        payload,
+        campaign_root=lock_path.parent,
+        model=model,
+    )
+    gate_dir = Path(str(payload.get("provider_gate_dir", ""))).expanduser().resolve()
+    try:
+        gate_dir.relative_to(lock_path.parent.resolve())
+    except ValueError as exc:
+        raise ValueError("campaign provider gate must be inside the campaign root") from exc
+    if not str(payload.get("campaign_id", "")).strip():
+        raise ValueError("campaign lock has no campaign_id")
+    return {
+        "campaign_id": str(payload["campaign_id"]),
+        "campaign_lock_path": str(lock_path),
+        "campaign_lock_digest": digest,
+        "provider_gate_dir": str(gate_dir),
+        "campaign_provider_max_inflight": int(
+            payload["campaign_provider_max_inflight"]
+        ),
     }
 
 
@@ -247,6 +443,8 @@ def _create_context(
     data_signature: dict[str, Any],
     output_dir: Path,
     run_id: str,
+    campaign: dict[str, Any] | None = None,
+    resume: dict[str, Any] | None = None,
 ) -> RunContext:
     code_digest = hash_code(REPO_ROOT)
     config_digest = sha256_json(config)
@@ -258,6 +456,7 @@ def _create_context(
         "skillopt_runtime_digest": str(lock["skillopt"]["runtime_tree"]["sha256"]),
         "model_identity_digest": sha256_json(model.to_wire()),
         "alfworld_data_digest": sha256_json(data_signature),
+        "formal_config_digest": _formal_config_digest(config),
     }
     if test_manifest is not None:
         identity["test_manifest_digest"] = test_manifest.digest
@@ -284,6 +483,8 @@ def _create_context(
         test_manifest_path=(
             _path(args.test_manifest) if getattr(args, "test_manifest", None) else None
         ),
+        campaign=(dict(campaign) if campaign is not None else None),
+        resume=(dict(resume) if resume is not None else None),
     )
 
 
@@ -341,6 +542,8 @@ def _write_identity_artifacts(
         "controller_git": git_state,
         "controller_code_digest": ctx.code_hash,
         "identity": dict(ctx.identity),
+        "campaign": dict(ctx.campaign) if ctx.campaign is not None else None,
+        "resume": dict(ctx.resume) if ctx.resume is not None else None,
         "train_manifest_hash": train_manifest.digest,
         "validation_manifest_hash": validation_manifest.digest,
         "test_manifest_hash": test_manifest.digest if test_manifest else None,
@@ -352,8 +555,11 @@ def _write_identity_artifacts(
         "episode_workers": int(dict(config.get("env") or {}).get("workers", 1)),
         "test_workers": int(dict(config.get("env") or {}).get("workers", 1)),
         "provider_max_inflight": int(
-            dict(config.get("env") or {}).get("max_api_workers", 1)
+            ctx.campaign["campaign_provider_max_inflight"]
+            if ctx.campaign is not None
+            else dict(config.get("env") or {}).get("max_api_workers", 1)
         ),
+        "provider_retry_policy": _provider_retry_policy(config),
         "skillopt_analyst_workers": int(
             dict(config.get("gradient") or {}).get("analyst_workers", 1)
         ),
@@ -689,6 +895,16 @@ def _load_source_frozen_run(
         or source_manifest.get("phase") != "train"
     ):
         raise ValueError("source run is not a formal-v2 SkillOpt train run")
+    expected_campaign = expected_context.campaign
+    source_campaign = source_manifest.get("campaign")
+    if (
+        not isinstance(expected_campaign, dict)
+        or not isinstance(source_campaign, dict)
+        or source_campaign != expected_campaign
+    ):
+        raise ValueError(
+            "source train run does not belong to this exact campaign lane"
+        )
     source_identity_seed = int(source_manifest["run_seed"])
     if source_identity_seed != expected_context.run_seed:
         raise ValueError(
@@ -884,6 +1100,14 @@ def main(argv: list[str] | None = None) -> int:
         "--source-run", default=None,
         help="completed matching train run whose frozen artifact is used by --phase test",
     )
+    parser.add_argument(
+        "--resume-source-run", default=None,
+        help="failed infrastructure train run used for epoch-boundary recovery",
+    )
+    parser.add_argument(
+        "--campaign-lock", default=None,
+        help="verified campaign_lock.json shared by all formal seed lanes",
+    )
     parser.add_argument("--config", default="configs/baselines/b3_skillopt.yaml")
     parser.add_argument(
         "--output-dir", default=None,
@@ -912,6 +1136,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.phase == "test":
             if not args.test_manifest or not args.source_run:
                 raise ValueError("--phase test requires --test-manifest and --source-run")
+            if args.resume_source_run:
+                raise ValueError("--resume-source-run is accepted only by --phase train")
             config["protocol"] = {
                 "workflow": "prior_frozen_skill_full_test_read_only_evaluation",
                 "final_evaluation_scope": "held_out_test",
@@ -922,6 +1148,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             if args.source_run:
                 raise ValueError("--source-run is accepted only by --phase test")
+            if args.resume_source_run and args.phase != "train":
+                raise ValueError("--resume-source-run is accepted only by --phase train")
             if args.phase == "smoke" and args.test_manifest:
                 raise ValueError("smoke must not receive a Test manifest")
             if profile == "formal_v2" and args.phase == "train" and not args.test_manifest:
@@ -976,6 +1204,45 @@ def main(argv: list[str] | None = None) -> int:
             )
             if test_manifest is not None else None
         )
+        git_state = _controller_git_state()
+        controller_code_digest = hash_code(REPO_ROOT)
+        campaign: dict[str, Any] | None = None
+        resume: dict[str, Any] | None = None
+        if profile == "formal_v2" and args.phase in {"train", "test"}:
+            if git_state.get("dirty"):
+                raise RuntimeError(
+                    "formal campaign requires clean tracked/untracked source under "
+                    "src/, experiments/, and configs/"
+                )
+            if not args.campaign_lock:
+                raise ValueError("formal train/test requires --campaign-lock")
+            if test_manifest is None:
+                raise AssertionError("formal campaign Test manifest unexpectedly missing")
+            campaign = _load_campaign_descriptor(
+                args.campaign_lock,
+                config=config,
+                source_lock=lock,
+                model=model,
+                train_manifest=train_manifest,
+                validation_manifest=validation_manifest,
+                test_manifest=test_manifest,
+                git_state=git_state,
+                code_digest=controller_code_digest,
+                seed=int(config.get("run_seed", 42)),
+            )
+        elif args.campaign_lock:
+            raise ValueError("--campaign-lock is reserved for formal train/test phases")
+        if args.resume_source_run:
+            if profile != "formal_v2" or args.phase != "train":
+                raise ValueError(
+                    "--resume-source-run requires a formal train phase"
+                )
+            source_resume = _path(args.resume_source_run)
+            if not source_resume.is_dir():
+                raise NotADirectoryError(
+                    f"resume source run is not a directory: {source_resume}"
+                )
+            resume = {"source_run": str(source_resume)}
         max_actions = int(config.get("max_environment_actions", 100))
         env_max_steps = int(dict(config.get("env") or {}).get("max_steps", -1))
         if max_actions != 100 or env_max_steps != max_actions:
@@ -1009,6 +1276,8 @@ def main(argv: list[str] | None = None) -> int:
             data_signature=data_signature,
             output_dir=output_dir,
             run_id=run_id,
+            campaign=campaign,
+            resume=resume,
         )
         _write_identity_artifacts(
             ctx=ctx,
@@ -1021,7 +1290,7 @@ def main(argv: list[str] | None = None) -> int:
             validation_preflight=validation_preflight,
             test_preflight=test_preflight,
             data_signature=data_signature,
-            git_state=_controller_git_state(),
+            git_state=git_state,
             phase=args.phase,
         )
         driver.preflight(ctx)
@@ -1079,6 +1348,9 @@ def main(argv: list[str] | None = None) -> int:
             exc,
             api_key_env=(model.api_key_env if model is not None else "MODEL_API_KEY"),
         )
+        failure_kind = str(getattr(exc, "failure_kind", "protocol_failure"))
+        if failure_kind not in {"infrastructure_failure", "protocol_failure"}:
+            failure_kind = "protocol_failure"
         failure = {
             "schema_version": 1,
             "passed": False,
@@ -1087,6 +1359,7 @@ def main(argv: list[str] | None = None) -> int:
             "run_id": run_id,
             "error_type": type(exc).__name__,
             "error": error,
+            "failure_kind": failure_kind,
             "output_dir": str(output_dir) if output_dir is not None else None,
             "failed_at_unix": time.time(),
         }
@@ -1100,6 +1373,7 @@ def main(argv: list[str] | None = None) -> int:
                     "phase": args.phase,
                     "error_type": type(exc).__name__,
                     "error": error,
+                    "failure_kind": failure_kind,
                     "updated_at_unix": time.time(),
                 }, overwrite=True)
             except Exception:

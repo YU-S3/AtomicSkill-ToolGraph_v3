@@ -28,6 +28,19 @@ _WORKER_MODULE = "experiments.baselines.b3_skillopt.worker"
 _SKILL_INIT_REL = "skillopt/envs/alfworld/skills/initial.md"
 
 
+class WorkerExecutionFailure(RuntimeError):
+    """Typed controller failure preserving the worker's safe failure class."""
+
+    def __init__(self, phase: str, result: dict[str, Any]) -> None:
+        failure_kind = str(result.get("failure_kind", "protocol_failure"))
+        if failure_kind not in {"infrastructure_failure", "protocol_failure"}:
+            failure_kind = "protocol_failure"
+        self.failure_kind = failure_kind
+        self.evidence = dict(result)
+        detail = str(result.get("error") or result.get("worker_exit_code") or "unknown")
+        super().__init__(f"SkillOpt {phase} worker failed: {detail}")
+
+
 class SkillOptBaselineDriver:
     method_id = "b3_skillopt"
 
@@ -106,6 +119,7 @@ class SkillOptBaselineDriver:
             identity=dict(ctx.identity),
             external_skillopt_root=str(self.external_root),
             skill_init_rel=_SKILL_INIT_REL,
+            campaign=dict(ctx.campaign) if ctx.campaign is not None else None,
         )
         result = run_worker(
             wire=wire,
@@ -114,10 +128,7 @@ class SkillOptBaselineDriver:
             wire_dir=smoke_out,
         )
         if not result.get("passed"):
-            raise RuntimeError(
-                "SkillOpt smoke worker failed: "
-                + str(result.get("error") or result.get("worker_exit_code") or "unknown")
-            )
+            raise WorkerExecutionFailure("smoke", result)
         usage = UsageSnapshot.load(smoke_out / "usage.json")
         episodes = _collect_episodes(smoke_out, expected_phases={"smoke"})
         reported_episodes = result.get("episodes")
@@ -178,6 +189,8 @@ class SkillOptBaselineDriver:
             identity=dict(ctx.identity),
             external_skillopt_root=str(self.external_root),
             skill_init_rel=_SKILL_INIT_REL,
+            campaign=dict(ctx.campaign) if ctx.campaign is not None else None,
+            resume=dict(ctx.resume) if ctx.resume is not None else None,
         )
         result = run_worker(
             wire=wire,
@@ -186,10 +199,7 @@ class SkillOptBaselineDriver:
             wire_dir=train_out,
         )
         if not result.get("passed"):
-            raise RuntimeError(
-                "SkillOpt train worker failed: "
-                + str(result.get("error") or result.get("worker_exit_code") or "unknown")
-            )
+            raise WorkerExecutionFailure("train", result)
         best_skill = train_out / "best_skill.md"
         if not best_skill.is_file():
             raise FileNotFoundError(f"train worker produced no best_skill.md: {best_skill}")
@@ -215,6 +225,8 @@ class SkillOptBaselineDriver:
         provider_evidence = dict(result.get("provider_evidence") or {})
         if provider_evidence:
             method_metrics["provider_evidence"] = provider_evidence
+        if result.get("resume") is not None:
+            method_metrics["resume"] = dict(result["resume"])
         return TrainResult(
             episodes=train_episodes,
             validation_episodes=validation_episodes,
@@ -301,6 +313,7 @@ class SkillOptBaselineDriver:
             result_path=str(phase_out / "worker_result.json"),
             identity=phase_identity,
             frozen_artifact_path=str(frozen_dir),
+            campaign=dict(ctx.campaign) if ctx.campaign is not None else None,
         )
         result = run_worker(
             wire=wire,
@@ -309,10 +322,7 @@ class SkillOptBaselineDriver:
             wire_dir=phase_out,
         )
         if not result.get("passed"):
-            raise RuntimeError(
-                "SkillOpt train_eval worker failed: "
-                + str(result.get("error") or result.get("worker_exit_code") or "unknown")
-            )
+            raise WorkerExecutionFailure("train_eval", result)
         if not result.get("frozen_unchanged"):
             raise RuntimeError("frozen artifact changed during train_eval")
         for field in ("frozen_digest_before", "frozen_digest_after"):
@@ -414,6 +424,7 @@ class SkillOptBaselineDriver:
             result_path=str(phase_out / "worker_result.json"),
             identity=phase_identity,
             frozen_artifact_path=str(frozen_dir),
+            campaign=dict(ctx.campaign) if ctx.campaign is not None else None,
         )
         result = run_worker(
             wire=wire,
@@ -422,10 +433,7 @@ class SkillOptBaselineDriver:
             wire_dir=phase_out,
         )
         if not result.get("passed"):
-            raise RuntimeError(
-                "SkillOpt test worker failed: "
-                + str(result.get("error") or result.get("worker_exit_code") or "unknown")
-            )
+            raise WorkerExecutionFailure("test", result)
         if not result.get("frozen_unchanged"):
             raise RuntimeError("frozen artifact changed during test")
         for field in ("frozen_digest_before", "frozen_digest_after"):

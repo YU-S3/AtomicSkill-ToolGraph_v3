@@ -14,3 +14,13 @@ model:
   model: deepseek-v4-flash
   api_key_env: MODEL_API_KEY
   reasoning_effort: high
+
+# One formal method campaign may run its three independent seed lanes in
+# parallel.  This is only episode/process parallelism; the single campaign
+# provider gate below remains the real HTTP concurrency authority.
+parallel:
+  seed_lanes: 3
+  episode_workers_per_seed: 16
+  test_workers_per_seed: 16
+  skillopt_analyst_workers_per_seed: 16
+  campaign_provider_max_inflight: 16

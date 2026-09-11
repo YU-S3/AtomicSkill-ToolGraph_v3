@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-WIRE_SCHEMA_VERSION = 2
+WIRE_SCHEMA_VERSION = 3
 WORKER_RESULT_SCHEMA_VERSION = 1
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -46,6 +46,8 @@ class WorkerWire:
     frozen_artifact_path: str | None = None
     external_skillopt_root: str | None = None
     skill_init_rel: str | None = None
+    campaign: dict[str, Any] | None = None
+    resume: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.method.strip() or not self.phase.strip():
@@ -72,6 +74,27 @@ class WorkerWire:
                 raise ValueError(
                     f"worker wire identity digest {key!r} must be lowercase SHA-256"
                 )
+        if self.campaign is not None:
+            if not isinstance(self.campaign, dict):
+                raise ValueError("worker wire campaign must be a mapping")
+            required = {
+                "campaign_id", "campaign_lock_path", "campaign_lock_digest",
+                "provider_gate_dir", "campaign_provider_max_inflight",
+            }
+            missing_campaign = sorted(required - set(self.campaign))
+            if missing_campaign:
+                raise ValueError(
+                    "worker wire campaign is missing required keys: "
+                    + ", ".join(missing_campaign)
+                )
+            if not _SHA256_RE.fullmatch(
+                str(self.campaign["campaign_lock_digest"])
+            ):
+                raise ValueError("worker wire campaign lock digest is invalid")
+            if int(self.campaign["campaign_provider_max_inflight"]) <= 0:
+                raise ValueError("worker wire campaign provider cap must be positive")
+        if self.resume is not None and not isinstance(self.resume, dict):
+            raise ValueError("worker wire resume descriptor must be a mapping")
 
     def to_dict(self) -> dict[str, Any]:
         return {"schema_version": WIRE_SCHEMA_VERSION, **asdict(self)}
@@ -100,6 +123,14 @@ class WorkerWire:
                 frozen_artifact_path=payload.get("frozen_artifact_path"),
                 external_skillopt_root=payload.get("external_skillopt_root"),
                 skill_init_rel=payload.get("skill_init_rel"),
+                campaign=(
+                    dict(payload["campaign"])
+                    if payload.get("campaign") is not None else None
+                ),
+                resume=(
+                    dict(payload["resume"])
+                    if payload.get("resume") is not None else None
+                ),
             )
         except KeyError as exc:
             raise ValueError(f"worker wire payload is missing {exc.args[0]}") from exc

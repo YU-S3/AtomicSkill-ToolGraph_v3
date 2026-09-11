@@ -12,15 +12,18 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextvars
+import hashlib
 import json
 import os
 import threading
 import time
 import uuid
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Iterator
+
+from experiments.baselines.common.provider_gate import CampaignProviderGate
 
 
 class ObservedProviderFailure(RuntimeError):
@@ -35,6 +38,29 @@ class ProviderCallExhausted(BaseException):
     otherwise turn an infrastructure outage into a fallback candidate.  The
     worker catches this sentinel explicitly at its outer boundary.
     """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_code: str | None = None,
+        application_attempts: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.failure_code = str(
+            failure_code
+            or _provider_failure_code(RuntimeError(str(message)))
+        )
+        if application_attempts is None:
+            import re
+
+            match = re.search(r"attempts=(\d+)", str(message))
+            application_attempts = int(match.group(1)) if match else 0
+        self.application_attempts = int(application_attempts)
+
+    @property
+    def infrastructure_failure(self) -> bool:
+        return _is_transient_provider_failure(self.failure_code)
 
 
 class _ProviderResponseError(RuntimeError):
@@ -142,9 +168,12 @@ class ProviderCallObserver:
         model: str,
         reasoning_effort: str,
         run_id: str,
+        run_seed: int = 0,
         application_retry_limit: int | None = None,
         retry_delays_seconds: tuple[float, ...] | list[float] | None = None,
+        deterministic_jitter_ratio: float = 0.0,
         expected_sdk_max_retries: int | None = None,
+        campaign_gate: CampaignProviderGate | None = None,
     ) -> None:
         self.output_path = Path(output_path)
         self.method = str(method)
@@ -152,6 +181,7 @@ class ProviderCallObserver:
         self.model = str(model)
         self.reasoning_effort = str(reasoning_effort)
         self.run_id = str(run_id)
+        self.run_seed = int(run_seed)
         self.application_retry_limit = (
             int(application_retry_limit)
             if application_retry_limit is not None else None
@@ -173,6 +203,9 @@ class ProviderCallObserver:
             raise ValueError(
                 "retry_delays_seconds must contain one delay per retry"
             )
+        self.deterministic_jitter_ratio = float(deterministic_jitter_ratio)
+        if not 0.0 <= self.deterministic_jitter_ratio <= 0.10:
+            raise ValueError("deterministic_jitter_ratio must be within 0.0..0.10")
         self.expected_sdk_max_retries = (
             int(expected_sdk_max_retries)
             if expected_sdk_max_retries is not None else None
@@ -181,6 +214,7 @@ class ProviderCallObserver:
             self.expected_sdk_max_retries < 0
         ):
             raise ValueError("expected_sdk_max_retries must be non-negative")
+        self.campaign_gate = campaign_gate
         self._lock = threading.RLock()
         self._episode_context: contextvars.ContextVar[tuple[str, str] | None] = (
             contextvars.ContextVar(
@@ -213,11 +247,18 @@ class ProviderCallObserver:
         return code
 
     def _retry_delay(self, call_id: str, failed_attempt: int) -> float:
-        del call_id  # The frozen formal schedule is deterministic; no jitter.
         index = int(failed_attempt) - 1
         if index < 0 or index >= len(self.retry_delays_seconds):
             return 0.0
-        return self.retry_delays_seconds[index]
+        base = self.retry_delays_seconds[index]
+        if base <= 0 or self.deterministic_jitter_ratio <= 0:
+            return base
+        digest = hashlib.sha256(
+            f"{self.run_id}{call_id}{int(failed_attempt)}".encode("utf-8")
+        ).digest()
+        unit = int.from_bytes(digest[:8], "big") / float((1 << 64) - 1)
+        offset = (unit * 2.0) - 1.0
+        return base * (1.0 + self.deterministic_jitter_ratio * offset)
 
     def install(self) -> None:
         """Install one process-local wrapper around SkillOpt's backend."""
@@ -246,24 +287,65 @@ class ProviderCallObserver:
 
             def create(self, **kwargs: Any) -> Any:
                 diagnostics = observer._attempt_diagnostics.get()
-                if diagnostics is not None:
-                    diagnostics["sdk_boundary_attempts"] = int(
-                        diagnostics.get("sdk_boundary_attempts", 0)
-                    ) + 1
+                failures_before = len(
+                    diagnostics.get("failure_codes", [])
+                    if diagnostics is not None else []
+                )
                 try:
+                    actual_model = str(kwargs.get("model", "")).strip()
+                    if actual_model != observer.model:
+                        error = _ProviderResponseError("configuration")
+                        observer._note_provider_boundary_failure(error)
+                        raise error
                     declared = kwargs.get("reasoning_effort")
                     if declared not in {None, observer.reasoning_effort}:
                         error = _ProviderResponseError("configuration")
                         observer._note_provider_boundary_failure(error)
                         raise error
                     kwargs["reasoning_effort"] = observer.reasoning_effort
-                    response = self._wrapped.create(**kwargs)
+                    gate_context = nullcontext(None)
+                    if observer.campaign_gate is not None:
+                        logical_call_id = str(
+                            (diagnostics or {}).get("logical_call_id", "")
+                        )
+                        role = str((diagnostics or {}).get("role", ""))
+                        stage = str((diagnostics or {}).get("stage", ""))
+                        gate_context = observer.campaign_gate.acquire(
+                            run_id=observer.run_id,
+                            seed=observer.run_seed,
+                            role=role,
+                            stage=stage,
+                            logical_call_id=logical_call_id,
+                        )
+                    with gate_context as lease:
+                        if diagnostics is not None and lease is not None:
+                            diagnostics["provider_queue_wait_ms"] = int(
+                                diagnostics.get("provider_queue_wait_ms", 0)
+                            ) + int(lease.queue_wait_ms)
+                            diagnostics.setdefault("provider_slot_ids", []).append(
+                                int(lease.slot_id)
+                            )
+                        if diagnostics is not None:
+                            diagnostics["sdk_boundary_attempts"] = int(
+                                diagnostics.get("sdk_boundary_attempts", 0)
+                            ) + 1
+                        service_started = time.perf_counter()
+                        try:
+                            response = self._wrapped.create(**kwargs)
+                        finally:
+                            if diagnostics is not None:
+                                diagnostics["provider_service_latency_ms"] = int(
+                                    diagnostics.get("provider_service_latency_ms", 0)
+                                ) + max(
+                                    0,
+                                    int((time.perf_counter() - service_started) * 1000),
+                                )
                 except Exception as exc:
                     failure_codes = (
                         diagnostics.get("failure_codes", [])
                         if diagnostics is not None else []
                     )
-                    if not failure_codes or failure_codes[-1] != "configuration":
+                    if len(failure_codes) == failures_before:
                         observer._note_provider_boundary_failure(exc)
                     raise
                 request_id = str(getattr(response, "_request_id", "") or "").strip()
@@ -281,6 +363,12 @@ class ProviderCallObserver:
                     raise error
                 tool_calls = getattr(message, "tool_calls", None) or []
                 content = getattr(message, "content", None)
+                if not tool_calls and not (
+                    isinstance(content, str) and content.strip()
+                ):
+                    error = _ProviderResponseError("empty_message")
+                    observer._note_provider_boundary_failure(error)
+                    raise error
                 usage = getattr(response, "usage", None)
                 completion_tokens = int(
                     getattr(usage, "completion_tokens", 0) or 0
@@ -372,18 +460,26 @@ class ProviderCallObserver:
         ) -> tuple[Any, dict[str, Any]]:
             started = time.perf_counter()
             call_id = f"provider_{uuid.uuid4().hex}"
+            logical_call_id = call_id
             requested_retry_limit = int(retries)
             retry_limit = int(requested_retry_limit)
             if observer.application_retry_limit is not None:
-                # The formal policy is a ceiling.  It must not silently expand
-                # an upstream call that intentionally requested fewer tries.
-                retry_limit = min(retry_limit, observer.application_retry_limit)
+                # The campaign policy is the single application-retry
+                # authority for every target and optimizer logical call.
+                # Preserve the upstream value separately as audit evidence.
+                retry_limit = observer.application_retry_limit
             if requested_retry_limit <= 0 or retry_limit <= 0:
                 raise ValueError("provider retry limits must be positive")
             diagnostics: dict[str, Any] = {
                 "sdk_boundary_attempts": 0,
                 "failure_codes": [],
                 "provider_request_ids": [],
+                "provider_queue_wait_ms": 0,
+                "provider_service_latency_ms": 0,
+                "provider_slot_ids": [],
+                "logical_call_id": logical_call_id,
+                "role": str(role),
+                "stage": str(stage),
             }
             diagnostic_token = observer._attempt_diagnostics.set(diagnostics)
             result: Any = None
@@ -457,6 +553,7 @@ class ProviderCallObserver:
                     try:
                         observer._record(
                             call_id=call_id,
+                            logical_call_id=logical_call_id,
                             role=role,
                             stage=stage,
                             status="succeeded",
@@ -477,6 +574,18 @@ class ProviderCallObserver:
                                 diagnostics["sdk_boundary_attempts"]
                             ),
                             retry_backoff_ms=backoff_ms,
+                            provider_queue_wait_ms=int(
+                                diagnostics["provider_queue_wait_ms"]
+                            ),
+                            provider_service_latency_ms=int(
+                                diagnostics["provider_service_latency_ms"]
+                            ),
+                            logical_call_latency_ms=int(
+                                (time.perf_counter() - started) * 1000
+                            ),
+                            provider_slot_ids=list(
+                                diagnostics["provider_slot_ids"]
+                            ),
                             failure_code_counts=failure_counts,
                             provider_request_ids=list(dict.fromkeys(
                                 str(value)
@@ -491,7 +600,9 @@ class ProviderCallObserver:
                     except Exception as audit_exc:
                         abort = ProviderCallExhausted(
                             "provider audit persistence failed "
-                            f"(failure_code=audit_io, attempts={attempts_used})"
+                            f"(failure_code=audit_io, attempts={attempts_used})",
+                            failure_code="audit_io",
+                            application_attempts=attempts_used,
                         )
                         if str(role) == "target":
                             observer._mark_active_episode_failure(
@@ -508,7 +619,9 @@ class ProviderCallObserver:
                 )
                 exhausted = ProviderCallExhausted(
                     "provider call failed under the formal retry policy "
-                    f"(failure_code={failure_code}, attempts={attempts_used})"
+                    f"(failure_code={failure_code}, attempts={attempts_used})",
+                    failure_code=failure_code,
+                    application_attempts=attempts_used,
                 )
                 if str(role) == "target":
                     observer._mark_active_episode_failure(
@@ -522,6 +635,7 @@ class ProviderCallObserver:
                 try:
                     observer._record(
                         call_id=call_id,
+                        logical_call_id=logical_call_id,
                         role=role,
                         stage=stage,
                         status="failed",
@@ -538,6 +652,16 @@ class ProviderCallObserver:
                             diagnostics["sdk_boundary_attempts"]
                         ),
                         retry_backoff_ms=backoff_ms,
+                        provider_queue_wait_ms=int(
+                            diagnostics["provider_queue_wait_ms"]
+                        ),
+                        provider_service_latency_ms=int(
+                            diagnostics["provider_service_latency_ms"]
+                        ),
+                        logical_call_latency_ms=int(
+                            (time.perf_counter() - started) * 1000
+                        ),
+                        provider_slot_ids=list(diagnostics["provider_slot_ids"]),
                         failure_code_counts=failure_counts,
                         provider_request_ids=list(dict.fromkeys(
                             str(value)
@@ -550,7 +674,9 @@ class ProviderCallObserver:
                 except Exception as audit_exc:
                     raise ProviderCallExhausted(
                         "provider audit persistence failed "
-                        f"(failure_code=audit_io, attempts={attempts_used})"
+                        f"(failure_code=audit_io, attempts={attempts_used})",
+                        failure_code="audit_io",
+                        application_attempts=attempts_used,
                     ) from audit_exc
                 raise exhausted from last_exception
             finally:
@@ -660,6 +786,100 @@ class ProviderCallObserver:
             if event.get("rollout_id") == str(rollout_id)
         ]
 
+    def import_cached_events(
+        self,
+        source_events: list[dict[str, Any]],
+        *,
+        rollout_id: str,
+        task_id: str,
+    ) -> list[dict[str, Any]]:
+        """Import verified successful usage for an episode replayed from cache.
+
+        Imported rows are new audit events for this attempt, while retaining a
+        pointer to the original provider call.  They carry usage (the method
+        consumed those tokens) but zero current-attempt HTTP/queue latency.
+        """
+
+        imported_ids: list[str] = []
+        for source in source_events:
+            if (
+                source.get("status") != "succeeded"
+                or source.get("role") != "target"
+                or str(source.get("episode_task_id", "")) != str(task_id)
+            ):
+                raise ValueError("episode cache contains invalid provider evidence")
+            prompt = int(source.get("prompt_tokens", -1))
+            completion = int(source.get("completion_tokens", -1))
+            total = int(source.get("total_tokens", -1))
+            if prompt < 0 or completion <= 0 or total != prompt + completion:
+                raise ValueError("episode cache provider usage is invalid")
+            call_id = f"cached_{uuid.uuid4().hex}"
+            imported_ids.append(call_id)
+            source_evidence = dict(source.get("source_provider_evidence") or {})
+            if not source_evidence:
+                source_evidence = {
+                    "application_attempts": int(
+                        source.get("application_attempts", 0)
+                    ),
+                    "sdk_boundary_attempts": int(
+                        source.get("sdk_boundary_attempts", 0)
+                    ),
+                    "failure_code_counts": dict(
+                        source.get("failure_code_counts", {})
+                    ),
+                    "last_failure_code": source.get("last_failure_code"),
+                    "provider_request_ids": list(
+                        source.get("provider_request_ids", [])
+                    ),
+                    "retry_backoff_ms": int(
+                        source.get("retry_backoff_ms", 0)
+                    ),
+                }
+            self._record(
+                call_id=call_id,
+                logical_call_id=call_id,
+                role="target",
+                stage=str(source.get("stage", "rollout")),
+                status="succeeded",
+                latency_ms=0,
+                prompt_tokens=prompt,
+                completion_tokens=completion,
+                total_tokens=total,
+                reasoning_tokens=source.get("reasoning_tokens"),
+                reasoning_tokens_status=str(
+                    source.get("reasoning_tokens_status", "unavailable")
+                ),
+                requested_retry_limit=0,
+                retry_limit=0,
+                application_attempts=0,
+                sdk_boundary_attempts=0,
+                retry_backoff_ms=0,
+                provider_queue_wait_ms=0,
+                provider_service_latency_ms=0,
+                logical_call_latency_ms=0,
+                provider_slot_ids=[],
+                failure_code_counts={},
+                provider_request_ids=[],
+                last_failure_code=None,
+                recovered=False,
+                cache_reused=True,
+                source_provider_call_id=str(
+                    source.get("source_provider_call_id")
+                    or source.get("call_id", "")
+                ),
+                source_provider_run_id=str(
+                    source.get("source_provider_run_id")
+                    or source.get("run_id", "")
+                ),
+                source_provider_evidence=source_evidence,
+                rollout_id_override=str(rollout_id),
+                episode_task_id_override=str(task_id),
+            )
+        return [
+            event for event in self.events()
+            if str(event.get("call_id", "")) in set(imported_ids)
+        ]
+
     def _mark_active_episode_failure(
         self,
         exc: BaseException,
@@ -684,12 +904,15 @@ class ProviderCallObserver:
         key = self._episode_context.get()
         with self._lock:
             rollout_id, task_id = key if key is not None else ("", "")
+            rollout_id = str(payload.pop("rollout_id_override", rollout_id))
+            task_id = str(payload.pop("episode_task_id_override", task_id))
             event = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "event": "provider_call",
                 "method": self.method,
                 "phase": self.phase,
                 "run_id": self.run_id,
+                "run_seed": self.run_seed,
                 "rollout_id": rollout_id,
                 "episode_task_id": task_id,
                 "model": self.model,
@@ -749,9 +972,12 @@ def install_provider_observer(
     model: str,
     reasoning_effort: str,
     run_id: str,
+    run_seed: int = 0,
     application_retry_limit: int | None = None,
     retry_delays_seconds: tuple[float, ...] | list[float] | None = None,
+    deterministic_jitter_ratio: float = 0.0,
     expected_sdk_max_retries: int | None = None,
+    campaign_gate: CampaignProviderGate | None = None,
 ) -> ProviderCallObserver:
     global _ACTIVE_OBSERVER
     with _ACTIVE_LOCK:
@@ -764,9 +990,12 @@ def install_provider_observer(
             model=model,
             reasoning_effort=reasoning_effort,
             run_id=run_id,
+            run_seed=run_seed,
             application_retry_limit=application_retry_limit,
             retry_delays_seconds=retry_delays_seconds,
+            deterministic_jitter_ratio=deterministic_jitter_ratio,
             expected_sdk_max_retries=expected_sdk_max_retries,
+            campaign_gate=campaign_gate,
         )
         observer.install()
         _ACTIVE_OBSERVER = observer

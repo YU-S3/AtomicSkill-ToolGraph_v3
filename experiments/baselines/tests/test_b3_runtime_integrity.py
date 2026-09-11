@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import hashlib
 import json
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -156,6 +157,7 @@ def _adapter(
     *,
     episode_fn=_successful_episode,
     phase: str = "train",
+    run_id: str = "run_fixture",
     identity_extra: dict[str, str] | None = None,
     artifact_digest_override: str | None = None,
     workers: int = 1,
@@ -179,7 +181,7 @@ def _adapter(
         max_completion_tokens=1024,
         seed=42,
         phase=phase,
-        run_id="run_fixture",
+        run_id=run_id,
         identity=identity,
         artifact_digest_override=artifact_digest_override,
         workers=workers,
@@ -227,6 +229,55 @@ def test_rollout_commits_identity_bound_receipt_last_and_exact_cache_reuses(
 
     cached = adapter.rollout(env, skill, str(out))
     assert cached == rows
+
+
+def test_episode_cache_reuses_across_attempts_and_restores_exact_conversation_bytes(
+    tmp_path: Path,
+) -> None:
+    skill = "# Full skill bytes\n"
+    source_adapter = _adapter(tmp_path, run_id="attempt_001")
+    source_env = source_adapter.build_train_env(batch_size=2, seed=7)
+    source_out = tmp_path / "attempt_001" / "steps" / "step_0001" / "rollout"
+    source_rows = source_adapter.rollout(source_env, skill, str(source_out))
+    source_conversations = {
+        row["id"]: (
+            source_out / "predictions" / row["id"] / "conversation.json"
+        ).read_bytes()
+        for row in source_rows
+    }
+
+    destination_out = (
+        tmp_path / "attempt_002" / "steps" / "step_0001" / "rollout"
+    )
+    shutil.copytree(source_out / "episodes", destination_out / "episodes")
+    calls: list[str] = []
+
+    def forbidden_episode(task, skill_content, out_dir):
+        calls.append(str(task["id"]))
+        raise AssertionError("a verified resumed episode must not execute again")
+
+    resumed_adapter = _adapter(
+        tmp_path,
+        run_id="attempt_002",
+        episode_fn=forbidden_episode,
+    )
+    assert resumed_adapter._session_id != source_adapter._session_id
+    resumed_env = resumed_adapter.build_train_env(batch_size=2, seed=7)
+
+    resumed_rows = resumed_adapter.rollout(
+        resumed_env, skill, str(destination_out),
+    )
+
+    assert calls == []
+    assert resumed_rows == source_rows
+    assert [row["id"] for row in resumed_rows] == [
+        str(task["task_id"]) for task in resumed_env.tasks
+    ]
+    for task_id, original_bytes in source_conversations.items():
+        restored = (
+            destination_out / "predictions" / task_id / "conversation.json"
+        )
+        assert restored.read_bytes() == original_bytes
 
 
 def test_rollout_parallelizes_independent_episodes_but_commits_manifest_order(
@@ -637,6 +688,9 @@ def test_provider_observer_retries_response_without_usage_evidence(
     monkeypatch.setattr(backend, "_get_client", lambda role: Client())
     monkeypatch.setattr(backend.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(backend, "_asg_provider_observer", None, raising=False)
+    monkeypatch.setattr(
+        backend.TARGET_CONFIG, "deployment", "deepseek-v4-flash"
+    )
     observer = ProviderCallObserver(
         output_path=tmp_path / "provider_calls.jsonl",
         method="b3_skillopt",
@@ -668,7 +722,7 @@ def test_provider_observer_retries_response_without_usage_evidence(
     assert events[0]["completion_tokens"] == 2
 
 
-def test_provider_observer_treats_empty_model_content_as_task_behavior(
+def test_provider_observer_retries_empty_model_message(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -677,7 +731,10 @@ def test_provider_observer_treats_empty_model_content_as_task_behavior(
     retry_limits, sdk_requests = _stub_observed_sdk_call(
         monkeypatch,
         backend,
-        [_sdk_completion_response("", 1)],
+        [
+            _sdk_completion_response("", 1),
+            _sdk_completion_response("recovered", 2),
+        ],
     )
     observer = ProviderCallObserver(
         output_path=tmp_path / "provider_calls.jsonl",
@@ -697,14 +754,16 @@ def test_provider_observer_treats_empty_model_content_as_task_behavior(
     finally:
         observer.uninstall()
 
-    assert text == ""
-    assert usage["completion_tokens"] == 1
-    assert retry_limits == [1]
-    assert len(sdk_requests) == 1
+    assert text == "recovered"
+    assert usage["completion_tokens"] == 2
+    assert retry_limits == [1, 1]
+    assert len(sdk_requests) == 2
     event = observer.events()[0]
     assert event["status"] == "succeeded"
-    assert event["application_attempts"] == 1
-    assert event["failure_code_counts"] == {}
+    assert event["application_attempts"] == 2
+    assert event["failure_code_counts"] == {"empty_message": 1}
+    assert event["last_failure_code"] == "empty_message"
+    assert event["recovered"] is True
 
 
 def test_provider_observer_explicitly_recovers_two_transient_timeouts(
@@ -752,7 +811,7 @@ def test_provider_observer_explicitly_recovers_two_transient_timeouts(
     assert event["application_attempts"] == 3
     assert event["sdk_boundary_attempts"] == 3
     assert event["requested_retry_limit"] == 3
-    assert event["retry_limit"] == 3
+    assert event["retry_limit"] == 5
     assert event["failure_code_counts"] == {"timeout": 2}
     assert event["last_failure_code"] == "timeout"
     assert event["recovered"] is True
@@ -855,6 +914,47 @@ def test_provider_observer_exhausts_five_transient_timeouts(
     assert event["failure_code_counts"] == {"timeout": 5}
     assert event["last_failure_code"] == "timeout"
     assert event["recovered"] is False
+
+
+def test_provider_observer_formal_policy_uses_five_attempts_for_upstream_two(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import skillopt.model.openai_compatible_backend as backend
+
+    retry_limits, sdk_requests = _stub_observed_sdk_call(
+        monkeypatch,
+        backend,
+        [TimeoutError("fixture timeout") for _ in range(5)],
+    )
+    observer = ProviderCallObserver(
+        output_path=tmp_path / "provider_calls.jsonl",
+        method="b3_skillopt",
+        phase="train",
+        model="fixture-model",
+        reasoning_effort="high",
+        run_id="run_fixture",
+        application_retry_limit=5,
+        retry_delays_seconds=[0, 0, 0, 0],
+        expected_sdk_max_retries=None,
+    )
+    observer.install()
+    try:
+        with pytest.raises(ProviderCallExhausted, match="attempts=5"):
+            backend._chat_messages_impl(
+                [], 32, 2, "analyst", role="optimizer",
+            )
+    finally:
+        observer.uninstall()
+
+    assert retry_limits == [1] * 5
+    assert len(sdk_requests) == 5
+    event = observer.events()[0]
+    assert event["requested_retry_limit"] == 2
+    assert event["retry_limit"] == 5
+    assert event["application_attempts"] == 5
+    assert event["sdk_boundary_attempts"] == 5
+    assert event["failure_code_counts"] == {"timeout": 5}
 
 
 def test_provider_observer_uses_frozen_retry_schedule_after_upstream_delay(

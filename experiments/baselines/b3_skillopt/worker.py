@@ -7,7 +7,7 @@ never construct training/evolution state.
 
 Every successful phase proves the controller identity (config, manifests,
 model, source tree and run id), records every provider call, and writes its
-result exactly once to the path declared by WorkerWire v2.
+result exactly once to the path declared by WorkerWire v3.
 """
 
 from __future__ import annotations
@@ -47,6 +47,8 @@ from experiments.baselines.common.manifest import (
     verify_disjoint,
 )
 from experiments.baselines.common.model_config import ModelConfig
+from experiments.baselines.common.provider_gate import CampaignProviderGate
+from experiments.baselines.common.resume import prepare_epoch_boundary_resume
 from experiments.baselines.common.subprocess_worker import (
     WorkerWire,
     write_worker_result,
@@ -99,6 +101,18 @@ _EXPECTED_METHOD_SETTINGS: dict[tuple[str, ...], Any] = {
     ("provider_transport", "sdk_max_retries"): 0,
     ("provider_transport", "application_retry_limit"): 5,
     ("provider_transport", "retry_delays_seconds"): [2, 5, 10, 20],
+    ("provider_transport", "deterministic_jitter_ratio"): 0.10,
+    ("parallel", "seed_lanes"): 3,
+    ("parallel", "episode_workers_per_seed"): 16,
+    ("parallel", "test_workers_per_seed"): 16,
+    ("parallel", "skillopt_analyst_workers_per_seed"): 16,
+    ("provider_probe", "enabled"): True,
+    ("provider_probe", "requests"): 32,
+    ("provider_probe", "max_completion_tokens"): 256,
+    ("provider_probe", "reasoning_effort"): "high",
+    ("resume", "enabled"): True,
+    ("resume", "formal_boundary"): "epoch",
+    ("resume", "reuse_verified_episode_cache"): True,
     ("smoke", "task_count"): 2,
     ("smoke", "max_steps"): 2,
 }
@@ -204,8 +218,87 @@ def _validate_config_identity(
                 f"formal B3 setting {'.'.join(path)} must be {expected!r}, "
                 f"got {actual!r}"
             )
+    provider_cap = int(
+        _nested(config, ("parallel", "campaign_provider_max_inflight"))
+    )
+    probe_concurrency = int(
+        _nested(config, ("provider_probe", "concurrency"))
+    )
+    if provider_cap not in {16, 12, 8} or probe_concurrency != provider_cap:
+        raise ValueError(
+            "formal B3 provider cap/probe concurrency must match one of 16, 12, 8"
+        )
     _reject_embedded_secrets(config)
     return actual_digest
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _campaign_provider_gate(
+    wire: WorkerWire,
+    config: dict[str, Any],
+) -> CampaignProviderGate | None:
+    """Verify the shared campaign authority before constructing its gate."""
+
+    descriptor = wire.campaign
+    formal = str(config.get("protocol_profile", "pilot_v1")) == "formal_v2"
+    if descriptor is None:
+        if formal and wire.phase in {"train", "test"}:
+            raise ValueError(
+                "formal train/test requires a verified campaign-global provider gate"
+            )
+        return None
+
+    lock_path = Path(str(descriptor["campaign_lock_path"])).resolve(strict=True)
+    if not lock_path.is_file():
+        raise FileNotFoundError(f"campaign lock is missing: {lock_path}")
+    lock_digest = _sha256_file(lock_path)
+    if lock_digest != str(descriptor["campaign_lock_digest"]):
+        raise ValueError("campaign lock digest differs from WorkerWire")
+    try:
+        campaign_lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"campaign lock is unreadable: {lock_path}") from exc
+    if not isinstance(campaign_lock, dict):
+        raise ValueError("campaign lock root must be a mapping")
+
+    parallel = dict(config.get("parallel") or {})
+    cap = int(descriptor["campaign_provider_max_inflight"])
+    expected_cap = int(parallel.get("campaign_provider_max_inflight", 0))
+    checks = {
+        "method": campaign_lock.get("method") == wire.method,
+        "campaign_id": campaign_lock.get("campaign_id")
+        == descriptor["campaign_id"],
+        "seed": wire.run_seed in [int(seed) for seed in campaign_lock.get("seeds", [])],
+        "provider_cap": int(
+            campaign_lock.get("campaign_provider_max_inflight", 0)
+        ) == cap == expected_cap,
+        "model": campaign_lock.get("model") == str(wire.model.get("model", "")),
+        "reasoning_effort": campaign_lock.get("reasoning_effort")
+        == str(wire.model.get("reasoning_effort", "")),
+        "config_digest": campaign_lock.get("formal_config_digest")
+        == wire.identity.get("formal_config_digest"),
+    }
+    failed = sorted(name for name, passed in checks.items() if not passed)
+    if failed:
+        raise ValueError(
+            "campaign lock is incompatible with this worker: " + ", ".join(failed)
+        )
+    gate_dir = Path(str(descriptor["provider_gate_dir"])).resolve()
+    locked_gate_dir = Path(str(campaign_lock.get("provider_gate_dir", ""))).resolve()
+    if gate_dir != locked_gate_dir:
+        raise ValueError("WorkerWire provider gate directory differs from campaign lock")
+    return CampaignProviderGate(
+        gate_dir=gate_dir,
+        campaign_id=str(descriptor["campaign_id"]),
+        max_inflight=cap,
+    )
 
 
 def _reject_embedded_secrets(value: Any, path: tuple[str, ...] = ()) -> None:
@@ -443,6 +536,11 @@ def _flat_train_cfg(
         "workers": int(env["workers"]),
         "max_api_workers": int(env["max_api_workers"]),
         "max_completion_tokens": int(env["max_completion_tokens"]),
+        "steps_per_epoch": (
+            int(config["train"]["train_size"])
+            + int(config["train"]["batch_size"])
+            - 1
+        ) // int(config["train"]["batch_size"]),
     }
 
 
@@ -494,6 +592,11 @@ def _adapter_kwargs(
         "minibatch_size": int(gradient["minibatch_size"]),
         "edit_budget": int(optimizer["learning_rate"]),
         "max_completion_tokens": int(env["max_completion_tokens"]),
+        "steps_per_epoch": (
+            int(config["train"]["train_size"])
+            + int(config["train"]["batch_size"])
+            - 1
+        ) // int(config["train"]["batch_size"]),
         "seed": int(wire.run_seed),
         "phase": phase,
     }
@@ -503,6 +606,8 @@ def _adapter_kwargs(
     optional = {
         "run_id": wire.run_id,
         "identity": dict(wire.identity),
+        "campaign": dict(wire.campaign) if wire.campaign is not None else None,
+        "resume": dict(wire.resume) if wire.resume is not None else None,
     }
     if artifact_digest_override is not None:
         optional["artifact_digest_override"] = artifact_digest_override
@@ -677,6 +782,7 @@ def _provider_usage(
     if not events:
         raise RuntimeError("phase produced no provider-call evidence")
     seen_ids: set[str] = set()
+    seen_logical_ids: set[str] = set()
     target = RoleUsage()
     evolution = RoleUsage()
     per_stage: dict[str, RoleUsage] = {}
@@ -696,6 +802,34 @@ def _provider_usage(
         if not call_id or call_id in seen_ids:
             raise ValueError("provider-call evidence has an empty or duplicate call_id")
         seen_ids.add(call_id)
+        schema_version = int(event.get("schema_version", 1))
+        logical_call_id = str(event.get("logical_call_id", ""))
+        if schema_version >= 2:
+            if (
+                int(event.get("run_seed", -1)) != wire.run_seed
+                or not logical_call_id
+                or logical_call_id in seen_logical_ids
+            ):
+                raise ValueError("provider-call logical/run-seed identity is invalid")
+            seen_logical_ids.add(logical_call_id)
+            timing = {
+                name: int(event.get(name, -1))
+                for name in (
+                    "provider_queue_wait_ms",
+                    "provider_service_latency_ms",
+                    "logical_call_latency_ms",
+                    "retry_backoff_ms",
+                )
+            }
+            if any(value < 0 for value in timing.values()):
+                raise ValueError("provider-call timing evidence is invalid")
+            accounted = (
+                timing["provider_queue_wait_ms"]
+                + timing["provider_service_latency_ms"]
+                + timing["retry_backoff_ms"]
+            )
+            if timing["logical_call_latency_ms"] + 5 < accounted:
+                raise ValueError("provider logical latency is shorter than its components")
         retry_evidence_present = "application_attempts" in event
         application_attempts = int(event.get("application_attempts", 1))
         sdk_boundary_attempts = int(
@@ -711,25 +845,74 @@ def _provider_usage(
         failure_counts = {
             str(code): int(count) for code, count in raw_failure_counts.items()
         }
+        cache_reused = bool(event.get("cache_reused", False))
+        failure_total = sum(failure_counts.values())
+        slot_ids = event.get("provider_slot_ids", [])
+        if not isinstance(slot_ids, list) or any(
+            isinstance(slot_id, bool) or int(slot_id) < 0 for slot_id in slot_ids
+        ):
+            raise ValueError("provider-call slot evidence is invalid")
         if (
-            application_attempts <= 0
-            or sdk_boundary_attempts < 0
-            or requested_retry_limit <= 0
+            sdk_boundary_attempts < 0
+            or requested_retry_limit < 0
+            or effective_retry_limit < 0
             or effective_retry_limit < application_attempts
             or any(not code or count <= 0 for code, count in failure_counts.items())
         ):
             raise ValueError("provider-call retry evidence is invalid")
+        if cache_reused:
+            if (
+                application_attempts != 0
+                or requested_retry_limit != 0
+                or effective_retry_limit != 0
+                or sdk_boundary_attempts != 0
+                or slot_ids
+                or failure_counts
+                or event.get("last_failure_code") is not None
+                or bool(event.get("recovered", False))
+            ):
+                raise ValueError(
+                    "cached provider calls must have zero current transport usage"
+                )
+            source_evidence = event.get("source_provider_evidence")
+            if not isinstance(source_evidence, dict):
+                raise ValueError("cached provider call has no source evidence")
+        else:
+            if application_attempts <= 0 or requested_retry_limit <= 0:
+                raise ValueError("provider-call retry evidence is invalid")
+            if sdk_boundary_attempts != application_attempts:
+                raise ValueError(
+                    "provider SDK-boundary attempts do not equal application attempts"
+                )
+            if wire.campaign is not None and len(slot_ids) != sdk_boundary_attempts:
+                raise ValueError(
+                    "provider campaign-slot evidence does not cover every HTTP attempt"
+                )
         if event.get("status") == "failed":
             if retry_evidence_present and (
                 not failure_counts or bool(event.get("recovered", False))
             ):
                 raise ValueError("failed provider call has invalid failure evidence")
+            if failure_total != application_attempts:
+                raise ValueError(
+                    "failed provider-call failure count does not equal its attempts"
+                )
+            if str(event.get("last_failure_code", "")) not in failure_counts:
+                raise ValueError("failed provider call has invalid last failure code")
             failures.append(event)
             continue
         if event.get("status") != "succeeded":
             raise ValueError("provider-call evidence has an invalid status")
         if bool(event.get("recovered", False)) != bool(failure_counts):
             raise ValueError("provider-call recovered flag disagrees with retry evidence")
+        if failure_total != max(0, application_attempts - 1):
+            raise ValueError(
+                "successful provider-call failure count disagrees with attempts"
+            )
+        if failure_counts and str(event.get("last_failure_code", "")) not in failure_counts:
+            raise ValueError("recovered provider call has invalid last failure code")
+        if not failure_counts and event.get("last_failure_code") is not None:
+            raise ValueError("non-retried provider call has a last failure code")
         role = str(event.get("role", ""))
         if role not in {"target", "optimizer"}:
             raise ValueError(f"provider-call evidence has an invalid role: {role!r}")
@@ -791,17 +974,29 @@ def _provider_usage(
 
 
 def _reconcile_upstream_usage(
-    usage: UsageSnapshot,
     upstream: dict[str, Any],
+    provider_events: list[dict[str, Any]],
 ) -> None:
-    observed_stages = {
-        stage: {
-            "calls": bucket.calls,
-            "prompt_tokens": bucket.prompt_tokens,
-            "completion_tokens": bucket.completion_tokens,
-        }
-        for stage, bucket in usage.per_stage.items()
-    }
+    # SkillOpt's process-local tracker only sees HTTP calls executed by this
+    # attempt.  Verified cache replays are logical committed method usage, but
+    # they do not perform HTTP and therefore must be excluded from this
+    # physical-boundary reconciliation.
+    physical: dict[str, dict[str, int]] = {}
+    for event in provider_events:
+        if event.get("status") != "succeeded" or bool(
+            event.get("cache_reused", False)
+        ):
+            continue
+        stage = str(event.get("stage", ""))
+        bucket = physical.setdefault(stage, {
+            "calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        })
+        bucket["calls"] += 1
+        bucket["prompt_tokens"] += int(event.get("prompt_tokens", 0))
+        bucket["completion_tokens"] += int(event.get("completion_tokens", 0))
+    observed_stages = physical
     upstream_stages = {
         str(stage): {
             "calls": int(values.get("calls", 0)),
@@ -819,8 +1014,14 @@ def _reconcile_upstream_usage(
 
 def _provider_evidence_summary(observer: ProviderCallObserver) -> dict[str, Any]:
     events = observer.events()
+    physical_events = [
+        event for event in events if not bool(event.get("cache_reused", False))
+    ]
+    cached_events = [
+        event for event in events if bool(event.get("cache_reused", False))
+    ]
     application_attempts = sum(
-        int(event.get("application_attempts", 1)) for event in events
+        int(event.get("application_attempts", 1)) for event in physical_events
     )
     reasoning_by_role: dict[str, Counter[str]] = {}
     reasoning_by_stage: dict[str, Counter[str]] = {}
@@ -841,15 +1042,47 @@ def _provider_evidence_summary(observer: ProviderCallObserver) -> dict[str, Any]
             })
     return {
         "calls": len(events),
+        "physical_provider_calls": len(physical_events),
         "application_attempts": application_attempts,
-        "provider_retries": application_attempts - len(events),
+        "provider_retries": application_attempts - len(physical_events),
         "sdk_boundary_attempts": sum(
-            int(event.get("sdk_boundary_attempts", 1)) for event in events
+            int(event.get("sdk_boundary_attempts", 1))
+            for event in physical_events
+        ),
+        "cached_provider_calls": len(cached_events),
+        "cached_source_application_attempts": sum(
+            int(dict(event.get("source_provider_evidence") or {}).get(
+                "application_attempts", 0
+            ))
+            for event in cached_events
+        ),
+        "cached_source_retries": sum(
+            max(
+                0,
+                int(dict(event.get("source_provider_evidence") or {}).get(
+                    "application_attempts", 0
+                )) - 1,
+            )
+            for event in cached_events
         ),
         "recovered_calls": sum(
             bool(event.get("recovered", False)) for event in events
         ),
         "retry_failure_code_counts": dict(sorted(failure_codes.items())),
+        "provider_queue_wait_ms": sum(
+            int(event.get("provider_queue_wait_ms", 0)) for event in events
+        ),
+        "provider_service_latency_ms": sum(
+            int(event.get("provider_service_latency_ms", event.get("latency_ms", 0)))
+            for event in events
+        ),
+        "logical_call_latency_ms": sum(
+            int(event.get("logical_call_latency_ms", event.get("latency_ms", 0)))
+            for event in events
+        ),
+        "retry_backoff_ms": sum(
+            int(event.get("retry_backoff_ms", 0)) for event in events
+        ),
         "status_counts": dict(sorted(Counter(
             str(event.get("status", "")) for event in events
         ).items())),
@@ -910,7 +1143,7 @@ def _write_usage(
         allow_failed=allow_failed,
     )
     if upstream is not None:
-        _reconcile_upstream_usage(usage, upstream)
+        _reconcile_upstream_usage(upstream, observer.events())
     if forbid_evolution and usage.evolution.calls:
         raise RuntimeError(
             f"{wire.phase} unexpectedly made evolution/optimizer provider calls"
@@ -1013,6 +1246,66 @@ def _method_metrics(
     }
 
 
+def _provider_retry_policy(config: dict[str, Any]) -> dict[str, Any]:
+    transport = dict(config["provider_transport"])
+    return {
+        "sdk_max_retries": int(transport["sdk_max_retries"]),
+        "attempts": int(transport["application_retry_limit"]),
+        "delays": [
+            float(value) for value in transport["retry_delays_seconds"]
+        ],
+        "jitter_ratio": float(transport["deterministic_jitter_ratio"]),
+    }
+
+
+def _prepare_train_resume(
+    *,
+    wire: WorkerWire,
+    config: dict[str, Any],
+    lock: dict[str, Any],
+    train_out: Path,
+) -> dict[str, Any] | None:
+    if wire.resume is None:
+        return None
+    if set(wire.resume) != {"source_run"}:
+        raise ValueError("worker resume descriptor must contain only source_run")
+    resume_config = dict(config["resume"])
+    if (
+        resume_config.get("enabled") is not True
+        or resume_config.get("formal_boundary") != "epoch"
+    ):
+        raise ValueError("resolved config does not enable epoch-boundary resume")
+    if wire.campaign is None:
+        raise ValueError("formal resume requires an immutable campaign descriptor")
+    initial_digest = str(
+        dict(lock["skillopt"].get("key_files") or {}).get(_SKILL_INIT_REL, "")
+    )
+    train_config = dict(config["train"])
+    steps_per_epoch = (
+        int(train_config["train_size"]) + int(train_config["batch_size"]) - 1
+    ) // int(train_config["batch_size"])
+    prepared = prepare_epoch_boundary_resume(
+        source_run=str(wire.resume["source_run"]),
+        destination_train_dir=train_out,
+        expected_method=wire.method,
+        expected_seed=wire.run_seed,
+        expected_identity=dict(wire.identity),
+        expected_policy={
+            "campaign": dict(wire.campaign),
+            "provider_retry_policy": _provider_retry_policy(config),
+        },
+        expected_initial_skill_sha256=initial_digest,
+        steps_per_epoch=steps_per_epoch,
+        copy_episode_cache=bool(
+            resume_config["reuse_verified_episode_cache"]
+        ),
+    )
+    payload = json.loads(prepared.resume_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("status") != "prepared":
+        raise RuntimeError("resume preparation did not commit a valid resume.json")
+    return dict(payload)
+
+
 def _run_train(
     *,
     wire: WorkerWire,
@@ -1025,6 +1318,12 @@ def _run_train(
     observer: ProviderCallObserver,
 ) -> dict[str, Any]:
     train_out = _phase_dir(wire)
+    resume_evidence = _prepare_train_resume(
+        wire=wire,
+        config=config,
+        lock=lock,
+        train_out=train_out,
+    )
     skill_init_path, initial_digest = _verify_skill_init(
         external_root=Path(source["root"]),
         skill_init_rel=wire.skill_init_rel,
@@ -1109,6 +1408,7 @@ def _run_train(
         "episodes": episode_counts,
         "best_skill_path": str(best_skill_path.resolve()),
         "best_skill_sha256": hashlib.sha256(best_skill_path.read_bytes()).hexdigest(),
+        "resume": resume_evidence,
         "initial_skill_sha256": initial_digest,
         "trainer_import_origin": trainer_origin,
         "provider_calls": len(observer.events()),
@@ -1405,9 +1705,40 @@ def _safe_error(exc: BaseException, model: ModelConfig | None) -> str:
     return text
 
 
+def _failure_kind(
+    exc: BaseException,
+    observer: ProviderCallObserver | None,
+) -> str:
+    """Only durable provider-failure evidence is resumable infrastructure."""
+
+    if isinstance(exc, ProviderCallExhausted):
+        return (
+            "infrastructure_failure"
+            if exc.infrastructure_failure
+            else "protocol_failure"
+        )
+    explicit = str(getattr(exc, "failure_kind", ""))
+    if observer is not None:
+        try:
+            failed = [
+                event for event in observer.events()
+                if event.get("status") == "failed"
+                and str(event.get("last_failure_code", ""))
+                in {
+                    "connection", "rate_limit", "server_error", "timeout",
+                    "empty_choices", "empty_message", "invalid_usage",
+                }
+            ]
+        except Exception:
+            failed = []
+        if explicit == "infrastructure_failure" and failed:
+            return "infrastructure_failure"
+    return "protocol_failure"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--wire", required=True, help="phase-local WorkerWire v2 JSON")
+    parser.add_argument("--wire", required=True, help="phase-local WorkerWire v3 JSON")
     args = parser.parse_args(argv)
     wire: WorkerWire | None = None
     model: ModelConfig | None = None
@@ -1429,6 +1760,7 @@ def main(argv: list[str] | None = None) -> int:
         model = ModelConfig.from_mapping(wire.model)
         model.validate_formal_identity()
         config_digest = _validate_config_identity(wire, config, model)
+        campaign_gate = _campaign_provider_gate(wire, config)
         lock = load_lock(
             REPO_ROOT / "experiments" / "baselines" / "baseline_lock.yaml"
         )
@@ -1461,15 +1793,20 @@ def main(argv: list[str] | None = None) -> int:
             model=model.model,
             reasoning_effort=model.reasoning_effort,
             run_id=wire.run_id,
+            run_seed=wire.run_seed,
             application_retry_limit=int(
                 provider_transport["application_retry_limit"]
             ),
             retry_delays_seconds=list(
                 provider_transport["retry_delays_seconds"]
             ),
+            deterministic_jitter_ratio=float(
+                provider_transport["deterministic_jitter_ratio"]
+            ),
             expected_sdk_max_retries=int(
                 provider_transport["sdk_max_retries"]
             ),
+            campaign_gate=campaign_gate,
         )
         if wire.phase == "train":
             result = _run_train(
@@ -1512,6 +1849,8 @@ def main(argv: list[str] | None = None) -> int:
     except (Exception, ProviderCallExhausted) as exc:
         error = _safe_error(exc, model)
         evidence = dict(getattr(exc, "evidence", {}) or {})
+        failure_kind = _failure_kind(exc, observer)
+        evidence["failure_kind"] = failure_kind
         if observer is not None:
             evidence.setdefault("provider_calls", observer.event_cursor())
             usage_path = _phase_dir(wire) / "usage.json" if wire is not None else None
@@ -1539,6 +1878,7 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "error_type": type(exc).__name__,
                         "error": error,
+                        "failure_kind": failure_kind,
                         **evidence,
                     },
                     passed=False,
@@ -1552,6 +1892,7 @@ def main(argv: list[str] | None = None) -> int:
             "run_id": wire.run_id if wire else "",
             "error_type": type(exc).__name__,
             "error": error,
+            "failure_kind": failure_kind,
         }, ensure_ascii=False, indent=2))
         return 1
     finally:

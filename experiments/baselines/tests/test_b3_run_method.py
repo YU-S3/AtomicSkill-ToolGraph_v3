@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,7 @@ from experiments.baselines import run_method
 from experiments.baselines.common.driver import TrainResult
 from experiments.baselines.common.freeze import freeze_files
 from experiments.baselines.common.manifest import ManifestTask, TaskManifestSet
+from experiments.baselines.common.model_config import ModelConfig
 from experiments.baselines.common.schema import CommonEpisodeRecord
 from experiments.baselines.common.usage import RoleUsage, UsageSnapshot
 
@@ -262,3 +264,214 @@ def test_atomic_json_refuses_stale_output(tmp_path: Path) -> None:
     with pytest.raises(FileExistsError):
         run_method._write_json_atomic(path, {"value": 2})
     assert json.loads(path.read_text()) == {"value": 1}
+
+
+def test_campaign_descriptor_binds_probe_gate_and_retry_identity(
+    tmp_path: Path,
+) -> None:
+    _, train = _manifest(tmp_path, role="train")
+    _, validation = _manifest(tmp_path, role="validation")
+    test = validation
+    config = {
+        "protocol_profile": "formal_v2",
+        "run_seed": 42,
+        "train": {"seed": 42},
+        "model": {
+            "provider": "openai_compatible",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "api_key_env": "MODEL_API_KEY",
+            "reasoning_effort": "high",
+        },
+        "parallel": {
+            "seed_lanes": 3,
+            "campaign_provider_max_inflight": 16,
+        },
+        "provider_transport": {
+            "sdk_max_retries": 0,
+            "application_retry_limit": 5,
+            "retry_delays_seconds": [2, 5, 10, 20],
+            "deterministic_jitter_ratio": 0.10,
+        },
+    }
+    model = ModelConfig.from_mapping(config["model"])
+    source_lock = {
+        "skillopt": {
+            "commit": "a" * 40,
+            "runtime_tree": {"sha256": "b" * 64},
+        }
+    }
+    git_state = {"commit": "c" * 40, "dirty": False}
+    code_digest = "d" * 64
+    campaign_root = tmp_path / "campaign"
+    probe_root = campaign_root / "provider_probe" / "global_16"
+    probe_root.mkdir(parents=True)
+    calls_path = probe_root / "provider_calls.jsonl"
+    calls_path.write_text("{}\n", encoding="utf-8")
+    calls_digest = hashlib.sha256(calls_path.read_bytes()).hexdigest()
+    report = {
+        "probe_kind": "campaign_provider_load",
+        "passed": True,
+        "campaign_id": "fixture_campaign",
+        "run_id": "fixture_run_probe",
+        "model": model.model,
+        "reasoning_effort": model.reasoning_effort,
+        "concurrency": 16,
+        "requests": 32,
+        "max_completion_tokens": 256,
+        "campaign_provider_max_inflight": 16,
+        "logical_calls_recorded": 32,
+        "completed_logical_calls": 32,
+        "failed_provider_calls": 0,
+        "exhausted_provider_calls": 0,
+        "permanent_provider_errors": 0,
+        "provider_evidence_complete": True,
+        "provider_calls_path": str(calls_path.resolve()),
+        "provider_calls_sha256": calls_digest,
+    }
+    report_path = probe_root / "provider_load_probe.json"
+    report_path.write_text(
+        json.dumps(report, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    report_digest = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    payload = {
+        "schema_version": 1,
+        "method": "b3_skillopt",
+        "campaign_id": "fixture_campaign",
+        "campaign_run_id": "fixture_run",
+        "seeds": [42, 43, 44],
+        "train_manifest_digest": train.digest,
+        "validation_manifest_digest": validation.digest,
+        "test_manifest_digest": test.digest,
+        "controller_commit": git_state["commit"],
+        "controller_code_digest": code_digest,
+        "external_skillopt_commit": source_lock["skillopt"]["commit"],
+        "external_runtime_tree_digest": source_lock["skillopt"]["runtime_tree"][
+            "sha256"
+        ],
+        "model": model.model,
+        "reasoning_effort": model.reasoning_effort,
+        "formal_config_digest": run_method._formal_config_digest(config),
+        "seed_lanes": 3,
+        "campaign_provider_max_inflight": 16,
+        "retry_policy": run_method._provider_retry_policy(config),
+        "provider_gate_dir": str((campaign_root / "provider_gate").resolve()),
+        "provider_probe": {
+            "passed": True,
+            "requests": 32,
+            "max_completion_tokens": 256,
+            "report_path": str(report_path.resolve()),
+            "report_sha256": report_digest,
+        },
+        "provider_probe_receipt": {
+            "returncode": 0,
+            "path": str(report_path.resolve()),
+            "sha256": report_digest,
+            "report": report,
+        },
+    }
+    lock_path = campaign_root / "campaign_lock.json"
+    lock_path.write_text(
+        json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    descriptor = run_method._load_campaign_descriptor(
+        lock_path,
+        config=config,
+        source_lock=source_lock,
+        model=model,
+        train_manifest=train,
+        validation_manifest=validation,
+        test_manifest=test,
+        git_state=git_state,
+        code_digest=code_digest,
+        seed=42,
+    )
+
+    assert descriptor["campaign_id"] == "fixture_campaign"
+    assert descriptor["campaign_provider_max_inflight"] == 16
+    assert Path(descriptor["provider_gate_dir"]) == (
+        campaign_root / "provider_gate"
+    ).resolve()
+
+    payload["retry_policy"] = {**payload["retry_policy"], "attempts": 4}
+    lock_path.write_text(
+        json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="retry_policy"):
+        run_method._load_campaign_descriptor(
+            lock_path,
+            config=config,
+            source_lock=source_lock,
+            model=model,
+            train_manifest=train,
+            validation_manifest=validation,
+            test_manifest=test,
+            git_state=git_state,
+            code_digest=code_digest,
+            seed=42,
+        )
+
+
+def test_formal_test_rejects_frozen_source_from_another_campaign(
+    tmp_path: Path,
+) -> None:
+    _, train = _manifest(tmp_path, role="train")
+    _, validation = _manifest(tmp_path, role="validation")
+    test = validation
+    model = ModelConfig.from_mapping({
+        "provider": "openai_compatible",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash",
+        "api_key_env": "MODEL_API_KEY",
+        "reasoning_effort": "high",
+    })
+    expected_campaign = {
+        "campaign_id": "campaign_a",
+        "campaign_lock_path": str(tmp_path / "campaign_a" / "campaign_lock.json"),
+        "campaign_lock_digest": "a" * 64,
+        "provider_gate_dir": str(tmp_path / "campaign_a" / "provider_gate"),
+        "campaign_provider_max_inflight": 16,
+    }
+    source = tmp_path / "source_train"
+    source.mkdir()
+    (source / "completion.json").write_text(
+        json.dumps({"passed": True, "phase": "train", "identity": {}}) + "\n",
+        encoding="utf-8",
+    )
+    (source / "report.json").write_text(
+        json.dumps({"passed": True, "method": "b3_skillopt"}) + "\n",
+        encoding="utf-8",
+    )
+    (source / "run_manifest.json").write_text(
+        json.dumps({
+            "formal": True,
+            "protocol": "protocol-faithful-matched-train-v2",
+            "phase": "train",
+            "run_seed": 42,
+            "train_manifest_hash": train.digest,
+            "validation_manifest_hash": validation.digest,
+            "test_manifest_hash": test.digest,
+            "external_commit": "b" * 40,
+            "external_runtime_tree": {"sha256": "c" * 64},
+            "model": model.to_wire(),
+            "campaign": {**expected_campaign, "campaign_id": "campaign_b"},
+        }) + "\n",
+        encoding="utf-8",
+    )
+    context = SimpleNamespace(
+        run_seed=42,
+        campaign=expected_campaign,
+        external_commit="b" * 40,
+        identity={"skillopt_runtime_digest": "c" * 64},
+        model_config=model,
+    )
+
+    with pytest.raises(ValueError, match="exact campaign lane"):
+        run_method._load_source_frozen_run(
+            source,
+            train_manifest=train,
+            validation_manifest=validation,
+            test_manifest=test,
+            expected_context=context,
+        )

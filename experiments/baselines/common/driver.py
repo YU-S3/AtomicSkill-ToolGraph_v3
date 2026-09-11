@@ -42,6 +42,8 @@ class RunContext:
     train_manifest_path: Path | None = None
     validation_manifest_path: Path | None = None
     test_manifest_path: Path | None = None
+    campaign: dict[str, Any] | None = None
+    resume: dict[str, Any] | None = None
 
 
 @dataclass

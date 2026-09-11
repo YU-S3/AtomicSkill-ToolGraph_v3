@@ -28,6 +28,26 @@ def _resolved_config() -> dict:
             "sdk_max_retries": 0,
             "application_retry_limit": 5,
             "retry_delays_seconds": [2, 5, 10, 20],
+            "deterministic_jitter_ratio": 0.10,
+        },
+        "parallel": {
+            "seed_lanes": 3,
+            "episode_workers_per_seed": 16,
+            "test_workers_per_seed": 16,
+            "skillopt_analyst_workers_per_seed": 16,
+            "campaign_provider_max_inflight": 16,
+        },
+        "provider_probe": {
+            "enabled": True,
+            "concurrency": 16,
+            "requests": 32,
+            "max_completion_tokens": 256,
+            "reasoning_effort": "high",
+        },
+        "resume": {
+            "enabled": True,
+            "formal_boundary": "epoch",
+            "reuse_verified_episode_cache": True,
         },
         "train": {
             "num_epochs": 4,

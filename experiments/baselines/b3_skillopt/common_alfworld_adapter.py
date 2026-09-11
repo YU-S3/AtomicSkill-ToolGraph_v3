@@ -21,9 +21,11 @@ is adapted.
 from __future__ import annotations
 
 import concurrent.futures
+import base64
 import hashlib
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -36,11 +38,16 @@ from experiments.baselines.common.manifest import TaskManifestSet, sha256_json
 from experiments.baselines.common.schema import CommonEpisodeRecord
 from experiments.baselines.common.trace import load_episodes
 
-from .episode_runner import EpisodeOutcome, SkillOptTextEpisodeRunner
+from .episode_runner import (
+    EpisodeOutcome,
+    SkillOptTextEpisodeRunner,
+    _validate_episode_payload,
+)
 from .provider_observer import active_provider_observer
 
 
 _ROLLOUT_RECEIPT_SCHEMA_VERSION = 1
+_EPISODE_CACHE_SCHEMA_VERSION = 1
 _RESULTS_NAME = "results.jsonl"
 _EPISODES_NAME = "common_episodes.jsonl"
 _ACTIONS_NAME = "common_environment_actions.jsonl"
@@ -50,6 +57,15 @@ _FAILURE_NAME = "rollout_failure.json"
 
 class RolloutInfrastructureError(RuntimeError):
     """An infrastructure failure aborted a batch before SkillOpt could learn."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_kind: str = "protocol_failure",
+    ) -> None:
+        super().__init__(message)
+        self.failure_kind = str(failure_kind)
 
 
 def manifest_task_to_item(task: Any, *, phase_label: str) -> dict[str, Any]:
@@ -228,11 +244,14 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
         minibatch_size: int = 8,
         edit_budget: int = 4,
         max_completion_tokens: int = 16384,
+        steps_per_epoch: int = 3,
         seed: int = 42,
         phase: str = "train",
         episode_runner: Any | None = None,
         run_id: str | None = None,
         identity: dict[str, str] | None = None,
+        campaign: dict[str, Any] | None = None,
+        resume: dict[str, Any] | None = None,
         artifact_digest_override: str | None = None,
     ) -> None:
         self.max_steps = max_steps
@@ -243,6 +262,9 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
         self.minibatch_size = minibatch_size
         self.edit_budget = edit_budget
         self.max_completion_tokens = int(max_completion_tokens)
+        self.steps_per_epoch = int(steps_per_epoch)
+        if self.steps_per_epoch <= 0:
+            raise ValueError("steps_per_epoch must be positive")
         self.seed = seed
         self.phase = phase
         self._injected_episode_runner = episode_runner is not None
@@ -262,6 +284,12 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
                 raise ValueError("production SkillOpt adapter requires an explicit run_id")
             self.run_id = "unit_test"
         self.identity = self._resolve_identity(identity)
+        if campaign is not None and not isinstance(campaign, dict):
+            raise TypeError("campaign must be a mapping when supplied")
+        if resume is not None and not isinstance(resume, dict):
+            raise TypeError("resume must be a mapping when supplied")
+        self.campaign = dict(campaign) if campaign is not None else None
+        self.resume = dict(resume) if resume is not None else None
         self.artifact_digest_override = _optional_sha256(
             artifact_digest_override,
             field="artifact_digest_override",
@@ -377,7 +405,7 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
         request["rollout_id"] = rollout_id
         observer = active_provider_observer()
         out_path = Path(out_dir)
-        if out_path.exists() and any(out_path.iterdir()):
+        if (out_path / _RECEIPT_NAME).is_file():
             cached_provider_events = (
                 observer.events_since(0, rollout_id=rollout_id)
                 if observer is not None else []
@@ -388,24 +416,135 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
                 provider_events=cached_provider_events,
                 require_provider=not self._injected_episode_runner,
             )
+        if (out_path / _FAILURE_NAME).exists():
+            raise RuntimeError(
+                f"refusing to reuse an infrastructure-failed rollout: "
+                f"{out_path / _FAILURE_NAME}"
+            )
         out_path.mkdir(parents=True, exist_ok=True)
+        unexpected = sorted(
+            path.name for path in out_path.iterdir() if path.name != "episodes"
+        )
+        if unexpected:
+            raise RuntimeError(
+                "rollout directory is partial or stale outside the verified episode "
+                f"cache: {out_path}: {unexpected}"
+            )
 
-        rows: list[dict[str, Any]] = []
-        episodes: list[CommonEpisodeRecord] = []
-        action_events: list[dict[str, Any]] = []
         provider_cursor = observer.event_cursor() if observer is not None else 0
 
-        def execute_episode(task: dict[str, Any]) -> EpisodeOutcome:
+        def execute_episode(task: dict[str, Any]) -> dict[str, Any]:
+            cache_key = _episode_cache_key(
+                request=request,
+                task=task,
+                rollout_path=out_path,
+                steps_per_epoch=self.steps_per_epoch,
+                allow_implicit_zero=self._injected_episode_runner,
+            )
             try:
-                return self._episode_runner.run(
+                cached = _load_episode_cache(
+                    out_path=out_path,
+                    task=task,
+                    expected_cache_key=cache_key,
+                )
+                if cached is not None:
+                    cached_row, cached_episode, cached_actions = (
+                        _validate_cached_episode(
+                            task=task,
+                            request=request,
+                            cached=cached,
+                            require_provider=not self._injected_episode_runner,
+                        )
+                    )
+                    if observer is None and not self._injected_episode_runner:
+                        raise RuntimeError(
+                            "provider observer is required to import episode cache usage"
+                        )
+                    _restore_cached_conversation(out_path, task, cached)
+                    if observer is not None:
+                        observer.import_cached_events(
+                            list(cached["provider_events"]),
+                            rollout_id=rollout_id,
+                            task_id=str(task["task_id"]),
+                        )
+                    return {
+                        "ok": True,
+                        "row": cached_row,
+                        "episode": cached_episode,
+                        "actions": cached_actions,
+                        "cached": True,
+                    }
+
+                outcome = self._episode_runner.run(
                     task, skill_content, str(out_path), rollout_id=rollout_id,
                 )
+                if outcome.infrastructure_failure:
+                    return {"ok": False, "outcome": outcome}
+                row = _normalize_result_row(task, outcome.skillopt_row)
+                episode = _episode_record(
+                    task=task,
+                    outcome=outcome,
+                    phase=str(task.get("phase", self.phase)),
+                    run_seed=self.seed,
+                    skill_digest=skill_digest,
+                    artifact_digest=artifact_digest,
+                )
+                actions = _action_events(task, outcome.conversation)
+                if len(actions) != episode.environment_actions:
+                    raise RolloutInfrastructureError(
+                        f"action evidence count mismatch for task {task.get('id')!r}"
+                    )
+                task_provider_events = (
+                    [
+                        event
+                        for event in observer.events_since(0, rollout_id=rollout_id)
+                        if str(event.get("episode_task_id", ""))
+                        == str(task.get("task_id", task.get("id", "")))
+                    ]
+                    if observer is not None else []
+                )
+                provider_error = _provider_evidence_error(
+                    task_provider_events,
+                    tasks=[task],
+                    required=not self._injected_episode_runner,
+                )
+                if provider_error is not None:
+                    raise RolloutInfrastructureError(
+                        f"invalid per-episode provider evidence: {provider_error}",
+                        failure_kind="protocol_failure",
+                    )
+                _reconcile_episode_provider_usage(
+                    [episode],
+                    task_provider_events,
+                    required=not self._injected_episode_runner,
+                    validate_persisted_reasoning=False,
+                )
+                _persist_episode_cache(
+                    out_path=out_path,
+                    task=task,
+                    cache_key=cache_key,
+                    row=row,
+                    episode=episode,
+                    actions=actions,
+                    conversation=outcome.conversation,
+                    provider_events=task_provider_events,
+                )
+                return {
+                    "ok": True,
+                    "row": row,
+                    "episode": episode,
+                    "actions": actions,
+                    "cached": False,
+                }
             except Exception as exc:
-                # Keep this boundary even though the production runner normally
-                # converts its own failures to EpisodeOutcome.  Import errors,
-                # audit-I/O errors, or a future upstream exception must still
-                # leave durable evidence before the whole batch aborts.
-                return EpisodeOutcome(
+                failure_kind = str(
+                    getattr(exc, "failure_kind", "protocol_failure")
+                )
+                if failure_kind not in {
+                    "infrastructure_failure", "protocol_failure",
+                }:
+                    failure_kind = "protocol_failure"
+                outcome = EpisodeOutcome(
                     task=dict(task),
                     skillopt_row={
                         "id": str(task.get("id", "")), "hard": 0, "soft": 0.0,
@@ -413,7 +552,9 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
                     conversation=[],
                     infrastructure_failure=True,
                     infrastructure_error=_redacted_error(exc),
+                    failure_kind=failure_kind,
                 )
+                return {"ok": False, "outcome": outcome}
 
         parallelism = min(
             len(tasks),
@@ -421,7 +562,7 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
             max(1, int(self.max_api_workers or 1)),
         )
         if parallelism == 1:
-            outcomes = [execute_episode(task) for task in tasks]
+            results = [execute_episode(task) for task in tasks]
         else:
             # Each task owns an independent ALFWorld environment.  Futures are
             # consumed in manifest order so learning inputs and persisted rows
@@ -433,97 +574,61 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
                 futures = [
                     executor.submit(execute_episode, task) for task in tasks
                 ]
-                outcomes = [future.result() for future in futures]
+                results = [future.result() for future in futures]
 
-        for task, outcome in zip(tasks, outcomes, strict=True):
-            if outcome.infrastructure_failure:
-                failed_episode = _episode_record(
-                    task=task,
-                    outcome=outcome,
-                    phase=str(task.get("phase", self.phase)),
-                    run_seed=self.seed,
-                    skill_digest=skill_digest,
-                    artifact_digest=artifact_digest,
-                )
-                provider_events = (
-                    observer.events_since(provider_cursor, rollout_id=rollout_id)
-                    if observer is not None else []
-                )
-                _persist_rollout_failure(
-                    out_path=out_path,
-                    request=request,
-                    completed_rows=rows,
-                    completed_episodes=episodes,
-                    completed_actions=action_events,
-                    failed_episode=failed_episode,
-                    provider_events=provider_events,
-                )
-                raise RolloutInfrastructureError(
-                    f"SkillOpt rollout {rollout_id} aborted on task "
-                    f"{task.get('id')!r}: {outcome.infrastructure_error}"
-                )
-
-            try:
-                row = _normalize_result_row(task, outcome.skillopt_row)
-                episode = _episode_record(
-                    task=task,
-                    outcome=outcome,
-                    phase=str(task.get("phase", self.phase)),
-                    run_seed=self.seed,
-                    skill_digest=skill_digest,
-                    artifact_digest=artifact_digest,
-                )
-                task_actions = _action_events(task, outcome.conversation)
-                if len(task_actions) != episode.environment_actions:
-                    raise RolloutInfrastructureError(
-                        f"action evidence count mismatch for task {task.get('id')!r}"
-                    )
-            except Exception as exc:
-                failed_outcome = EpisodeOutcome(
-                    task=dict(task),
-                    skillopt_row={
-                        "id": str(task.get("id", "")), "hard": 0, "soft": 0.0,
-                    },
-                    conversation=list(outcome.conversation),
-                    target_usage=outcome.target_usage,
-                    wall_time_ms=outcome.wall_time_ms,
-                    infrastructure_failure=True,
-                    infrastructure_error=_redacted_error(exc),
-                    actual_gamefile=outcome.actual_gamefile,
-                )
-                failed_episode = _episode_record(
-                    task=task,
-                    outcome=failed_outcome,
-                    phase=str(task.get("phase", self.phase)),
-                    run_seed=self.seed,
-                    skill_digest=skill_digest,
-                    artifact_digest=artifact_digest,
-                )
-                provider_events = (
-                    observer.events_since(provider_cursor, rollout_id=rollout_id)
-                    if observer is not None else []
-                )
-                _persist_rollout_failure(
-                    out_path=out_path,
-                    request=request,
-                    completed_rows=rows,
-                    completed_episodes=episodes,
-                    completed_actions=action_events,
-                    failed_episode=failed_episode,
-                    provider_events=provider_events,
-                )
-                raise RolloutInfrastructureError(
-                    f"SkillOpt rollout {rollout_id} produced invalid episode "
-                    f"evidence for task {task.get('id')!r}: {_redacted_error(exc)}"
-                ) from exc
-            rows.append(row)
-            episodes.append(episode)
-            action_events.extend(task_actions)
+        successful = [result for result in results if result.get("ok") is True]
+        rows = [dict(result["row"]) for result in successful]
+        episodes = [result["episode"] for result in successful]
+        action_events = [
+            dict(action)
+            for result in successful
+            for action in result["actions"]
+        ]
+        failures = [
+            (task, result["outcome"])
+            for task, result in zip(tasks, results, strict=True)
+            if result.get("ok") is not True
+        ]
 
         provider_events = (
             observer.events_since(provider_cursor, rollout_id=rollout_id)
             if observer is not None else []
         )
+        if failures:
+            failed_task, failed_outcome = failures[0]
+            failed_episode = _episode_record(
+                task=failed_task,
+                outcome=failed_outcome,
+                phase=str(failed_task.get("phase", self.phase)),
+                run_seed=self.seed,
+                skill_digest=skill_digest,
+                artifact_digest=artifact_digest,
+            )
+            _persist_rollout_failure(
+                out_path=out_path,
+                request=request,
+                completed_rows=rows,
+                completed_episodes=episodes,
+                completed_actions=action_events,
+                failed_episode=failed_episode,
+                provider_events=provider_events,
+            )
+            raise RolloutInfrastructureError(
+                f"SkillOpt rollout {rollout_id} aborted on task "
+                f"{failed_task.get('id')!r}: {failed_outcome.infrastructure_error}",
+                failure_kind=(
+                    failed_outcome.failure_kind or "protocol_failure"
+                ),
+            )
+
+        # Cached and newly executed records are assembled strictly in manifest
+        # order, independent of thread completion order.
+        if [episode.task_id for episode in episodes] != [
+            str(task["task_id"]) for task in tasks
+        ]:
+            raise RolloutInfrastructureError(
+                "episode cache aggregation changed manifest order"
+            )
         provider_error = _provider_evidence_error(
             provider_events,
             tasks=tasks,
@@ -672,14 +777,24 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
                     f"SkillOpt rollout task {task_id!r} identity differs from manifest"
                 )
             task_identity.append(authoritative)
+        observer = active_provider_observer()
+        provider_identity = (
+            {
+                "model": str(observer.model),
+                "reasoning_effort": str(observer.reasoning_effort),
+            }
+            if observer is not None else None
+        )
         return {
             "schema_version": _ROLLOUT_RECEIPT_SCHEMA_VERSION,
             "method": "b3_skillopt",
             "run_id": self.run_id,
+            "run_seed": int(self.seed),
             "adapter_session_id": self._session_id,
             "phase": phase,
             "batch_seed": int(batch_seed),
             "identity": dict(self.identity),
+            "provider_identity": provider_identity,
             "active_manifest_digest": manifest.digest,
             "skill_sha256": skill_digest,
             "artifact_digest": artifact_digest,
@@ -875,13 +990,361 @@ def _action_events(
     ]
 
 
+def _optimizer_step(
+    rollout_path: Path,
+    *,
+    steps_per_epoch: int,
+    allow_implicit_zero: bool,
+) -> int:
+    """Return the immutable optimizer step encoded by the upstream path."""
+
+    parts = rollout_path.parts
+    for index in range(len(parts) - 1):
+        match = re.fullmatch(r"step_(\d{4})", parts[index + 1])
+        if parts[index] == "steps" and match is not None:
+            return int(match.group(1))
+    for index in range(len(parts) - 1):
+        match = re.fullmatch(r"epoch_(\d{2})", parts[index + 1])
+        if parts[index] in {"slow_update", "meta_skill"} and match is not None:
+            return int(match.group(1)) * int(steps_per_epoch)
+    if any(part == "selection_eval_baseline" for part in parts):
+        return 0
+    if allow_implicit_zero:
+        return 0
+    raise RolloutInfrastructureError(
+        f"cannot prove optimizer-step authority from rollout path: {rollout_path}"
+    )
+
+
+def _episode_cache_dir(out_path: Path, task: dict[str, Any]) -> Path:
+    task_id = str(task.get("task_id", task.get("id", ""))).strip()
+    if not task_id or re.fullmatch(r"[A-Za-z0-9_.-]+", task_id) is None:
+        raise RolloutInfrastructureError(
+            f"unsafe episode cache task id: {task_id!r}"
+        )
+    return out_path / "episodes" / task_id
+
+
+def _episode_cache_key(
+    *,
+    request: dict[str, Any],
+    task: dict[str, Any],
+    rollout_path: Path,
+    steps_per_epoch: int,
+    allow_implicit_zero: bool,
+) -> str:
+    """Hash every authority that may affect one episode's exact result."""
+
+    task_id = str(task.get("task_id", task.get("id", "")))
+    model_digest = str(
+        dict(request.get("identity") or {}).get("model_identity_digest", "")
+    )
+    if model_digest and _optional_sha256(
+        model_digest, field="identity.model_identity_digest"
+    ) is None:
+        raise AssertionError("unreachable invalid model identity digest")
+    payload = {
+        "schema_version": _EPISODE_CACHE_SCHEMA_VERSION,
+        "method": str(request.get("method", "")),
+        # run_id and adapter_session_id are deliberately excluded: formal
+        # resume creates a new attempt while preserving this immutable identity.
+        "run_identity": dict(request.get("identity") or {}),
+        "run_seed": int(request.get("run_seed", -1)),
+        "optimizer_step": _optimizer_step(
+            rollout_path,
+            steps_per_epoch=steps_per_epoch,
+            allow_implicit_zero=(
+                allow_implicit_zero
+                or str(request.get("phase", ""))
+                in {"smoke", "train_eval", "test"}
+            ),
+        ),
+        "phase": str(request.get("phase", "")),
+        "batch_seed": int(request.get("batch_seed", -1)),
+        "task_id": task_id,
+        "skill_sha256": str(request.get("skill_sha256", "")),
+        "gamefile_sha256": str(task.get("gamefile_sha256", "")),
+        "model_identity_digest": model_digest,
+        "provider_identity": request.get("provider_identity"),
+        "active_manifest_digest": str(
+            request.get("active_manifest_digest", "")
+        ),
+    }
+    for field in (
+        "skill_sha256", "gamefile_sha256", "active_manifest_digest",
+    ):
+        _optional_sha256(payload[field], field=f"episode_cache.{field}")
+    return sha256_json(payload)
+
+
+def _persist_episode_cache(
+    *,
+    out_path: Path,
+    task: dict[str, Any],
+    cache_key: str,
+    row: dict[str, Any],
+    episode: CommonEpisodeRecord,
+    actions: list[dict[str, Any]],
+    conversation: list[dict[str, Any]],
+    provider_events: list[dict[str, Any]],
+) -> None:
+    """Commit one successful episode; ``receipt.json`` is the sole marker."""
+
+    cache_dir = _episode_cache_dir(out_path, task)
+    receipt_path = cache_dir / "receipt.json"
+    if receipt_path.exists():
+        raise FileExistsError(receipt_path)
+    conversation_path = (
+        out_path / "predictions" / str(task["task_id"]) / "conversation.json"
+    )
+    if not conversation_path.is_file():
+        raise RolloutInfrastructureError(
+            f"episode conversation is missing before cache commit: {conversation_path}"
+        )
+    conversation_bytes = conversation_path.read_bytes()
+    try:
+        persisted_conversation = json.loads(conversation_bytes.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise RolloutInfrastructureError(
+            f"episode conversation is unreadable before cache commit: "
+            f"{conversation_path}"
+        ) from exc
+    if persisted_conversation != conversation:
+        raise RolloutInfrastructureError(
+            "episode conversation bytes differ from the validated conversation"
+        )
+
+    payload = {
+        "row": dict(row),
+        "episode": episode.to_dict(),
+        "actions": [dict(item) for item in actions],
+        "provider_events": [dict(item) for item in provider_events],
+    }
+    payload_bytes = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    receipt = {
+        "schema_version": _EPISODE_CACHE_SCHEMA_VERSION,
+        "status": "completed",
+        "task_id": str(task["task_id"]),
+        "cache_key": cache_key,
+        "payload_sha256": hashlib.sha256(payload_bytes).hexdigest(),
+        "payload_base64": base64.b64encode(payload_bytes).decode("ascii"),
+        "conversation_sha256": hashlib.sha256(conversation_bytes).hexdigest(),
+        "conversation_base64": base64.b64encode(conversation_bytes).decode("ascii"),
+    }
+    _write_json_atomic(receipt_path, receipt)
+
+
+def _load_episode_cache(
+    *,
+    out_path: Path,
+    task: dict[str, Any],
+    expected_cache_key: str,
+) -> dict[str, Any] | None:
+    cache_dir = _episode_cache_dir(out_path, task)
+    receipt_path = cache_dir / "receipt.json"
+    if not receipt_path.exists():
+        return None
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RolloutInfrastructureError(
+            f"episode cache receipt is unreadable: {receipt_path}"
+        ) from exc
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("schema_version") != _EPISODE_CACHE_SCHEMA_VERSION
+        or receipt.get("status") != "completed"
+        or receipt.get("task_id") != str(task["task_id"])
+        or receipt.get("cache_key") != expected_cache_key
+    ):
+        raise RolloutInfrastructureError(
+            f"episode cache receipt identity is invalid: {receipt_path}"
+        )
+    try:
+        payload_bytes = base64.b64decode(
+            str(receipt["payload_base64"]), validate=True
+        )
+        conversation_bytes = base64.b64decode(
+            str(receipt["conversation_base64"]), validate=True
+        )
+    except (KeyError, ValueError) as exc:
+        raise RolloutInfrastructureError(
+            f"episode cache receipt bytes are invalid: {receipt_path}"
+        ) from exc
+    if (
+        hashlib.sha256(payload_bytes).hexdigest()
+        != receipt.get("payload_sha256")
+        or hashlib.sha256(conversation_bytes).hexdigest()
+        != receipt.get("conversation_sha256")
+    ):
+        raise RolloutInfrastructureError(
+            f"episode cache receipt hash mismatch: {receipt_path}"
+        )
+    try:
+        payload = json.loads(payload_bytes.decode("utf-8"))
+        conversation = json.loads(conversation_bytes.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise RolloutInfrastructureError(
+            f"episode cache payload is unreadable: {receipt_path}"
+        ) from exc
+    if not isinstance(payload, dict) or set(payload) != {
+        "row", "episode", "actions", "provider_events",
+    }:
+        raise RolloutInfrastructureError(
+            f"episode cache payload inventory is invalid: {receipt_path}"
+        )
+    if not isinstance(conversation, list):
+        raise RolloutInfrastructureError(
+            f"episode cache conversation is invalid: {receipt_path}"
+        )
+    for field in ("row", "episode"):
+        if not isinstance(payload[field], dict):
+            raise RolloutInfrastructureError(
+                f"episode cache {field} is invalid: {receipt_path}"
+            )
+    for field in ("actions", "provider_events"):
+        if not isinstance(payload[field], list) or any(
+            not isinstance(item, dict) for item in payload[field]
+        ):
+            raise RolloutInfrastructureError(
+                f"episode cache {field} is invalid: {receipt_path}"
+            )
+    return {
+        **payload,
+        "conversation": conversation,
+        "conversation_bytes": conversation_bytes,
+    }
+
+
+def _validate_cached_episode(
+    *,
+    task: dict[str, Any],
+    request: dict[str, Any],
+    cached: dict[str, Any],
+    require_provider: bool,
+) -> tuple[dict[str, Any], CommonEpisodeRecord, list[dict[str, Any]]]:
+    """Revalidate cached bytes against the current immutable authorities."""
+
+    row = _normalize_result_row(task, dict(cached["row"]))
+    try:
+        episode = CommonEpisodeRecord(**dict(cached["episode"]))
+    except (TypeError, ValueError) as exc:
+        raise RolloutInfrastructureError(
+            "episode cache contains an invalid Common episode"
+        ) from exc
+    task_id = str(task["task_id"])
+    expected = {
+        "method": "b3_skillopt",
+        "phase": str(request["phase"]),
+        "run_seed": int(request["run_seed"]),
+        "task_id": task_id,
+        "task_type": str(task["task_type"]),
+        "manifest_index": int(task["manifest_index"]),
+        "gamefile": str(task["gamefile"]),
+        "gamefile_hash": str(task["gamefile_sha256"]),
+        "artifact_digest_before": str(request["artifact_digest"]),
+        "artifact_digest_after": str(request["artifact_digest"]),
+    }
+    mismatches = [
+        field for field, value in expected.items()
+        if getattr(episode, field) != value
+    ]
+    if (
+        episode.infrastructure_failure
+        or str(episode.method_metrics.get("skill_sha256", ""))
+        != str(request["skill_sha256"])
+        or str(episode.method_metrics.get("artifact_digest", ""))
+        != str(request["artifact_digest"])
+    ):
+        mismatches.append("episode_status_or_skill")
+    conversation = _validate_episode_payload(
+        task=task,
+        row=row,
+        conversation=cached["conversation"],
+        actual_gamefile=str(task["gamefile"]),
+    )
+    actions = [dict(item) for item in cached["actions"]]
+    expected_actions = _action_events(task, conversation)
+    if actions != expected_actions:
+        mismatches.append("actions_or_conversation")
+    if (
+        int(row["n_turns"]) != len(conversation)
+        or episode.environment_actions != len(conversation)
+        or episode.command_turns != int(row["n_turns"])
+        or episode.official_success != bool(row["hard"])
+    ):
+        mismatches.append("row_or_episode")
+    if mismatches:
+        raise RolloutInfrastructureError(
+            "episode cache evidence does not match the current request: "
+            + ", ".join(sorted(set(mismatches)))
+        )
+    provider_events = [dict(item) for item in cached["provider_events"]]
+    provider_identity = request.get("provider_identity")
+    if provider_identity is not None:
+        expected_provider = dict(provider_identity)
+        if any(
+            int(event.get("schema_version", 0)) < 2
+            or event.get("method") != "b3_skillopt"
+            or int(event.get("run_seed", -1)) != int(request["run_seed"])
+            or event.get("model") != expected_provider.get("model")
+            or event.get("reasoning_effort")
+            != expected_provider.get("reasoning_effort")
+            for event in provider_events
+        ):
+            raise RolloutInfrastructureError(
+                "episode cache provider identity is invalid"
+            )
+    provider_error = _provider_evidence_error(
+        provider_events,
+        tasks=[task],
+        required=require_provider,
+    )
+    if provider_error is not None:
+        raise RolloutInfrastructureError(
+            f"episode cache provider evidence is invalid: {provider_error}"
+        )
+    _reconcile_episode_provider_usage(
+        [episode],
+        provider_events,
+        required=require_provider,
+        validate_persisted_reasoning=True,
+    )
+    _validate_action_coverage([row], [episode], actions)
+    return row, episode, actions
+
+
+def _restore_cached_conversation(
+    out_path: Path,
+    task: dict[str, Any],
+    cached: dict[str, Any],
+) -> None:
+    target = out_path / "predictions" / str(task["task_id"]) / "conversation.json"
+    content = bytes(cached["conversation_bytes"])
+    if target.exists():
+        if not target.is_file() or target.read_bytes() != content:
+            raise RolloutInfrastructureError(
+                f"cached conversation target already differs: {target}"
+            )
+        return
+    _write_bytes_atomic(target, content)
+
+
 def _provider_failure_outcome(task: dict[str, Any]) -> EpisodeOutcome:
     return EpisodeOutcome(
         task=dict(task),
         skillopt_row={"id": str(task.get("id", "")), "hard": 0, "soft": 0.0},
         conversation=[],
         infrastructure_failure=True,
-        infrastructure_error="provider observer evidence is missing or contains a failed call",
+        infrastructure_error=(
+            "provider observer evidence is missing or contains a failed call"
+        ),
+        failure_kind="protocol_failure",
     )
 
 
@@ -1104,6 +1567,11 @@ def _persist_rollout_failure(
     failed_episode: CommonEpisodeRecord,
     provider_events: list[dict[str, Any]],
 ) -> None:
+    failure_kind = str(
+        failed_episode.method_metrics.get("failure_kind", "protocol_failure")
+    )
+    if failure_kind not in {"infrastructure_failure", "protocol_failure"}:
+        failure_kind = "protocol_failure"
     partial_paths: dict[str, Path] = {}
     if completed_rows:
         partial_paths["partial_results.jsonl"] = out_path / "partial_results.jsonl"
@@ -1121,7 +1589,8 @@ def _persist_rollout_failure(
         _write_jsonl_atomic(partial_paths[name], completed_actions)
     payload = {
         "schema_version": _ROLLOUT_RECEIPT_SCHEMA_VERSION,
-        "status": "infrastructure_failure",
+        "status": failure_kind,
+        "failure_kind": failure_kind,
         "request": request,
         "failed_episode": failed_episode.to_dict(),
         "completed_counts": {
@@ -1380,6 +1849,7 @@ def _episode_record(
             "skill_sha256": skill_digest,
             "artifact_digest": artifact_digest,
             "observed_gamefile": str(outcome.actual_gamefile),
+            "failure_kind": str(getattr(outcome, "failure_kind", "")),
         },
         infrastructure_failure=bool(outcome.infrastructure_failure),
         infrastructure_error=str(outcome.infrastructure_error),

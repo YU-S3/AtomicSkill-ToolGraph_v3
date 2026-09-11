@@ -45,6 +45,21 @@ provider_transport:
   sdk_max_retries: 0
   application_retry_limit: 5
   retry_delays_seconds: [2, 5, 10, 20]
+  deterministic_jitter_ratio: 0.10
+
+# A separate real-provider concurrency probe runs before any formal seed lane.
+# ALFWorld smoke remains a distinct gamefile/action integration check.
+provider_probe:
+  enabled: true
+  concurrency: 16
+  requests: 32
+  max_completion_tokens: 256
+  reasoning_effort: high
+
+resume:
+  enabled: true
+  formal_boundary: epoch
+  reuse_verified_episode_cache: true
 
 # Real-provider preflight. Task success is not a gate: this proves transport,
 # exact-gamefile reset, one observed target call, and auditable env actions.
