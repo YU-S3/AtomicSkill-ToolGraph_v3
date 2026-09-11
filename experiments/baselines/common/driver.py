@@ -1,7 +1,7 @@
 """Common driver protocol for baseline methods (§42 of the design document).
 
 ``BaselineMethodDriver`` is a Protocol: a method implementation must expose a
-preflight, a train step, a freeze step, and a frozen held-out evaluate step.
+preflight, a train step, a freeze step, and a frozen evaluation step.
 The controller only sequences these steps; method logic stays upstream or in
 the per-method adapter.
 """
@@ -33,6 +33,12 @@ class RunContext:
     alfworld_data: Path
     config_hash: str
     code_hash: str
+    # One immutable controller identity shared by every worker phase of this
+    # run.  The resolved config path is the exact file whose digest appears in
+    # ``identity``; method drivers must not substitute a hard-coded config.
+    run_id: str
+    resolved_config_path: Path
+    identity: dict[str, str]
     train_manifest_path: Path | None = None
     validation_manifest_path: Path | None = None
     test_manifest_path: Path | None = None
@@ -58,11 +64,26 @@ class TrainResult:
         }
 
 
+@dataclass
+class SmokeResult:
+    """Evidence emitted by the isolated real-API/ALFWorld smoke phase."""
+
+    episodes: list[CommonEpisodeRecord] = field(default_factory=list)
+    usage: UsageSnapshot = field(default_factory=UsageSnapshot)
+
+
 class BaselineMethodDriver(Protocol):
     method_id: str
 
     def preflight(self, ctx: RunContext) -> None:
         """Check source SHA, dependencies, model, ALFWorld, manifests, output dir."""
+
+    def smoke(
+        self,
+        ctx: RunContext,
+        train_manifest: TaskManifestSet,
+    ) -> SmokeResult:
+        """Run the isolated real-provider/ALFWorld smoke without training."""
 
     def train(
         self,
@@ -75,13 +96,17 @@ class BaselineMethodDriver(Protocol):
     def freeze(self, ctx: RunContext, train_result: TrainResult) -> Any:
         """Produce the immutable persistent-knowledge snapshot + digest."""
 
-    def evaluate(
+    def evaluate_train(
         self,
         ctx: RunContext,
         frozen: Any,
-        test_manifest: TaskManifestSet,
+        train_manifest: TaskManifestSet,
     ) -> list[CommonEpisodeRecord]:
-        """Run the held-out phase read-only on the frozen artifact."""
+        """Read-only frozen-skill re-evaluation on the exact Train manifest.
+
+        This is explicitly an in-sample ``train_eval`` diagnostic, not a
+        held-out Test/generalization result.
+        """
 
 
 def save_json(path: Path, payload: dict[str, Any]) -> None:

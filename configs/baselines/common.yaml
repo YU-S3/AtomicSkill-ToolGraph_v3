@@ -1,7 +1,7 @@
 # Common baseline configuration: frozen model identity and outer protocol.
 schema_version: 1
 
-campaign_id: pilot
+campaign_id: protocol_faithful_matched_train_v2
 run_seed: 42
 max_environment_actions: 100
 
@@ -13,3 +13,4 @@ model:
   base_url: https://api.deepseek.com
   model: deepseek-v4-flash
   api_key_env: MODEL_API_KEY
+  reasoning_effort: high

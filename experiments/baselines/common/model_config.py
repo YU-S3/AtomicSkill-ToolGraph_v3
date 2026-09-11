@@ -17,6 +17,7 @@ FROZEN_BASELINE_MODEL = {
     "base_url": "https://api.deepseek.com",
     "model": "deepseek-v4-flash",
     "api_key_env": "MODEL_API_KEY",
+    "reasoning_effort": "high",
 }
 
 
@@ -26,6 +27,7 @@ class ModelConfig:
     base_url: str
     model: str
     api_key_env: str
+    reasoning_effort: str
 
     @classmethod
     def from_mapping(cls, payload: dict[str, Any]) -> "ModelConfig":
@@ -37,6 +39,7 @@ class ModelConfig:
                 base_url=str(payload["base_url"]).rstrip("/"),
                 model=str(payload["model"]),
                 api_key_env=str(payload["api_key_env"]),
+                reasoning_effort=str(payload["reasoning_effort"]),
             )
         except KeyError as exc:
             raise ValueError(f"model config is missing {exc.args[0]}") from exc

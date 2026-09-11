@@ -4,7 +4,7 @@ Responsibilities (per the baseline design document, section 8.1):
 
 1. materialize the pinned external source (git clone at the pinned commit, or
    a verified copy of a local snapshot);
-2. verify the pinned commit / key-file hashes fail-closed;
+2. verify the pinned runtime-tree digest and key-file hashes fail-closed;
 3. optionally create the per-method worker venv and install the upstream
    package plus the pinned ALFWorld dependency.
 
@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
@@ -34,6 +35,12 @@ _SKILLOPT_INSTALL_PACKAGES = [
     "gymnasium>=0.29.0",
     "omegaconf>=2.3.0",
 ]
+
+_RUNTIME_TREE_ALGORITHM = "sha256-path-content-v1"
+_RUNTIME_TREE_IGNORED_DIRS = frozenset({
+    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+})
+_RUNTIME_TREE_IGNORED_SUFFIXES = frozenset({".pyc", ".pyo"})
 
 
 def _path(value: str | Path) -> Path:
@@ -56,8 +63,133 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _safe_relative_path(value: object, *, field: str) -> str:
+    """Normalize one lock-file path and reject absolute/traversing entries."""
+
+    raw = str(value or "").strip().replace("\\", "/")
+    relative = PurePosixPath(raw)
+    if (
+        not raw
+        or relative.is_absolute()
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ValueError(f"invalid {field} path in baseline_lock.yaml: {value!r}")
+    return relative.as_posix()
+
+
+def _runtime_tree_files(root: Path, spec: dict[str, Any]) -> list[tuple[str, Path]]:
+    """Enumerate every locked runtime file using stable POSIX relative paths."""
+
+    entries: dict[str, Path] = {}
+    roots = list(spec.get("roots") or [])
+    root_files = list(spec.get("root_files") or [])
+    if not roots or not root_files:
+        raise ValueError(
+            "runtime_tree must declare non-empty roots and root_files"
+        )
+
+    for raw_relative in roots:
+        relative = _safe_relative_path(raw_relative, field="runtime_tree.roots")
+        directory = root.joinpath(*PurePosixPath(relative).parts)
+        if not directory.is_dir():
+            raise FileNotFoundError(f"locked runtime tree root is missing: {relative}")
+        if directory.is_symlink():
+            raise RuntimeError(f"locked runtime tree root must not be a symlink: {relative}")
+        for path in directory.rglob("*"):
+            rel_path = path.relative_to(root)
+            if any(part in _RUNTIME_TREE_IGNORED_DIRS for part in rel_path.parts):
+                continue
+            if path.is_symlink():
+                raise RuntimeError(
+                    "locked runtime tree must not contain symlinks: "
+                    + rel_path.as_posix()
+                )
+            if not path.is_file() or path.suffix.lower() in _RUNTIME_TREE_IGNORED_SUFFIXES:
+                continue
+            entries[rel_path.as_posix()] = path
+
+    for raw_relative in root_files:
+        relative = _safe_relative_path(raw_relative, field="runtime_tree.root_files")
+        path = root.joinpath(*PurePosixPath(relative).parts)
+        if not path.is_file():
+            raise FileNotFoundError(f"locked runtime root file is missing: {relative}")
+        if path.is_symlink():
+            raise RuntimeError(f"locked runtime root file must not be a symlink: {relative}")
+        entries[relative] = path
+
+    return sorted(entries.items())
+
+
+def compute_runtime_tree(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
+    """Return a deterministic digest of the complete declared runtime tree.
+
+    The digest binds both relative paths and raw file contents.  Consequently,
+    adding, removing, renaming, or modifying any runtime file changes it.
+    """
+
+    algorithm = str(spec.get("algorithm") or "")
+    if algorithm != _RUNTIME_TREE_ALGORITHM:
+        raise ValueError(
+            "unsupported runtime_tree algorithm: "
+            f"{algorithm!r}; expected {_RUNTIME_TREE_ALGORITHM!r}"
+        )
+    entries = _runtime_tree_files(root, spec)
+    digest = hashlib.sha256()
+    digest.update((_RUNTIME_TREE_ALGORITHM + "\0").encode("ascii"))
+    for relative, path in entries:
+        relative_bytes = relative.encode("utf-8")
+        content = path.read_bytes()
+        digest.update(len(relative_bytes).to_bytes(8, "big"))
+        digest.update(relative_bytes)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return {
+        "algorithm": algorithm,
+        "sha256": digest.hexdigest(),
+        "file_count": len(entries),
+    }
+
+
+def verify_runtime_tree(
+    root: Path,
+    method: str,
+    lock: dict[str, Any],
+) -> dict[str, Any]:
+    """Verify the complete pinned runtime tree, failing closed on any drift."""
+
+    spec = dict((lock.get(method) or {}).get("runtime_tree") or {})
+    if not spec:
+        raise ValueError(f"baseline_lock.yaml has no runtime_tree for {method}")
+    expected_digest = str(spec.get("sha256") or "").lower()
+    try:
+        expected_count = int(spec.get("file_count"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"baseline_lock.yaml has invalid runtime_tree.file_count for {method}"
+        ) from exc
+    if len(expected_digest) != 64 or any(
+        char not in "0123456789abcdef" for char in expected_digest
+    ):
+        raise ValueError(
+            f"baseline_lock.yaml has invalid runtime_tree.sha256 for {method}"
+        )
+    actual = compute_runtime_tree(root, spec)
+    if actual["file_count"] != expected_count or actual["sha256"] != expected_digest:
+        raise RuntimeError(
+            f"external {method} runtime tree does not match baseline_lock.yaml: "
+            f"expected count={expected_count} sha256={expected_digest}, "
+            f"got count={actual['file_count']} sha256={actual['sha256']}"
+        )
+    return actual
+
+
 def verify_key_files(root: Path, method: str, lock: dict[str, Any]) -> dict[str, str]:
-    """Verify the pinned key-file hashes of an external snapshot, fail-closed."""
+    """Verify key files and the complete runtime tree, fail-closed.
+
+    The function name is retained for existing driver imports.  Runtime-tree
+    verification is mandatory so a modified core file cannot evade preflight
+    merely because it is absent from the shorter human-auditable key list.
+    """
 
     expected = dict((lock.get(method) or {}).get("key_files") or {})
     if not expected:
@@ -76,6 +208,7 @@ def verify_key_files(root: Path, method: str, lock: dict[str, Any]) -> dict[str,
             f"external {method} snapshot does not match baseline_lock.yaml: "
             + "; ".join(mismatches)
         )
+    verify_runtime_tree(root, method, lock)
     return {relative: str(wanted) for relative, wanted in expected.items()}
 
 
@@ -108,14 +241,18 @@ def ensure_skillopt_source(
                 "plugins", "scripts", "skillopt_sleep", "skillopt_webui",
                 "tests", "data", ".cursor-plugin", "CONTRIBUTING.md",
                 "SECURITY.md", "CHANGELOG.md", ".env.example", ".gitignore",
+                ".github", "skillopt-assets",
             ),
         )
     verified = verify_key_files(root, "skillopt", lock)
+    runtime_tree = verify_runtime_tree(root, "skillopt", lock)
     return {
         "method": "skillopt",
         "root": str(root),
         "declared_commit": str(lock["skillopt"]["commit"]),
-        "verification": "key_file_sha256",
+        "declared_version": str(lock["skillopt"].get("version") or ""),
+        "verification": "runtime_tree_sha256+key_file_sha256",
+        "runtime_tree": runtime_tree,
         "verified_files": verified,
     }
 

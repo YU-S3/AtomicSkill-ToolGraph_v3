@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 MANIFEST_SCHEMA_VERSION = 1
@@ -31,7 +31,12 @@ class ManifestTask:
     def __post_init__(self) -> None:
         if not self.task_id or not self.task_type or not self.source_split:
             raise ValueError("ManifestTask requires non-empty identity fields")
-        if not self.gamefile_rel or Path(self.gamefile_rel).is_absolute():
+        if (
+            not self.gamefile_rel
+            or Path(self.gamefile_rel).is_absolute()
+            or PurePosixPath(self.gamefile_rel).is_absolute()
+            or PureWindowsPath(self.gamefile_rel).is_absolute()
+        ):
             raise ValueError("ManifestTask gamefile_rel must be a relative path")
         if self.index < 0 or self.env_index < 0:
             raise ValueError("ManifestTask indexes must be non-negative")

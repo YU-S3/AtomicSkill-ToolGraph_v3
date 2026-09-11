@@ -13,6 +13,7 @@ def test_frozen_identity_accepts_formal_config() -> None:
         base_url="https://api.deepseek.com",
         model="deepseek-v4-flash",
         api_key_env="MODEL_API_KEY",
+        reasoning_effort="high",
     ).validate_formal_identity()
 
 
@@ -23,6 +24,16 @@ def test_frozen_identity_rejects_drift() -> None:
             base_url="https://other.example.com",
             model="deepseek-v4-flash",
             api_key_env="MODEL_API_KEY",
+            reasoning_effort="high",
+        ).validate_formal_identity()
+
+    with pytest.raises(ValueError, match="model identity mismatch"):
+        ModelConfig(
+            provider="openai_compatible",
+            base_url="https://api.deepseek.com",
+            model="deepseek-v4-flash",
+            api_key_env="MODEL_API_KEY",
+            reasoning_effort="low",
         ).validate_formal_identity()
 
 
@@ -33,6 +44,7 @@ def test_missing_api_key_fail_closed(monkeypatch) -> None:
         base_url="https://api.deepseek.com",
         model="deepseek-v4-flash",
         api_key_env="MODEL_API_KEY",
+        reasoning_effort="high",
     )
     with pytest.raises(RuntimeError, match="not set"):
         config.require_api_key()
@@ -45,7 +57,10 @@ def test_wire_never_carries_keys(monkeypatch) -> None:
         base_url="https://api.deepseek.com",
         model="deepseek-v4-flash",
         api_key_env="MODEL_API_KEY",
+        reasoning_effort="high",
     )
     wire = config.to_wire()
-    assert set(wire) == {"provider", "base_url", "model", "api_key_env"}
+    assert set(wire) == {
+        "provider", "base_url", "model", "api_key_env", "reasoning_effort",
+    }
     assert "sk-secret-value-0123456789abcdef" not in str(wire)

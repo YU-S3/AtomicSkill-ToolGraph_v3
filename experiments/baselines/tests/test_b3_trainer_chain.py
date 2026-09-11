@@ -22,13 +22,15 @@ from pathlib import Path
 
 import pytest
 
+# The upstream SkillOpt package exists only in the per-method worker venv.
+# Skip this module elsewhere BEFORE importing the adapter modules below.
+skillopt = pytest.importorskip("skillopt")
+
 from experiments.baselines.b3_skillopt.common_alfworld_adapter import (
     CommonALFWorldSkillOptAdapter,
 )
 from experiments.baselines.b3_skillopt.episode_runner import SkillOptTextEpisodeRunner
 from experiments.baselines.common.manifest import ManifestTask, TaskManifestSet
-
-skillopt = pytest.importorskip("skillopt")
 
 _APPENDED_GUIDANCE = "When the target object is on a table, take it from there first."
 
@@ -209,7 +211,7 @@ def test_full_trainer_chain(tmp_path) -> None:
             "target_backend": "openai_compatible",
             "optimizer_model": "deepseek-v4-flash",
             "target_model": "deepseek-v4-flash",
-            "reasoning_effort": "",
+            "reasoning_effort": "high",
             "skill_init": str(skill_init),
             "batch_size": 2,
             "num_epochs": 1,
@@ -242,7 +244,7 @@ def test_full_trainer_chain(tmp_path) -> None:
             "sel_env_num": 1,
             "test_env_num": 0,
             "eval_test": False,
-            "rewrite_reasoning_effort": "",
+            "rewrite_reasoning_effort": "high",
             "rewrite_max_completion_tokens": 64000,
             "train_size": 2,
         }

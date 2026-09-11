@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,15 @@ def _extract_goal(observation: str) -> str:
     return observation[:300].strip()
 
 
+def _close_adapter(adapter: AlfWorldAdapter) -> None:
+    """Best-effort release of the per-task TextWorld environment."""
+
+    close = getattr(getattr(adapter, "_env", None), "close", None)
+    if callable(close):
+        with suppress(Exception):
+            close()
+
+
 class StrictTaskEvaluator:
     """Post-hoc strict evaluator; consumes saved baseline action sequences."""
 
@@ -67,19 +77,30 @@ class StrictTaskEvaluator:
     def _build_probe_task(self, entry: ManifestTask) -> tuple[AlfWorldAdapter, HarnessTask]:
         if entry.source_split not in _SPLIT_MAP:
             raise ValueError(f"unsupported source split: {entry.source_split}")
-        adapter = AlfWorldAdapter(
-            split=_SPLIT_MAP[entry.source_split], alfworld_data=str(self.alfworld_data),
+        game_file = str(
+            (self.alfworld_data / entry.gamefile_rel).expanduser().resolve(strict=True)
         )
-        adapter.initialize()
-        game_file = str(self.alfworld_data / entry.gamefile_rel)
+        adapter = AlfWorldAdapter(
+            split=_SPLIT_MAP[entry.source_split],
+            alfworld_data=str(self.alfworld_data),
+            specific_gamefiles=[game_file],
+        )
         probe = HarnessTask(
             task_id=entry.task_id,
             goal="",
             benchmark="alfworld",
             task_type=entry.task_type,
-            context={"env_index": entry.env_index, "game_file": game_file},
+            # The replay environment contains exactly this manifest gamefile,
+            # so its local index is zero.  ``entry.env_index`` remains part of
+            # the immutable manifest identity but is no longer used as a
+            # fragile seek offset into ALFWorld's unsorted directory walk.
+            context={"env_index": 0, "game_file": game_file},
         )
-        adapter.reset(probe)
+        try:
+            adapter.reset(probe)
+        except BaseException:
+            _close_adapter(adapter)
+            raise
         return adapter, probe
 
     def evaluate(
@@ -90,71 +111,74 @@ class StrictTaskEvaluator:
         official_success: bool,
     ) -> StrictOutcome:
         adapter, probe = self._build_probe_task(entry)
-        goal = _extract_goal(str(adapter._observation))
-        task = HarnessTask(
-            task_id=entry.task_id,
-            goal=goal,
-            benchmark="alfworld",
-            task_type=entry.task_type,
-            context={
-                "env_index": entry.env_index,
-                "game_file": str(self.alfworld_data / entry.gamefile_rel),
-            },
-        )
-        validator = adapter.validator_channel()
-        invalid_actions = 0
-        executed = 0
-        for index, raw_text in enumerate(action_texts):
-            if adapter._done or adapter._won:
-                break
-            action_type, arguments, text, parser_metadata = parse_alfworld_action(raw_text)
-            # Mirror the harness execute_action boundary exactly, including its
-            # "nothing happens" acceptance criterion and its terminal latch.
-            spec = HarnessActionSpec(
-                action_id=f"strict_post:{index}",
-                revision=adapter._revision + 1,
-                action_type=action_type,
-                arguments=arguments,
-                display_text=text,
-                raw_action=text,
-                metadata={"origin": "baseline_strict_replay", **parser_metadata},
+        try:
+            goal = _extract_goal(str(adapter._observation))
+            task = HarnessTask(
+                task_id=entry.task_id,
+                goal=goal,
+                benchmark="alfworld",
+                task_type=entry.task_type,
+                context={
+                    "env_index": entry.env_index,
+                    "game_file": str(self.alfworld_data / entry.gamefile_rel),
+                },
             )
-            observations, scores, dones, infos = adapter._env.step([text])
-            observation = str(observations[0])
-            done = bool(dones[0])
-            won_values = infos.get("won", [False])
-            won = bool(won_values[0]) if won_values else False
-            accepted = "nothing happens" not in observation.casefold()
-            adapter._revision += 1
-            catalog = adapter._replace_action_catalog(
-                list(infos.get("admissible_commands", [[]])[0]), adapter._revision,
+            validator = adapter.validator_channel()
+            invalid_actions = 0
+            executed = 0
+            for index, raw_text in enumerate(action_texts):
+                if adapter._done or adapter._won:
+                    break
+                action_type, arguments, text, parser_metadata = parse_alfworld_action(raw_text)
+                # Mirror the harness execute_action boundary exactly, including its
+                # "nothing happens" acceptance criterion and its terminal latch.
+                spec = HarnessActionSpec(
+                    action_id=f"strict_post:{index}",
+                    revision=adapter._revision + 1,
+                    action_type=action_type,
+                    arguments=arguments,
+                    display_text=text,
+                    raw_action=text,
+                    metadata={"origin": "baseline_strict_replay", **parser_metadata},
+                )
+                observations, scores, dones, infos = adapter._env.step([text])
+                observation = str(observations[0])
+                done = bool(dones[0])
+                won_values = infos.get("won", [False])
+                won = bool(won_values[0]) if won_values else False
+                accepted = "nothing happens" not in observation.casefold()
+                adapter._revision += 1
+                catalog = adapter._replace_action_catalog(
+                    list(infos.get("admissible_commands", [[]])[0]), adapter._revision,
+                )
+                validator.record(
+                    spec,
+                    accepted=accepted,
+                    revision=adapter._revision,
+                    done=done,
+                    won=won,
+                    observation=observation,
+                    metadata={"score": float(scores[0])},
+                    catalog=catalog,
+                )
+                adapter._observation, adapter._done, adapter._won = observation, done, won
+                executed += 1
+                if not accepted or action_type == "UNKNOWN":
+                    invalid_actions += 1
+            contract = adapter.task_contract(task)
+            task_contract_success = bool(
+                validator.validate_task_contract(contract).passed
             )
-            validator.record(
-                spec,
-                accepted=accepted,
-                revision=adapter._revision,
-                done=done,
-                won=won,
-                observation=observation,
-                metadata={"score": float(scores[0])},
-                catalog=catalog,
+            return StrictOutcome(
+                official_success=bool(official_success),
+                task_contract_success=task_contract_success,
+                strict_success=bool(official_success) and task_contract_success,
+                environment_actions=executed,
+                invalid_actions=invalid_actions,
+                replayed_terminal_won=bool(adapter._won),
             )
-            adapter._observation, adapter._done, adapter._won = observation, done, won
-            executed += 1
-            if not accepted or action_type == "UNKNOWN":
-                invalid_actions += 1
-        contract = adapter.task_contract(task)
-        task_contract_success = bool(
-            validator.validate_task_contract(contract).passed
-        )
-        return StrictOutcome(
-            official_success=bool(official_success),
-            task_contract_success=task_contract_success,
-            strict_success=bool(official_success) and task_contract_success,
-            environment_actions=executed,
-            invalid_actions=invalid_actions,
-            replayed_terminal_won=bool(adapter._won),
-        )
+        finally:
+            _close_adapter(adapter)
 
 
 def normalize_baseline_action_text(text: str) -> str:

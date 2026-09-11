@@ -98,6 +98,8 @@ class AlfWorldContractMatcher:
     ) -> bool:
         if target.predicate.casefold() != offered.predicate.casefold():
             return False
+        if target.effect_domain is not offered.effect_domain:
+            return False
         if set(target.args) != set(offered_arguments):
             return False
         return all(
@@ -138,6 +140,76 @@ _ACTION_PATTERNS: list[tuple[str, re.Pattern[str], tuple[str, ...]]] = [
     ("EXAMINE", re.compile(r"^(?:examine|look at) (.+)$", re.I), ("object",)),
     ("USE", re.compile(r"^use (.+)$", re.I), ("object",)),
 ]
+
+
+# The ALFWorld predicate vocabulary has exactly one code authority.  Both the
+# public Harness schema and private Validator snapshots are projections of
+# these specs; neither boundary maintains its own predicate/domain table.
+_ALFWORLD_PREDICATE_SPECS: tuple[PredicateSpec, ...] = (
+    PredicateSpec(
+        "agent.holds", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "agent.at_location", "world", ("location",),
+        {"location": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.at_location", "world", ("object", "location"),
+        {"object": "entity", "location": "entity"},
+        "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.heated", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.cleaned", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.cooled", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.sliced", "world", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "container.open", "world", ("container",),
+        {"container": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "container.closed", "world", ("container",),
+        {"container": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "light.on", "world", ("light",),
+        {"light": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "light.off", "world", ("light",),
+        {"light": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.observed", "evidence", ("object",),
+        {"object": "entity"}, "alfworld_action_facts",
+    ),
+    PredicateSpec(
+        "object.observed_with", "world", ("object", "light"),
+        {"object": "entity", "light": "entity"},
+        "alfworld_terminal_certificate",
+    ),
+    PredicateSpec(
+        "entity.discovered_at", "evidence", ("entity", "location"),
+        {"entity": "entity", "location": "entity"},
+        "alfworld_action_catalog",
+    ),
+)
+
+_ALFWORLD_PREDICATE_DOMAINS = {
+    spec.predicate: spec.effect_domain for spec in _ALFWORLD_PREDICATE_SPECS
+}
 
 
 def parse_alfworld_action(raw_action: Any) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
@@ -339,9 +411,17 @@ class AlfWorldValidatorChannel:
         self._rebuild_facts()
 
     def snapshot(self) -> dict[str, Any]:
+        # Preserve the baseline branch's public snapshot shape.  Contract
+        # matching still uses the current predicate/domain authority above,
+        # while consumers written against the comparison harness continue to
+        # receive the documented predicate/args projection.
+        facts = [
+            {"predicate": predicate, "args": dict(arguments)}
+            for predicate, arguments in sorted(self._facts)
+        ]
         return {
             "revision": self.revision, "done": self.done, "won": self.won,
-            "facts": [{"predicate": predicate, "args": dict(arguments)} for predicate, arguments in sorted(self._facts)],
+            "facts": facts,
             "validation_strength": self.validation_strength,
         }
 
@@ -958,11 +1038,15 @@ class AlfWorldAdapter:
     def __init__(
         self, *, split: str = "eval_out_of_distribution", max_steps: int = 100,
         task_type: str | None = None, alfworld_data: str | None = None,
+        specific_gamefiles: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self.split = split
         self.max_steps = max_steps
         self.task_type = task_type
         self.alfworld_data = alfworld_data or os.environ.get("ALFWORLD_DATA", str(Path.home() / ".cache" / "alfworld"))
+        self.specific_gamefiles = tuple(str(path) for path in (specific_gamefiles or ()))
+        if any(not path.strip() for path in self.specific_gamefiles):
+            raise ValueError("specific_gamefiles must not contain empty paths")
         self._env: Any = None
         self._tw_env: Any = None
         self._task_index = 0
@@ -1012,6 +1096,29 @@ class AlfWorldAdapter:
         try:
             env_class = alf_env.get_environment("AlfredTWEnv")
             self._tw_env = env_class(self._build_config(), train_eval=self.split)
+            if self.specific_gamefiles:
+                data_root = Path(self.alfworld_data).expanduser().resolve(strict=True)
+                exact_files: list[str] = []
+                for raw_path in self.specific_gamefiles:
+                    candidate = Path(os.path.expandvars(raw_path)).expanduser()
+                    if not candidate.is_absolute():
+                        candidate = data_root / candidate
+                    resolved = candidate.resolve(strict=True)
+                    try:
+                        resolved.relative_to(data_root)
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"specific ALFWorld gamefile resolves outside ALFWORLD_DATA: {resolved}"
+                        ) from exc
+                    exact_files.append(str(resolved))
+                if hasattr(self._tw_env, "game_files"):
+                    self._tw_env.game_files = list(exact_files)
+                elif hasattr(self._tw_env, "gamefiles"):
+                    self._tw_env.gamefiles = list(exact_files)
+                else:
+                    raise RuntimeError("ALFWorld environment exposes no gamefile collection")
+                if hasattr(self._tw_env, "num_games"):
+                    self._tw_env.num_games = len(exact_files)
             self._env = self._tw_env.init_env(batch_size=1)
         except AtomicSkillGraphError:
             raise
@@ -1273,92 +1380,7 @@ class AlfWorldAdapter:
         return self._validator
 
     def semantic_predicate_schema(self) -> list[PredicateSpec]:
-        return [
-            PredicateSpec(
-                "agent.holds",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "agent.at_location",
-                "world",
-                ("location",),
-                {"location": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.at_location",
-                "world",
-                ("object", "location"),
-                {"object": "entity", "location": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.heated",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.cleaned",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.cooled",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.sliced",
-                "world",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "container.open",
-                "world",
-                ("container",),
-                {"container": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "light.on",
-                "world",
-                ("light",),
-                {"light": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.observed",
-                "evidence",
-                ("object",),
-                {"object": "entity"},
-                "alfworld_action_facts",
-            ),
-            PredicateSpec(
-                "object.observed_with",
-                "world",
-                ("object", "light"),
-                {"object": "entity", "light": "entity"},
-                "alfworld_terminal_certificate",
-            ),
-            PredicateSpec(
-                "entity.discovered_at",
-                "evidence",
-                ("entity", "location"),
-                {"entity": "entity", "location": "entity"},
-                "alfworld_action_catalog",
-            ),
-        ]
+        return list(_ALFWORLD_PREDICATE_SPECS)
 
     def primitive_action_schema(self) -> list[dict[str, Any]]:
         """Single parser-derived source of truth for Builder/Runtime/Static."""

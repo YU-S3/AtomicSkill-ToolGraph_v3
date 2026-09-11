@@ -44,7 +44,9 @@ _CODE_SUFFIXES = frozenset(
 _CODE_EXCLUDED_DIRS = frozenset(
     {
         ".git",
+        ".external",
         ".venv",
+        ".venv_b3_skillopt",
         ".pytest_cache",
         ".ruff_cache",
         "__pycache__",
