@@ -14,7 +14,10 @@ from ..tooling.proposal import (
     RuntimeAutomationAtomicDraft,
     ToolProvenance,
 )
-from ..tooling.validator import ToolStaticValidator
+from ..tooling.validator import (
+    ToolStaticValidator,
+    normalize_runtime_output_derivations,
+)
 
 
 @dataclass
@@ -29,6 +32,21 @@ class RuntimeAutomationOutcome:
     r1_report: dict[str, Any] = field(default_factory=dict)
     failure_code: str = ""
     message: str = ""
+
+
+class _TaskLocalInvocation:
+    """Task-local CompiledKnowledge in the ImplementationRunner view.
+
+    The runner consumes ``implementation``/``atomic``/``tools``; the trial
+    Tool is task-local and never enters a Registry or an Agent tool schema.
+    """
+
+    def __init__(self, compiled: Any) -> None:
+        self.atomic = compiled.atomic
+        self.implementation = compiled.implementation
+        self.tools = (
+            [compiled.tool] if getattr(compiled, "tool", None) is not None else []
+        )
 
 
 class RuntimeAutomationCoordinator:
@@ -73,6 +91,11 @@ class RuntimeAutomationCoordinator:
                 "task_local": True,
                 "occurrence_id": occurrence_id,
                 "trace_id": trace_id,
+                # The shared R0 authority decides fresh-output derivations;
+                # production R1 then takes validate_execution_result().
+                "output_derivations": normalize_runtime_output_derivations(
+                    draft
+                ),
             },
             [],
             {"steps": [], "runtime_automation": True},
@@ -188,7 +211,8 @@ class RuntimeAutomationCoordinator:
             normalized_arguments=dict(trial_bindings),
         )
         result = self.implementation_runner.run(
-            compiled, preflight, occurrence, ctx, agent_prepared=False,
+            _TaskLocalInvocation(compiled), preflight, occurrence, ctx,
+            agent_prepared=False,
         )
         tool_results = list(result.tool_results)
         tool_completed = bool(

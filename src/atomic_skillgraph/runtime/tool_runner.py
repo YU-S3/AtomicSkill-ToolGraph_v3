@@ -171,7 +171,32 @@ class ToolRunner:
             semantic_facts=[dict(item) for item in facts],
             binding_evidence=[dict(item) for item in binding_evidence],
             max_actions=int(tool.artifact.get("max_actions", 0) or 0),
+            max_control_steps=self._control_step_limit(tool, ctx),
         )
+
+    @staticmethod
+    def _control_step_limit(tool: ToolAsset, ctx: Any) -> int:
+        """IR interpreter safety bound, not a new experiment budget.
+
+        Derived from the frozen global action budget and the flat program size:
+        ``min(max_actions, global_action_budget) * flat_node_count`` bounds the
+        total interpreter node visits of nested control flow.
+        """
+
+        program = [
+            dict(node)
+            for node in tool.artifact.get("program", [])
+            if isinstance(node, dict)
+        ]
+        flat_node_count = max(1, len(ToolRunner._walk_for_count(program)))
+        global_cap = max(
+            1, int(getattr(ctx, "global_action_budget", 100) or 100)
+        )
+        effective_action_cap = min(
+            max(1, int(tool.artifact.get("max_actions", 0) or 0)),
+            global_cap,
+        )
+        return max(1, effective_action_cap * flat_node_count)
 
     def _resolve_action_arguments(
         self, node: dict[str, Any], state: ToolExecutionState,
@@ -252,6 +277,10 @@ class ToolRunner:
         merged = dict(state.bindings)
         for key, value in state.local.items():
             merged.setdefault(key, value)
+        # Fresh RETURN outputs are the authoritative values for output-role
+        # effect references in the post-program final-effect validation.
+        for key, value in state.outputs.items():
+            merged.setdefault(key, value)
         return merged
 
     def _resolved_effect(
@@ -331,6 +360,18 @@ class ToolRunner:
         """
 
         for node in nodes:
+            state.executed_control_step_count += 1
+            if (
+                state.max_control_steps
+                and state.executed_control_step_count > state.max_control_steps
+            ):
+                state.failure_code = "tool_ir_control_step_exhausted"
+                state.failure_message = (
+                    f"Tool IR control-step bound {state.max_control_steps} "
+                    f"exhausted at node {node.get('node_id')}"
+                )
+                state.program_node_id = str(node.get("node_id", ""))
+                return "FAIL_TOOL"
             if state.failure_code or terminal:
                 return "BENCHMARK_TERMINAL" if terminal else "FAIL_TOOL"
             opcode = str(node.get("op", ""))
@@ -552,6 +593,8 @@ class ToolRunner:
                 "unvalidated_paths": sorted(set(state.unvalidated_paths)),
                 "loop_iteration_counts": dict(state.loop_iteration_counts),
                 "stop_condition_witnesses": list(state.stop_condition_witnesses),
+                "control_step_count": int(state.executed_control_step_count),
+                "control_step_limit": int(state.max_control_steps),
                 "step_effect_results": [dict(item) for item in state.step_effect_results],
                 "final_effect_result": final_effect_result,
                 "outputs": to_primitive(outputs),

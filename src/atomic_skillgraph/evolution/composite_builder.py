@@ -373,16 +373,22 @@ class CompositeBuilder:
         ))
         terminal_metadata = dict(terminal_certificate or {}) if terminal_authority else {}
         if terminal_authority:
+            # covered_effect_signatures must come exclusively from TaskContract
+            # targets this empirical path actually covered.  Internal Support /
+            # Evidence Effects stay in the graph but never become a
+            # Terminal-Empirical compatibility obligation.
             covered_signatures: list[dict[str, Any]] = []
-            for occurrence in canonical:
-                for effect in occurrence.effects:
-                    covered_signatures.append({
-                        "predicate": effect.predicate,
-                        "effect_domain": effect.effect_domain.value,
-                        "argument_roles": sorted(map(str, effect.args)),
-                        "cardinality": max(1, int(effect.cardinality)),
-                        "distinct_by": str(effect.distinct_by),
-                    })
+            for check in coverage.target_checks:
+                if not bool(check.get("passed")):
+                    continue
+                target = contract.target_effects[int(check["target_index"])]
+                covered_signatures.append({
+                    "predicate": target.predicate,
+                    "effect_domain": str(target.effect_domain.value),
+                    "argument_roles": sorted(map(str, target.args)),
+                    "cardinality": max(1, int(target.cardinality)),
+                    "distinct_by": str(target.distinct_by),
+                })
             terminal_metadata["covered_effect_signatures"] = covered_signatures
         return CompositeSkill(
             SkillRef(f"composite_{signature[:24]}", "1.0.0"), summary,
