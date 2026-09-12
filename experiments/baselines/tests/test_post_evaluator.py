@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from experiments.baselines.common.post_evaluator import TaskRow, summarize_rows
+from experiments.baselines.common.post_evaluator import (
+    TaskRow,
+    load_rows_jsonl,
+    summarize_rows,
+    write_evaluated_episodes_jsonl,
+    write_rows_jsonl,
+)
+from experiments.baselines.common.schema import CommonEpisodeRecord
 
 
 _FAMILIES = [f"family_{index}" for index in range(1, 7)]
@@ -139,3 +146,81 @@ def test_family_strict_rate_does_not_turn_missing_evidence_into_failure() -> Non
     summary = summarize_rows(rows, task_types=list(_FAMILIES))
     assert summary["family"][_FAMILIES[0]]["strict_scored_tasks"] == 0
     assert summary["family"][_FAMILIES[0]]["strict_rate"] is None
+
+
+def test_frozen_success_names_and_legacy_aliases_are_identical() -> None:
+    summary = summarize_rows(
+        [_row(index) for index in range(1, 7)], task_types=list(_FAMILIES)
+    )
+
+    assert summary["official_success_rate"] == summary["official_rate"] == 0.5
+    assert summary["contract_consistency_rate"] == summary["task_contract_rate"]
+    assert (
+        summary["contract_consistent_success_rate"]
+        == summary["common_strict_success_rate"]
+        == summary["strict_rate"]
+        == 0.5
+    )
+    family = summary["family"][_FAMILIES[0]]
+    assert family["contract_consistency"] == family["task_contract_success"]
+    assert family["common_strict_success"] == family["strict_success"]
+
+
+def test_cost_ratios_require_pricing_authority() -> None:
+    rows = [_row(index) for index in range(1, 7)]
+    unpriced = summarize_rows(rows, task_types=list(_FAMILIES))
+    assert unpriced["api_cost"] is None
+    assert unpriced["cost_per_task"] is None
+    assert unpriced["cost_per_solved"] is None
+    assert unpriced["cost_metrics_status"] == "unavailable_without_pricing_authority"
+
+    priced = summarize_rows(
+        rows,
+        task_types=list(_FAMILIES),
+        api_cost=1.5,
+        api_cost_unpriced=False,
+    )
+    assert priced["cost_per_task"] == 0.25
+    assert priced["cost_per_solved"] == 0.5
+    assert priced["cost_metrics_status"] == "priced"
+
+    with pytest.raises(ValueError, match="unpriced API usage"):
+        summarize_rows(
+            rows,
+            task_types=list(_FAMILIES),
+            api_cost=1.5,
+            api_cost_unpriced=True,
+        )
+
+
+def test_posthoc_outcome_is_durable_in_episode_and_task_rows(tmp_path) -> None:
+    episode = CommonEpisodeRecord(
+        method="b3_skillopt",
+        phase="test",
+        run_seed=42,
+        task_id="task_1",
+        task_type=_FAMILIES[0],
+        manifest_index=0,
+        gamefile="game.tw-pddl",
+        gamefile_hash="a" * 64,
+        official_success=True,
+        environment_actions=2,
+    )
+    episode.set_posthoc_outcome(contract_consistency=True)
+    episode_path = tmp_path / "evaluated_common_episodes.jsonl"
+    row_path = tmp_path / "task_rows.jsonl"
+    write_evaluated_episodes_jsonl([episode], episode_path)
+    write_rows_jsonl([TaskRow.from_episode(episode)], row_path)
+
+    episode_payload = __import__("json").loads(
+        episode_path.read_text(encoding="utf-8")
+    )
+    assert episode_payload["contract_consistency"] is True
+    assert episode_payload["common_strict_success"] is True
+    assert episode_payload["task_contract_success"] is True
+    assert episode_payload["strict_success"] is True
+    loaded = load_rows_jsonl(row_path)
+    assert loaded[0].contract_consistency is True
+    assert loaded[0].common_strict_success is True
+    with pytest.raises(FileExistsError):
+        write_evaluated_episodes_jsonl([episode], episode_path)

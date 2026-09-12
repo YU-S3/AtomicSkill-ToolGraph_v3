@@ -1,0 +1,82 @@
+# B4 SkillGen-S formal Protocol-Faithful Matched-Train configuration.
+schema_version: 1
+
+method: b4_skillgen_s
+protocol_profile: formal_v2
+experiment_kind: formal
+campaign_id: protocol_faithful_matched_train_v2
+worker_python: .venv_b4_skillgen/bin/python
+
+train:
+  task_count: 120
+  samples_per_task: 6
+  seed: 42
+
+sampling:
+  prompt_mode: 1-shot
+  sampling_count: 6
+  max_steps: 10
+  max_length: 64
+  do_sample: true
+  temperature: 1.0
+  top_p: 0.95
+  hist_size: 20
+
+extraction:
+  gamma: 0.95
+  lambda: 0.9
+  alpha: 0.05
+  q_iterations: 500
+  seed: 42
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+
+inference:
+  max_steps: 20
+  max_length: 64
+  temperature: 0.0
+  top_p: 0.95
+  hist_size: 20
+  top_s: 1
+  top_ac: 1
+
+supervision:
+  weak_supervision: subgoal_progress
+  extra_train_supervision: true
+  label_path_env: SKILLGEN_TRAIN_LABELS
+  # This pinned upstream file is retained only as a diagnostic default. It
+  # covers valid_unseen and intentionally fails Train coverage preflight.
+  diagnostic_upstream_label_path: data/alfworld/all.jsonl
+
+provider_transport:
+  sdk_max_retries: 0
+  application_retry_limit: 5
+  retry_delays_seconds: [2, 5, 10, 20]
+  deterministic_jitter_ratio: 0.10
+
+provider_probe:
+  enabled: true
+  concurrency: 16
+  requests: 32
+  max_completion_tokens: 256
+  reasoning_effort: high
+
+resume:
+  enabled: true
+  formal_boundary: sampling_job
+  extraction_replay_from_complete_corpus: true
+
+parallel:
+  # Formal seed lanes are serialized; only independent episodes inside one
+  # method x seed may run concurrently.
+  seed_lanes: 1
+  episode_workers_per_seed: 16
+  test_workers_per_seed: 16
+  campaign_provider_max_inflight: 16
+  mp_start_method: spawn
+
+smoke:
+  inference_task_count: 6
+
+env:
+  name: alfworld
+  max_steps: 100

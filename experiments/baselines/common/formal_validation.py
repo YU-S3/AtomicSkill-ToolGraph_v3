@@ -20,10 +20,21 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
-from experiments.protocol import ALFWORLD_FORMAL_TASK_TYPES
-
 from .manifest import ManifestTask, TaskManifestSet
 from .schema import CommonEpisodeRecord
+
+
+# Kept local so this minimal shared validation boundary remains importable in
+# SkillGen's frozen Python 3.9 worker.  Importing experiments.protocol would
+# initialize the Python >=3.10 AtomicSkillGraph package for an unrelated tuple.
+ALFWORLD_FORMAL_TASK_TYPES = (
+    "pick_and_place_simple",
+    "look_at_obj_in_light",
+    "pick_clean_then_place_in_recep",
+    "pick_heat_then_place_in_recep",
+    "pick_cool_then_place_in_recep",
+    "pick_two_obj_and_place",
+)
 
 
 @dataclass(frozen=True)
@@ -92,8 +103,36 @@ _FORMAL_V2_MANIFEST_SPECS: dict[str, FormalManifestSpec] = {
     ),
 }
 
+_SMOKE_V1_MANIFEST_SPECS: dict[str, FormalManifestSpec] = {
+    "train": FormalManifestSpec(
+        role="train",
+        manifest_id="train_6_smoke",
+        source_split="train",
+        task_count=6,
+        per_task_type=1,
+        final_evaluation_phase="smoke",
+    ),
+    "validation": FormalManifestSpec(
+        role="validation",
+        manifest_id="validation_6_smoke",
+        source_split="valid_seen",
+        task_count=6,
+        per_task_type=1,
+        final_evaluation_phase="validation_eval",
+    ),
+    "test": FormalManifestSpec(
+        role="test",
+        manifest_id="test_6_smoke",
+        source_split="valid_unseen",
+        task_count=6,
+        per_task_type=1,
+        final_evaluation_phase="smoke_test",
+    ),
+}
+
 FORMAL_MANIFEST_PROFILES: dict[str, dict[str, FormalManifestSpec]] = {
     "pilot_v1": _PILOT_MANIFEST_SPECS,
+    "smoke_v1": _SMOKE_V1_MANIFEST_SPECS,
     "formal_v2": _FORMAL_V2_MANIFEST_SPECS,
 }
 # Backward-compatible public name for existing pilot tests/importers.
@@ -125,7 +164,7 @@ def _verify_manifest_structure(
     profile: str = "pilot_v1",
 ) -> FormalManifestSpec:
     spec = _spec(role, profile=profile)
-    if profile == "formal_v2" and manifest.seed != _FORMAL_SELECTION_SEED:
+    if profile in {"formal_v2", "smoke_v1"} and manifest.seed != _FORMAL_SELECTION_SEED:
         raise ValueError(
             "formal manifest selection seed mismatch: expected "
             f"{_FORMAL_SELECTION_SEED}, got {manifest.seed}"
@@ -166,7 +205,7 @@ def _verify_manifest_structure(
     gamefiles = [task.gamefile_rel for task in manifest.tasks]
     if len(set(gamefiles)) != len(gamefiles):
         raise ValueError(f"formal {role} manifest has duplicate gamefiles")
-    if profile == "formal_v2" and gamefiles != sorted(gamefiles):
+    if profile in {"formal_v2", "smoke_v1"} and gamefiles != sorted(gamefiles):
         raise ValueError(
             f"formal {role} manifest tasks must be stored in canonical "
             "gamefile path order"
@@ -361,7 +400,7 @@ def verify_formal_manifest(
     if not data_root.is_dir():
         raise NotADirectoryError(f"ALFWORLD_DATA is not a directory: {data_root}")
 
-    if profile == "formal_v2":
+    if profile in {"formal_v2", "smoke_v1"}:
         _verify_frozen_selection(manifest, data_root=data_root, spec=spec)
 
     for task in manifest.tasks:
@@ -533,10 +572,34 @@ def verify_final_evaluation_bijection(
             )
         if not isinstance(episode.official_success, bool):
             mismatches.append("official_success is not boolean")
-        if require_strict_outcomes and not isinstance(episode.task_contract_success, bool):
-            mismatches.append("task_contract_success is not boolean")
-        if require_strict_outcomes and not isinstance(episode.strict_success, bool):
-            mismatches.append("strict_success is not boolean")
+        if episode.contract_consistency != episode.task_contract_success:
+            mismatches.append(
+                "contract_consistency disagrees with task_contract_success"
+            )
+        if episode.common_strict_success != episode.strict_success:
+            mismatches.append("common_strict_success disagrees with strict_success")
+        if require_strict_outcomes and not isinstance(
+            episode.contract_consistency, bool
+        ):
+            mismatches.append(
+                "task_contract_success is not boolean (contract_consistency)"
+            )
+        if require_strict_outcomes and not isinstance(
+            episode.common_strict_success, bool
+        ):
+            mismatches.append(
+                "strict_success is not boolean (common_strict_success)"
+            )
+        if (
+            isinstance(episode.contract_consistency, bool)
+            and isinstance(episode.common_strict_success, bool)
+            and episode.common_strict_success
+            is not (episode.official_success and episode.contract_consistency)
+        ):
+            mismatches.append(
+                "common_strict_success is not official_success && "
+                "contract_consistency"
+            )
         if expected_artifact_digest is not None and (
             episode.artifact_digest_before != expected_artifact_digest
             or episode.artifact_digest_after != expected_artifact_digest

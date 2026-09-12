@@ -31,14 +31,14 @@ from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
 import yaml
 
-from experiments.protocol import hash_code, sanitize_error_text, sha256_json
-
 from .bootstrap_external import load_lock, verify_key_files
 from .common.formal_validation import verify_formal_manifest
 from .common.freeze import FrozenArtifact, assert_frozen_unchanged
-from .common.manifest import TaskManifestSet, verify_disjoint
+from .common.manifest import TaskManifestSet, sha256_json, verify_disjoint
 from .common.model_config import ModelConfig
 from .common.runtime_python import resolve_formal_python
+from .common.source_identity import hash_code, sanitize_error_text
+from .common.trace import load_episodes
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -566,7 +566,7 @@ def _provider_probe_command(
     model = dict(lock_payload["model_identity"])
     probe = dict(lock_payload["provider_probe"])
     retry = dict(lock_payload["retry_policy"])
-    return [
+    command = [
         str(lock_payload["provider_probe_python"]),
         "-m",
         "experiments.baselines.common.provider_load_probe",
@@ -605,6 +605,12 @@ def _provider_probe_command(
         "--deterministic-jitter-ratio",
         str(retry["jitter_ratio"]),
     ]
+    if spec.method == "b5_gepa":
+        command.extend([
+            "--skillopt-root",
+            str((spec.repo_root / ".external" / "skillopt").resolve()),
+        ])
+    return command
 
 
 def _validate_probe_identity(
@@ -1200,6 +1206,140 @@ def _provider_sidecar_summary(path: Path) -> dict[str, Any] | None:
     return summary
 
 
+def _phase_provider_sidecar_summaries(phase_dir: Path) -> list[dict[str, Any]]:
+    """Return every disjoint provider sidecar owned by one phase tree."""
+
+    if not phase_dir.is_dir():
+        return []
+    return [
+        summary
+        for summary in (
+            _provider_sidecar_summary(path)
+            for path in sorted(phase_dir.rglob("provider_calls.jsonl"))
+        )
+        if summary is not None
+    ]
+
+
+def _phase_episode_action_summary(phase_dir: Path) -> dict[str, Any]:
+    """Bind exact step journals when present, else the legacy episode lower bound."""
+
+    if not phase_dir.is_dir():
+        return {
+            "episodes": 0,
+            "environment_actions": 0,
+            "evidence": [],
+            "measurement_complete": False,
+            "source": "missing_phase_directory",
+        }
+    paths = sorted({
+        *phase_dir.rglob("common_episodes.jsonl"),
+        *phase_dir.rglob("partial_common_episodes.jsonl"),
+    })
+    episodes = []
+    evidence: list[dict[str, Any]] = []
+    for path in paths:
+        rows = load_episodes(path)
+        episodes.extend(rows)
+        evidence.append({
+            "path": str(path.resolve()),
+            "sha256": _sha256_file(path),
+            "episodes": len(rows),
+            "environment_actions": sum(
+                int(episode.environment_actions) for episode in rows
+            ),
+        })
+    if any(int(episode.environment_actions) < 0 for episode in episodes):
+        raise RuntimeError(
+            f"failed Train attempt has negative environment actions: {phase_dir}"
+        )
+    journal_paths = sorted(
+        phase_dir.rglob("attempt_environment_actions/*.jsonl")
+    )
+    if journal_paths:
+        action_ids: set[str] = set()
+        journal_evidence: list[dict[str, Any]] = []
+        for path in journal_paths:
+            try:
+                rows = [
+                    json.loads(line)
+                    for line in path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    f"failed Train action journal is unreadable: {path}"
+                ) from exc
+            if not rows or not all(isinstance(row, dict) for row in rows):
+                raise RuntimeError(
+                    f"failed Train action journal has no valid header: {path}"
+                )
+            header = rows[0]
+            rollout_id = str(header.get("rollout_id", ""))
+            task_id = str(header.get("episode_task_id", ""))
+            if (
+                header.get("schema_version") != 1
+                or header.get("event") != "action_journal_started"
+                or not rollout_id
+                or not task_id
+                or not str(header.get("actual_gamefile", "")).strip()
+            ):
+                raise RuntimeError(
+                    f"failed Train action journal header is invalid: {path}"
+                )
+            for step_index, row in enumerate(rows[1:]):
+                identity = {
+                    "rollout_id": rollout_id,
+                    "episode_task_id": task_id,
+                    "step_index": step_index,
+                }
+                expected_id = hashlib.sha256(
+                    json.dumps(
+                        identity, sort_keys=True, separators=(",", ":")
+                    ).encode("utf-8")
+                ).hexdigest()
+                action_id = str(row.get("action_id", ""))
+                action = row.get("action")
+                if (
+                    row.get("schema_version") != 1
+                    or row.get("event") != "environment_action"
+                    or row.get("rollout_id") != rollout_id
+                    or row.get("episode_task_id") != task_id
+                    or int(row.get("step_index", -1)) != step_index
+                    or action_id != expected_id
+                    or action_id in action_ids
+                    or not isinstance(action, str)
+                    or not action.strip()
+                ):
+                    raise RuntimeError(
+                        f"failed Train action journal row is invalid: {path}"
+                    )
+                action_ids.add(action_id)
+            journal_evidence.append({
+                "path": str(path.resolve()),
+                "sha256": _sha256_file(path),
+                "episodes": 1,
+                "environment_actions": len(rows) - 1,
+                "evidence_kind": "durable_environment_step_journal",
+            })
+        return {
+            "episodes": len(journal_paths),
+            "environment_actions": len(action_ids),
+            "evidence": journal_evidence,
+            "measurement_complete": True,
+            "source": "durable_environment_step_journals",
+        }
+    return {
+        "episodes": len(episodes),
+        "environment_actions": sum(
+            int(episode.environment_actions) for episode in episodes
+        ),
+        "evidence": evidence,
+        "measurement_complete": False,
+        "source": "persisted_episode_lower_bound",
+    }
+
+
 def _add_provider_summaries(
     summaries: Sequence[Mapping[str, Any]],
 ) -> dict[str, int]:
@@ -1223,6 +1363,7 @@ def _cost_accounting(
     *,
     seed: int,
     resume_sources: Sequence[Path],
+    failed_attempt_sources: Sequence[Path] | None = None,
     train_root: Path,
     test_root: Path,
     committed: Mapping[str, Any],
@@ -1230,15 +1371,9 @@ def _cost_accounting(
     """Expose the four R1 §8.6 cost views without manufacturing precision."""
 
     current_sidecars = [
-        summary
-        for summary in (
-            _provider_sidecar_summary(train_root / "train" / "provider_calls.jsonl"),
-            _provider_sidecar_summary(
-                train_root / "train_eval" / "provider_calls.jsonl"
-            ),
-            _provider_sidecar_summary(test_root / "test" / "provider_calls.jsonl"),
-        )
-        if summary is not None
+        *(_phase_provider_sidecar_summaries(train_root / "train")),
+        *(_phase_provider_sidecar_summaries(train_root / "train_eval")),
+        *(_phase_provider_sidecar_summaries(test_root / "test")),
     ]
     if current_sidecars:
         current_actual = _add_provider_summaries(current_sidecars)
@@ -1281,30 +1416,53 @@ def _cost_accounting(
         current_actual["cached_source_application_attempts"] = 0
         current_source = "successful_phase_reports"
 
-    parent_summaries: list[dict[str, Any]] = []
-    for resume_source in resume_sources:
-        parent_root = Path(resume_source).resolve()
+    resume_roots = [Path(source).resolve() for source in resume_sources]
+    failed_roots = (
+        [Path(source).resolve() for source in failed_attempt_sources]
+        if failed_attempt_sources is not None
+        else list(resume_roots)
+    )
+    if len(set(failed_roots)) != len(failed_roots):
+        raise RuntimeError("failed Train attempt sources contain duplicates")
+    if not set(resume_roots).issubset(set(failed_roots)):
+        raise RuntimeError("resume source is not a charged failed Train attempt")
+
+    summaries_by_failed_root: dict[Path, list[dict[str, Any]]] = {}
+    actions_by_failed_root: dict[Path, dict[str, Any]] = {}
+    failed_attempt_summaries: list[dict[str, Any]] = []
+    for failed_root in failed_roots:
         source_summaries = [
-            summary
-            for summary in (
-                _provider_sidecar_summary(
-                    parent_root / "train" / "provider_calls.jsonl"
-                ),
-                _provider_sidecar_summary(
-                    parent_root / "train_eval" / "provider_calls.jsonl"
-                ),
-            )
-            if summary is not None
+            *(_phase_provider_sidecar_summaries(failed_root / "train")),
+            *(_phase_provider_sidecar_summaries(failed_root / "train_eval")),
         ]
         if not source_summaries:
             raise RuntimeError(
-                "resume parent has no train/train_eval provider sidecar: "
-                f"{parent_root}"
+                "failed Train attempt has no train/train_eval provider sidecar: "
+                f"{failed_root}"
             )
-        parent_summaries.extend(source_summaries)
+        summaries_by_failed_root[failed_root] = source_summaries
+        failed_attempt_summaries.extend(source_summaries)
+        actions_by_failed_root[failed_root] = _phase_episode_action_summary(
+            failed_root / "train"
+        )
+
+    resume_parent_summaries = [
+        summary
+        for resume_root in resume_roots
+        for summary in summaries_by_failed_root[resume_root]
+    ]
 
     actual_provider = _add_provider_summaries(
-        [current_actual, *parent_summaries]
+        [current_actual, *failed_attempt_summaries]
+    )
+    failed_observed_actions = sum(
+        int(summary["environment_actions"])
+        for summary in actions_by_failed_root.values()
+    )
+    committed_actions = int(committed.get("environment_actions", 0))
+    failed_actions_complete = all(
+        summary.get("measurement_complete") is True
+        for summary in actions_by_failed_root.values()
     )
     committed_method = dict(committed)
     committed_method["api_calls"] = int(committed_method["logical_api_calls"])
@@ -1328,7 +1486,7 @@ def _cost_accounting(
     }
     no_retries = actual_provider["provider_retries"] == 0
     committed_complete = (
-        not resume_sources and int(current_actual.get("provider_retries", 0)) == 0
+        not failed_roots and int(current_actual.get("provider_retries", 0)) == 0
     )
     zero_replay = {
         "api_calls": 0,
@@ -1337,7 +1495,7 @@ def _cost_accounting(
         "environment_actions": 0,
         "api_cost": 0.0,
     }
-    if not parent_summaries:
+    if not resume_parent_summaries:
         replay: dict[str, Any] = {
             **zero_replay,
             "measurement_complete": True,
@@ -1355,7 +1513,7 @@ def _cost_accounting(
                 "provider sidecars do not identify which post-checkpoint current "
                 "calls replay parent work; no replay amount is guessed"
             ),
-            "parent_provider_costs": parent_summaries,
+            "parent_provider_costs": resume_parent_summaries,
             "current_cached_provider_calls": current_actual.get(
                 "cached_provider_calls", 0
             ),
@@ -1367,24 +1525,31 @@ def _cost_accounting(
     actual = {
         **actual_provider,
         "environment_actions": (
-            int(committed.get("environment_actions", 0))
-            if not parent_summaries
+            committed_actions + failed_observed_actions
+            if not failed_attempt_summaries or failed_actions_complete
             else None
         ),
+        "observed_environment_actions_lower_bound": (
+            committed_actions + failed_observed_actions
+        ),
+        "failed_attempt_observed_environment_actions": failed_observed_actions,
         "api_cost": (
             committed.get("api_cost")
-            if not parent_summaries
+            if not failed_attempt_summaries
             and int(current_actual.get("provider_retries", 0)) == 0
             else None
         ),
-        "measurement_complete": not parent_summaries
+        "measurement_complete": not failed_attempt_summaries
         and int(current_actual.get("provider_retries", 0)) == 0,
         "current_attempt_source": current_source,
-        "includes_resume_parent": bool(parent_summaries),
-        "resume_parent_count": len(resume_sources),
-        "unmeasured_parent_environment_actions": bool(parent_summaries),
+        "includes_failed_attempts": bool(failed_attempt_summaries),
+        "failed_attempt_count": len(failed_roots),
+        "includes_resume_parent": bool(resume_parent_summaries),
+        "resume_parent_count": len(resume_roots),
+        "unmeasured_parent_environment_actions": bool(failed_attempt_summaries)
+        and not failed_actions_complete,
         "unpriced": bool(committed.get("api_cost_unpriced", True))
-        or bool(parent_summaries),
+        or bool(failed_attempt_summaries),
     }
     return {
         "schema_version": 1,
@@ -1394,9 +1559,15 @@ def _cost_accounting(
             "measurement_complete": committed_complete,
             "semantics": (
                 "successful Train/Freeze/Test logical method work"
-                if not resume_sources
-                else "continuation+Test logical work only; checkpoint-prefix usage "
-                "cannot be separated from the failed parent sidecar"
+                if not failed_roots
+                else (
+                    "continuation+Test logical work only; checkpoint-prefix usage "
+                    "cannot be separated from the failed parent sidecar"
+                    if resume_roots
+                    else "successful fresh Train/Freeze/Test logical work only; "
+                    "the discarded infrastructure-failed prefix is charged to "
+                    "actual campaign cost"
+                )
             ),
         },
         "infrastructure_retry_overhead": {
@@ -1426,12 +1597,36 @@ def _cost_accounting(
                 }
                 for summary in current_sidecars
             ],
+            "failed_attempt_provider_sidecars": [
+                {
+                    "path": failed_summary.get("evidence_path"),
+                    "sha256": failed_summary.get("evidence_sha256"),
+                }
+                for failed_summary in failed_attempt_summaries
+            ],
+            "failed_attempt_episode_sidecars": [
+                evidence
+                for failed_root in failed_roots
+                for evidence in actions_by_failed_root[failed_root]["evidence"]
+            ],
+            "failed_attempt_action_measurement": {
+                str(failed_root): {
+                    "source": actions_by_failed_root[failed_root]["source"],
+                    "measurement_complete": actions_by_failed_root[failed_root][
+                        "measurement_complete"
+                    ],
+                    "environment_actions": actions_by_failed_root[failed_root][
+                        "environment_actions"
+                    ],
+                }
+                for failed_root in failed_roots
+            },
             "resume_parent_provider_sidecars": [
                 {
-                    "path": parent_summary.get("evidence_path"),
-                    "sha256": parent_summary.get("evidence_sha256"),
+                    "path": resume_summary.get("evidence_path"),
+                    "sha256": resume_summary.get("evidence_sha256"),
                 }
-                for parent_summary in parent_summaries
+                for resume_summary in resume_parent_summaries
             ],
         },
     }

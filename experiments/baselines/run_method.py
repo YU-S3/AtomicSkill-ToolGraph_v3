@@ -21,36 +21,53 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from experiments.protocol import (
-    ALFWORLD_FORMAL_TASK_TYPES,
-    hash_code,
-    sanitize_error_text,
-    sha256_json,
-)
-
 from .b3_skillopt.driver import load_lock_and_driver
 from .common.driver import RunContext
 from .common.formal_validation import (
+    ALFWORLD_FORMAL_TASK_TYPES,
     verify_final_evaluation_bijection,
     verify_formal_manifest,
 )
 from .common.freeze import FrozenArtifact, assert_frozen_unchanged
 from .common.integrity import assert_no_secrets_on_disk, validate_episode_usage
-from .common.manifest import TaskManifestSet, verify_disjoint
+from .common.manifest import TaskManifestSet, sha256_json, verify_disjoint
 from .common.model_config import ModelConfig
 from .common.runtime_python import resolve_formal_python, verify_runtime_python
-from .common.post_evaluator import TaskRow, summarize_rows, write_rows_jsonl
+from .common.post_evaluator import (
+    TaskRow,
+    summarize_rows,
+    write_evaluated_episodes_jsonl,
+    write_rows_jsonl,
+)
 from .common.schema import CommonEpisodeRecord
+from .common.source_identity import hash_code, sanitize_error_text
 from .common.usage import UsageSnapshot
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _METHOD = "b3_skillopt"
+_METHOD_ENTRYPOINTS = {
+    "b4_skillgen_s": "experiments.baselines.b4_skillgen_s.controller",
+    "b5_gepa": "experiments.baselines.b5_gepa.controller",
+}
+
+
+def _peek_method(argv: list[str] | None) -> str:
+    """Resolve method early so B3's stable controller can remain untouched."""
+
+    tokens = list(sys.argv[1:] if argv is None else argv)
+    for index, token in enumerate(tokens):
+        if token.startswith("--method="):
+            return token.split("=", 1)[1].strip()
+        if token == "--method" and index + 1 < len(tokens):
+            return tokens[index + 1].strip()
+    return _METHOD
 
 
 def _path(value: str | Path) -> Path:
@@ -774,9 +791,18 @@ def _run_train(
     if train_eval_usage.evolution.calls != 0:
         raise RuntimeError("train_eval made forbidden SkillOpt evolution calls")
 
+    write_evaluated_episodes_jsonl(
+        train_eval_episodes,
+        ctx.output_dir / "train_eval" / "evaluated_common_episodes.jsonl",
+    )
     rows = [TaskRow.from_episode(episode) for episode in train_eval_episodes]
     write_rows_jsonl(rows, ctx.output_dir / "train_eval" / "task_rows.jsonl")
-    summary = summarize_rows(rows, task_types=list(ALFWORLD_FORMAL_TASK_TYPES))
+    summary = summarize_rows(
+        rows,
+        task_types=list(ALFWORLD_FORMAL_TASK_TYPES),
+        api_cost=train_eval_usage.api_cost,
+        api_cost_unpriced=train_eval_usage.api_cost_unpriced,
+    )
     if summary["attempted_tasks"] != 30 or summary["tasks"] != 30:
         raise RuntimeError("Train30 replay summary denominator is not exactly 30")
     if any(values["tasks"] != 5 for values in summary["family"].values()):
@@ -844,12 +870,23 @@ def _run_train(
         "combined_usage": total_usage.to_dict(),
         "comparison_metrics": {
             "official_success": summary["official_success"],
+            "official_success_rate": summary["official_success_rate"],
             "official_rate": summary["official_rate"],
             "micro_average_official_rate": summary[
                 "micro_average_official_rate"
             ],
             "strict_rate": summary["strict_rate"],
+            "contract_consistency_rate": summary["contract_consistency_rate"],
+            "contract_consistent_success_rate": summary[
+                "contract_consistent_success_rate"
+            ],
+            "common_strict_success_rate": summary[
+                "common_strict_success_rate"
+            ],
             "macro_family_official_rate": summary["macro_family_official_rate"],
+            "six_family_macro_success_rate": summary[
+                "six_family_macro_success_rate"
+            ],
             "actions_per_task": summary["actions_per_task"],
             "actions_per_solved": summary["actions_per_solved"],
             "p50_actions": summary["p50_actions"],
@@ -857,6 +894,9 @@ def _run_train(
             "calls_per_task": summary["calls_per_task"],
             "tokens_per_task": summary["tokens_per_task"],
             "tokens_per_solved": summary["tokens_per_solved"],
+            "cost_per_task": summary["cost_per_task"],
+            "cost_per_solved": summary["cost_per_solved"],
+            "cost_metrics_status": summary["cost_metrics_status"],
             "latency_per_task_ms": summary["latency_per_task_ms"],
             "p50_latency_ms": summary["p50_latency_ms"],
             "p90_latency_ms": summary["p90_latency_ms"],
@@ -1029,9 +1069,18 @@ def _run_test(
     _require_phase_usage(usage, phase="test", evolution=False)
     if usage.evolution.calls != 0:
         raise RuntimeError("test made forbidden SkillOpt evolution calls")
+    write_evaluated_episodes_jsonl(
+        episodes,
+        ctx.output_dir / "test" / "evaluated_common_episodes.jsonl",
+    )
     rows = [TaskRow.from_episode(episode) for episode in episodes]
     write_rows_jsonl(rows, ctx.output_dir / "test" / "task_rows.jsonl")
-    summary = summarize_rows(rows, task_types=list(ALFWORLD_FORMAL_TASK_TYPES))
+    summary = summarize_rows(
+        rows,
+        task_types=list(ALFWORLD_FORMAL_TASK_TYPES),
+        api_cost=usage.api_cost,
+        api_cost_unpriced=usage.api_cost_unpriced,
+    )
     expected_tasks = len(test_manifest.tasks)
     if (
         summary["attempted_tasks"] != expected_tasks
@@ -1085,10 +1134,14 @@ def _run_test(
         },
         "comparison_metrics": {
             key: summary[key] for key in (
-                "official_success", "official_rate", "micro_average_official_rate",
+                "official_success", "official_success_rate", "official_rate",
+                "micro_average_official_rate", "contract_consistency_rate",
+                "contract_consistent_success_rate", "common_strict_success_rate",
                 "strict_rate", "macro_family_official_rate", "actions_per_task",
+                "six_family_macro_success_rate",
                 "actions_per_solved", "p50_actions", "p90_actions", "calls_per_task",
-                "tokens_per_task", "tokens_per_solved", "latency_per_task_ms",
+                "tokens_per_task", "tokens_per_solved", "cost_per_task",
+                "cost_per_solved", "cost_metrics_status", "latency_per_task_ms",
                 "p50_latency_ms", "p90_latency_ms", "target_reasoning_tokens",
                 "reasoning_tokens_in_completion", "delta_vs_pure_dynamic",
                 "positive_transfer", "negative_transfer", "paired_transfer_status",
@@ -1103,6 +1156,17 @@ def _run_test(
 
 
 def main(argv: list[str] | None = None) -> int:
+    requested_method = _peek_method(argv)
+    if requested_method in _METHOD_ENTRYPOINTS:
+        import importlib
+
+        module = importlib.import_module(_METHOD_ENTRYPOINTS[requested_method])
+        return int(module.main(argv))
+    if requested_method != _METHOD:
+        choices = ", ".join([_METHOD, *_METHOD_ENTRYPOINTS])
+        raise ValueError(
+            f"unsupported baseline method {requested_method!r}; expected one of {choices}"
+        )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--method", default=_METHOD, choices=[_METHOD])
     parser.add_argument("--phase", required=True, choices=["smoke", "train", "test"])

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from atomic_skillgraph.harness.alfworld import AlfWorldAdapter
-from experiments.protocol import ALFWORLD_FORMAL_TASK_TYPES
+from .formal_validation import ALFWORLD_FORMAL_TASK_TYPES
 
 from .manifest import (
     ManifestTask,

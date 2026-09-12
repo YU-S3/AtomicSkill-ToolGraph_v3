@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from experiments.protocol import sha256_json
 from experiments.baselines.bootstrap_external import load_lock, verify_key_files
 from experiments.baselines.common.driver import RunContext, SmokeResult, TrainResult
 from experiments.baselines.common.formal_validation import (
@@ -15,7 +14,7 @@ from experiments.baselines.common.formal_validation import (
 )
 from experiments.baselines.common.freeze import FrozenArtifact, assert_frozen_unchanged
 from experiments.baselines.common.integrity import validate_episode_usage
-from experiments.baselines.common.manifest import TaskManifestSet
+from experiments.baselines.common.manifest import TaskManifestSet, sha256_json
 from experiments.baselines.common.schema import CommonEpisodeRecord
 from experiments.baselines.common.subprocess_worker import WorkerWire, run_worker
 from experiments.baselines.common.task_authority import StrictTaskEvaluator
@@ -497,8 +496,9 @@ class SkillOptBaselineDriver:
                 actions_by_task.get(episode.task_id, []),
                 official_success=episode.official_success,
             )
-            episode.task_contract_success = outcome.task_contract_success
-            episode.strict_success = outcome.strict_success
+            episode.set_posthoc_outcome(
+                contract_consistency=outcome.task_contract_success
+            )
             episode.invalid_actions = outcome.invalid_actions
         return episodes
 

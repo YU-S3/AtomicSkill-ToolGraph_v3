@@ -27,6 +27,7 @@ from experiments.baselines.b3_skillopt.episode_runner import (
     SkillOptTextEpisodeRunner,
     _ExactManifestEnvironment,
     _canonical_gamefile,
+    _load_action_journal,
     _safe_error,
     _validate_episode_payload,
 )
@@ -625,6 +626,71 @@ def test_exact_environment_uses_shared_reset_gamefile_and_hash_authority(
     )
     with pytest.raises(ValueError, match="wrong gamefile"):
         wrapped.reset({})
+
+
+def test_exact_environment_durably_journals_each_executed_action(
+    tmp_path: Path,
+) -> None:
+    expected = tmp_path / "json_2.1.1/train/fixture/game.tw-pddl"
+    expected.parent.mkdir(parents=True)
+    expected.write_text("expected", encoding="utf-8")
+    task = {
+        "id": "task_0",
+        "task_id": "task_0",
+        "task_type": "pick_and_place_simple",
+        "source_split": "train",
+        "env_index": 0,
+        "manifest_index": 0,
+        "gamefile": expected.relative_to(tmp_path).as_posix(),
+        "gamefile_sha256": hashlib.sha256(expected.read_bytes()).hexdigest(),
+        "task_signature": "f" * 64,
+    }
+
+    class FakeEnvironment:
+        def reset(self, *args, **kwargs):
+            return {"text": ["room"]}, [{"extra.gamefile": str(expected)}]
+
+        def step(self, actions):
+            # The real SkillOpt projection mutates the submitted batch to the
+            # exact ALFWorld command before forwarding it to the environment.
+            actions[0] = "take apple from table"
+            return (
+                {"anchor": ["You pick up the apple."]},
+                [0.0],
+                [False],
+                [{"won": False}],
+            )
+
+    journal = tmp_path / "audit/episode.jsonl"
+    wrapped = _ExactManifestEnvironment(
+        FakeEnvironment(),
+        task=task,
+        alfworld_data=tmp_path,
+        provider_observer=None,
+        action_journal_path=journal,
+        rollout_id="rollout_fixture",
+    )
+    wrapped.reset({})
+    wrapped.step(["<think>act</think><action>Take Apple From Table</action>"])
+
+    conversation, actual_gamefile = _load_action_journal(
+        journal,
+        task=task,
+        rollout_id="rollout_fixture",
+    )
+    assert actual_gamefile == str(expected.resolve())
+    assert conversation == [{
+        "step": 0,
+        "action": "take apple from table",
+        "env_feedback": "You pick up the apple.",
+        "reward": 0.0,
+        "done": False,
+    }]
+    rows = [json.loads(line) for line in journal.read_text().splitlines()]
+    assert [row["event"] for row in rows] == [
+        "action_journal_started",
+        "environment_action",
+    ]
 
 
 def test_provider_observer_records_rollout_identity_and_cursor(tmp_path: Path) -> None:

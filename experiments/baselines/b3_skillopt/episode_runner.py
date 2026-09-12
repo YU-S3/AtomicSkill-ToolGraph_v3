@@ -9,6 +9,7 @@ templating, ``<think>/<action>`` protocol, target-model calls through
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -76,6 +77,7 @@ class SkillOptTextEpisodeRunner:
         skill_content: str,
         out_dir: str,
         rollout_id: str,
+        action_journal_path: Path,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
         from skillopt.envs.alfworld.rollout import (
             build_alfworld_env,
@@ -110,6 +112,8 @@ class SkillOptTextEpisodeRunner:
             task=task,
             alfworld_data=self.alfworld_data,
             provider_observer=observer,
+            action_journal_path=action_journal_path,
+            rollout_id=rollout_id,
         )
         episode_context = observer.episode(
             str(task.get("id", "")), rollout_id=rollout_id,
@@ -155,6 +159,16 @@ class SkillOptTextEpisodeRunner:
             actual_gamefile=env.actual_gamefile,
             alfworld_data=self.alfworld_data,
         )
+        journal_conversation, journal_gamefile = _load_action_journal(
+            action_journal_path,
+            task=task,
+            rollout_id=rollout_id,
+        )
+        if journal_gamefile != env.actual_gamefile:
+            raise RuntimeError(
+                "environment-action journal names the wrong verified gamefile"
+            )
+        _validate_journal_conversation(conversation, journal_conversation)
         return row, conversation, env.actual_gamefile
 
     def run(
@@ -215,6 +229,7 @@ class SkillOptTextEpisodeRunner:
         row: dict[str, Any] = {}
         conversation: list[dict[str, Any]] = []
         actual_gamefile = ""
+        action_journal_path: Path | None = None
         try:
             if self._episode_fn is not None:
                 fixture_result = self._episode_fn(
@@ -233,8 +248,17 @@ class SkillOptTextEpisodeRunner:
                     alfworld_data=self.alfworld_data,
                 )
             else:
+                action_journal_path = _action_journal_path(
+                    out_dir,
+                    task=task,
+                    rollout_id=rollout_id,
+                )
                 row, conversation, actual_gamefile = self._run_upstream_episode(
-                    task, skill_content, out_dir, rollout_id,
+                    task,
+                    skill_content,
+                    out_dir,
+                    rollout_id,
+                    action_journal_path,
                 )
         except ProviderCallExhausted as exc:
             # This is our boundary outside pinned SkillOpt.  The sentinel must
@@ -255,6 +279,20 @@ class SkillOptTextEpisodeRunner:
                 if isinstance(exc, (ConnectionError, TimeoutError))
                 else "protocol_failure"
             )
+
+        if failure is not None and action_journal_path is not None:
+            try:
+                journal_conversation, journal_gamefile = _load_action_journal(
+                    action_journal_path,
+                    task=task,
+                    rollout_id=rollout_id,
+                    missing_ok=True,
+                )
+                conversation = journal_conversation
+                actual_gamefile = journal_gamefile
+            except Exception as exc:
+                failure = exc
+                failure_kind = "protocol_failure"
 
         try:
             if observer is not None:
@@ -399,6 +437,224 @@ def _safe_error(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {message[:500]}"
 
 
+def _action_journal_path(
+    out_dir: str | Path,
+    *,
+    task: dict[str, Any],
+    rollout_id: str,
+) -> Path:
+    identity = {
+        "rollout_id": str(rollout_id),
+        "task_id": str(task.get("task_id", task.get("id", ""))),
+        "manifest_index": int(task.get("manifest_index", -1)),
+        "gamefile": str(task.get("gamefile", "")),
+    }
+    digest = hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return Path(out_dir) / "attempt_environment_actions" / f"{digest}.jsonl"
+
+
+def _write_action_journal_header(
+    path: Path,
+    *,
+    task: dict[str, Any],
+    rollout_id: str,
+    actual_gamefile: str,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "event": "action_journal_started",
+        "rollout_id": str(rollout_id),
+        "episode_task_id": str(task.get("task_id", task.get("id", ""))),
+        "manifest_index": int(task.get("manifest_index", -1)),
+        "gamefile": str(task.get("gamefile", "")),
+        "actual_gamefile": str(actual_gamefile),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+    with path.open("x", encoding="utf-8", newline="") as handle:
+        handle.write(serialized)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _append_jsonl_durable(path: Path, payload: dict[str, Any]) -> None:
+    if not path.is_file():
+        raise RuntimeError(f"environment-action journal is missing: {path}")
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        handle.write(serialized)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _single_item(value: Any, *, label: str) -> Any:
+    if isinstance(value, (str, bytes, dict)):
+        raise RuntimeError(f"environment step {label} is not a one-item sequence")
+    try:
+        if len(value) != 1:
+            raise RuntimeError(
+                f"environment step {label} must contain exactly one item"
+            )
+        return value[0]
+    except TypeError as exc:
+        raise RuntimeError(
+            f"environment step {label} is not a one-item sequence"
+        ) from exc
+
+
+def _action_journal_row(
+    *,
+    task: dict[str, Any],
+    rollout_id: str,
+    step_index: int,
+    call_args: tuple[Any, ...],
+    call_kwargs: dict[str, Any],
+    result: Any,
+) -> dict[str, Any]:
+    if call_args:
+        action_batch = call_args[0]
+    else:
+        action_batch = next(
+            (
+                call_kwargs[name]
+                for name in ("text_actions", "actions", "action")
+                if name in call_kwargs
+            ),
+            None,
+        )
+    action = _single_item(action_batch, label="actions")
+    if not isinstance(action, str) or not action.strip():
+        raise RuntimeError("environment step produced no auditable action")
+    if not isinstance(result, tuple) or len(result) != 4:
+        raise RuntimeError("environment step returned an invalid result tuple")
+    observations, rewards, dones, _ = result
+    if not isinstance(observations, dict):
+        raise RuntimeError("environment step observations are not a mapping")
+    anchors = observations.get("anchor")
+    feedback = _single_item(anchors, label="anchor observations")
+    reward = float(_single_item(rewards, label="rewards"))
+    done = bool(_single_item(dones, label="dones"))
+    task_id = str(task.get("task_id", task.get("id", "")))
+    identity = {
+        "rollout_id": str(rollout_id),
+        "episode_task_id": task_id,
+        "step_index": int(step_index),
+    }
+    return {
+        "schema_version": 1,
+        "event": "environment_action",
+        "action_id": hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest(),
+        **identity,
+        "manifest_index": int(task.get("manifest_index", -1)),
+        "action": action.strip(),
+        "env_feedback": str(feedback),
+        "reward": reward,
+        "done": done,
+    }
+
+
+def _load_action_journal(
+    path: Path,
+    *,
+    task: dict[str, Any],
+    rollout_id: str,
+    missing_ok: bool = False,
+) -> tuple[list[dict[str, Any]], str]:
+    if not path.is_file():
+        if missing_ok:
+            return [], ""
+        raise RuntimeError(f"environment-action journal is missing: {path}")
+    try:
+        rows = [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"environment-action journal is unreadable: {path}") from exc
+    if not rows or not all(isinstance(row, dict) for row in rows):
+        raise RuntimeError("environment-action journal has no valid header")
+    task_id = str(task.get("task_id", task.get("id", "")))
+    header = rows[0]
+    if (
+        header.get("schema_version") != 1
+        or header.get("event") != "action_journal_started"
+        or header.get("rollout_id") != str(rollout_id)
+        or header.get("episode_task_id") != task_id
+        or int(header.get("manifest_index", -2))
+        != int(task.get("manifest_index", -1))
+        or header.get("gamefile") != str(task.get("gamefile", ""))
+        or not str(header.get("actual_gamefile", "")).strip()
+    ):
+        raise RuntimeError("environment-action journal header identity mismatch")
+    conversation: list[dict[str, Any]] = []
+    seen_action_ids: set[str] = set()
+    for step_index, row in enumerate(rows[1:]):
+        identity = {
+            "rollout_id": str(rollout_id),
+            "episode_task_id": task_id,
+            "step_index": step_index,
+        }
+        expected_action_id = hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        action = row.get("action")
+        action_id = str(row.get("action_id", ""))
+        if (
+            row.get("schema_version") != 1
+            or row.get("event") != "environment_action"
+            or row.get("rollout_id") != str(rollout_id)
+            or row.get("episode_task_id") != task_id
+            or int(row.get("manifest_index", -2))
+            != int(task.get("manifest_index", -1))
+            or int(row.get("step_index", -1)) != step_index
+            or action_id != expected_action_id
+            or action_id in seen_action_ids
+            or not isinstance(action, str)
+            or not action.strip()
+        ):
+            raise RuntimeError("environment-action journal row identity mismatch")
+        seen_action_ids.add(action_id)
+        conversation.append({
+            "step": step_index,
+            "action": action,
+            "env_feedback": str(row.get("env_feedback", "")),
+            "reward": float(row.get("reward", 0.0)),
+            "done": bool(row.get("done", False)),
+        })
+    return conversation, str(header["actual_gamefile"])
+
+
+def _validate_journal_conversation(
+    conversation: list[dict[str, Any]],
+    journal: list[dict[str, Any]],
+) -> None:
+    if len(conversation) != len(journal):
+        raise RuntimeError(
+            "environment-action journal length differs from the conversation trace"
+        )
+    for index, (step, action) in enumerate(zip(conversation, journal, strict=True)):
+        if (
+            str(step.get("action", "")).strip().lower()
+            != str(action.get("action", ""))
+            or str(step.get("env_feedback", ""))
+            != str(action.get("env_feedback", ""))
+            or float(step.get("reward", 0.0)) != float(action.get("reward", 0.0))
+            or bool(step.get("done", False)) != bool(action.get("done", False))
+        ):
+            raise RuntimeError(
+                f"environment-action journal differs at step {index}"
+            )
+
+
 def _validate_episode_payload(
     *,
     task: dict[str, Any],
@@ -468,11 +724,18 @@ class _ExactManifestEnvironment:
         task: dict[str, Any],
         alfworld_data: str | Path,
         provider_observer: Any | None,
+        action_journal_path: str | Path | None = None,
+        rollout_id: str = "",
     ) -> None:
         self._environment = environment
         self._task = dict(task)
         self._alfworld_data = Path(alfworld_data).expanduser().resolve(strict=True)
         self._provider_observer = provider_observer
+        self._action_journal_path = (
+            Path(action_journal_path) if action_journal_path is not None else None
+        )
+        self._rollout_id = str(rollout_id)
+        self._step_index = 0
         self.actual_gamefile = ""
 
     def reset(self, *args: Any, **kwargs: Any):
@@ -494,12 +757,31 @@ class _ExactManifestEnvironment:
             str(infos[0].get("extra.gamefile", "")),
             alfworld_data=self._alfworld_data,
         ))
+        if self._action_journal_path is not None:
+            _write_action_journal_header(
+                self._action_journal_path,
+                task=self._task,
+                rollout_id=self._rollout_id,
+                actual_gamefile=self.actual_gamefile,
+            )
         return observations, infos
 
     def step(self, *args: Any, **kwargs: Any):
         if self._provider_observer is not None:
             self._provider_observer.raise_if_active_episode_failed()
-        return self._environment.step(*args, **kwargs)
+        result = self._environment.step(*args, **kwargs)
+        if self._action_journal_path is not None:
+            row = _action_journal_row(
+                task=self._task,
+                rollout_id=self._rollout_id,
+                step_index=self._step_index,
+                call_args=args,
+                call_kwargs=kwargs,
+                result=result,
+            )
+            _append_jsonl_durable(self._action_journal_path, row)
+            self._step_index += 1
+        return result
 
     def close(self) -> None:
         close = getattr(self._environment, "close", None)

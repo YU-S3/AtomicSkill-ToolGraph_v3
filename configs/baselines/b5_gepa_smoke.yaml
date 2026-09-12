@@ -1,0 +1,55 @@
+# Dedicated B5 real-provider smoke. Never use this file for formal results.
+schema_version: 1
+
+method: b5_gepa
+protocol_profile: smoke_v1
+experiment_kind: smoke
+campaign_id: smoke_only
+worker_python: .venv_b5_gepa/bin/python
+
+train:
+  # Dedicated immutable smoke manifests contain exactly one task per family.
+  train_size: 6
+  validation_size: 6
+  seed: 42
+
+gepa:
+  candidate_component: skill_text
+  candidate_selection_strategy: pareto
+  frontier_type: instance
+  skip_perfect_score: true
+  batch_sampler: epoch_shuffled
+  reflection_minibatch_size: 3
+  perfect_score: 1.0
+  module_selector: round_robin
+  use_merge: false
+  max_metric_calls: 24
+  cache_evaluation: false
+  val_evaluation_policy: full_eval
+  acceptance_criterion: strict_improvement
+  sampling_strategy: null
+  selection_strategy: null
+  reflection_max_completion_tokens: 2048
+
+provider_transport:
+  sdk_max_retries: 0
+  application_retry_limit: 5
+  retry_delays_seconds: [2, 5, 10, 20]
+  deterministic_jitter_ratio: 0.10
+
+parallel:
+  seed_lanes: 1
+  episode_workers_per_seed: 6
+  test_workers_per_seed: 6
+  campaign_provider_max_inflight: 6
+  mp_start_method: spawn
+
+smoke:
+  task_count_per_split: 6
+
+env:
+  name: alfworld
+  max_steps: 2
+  max_completion_tokens: 2048
+  workers: 6
+  max_api_workers: 6

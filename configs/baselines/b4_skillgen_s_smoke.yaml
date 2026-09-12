@@ -1,0 +1,71 @@
+# Dedicated B4 real-provider smoke. Never use this file for formal results.
+schema_version: 1
+
+method: b4_skillgen_s
+protocol_profile: smoke_v1
+experiment_kind: smoke
+campaign_id: smoke_only
+worker_python: .venv_b4_skillgen/bin/python
+
+train:
+  task_count: 6
+  samples_per_task: 6
+  seed: 42
+
+sampling:
+  prompt_mode: 1-shot
+  sampling_count: 6
+  max_steps: 10
+  max_length: 64
+  do_sample: true
+  temperature: 1.0
+  top_p: 0.95
+  hist_size: 20
+
+extraction:
+  gamma: 0.95
+  lambda: 0.9
+  alpha: 0.05
+  q_iterations: 500
+  seed: 42
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+
+inference:
+  max_steps: 20
+  max_length: 64
+  temperature: 0.0
+  top_p: 0.95
+  hist_size: 20
+  top_s: 1
+  top_ac: 1
+
+supervision:
+  weak_supervision: subgoal_progress
+  extra_train_supervision: true
+  label_path_env: SKILLGEN_TRAIN_LABELS
+  diagnostic_upstream_label_path: data/alfworld/all.jsonl
+
+provider_transport:
+  sdk_max_retries: 0
+  application_retry_limit: 5
+  retry_delays_seconds: [2, 5, 10, 20]
+  deterministic_jitter_ratio: 0.10
+
+resume:
+  enabled: false
+  formal_boundary: sampling_job
+  extraction_replay_from_complete_corpus: true
+
+parallel:
+  seed_lanes: 1
+  episode_workers_per_seed: 6
+  test_workers_per_seed: 6
+  campaign_provider_max_inflight: 6
+  mp_start_method: spawn
+
+smoke:
+  inference_task_count: 6
+
+env:
+  name: alfworld
+  max_steps: 100

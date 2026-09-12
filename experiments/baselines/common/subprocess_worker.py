@@ -17,16 +17,136 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-WIRE_SCHEMA_VERSION = 3
+WIRE_SCHEMA_VERSION = 4
 WORKER_RESULT_SCHEMA_VERSION = 1
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _REQUIRED_IDENTITY_KEYS = (
     "config_digest",
     "train_manifest_digest",
-    "validation_manifest_digest",
 )
+_METHOD_PHASES = {
+    "b3_skillopt": frozenset({"smoke", "train", "train_eval", "test"}),
+    "b4_skillgen_s": frozenset({"smoke", "train", "train_eval", "smoke_test", "test"}),
+    "b5_gepa": frozenset({"smoke", "train", "train_eval", "smoke_test", "test"}),
+}
+
+
+def _present(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _require_paths(wire: "WorkerWire", *names: str) -> None:
+    missing = [name for name in names if not _present(getattr(wire, name))]
+    if missing:
+        raise ValueError(
+            f"worker wire for {wire.method}/{wire.phase} requires: "
+            + ", ".join(missing)
+        )
+
+
+def _forbid_paths(wire: "WorkerWire", *names: str) -> None:
+    present = [name for name in names if getattr(wire, name) is not None]
+    if present:
+        raise ValueError(
+            f"worker wire for {wire.method}/{wire.phase} forbids: "
+            + ", ".join(present)
+        )
+
+
+def _require_identity(wire: "WorkerWire", *names: str) -> None:
+    missing = [name for name in names if name not in wire.identity]
+    if missing:
+        raise ValueError(
+            f"worker wire for {wire.method}/{wire.phase} is missing identity keys: "
+            + ", ".join(missing)
+        )
+
+
+def _forbid_identity(wire: "WorkerWire", *names: str) -> None:
+    present = [name for name in names if name in wire.identity]
+    if present:
+        raise ValueError(
+            f"worker wire for {wire.method}/{wire.phase} forbids identity keys: "
+            + ", ".join(present)
+        )
+
+
+def _validate_method_authority(wire: "WorkerWire") -> None:
+    allowed_phases = _METHOD_PHASES.get(wire.method)
+    if allowed_phases is None:
+        raise ValueError(f"unsupported worker wire method: {wire.method!r}")
+    if wire.phase not in allowed_phases:
+        raise ValueError(
+            f"unsupported worker wire phase for {wire.method}: {wire.phase!r}"
+        )
+
+    if wire.method == "b3_skillopt":
+        _require_identity(wire, "validation_manifest_digest")
+        _require_paths(wire, "manifest_path", "validation_manifest_path")
+        return
+
+    _require_identity(wire, "external_source_digest")
+    _require_paths(wire, "external_method_root")
+    if wire.method == "b4_skillgen_s":
+        _forbid_paths(
+            wire,
+            "validation_manifest_path",
+            "external_skillopt_root",
+            "initial_skill_path",
+            "skill_init_rel",
+        )
+        if "validation_manifest_digest" in wire.identity:
+            raise ValueError("B4 worker wire must not bind Validation data")
+        if wire.phase in {"train", "smoke"}:
+            _require_identity(wire, "supervision_digest")
+            _forbid_identity(
+                wire,
+                "test_manifest_digest",
+                "evaluation_manifest_digest",
+                "frozen_artifact_digest",
+            )
+            _require_paths(wire, "manifest_path", "supervision_path")
+            _forbid_paths(wire, "test_manifest_path", "frozen_artifact_path")
+            return
+        _forbid_identity(wire, "supervision_digest")
+        _forbid_paths(wire, "supervision_path")
+        _require_identity(wire, "evaluation_manifest_digest", "frozen_artifact_digest")
+        _require_paths(wire, "frozen_artifact_path")
+        if wire.phase == "train_eval":
+            _require_paths(wire, "manifest_path")
+            _forbid_paths(wire, "test_manifest_path")
+        else:
+            _require_identity(wire, "test_manifest_digest")
+            _require_paths(wire, "test_manifest_path")
+            _forbid_paths(wire, "manifest_path")
+        return
+
+    _require_identity(wire, "validation_manifest_digest", "skillopt_source_digest")
+    _require_paths(wire, "external_skillopt_root")
+    _forbid_paths(wire, "supervision_path", "skill_init_rel")
+    if wire.phase in {"train", "smoke"}:
+        _require_identity(wire, "initial_skill_digest")
+        _require_paths(
+            wire,
+            "manifest_path",
+            "validation_manifest_path",
+            "initial_skill_path",
+        )
+        _forbid_paths(wire, "test_manifest_path", "frozen_artifact_path")
+        return
+    _forbid_paths(wire, "validation_manifest_path", "initial_skill_path")
+    _require_identity(wire, "evaluation_manifest_digest", "frozen_artifact_digest")
+    _require_paths(wire, "frozen_artifact_path")
+    if wire.phase == "train_eval":
+        _require_paths(wire, "manifest_path")
+        _forbid_paths(wire, "test_manifest_path")
+    else:
+        _require_identity(wire, "test_manifest_digest")
+        _require_paths(wire, "test_manifest_path")
+        _forbid_paths(wire, "manifest_path")
 
 
 @dataclass(frozen=True)
@@ -44,6 +164,11 @@ class WorkerWire:
     result_path: str
     identity: dict[str, str]
     frozen_artifact_path: str | None = None
+    # Generic external-method authority.  The legacy B3 fields remain for
+    # wire compatibility with already completed SkillOpt campaigns.
+    external_method_root: str | None = None
+    initial_skill_path: str | None = None
+    supervision_path: str | None = None
     external_skillopt_root: str | None = None
     skill_init_rel: str | None = None
     campaign: dict[str, Any] | None = None
@@ -74,6 +199,16 @@ class WorkerWire:
                 raise ValueError(
                     f"worker wire identity digest {key!r} must be lowercase SHA-256"
                 )
+        for name in (
+            "manifest_path", "validation_manifest_path", "test_manifest_path",
+            "config_path", "output_dir", "result_path", "frozen_artifact_path",
+            "external_method_root", "initial_skill_path", "supervision_path",
+            "external_skillopt_root", "skill_init_rel",
+        ):
+            value = getattr(self, name)
+            if value is not None and not _present(value):
+                raise ValueError(f"worker wire path {name!r} must be a non-empty string")
+        _validate_method_authority(self)
         if self.campaign is not None:
             if not isinstance(self.campaign, dict):
                 raise ValueError("worker wire campaign must be a mapping")
@@ -121,6 +256,9 @@ class WorkerWire:
                     for key, value in dict(payload["identity"]).items()
                 },
                 frozen_artifact_path=payload.get("frozen_artifact_path"),
+                external_method_root=payload.get("external_method_root"),
+                initial_skill_path=payload.get("initial_skill_path"),
+                supervision_path=payload.get("supervision_path"),
                 external_skillopt_root=payload.get("external_skillopt_root"),
                 skill_init_rel=payload.get("skill_init_rel"),
                 campaign=(
@@ -158,10 +296,14 @@ def run_worker(
             f"refusing to reuse a stale worker result: {result_path}"
         )
     _write_json_atomic(wire_path, wire.to_dict(), overwrite=False)
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = _controlled_pythonpath(wire)
+    environment["PYTHONNOUSERSITE"] = "1"
     completed = subprocess.run(
         [str(python), "-m", worker_module, "--wire", str(wire_path)],
         check=False,
-        env=dict(os.environ),
+        cwd=_REPO_ROOT,
+        env=environment,
     )
     if not result_path.is_file():
         return {
@@ -192,6 +334,30 @@ def run_worker(
             f"worker exited with non-zero status {completed.returncode}",
         )
     return result
+
+
+def _controlled_pythonpath(wire: WorkerWire) -> str:
+    """Expose only identity-checked repository roots to an isolated worker."""
+
+    roots = [_REPO_ROOT, _REPO_ROOT / "src"]
+    if wire.external_method_root is not None:
+        external = Path(wire.external_method_root)
+        if wire.method == "b5_gepa":
+            roots.append(external / "src")
+        else:
+            roots.append(external)
+    if wire.external_skillopt_root is not None:
+        roots.append(Path(wire.external_skillopt_root))
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for root in roots:
+        lexical = os.path.abspath(os.fspath(root))
+        key = os.path.normcase(lexical)
+        if key not in seen:
+            seen.add(key)
+            result.append(lexical)
+    return os.pathsep.join(result)
 
 
 def write_worker_result(

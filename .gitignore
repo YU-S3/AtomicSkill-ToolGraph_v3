@@ -21,6 +21,10 @@ build/
 dist/
 *.egg-info/
 .venv_b3_skillopt/
+.venv_b4_skillgen/
+.venv_b5_gepa/
+.venv_b4_skillgen_*/
+.venv_b5_gepa_*/
 
 # Baseline external checkouts (verified via baseline_lock.yaml, never committed)
 .external/

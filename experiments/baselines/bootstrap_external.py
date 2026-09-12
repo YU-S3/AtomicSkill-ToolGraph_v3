@@ -36,11 +36,159 @@ _SKILLOPT_INSTALL_PACKAGES = [
     "omegaconf>=2.3.0",
 ]
 
+_COMMON_ALFWORLD_PACKAGES = [
+    "alfworld==0.4.2",
+    "gymnasium==1.1.1",
+    "omegaconf==2.3.0",
+]
+
+_GEPA_INSTALL_PACKAGES = [
+    *_COMMON_ALFWORLD_PACKAGES,
+    # GEPA imports the pinned SkillOpt source from PYTHONPATH.  Its selected
+    # OpenAI-compatible backend imports the SDK at module load time even
+    # though SkillOpt itself is deliberately not installed as a distribution.
+    "openai==1.75.0",
+]
+
+# SkillGen's published requirements file contains machine-local conda URLs and
+# optional visualization packages.  These are the import/runtime dependencies
+# of the frozen ALFWorld sampling, graph/TD, embedding, and retrieval path.
+_SKILLGEN_INSTALL_PACKAGES = [
+    *_COMMON_ALFWORLD_PACKAGES,
+    # ALFWorld declares lower bounds for its TextWorld stack.  On Python 3.9,
+    # an unconstrained 2026 resolution selects spaCy/thinc releases that no
+    # longer publish a compatible build.  Keep the exact upstream SkillGen
+    # environment identities for this method-defining dependency chain.
+    "textworld==1.6.2",
+    "fast_downward_textworld==20.6.3",
+    "jericho==3.3.0",
+    "spacy==3.4.4",
+    "thinc==8.1.12",
+    "pydantic==1.10.8",
+    "blis==0.7.11",
+    "catalogue==2.0.10",
+    "confection==0.1.5",
+    "cymem==2.0.11",
+    "hashids==1.3.1",
+    "langcodes==3.5.0",
+    "language_data==1.3.0",
+    "mementos==1.3.1",
+    "more-itertools==10.6.0",
+    "murmurhash==1.0.12",
+    "pathy==0.11.0",
+    "preshed==3.0.9",
+    "prompt_toolkit==3.0.51",
+    "smart-open==6.4.0",
+    "srsly==2.5.1",
+    "TatSu==5.8.3",
+    "typer==0.7.0",
+    "wasabi==0.10.1",
+    "gym==0.26.0",
+    "jsonlines==4.0.0",
+    "matplotlib==3.8.4",
+    "networkx==3.2.1",
+    "numpy==1.22.4",
+    "openai==1.75.0",
+    "pandas==1.4.2",
+    "python-dotenv==1.1.0",
+    "PyYAML==6.0",
+    "requests==2.27.1",
+    "scikit-learn==1.1.1",
+    "sentence-transformers==4.1.0",
+    "tqdm==4.64.0",
+    "transformers==4.51.3",
+]
+_SKILLGEN_TORCH_PACKAGES = ["torch==2.6.0"]
+_PYTORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
+
+_WORKER_EXPECTED_DISTRIBUTIONS = {
+    "skillgen": {
+        "alfworld": "0.4.2",
+        "blis": "0.7.11",
+        "catalogue": "2.0.10",
+        "confection": "0.1.5",
+        "cymem": "2.0.11",
+        "fast_downward_textworld": "20.6.3",
+        "gym": "0.26.0",
+        "gymnasium": "1.1.1",
+        "hashids": "1.3.1",
+        "jericho": "3.3.0",
+        "jsonlines": "4.0.0",
+        "langcodes": "3.5.0",
+        "language_data": "1.3.0",
+        "matplotlib": "3.8.4",
+        "mementos": "1.3.1",
+        "more-itertools": "10.6.0",
+        "murmurhash": "1.0.12",
+        "networkx": "3.2.1",
+        "numpy": "1.22.4",
+        "omegaconf": "2.3.0",
+        "openai": "1.75.0",
+        "pandas": "1.4.2",
+        "pathy": "0.11.0",
+        "preshed": "3.0.9",
+        "prompt_toolkit": "3.0.51",
+        "pydantic": "1.10.8",
+        "python-dotenv": "1.1.0",
+        "PyYAML": "6.0",
+        "requests": "2.27.1",
+        "scikit-learn": "1.1.1",
+        "sentence-transformers": "4.1.0",
+        "smart-open": "6.4.0",
+        "spacy": "3.4.4",
+        "srsly": "2.5.1",
+        "TatSu": "5.8.3",
+        "textworld": "1.6.2",
+        "thinc": "8.1.12",
+        "torch": "2.6.0",
+        "tqdm": "4.64.0",
+        "transformers": "4.51.3",
+        "typer": "0.7.0",
+        "wasabi": "0.10.1",
+    },
+    "gepa": {
+        "alfworld": "0.4.2",
+        "gepa": "0.1.3",
+        "gymnasium": "1.1.1",
+        "omegaconf": "2.3.0",
+        "openai": "1.75.0",
+    },
+}
+_WORKER_FORBIDDEN_DISTRIBUTIONS = {
+    "skillgen": ("atomic-skillgraph", "skillopt"),
+    "gepa": ("atomic-skillgraph", "skillopt"),
+}
+_WORKER_FORBIDDEN_MODULES = {
+    "skillgen": ("atomic_skillgraph", "skillopt"),
+    "gepa": ("atomic_skillgraph", "skillopt"),
+}
+
+
+def worker_expected_distributions(method: str) -> dict[str, str]:
+    """Return a copy of the frozen distribution authority for one worker."""
+
+    normalized = str(method).strip().lower()
+    aliases = {"b4_skillgen_s": "skillgen", "b5_gepa": "gepa"}
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in _WORKER_EXPECTED_DISTRIBUTIONS:
+        raise ValueError(f"unsupported isolated worker method: {method!r}")
+    return dict(_WORKER_EXPECTED_DISTRIBUTIONS[normalized])
+
 _RUNTIME_TREE_ALGORITHM = "sha256-path-content-v1"
+_CANONICAL_RUNTIME_TREE_ALGORITHM = "sha256-path-canonical-content-v2"
+_SUPPORTED_RUNTIME_TREE_ALGORITHMS = frozenset({
+    _RUNTIME_TREE_ALGORITHM,
+    _CANONICAL_RUNTIME_TREE_ALGORITHM,
+})
 _RUNTIME_TREE_IGNORED_DIRS = frozenset({
     "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
 })
 _RUNTIME_TREE_IGNORED_SUFFIXES = frozenset({".pyc", ".pyo"})
+_CANONICAL_TEXT_SUFFIXES = frozenset({
+    ".cfg", ".ini", ".ipynb", ".json", ".jsonl", ".md", ".py", ".rst",
+    ".lock", ".sh", ".toml", ".txt", ".typed", ".yaml", ".yml",
+})
+_CANONICAL_TEXT_NAMES = frozenset({"LICENSE", "NOTICE"})
 
 
 def _path(value: str | Path) -> Path:
@@ -61,6 +209,28 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _source_bytes(path: Path, *, algorithm: str) -> bytes:
+    """Read source bytes using the line-ending policy declared by the lock."""
+
+    content = path.read_bytes()
+    if algorithm == _CANONICAL_RUNTIME_TREE_ALGORITHM and (
+        path.suffix.casefold() in _CANONICAL_TEXT_SUFFIXES
+        or path.name in _CANONICAL_TEXT_NAMES
+    ):
+        return content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return content
+
+
+def source_file_sha256(path: str | Path, *, algorithm: str) -> str:
+    """Hash one locked source file with the runtime-tree canonicalization."""
+
+    if algorithm not in _SUPPORTED_RUNTIME_TREE_ALGORITHMS:
+        raise ValueError(f"unsupported runtime_tree algorithm: {algorithm!r}")
+    return hashlib.sha256(
+        _source_bytes(Path(path), algorithm=algorithm)
+    ).hexdigest()
 
 
 def _safe_relative_path(value: object, *, field: str) -> str:
@@ -128,17 +298,18 @@ def compute_runtime_tree(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
     """
 
     algorithm = str(spec.get("algorithm") or "")
-    if algorithm != _RUNTIME_TREE_ALGORITHM:
+    if algorithm not in _SUPPORTED_RUNTIME_TREE_ALGORITHMS:
         raise ValueError(
             "unsupported runtime_tree algorithm: "
-            f"{algorithm!r}; expected {_RUNTIME_TREE_ALGORITHM!r}"
+            f"{algorithm!r}; expected one of "
+            f"{sorted(_SUPPORTED_RUNTIME_TREE_ALGORITHMS)!r}"
         )
     entries = _runtime_tree_files(root, spec)
     digest = hashlib.sha256()
-    digest.update((_RUNTIME_TREE_ALGORITHM + "\0").encode("ascii"))
+    digest.update((algorithm + "\0").encode("ascii"))
     for relative, path in entries:
         relative_bytes = relative.encode("utf-8")
-        content = path.read_bytes()
+        content = _source_bytes(path, algorithm=algorithm)
         digest.update(len(relative_bytes).to_bytes(8, "big"))
         digest.update(relative_bytes)
         digest.update(len(content).to_bytes(8, "big"))
@@ -194,13 +365,17 @@ def verify_key_files(root: Path, method: str, lock: dict[str, Any]) -> dict[str,
     expected = dict((lock.get(method) or {}).get("key_files") or {})
     if not expected:
         raise ValueError(f"baseline_lock.yaml has no key_files for {method}")
+    runtime_spec = dict((lock.get(method) or {}).get("runtime_tree") or {})
+    algorithm = str(runtime_spec.get("algorithm") or "")
+    if algorithm not in _SUPPORTED_RUNTIME_TREE_ALGORITHMS:
+        raise ValueError(f"unsupported runtime_tree algorithm: {algorithm!r}")
     mismatches: list[str] = []
     for relative, wanted in sorted(expected.items()):
         path = root / relative
         if not path.is_file():
             mismatches.append(f"{relative}: missing")
             continue
-        actual = _sha256_file(path)
+        actual = source_file_sha256(path, algorithm=algorithm)
         if actual != str(wanted):
             mismatches.append(f"{relative}: expected {wanted}, got {actual}")
     if mismatches:
@@ -257,6 +432,143 @@ def ensure_skillopt_source(
     }
 
 
+def _verify_git_checkout(
+    root: Path,
+    *,
+    expected_commit: str,
+    expected_tag: str = "",
+) -> dict[str, Any]:
+    """Verify commit and cleanliness when the materialized source retains Git."""
+
+    if not (root / ".git").exists():
+        raise RuntimeError(
+            f"external source must retain Git metadata to prove commit {expected_commit}: "
+            f"{root}"
+        )
+    head = subprocess.run(
+        ["git", "-c", "core.autocrlf=false", "rev-parse", "HEAD"],
+        cwd=root, check=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    ).stdout.strip()
+    status = subprocess.run(
+        [
+            # Git's index is the semantic source authority.  Accept either LF
+            # or CRLF worktree materialization; canonical source hashes below
+            # still reject every non-line-ending content change.
+            "git", "-c", "core.autocrlf=true", "status", "--porcelain",
+            "--untracked-files=all",
+        ], cwd=root,
+        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    ).stdout.strip()
+    if head != expected_commit:
+        raise RuntimeError(
+            f"external checkout HEAD mismatch: expected {expected_commit}, got {head}"
+        )
+    if status:
+        raise RuntimeError("external checkout is not clean")
+    tag_commit: str | None = None
+    if expected_tag:
+        tag_ref = f"refs/tags/{expected_tag}^{{commit}}"
+        completed = subprocess.run(
+            ["git", "-c", "core.autocrlf=false", "rev-parse", "--verify", tag_ref],
+            cwd=root, check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        if completed.returncode:
+            raise RuntimeError(
+                f"external checkout has no verifiable tag {expected_tag!r}"
+            )
+        tag_commit = completed.stdout.strip()
+        if tag_commit != expected_commit:
+            raise RuntimeError(
+                f"external tag {expected_tag!r} points at {tag_commit}, "
+                f"expected {expected_commit}"
+            )
+    return {
+        "git_metadata": True,
+        "head": head,
+        "clean": True,
+        "tag": expected_tag or None,
+        "tag_commit": tag_commit,
+    }
+
+
+def ensure_pinned_source(
+    method: str,
+    *,
+    local_source: str | Path | None = None,
+    destination: Path | None = None,
+    lock_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Materialize and fail-closed verify one Git-pinned external method."""
+
+    normalized = str(method).strip().lower()
+    if normalized == "skillopt":
+        return ensure_skillopt_source(
+            local_source=local_source,
+            destination=destination,
+            lock_path=lock_path,
+        )
+    lock = load_lock(lock_path) if lock_path else load_lock()
+    entry = dict(lock.get(normalized) or {})
+    if not entry:
+        raise ValueError(f"baseline_lock.yaml has no source entry for {normalized}")
+    expected_commit = str(entry.get("commit") or "").strip()
+    expected_tag = str(entry.get("tag") or "").strip()
+    repo = str(entry.get("repo") or "").strip()
+    if len(expected_commit) != 40 or not repo:
+        raise ValueError(f"source lock for {normalized} has no exact repo/commit")
+    root = destination or (EXTERNAL_ROOT / normalized)
+    if not root.exists():
+        root.parent.mkdir(parents=True, exist_ok=True)
+        if local_source is not None:
+            source = Path(local_source).expanduser().resolve()
+            if not source.is_dir():
+                raise FileNotFoundError(
+                    f"local {normalized} source does not exist: {source}"
+                )
+            _verify_git_checkout(
+                source,
+                expected_commit=expected_commit,
+                expected_tag=expected_tag,
+            )
+            _run(
+                [
+                    "git", "-c", "core.autocrlf=false", "clone", "--no-local",
+                    str(source), str(root),
+                ],
+                cwd=REPO_ROOT,
+            )
+        else:
+            _run(
+                ["git", "-c", "core.autocrlf=false", "clone", repo, str(root)],
+                cwd=REPO_ROOT,
+            )
+        _run(
+            ["git", "-c", "core.autocrlf=false", "checkout", "--detach", expected_commit],
+            cwd=root,
+        )
+    git_identity = _verify_git_checkout(
+        root,
+        expected_commit=expected_commit,
+        expected_tag=expected_tag,
+    )
+    verified = verify_key_files(root, normalized, lock)
+    runtime_tree = verify_runtime_tree(root, normalized, lock)
+    return {
+        "method": normalized,
+        "root": str(root),
+        "repo": repo,
+        "declared_commit": expected_commit,
+        "declared_tag": str(entry.get("tag") or ""),
+        "declared_version": str(entry.get("version") or ""),
+        "verification": str(entry.get("local_snapshot_verification") or ""),
+        "git_identity": git_identity,
+        "runtime_tree": runtime_tree,
+        "verified_files": verified,
+    }
+
+
 def _run(command: list[str], *, cwd: Path, path_prepend: str | None = None) -> None:
     environment = dict(os.environ)
     if path_prepend:
@@ -271,15 +583,289 @@ def _run(command: list[str], *, cwd: Path, path_prepend: str | None = None) -> N
         )
 
 
-def _create_venv(venv_path: Path) -> None:
+def _find_uv() -> str | None:
+    """Find an executable uv without relying on login-shell PATH setup."""
+
+    configured = os.environ.get("UV_BIN", "").strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+        if not candidate.is_absolute():
+            raise ValueError("UV_BIN must be an absolute executable path")
+        if not candidate.is_file() or not os.access(candidate, os.X_OK):
+            raise RuntimeError(f"UV_BIN is not an executable file: {candidate}")
+        return str(candidate)
+
+    discovered = shutil.which("uv")
+    if discovered:
+        return discovered
+    executable_name = "uv.exe" if os.name == "nt" else "uv"
+    for candidate in (
+        Path.home() / ".local" / "bin" / executable_name,
+        Path.home() / ".cargo" / "bin" / executable_name,
+    ):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def _create_venv(venv_path: Path, *, python_version: str = "3.12") -> None:
     """Create the worker venv, preferring ``uv`` when ensurepip is absent."""
 
-    uv = shutil.which("uv")
+    uv = _find_uv()
     if uv:
         # --seed installs pip/setuptools into the uv-created venv.
-        _run([uv, "venv", "--seed", "--python", "3.12", str(venv_path)], cwd=REPO_ROOT)
+        _run(
+            [uv, "venv", "--seed", "--python", python_version, str(venv_path)],
+            cwd=REPO_ROOT,
+        )
         return
+    current = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if current != python_version:
+        raise RuntimeError(
+            f"creating this worker requires Python {python_version}; install uv "
+            f"or invoke bootstrap with that interpreter (current={current})"
+        )
     _run([sys.executable, "-m", "venv", str(venv_path)], cwd=REPO_ROOT)
+
+
+def worker_venv_python(
+    venv_path: str | Path,
+    *,
+    host_os: str | None = None,
+) -> Path:
+    """Return the lexical interpreter path for the current host platform."""
+
+    root = Path(venv_path)
+    if (host_os or os.name) == "nt":
+        return root / "Scripts" / "python.exe"
+    return root / "bin" / "python"
+
+
+def verify_worker_python(
+    python: str | Path,
+    *,
+    expected_version: str,
+) -> dict[str, Any]:
+    """Verify an existing worker interpreter before installing into its venv."""
+
+    executable = Path(python)
+    if not executable.is_file():
+        raise FileNotFoundError(f"worker venv Python is missing: {executable}")
+    probe = (
+        "import json,sys; print(json.dumps({"
+        "'version': f'{sys.version_info.major}.{sys.version_info.minor}',"
+        "'version_info': list(sys.version_info[:3]),"
+        "'executable': sys.executable,"
+        "'prefix': sys.prefix,"
+        "'base_prefix': sys.base_prefix,"
+        "'venv_active': sys.prefix != sys.base_prefix"
+        "}, sort_keys=True))"
+    )
+    completed = subprocess.run(
+        [str(executable), "-c", probe],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if completed.returncode:
+        raise RuntimeError(
+            f"worker Python probe failed for {executable}: "
+            f"{completed.stderr.strip() or 'unknown error'}"
+        )
+    try:
+        receipt = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"worker Python probe returned invalid JSON for {executable}"
+        ) from exc
+    if str(receipt.get("version")) != expected_version:
+        raise RuntimeError(
+            f"worker Python version mismatch: expected {expected_version}, "
+            f"got {receipt.get('version')} ({executable})"
+        )
+    if receipt.get("venv_active") is not True:
+        raise RuntimeError(f"worker Python is not a virtual environment: {executable}")
+    receipt["requested_executable"] = str(executable)
+    receipt["expected_version"] = expected_version
+    return receipt
+
+
+def _prepare_worker_python(
+    venv_path: Path,
+    *,
+    python_version: str,
+) -> tuple[Path, dict[str, Any]]:
+    python = worker_venv_python(venv_path)
+    if not python.exists():
+        if venv_path.exists() and any(venv_path.iterdir()):
+            raise RuntimeError(
+                f"worker venv exists but has no interpreter for this host at {python}; "
+                "use a separate Windows/WSL venv path or remove the incompatible venv"
+            )
+        _create_venv(venv_path, python_version=python_version)
+    if not (Path(venv_path) / "pyvenv.cfg").is_file():
+        raise RuntimeError(f"worker venv metadata is missing: {venv_path}")
+    return python, verify_worker_python(
+        python,
+        expected_version=python_version,
+    )
+
+
+def _ensure_pip(python: Path, *, path_prepend: str) -> None:
+    completed = subprocess.run(
+        [str(python), "-m", "pip", "--version"],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if completed.returncode:
+        _run(
+            [str(python), "-m", "ensurepip", "--upgrade"],
+            cwd=REPO_ROOT,
+            path_prepend=path_prepend,
+        )
+
+
+def verify_worker_environment(
+    python: str | Path,
+    *,
+    expected_versions: dict[str, str],
+    forbidden_distributions: tuple[str, ...] = (),
+    forbidden_modules: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Return and validate the installed distribution receipt for a worker."""
+
+    names = sorted(str(name) for name in expected_versions)
+    probe = (
+        "import json; from importlib.metadata import PackageNotFoundError, version; "
+        f"names={json.dumps(names)}; values={{}}; "
+        "\nfor name in names:\n"
+        "  try: values[name]=version(name)\n"
+        "  except PackageNotFoundError: values[name]=None\n"
+        "print(json.dumps(values, sort_keys=True))"
+    )
+    completed = subprocess.run(
+        [str(python), "-c", probe],
+        cwd=Path(python).parent,
+        check=False,
+        env=_isolated_probe_environment(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if completed.returncode:
+        raise RuntimeError(
+            f"worker distribution probe failed: "
+            f"{completed.stderr.strip() or 'unknown error'}"
+        )
+    try:
+        installed = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("worker distribution probe returned invalid JSON") from exc
+    mismatches = []
+    for name, expected in sorted(expected_versions.items()):
+        actual = installed.get(name)
+        # The official PyTorch CPU index appends a local ``+cpu`` marker.
+        compatible = (
+            actual == expected
+            or (name == "torch" and str(actual).split("+", 1)[0] == expected)
+        )
+        if not compatible:
+            mismatches.append(f"{name}: expected {expected}, got {actual}")
+    if mismatches:
+        raise RuntimeError(
+            "worker distribution identity mismatch: " + "; ".join(mismatches)
+        )
+    isolation = verify_worker_isolation(
+        python,
+        forbidden_distributions=forbidden_distributions,
+        forbidden_modules=forbidden_modules,
+    )
+    return {
+        "python": str(python),
+        "distributions": {name: installed[name] for name in names},
+        "isolation": isolation,
+    }
+
+
+def _isolated_probe_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    environment["PYTHONNOUSERSITE"] = "1"
+    return environment
+
+
+def verify_worker_isolation(
+    python: str | Path,
+    *,
+    forbidden_distributions: tuple[str, ...],
+    forbidden_modules: tuple[str, ...],
+) -> dict[str, Any]:
+    """Reject worker venvs contaminated by controller/method installations."""
+
+    distributions = sorted(set(str(name) for name in forbidden_distributions))
+    modules = sorted(set(str(name) for name in forbidden_modules))
+    probe = (
+        "import json; from importlib.metadata import PackageNotFoundError, version; "
+        "from importlib.util import find_spec; "
+        f"distributions={json.dumps(distributions)}; modules={json.dumps(modules)}; "
+        "installed={}; origins={}; "
+        "\nfor name in distributions:\n"
+        "  try: installed[name]=version(name)\n"
+        "  except PackageNotFoundError: installed[name]=None\n"
+        "\nfor name in modules:\n"
+        "  try: spec=find_spec(name)\n"
+        "  except (ImportError, ModuleNotFoundError, ValueError): spec=None\n"
+        "  origins[name]=(getattr(spec, 'origin', None) if spec is not None else None)\n"
+        "print(json.dumps({'distributions': installed, 'modules': origins}, sort_keys=True))"
+    )
+    completed = subprocess.run(
+        [str(python), "-c", probe],
+        cwd=Path(python).parent,
+        check=False,
+        env=_isolated_probe_environment(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if completed.returncode:
+        raise RuntimeError(
+            "worker isolation probe failed: "
+            f"{completed.stderr.strip() or 'unknown error'}"
+        )
+    try:
+        receipt = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("worker isolation probe returned invalid JSON") from exc
+    installed = {
+        name: value
+        for name, value in dict(receipt.get("distributions") or {}).items()
+        if value is not None
+    }
+    origins = {
+        name: value
+        for name, value in dict(receipt.get("modules") or {}).items()
+        if value is not None
+    }
+    if installed or origins:
+        details = []
+        if installed:
+            details.append(f"distributions={installed}")
+        if origins:
+            details.append(f"module_origins={origins}")
+        raise RuntimeError(
+            "worker venv contains forbidden controller/method installations ("
+            + ", ".join(details)
+            + "); recreate this worker venv instead of reusing it"
+        )
+    return {
+        "forbidden_distributions_absent": distributions,
+        "forbidden_modules_absent": modules,
+    }
 
 
 def setup_worker_venv(
@@ -292,11 +878,12 @@ def setup_worker_venv(
 
     load_lock(lock_path) if lock_path else load_lock()
     verify_key_files(skillopt_root, "skillopt", load_lock(lock_path) if lock_path else load_lock())
-    python = venv_path / "bin" / "python"
-    venv_bin = str(venv_path / "bin")
-    if not python.exists():
-        _create_venv(venv_path)
-        _run([str(python), "-m", "pip", "install", "--upgrade", "pip"], cwd=REPO_ROOT, path_prepend=venv_bin)
+    python, python_receipt = _prepare_worker_python(
+        venv_path,
+        python_version="3.12",
+    )
+    venv_bin = str(python.parent)
+    _ensure_pip(python, path_prepend=venv_bin)
     # Some ALFWorld build backends spawn a bare ``python`` executable, so the
     # venv bin directory must be on PATH during installation.
     _run(
@@ -315,7 +902,86 @@ def setup_worker_venv(
     return {
         "venv": str(venv_path),
         "python": str(python),
+        "python_receipt": python_receipt,
         "skillopt_root": str(skillopt_root),
+        "alfworld_pinned": "0.4.2",
+    }
+
+
+def setup_method_worker_venv(
+    method: str,
+    *,
+    source_root: Path,
+    venv_path: Path,
+    lock_path: str | Path | None = None,
+    skillopt_root: Path | None = None,
+) -> dict[str, Any]:
+    """Create an isolated B4/B5 worker environment without patching upstream."""
+
+    normalized = str(method).strip().lower()
+    if normalized == "skillopt":
+        return setup_worker_venv(
+            skillopt_root=source_root,
+            venv_path=venv_path,
+            lock_path=lock_path,
+        )
+    if normalized not in {"skillgen", "gepa"}:
+        raise ValueError(f"unsupported worker method: {normalized}")
+    lock = load_lock(lock_path) if lock_path else load_lock()
+    verify_key_files(source_root, normalized, lock)
+    python_version = "3.9" if normalized == "skillgen" else "3.12"
+    python, python_receipt = _prepare_worker_python(
+        venv_path,
+        python_version=python_version,
+    )
+    pre_install_isolation_receipt = verify_worker_isolation(
+        python,
+        forbidden_distributions=_WORKER_FORBIDDEN_DISTRIBUTIONS[normalized],
+        forbidden_modules=_WORKER_FORBIDDEN_MODULES[normalized],
+    )
+    venv_bin = str(python.parent)
+    _ensure_pip(python, path_prepend=venv_bin)
+    if normalized == "gepa":
+        if skillopt_root is None:
+            raise ValueError("GEPA worker setup requires the shared SkillOpt source")
+        verify_key_files(skillopt_root, "skillopt", lock)
+        _run(
+            [str(python), "-m", "pip", "install", "-e", str(source_root)],
+            cwd=REPO_ROOT,
+            path_prepend=venv_bin,
+        )
+        packages = _GEPA_INSTALL_PACKAGES
+    else:
+        packages = _SKILLGEN_INSTALL_PACKAGES
+        _run(
+            [
+                str(python), "-m", "pip", "install", "--index-url",
+                _PYTORCH_CPU_INDEX, *_SKILLGEN_TORCH_PACKAGES,
+            ],
+            cwd=REPO_ROOT,
+            path_prepend=venv_bin,
+        )
+    _run(
+        [str(python), "-m", "pip", "install", *packages],
+        cwd=REPO_ROOT,
+        path_prepend=venv_bin,
+    )
+    environment_receipt = verify_worker_environment(
+        python,
+        expected_versions=_WORKER_EXPECTED_DISTRIBUTIONS[normalized],
+        forbidden_distributions=_WORKER_FORBIDDEN_DISTRIBUTIONS[normalized],
+        forbidden_modules=_WORKER_FORBIDDEN_MODULES[normalized],
+    )
+    return {
+        "method": normalized,
+        "venv": str(venv_path),
+        "python": str(python),
+        "python_receipt": python_receipt,
+        "pre_install_isolation_receipt": pre_install_isolation_receipt,
+        "environment_receipt": environment_receipt,
+        "source_root": str(source_root),
+        "skillopt_root": str(skillopt_root) if skillopt_root is not None else None,
+        "python_requested": python_version,
         "alfworld_pinned": "0.4.2",
     }
 
@@ -327,29 +993,54 @@ def main(argv: list[str] | None = None) -> int:
         help="baseline_lock.yaml path",
     )
     parser.add_argument(
+        "--method", default="skillopt", choices=["skillopt", "skillgen", "gepa"],
+        help="external method to materialize and verify",
+    )
+    parser.add_argument(
         "--local-source", default=None,
-        help="path to a local SkillOpt source snapshot (used when .external/skillopt is absent)",
+        help="optional local source snapshot (used only when the destination is absent)",
+    )
+    parser.add_argument(
+        "--skillopt-local-source", default=None,
+        help="optional shared SkillOpt snapshot required by a new GEPA worker venv",
     )
     parser.add_argument(
         "--setup-worker-venv", action="store_true",
-        help="create/refresh the SkillOpt worker venv (.venv_b3_skillopt) and install dependencies",
+        help="create/refresh the selected method's isolated worker venv",
     )
     parser.add_argument(
-        "--venv", default=str(REPO_ROOT / ".venv_b3_skillopt"),
+        "--venv", default=None,
         help="worker venv destination",
     )
     args = parser.parse_args(argv)
     result: dict[str, Any] = {}
     try:
-        source = ensure_skillopt_source(
-            local_source=args.local_source, lock_path=args.lock,
+        source = ensure_pinned_source(
+            args.method,
+            local_source=args.local_source,
+            lock_path=args.lock,
         )
-        result["skillopt_source"] = source
+        result[f"{args.method}_source"] = source
         if args.setup_worker_venv:
-            result["worker_venv"] = setup_worker_venv(
-                skillopt_root=Path(source["root"]),
-                venv_path=_path(args.venv),
+            venv_defaults = {
+                "skillopt": REPO_ROOT / ".venv_b3_skillopt",
+                "skillgen": REPO_ROOT / ".venv_b4_skillgen",
+                "gepa": REPO_ROOT / ".venv_b5_gepa",
+            }
+            shared_skillopt: Path | None = None
+            if args.method == "gepa":
+                skillopt = ensure_skillopt_source(
+                    local_source=args.skillopt_local_source,
+                    lock_path=args.lock,
+                )
+                result["skillopt_source"] = skillopt
+                shared_skillopt = Path(skillopt["root"])
+            result["worker_venv"] = setup_method_worker_venv(
+                args.method,
+                source_root=Path(source["root"]),
+                venv_path=_path(args.venv or venv_defaults[args.method]),
                 lock_path=args.lock,
+                skillopt_root=shared_skillopt,
             )
         result["passed"] = True
     except Exception as exc:

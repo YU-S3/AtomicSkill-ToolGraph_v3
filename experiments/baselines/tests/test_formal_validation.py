@@ -10,12 +10,17 @@ import pytest
 
 from experiments.protocol import ALFWORLD_FORMAL_TASK_TYPES
 from experiments.baselines.common.formal_validation import (
+    ALFWORLD_FORMAL_TASK_TYPES as BASELINE_ALFWORLD_FORMAL_TASK_TYPES,
     verify_final_evaluation_bijection,
     verify_formal_manifest,
     verify_observed_gamefile,
 )
 from experiments.baselines.common.manifest import ManifestTask, TaskManifestSet
 from experiments.baselines.common.schema import CommonEpisodeRecord
+
+
+def test_minimal_validator_task_types_match_protocol_authority() -> None:
+    assert BASELINE_ALFWORLD_FORMAL_TASK_TYPES == ALFWORLD_FORMAL_TASK_TYPES
 
 
 def _build_manifest(
@@ -101,6 +106,55 @@ def _build_formal_v2_manifest(
             gamefile.parent.mkdir(parents=True, exist_ok=True)
             gamefile.write_bytes(content)
             pending.append((relative.as_posix(), task_type, content))
+    tasks = tuple(
+        ManifestTask(
+            index=index,
+            task_id=f"{manifest_id}_{index}",
+            task_type=task_type,
+            source_split=split,
+            env_index=index,
+            gamefile_rel=relative,
+            gamefile_sha256=hashlib.sha256(content).hexdigest(),
+            task_signature=hashlib.sha256(
+                f"signature:{manifest_id}:{relative}".encode()
+            ).hexdigest(),
+        )
+        for index, (relative, task_type, content) in enumerate(sorted(pending))
+    )
+    return TaskManifestSet.create(
+        manifest_id=manifest_id,
+        benchmark="alfworld",
+        source_split=split,
+        seed=seed,
+        tasks=tasks,
+    )
+
+
+def _build_smoke_v1_manifest(
+    data_root: Path,
+    *,
+    role: str,
+    seed: int = 42,
+) -> TaskManifestSet:
+    manifest_id, split = {
+        "train": ("train_6_smoke", "train"),
+        "validation": ("validation_6_smoke", "valid_seen"),
+        "test": ("test_6_smoke", "valid_unseen"),
+    }[role]
+    pending: list[tuple[str, str, bytes]] = []
+    for task_type in ALFWORLD_FORMAL_TASK_TYPES:
+        relative = (
+            Path("json_2.1.1")
+            / split
+            / f"{task_type}-Smoke"
+            / "trial_fixture"
+            / "game.tw-pddl"
+        )
+        content = f"{manifest_id}:{task_type}\n".encode()
+        gamefile = data_root / relative
+        gamefile.parent.mkdir(parents=True, exist_ok=True)
+        gamefile.write_bytes(content)
+        pending.append((relative.as_posix(), task_type, content))
     tasks = tuple(
         ManifestTask(
             index=index,
@@ -248,6 +302,54 @@ def test_formal_v2_rejects_selection_seed_drift(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("role", "split"),
+    [
+        ("train", "train"),
+        ("validation", "valid_seen"),
+        ("test", "valid_unseen"),
+    ],
+)
+def test_smoke_v1_verifies_explicit_balanced_manifest(
+    tmp_path: Path,
+    role: str,
+    split: str,
+) -> None:
+    manifest = _build_smoke_v1_manifest(tmp_path, role=role)
+    report = verify_formal_manifest(
+        manifest,
+        alfworld_data=tmp_path,
+        role=role,
+        profile="smoke_v1",
+    )
+    assert report["manifest_id"] == f"{role if role != 'test' else 'test'}_6_smoke"
+    assert report["source_split"] == split
+    assert report["task_count"] == 6
+    assert report["family_counts"] == {
+        task_type: 1 for task_type in ALFWORLD_FORMAL_TASK_TYPES
+    }
+
+
+def test_smoke_v1_rejects_seed_or_role_drift(tmp_path: Path) -> None:
+    manifest = _build_smoke_v1_manifest(tmp_path, role="validation", seed=43)
+    with pytest.raises(ValueError, match="selection seed mismatch"):
+        verify_formal_manifest(
+            manifest,
+            alfworld_data=tmp_path,
+            role="validation",
+            profile="smoke_v1",
+        )
+
+    manifest = _build_smoke_v1_manifest(tmp_path, role="test")
+    with pytest.raises(ValueError, match="manifest_id mismatch"):
+        verify_formal_manifest(
+            manifest,
+            alfworld_data=tmp_path,
+            role="train",
+            profile="smoke_v1",
+        )
+
+
 def test_formal_manifest_rejects_parent_path_escape(tmp_path: Path) -> None:
     manifest = _build_manifest(tmp_path, role="train")
     drifted = _replace_task(
@@ -382,7 +484,7 @@ def test_final_evaluation_rejects_non_boolean_outcome_and_infrastructure(
 ) -> None:
     manifest = _build_manifest(tmp_path, role="train")
     episodes = _episodes(manifest, phase="train_eval")
-    episodes[0] = replace(episodes[0], strict_success=None)
+    episodes[0].common_strict_success = None
     with pytest.raises(ValueError, match="strict_success is not boolean"):
         verify_final_evaluation_bijection(episodes, manifest, role="train")
 

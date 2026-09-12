@@ -10,11 +10,16 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+import os
+import uuid
+from dataclasses import InitVar, dataclass
 from pathlib import Path
 from typing import Any
 
 from .schema import CommonEpisodeRecord
+
+
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -26,8 +31,6 @@ class TaskRow:
     task_type: str
     manifest_index: int
     official_success: bool
-    task_contract_success: bool | None
-    strict_success: bool | None
     environment_actions: int
     invalid_actions: int | None
     target_llm_calls: int
@@ -47,9 +50,61 @@ class TaskRow:
     artifact_digest_before: str = ""
     artifact_digest_after: str = ""
     method_metrics: dict[str, Any] | None = None
+    termination_reason: str = ""
+    infrastructure_error: str = ""
+    evolution_reasoning_tokens: int = 0
+    contract_consistency: bool | None = None
+    common_strict_success: bool | None = None
+    task_contract_success: InitVar[bool | None | object] = _UNSET
+    strict_success: InitVar[bool | None | object] = _UNSET
+
+    def __post_init__(
+        self,
+        task_contract_success: bool | None | object,
+        strict_success: bool | None | object,
+    ) -> None:
+        contract = self.contract_consistency
+        strict = self.common_strict_success
+        if task_contract_success is not _UNSET:
+            if (
+                task_contract_success is not None
+                and contract is not None
+                and task_contract_success is not contract
+            ):
+                raise ValueError(
+                    "contract_consistency disagrees with task_contract_success"
+                )
+            contract = task_contract_success  # type: ignore[assignment]
+        if strict_success is not _UNSET:
+            if (
+                strict_success is not None
+                and strict is not None
+                and strict_success is not strict
+            ):
+                raise ValueError(
+                    "common_strict_success disagrees with strict_success"
+                )
+            strict = strict_success  # type: ignore[assignment]
+        _require_optional_bool("contract_consistency", contract)
+        _require_optional_bool("common_strict_success", strict)
+        if contract is None:
+            if strict is not None:
+                raise ValueError(
+                    "common_strict_success requires contract_consistency evidence"
+                )
+        elif strict is not None:
+            expected = bool(self.official_success) and contract
+            if strict is not expected:
+                raise ValueError(
+                    "common_strict_success must equal official_success && "
+                    "contract_consistency"
+                )
+        object.__setattr__(self, "contract_consistency", contract)
+        object.__setattr__(self, "common_strict_success", strict)
 
     @classmethod
     def from_episode(cls, episode: CommonEpisodeRecord) -> "TaskRow":
+        episode.normalize_posthoc_outcome()
         return cls(
             method=episode.method,
             phase=episode.phase,
@@ -58,8 +113,8 @@ class TaskRow:
             task_type=episode.task_type,
             manifest_index=episode.manifest_index,
             official_success=episode.official_success,
-            task_contract_success=episode.task_contract_success,
-            strict_success=episode.strict_success,
+            contract_consistency=episode.contract_consistency,
+            common_strict_success=episode.common_strict_success,
             environment_actions=episode.environment_actions,
             invalid_actions=episode.invalid_actions,
             target_llm_calls=episode.target_llm_calls,
@@ -69,11 +124,14 @@ class TaskRow:
             evolution_llm_calls=episode.evolution_llm_calls,
             evolution_prompt_tokens=episode.evolution_prompt_tokens,
             evolution_completion_tokens=episode.evolution_completion_tokens,
+            evolution_reasoning_tokens=episode.evolution_reasoning_tokens,
             embedding_calls=episode.embedding_calls,
             wall_time_ms=episode.wall_time_ms,
             infrastructure_failure=episode.infrastructure_failure,
+            infrastructure_error=episode.infrastructure_error,
             command_turns=episode.command_turns,
             timeout=episode.timeout,
+            termination_reason=episode.termination_reason,
             gamefile=episode.gamefile,
             gamefile_hash=episode.gamefile_hash,
             artifact_digest_before=episode.artifact_digest_before,
@@ -90,8 +148,10 @@ class TaskRow:
             "task_type": self.task_type,
             "manifest_index": self.manifest_index,
             "official_success": self.official_success,
-            "task_contract_success": self.task_contract_success,
-            "strict_success": self.strict_success,
+            "contract_consistency": self.contract_consistency,
+            "common_strict_success": self.common_strict_success,
+            "task_contract_success": self.contract_consistency,
+            "strict_success": self.common_strict_success,
             "environment_actions": self.environment_actions,
             "invalid_actions": self.invalid_actions,
             "target_llm_calls": self.target_llm_calls,
@@ -101,11 +161,14 @@ class TaskRow:
             "evolution_llm_calls": self.evolution_llm_calls,
             "evolution_prompt_tokens": self.evolution_prompt_tokens,
             "evolution_completion_tokens": self.evolution_completion_tokens,
+            "evolution_reasoning_tokens": self.evolution_reasoning_tokens,
             "embedding_calls": self.embedding_calls,
             "wall_time_ms": self.wall_time_ms,
             "infrastructure_failure": self.infrastructure_failure,
+            "infrastructure_error": self.infrastructure_error,
             "command_turns": self.command_turns,
             "timeout": self.timeout,
+            "termination_reason": self.termination_reason,
             "gamefile": self.gamefile,
             "gamefile_hash": self.gamefile_hash,
             "artifact_digest_before": self.artifact_digest_before,
@@ -114,7 +177,27 @@ class TaskRow:
         }
 
 
-def summarize_rows(rows: list[TaskRow], *, task_types: list[str]) -> dict[str, Any]:
+def _legacy_task_row_contract(row: TaskRow) -> bool | None:
+    return row.contract_consistency
+
+
+def _legacy_task_row_strict(row: TaskRow) -> bool | None:
+    return row.common_strict_success
+
+
+TaskRow.task_contract_success = property(  # type: ignore[assignment]
+    _legacy_task_row_contract
+)
+TaskRow.strict_success = property(_legacy_task_row_strict)  # type: ignore[assignment]
+
+
+def summarize_rows(
+    rows: list[TaskRow],
+    *,
+    task_types: list[str],
+    api_cost: float | None = None,
+    api_cost_unpriced: bool = True,
+) -> dict[str, Any]:
     declared_types = tuple(str(name).strip() for name in task_types)
     if not declared_types or any(not name for name in declared_types):
         raise ValueError("task_types must contain non-empty task family names")
@@ -145,9 +228,17 @@ def summarize_rows(rows: list[TaskRow], *, task_types: list[str]) -> dict[str, A
     for task_type in declared_types:
         family_rows = [row for row in valid if row.task_type == task_type]
         contract_rows = [
-            row for row in family_rows if row.task_contract_success is not None
+            row for row in family_rows if row.contract_consistency is not None
         ]
-        strict_rows = [row for row in family_rows if row.strict_success is not None]
+        strict_rows = [
+            row for row in family_rows if row.common_strict_success is not None
+        ]
+        contract_successes = sum(
+            bool(row.contract_consistency) for row in contract_rows
+        )
+        common_strict_successes = sum(
+            bool(row.common_strict_success) for row in strict_rows
+        )
         family[task_type] = {
             "tasks": len(family_rows),
             "official_success": sum(row.official_success for row in family_rows),
@@ -155,24 +246,41 @@ def summarize_rows(rows: list[TaskRow], *, task_types: list[str]) -> dict[str, A
                 round(sum(row.official_success for row in family_rows) / len(family_rows), 6)
                 if family_rows else None
             ),
-            "task_contract_scored_tasks": len(contract_rows),
-            "task_contract_success": sum(
-                bool(row.task_contract_success) for row in contract_rows
+            "official_success_rate": (
+                round(sum(row.official_success for row in family_rows) / len(family_rows), 6)
+                if family_rows else None
             ),
+            "task_contract_scored_tasks": len(contract_rows),
+            "contract_consistency_scored_tasks": len(contract_rows),
+            "contract_consistency": contract_successes,
+            "contract_consistency_rate": (
+                round(contract_successes / len(contract_rows), 6)
+                if contract_rows else None
+            ),
+            "common_strict_success_scored_tasks": len(strict_rows),
+            "common_strict_success": common_strict_successes,
+            "common_strict_success_rate": (
+                round(common_strict_successes / len(strict_rows), 6)
+                if strict_rows else None
+            ),
+            "contract_consistent_success_rate": (
+                round(common_strict_successes / len(strict_rows), 6)
+                if strict_rows else None
+            ),
+            # Compatibility aliases for completed pilot consumers.
+            "task_contract_success": contract_successes,
             "task_contract_rate": (
                 round(
-                    sum(bool(row.task_contract_success) for row in contract_rows)
-                    / len(contract_rows),
+                    contract_successes / len(contract_rows),
                     6,
                 )
                 if contract_rows else None
             ),
             "strict_scored_tasks": len(strict_rows),
-            "strict_success": sum(bool(row.strict_success) for row in strict_rows),
+            "strict_success": common_strict_successes,
             "strict_rate": (
                 round(
-                    sum(bool(row.strict_success) for row in strict_rows)
-                    / len(strict_rows),
+                    common_strict_successes / len(strict_rows),
                     6,
                 )
                 if strict_rows else None
@@ -216,16 +324,47 @@ def summarize_rows(rows: list[TaskRow], *, task_types: list[str]) -> dict[str, A
         row.invalid_actions for row in valid if row.invalid_actions is not None
     ]
 
+    pricing = _cost_metrics(
+        api_cost=api_cost,
+        api_cost_unpriced=api_cost_unpriced,
+        tasks=scored_tasks,
+        solved=successes,
+    )
+
+    contract_rate = rate("contract_consistency")
+    common_strict_rate = rate("common_strict_success")
+    official_rate = rate("official_success")
+    contract_scored = [
+        row for row in valid if row.contract_consistency is not None
+    ]
+    strict_scored = [
+        row for row in valid if row.common_strict_success is not None
+    ]
+
     return {
         "tasks": scored_tasks,
         "attempted_tasks": len(rows),
         "infrastructure_failed_episodes": infra,
         "official_success": successes,
-        "official_rate": rate("official_success"),
-        "micro_average_official_rate": rate("official_success"),
-        "task_contract_rate": rate("task_contract_success"),
-        "strict_rate": rate("strict_success"),
+        "official_success_rate": official_rate,
+        "official_rate": official_rate,
+        "micro_average_official_rate": official_rate,
+        "contract_consistency_scored_tasks": len(contract_scored),
+        "contract_consistency": sum(
+            bool(row.contract_consistency) for row in contract_scored
+        ),
+        "contract_consistency_rate": contract_rate,
+        "common_strict_success_scored_tasks": len(strict_scored),
+        "common_strict_success": sum(
+            bool(row.common_strict_success) for row in strict_scored
+        ),
+        "contract_consistent_success_rate": common_strict_rate,
+        "common_strict_success_rate": common_strict_rate,
+        # Compatibility aliases for completed pilot consumers.
+        "task_contract_rate": contract_rate,
+        "strict_rate": common_strict_rate,
         "macro_family_official_rate": macro,
+        "six_family_macro_success_rate": macro,
         "environment_actions": total_environment_actions,
         "actions_per_task": _ratio(total_environment_actions, scored_tasks),
         "actions_per_solved": _ratio(total_environment_actions, successes),
@@ -252,6 +391,9 @@ def summarize_rows(rows: list[TaskRow], *, task_types: list[str]) -> dict[str, A
         "target_tokens_per_task": _ratio(total_target_tokens, scored_tasks),
         "evolution_prompt_tokens": sum(row.evolution_prompt_tokens for row in valid),
         "evolution_completion_tokens": sum(row.evolution_completion_tokens for row in valid),
+        "evolution_reasoning_tokens": sum(
+            row.evolution_reasoning_tokens for row in valid
+        ),
         "evolution_tokens": total_evolution_tokens,
         "evolution_tokens_per_task": _ratio(total_evolution_tokens, scored_tasks),
         "llm_tokens": total_tokens_value,
@@ -270,6 +412,45 @@ def summarize_rows(rows: list[TaskRow], *, task_types: list[str]) -> dict[str, A
         "negative_transfer": None,
         "delta_vs_pure_dynamic": None,
         "paired_transfer_status": "unavailable_without_matching_b0_result",
+        **pricing,
+    }
+
+
+def _require_optional_bool(name: str, value: bool | None) -> None:
+    if value is not None and not isinstance(value, bool):
+        raise ValueError(f"{name} must be boolean or null")
+
+
+def _cost_metrics(
+    *,
+    api_cost: float | None,
+    api_cost_unpriced: bool,
+    tasks: int,
+    solved: int,
+) -> dict[str, Any]:
+    """Expose monetary ratios only when a priced usage authority exists."""
+
+    if api_cost_unpriced:
+        if api_cost is not None:
+            raise ValueError("unpriced API usage cannot declare an api_cost")
+        return {
+            "api_cost": None,
+            "api_cost_unpriced": True,
+            "cost_per_task": None,
+            "cost_per_solved": None,
+            "cost_metrics_status": "unavailable_without_pricing_authority",
+        }
+    if isinstance(api_cost, bool) or not isinstance(api_cost, (int, float)):
+        raise ValueError("priced API usage requires a numeric api_cost")
+    numeric_cost = float(api_cost)
+    if not math.isfinite(numeric_cost) or numeric_cost < 0:
+        raise ValueError("api_cost must be finite and non-negative")
+    return {
+        "api_cost": numeric_cost,
+        "api_cost_unpriced": False,
+        "cost_per_task": _float_ratio(numeric_cost, tasks),
+        "cost_per_solved": _float_ratio(numeric_cost, solved),
+        "cost_metrics_status": "priced",
     }
 
 
@@ -277,6 +458,12 @@ def _ratio(numerator: int, denominator: int) -> float | None:
     if denominator <= 0:
         return None
     return round(numerator / denominator, 6)
+
+
+def _float_ratio(numerator: float, denominator: int) -> float | None:
+    if denominator <= 0:
+        return None
+    return round(float(numerator) / denominator, 12)
 
 
 def _nearest_rank(values: list[int], quantile: float) -> int | None:
@@ -295,8 +482,76 @@ def _nearest_rank(values: list[int], quantile: float) -> int | None:
 
 
 def write_rows_jsonl(rows: list[TaskRow], path: Path) -> Path:
+    return _write_jsonl_atomic(path, [row.to_dict() for row in rows], overwrite=True)
+
+
+def write_evaluated_episodes_jsonl(
+    episodes: list[CommonEpisodeRecord],
+    path: Path,
+) -> Path:
+    """Persist controller-side post-hoc outcomes without altering raw rollout files."""
+
+    payloads: list[dict[str, Any]] = []
+    for episode in episodes:
+        episode.normalize_posthoc_outcome()
+        if not isinstance(episode.contract_consistency, bool):
+            raise ValueError(
+                f"episode {episode.task_id!r} lacks contract_consistency"
+            )
+        if not isinstance(episode.common_strict_success, bool):
+            raise ValueError(
+                f"episode {episode.task_id!r} lacks common_strict_success"
+            )
+        payloads.append(episode.to_dict())
+    return _write_jsonl_atomic(path, payloads, overwrite=False)
+
+
+def load_rows_jsonl(path: Path) -> list[TaskRow]:
+    """Load persisted reporting rows while accepting pre-freeze aliases."""
+
+    rows: list[TaskRow] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ValueError(f"task rows are unreadable: {path}") from exc
+    allowed = set(TaskRow.__dataclass_fields__)
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"task rows are corrupt at line {line_number}: {path}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"task row {line_number} is not an object: {path}")
+        try:
+            rows.append(TaskRow(**{key: value for key, value in payload.items() if key in allowed}))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"task row {line_number} is invalid: {path}: {exc}") from exc
+    return rows
+
+
+def _write_jsonl_atomic(
+    path: Path,
+    payloads: list[dict[str, Any]],
+    *,
+    overwrite: bool,
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row.to_dict(), ensure_ascii=False, sort_keys=True) + "\n")
+    if not overwrite and path.exists():
+        raise FileExistsError(path)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            for payload in payloads:
+                handle.write(
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
+                )
+            handle.flush()
+            os.fsync(handle.fileno())
+        if not overwrite and path.exists():
+            raise FileExistsError(path)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
     return path

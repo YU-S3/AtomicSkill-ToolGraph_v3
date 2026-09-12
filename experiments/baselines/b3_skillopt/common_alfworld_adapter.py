@@ -864,7 +864,9 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
         return load_prompt("analyst_success", env="alfworld")
 
     def get_task_types(self) -> list[str]:
-        from experiments.protocol import ALFWORLD_FORMAL_TASK_TYPES
+        from experiments.baselines.common.formal_validation import (
+            ALFWORLD_FORMAL_TASK_TYPES,
+        )
 
         return list(ALFWORLD_FORMAL_TASK_TYPES)
 

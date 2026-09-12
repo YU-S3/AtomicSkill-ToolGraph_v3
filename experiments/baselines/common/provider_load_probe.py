@@ -11,13 +11,15 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import hashlib
+import importlib
 import json
 import os
+import sys
 import time
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from experiments.baselines.b3_skillopt.provider_observer import (
     ProviderCallExhausted,
@@ -199,6 +201,7 @@ def run_provider_load_probe(
     retry_delays_seconds: Iterable[float] = DEFAULT_RETRY_DELAYS_SECONDS,
     deterministic_jitter_ratio: float = 0.10,
     expected_sdk_max_retries: int = 0,
+    skillopt_source: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the paid load probe against the already-configured SkillOpt backend.
 
@@ -404,6 +407,8 @@ def run_provider_load_probe(
         ),
         "observer_error_type": observer_error_type or None,
     }
+    if skillopt_source is not None:
+        report["skillopt_source"] = dict(skillopt_source)
     _write_json_exclusive(report_path, report)
     return report
 
@@ -413,6 +418,32 @@ def _parse_delays(raw: str) -> tuple[float, ...]:
     if not values:
         raise argparse.ArgumentTypeError("retry delays must not be empty")
     return values
+
+
+def _bind_skillopt_source(root: str | Path) -> dict[str, Any]:
+    """Bind and prove the pinned SkillOpt source without installing it."""
+
+    source_root = Path(root).expanduser().resolve(strict=True)
+    if not (source_root / "skillopt" / "__init__.py").is_file():
+        raise FileNotFoundError(
+            f"SkillOpt source root has no package: {source_root}"
+        )
+    lexical = str(source_root)
+    if lexical not in sys.path:
+        sys.path.insert(0, lexical)
+    importlib.invalidate_caches()
+    origins: dict[str, str] = {}
+    for name in ("skillopt", "skillopt.model", "skillopt.model.openai_compatible_backend"):
+        module = importlib.import_module(name)
+        origin = Path(str(getattr(module, "__file__", ""))).resolve(strict=True)
+        try:
+            origin.relative_to(source_root)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"provider probe imported {name!r} outside pinned SkillOpt: {origin}"
+            ) from exc
+        origins[name] = str(origin)
+    return {"root": str(source_root), "import_origins": origins}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -440,11 +471,22 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_RETRY_DELAYS_SECONDS,
     )
     parser.add_argument("--deterministic-jitter-ratio", type=float, default=0.10)
+    parser.add_argument(
+        "--skillopt-root",
+        default=None,
+        help="identity-checked SkillOpt source root for a source-only worker",
+    )
     args = parser.parse_args(argv)
 
     api_key = os.environ.get(args.api_key_env, "")
     if not api_key:
         parser.error(f"{args.api_key_env} is missing or empty")
+
+    source_receipt = (
+        _bind_skillopt_source(args.skillopt_root)
+        if args.skillopt_root is not None
+        else None
+    )
 
     import skillopt.model as skillopt_model
 
@@ -474,6 +516,7 @@ def main(argv: list[str] | None = None) -> int:
         retry_delays_seconds=args.retry_delays_seconds,
         deterministic_jitter_ratio=args.deterministic_jitter_ratio,
         expected_sdk_max_retries=args.sdk_max_retries,
+        skillopt_source=source_receipt,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["passed"] else 1
