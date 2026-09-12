@@ -26,7 +26,9 @@ from experiments.baselines.b3_skillopt.episode_runner import (
     EpisodeOutcome,
     SkillOptTextEpisodeRunner,
     _ExactManifestEnvironment,
+    _canonical_gamefile,
     _safe_error,
+    _validate_episode_payload,
 )
 from experiments.baselines.b3_skillopt.provider_observer import ProviderCallObserver
 from experiments.baselines.b3_skillopt.provider_observer import ProviderCallExhausted
@@ -102,25 +104,31 @@ def _stub_observed_sdk_call(monkeypatch, backend, outcomes):
 
 
 def _manifest(tmp_path: Path, name: str, split: str, count: int) -> Path:
-    tasks = tuple(
-        ManifestTask(
+    tasks = []
+    for index in range(count):
+        relative = f"json_2.1.1/{split}/fixture_{index}/game.tw-pddl"
+        game_bytes = f"game:{name}:{index}".encode()
+        gamefile = tmp_path / relative
+        gamefile.parent.mkdir(parents=True, exist_ok=True)
+        if gamefile.exists() and gamefile.read_bytes() != game_bytes:
+            raise AssertionError(f"fixture gamefile collision: {gamefile}")
+        gamefile.write_bytes(game_bytes)
+        tasks.append(ManifestTask(
             index=index,
             task_id=f"{name}_{index}",
             task_type="pick_and_place_simple",
             source_split=split,
             env_index=index,
-            gamefile_rel=f"json_2.1.1/{split}/fixture_{index}/game.tw-pddl",
-            gamefile_sha256=hashlib.sha256(f"game:{name}:{index}".encode()).hexdigest(),
+            gamefile_rel=relative,
+            gamefile_sha256=hashlib.sha256(game_bytes).hexdigest(),
             task_signature=hashlib.sha256(f"task:{name}:{index}".encode()).hexdigest(),
-        )
-        for index in range(count)
-    )
+        ))
     manifest = TaskManifestSet.create(
         manifest_id=name,
         benchmark="alfworld",
         source_split=split,
         seed=42,
-        tasks=tasks,
+        tasks=tuple(tasks),
     )
     return manifest.save(tmp_path / f"{name}.json")
 
@@ -179,7 +187,7 @@ def _adapter(
     return CommonALFWorldSkillOptAdapter(
         train_manifest_path=train_path,
         validation_manifest_path=validation_path,
-        alfworld_data="",
+        alfworld_data=str(tmp_path),
         max_steps=100,
         max_completion_tokens=1024,
         seed=42,
@@ -193,6 +201,7 @@ def _adapter(
             max_actions=100,
             max_completion_tokens=1024,
             seed=42,
+            alfworld_data=str(tmp_path),
             episode_fn=episode_fn,
         ),
     )
@@ -238,10 +247,27 @@ def test_episode_cache_reuses_across_attempts_and_restores_exact_conversation_by
     tmp_path: Path,
 ) -> None:
     skill = "# Full skill bytes\n"
-    source_adapter = _adapter(tmp_path, run_id="attempt_001")
+
+    def absolute_upstream_gamefile(task, skill_content, out_dir):
+        row, conversation = _successful_episode(task, skill_content, out_dir)
+        row["gamefile"] = str((tmp_path / str(task["gamefile"])).resolve())
+        return row, conversation
+
+    source_adapter = _adapter(
+        tmp_path,
+        run_id="attempt_001",
+        episode_fn=absolute_upstream_gamefile,
+    )
     source_env = source_adapter.build_train_env(batch_size=2, seed=7)
     source_out = tmp_path / "attempt_001" / "steps" / "step_0001" / "rollout"
     source_rows = source_adapter.rollout(source_env, skill, str(source_out))
+    source_common_bytes = {
+        name: (source_out / name).read_bytes()
+        for name in (
+            "common_environment_actions.jsonl",
+            "common_episodes.jsonl",
+        )
+    }
     source_conversations = {
         row["id"]: (
             source_out / "predictions" / row["id"] / "conversation.json"
@@ -281,6 +307,72 @@ def test_episode_cache_reuses_across_attempts_and_restores_exact_conversation_by
             destination_out / "predictions" / task_id / "conversation.json"
         )
         assert restored.read_bytes() == original_bytes
+    for name, original_bytes in source_common_bytes.items():
+        assert (destination_out / name).read_bytes() == original_bytes
+
+
+@pytest.mark.parametrize(
+    ("actual_absolute", "reported_absolute"),
+    [(False, False), (True, False), (False, True)],
+)
+def test_gamefile_payload_identity_uses_alfworld_root_for_every_path_form(
+    tmp_path: Path,
+    actual_absolute: bool,
+    reported_absolute: bool,
+) -> None:
+    relative = "json_2.1.1/train/fixture/game.tw-pddl"
+    gamefile = tmp_path / relative
+    gamefile.parent.mkdir(parents=True)
+    gamefile.write_text("fixture", encoding="utf-8")
+    task = {"id": "task_1"}
+    row = {
+        "id": "task_1",
+        "agent_ok": True,
+        "n_turns": 1,
+        "gamefile": str(gamefile) if reported_absolute else relative,
+    }
+    conversation = [{"step": 0, "action": "look"}]
+
+    assert _validate_episode_payload(
+        task=task,
+        row=row,
+        conversation=conversation,
+        actual_gamefile=str(gamefile) if actual_absolute else relative,
+        alfworld_data=tmp_path,
+    ) == conversation
+
+
+def test_gamefile_payload_rejects_wrong_existing_physical_file(tmp_path: Path) -> None:
+    expected = tmp_path / "json_2.1.1/train/a/game.tw-pddl"
+    other = tmp_path / "json_2.1.1/train/b/game.tw-pddl"
+    expected.parent.mkdir(parents=True)
+    other.parent.mkdir(parents=True)
+    expected.write_text("expected", encoding="utf-8")
+    other.write_text("other", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="differs from the verified reset"):
+        _validate_episode_payload(
+            task={"id": "task_1"},
+            row={
+                "id": "task_1", "agent_ok": True, "n_turns": 1,
+                "gamefile": str(other.relative_to(tmp_path)),
+            },
+            conversation=[{"step": 0, "action": "look"}],
+            actual_gamefile=str(expected.relative_to(tmp_path)),
+            alfworld_data=tmp_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "unsafe", ["../outside.tw-pddl", "../../etc/passwd", "absolute"],
+)
+def test_gamefile_authority_rejects_escape(tmp_path: Path, unsafe: str) -> None:
+    outside = tmp_path.parent / "outside.tw-pddl"
+    outside.write_text("outside", encoding="utf-8")
+    value = str(outside) if unsafe == "absolute" else unsafe
+
+    with pytest.raises(RuntimeError, match="unsafe|outside ALFWORLD_DATA"):
+        _canonical_gamefile(value, alfworld_data=tmp_path)
 
 
 def test_rollout_parallelizes_independent_episodes_but_commits_manifest_order(

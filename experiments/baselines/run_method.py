@@ -44,6 +44,7 @@ from .common.freeze import FrozenArtifact, assert_frozen_unchanged
 from .common.integrity import assert_no_secrets_on_disk, validate_episode_usage
 from .common.manifest import TaskManifestSet, verify_disjoint
 from .common.model_config import ModelConfig
+from .common.runtime_python import resolve_formal_python, verify_runtime_python
 from .common.post_evaluator import TaskRow, summarize_rows, write_rows_jsonl
 from .common.schema import CommonEpisodeRecord
 from .common.usage import UsageSnapshot
@@ -271,6 +272,13 @@ def _load_campaign_descriptor(
         "jitter_ratio": float(transport.get("deterministic_jitter_ratio", -1)),
     }
     runtime_tree = dict(source_lock["skillopt"]["runtime_tree"])
+    configured_python = resolve_formal_python(
+        REPO_ROOT, str(config.get("worker_python", "")),
+    )
+    locked_python = {
+        field: resolve_formal_python(REPO_ROOT, str(payload.get(field, "")))
+        for field in ("phase_python", "worker_python", "provider_probe_python")
+    }
     checks = {
         "method": payload.get("method") == _METHOD,
         "seed": int(seed) in [int(value) for value in payload.get("seeds", [])],
@@ -294,6 +302,10 @@ def _load_campaign_descriptor(
         == int(parallel.get("campaign_provider_max_inflight", 0)),
         "retry_policy": payload.get("retry_policy") == expected_retry,
         "provider_probe": dict(payload.get("provider_probe") or {}).get("passed") is True,
+        "python_authority": all(
+            str(value) == str(configured_python)
+            for value in locked_python.values()
+        ),
     }
     failed = sorted(name for name, passed in checks.items() if not passed)
     if failed:
@@ -320,6 +332,9 @@ def _load_campaign_descriptor(
         "campaign_provider_max_inflight": int(
             payload["campaign_provider_max_inflight"]
         ),
+        "phase_python": str(locked_python["phase_python"]),
+        "worker_python": str(locked_python["worker_python"]),
+        "provider_probe_python": str(locked_python["provider_probe_python"]),
     }
 
 
@@ -502,6 +517,7 @@ def _write_identity_artifacts(
     data_signature: dict[str, Any],
     git_state: dict[str, Any],
     phase: str,
+    python_runtime: dict[str, Any] | None,
 ) -> None:
     formal = str(config.get("protocol_profile")) == "formal_v2"
     workflow = {
@@ -541,6 +557,7 @@ def _write_identity_artifacts(
         "external_runtime_tree": dict(lock["skillopt"]["runtime_tree"]),
         "controller_git": git_state,
         "controller_code_digest": ctx.code_hash,
+        "python_runtime": dict(python_runtime) if python_runtime is not None else None,
         "identity": dict(ctx.identity),
         "campaign": dict(ctx.campaign) if ctx.campaign is not None else None,
         "resume": dict(ctx.resume) if ctx.resume is not None else None,
@@ -1133,6 +1150,15 @@ def main(argv: list[str] | None = None) -> int:
         profile = str(config.get("protocol_profile", "pilot_v1"))
         if profile not in {"pilot_v1", "formal_v2"}:
             raise ValueError(f"unsupported protocol_profile: {profile!r}")
+        python_runtime: dict[str, Any] | None = None
+        if profile == "formal_v2" and args.phase in {"train", "test"}:
+            expected_python = resolve_formal_python(
+                REPO_ROOT, str(config.get("worker_python", "")),
+            )
+            python_runtime = verify_runtime_python(
+                expected_python=expected_python,
+                require_venv=True,
+            )
         if args.phase == "test":
             if not args.test_manifest or not args.source_run:
                 raise ValueError("--phase test requires --test-manifest and --source-run")
@@ -1292,6 +1318,7 @@ def main(argv: list[str] | None = None) -> int:
             data_signature=data_signature,
             git_state=git_state,
             phase=args.phase,
+            python_runtime=python_runtime,
         )
         driver.preflight(ctx)
 

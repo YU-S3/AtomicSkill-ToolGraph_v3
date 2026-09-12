@@ -13,7 +13,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from experiments.baselines.common.formal_validation import verify_observed_gamefile
@@ -153,6 +153,7 @@ class SkillOptTextEpisodeRunner:
             row=row,
             conversation=payload,
             actual_gamefile=env.actual_gamefile,
+            alfworld_data=self.alfworld_data,
         )
         return row, conversation, env.actual_gamefile
 
@@ -229,6 +230,7 @@ class SkillOptTextEpisodeRunner:
                     row=row,
                     conversation=conversation,
                     actual_gamefile=actual_gamefile,
+                    alfworld_data=self.alfworld_data,
                 )
             else:
                 row, conversation, actual_gamefile = self._run_upstream_episode(
@@ -347,13 +349,44 @@ def _usage_from_provider_events(
     return usage
 
 
-def _canonical_file(value: str | Path) -> str:
-    if not str(value).strip():
-        raise RuntimeError("ALFWorld reset returned an empty gamefile")
+def _canonical_gamefile(
+    value: str | Path,
+    *,
+    alfworld_data: str | Path,
+) -> str:
+    """Resolve one gamefile solely under the configured ALFWorld authority."""
+
+    data_root = Path(alfworld_data).expanduser().resolve(strict=True)
+    if not data_root.is_dir():
+        raise RuntimeError(f"ALFWORLD_DATA is not a directory: {data_root}")
+    raw = os.path.expandvars(str(value)).strip()
+    if not raw:
+        raise RuntimeError("ALFWorld gamefile is empty")
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        normalized = raw.replace("\\", "/")
+        raw_parts = normalized.split("/")
+        portable = PurePosixPath(normalized)
+        if (
+            portable.is_absolute()
+            or not portable.parts
+            or any(part in {"", ".", ".."} for part in raw_parts)
+        ):
+            raise RuntimeError(f"unsafe ALFWorld gamefile path: {raw}")
+        candidate = data_root.joinpath(*portable.parts)
     try:
-        return str(Path(value).expanduser().resolve(strict=True))
+        resolved = candidate.resolve(strict=True)
     except OSError as exc:
-        raise RuntimeError(f"ALFWorld gamefile is not readable: {value}") from exc
+        raise RuntimeError(f"ALFWorld gamefile is not readable: {raw}") from exc
+    try:
+        resolved.relative_to(data_root)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"ALFWorld gamefile resolves outside ALFWORLD_DATA: {raw}"
+        ) from exc
+    if not resolved.is_file():
+        raise RuntimeError(f"ALFWorld gamefile is not a regular file: {resolved}")
+    return str(resolved)
 
 
 def _safe_error(exc: BaseException) -> str:
@@ -372,6 +405,7 @@ def _validate_episode_payload(
     row: dict[str, Any],
     conversation: Any,
     actual_gamefile: str,
+    alfworld_data: str | Path,
 ) -> list[dict[str, Any]]:
     expected_id = str(task.get("id", ""))
     if not expected_id or str(row.get("id", "")) != expected_id:
@@ -406,13 +440,16 @@ def _validate_episode_payload(
             raise RuntimeError(
                 f"SkillOpt conversation step {index} has no executable action"
             )
-    expected_gamefile = str(actual_gamefile).strip()
-    reported_gamefile = str(row.get("gamefile", "")).strip()
-    if not expected_gamefile or not reported_gamefile:
+    if not str(actual_gamefile).strip() or not str(row.get("gamefile", "")).strip():
         raise RuntimeError("SkillOpt rollout is missing verified gamefile evidence")
-    if Path(expected_gamefile).is_absolute() or Path(reported_gamefile).is_absolute():
-        expected_gamefile = _canonical_file(expected_gamefile)
-        reported_gamefile = _canonical_file(reported_gamefile)
+    expected_gamefile = _canonical_gamefile(
+        actual_gamefile,
+        alfworld_data=alfworld_data,
+    )
+    reported_gamefile = _canonical_gamefile(
+        row["gamefile"],
+        alfworld_data=alfworld_data,
+    )
     if reported_gamefile != expected_gamefile:
         raise RuntimeError(
             "SkillOpt rollout gamefile differs from the verified reset gamefile: "

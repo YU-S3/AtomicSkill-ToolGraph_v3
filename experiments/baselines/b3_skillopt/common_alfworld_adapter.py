@@ -450,6 +450,7 @@ class CommonALFWorldSkillOptAdapter(EnvAdapter):
                             request=request,
                             cached=cached,
                             require_provider=not self._injected_episode_runner,
+                            alfworld_data=self.alfworld_data,
                         )
                     )
                     if observer is None and not self._injected_episode_runner:
@@ -1225,6 +1226,7 @@ def _validate_cached_episode(
     request: dict[str, Any],
     cached: dict[str, Any],
     require_provider: bool,
+    alfworld_data: str | Path,
 ) -> tuple[dict[str, Any], CommonEpisodeRecord, list[dict[str, Any]]]:
     """Revalidate cached bytes against the current immutable authorities."""
 
@@ -1265,6 +1267,7 @@ def _validate_cached_episode(
         row=row,
         conversation=cached["conversation"],
         actual_gamefile=str(task["gamefile"]),
+        alfworld_data=alfworld_data,
     )
     actions = [dict(item) for item in cached["actions"]]
     expected_actions = _action_events(task, conversation)

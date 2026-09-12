@@ -16,6 +16,8 @@ from experiments.baselines.run_seed_campaign import (
     _cost_accounting,
     _formal_config_digest as campaign_formal_config_digest,
     _method_campaign_lease,
+    _run_method_command,
+    _select_phase_python,
     inspect_clean_source,
     run_campaign,
 )
@@ -101,6 +103,9 @@ def _preflight(
             "formal_boundary": "epoch",
             "reuse_verified_episode_cache": True,
         },
+        "phase_python": str(spec.python),
+        "worker_python": str(spec.python),
+        "provider_probe_python": str(spec.python),
         "provider_gate_dir": str((campaign_root / "provider_gate").resolve()),
     }
 
@@ -748,6 +753,35 @@ def test_test_commands_are_bound_to_same_seed_train_root(tmp_path: Path) -> None
         assert _value(command, "--campaign-lock") == str(
             spec.output_dir / "campaign_lock.json"
         )
+        assert command[0] == str(spec.python)
+
+
+def test_run_method_command_uses_frozen_lexical_phase_python(tmp_path: Path) -> None:
+    spec = _spec(tmp_path)
+    command = _run_method_command(
+        spec,
+        phase="train",
+        seed=42,
+        output_dir=spec.output_dir / "seed_42" / "train",
+        campaign_lock=spec.output_dir / "campaign_lock.json",
+    )
+    assert command[0] == str(spec.python)
+
+
+def test_explicit_python_override_must_match_configured_worker(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    configured = repo / ".venv_b3_skillopt" / "bin" / "python"
+    supplied = repo / "system" / "python"
+    for executable in (configured, supplied):
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        executable.chmod(0o755)
+
+    assert _select_phase_python(
+        repo, ".venv_b3_skillopt/bin/python", None,
+    ) == configured
+    with pytest.raises(ValueError, match="exactly match formal worker_python"):
+        _select_phase_python(repo, configured, supplied)
 
 
 def test_formal_seed_identity_is_fixed(tmp_path: Path) -> None:

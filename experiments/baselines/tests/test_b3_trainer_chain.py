@@ -141,29 +141,33 @@ def _fake_episode_fn(task, skill_content, out_dir):
 def _manifest(tmp_path: Path, name: str, count: int) -> TaskManifestSet:
     import hashlib
 
-    tasks = tuple(
-        ManifestTask(
+    tasks = []
+    for index in range(count):
+        relative = (
+            f"json_2.1.1/train/game_{index}.tw-pddl"
+            if name == "train"
+            else f"json_2.1.1/valid_seen/game_{index}.tw-pddl"
+        )
+        game_bytes = f"{name}:{index}".encode()
+        gamefile = tmp_path / relative
+        gamefile.parent.mkdir(parents=True, exist_ok=True)
+        gamefile.write_bytes(game_bytes)
+        tasks.append(ManifestTask(
             index=index,
             task_id=f"{name}_{index}",
             task_type="pick_and_place_simple",
             source_split="train" if name == "train" else "valid_seen",
             env_index=index,
-            gamefile_rel=(
-                f"json_2.1.1/train/game_{index}.tw-pddl"
-                if name == "train"
-                else f"json_2.1.1/valid_seen/game_{index}.tw-pddl"
-            ),
-            gamefile_sha256="a" * 64,
+            gamefile_rel=relative,
+            gamefile_sha256=hashlib.sha256(game_bytes).hexdigest(),
             task_signature=hashlib.sha256(f"{name}:{index}".encode()).hexdigest(),
-        )
-        for index in range(count)
-    )
+        ))
     manifest = TaskManifestSet.create(
         manifest_id=name,
         benchmark="alfworld",
         source_split="train" if name == "train" else "valid_seen",
         seed=42,
-        tasks=tasks,
+        tasks=tuple(tasks),
     )
     return manifest.save(tmp_path / f"{name}.json")
 
@@ -193,14 +197,15 @@ def test_full_trainer_chain(tmp_path) -> None:
         adapter = CommonALFWorldSkillOptAdapter(
             train_manifest_path=_manifest(tmp_path, "train", 2),
             validation_manifest_path=_manifest(tmp_path, "validation", 1),
-            alfworld_data="",
+            alfworld_data=str(tmp_path),
             max_steps=100,
             minibatch_size=2,
             edit_budget=4,
             seed=42,
             phase="train",
             episode_runner=SkillOptTextEpisodeRunner(
-                max_actions=100, seed=42, episode_fn=_fake_episode_fn,
+                max_actions=100, seed=42, alfworld_data=str(tmp_path),
+                episode_fn=_fake_episode_fn,
             ),
         )
         cfg = {
@@ -313,11 +318,12 @@ def _adapter(tmp_path: Path) -> CommonALFWorldSkillOptAdapter:
     return CommonALFWorldSkillOptAdapter(
         train_manifest_path=_manifest(tmp_path, "train", 2),
         validation_manifest_path=_manifest(tmp_path, "validation", 1),
-        alfworld_data="",
+        alfworld_data=str(tmp_path),
         max_steps=100,
         seed=42,
         phase="train",
         episode_runner=SkillOptTextEpisodeRunner(
-            max_actions=100, seed=42, episode_fn=_fake_episode_fn,
+            max_actions=100, seed=42, alfworld_data=str(tmp_path),
+            episode_fn=_fake_episode_fn,
         ),
     )

@@ -20,7 +20,6 @@ import os
 import re
 import statistics
 import subprocess
-import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -39,6 +38,7 @@ from .common.formal_validation import verify_formal_manifest
 from .common.freeze import FrozenArtifact, assert_frozen_unchanged
 from .common.manifest import TaskManifestSet, verify_disjoint
 from .common.model_config import ModelConfig
+from .common.runtime_python import resolve_formal_python
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -93,6 +93,22 @@ class CampaignSpec:
 def _resolve(repo_root: Path, value: str | Path) -> Path:
     path = Path(value).expanduser()
     return path.resolve() if path.is_absolute() else (repo_root / path).resolve()
+
+
+def _select_phase_python(
+    repo_root: Path,
+    configured_value: str | Path,
+    supplied_value: str | Path | None,
+) -> Path:
+    """Select the sole formal interpreter without dereferencing venv links."""
+
+    configured = resolve_formal_python(repo_root, configured_value)
+    if supplied_value is None:
+        return configured
+    supplied = resolve_formal_python(repo_root, supplied_value)
+    if str(supplied) != str(configured):
+        raise ValueError("--python must exactly match formal worker_python")
+    return supplied
 
 
 def _sha256_file(path: Path) -> str:
@@ -431,14 +447,13 @@ def build_campaign_lock(
     for key, expected in expected_resume.items():
         _require_equal(resume.get(key), expected, f"resume.{key}")
 
-    worker_python = Path(str(config.get("worker_python", ""))).expanduser()
-    if not worker_python.is_absolute():
-        worker_python = spec.repo_root / worker_python
-    worker_python = Path(os.path.abspath(worker_python))
-    if not worker_python.is_file():
-        raise FileNotFoundError(
-            "SkillOpt worker interpreter is missing; run bootstrap_external first: "
-            + str(worker_python)
+    worker_python = resolve_formal_python(
+        spec.repo_root, str(config.get("worker_python", "")),
+    )
+    phase_python = resolve_formal_python(spec.repo_root, spec.python)
+    if str(phase_python) != str(worker_python):
+        raise ValueError(
+            "campaign phase Python must exactly match config worker_python"
         )
 
     alfworld_raw = os.environ.get("ALFWORLD_DATA", "").strip()
@@ -516,6 +531,8 @@ def build_campaign_lock(
         "provider_probe": probe,
         "resume": resume,
         "provider_gate_dir": str((campaign_root / "provider_gate").resolve()),
+        "phase_python": str(phase_python),
+        "worker_python": str(worker_python),
         "provider_probe_python": str(worker_python),
         "created_at_unix": time.time(),
     }
@@ -550,7 +567,7 @@ def _provider_probe_command(
     probe = dict(lock_payload["provider_probe"])
     retry = dict(lock_payload["retry_policy"])
     return [
-        str(lock_payload.get("provider_probe_python") or spec.python),
+        str(lock_payload["provider_probe_python"]),
         "-m",
         "experiments.baselines.common.provider_load_probe",
         "--output-dir",
@@ -1946,7 +1963,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--test-manifest", required=True)
     parser.add_argument("--config", default="configs/baselines/b3_skillopt.yaml")
     parser.add_argument("--output-dir", default=None)
-    parser.add_argument("--python", default=sys.executable)
+    parser.add_argument(
+        "--python",
+        default=None,
+        help=(
+            "debug-only override; formal value must match config worker_python "
+            "without resolving symlinks"
+        ),
+    )
     args = parser.parse_args(argv)
 
     repo_root = REPO_ROOT.resolve()
@@ -1964,6 +1988,11 @@ def main(argv: list[str] | None = None) -> int:
             **dict(yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}),
         }
         campaign_id = str(merged.get("campaign_id", "formal"))
+        phase_python = _select_phase_python(
+            repo_root,
+            str(merged.get("worker_python", "")),
+            args.python,
+        )
         output_dir = (
             _resolve(repo_root, args.output_dir)
             if args.output_dir
@@ -1977,7 +2006,7 @@ def main(argv: list[str] | None = None) -> int:
             test_manifest=_resolve(repo_root, args.test_manifest),
             config=config_path,
             output_dir=output_dir,
-            python=_resolve(repo_root, args.python),
+            python=phase_python,
             repo_root=repo_root,
         )
         report = run_campaign(spec)

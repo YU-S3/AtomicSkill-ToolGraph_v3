@@ -272,8 +272,13 @@ def test_campaign_descriptor_binds_probe_gate_and_retry_identity(
     _, train = _manifest(tmp_path, role="train")
     _, validation = _manifest(tmp_path, role="validation")
     test = validation
+    worker_python = tmp_path / ".venv_b3_skillopt" / "bin" / "python"
+    worker_python.parent.mkdir(parents=True)
+    worker_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    worker_python.chmod(0o755)
     config = {
         "protocol_profile": "formal_v2",
+        "worker_python": str(worker_python),
         "run_seed": 42,
         "train": {"seed": 42},
         "model": {
@@ -356,6 +361,9 @@ def test_campaign_descriptor_binds_probe_gate_and_retry_identity(
         "campaign_provider_max_inflight": 16,
         "retry_policy": run_method._provider_retry_policy(config),
         "provider_gate_dir": str((campaign_root / "provider_gate").resolve()),
+        "phase_python": str(worker_python),
+        "worker_python": str(worker_python),
+        "provider_probe_python": str(worker_python),
         "provider_probe": {
             "passed": True,
             "requests": 32,
@@ -393,6 +401,9 @@ def test_campaign_descriptor_binds_probe_gate_and_retry_identity(
     assert Path(descriptor["provider_gate_dir"]) == (
         campaign_root / "provider_gate"
     ).resolve()
+    assert descriptor["phase_python"] == str(worker_python)
+    assert descriptor["worker_python"] == str(worker_python)
+    assert descriptor["provider_probe_python"] == str(worker_python)
 
     payload["retry_policy"] = {**payload["retry_policy"], "attempts": 4}
     lock_path.write_text(
@@ -411,6 +422,104 @@ def test_campaign_descriptor_binds_probe_gate_and_retry_identity(
             code_digest=code_digest,
             seed=42,
         )
+
+    payload["retry_policy"] = run_method._provider_retry_policy(config)
+    other_python = tmp_path / "system" / "python"
+    other_python.parent.mkdir()
+    other_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    other_python.chmod(0o755)
+    payload["phase_python"] = str(other_python)
+    lock_path.write_text(
+        json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="python_authority"):
+        run_method._load_campaign_descriptor(
+            lock_path,
+            config=config,
+            source_lock=source_lock,
+            model=model,
+            train_manifest=train,
+            validation_manifest=validation,
+            test_manifest=test,
+            git_state=git_state,
+            code_digest=code_digest,
+            seed=42,
+        )
+
+
+def test_run_manifest_persists_formal_python_runtime_receipt(tmp_path: Path) -> None:
+    _, train = _manifest(tmp_path, role="train")
+    _, validation = _manifest(tmp_path, role="validation")
+    output = tmp_path / "output"
+    output.mkdir()
+    model = ModelConfig.from_mapping({
+        "provider": "openai_compatible",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash",
+        "api_key_env": "MODEL_API_KEY",
+        "reasoning_effort": "high",
+    })
+    receipt = {
+        "expected_python": "/repo/.venv_b3_skillopt/bin/python",
+        "sys_executable": "/repo/.venv_b3_skillopt/bin/python",
+        "sys_prefix": "/repo/.venv_b3_skillopt",
+        "sys_base_prefix": "/usr",
+        "venv_active": True,
+        "alfworld_importable": True,
+        "skillopt_importable": True,
+    }
+    ctx = SimpleNamespace(
+        output_dir=output,
+        run_id="formal_run",
+        code_hash="a" * 64,
+        identity={"config_digest": "b" * 64},
+        campaign={"campaign_provider_max_inflight": 16},
+        resume=None,
+        train_manifest_path=tmp_path / "train.json",
+        validation_manifest_path=tmp_path / "validation.json",
+        test_manifest_path=None,
+        model_config=model,
+        max_environment_actions=100,
+        run_seed=42,
+    )
+    run_method._write_identity_artifacts(
+        ctx=ctx,
+        lock={
+            "skillopt": {
+                "repo": "https://github.com/microsoft/SkillOpt",
+                "commit": "c" * 40,
+                "version": "0.2.0",
+                "runtime_tree": {"sha256": "d" * 64},
+                "key_files": {
+                    "skillopt/envs/alfworld/skills/initial.md": "e" * 64,
+                },
+            },
+        },
+        config={
+            "protocol_profile": "formal_v2",
+            "env": {"workers": 16, "max_api_workers": 16},
+            "gradient": {"analyst_workers": 16},
+            "provider_transport": {
+                "sdk_max_retries": 0,
+                "application_retry_limit": 5,
+                "retry_delays_seconds": [2, 5, 10, 20],
+                "deterministic_jitter_ratio": 0.10,
+            },
+        },
+        train_manifest=train,
+        validation_manifest=validation,
+        test_manifest=None,
+        train_preflight={"passed": True},
+        validation_preflight={"passed": True},
+        test_preflight=None,
+        data_signature={"resolved_data_root": "/alfworld"},
+        git_state={"commit": "f" * 40, "dirty": False},
+        phase="train",
+        python_runtime=receipt,
+    )
+
+    manifest = json.loads((output / "run_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["python_runtime"] == receipt
 
 
 def test_formal_test_rejects_frozen_source_from_another_campaign(
