@@ -309,6 +309,11 @@ def test_promotion_evidence_is_trace_first_and_appended_with_runtime_events() ->
         ]
         order.append("ledger_append")
 
+    def review_deployments(events):
+        assert order == ["save_atomic", "ledger_append"]
+        assert events == [runtime_event]
+        order.append("deployment_review")
+
     pipeline = SimpleNamespace(
         orchestrator=SimpleNamespace(run_task=lambda *_args, **_kwargs: trace),
         _attach_provider_requests=lambda *_args, **_kwargs: None,
@@ -330,6 +335,7 @@ def test_promotion_evidence_is_trace_first_and_appended_with_runtime_events() ->
         _finalize_v31_metrics=lambda *_args, **_kwargs: None,
         traces=SimpleNamespace(save_atomic=save_atomic),
         _commit_evidence=append_evidence,
+        _review_task_deployments=review_deployments,
         _online_successes=0,
         _maybe_run_maintenance=lambda: None,
         _persist_maintenance_state=lambda: None,
@@ -345,4 +351,4 @@ def test_promotion_evidence_is_trace_first_and_appended_with_runtime_events() ->
         failure_side_read_start=0,
     )
     assert result is trace
-    assert order == ["save_atomic", "ledger_append"]
+    assert order == ["save_atomic", "ledger_append", "deployment_review"]

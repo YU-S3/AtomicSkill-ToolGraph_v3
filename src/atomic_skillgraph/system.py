@@ -13,7 +13,7 @@ import tempfile
 import time
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import yaml
 
@@ -104,10 +104,13 @@ from .governance import (
     CreditAssigner,
     CreditAttempt,
     CreditTrace,
+    EvidenceEvent,
+    EvidenceEventType,
     EvidenceLedger,
     LifecycleController,
     LifecyclePolicy,
     LifecycleProjection,
+    LifecycleReviewResult,
     LifecycleThresholds,
 )
 from .harness.alfworld import AlfWorldAdapter, normalize_entity
@@ -375,6 +378,29 @@ class _ToolBuildContentRejected(ValueError):
         self.messages = copy.deepcopy(normalized_messages)
         self.phase_id = str(phase_id)
         self.occurrence_id = str(occurrence_id)
+
+
+class _ToolBuildBudgetExhausted(Exception):
+    """A local success-evolution ToolBuilder budget outcome, not infrastructure."""
+
+    def __init__(
+        self,
+        *,
+        occurrence_id: str,
+        phase_id: str,
+        stage: str,
+        messages: list[str],
+        budget_boundary: str,
+        error_code: str = "tool_builder_token_budget_exhausted",
+    ) -> None:
+        normalized_messages = [str(item) for item in messages]
+        super().__init__("; ".join(normalized_messages) or error_code)
+        self.occurrence_id = str(occurrence_id)
+        self.phase_id = str(phase_id)
+        self.stage = str(stage)
+        self.error_code = str(error_code)
+        self.messages = copy.deepcopy(normalized_messages)
+        self.budget_boundary = str(budget_boundary)
 
 
 class AtomicSkillGraphSystem:
@@ -1534,6 +1560,7 @@ class AtomicSkillGraphSystem:
                 # the immutable evidence source already names every event id
                 # before one append-only ledger transaction publishes them.
                 self._commit_evidence([*runtime_events, *promotion_events])
+                self._review_task_deployments(runtime_events)
             self._maybe_run_maintenance()
             self._persist_maintenance_state()
         return trace
@@ -2179,6 +2206,10 @@ class AtomicSkillGraphSystem:
             "tool_builder_static_pass_count": 0,
             "tool_builder_static_rejection_count": 0,
             "tool_builder_aborted_count": 0,
+            "tool_builder_budget_exhausted_count": 0,
+            "tool_builder_budget_skipped_before_session_count": 0,
+            "atomic_only_prepared_after_tool_budget_count": 0,
+            "atomic_only_retained_after_tool_budget_count": 0,
             "atomic_only_prepared_after_tool_rejection_count": 0,
             "atomic_only_retained_after_tool_rejection_count": 0,
             "atomic_staged_occurrence_count": 0,
@@ -2215,6 +2246,10 @@ class AtomicSkillGraphSystem:
             "error_code": "",
             "failure_codes": [],
             "messages": [],
+            "budget_boundary": "",
+            "shared_remaining_before": None,
+            "shared_remaining_after": None,
+            "budget_provider_call_count": 0,
         }
         records.append(record)
         return record
@@ -2282,6 +2317,26 @@ class AtomicSkillGraphSystem:
                 and item.get("outcome") == "aborted"
                 for item in records
             ),
+            "tool_builder_budget_exhausted_count": sum(
+                item.get("outcome") == "budget_exhausted"
+                for item in records
+            ),
+            "tool_builder_budget_skipped_before_session_count": sum(
+                item.get("outcome") == "budget_exhausted"
+                and item.get("budget_boundary") == "before_session"
+                for item in records
+            ),
+            "atomic_only_prepared_after_tool_budget_count": sum(
+                item.get("outcome") == "budget_exhausted"
+                and item.get("atomic_only_prepared") is True
+                for item in records
+            ),
+            "atomic_only_retained_after_tool_budget_count": sum(
+                item.get("outcome") == "budget_exhausted"
+                and item.get("atomic_only_prepared") is True
+                and item.get("atomic_registered") is True
+                for item in records
+            ),
             "atomic_only_prepared_after_tool_rejection_count": sum(
                 item.get("outcome") in rejected_outcomes
                 and item.get("atomic_only_prepared") is True
@@ -2331,6 +2386,49 @@ class AtomicSkillGraphSystem:
         )
         return CompiledKnowledge(staged_occurrence, staged.atomic, None, None)
 
+    def _record_tool_build_budget_exhaustion(
+        self,
+        record: dict[str, Any],
+        *,
+        stage: str,
+        budget_boundary: str,
+        error: BudgetExhausted | None = None,
+    ) -> _ToolBuildBudgetExhausted:
+        error_code = "tool_builder_token_budget_exhausted"
+        session_id = str(record.get("session_id", ""))
+        messages = [
+            self._sanitize_failure_message(error)
+            if error is not None
+            else "shared ToolBuilder evolution token budget exhausted before session"
+        ]
+        provider_call_count = 0
+        if session_id:
+            provider_call_count = sum(
+                int(event.usage.call_count)
+                for event in self.usage.events
+                if event.session_id == session_id
+            )
+        record.update({
+            "outcome": "budget_exhausted",
+            "failure_stage": str(stage),
+            "error_code": error_code,
+            "failure_codes": [error_code],
+            "messages": messages,
+            "budget_boundary": str(budget_boundary),
+            "shared_remaining_after": int(
+                self._shared_tool_builder_tokens("tool_builder_evolution")
+            ),
+            "budget_provider_call_count": int(provider_call_count),
+        })
+        return _ToolBuildBudgetExhausted(
+            occurrence_id=str(record.get("occurrence_id", "")),
+            phase_id=str(record.get("phase_id", "")),
+            stage=str(stage),
+            messages=messages,
+            budget_boundary=str(budget_boundary),
+            error_code=error_code,
+        )
+
     def _build_tool_for_occurrence(
         self,
         occurrence: Any,
@@ -2359,6 +2457,18 @@ class AtomicSkillGraphSystem:
             if exact is not None:
                 record["outcome"] = "exact_reuse"
                 return exact, self._r4_builder_return_metrics(record)
+
+            stage = "tool_builder_session"
+            shared_remaining = int(
+                self._shared_tool_builder_tokens("tool_builder_evolution")
+            )
+            record["shared_remaining_before"] = shared_remaining
+            if shared_remaining == 0:
+                raise self._record_tool_build_budget_exhaustion(
+                    record,
+                    stage=stage,
+                    budget_boundary="before_session",
+                )
 
             provenance = ToolProvenance(
                 source="success_evolution",
@@ -2393,10 +2503,22 @@ class AtomicSkillGraphSystem:
                 else []
             )
 
-            stage = "tool_builder_session"
-            session = self._tool_builder_session(
-                "tool_builder_evolution", occurrence.occurrence_id,
-            )
+            try:
+                session = self._tool_builder_session(
+                    "tool_builder_evolution", occurrence.occurrence_id,
+                )
+            except BudgetExhausted as exc:
+                if (
+                    exc.code != "tool_builder_token_budget_exhausted"
+                    or exc.layer is not FailureLayer.RUNTIME_AGENT
+                ):
+                    raise
+                raise self._record_tool_build_budget_exhaustion(
+                    record,
+                    stage=stage,
+                    budget_boundary="session_allocation",
+                    error=exc,
+                ) from exc
             record["session_id"] = str(getattr(session, "session_id", ""))
             builder = ToolBuilderSession(session)
             stage = "tool_builder_submission"
@@ -2419,6 +2541,18 @@ class AtomicSkillGraphSystem:
                     },
                     bucket="tool_builder_evolution",
                 )
+            except BudgetExhausted as exc:
+                if (
+                    exc.code != "tool_builder_token_budget_exhausted"
+                    or exc.layer is not FailureLayer.RUNTIME_AGENT
+                ):
+                    raise
+                raise self._record_tool_build_budget_exhaustion(
+                    record,
+                    stage=stage,
+                    budget_boundary="builder_request",
+                    error=exc,
+                ) from exc
             except ToolProposalParseError as exc:
                 messages = [self._sanitize_failure_message(exc)]
                 record.update({
@@ -2511,7 +2645,7 @@ class AtomicSkillGraphSystem:
             )
             record["outcome"] = "created"
             return item, self._r4_builder_return_metrics(record)
-        except _ToolBuildContentRejected:
+        except (_ToolBuildContentRejected, _ToolBuildBudgetExhausted):
             raise
         except Exception as exc:
             if record.get("outcome") == "pending":
@@ -3344,6 +3478,36 @@ class AtomicSkillGraphSystem:
                         atomic_ref=bundle.atomic.ref,
                     )
                 )
+            except _ToolBuildBudgetExhausted as exc:
+                try:
+                    staged_atomic_only = self._stage_atomic_only_occurrence(
+                        occurrence, atomic_view,
+                    )
+                except ValueError as staging_exc:
+                    staging_error_code = str(
+                        getattr(staging_exc, "code", "")
+                        or "knowledge_preparation_failed"
+                    )
+                    trace.metadata["knowledge_preparation_rejections"].append({
+                        "occurrence_id": str(occurrence.occurrence_id),
+                        "phase_id": str(occurrence.phase_id),
+                        "stage": "atomic_only_stage_after_tool_budget",
+                        "error_type": type(staging_exc).__name__,
+                        "error_code": staging_error_code,
+                        "failure_codes": [],
+                        "messages": [
+                            self._sanitize_failure_message(staging_exc)
+                            or type(staging_exc).__name__
+                        ],
+                    })
+                    continue
+                record = self._r4_tool_build_record(
+                    trace, occurrence.occurrence_id,
+                )
+                if record is not None:
+                    record["atomic_only_prepared"] = True
+                provisional.append(staged_atomic_only)
+                continue
             except _ToolBuildContentRejected as exc:
                 rejection = {
                     "occurrence_id": exc.occurrence_id,
@@ -3834,14 +3998,22 @@ class AtomicSkillGraphSystem:
             if item.tool is None or item.implementation is None:
                 atomic_refs.append(atomic_ref)
                 by_occurrence[item.occurrence.occurrence_id] = atomic_ref
-                atomic_only_reason = (
-                    "tool_builder_rejected_atomic_only"
-                    if tool_build_record is not None
+                if (
+                    tool_build_record is not None
+                    and tool_build_record.get("outcome") == "budget_exhausted"
+                ):
+                    atomic_only_reason = (
+                        "tool_builder_budget_exhausted_atomic_only"
+                    )
+                elif (
+                    tool_build_record is not None
                     and tool_build_record.get("outcome") in {
                         "submission_rejected", "static_rejected",
                     }
-                    else "tool_builder_no_tool_atomic_only"
-                )
+                ):
+                    atomic_only_reason = "tool_builder_rejected_atomic_only"
+                else:
+                    atomic_only_reason = "tool_builder_no_tool_atomic_only"
                 evidence.record(
                     str(atomic_ref),
                     "atomic",
@@ -4147,6 +4319,29 @@ class AtomicSkillGraphSystem:
         assert self.ledger is not None and self.projection is not None and self.lifecycle is not None
         self.ledger.append_transaction(events)
         self.projection.consume(events)
+
+    def _review_task_deployments(
+        self,
+        runtime_events: Sequence[EvidenceEvent],
+    ) -> LifecycleReviewResult | None:
+        """Apply deterministic governance after this task's evidence is committed."""
+
+        if self.readonly:
+            raise RuntimeError("frozen lifecycle registry is read-only")
+        deployment_events = {
+            EvidenceEventType.DEPLOYMENT_SUCCESS,
+            EvidenceEventType.DEPLOYMENT_UNSUCCESSFUL,
+        }
+        refs = sorted({
+            event.artifact_ref
+            for event in runtime_events
+            if event.artifact_kind == "composite"
+            and event.event in deployment_events
+        })
+        if not refs:
+            return None
+        assert self.lifecycle is not None
+        return self.lifecycle.review(artifact_refs=refs)
 
     def _commit_gap_diagnosis(self, diagnosis: dict[str, Any]) -> None:
         if not diagnosis or self.readonly:

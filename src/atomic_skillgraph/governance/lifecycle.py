@@ -6,9 +6,10 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
-from ..core.refs import SkillRef
+from ..core.errors import ArtifactIntegrityError, FailureLayer
+from ..core.refs import SkillRef, content_hash
 from ..core.status import (
     RuntimeMode,
     SkillStatus,
@@ -374,7 +375,13 @@ class LifecycleController:
     def review(self, artifact_refs: Iterable[str] | None = None) -> LifecycleReviewResult:
         if self.database.readonly:
             raise RuntimeError("frozen lifecycle registry is read-only")
-        requested = None if artifact_refs is None else tuple(dict.fromkeys(artifact_refs))
+        requested = (
+            None
+            if artifact_refs is None
+            else tuple(sorted({str(artifact_ref) for artifact_ref in artifact_refs}))
+        )
+        if requested == ():
+            return LifecycleReviewResult(0, ())
         if requested is None:
             rows = self.database.rows(
                 "SELECT artifact_ref,artifact_kind,logical_id,status FROM artifact_index "
@@ -392,7 +399,7 @@ class LifecycleController:
                     raise KeyError(artifact_ref)
                 rows.append(row)
 
-        raw_decisions: list[LifecycleDecision] = []
+        raw_decision_by_ref: dict[str, LifecycleDecision] = {}
         logical_id_by_ref: dict[str, str] = {}
         for row in rows:
             stats = self.projection.stats(row["artifact_ref"], row["artifact_kind"])
@@ -402,16 +409,53 @@ class LifecycleController:
                 str(row["status"]),
                 stats,
             )
-            raw_decisions.append(decision)
+            raw_decision_by_ref[decision.artifact_ref] = decision
             logical_id_by_ref[decision.artifact_ref] = str(row["logical_id"])
 
         projected_statuses = {
             decision.artifact_ref: decision.next_status
-            for decision in raw_decisions
+            for decision in raw_decision_by_ref.values()
         }
+        invalidated_atomic_refs = {
+            decision.artifact_ref
+            for decision in raw_decision_by_ref.values()
+            if decision.artifact_kind == "atomic"
+            and decision.next_status != SkillStatus.ACTIVE.value
+        }
+        payload_cache: dict[str, dict[str, Any]] = {}
+        affected_parent_refs = self._affected_active_composite_refs(
+            invalidated_atomic_refs,
+            payload_cache=payload_cache,
+        )
+        for parent_ref in affected_parent_refs:
+            if parent_ref in raw_decision_by_ref:
+                continue
+            row = self.database.execute(
+                "SELECT artifact_ref,artifact_kind,logical_id,status FROM artifact_index "
+                "WHERE artifact_ref=?",
+                (parent_ref,),
+            ).fetchone()
+            if (
+                row is None
+                or str(row["artifact_kind"]) != "composite"
+                or str(row["status"]) != SkillStatus.ACTIVE.value
+            ):
+                raise RuntimeError(
+                    f"affected Active Composite changed during lifecycle review: {parent_ref}"
+                )
+            raw_decision_by_ref[parent_ref] = _keep(
+                parent_ref,
+                "composite",
+                SkillStatus.ACTIVE,
+                "active_evidence_stable",
+            )
+            projected_statuses[parent_ref] = SkillStatus.ACTIVE.value
+            logical_id_by_ref[parent_ref] = str(row["logical_id"])
+
         decisions: list[LifecycleDecision] = []
         logical_ids: set[str] = set()
-        for decision in raw_decisions:
+        for artifact_ref in sorted(raw_decision_by_ref):
+            decision = raw_decision_by_ref[artifact_ref]
             if (
                 decision.artifact_kind == "composite"
                 and decision.current_status == SkillStatus.CANDIDATE.value
@@ -427,6 +471,25 @@ class LifecycleController:
                         "composite",
                         SkillStatus.CANDIDATE,
                         "awaiting_frozen_child_closure",
+                    )
+            elif (
+                decision.artifact_kind == "composite"
+                and decision.current_status == SkillStatus.ACTIVE.value
+                and decision.next_status == SkillStatus.ACTIVE.value
+            ):
+                closure_passed, _ = self._composite_frozen_closure(
+                    decision.artifact_ref,
+                    projected_statuses=projected_statuses,
+                    strict_integrity=True,
+                    payload_cache=payload_cache,
+                )
+                if not closure_passed:
+                    decision = _move(
+                        decision.artifact_ref,
+                        "composite",
+                        SkillStatus.ACTIVE,
+                        SkillStatus.SUPPRESSED,
+                        "frozen_dependency_unusable",
                     )
             decisions.append(decision)
             if decision.changed:
@@ -448,13 +511,91 @@ class LifecycleController:
                 for logical_id in sorted(logical_ids):
                     self._refresh_recommended(connection, logical_id)
 
-        return LifecycleReviewResult(len(rows), tuple(decisions))
+        return LifecycleReviewResult(len(decisions), tuple(decisions))
+
+    def _affected_active_composite_refs(
+        self,
+        atomic_refs: set[str],
+        *,
+        payload_cache: dict[str, dict[str, Any]],
+    ) -> tuple[str, ...]:
+        """Find Active exact-ref parents whose immutable occurrences use a child."""
+
+        if not atomic_refs:
+            return ()
+        ordered_atomic_refs = tuple(sorted(atomic_refs))
+        placeholders = ",".join("?" for _ in ordered_atomic_refs)
+        graph_candidates = {
+            str(row["source_ref"])
+            for row in self.database.rows(
+                "SELECT DISTINCT edges.source_ref FROM graph_edges AS edges "
+                "JOIN artifact_index AS parents ON parents.artifact_ref=edges.source_ref "
+                "WHERE edges.relation='contains' "
+                f"AND edges.target_ref IN ({placeholders}) "
+                "AND parents.artifact_kind='composite' AND parents.status=?",
+                (*ordered_atomic_refs, SkillStatus.ACTIVE.value),
+            )
+        }
+        active_rows = self.database.rows(
+            "SELECT artifact_ref FROM artifact_index "
+            "WHERE artifact_kind='composite' AND status=? ORDER BY artifact_ref",
+            (SkillStatus.ACTIVE.value,),
+        )
+        affected: set[str] = set()
+        for row in active_rows:
+            composite_ref = str(row["artifact_ref"])
+            child_refs = self._composite_occurrence_refs(
+                composite_ref,
+                strict_integrity=composite_ref in graph_candidates,
+                payload_cache=payload_cache,
+            )
+            if (
+                child_refs is None
+                and composite_ref not in graph_candidates
+                and self._payload_declares_any_ref(
+                    payload_cache.get(composite_ref), atomic_refs,
+                )
+            ):
+                # A missing CONTAINS edge must not let another malformed
+                # occurrence hide an exact dependency that is still readable
+                # from the immutable parent payload.
+                child_refs = self._composite_occurrence_refs(
+                    composite_ref,
+                    strict_integrity=True,
+                    payload_cache=payload_cache,
+                )
+            if child_refs is not None and atomic_refs.intersection(child_refs):
+                affected.add(composite_ref)
+        return tuple(sorted(affected))
+
+    @staticmethod
+    def _payload_declares_any_ref(
+        payload: dict[str, Any] | None,
+        refs: set[str],
+    ) -> bool:
+        if payload is None:
+            return False
+        occurrences = payload.get("occurrences")
+        if not isinstance(occurrences, list):
+            return False
+        for occurrence in occurrences:
+            if not isinstance(occurrence, dict) or "node_ref" not in occurrence:
+                continue
+            try:
+                child_ref = _serialized_skill_ref(occurrence["node_ref"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if child_ref in refs:
+                return True
+        return False
 
     def _composite_frozen_closure(
         self,
         composite_ref: str,
         *,
         projected_statuses: dict[str, str] | None = None,
+        strict_integrity: bool = False,
+        payload_cache: dict[str, dict[str, Any]] | None = None,
     ) -> tuple[bool, tuple[str, ...]]:
         """Return whether every declared child has an Active CONTAINS edge.
 
@@ -467,23 +608,12 @@ class LifecycleController:
         registry state is fail-closed rather than treated as an empty closure.
         """
 
-        composite_row = self.database.execute(
-            "SELECT artifact_kind,file_path FROM artifact_index WHERE artifact_ref=?",
-            (composite_ref,),
-        ).fetchone()
-        if composite_row is None or str(composite_row["artifact_kind"]) != "composite":
-            return False, ()
-        try:
-            payload = json.loads(Path(str(composite_row["file_path"])).read_text("utf-8"))
-            occurrences = payload["occurrences"]
-            if not isinstance(occurrences, list):
-                return False, ()
-            child_refs: set[str] = set()
-            for occurrence in occurrences:
-                if not isinstance(occurrence, dict) or "node_ref" not in occurrence:
-                    return False, tuple(sorted(child_refs))
-                child_refs.add(_serialized_skill_ref(occurrence["node_ref"]))
-        except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+        child_refs = self._composite_occurrence_refs(
+            composite_ref,
+            strict_integrity=strict_integrity,
+            payload_cache=payload_cache if payload_cache is not None else {},
+        )
+        if child_refs is None:
             return False, ()
 
         contains_refs = {
@@ -494,7 +624,14 @@ class LifecycleController:
                 (composite_ref,),
             )
         }
-        blocked = set(child_refs - contains_refs)
+        missing_contains = child_refs - contains_refs
+        if strict_integrity and missing_contains:
+            self._raise_dependency_integrity(
+                "composite_dependency_integrity_error",
+                f"Active Composite {composite_ref} lacks CONTAINS edges for "
+                f"{sorted(missing_contains)!r}",
+            )
+        blocked = set(missing_contains)
         if child_refs:
             placeholders = ",".join("?" for _ in child_refs)
             rows = self.database.rows(
@@ -502,6 +639,24 @@ class LifecycleController:
                 f"WHERE artifact_ref IN ({placeholders})",
                 tuple(sorted(child_refs)),
             )
+            indexed_by_ref = {
+                str(row["artifact_ref"]): row
+                for row in rows
+            }
+            if strict_integrity:
+                missing_children = child_refs - set(indexed_by_ref)
+                invalid_children = {
+                    child_ref
+                    for child_ref, row in indexed_by_ref.items()
+                    if str(row["artifact_kind"]) != "atomic"
+                }
+                if missing_children or invalid_children:
+                    self._raise_dependency_integrity(
+                        "composite_dependency_integrity_error",
+                        f"Active Composite {composite_ref} has invalid Atomic dependencies; "
+                        f"missing={sorted(missing_children)!r}, "
+                        f"wrong_kind={sorted(invalid_children)!r}",
+                    )
             frozen_usable = {
                 str(row["artifact_ref"])
                 for row in rows
@@ -514,6 +669,95 @@ class LifecycleController:
             }
             blocked.update(child_refs - frozen_usable)
         return not blocked, tuple(sorted(blocked))
+
+    def _composite_occurrence_refs(
+        self,
+        composite_ref: str,
+        *,
+        strict_integrity: bool,
+        payload_cache: dict[str, dict[str, Any]],
+    ) -> set[str] | None:
+        composite_row = self.database.execute(
+            "SELECT artifact_kind,content_hash,file_path FROM artifact_index "
+            "WHERE artifact_ref=?",
+            (composite_ref,),
+        ).fetchone()
+        if composite_row is None or str(composite_row["artifact_kind"]) != "composite":
+            if strict_integrity:
+                self._raise_dependency_integrity(
+                    "composite_dependency_integrity_error",
+                    f"Composite dependency parent is missing or has wrong kind: {composite_ref}",
+                )
+            return None
+
+        payload = payload_cache.get(composite_ref)
+        if payload is None:
+            path = Path(str(composite_row["file_path"]))
+            try:
+                loaded = json.loads(path.read_text("utf-8"))
+                if not isinstance(loaded, dict):
+                    raise TypeError("artifact payload must be an object")
+                payload = loaded
+            except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                if strict_integrity:
+                    code = (
+                        "artifact_file_missing"
+                        if not path.is_file()
+                        else "composite_dependency_integrity_error"
+                    )
+                    self._raise_dependency_integrity(
+                        code,
+                        f"cannot read immutable Composite dependency parent {composite_ref}",
+                        cause=exc,
+                    )
+                return None
+            payload_cache[composite_ref] = payload
+
+        if strict_integrity:
+            actual_hash = content_hash(
+                payload,
+                exclude=("status", "quality", "statistics", "evidence"),
+            )
+            if actual_hash != str(composite_row["content_hash"]):
+                self._raise_dependency_integrity(
+                    "artifact_hash_mismatch",
+                    f"artifact hash mismatch: {composite_ref}",
+                )
+
+        try:
+            occurrences = payload["occurrences"]
+            if not isinstance(occurrences, list):
+                raise TypeError("Composite occurrences must be a list")
+            child_refs: set[str] = set()
+            for occurrence in occurrences:
+                if not isinstance(occurrence, dict) or "node_ref" not in occurrence:
+                    raise TypeError("Composite occurrence lacks node_ref")
+                child_refs.add(_serialized_skill_ref(occurrence["node_ref"]))
+            return child_refs
+        except (KeyError, TypeError, ValueError) as exc:
+            if strict_integrity:
+                self._raise_dependency_integrity(
+                    "composite_dependency_integrity_error",
+                    f"invalid immutable Composite dependency declaration: {composite_ref}",
+                    cause=exc,
+                )
+            return None
+
+    @staticmethod
+    def _raise_dependency_integrity(
+        code: str,
+        message: str,
+        *,
+        cause: Exception | None = None,
+    ) -> None:
+        error = ArtifactIntegrityError(
+            code,
+            message,
+            layer=FailureLayer.INFRASTRUCTURE,
+        )
+        if cause is None:
+            raise error
+        raise error from cause
 
     @staticmethod
     def _refresh_recommended(connection: object, logical_id: str) -> None:

@@ -9,6 +9,7 @@ from typing import Any, Mapping
 import pytest
 
 import atomic_skillgraph.system as system_module
+from atomic_skillgraph.agents import UsageLedger
 from atomic_skillgraph.agents.protocol import AgentTurn, NativeToolCall
 from atomic_skillgraph.agents.structured_submission import (
     TOOL_PROPOSAL_SCHEMA,
@@ -293,7 +294,8 @@ def _minimal_system(
     normalized = _normalized_take()
     system = object.__new__(system_module.AtomicSkillGraphSystem)
     system.config = {"method_patch": "3.2"}
-    system.usage = object()
+    system.usage = UsageLedger()
+    system._current_task_usage_start = 0
     system.mode = "online"
     system.readonly = False
     system.normalizer = SimpleNamespace(build=lambda _trace: copy.deepcopy(normalized))

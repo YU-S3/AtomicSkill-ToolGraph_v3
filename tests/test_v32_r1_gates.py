@@ -2441,6 +2441,14 @@ def test_gate28_shorter_candidate_cannot_suppress_old_composite_prematurely() ->
         shorter_ref = str(shorter.ref)
         skills.register_composite(old)
         skills.register_composite(shorter)
+        child_ref = str(canonical[0].proposed_ref)
+        skills.update_status(child_ref, SkillStatus.ACTIVE)
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO graph_edges(edge_id,source_ref,target_ref,relation,metadata_json) "
+                "VALUES(?,?,?,?,?)",
+                ("gate28-contains", old_ref, child_ref, "contains", "{}"),
+            )
         skills.update_status(old_ref, SkillStatus.ACTIVE)
         assert skills.get_composite(old_ref).status is SkillStatus.ACTIVE
         assert skills.get_composite(shorter_ref).status is SkillStatus.CANDIDATE

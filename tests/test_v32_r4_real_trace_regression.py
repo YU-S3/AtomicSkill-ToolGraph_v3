@@ -9,6 +9,7 @@ from typing import Any, Mapping
 import pytest
 
 import atomic_skillgraph.system as system_module
+from atomic_skillgraph.agents import UsageLedger as AgentUsageLedger
 from atomic_skillgraph.agents.protocol import validate_schema_instance
 from atomic_skillgraph.agents.structured_submission import TOOL_PROPOSAL_SCHEMA
 from atomic_skillgraph.core.contracts import SemanticPredicate, TaskContract
@@ -267,7 +268,8 @@ def _system_for_replay(
     normalized = copy.deepcopy(dict(fixture["normalized_trace_minimal"]))
     system = object.__new__(system_module.AtomicSkillGraphSystem)
     system.config = {"method_patch": "3.2"}
-    system.usage = object()
+    system.usage = AgentUsageLedger()
+    system._current_task_usage_start = 0
     system.mode = "online"
     system.readonly = False
     system.normalizer = SimpleNamespace(
