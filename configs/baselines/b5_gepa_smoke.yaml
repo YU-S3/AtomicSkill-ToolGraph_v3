@@ -29,7 +29,7 @@ gepa:
   acceptance_criterion: strict_improvement
   sampling_strategy: null
   selection_strategy: null
-  reflection_max_completion_tokens: 2048
+  reflection_max_completion_tokens: 16384
 
 provider_transport:
   sdk_max_retries: 0
@@ -50,6 +50,6 @@ smoke:
 env:
   name: alfworld
   max_steps: 2
-  max_completion_tokens: 2048
+  max_completion_tokens: 16384
   workers: 6
   max_api_workers: 6

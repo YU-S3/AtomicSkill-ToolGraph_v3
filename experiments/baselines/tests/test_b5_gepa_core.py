@@ -924,6 +924,14 @@ def test_formal_config_freezes_720_metric_calls_and_same_initial_skill() -> None
     assert b5["gepa"]["use_merge"] is False
     assert b5["gepa"]["sampling_strategy"] is None
     assert b5["gepa"]["selection_strategy"] is None
+    # Smoke shrinks dataset and optimizer metric counts only. Keep the formal
+    # per-call budget so high-reasoning responses can reach their final text.
+    assert smoke["gepa"]["reflection_max_completion_tokens"] == b5["gepa"][
+        "reflection_max_completion_tokens"
+    ]
+    assert smoke["env"]["max_completion_tokens"] == b5["env"][
+        "max_completion_tokens"
+    ]
     assert b5["parallel"] == {
         "seed_lanes": 1,
         "episode_workers_per_seed": 16,
