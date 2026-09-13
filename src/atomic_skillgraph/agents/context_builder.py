@@ -13,6 +13,7 @@ from dataclasses import is_dataclass
 from typing import Any, Iterable, Mapping
 
 from ..core.serialization import to_primitive
+from ..tooling.runtime_interface import public_tool_ir_condition_contract
 from .runtime_policy_projection import project_runtime_payload
 from .runtime_prompt_texts import (
     DYNAMIC_PROMPT,
@@ -61,6 +62,7 @@ class ContextBuilder:
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
         support_atomic_candidates: Iterable[Any] = (),
         runtime_automation_drafts: Iterable[Any] = (),
+        runtime_automation_interface: Mapping[str, Any] | None = None,
         projection_audit: dict[str, Any] | None = None,
     ) -> str:
         invocations = [
@@ -117,9 +119,12 @@ class ContextBuilder:
             "support_atomic_candidates": [
                 _policy_value(item) for item in support_atomic_candidates
             ],
-            "runtime_automation_drafts": [
-                _policy_value(item) for item in runtime_automation_drafts
-            ],
+            "runtime_automation_interface": _policy_value(
+                dict(runtime_automation_interface or {})
+            ),
+            "runtime_automation_drafts": _compact_runtime_automation_drafts(
+                runtime_automation_drafts
+            ),
         }
         projected, audit = project_runtime_payload(payload)
         if projection_audit is not None:
@@ -148,6 +153,7 @@ class ContextBuilder:
         current_state_snapshot: Mapping[str, Any] | None = None,
         exploration_memory: Mapping[str, Any] | None = None,
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
+        runtime_automation_interface: Mapping[str, Any] | None = None,
         projection_audit: dict[str, Any] | None = None,
     ) -> str:
         ready = (
@@ -189,6 +195,9 @@ class ContextBuilder:
                 dict(recent_failed_learned_invocation)
                 if recent_failed_learned_invocation is not None
                 else None
+            ),
+            "runtime_automation_interface": _policy_value(
+                dict(runtime_automation_interface or {})
             ),
         }
         projected, audit = project_runtime_payload(payload)
@@ -298,6 +307,7 @@ class ContextBuilder:
             "tool_ir_schema": {
                 "schema_version": 1,
                 "opcodes": ["ACTION", "IF", "FOR_EACH", "STOP_WHEN", "RETURN"],
+                "condition_contract": public_tool_ir_condition_contract(),
             },
             "safety_portability": {
                 "no_python": True,
@@ -357,8 +367,10 @@ Every successful return path must supply the required outputs. Loop variables do
 BOUNDING AND SAFETY
 Use only ACTION, IF, FOR_EACH, STOP_WHEN, RETURN. Give nodes unique non-empty node_id values. Keep nesting within the existing maximum of four levels. Set a positive max_actions that bounds actual primitive actions; control nodes do not count as primitive actions. Bound every FOR_EACH with a positive max_iterations.
 In success_evolution, propose FOR_EACH only when the supplied evidence contains at least two structurally isomorphic distinct repetitions. In runtime_automation, loop behavior may instead earn evidence through the existing task-local R1 trial. Do not change this distinction.
+When harness_interface.tool_ir_collection_sources offers action_catalog, a FOR_EACH may enumerate the current public admissible primitive candidates with that exact selector contract. Filter only through its declared where fields and primitive-action roles, then project a top-level entry field or primitive argument into the loop local. This catalog access supplies candidates only: it does not choose a route, prove an Effect, or authorize an episode-specific constant.
+In runtime_automation, an action_catalog loop local is an authorized primitive argument even when it is not an Atomic boundary input or constant. Fresh final Effects and outputs may receive their first witness during the task-local R1 trial, so missing pre-trial atomic_evidence_support or semantic_delta is not by itself a reason for NO_TOOL; the trial must still validate them before they can pass.
 Use only supported condition/selector sources and operators. No Python, shell, filesystem, network, hidden model calls, task-family branches, or episode-specific constants.
-Evidence_outputs are optional: use [] when unnecessary. When supplied, each entry must name an actual output role and a supported source. Path expectations describe what must be verified; never claim that an unexecuted path has already passed.
+Evidence_outputs are optional: use [] when unnecessary, including when RETURN already carries the required evidence selector. When supplied, each entry must use role=<actual output role> plus the supported source/where/project selector shape; never substitute output_role or bare predicate/argument_role fields. Path expectations describe what must be verified; never claim that an unexecuted path has already passed.
 
 NO_TOOL IS A VALID DECISION, NOT A FAKE EXECUTABLE
 If no safe, reusable, bounded implementation can satisfy the supplied contract, submit decision=no_tool with a specific rationale. Still include every field required by the offered native-tool schema: proposal_version="1", a non-empty summary, the supplied atomic_ref, the supplied input/output lists, program=[], max_actions=1, final_effects=[], evidence_outputs=[], path_expectations=[], and rationale. The value 1 is a schema-compatible placeholder, not permission to execute an action. Code does not compile or run a no_tool proposal.
@@ -721,6 +733,38 @@ def _policy_value(value: Any) -> Any:
     except (TypeError, ValueError) as exc:
         raise ValueError("policy context must be JSON serializable") from exc
     return primitive
+
+
+def _compact_runtime_automation_drafts(
+    values: Iterable[Any],
+) -> list[dict[str, Any]]:
+    """Keep task-local decisions while excluding Tool programs and mappings."""
+
+    projected: list[dict[str, Any]] = []
+    for value in values:
+        mapping = _as_mapping(value)
+        draft_raw = mapping.get("draft", mapping)
+        draft = _as_mapping(draft_raw)
+        item = {
+            key: _policy_value(draft[key])
+            for key in ("draft_id", "intent", "source_occurrence_id")
+            if key in draft
+        }
+        for key in (
+            "stage", "r0_passed", "static_passed", "r1_passed",
+            "failure_code", "message",
+        ):
+            if key in mapping:
+                item[key] = _policy_value(mapping[key])
+        trial = mapping.get("trial")
+        if isinstance(trial, Mapping):
+            item["trial"] = {
+                key: _policy_value(trial[key])
+                for key in ("r1_outputs", "r1", "terminal_interrupted")
+                if key in trial
+            }
+        projected.append(item)
+    return projected
 
 
 def _reject_forbidden_keys(value: Any, *, path: str = "$") -> None:

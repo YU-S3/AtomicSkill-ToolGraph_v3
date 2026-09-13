@@ -11,6 +11,7 @@ from typing import Any
 
 from ..core.bindings import BindingExprKind, BindingExpression
 from ..core.contracts import ToolAsset
+from ..core.errors import BudgetExhausted
 from ..core.results import PrimitiveToolStep, ToolExecutionResult
 from ..core.serialization import to_primitive
 from ..traces.schema import EnvironmentActionRecord, ToolExecutionRecord
@@ -23,6 +24,10 @@ from ..tooling.ir import (
     resolve_return_sources,
     walk_program_nodes,
 )
+
+
+class _ToolActionUnavailable(Exception):
+    """The current public catalog cannot compile one declared IR action."""
 
 
 class ToolRunner:
@@ -41,6 +46,7 @@ class ToolRunner:
     def run(
         self, tool: ToolAsset, bindings: dict[str, Any], ctx: Any,
         *, occurrence_id: str, parent_span_id: str | None = None,
+        execution_scope: str = "registered",
     ) -> ToolExecutionResult:
         before_revision = ctx.world_revision
         local = self.validator.validate_asset(tool)
@@ -52,7 +58,14 @@ class ToolRunner:
             )
         span = ctx.trace_builder.start_span("tool", occurrence_id, parent_span_id=parent_span_id)
         if tool.artifact_kind == "tool_ir_v1":
-            return self._run_ir_v1(tool, bindings, ctx, occurrence_id=occurrence_id, span_id=span.span_id)
+            return self._run_ir_v1(
+                tool,
+                bindings,
+                ctx,
+                occurrence_id=occurrence_id,
+                span_id=span.span_id,
+                execution_scope=execution_scope,
+            )
         executed = 0
         started = False
         terminal_interrupted = False
@@ -187,17 +200,14 @@ class ToolRunner:
         schema_method = getattr(harness, "semantic_predicate_schema", None)
         domains: dict[str, str] = {}
         if callable(schema_method):
-            try:
-                for raw in schema_method():
-                    item = to_primitive(raw)
-                    if not isinstance(item, dict):
-                        continue
-                    predicate = str(item.get("predicate", "")).casefold()
-                    domain = str(item.get("effect_domain", ""))
-                    if predicate and domain in {"world", "evidence"}:
-                        domains[predicate] = domain
-            except Exception:
-                domains = {}
+            for raw in schema_method():
+                item = to_primitive(raw)
+                if not isinstance(item, dict):
+                    continue
+                predicate = str(item.get("predicate", "")).casefold()
+                domain = str(item.get("effect_domain", ""))
+                if predicate and domain in {"world", "evidence"}:
+                    domains[predicate] = domain
         result: list[dict[str, Any]] = []
         for raw in facts or ():
             if not isinstance(raw, dict):
@@ -328,7 +338,10 @@ class ToolRunner:
         self, node: dict[str, Any], primitive: PrimitiveToolStep,
         ctx: Any, state: ToolExecutionState, *, occurrence_id: str, span_id: str,
     ) -> dict[str, Any]:
-        spec = ctx.harness.compile_primitive(primitive, state.bindings)
+        try:
+            spec = ctx.harness.compile_primitive(primitive, state.bindings)
+        except KeyError as exc:
+            raise _ToolActionUnavailable(str(exc)) from exc
         ctx.budget.consume_action()
         result = ctx.harness.execute_action(spec.action_id, spec.revision)
         record = EnvironmentActionRecord(
@@ -576,13 +589,10 @@ class ToolRunner:
         passed = False
         validate_effect = getattr(ctx.harness.validator_channel(), "validate_atomic_effect", None)
         if not resolution_errors and not has_fresh_output and callable(validate_effect):
-            try:
-                passed = bool(validate_effect({
-                    "effects": [effect for effect, _wildcards, _errors in resolutions],
-                    "bindings": self._effect_bindings(state),
-                }).passed)
-            except Exception:
-                passed = False
+            passed = bool(validate_effect({
+                "effects": [effect for effect, _wildcards, _errors in resolutions],
+                "bindings": self._effect_bindings(state),
+            }).passed)
         if not passed and not resolution_errors and has_fresh_output:
             # A step may establish a declared fresh output whose concrete value
             # is published only by a later RETURN.  Match only that corresponding
@@ -690,10 +700,19 @@ class ToolRunner:
                     state.program_node_id = str(node.get("node_id", ""))
                     return "FAIL_TOOL"
                 primitive = self._resolve_action_arguments(node, state)
-                outcome = self._record_ir_action(
-                    node, primitive, ctx, state,
-                    occurrence_id=occurrence_id, span_id=span_id,
-                )
+                try:
+                    outcome = self._record_ir_action(
+                        node, primitive, ctx, state,
+                        occurrence_id=occurrence_id, span_id=span_id,
+                    )
+                except _ToolActionUnavailable as exc:
+                    # A current-catalog miss is an expected Tool-content
+                    # failure. Other execution defects must escape this
+                    # boundary and reach the attempt recovery protocol.
+                    state.failure_code = "tool_ir_action_unavailable"
+                    state.failure_message = str(exc)
+                    state.program_node_id = str(node.get("node_id", ""))
+                    return "FAIL_TOOL"
                 if not outcome["accepted"]:
                     state.failure_code = "tool_primitive_rejected"
                     state.failure_message = "Harness rejected Tool IR ACTION"
@@ -833,6 +852,7 @@ class ToolRunner:
     def _run_ir_v1(
         self, tool: ToolAsset, bindings: dict[str, Any], ctx: Any,
         *, occurrence_id: str, span_id: str,
+        execution_scope: str = "registered",
     ) -> ToolExecutionResult:
         before_revision = ctx.world_revision
         state = self._ir_state(tool, bindings, ctx)
@@ -844,8 +864,52 @@ class ToolRunner:
                 program, state, ctx, occurrence_id=occurrence_id,
                 span_id=span_id, tool=tool, terminal=terminal,
             )
-        except (AttributeError, KeyError, TypeError, ValueError, RecursionError) as exc:
+        except BudgetExhausted as exc:
+            if execution_scope != "runtime_trial":
+                raise
+            state.failure_code = exc.code
+            state.failure_message = str(exc)
+            total_nodes = self._program_node_count(program)
+            final_effect_result = {
+                "passed": False,
+                "observed_effects": [],
+                "missing_effects": [],
+                "failure_code": state.failure_code,
+            }
+            ctx.trace_builder.finish_span(span_id)
+            result = ToolExecutionResult(
+                str(tool.ref), True, state.executed_action_count > 0, False,
+                ctx.world_revision != before_revision,
+                state.executed_action_count, None, state.bindings, {},
+                before_revision, ctx.world_revision,
+                exc.layer.value, state.failure_code, state.failure_message,
+                intrinsic_failure=False,
+                executed_node_count=len(state.executed_nodes),
+                remaining_node_count=max(
+                    0, total_nodes - len(set(state.executed_nodes))
+                ),
+                path_id=self._program_path_id(state),
+                program_node_id=state.program_node_id,
+                tool_path_evidence=self._tool_path_evidence(
+                    state,
+                    outputs={},
+                    terminal_interrupted=False,
+                    final_effect_result=final_effect_result,
+                ),
+            )
+            ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(
+                f"tool_attempt_{uuid.uuid4().hex}", occurrence_id,
+                str(tool.ref), to_primitive(result), span_id,
+            ))
+            return result
+        except ValueError as exc:
             raw_code = str(exc).split(":", 1)[0]
+            if not (
+                raw_code.startswith("tool_ir_")
+                or raw_code == "tool_step_effect_violation"
+            ):
+                ctx.trace_builder.finish_span(span_id)
+                raise
             state.failure_code = (
                 raw_code
                 if raw_code.startswith("tool_ir_")
@@ -886,6 +950,9 @@ class ToolRunner:
                 to_primitive(result), span_id,
             ))
             return result
+        except (AttributeError, KeyError, TypeError, RecursionError):
+            ctx.trace_builder.finish_span(span_id)
+            raise
 
         terminal_interrupted = bool(terminal and terminal[0].get("won"))
         outputs = dict(state.outputs)

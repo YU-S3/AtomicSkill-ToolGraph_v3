@@ -249,6 +249,7 @@ class ReplayAgentSession:
         result: dict[str, Any],
         *,
         tools: list[NativeToolSpec] | None = None,
+        returned_action_executed: bool = False,
     ) -> AgentTurn:
         with self._lock:
             self._ensure_live()
@@ -266,10 +267,20 @@ class ReplayAgentSession:
                     layer=FailureLayer.RUNTIME_AGENT,
                 )
             normalized_tools = self._last_tools if tools is None else _normalize_tools(tools)
-            self._check_semantic_budget_before_call()
-            self._check_budget_before_call()
             self._append_tool_result(pending, result)
             self._last_tools = list(normalized_tools)
+            # The caller has already executed the pending ToolCall.  Preserve
+            # its result before deciding whether another provider turn can be
+            # purchased; an exhausted budget still raises and never continues.
+            # Most control ToolCalls (R0 rejection, NO_TOOL, validation and
+            # preflight) do not execute an environment action, so only the
+            # execution boundary may opt in to that audit fact.
+            self._check_semantic_budget_before_call(
+                returned_action_executed=bool(returned_action_executed),
+            )
+            self._check_budget_before_call(
+                returned_action_executed=bool(returned_action_executed),
+            )
             return self._request_valid_turn(normalized_tools)
 
     def acknowledge_tool_result(self, call_id: str, result: dict[str, Any]) -> None:
@@ -581,21 +592,26 @@ class ReplayAgentSession:
             except AtomicSkillGraphError:
                 raise
 
-    def _check_budget_before_call(self) -> None:
+    def _check_budget_before_call(
+        self, *, returned_action_executed: bool = False,
+    ) -> None:
         if self._budget_tracker is not None:
-            self._budget_tracker.check_before_call()
+            self._budget_tracker.check_before_call(
+                returned_action_executed=returned_action_executed,
+            )
 
-    def _check_semantic_budget_before_call(self) -> None:
+    def _check_semantic_budget_before_call(
+        self, *, returned_action_executed: bool = False,
+    ) -> None:
         if (
             self._semantic_max_turns is None
             or self._accepted_turn_count < self._semantic_max_turns
         ):
             return
         assert self._budget_tracker is not None
-        raise BudgetExhausted(
-            self._budget_tracker.budget.exhaustion_code,
-            "agent semantic turn budget exhausted",
-            layer=FailureLayer.RUNTIME_AGENT,
+        self._budget_tracker.raise_semantic_turn_exhausted(
+            self._semantic_max_turns,
+            returned_action_executed=returned_action_executed,
         )
 
     def _compact_superseded_action_catalogs(self) -> None:
@@ -957,6 +973,18 @@ class ReplayAgentSession:
             "messages": safe_messages,
             "tools": safe_tools,
         }
+        projections = _runtime_projection_payloads(safe_messages)
+        current_projection = projections[-1] if projections else {}
+        offered_tool_names = {item["name"] for item in safe_tools}
+        automation_interface = next((
+            projection.get("runtime_automation_interface")
+            for projection in projections
+            if isinstance(projection.get("runtime_automation_interface"), dict)
+            and projection.get("runtime_automation_interface")
+        ), None)
+        automation_update = current_projection.get(
+            "runtime_automation_interface_update"
+        )
         encoded = json.dumps(
             safe_snapshot,
             ensure_ascii=False,
@@ -974,6 +1002,30 @@ class ReplayAgentSession:
             "safe_snapshot_sha256": hashlib.sha256(encoded).hexdigest(),
             "safe_snapshot_utf8_bytes": len(encoded),
             "safe_snapshot_is_not_http_request": True,
+            "runtime_automation_offered": (
+                "propose_runtime_automation_atomic" in offered_tool_names
+            ),
+            "runtime_automation_interface_projected": bool(
+                isinstance(automation_interface, dict)
+                and automation_interface
+                and (
+                    not isinstance(automation_update, dict)
+                    or not automation_update
+                    or str(automation_update.get("source_occurrence_id", ""))
+                    == str(automation_interface.get("source_occurrence_id", ""))
+                )
+            ),
+            "runtime_automation_interface_update_projected": bool(
+                isinstance(automation_update, dict) and automation_update
+            ),
+            "runtime_support_offered": (
+                "invoke_support_atomic" in offered_tool_names
+            ),
+            "runtime_support_candidate_count": len(
+                current_projection.get("support_atomic_candidates", [])
+            ) if isinstance(
+                current_projection.get("support_atomic_candidates", []), list
+            ) else 0,
         })
 
     def _compact_initial_runtime_history(self, limit: int) -> tuple[int, int]:

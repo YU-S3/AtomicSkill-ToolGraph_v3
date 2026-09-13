@@ -11,6 +11,7 @@ from ..core.status import SkillStatus, ToolStatus
 from ..tooling.ir import walk_program_nodes
 from ..tooling.validator import ToolStaticValidator
 from ..validation.tool_validator import ToolValidator
+from .replay import ReplayCaseResult, replay_case_id
 
 
 class Admission:
@@ -56,13 +57,19 @@ class Admission:
             return replace(tool, status=ToolStatus.SHADOW, metadata={
                 **tool.metadata, "admission_failure": ["source_replay_unavailable"],
             })
-        results = [bool(replay(tool, item)) for item in replay_cases]
+        results, replay_details = self._run_replays(tool, replay_cases, replay)
         if not all(results):
             return replace(tool, status=ToolStatus.SHADOW, metadata={
-                **tool.metadata, "admission_failure": ["source_replay_failed"],
+                **tool.metadata,
+                "admission_failure": ["source_replay_failed"],
+                "replay_results": replay_details,
             })
         return replace(tool, status=ToolStatus.CANDIDATE, metadata={
-            **tool.metadata, "admission": {"source_replay": results},
+            **tool.metadata,
+            "admission": {
+                "source_replay": results,
+                "replay_results": replay_details,
+            },
         })
 
     def _admit_tool_ir_v1(
@@ -95,15 +102,74 @@ class Admission:
             return replace(tool, status=ToolStatus.SHADOW, metadata={
                 **tool.metadata, "admission_failure": ["tool_ir_replay_unavailable"],
             })
-        results = [bool(replay(tool, item)) for item in replay_cases]
+        results, replay_details = self._run_replays(tool, replay_cases, replay)
         if not all(results):
             return replace(tool, status=ToolStatus.SHADOW, metadata={
-                **tool.metadata, "admission_failure": ["tool_ir_replay_failed"],
+                **tool.metadata,
+                "admission_failure": ["tool_ir_replay_failed"],
+                "replay_results": replay_details,
             })
         return replace(tool, status=ToolStatus.CANDIDATE, metadata={
             **tool.metadata,
-            "admission": {"tool_ir_replay": results, "kind": "tool_ir_v1"},
+            "admission": {
+                "tool_ir_replay": results,
+                "replay_results": replay_details,
+                "kind": "tool_ir_v1",
+            },
         })
+
+    @staticmethod
+    def _run_replays(
+        tool: ToolAsset,
+        replay_cases: list[dict[str, Any]],
+        replay: Callable[[ToolAsset, dict[str, Any]], Any],
+    ) -> tuple[list[bool], list[dict[str, Any]]]:
+        """Consume typed results explicitly; arbitrary truthy objects fail closed."""
+
+        passed: list[bool] = []
+        details: list[dict[str, Any]] = []
+        for case in replay_cases:
+            outcome = replay(tool, case)
+            if isinstance(outcome, ReplayCaseResult):
+                passed.append(outcome.passed)
+                details.append({
+                    field: getattr(outcome, field)
+                    for field in outcome.__dataclass_fields__
+                })
+                continue
+            if type(outcome) is bool:
+                passed.append(outcome)
+                source = dict(case.get("source_task") or {})
+                details.append({
+                    "case_id": replay_case_id(case),
+                    "source_trace_id": str(case.get("trace_id", "")),
+                    "source_task_id": str(source.get("task_id", "")),
+                    "requested_task_id": "",
+                    "resolved_task_id": "",
+                    "stage": "legacy_callback",
+                    "passed": outcome,
+                    "failure_code": "" if outcome else "legacy_replay_failed",
+                    "message": "",
+                })
+                continue
+            passed.append(False)
+            details.append({
+                "case_id": replay_case_id(case),
+                "source_trace_id": str(case.get("trace_id", "")),
+                "source_task_id": str(
+                    dict(case.get("source_task") or {}).get("task_id", "")
+                ),
+                "requested_task_id": "",
+                "resolved_task_id": "",
+                "stage": "replay_callback",
+                "passed": False,
+                "failure_code": "replay_result_type_invalid",
+                "message": (
+                    "replay callback must return bool or ReplayCaseResult, got "
+                    f"{type(outcome).__name__}"
+                ),
+            })
+        return passed, details
 
     def admit_implementation(
         self,

@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.errors import AgentProtocolError, FailureLayer
+from ..tooling.ir import CONDITION_OPERATORS, CONDITION_SOURCES
+from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS
 from .protocol import (
     AgentSession,
     AgentTurn,
@@ -457,6 +459,110 @@ class StructuredSubmissionClient:
         )
 
 
+TOOL_IR_COLLECTION_SOURCE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["source"],
+    "properties": {
+        "source": {
+            "type": "string",
+            "enum": [
+                "tool_input", "local_variable", "action_catalog",
+                "semantic_evidence", "binding_evidence",
+                "local_deterministic",
+            ],
+        },
+        "field": NONEMPTY_STRING_SCHEMA,
+        "values": {"type": "array", "minItems": 1},
+        "where": {
+            "type": "object",
+            "description": (
+                "Filter action_catalog with optional where.action_type and "
+                "direct where.<primitive_argument_role>=<exact portable value> "
+                "entries. There is no primitive_argument_filters wrapper. "
+                "Static validation closes every direct role against the public "
+                "Harness primitive signature."
+            ),
+            "properties": {
+                "action_type": {"type": "string"},
+                "predicate": {"type": "string"},
+                "argument_role": {"type": "string"},
+                "semantic_compatible_with": {
+                    "type": "object",
+                    "required": ["source", "field"],
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "enum": list(CONDITION_SOURCES),
+                        },
+                        "field": NONEMPTY_STRING_SCHEMA,
+                        "semantic_type": {"type": "string"},
+                    },
+                },
+            },
+        },
+        "project": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["field", "argument"]},
+                "field": NONEMPTY_STRING_SCHEMA,
+                "role": NONEMPTY_STRING_SCHEMA,
+            },
+        },
+        "distinct": {"type": "boolean"},
+    },
+    "description": (
+        "FOR_EACH selector over an existing Tool IR source. For source="
+        "action_catalog, each current public entry has action_id, revision, "
+        "action_type, and arguments. Filter with where.action_type and optional "
+        "exact primitive-argument values directly as where.<argument_role>; "
+        "do not use a primitive_argument_filters wrapper. When "
+        "semantic_compatible_with is used, "
+        "where.argument_role names the action argument and the nested "
+        "source/field names the comparison authority. Project a top-level entry "
+        "field with field or use project.kind=argument plus project.role to put "
+        "that primitive argument value into the loop variable. distinct is an "
+        "optional boolean. The catalog supplies candidates, not effect evidence."
+    ),
+}
+
+
+TOOL_IR_CONDITION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["source", "field"],
+    "additionalProperties": False,
+    "properties": {
+        "source": {
+            "type": "string",
+            "enum": list(CONDITION_SOURCES),
+            "description": "Read-only Tool execution-state source.",
+        },
+        "field": {
+            **NONEMPTY_STRING_SCHEMA,
+            "description": (
+                "Declared Tool input, definitely-in-scope local, or top-level "
+                "public catalog/evidence field."
+            ),
+        },
+        "op": {
+            "type": "string",
+            "enum": sorted(CONDITION_OPERATORS),
+            "description": "Defaults to exists when omitted.",
+        },
+        "value": {
+            "description": (
+                "Comparison operand for equals, not_equals, and contains; "
+                "ignored by the other existing operators."
+            ),
+        },
+    },
+    "description": (
+        "Exact read-only IF/STOP_WHEN condition shape. Conditions inspect only "
+        "the current Tool inputs, lexical locals, public action catalog, public "
+        "semantic evidence, or public binding evidence."
+    ),
+}
+
+
 TOOL_IR_PROGRAM_NODE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["node_id", "op"],
@@ -478,10 +584,10 @@ TOOL_IR_PROGRAM_NODE_SCHEMA: dict[str, Any] = {
                 "tool_output, and adapter_transform bindings are not valid here."
             ),
         },
-        "condition": {"type": "object"},
+        "condition": TOOL_IR_CONDITION_SCHEMA,
         "then_branch": {"type": "array", "items": {"type": "object"}},
         "else_branch": {"type": "array", "items": {"type": "object"}},
-        "collection_source": {"type": "object"},
+        "collection_source": TOOL_IR_COLLECTION_SOURCE_SCHEMA,
         "iteration_variable": {"type": "string"},
         "body": {"type": "array", "items": {"type": "object"}},
         "max_iterations": {"type": "integer", "minimum": 1},
@@ -562,17 +668,72 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
         "intent": NONEMPTY_STRING_SCHEMA,
         "inputs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
         "outputs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
-        "preconditions": {"type": "array", "items": PREDICATE_SCHEMA},
+        "preconditions": {
+            "type": "array",
+            "items": PREDICATE_SCHEMA,
+            "description": (
+                "Use public predicate argument-role keys exactly. Reference a "
+                "declared draft input with the string $<input_role>; do not "
+                "copy a current runtime value or invent an angle-bracket "
+                "placeholder."
+            ),
+        },
         "effects": {
             "type": "array",
             "minItems": 1,
             "items": PREDICATE_SCHEMA,
+            "description": (
+                "Use public predicate argument-role keys exactly. Reference "
+                "declared inputs and outputs with $<role>, for example "
+                "{entity: $object, location: $source}. Every required output "
+                "must occur as its $<output_role> in at least one effect. A "
+                "fresh output may lack a witness before the future trial; do "
+                "not replace it with a runtime value or angle-bracket "
+                "placeholder."
+            ),
         },
         "rationale": NONEMPTY_STRING_SCHEMA,
-        "source_occurrence_id": NONEMPTY_STRING_SCHEMA,
+        "source_occurrence_id": {
+            **NONEMPTY_STRING_SCHEMA,
+            "description": (
+                "Echo runtime_automation_interface.source_occurrence_id exactly; "
+                "do not use a step_id, task_id, or historical occurrence."
+            ),
+        },
         "input_binding_specs": {
             "type": "object",
-            "additionalProperties": {"type": "object"},
+            "description": (
+                "Map every required draft input role to one currently authorized "
+                "source from runtime_automation_interface.current_input_sources."
+            ),
+            "additionalProperties": {
+                "type": "object",
+                "required": ["kind"],
+                "additionalProperties": False,
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": list(RUNTIME_INPUT_BINDING_KINDS),
+                        "description": (
+                            "Choose exactly one of the five public task-local "
+                            "binding-source kinds."
+                        ),
+                    },
+                    "source_role": {
+                        "type": "string",
+                        "description": (
+                            "Required for anchor, confirmed, candidate, and "
+                            "data_flow kinds; copy an offered source_role."
+                        ),
+                    },
+                    "value": {
+                        "description": (
+                            "Used only with kind=constant and limited to a "
+                            "portable semantic literal."
+                        ),
+                    },
+                },
+            },
         },
     },
 }
@@ -581,7 +742,9 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
 __all__ = [
     "ATOMIC_EXTRACTION_SCHEMA",
     "RUNTIME_AUTOMATION_ATOMIC_SCHEMA",
+    "TOOL_IR_CONDITION_SCHEMA",
     "TOOL_IR_PROGRAM_NODE_SCHEMA",
+    "TOOL_IR_COLLECTION_SOURCE_SCHEMA",
     "TOOL_PROPOSAL_SCHEMA",
     "BINDING_EXPRESSION_SCHEMA",
     "CAPABILITY_REQUIREMENT_SCHEMA",

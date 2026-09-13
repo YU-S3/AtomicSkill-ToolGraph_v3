@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
+from ..core.errors import AgentProtocolError, BudgetExhausted
 from ..core.contracts import AbstractAtomicSkill
 from ..core.results import ToolCallPreflightResult
 from ..core.serialization import to_primitive
 from ..core.status import SkillStatus, ToolStatus
-from ..tooling.builder_session import ToolBuilderSession
+from ..tooling.builder_session import ToolBuilderSession, ToolProposalParseError
 from ..tooling.proposal import (
     RuntimeAutomationAtomicDraft,
     ToolProvenance,
@@ -17,6 +18,11 @@ from ..tooling.proposal import (
 from ..tooling.validator import (
     ToolStaticValidator,
     normalize_runtime_output_derivations,
+)
+from ..tooling.runtime_interface import (
+    build_runtime_automation_interface,
+    public_tool_ir_collection_sources,
+    resolve_runtime_automation_inputs,
 )
 
 
@@ -32,6 +38,43 @@ class RuntimeAutomationOutcome:
     r1_report: dict[str, Any] = field(default_factory=dict)
     failure_code: str = ""
     message: str = ""
+    stage: str = ""
+    cache_hit: bool = False
+
+
+def _increment_funnel(ctx: Any, field: str, amount: int = 1) -> None:
+    trace = ctx.trace_builder.trace
+    metadata = getattr(trace, "metadata", None)
+    if not isinstance(metadata, dict):
+        metadata = {}
+        trace.metadata = metadata
+    funnel = metadata.setdefault("runtime_automation_funnel", {})
+    funnel[field] = int(funnel.get(field, 0)) + int(amount)
+
+
+def safe_runtime_automation_outcome(
+    outcome: RuntimeAutomationOutcome,
+) -> dict[str, Any]:
+    """Return the Runtime-Agent view without executable or validator internals."""
+
+    projected = {
+        "r0_passed": bool(outcome.r0_passed),
+        "static_passed": bool(outcome.static_passed),
+        "r1_passed": bool(outcome.r1_passed),
+        "failure_code": str(outcome.failure_code),
+        "message": str(outcome.message),
+        "stage": str(outcome.stage),
+        "cache_hit": bool(outcome.cache_hit),
+    }
+    if outcome.trial is not None:
+        projected["trial"] = {
+            key: to_primitive(outcome.trial[key])
+            for key in (
+                "draft_id", "r1_outputs", "r1", "terminal_interrupted",
+            )
+            if key in outcome.trial
+        }
+    return projected
 
 
 def _fact_identity(value: Mapping[str, Any]) -> tuple[str, str]:
@@ -215,14 +258,22 @@ class RuntimeAutomationCoordinator:
         ctx: Any,
         occurrence: Any,
     ) -> RuntimeAutomationOutcome:
+        input_resolution = resolve_runtime_automation_inputs(
+            draft, ctx, occurrence,
+        )
         r0 = self.static_validator.validate_automation_draft(
-            draft, ctx.harness, ctx=ctx, occurrence=occurrence,
+            draft,
+            ctx.harness,
+            ctx=ctx,
+            occurrence=occurrence,
+            input_resolution=input_resolution,
         )
         if not r0.passed:
             return RuntimeAutomationOutcome(
                 False, to_primitive(r0),
                 failure_code=(r0.failure_codes[0] if r0.failure_codes else "runtime_automation_r0_rejected"),
                 message="; ".join(r0.messages),
+                stage="r0_rejected",
             )
         atomic = self._draft_atomic(
             draft,
@@ -242,39 +293,63 @@ class RuntimeAutomationCoordinator:
                 "tool_builder_runtime", occurrence.occurrence_id,
             )
             builder = ToolBuilderSession(session)
+            _increment_funnel(ctx, "builder_called")
+            public_interface = build_runtime_automation_interface(
+                ctx.harness, occurrence, ctx.binding_store,
+            )
             proposal = builder.build(
                 atomic=atomic,
                 provenance=provenance,
                 evidence_support=[],
-                semantic_delta=ctx.tool_evidence_snapshot(),
+                # A pre-execution Runtime draft has no public effect witness.
+                # Validator facts remain code-only input to ToolRunner/R1 and
+                # must never be copied into the ToolBuilder Agent prompt.
+                semantic_delta={},
                 harness_interface={
                     "profile": getattr(ctx.harness, "profile_name", ""),
-                    "predicate_vocabulary": to_primitive(
-                        ctx.harness.semantic_predicate_schema()
+                    "predicate_vocabulary": public_interface[
+                        "predicate_vocabulary"
+                    ],
+                    "primitive_actions": public_interface["primitive_actions"],
+                    "tool_ir_collection_sources": (
+                        public_tool_ir_collection_sources()
                     ),
-                    "primitive_actions": self._primitive_actions(ctx),
                 },
                 bucket="tool_builder_runtime",
             )
-        except Exception as exc:
+        except BudgetExhausted as exc:
+            _increment_funnel(ctx, "budget_rejected")
             return RuntimeAutomationOutcome(
                 True, to_primitive(r0),
-                failure_code="runtime_automation_tool_builder_failed",
+                failure_code=exc.code or "runtime_automation_builder_budget_exhausted",
                 message=str(exc),
+                stage="builder_budget_rejected",
+            )
+        except (AgentProtocolError, ToolProposalParseError) as exc:
+            _increment_funnel(ctx, "content_rejected")
+            return RuntimeAutomationOutcome(
+                True,
+                to_primitive(r0),
+                failure_code="runtime_automation_builder_content_rejected",
+                message=str(exc),
+                stage="builder_content_rejected",
             )
         if proposal.decision == "no_tool":
+            _increment_funnel(ctx, "no_tool")
             return RuntimeAutomationOutcome(
                 True, to_primitive(r0),
                 proposal=to_primitive(proposal),
-                static_passed=True,
+                static_passed=False,
                 static_report={"decision": "no_tool"},
                 failure_code="runtime_automation_no_tool",
                 message=proposal.rationale,
+                stage="builder_no_tool",
             )
         static = self.static_validator.validate_proposal(
             proposal, atomic, ctx.harness,
         )
         if not static.passed:
+            _increment_funnel(ctx, "static_reject")
             return RuntimeAutomationOutcome(
                 True, to_primitive(r0),
                 proposal=to_primitive(proposal),
@@ -282,7 +357,9 @@ class RuntimeAutomationCoordinator:
                 static_report=to_primitive(static),
                 failure_code=(static.failure_codes[0] if static.failure_codes else "runtime_automation_static_rejected"),
                 message="; ".join(static.messages),
+                stage="static_rejected",
             )
+        _increment_funnel(ctx, "static_pass")
         try:
             compiled = self.tool_compiler.compile_proposal(
                 self._synthetic_occurrence(draft, ctx, occurrence),
@@ -292,7 +369,7 @@ class RuntimeAutomationCoordinator:
             )
             compiled.tool.status = ToolStatus.CANDIDATE
             compiled.implementation.status = SkillStatus.CANDIDATE
-        except Exception as exc:
+        except (KeyError, ValueError) as exc:
             return RuntimeAutomationOutcome(
                 True, to_primitive(r0),
                 proposal=to_primitive(proposal),
@@ -300,15 +377,15 @@ class RuntimeAutomationCoordinator:
                 static_report=to_primitive(static),
                 failure_code="runtime_automation_compile_failed",
                 message=str(exc),
+                stage="compile_rejected",
             )
 
-        trial_bindings = self._resolve_trial_bindings(
-            draft, ctx, occurrence,
-        )
+        trial_bindings = dict(input_resolution.values)
         preflight = ToolCallPreflightResult(
             True,
             str(compiled.implementation.ref),
             normalized_arguments=dict(trial_bindings),
+            binding_updates=list(input_resolution.binding_updates),
         )
         trace_actions = getattr(
             getattr(ctx.trace_builder, "trace", None),
@@ -329,9 +406,16 @@ class RuntimeAutomationCoordinator:
             )
         except (AttributeError, KeyError):
             baseline_occurrence_facts = []
+        implementation_record_start = len(
+            getattr(ctx.trace_builder.trace, "implementation_invocations", ())
+        )
+        tool_record_start = len(
+            getattr(ctx.trace_builder.trace, "tool_executions", ())
+        )
         result = self.implementation_runner.run(
             _TaskLocalInvocation(compiled), preflight, occurrence, ctx,
             agent_prepared=False,
+            execution_scope="runtime_trial",
         )
         trial_event_end = len(getattr(
             getattr(ctx.trace_builder, "trace", None),
@@ -422,18 +506,25 @@ class RuntimeAutomationCoordinator:
             and not tool_intrinsic_failure
             and (admission_eligible or terminal_interrupted)
         )
-        input_authorities: dict[str, dict[str, Any]] = {}
-        for role, raw in (dict(getattr(draft, "input_binding_specs", None) or {})).items():
-            if role not in trial_bindings:
-                continue
-            spec = dict(raw) if isinstance(raw, dict) else {}
-            input_authorities[role] = {
-                "kind": str(spec.get("kind", "")).casefold(),
-                "source_occurrence_id": str(occurrence.occurrence_id),
-                "source_role": str(spec.get("source_role", "")),
-                "value": trial_bindings[role],
-                "authority_ref": f"runtime_input:{draft.draft_id}:{role}",
-            }
+        input_authorities = dict(input_resolution.input_authorities)
+        implementation_attempt_ids = [
+            str(item.attempt_id)
+            for item in list(
+                getattr(
+                    ctx.trace_builder.trace,
+                    "implementation_invocations",
+                    (),
+                )
+            )[implementation_record_start:]
+        ]
+        tool_execution_ids = [
+            str(item.attempt_id)
+            for item in list(
+                getattr(ctx.trace_builder.trace, "tool_executions", ())
+            )[
+                tool_record_start:
+            ]
+        ]
         tool_path_witness_refs: list[str] = []
         for tool_result in result.tool_results:
             evidence = dict(getattr(tool_result, "tool_path_evidence", {}) or {})
@@ -448,11 +539,14 @@ class RuntimeAutomationCoordinator:
         ))
         trial = {
             "draft_id": draft.draft_id,
+            "source_occurrence_id": str(occurrence.occurrence_id),
             "atomic_ref": str(atomic.ref),
             "tool_ref": str(compiled.tool.ref),
             "implementation_ref": str(compiled.implementation.ref),
             "trial_bindings": to_primitive(trial_bindings),
             "input_authorities": to_primitive(input_authorities),
+            "implementation_attempt_ids": implementation_attempt_ids,
+            "tool_execution_ids": tool_execution_ids,
             "r1_outputs": to_primitive(result.validated_outputs),
             "r1_witness_refs": r1_witness_refs,
             "tool_path_witness_refs": list(dict.fromkeys(tool_path_witness_refs)),
@@ -469,6 +563,8 @@ class RuntimeAutomationCoordinator:
                 "e1_effect_eligible": e1_effect_eligible,
             },
             "terminal_interrupted": terminal_interrupted,
+            "parent_resumed_after_trial": False,
+            "parent_completed_after_trial": False,
             "trial_event_start": int(trial_event_start),
             "trial_event_end": int(trial_event_end),
             "r1_effect_event_authorities": to_primitive(
@@ -484,6 +580,16 @@ class RuntimeAutomationCoordinator:
                 "after_revision": int(tool_results[-1].after_revision),
             })
         ctx.runtime_tool_trials[draft.draft_id] = trial
+        _increment_funnel(ctx, "trial_started", int(bool(result.started)))
+        _increment_funnel(ctx, "trial_completed", int(bool(tool_completed)))
+        _increment_funnel(
+            ctx, "trial_terminal_interrupted", int(bool(terminal_interrupted)),
+        )
+        internal_actions = max(0, trial_event_end - trial_event_start + 1)
+        _increment_funnel(ctx, "trial_internal_action_count", internal_actions)
+        _increment_funnel(
+            ctx, "trial_llm_bypassed_action_count", internal_actions,
+        )
         return RuntimeAutomationOutcome(
             True, to_primitive(r0),
             proposal=to_primitive(proposal),
@@ -494,6 +600,7 @@ class RuntimeAutomationCoordinator:
             r1_report=trial["r1"],
             failure_code="" if r1_passed else "runtime_automation_r1_rejected",
             message="" if r1_passed else "task-local trial did not pass full R1",
+            stage="r1_passed" if r1_passed else "r1_rejected",
         )
 
     @staticmethod
@@ -502,40 +609,11 @@ class RuntimeAutomationCoordinator:
         ctx: Any,
         occurrence: Any,
     ) -> dict[str, Any]:
-        """Resolve task-local Automation inputs from their frozen binding specs."""
+        """Compatibility view over the single R0/trial input resolver."""
 
-        bindings: dict[str, Any] = {}
-        specs = dict(getattr(draft, "input_binding_specs", None) or {})
-        snapshot = ctx.binding_store.snapshot_for_node(occurrence)
-        validated_outputs = getattr(ctx, "validated_outputs", {}) or {}
-        for role, raw in specs.items():
-            spec = dict(raw) if isinstance(raw, dict) else {}
-            kind = str(spec.get("kind", "")).casefold()
-            source_role = str(spec.get("source_role", ""))
-            if kind == "current_occurrence_anchor":
-                anchor = ctx.binding_store.semantic_anchor_for(
-                    occurrence, source_role,
-                )
-                value = getattr(anchor, "value", None)
-            elif kind in {"current_confirmed_binding", "current_candidate_binding"}:
-                binding = snapshot.get(source_role)
-                value = getattr(binding, "value", None)
-            elif kind == "data_flow":
-                value = validated_outputs.get(
-                    occurrence.occurrence_id, {},
-                ).get(source_role)
-                if value in (None, ""):
-                    output_binding = ctx.binding_store.validated_outputs(
-                        occurrence.occurrence_id,
-                    ).get(source_role)
-                    value = getattr(output_binding, "value", None)
-            elif kind == "constant":
-                value = spec.get("value")
-            else:
-                value = None
-            if value is not None:
-                bindings[role] = value
-        return bindings
+        return dict(
+            resolve_runtime_automation_inputs(draft, ctx, occurrence).values
+        )
 
     def _synthetic_occurrence(self, draft: Any, ctx: Any, occurrence: Any):
         from ..evolution.atomicizer import CanonicalAtomicOccurrence

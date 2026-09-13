@@ -34,7 +34,7 @@ from experiments.fakes import FakeProviderRequest, FakeReply, ScriptedAgentProvi
 from test_v32_r21_cross_task_reuse import (
     LocatingHarness,
     _LOCATE_PROGRAM,
-    _locate_draft_call,
+    _RuntimeLocateDraftReply,
     _locating_task,
     _room_for,
 )
@@ -468,7 +468,7 @@ def _providers() -> tuple[dict[str, ScriptedAgentProvider], dict[str, ScriptedAg
         FakeReply.tool("environment_action", {"action_id": "r002_a001"}),
     )
     providers["runtime_preparation"].enqueue(
-        FakeReply.tool("propose_runtime_automation_atomic", _locate_draft_call()),
+        _RuntimeLocateDraftReply(),
         FakeReply.tool("environment_action", {
             "action_id": "r001_a002", "intent": "attempt_current_atomic",
         }),

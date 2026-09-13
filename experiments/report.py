@@ -49,6 +49,75 @@ _RUNTIME_USAGE_BUCKETS = (
     "runtime_provisional_seeded",
 )
 
+_RUNTIME_PARENT_USAGE_BUCKETS = _RUNTIME_USAGE_BUCKETS
+
+R92_AUTOMATION_FUNNEL_FIELDS = (
+    "offered_request_count",
+    "interface_projected_request_count",
+    "proposal_count",
+    "duplicate_id_cache_hit_count",
+    "r0_pass",
+    "r0_reject",
+    "builder_called",
+    "no_tool",
+    "budget_rejected",
+    "content_rejected",
+    "static_pass",
+    "static_reject",
+    "trial_started",
+    "trial_completed",
+    "trial_terminal_interrupted",
+    "r1_pass",
+    "r1_reject",
+    "parent_resumed_after_trial_count",
+    "parent_completed_after_trial_count",
+    "trial_internal_action_count",
+    "trial_llm_bypassed_action_count",
+    "builder_tokens",
+    "parent_runtime_tokens",
+)
+
+R92_SUPPORT_FUNNEL_FIELDS = (
+    "retrieved_count",
+    "filtered_by_mode_count",
+    "filtered_no_executable_count",
+    "raw_call_count",
+    "input_schema_rejection_count",
+    "output_mapping_rejection_count",
+    "preflight_not_ready_count",
+    "execution_started_count",
+    "validated_output_published_count",
+)
+
+R92_TOOL_REPLAY_METRICS = (
+    "tool_replay_case_count",
+    "tool_replay_pass_count",
+    "tool_replay_failure_count",
+    "tool_replay_source_task_mismatch_count",
+    "tool_replay_prefix_failure_count",
+    "tool_replay_tool_execution_failure_count",
+    "tool_replay_final_validation_failure_count",
+    "tool_replay_terminal_interrupted_count",
+    "legacy_replay_reason_unavailable_count",
+)
+
+_TYPED_TOOL_REPLAY_STAGES = frozenset({
+    "source_resolution",
+    "prefix",
+    "tool",
+    "final_validation",
+    "replay_callback",
+})
+_TOOL_REPLAY_SOURCE_MISMATCH_CODES = frozenset({
+    # Legacy/test-fixture spellings retained for report compatibility.
+    "replay_source_task_mismatch",
+    "source_task_mismatch",
+    # Production ReplaySourceAuthority failures.
+    "replay_source_current_trace_conflict",
+    "replay_source_task_conflict",
+    "replay_source_manifest_conflict",
+})
+
 _USAGE_FIELDS = (
     "prompt_tokens",
     "completion_tokens",
@@ -229,6 +298,10 @@ V32_METHOD_METRICS = (
 
 R4_LEARNING_DIAGNOSTICS_VERSION = "v3.2-r4"
 LEGACY_LEARNING_DIAGNOSTICS_VERSION = "legacy_mixed_or_incomplete"
+LEARNING_NOT_APPLICABLE_FROZEN = "learning_not_applicable_frozen"
+LEARNING_SKIPPED_BY_POLICY = "learning_skipped_by_policy"
+LEARNING_EXECUTED_R4 = "learning_executed_v3.2-r4"
+LEGACY_DIAGNOSTICS_UNAVAILABLE = "legacy_diagnostics_unavailable"
 
 # These counters share one occurrence-level authority in R4.  Keeping the
 # complete family together prevents the reporter from accidentally combining
@@ -361,10 +434,23 @@ REPORT_COLUMNS = (
     "runtime_failure_diagnostic",
     "task_token_budget_exhausted_count",
     "node_token_budget_exhausted_count",
+    "runtime_budget_accounting",
+    "runtime_budget_exhaustion_audits",
+    "session_token_limit_exceeded_count",
+    "session_turn_limit_exceeded_count",
+    "budget_check_before_call_count",
+    "budget_check_after_provider_call_count",
+    "runtime_automation_funnel",
+    "runtime_support_funnel",
+    "tool_replay_results",
+    *R92_TOOL_REPLAY_METRICS,
+    "tool_replay_stage_distribution",
+    "tool_replay_failure_code_distribution",
     *R21_RUNTIME_METRICS,
     *R31_RUNTIME_METRICS,
     *R9_AUTHORITY_METRICS,
     "learning_diagnostics_version",
+    "learning_diagnostics_status",
     *R4_LEARNING_RECORD_FIELDS,
     *V32_METHOD_METRICS,
     *R4_NEW_LEARNING_METRICS,
@@ -693,6 +779,122 @@ def _r4_learning_metrics(metadata: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _learning_diagnostics_status(
+    trace: Mapping[str, Any] | Any,
+    metadata: Mapping[str, Any],
+    r4_learning: Mapping[str, Any],
+) -> str:
+    """Classify why learning diagnostics do or do not exist for this task.
+
+    The classification uses explicit run-mode/policy authority only.  It does
+    not turn an absent Extractor call into a legacy-code claim, nor manufacture
+    R4 counters for a Frozen or policy-skipped task.
+    """
+
+    extraction_policy = _mapping(_field(trace, "extraction_policy", {}))
+    policy_reasons = {
+        str(item) for item in _sequence(extraction_policy.get("reasons", []))
+    }
+    runtime_mode = str(
+        metadata.get("runtime_mode")
+        or _mapping(metadata.get("failure_extractor_eligibility", {})).get(
+            "runtime_mode", ""
+        )
+        or ""
+    ).casefold()
+    if runtime_mode == "frozen" or "frozen_mode_disabled" in policy_reasons:
+        return LEARNING_NOT_APPLICABLE_FROZEN
+    if _boolean(r4_learning.get("is_r4", False)):
+        return LEARNING_EXECUTED_R4
+    if (
+        extraction_policy
+        and extraction_policy.get("should_extract") is False
+    ):
+        return LEARNING_SKIPPED_BY_POLICY
+    return LEGACY_DIAGNOSTICS_UNAVAILABLE
+
+
+def _tool_replay_diagnostics(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Project typed replay outcomes without guessing legacy failure stages."""
+
+    raw_results = metadata.get("tool_replay_results", [])
+    if raw_results is None:
+        raw_results = []
+    if not isinstance(raw_results, (list, tuple)):
+        raise ValueError("tool_replay_results must be a list")
+
+    results: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_results):
+        if not isinstance(raw, Mapping):
+            raise ValueError(
+                f"tool_replay_results[{index}] must be an object"
+            )
+        result = dict(raw)
+        if not isinstance(result.get("passed"), bool):
+            raise ValueError(
+                f"tool_replay_results[{index}].passed must be boolean"
+            )
+        results.append(result)
+
+    stage_distribution: dict[str, int] = {}
+    failure_distribution: dict[str, int] = {}
+    passed_count = 0
+    source_task_mismatch_count = 0
+    prefix_failure_count = 0
+    tool_failure_count = 0
+    final_validation_failure_count = 0
+    terminal_interrupted_count = 0
+    legacy_unavailable_count = 0
+    for result in results:
+        passed = result.get("passed") is True
+        stage = str(result.get("stage", "")).strip() or "unavailable"
+        failure_code = str(result.get("failure_code", "")).strip()
+        stage_distribution[stage] = stage_distribution.get(stage, 0) + 1
+        passed_count += int(passed)
+        terminal_interrupted_count += int(
+            result.get("terminal_interrupted") is True
+        )
+        if passed:
+            continue
+
+        typed_failure = stage in _TYPED_TOOL_REPLAY_STAGES and bool(failure_code)
+        legacy_unavailable = not typed_failure or stage == "legacy_callback"
+        reported_failure_code = (
+            "legacy_replay_reason_unavailable"
+            if legacy_unavailable
+            else failure_code
+        )
+        failure_distribution[reported_failure_code] = (
+            failure_distribution.get(reported_failure_code, 0) + 1
+        )
+        legacy_unavailable_count += int(legacy_unavailable)
+        source_task_mismatch_count += int(
+            failure_code in _TOOL_REPLAY_SOURCE_MISMATCH_CODES
+        )
+        prefix_failure_count += int(stage == "prefix")
+        tool_failure_count += int(stage == "tool")
+        final_validation_failure_count += int(stage == "final_validation")
+
+    return {
+        "tool_replay_results": results,
+        "tool_replay_case_count": len(results),
+        "tool_replay_pass_count": passed_count,
+        "tool_replay_failure_count": len(results) - passed_count,
+        "tool_replay_source_task_mismatch_count": source_task_mismatch_count,
+        "tool_replay_prefix_failure_count": prefix_failure_count,
+        "tool_replay_tool_execution_failure_count": tool_failure_count,
+        "tool_replay_final_validation_failure_count": (
+            final_validation_failure_count
+        ),
+        "tool_replay_terminal_interrupted_count": terminal_interrupted_count,
+        "legacy_replay_reason_unavailable_count": legacy_unavailable_count,
+        "tool_replay_stage_distribution": dict(sorted(stage_distribution.items())),
+        "tool_replay_failure_code_distribution": dict(
+            sorted(failure_distribution.items())
+        ),
+    }
+
+
 def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
     """Convert one structured v3 trace into a stable experiment row."""
 
@@ -801,6 +1003,24 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
             r4_learning if _boolean(r4_learning.get("is_r4")) else None
         ),
     )
+    runtime_budget_accounting, runtime_budget_exhaustions = (
+        _runtime_budget_accounting(
+            trace,
+            usage=usage,
+        )
+    )
+    automation_funnel = _runtime_automation_funnel(
+        trace,
+        metadata=metadata,
+        usage=usage,
+        v32_metrics=v32_metrics,
+    )
+    support_funnel = _runtime_support_funnel(
+        trace,
+        metadata=metadata,
+        v32_metrics=v32_metrics,
+    )
+    tool_replay = _tool_replay_diagnostics(metadata)
     row: dict[str, Any] = {
         "trace_id": str(_field(trace, "trace_id", "")),
         "schema_version": _integer(_field(trace, "schema_version", 0)),
@@ -923,12 +1143,37 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "node_token_budget_exhausted_count": int(
             "runtime_node_token_budget_exhausted" in failure_codes
         ),
+        "runtime_budget_accounting": runtime_budget_accounting,
+        "runtime_budget_exhaustion_audits": runtime_budget_exhaustions,
+        "session_token_limit_exceeded_count": sum(
+            _boolean(item.get("session_token_limit_exceeded", False))
+            for item in runtime_budget_exhaustions
+        ),
+        "session_turn_limit_exceeded_count": sum(
+            _boolean(item.get("session_turn_limit_exceeded", False))
+            for item in runtime_budget_exhaustions
+        ),
+        "budget_check_before_call_count": sum(
+            str(item.get("budget_check_stage", "")) == "before_call"
+            for item in runtime_budget_exhaustions
+        ),
+        "budget_check_after_provider_call_count": sum(
+            str(item.get("budget_check_stage", ""))
+            == "after_provider_call"
+            for item in runtime_budget_exhaustions
+        ),
+        "runtime_automation_funnel": automation_funnel,
+        "runtime_support_funnel": support_funnel,
+        **tool_replay,
         **r21_runtime,
         **r31_runtime,
         **r9_metrics,
         "learning_diagnostics_version": r4_learning[
             "learning_diagnostics_version"
         ],
+        "learning_diagnostics_status": _learning_diagnostics_status(
+            trace, metadata, r4_learning,
+        ),
         **{
             name: r4_learning.get(name)
             for name in R4_LEARNING_RECORD_FIELDS
@@ -969,6 +1214,18 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
     return {column: row.get(column) for column in REPORT_COLUMNS}
 
 
+def _is_maintenance_trace(trace_or_row: Mapping[str, Any] | Any) -> bool:
+    """Identify maintenance from its persisted identity, never its task id."""
+
+    metadata = _mapping(_field(trace_or_row, "metadata", {}))
+    task = _mapping(_field(trace_or_row, "task", {}))
+    return (
+        str(metadata.get("trace_kind", "")) == "maintenance"
+        or str(task.get("task_type", "")) == "maintenance"
+        or str(_field(trace_or_row, "task_type", "")) == "maintenance"
+    )
+
+
 def summarize_traces(
     traces_or_rows: Iterable[Mapping[str, Any] | Any],
     *,
@@ -986,11 +1243,17 @@ def summarize_traces(
         else trace_to_row(item)
         for item in items
     ]
+    auxiliary_items = list(auxiliary_usage_traces)
     auxiliary_rows = [
         dict(item)
         if isinstance(item, Mapping) and _looks_like_report_row(item)
         else trace_to_row(item)
-        for item in auxiliary_usage_traces
+        for item in auxiliary_items
+    ]
+    maintenance_rows = [
+        row
+        for item, row in zip(auxiliary_items, auxiliary_rows)
+        if _is_maintenance_trace(item)
     ]
     resource_rows = [*rows, *auxiliary_rows]
     task_rows = rows
@@ -1057,9 +1320,12 @@ def summarize_traces(
                 + _integer(count)
             )
 
-    def merged_distribution(key: str) -> dict[str, int]:
+    def merged_distribution(
+        key: str,
+        source_rows: Sequence[Mapping[str, Any]] | None = None,
+    ) -> dict[str, int]:
         merged: dict[str, int] = {}
-        for row in task_rows:
+        for row in task_rows if source_rows is None else source_rows:
             for name, count in _mapping(row.get(key, {})).items():
                 merged[str(name)] = merged.get(str(name), 0) + _integer(count)
         return dict(sorted(merged.items()))
@@ -1096,6 +1362,23 @@ def summarize_traces(
         _integer(item.get("runtime_reasoning_tokens", 0))
         for item in resource_rows
     )
+    runtime_tool_builder_tokens = sum(
+        _integer(
+            _mapping(_mapping(row.get("usage_by_bucket", {})).get(
+                "tool_builder_runtime", {}
+            )).get("total_tokens", 0)
+        )
+        for row in task_rows
+    )
+    runtime_all_task_tokens = sum(
+        _integer(
+            _mapping(_mapping(row.get("usage_by_bucket", {})).get(
+                bucket, {}
+            )).get("total_tokens", 0)
+        )
+        for row in task_rows
+        for bucket in _RUNTIME_PARENT_USAGE_BUCKETS
+    ) + runtime_tool_builder_tokens
     r9_totals = {
         name: sum(_integer(row.get(name, 0)) for row in task_rows)
         for name in R9_AUTHORITY_METRICS
@@ -1105,13 +1388,62 @@ def summarize_traces(
             _r9_lifecycle_suppression_metrics(run_artifact_lifecycle)
         )
 
+    learning_diagnostics_status_counts: dict[str, int] = {}
+    for row in task_rows:
+        status = str(
+            row.get("learning_diagnostics_status")
+            or LEGACY_DIAGNOSTICS_UNAVAILABLE
+        )
+        learning_diagnostics_status_counts[status] = (
+            learning_diagnostics_status_counts.get(status, 0) + 1
+        )
+
     learning_rows_by_version: dict[str, list[Mapping[str, Any]]] = {}
     for row in task_rows:
+        status = str(
+            row.get("learning_diagnostics_status")
+            or LEGACY_DIAGNOSTICS_UNAVAILABLE
+        )
+        if status in {
+            LEARNING_NOT_APPLICABLE_FROZEN,
+            LEARNING_SKIPPED_BY_POLICY,
+        }:
+            continue
         version = str(
             row.get("learning_diagnostics_version")
             or LEGACY_LEARNING_DIAGNOSTICS_VERSION
         )
         learning_rows_by_version.setdefault(version, []).append(row)
+
+    def aggregate_funnel(
+        key: str,
+        field_names: Sequence[str],
+    ) -> dict[str, Any]:
+        return {
+            **{
+                name: sum(
+                    _integer(_mapping(row.get(key, {})).get(name, 0))
+                    for row in task_rows
+                )
+                for name in field_names
+            },
+            "units": dict(
+                _mapping(_mapping(task_rows[0].get(key, {})).get("units", {}))
+            ) if task_rows else {},
+        }
+
+    automation_funnel = aggregate_funnel(
+        "runtime_automation_funnel", R92_AUTOMATION_FUNNEL_FIELDS,
+    )
+    support_funnel = aggregate_funnel(
+        "runtime_support_funnel", R92_SUPPORT_FUNNEL_FIELDS,
+    )
+    tool_replay_stage_distribution = merged_distribution(
+        "tool_replay_stage_distribution", resource_rows,
+    )
+    tool_replay_failure_code_distribution = merged_distribution(
+        "tool_replay_failure_code_distribution", resource_rows,
+    )
 
     learning_diagnostics_by_version: dict[str, dict[str, Any]] = {}
     for version, version_rows in sorted(learning_rows_by_version.items()):
@@ -1245,6 +1577,35 @@ def summarize_traces(
             _integer(row.get("node_token_budget_exhausted_count", 0))
             for row in task_rows
         ),
+        "session_token_limit_exceeded_count": sum(
+            _integer(row.get("session_token_limit_exceeded_count", 0))
+            for row in task_rows
+        ),
+        "session_turn_limit_exceeded_count": sum(
+            _integer(row.get("session_turn_limit_exceeded_count", 0))
+            for row in task_rows
+        ),
+        "budget_check_before_call_count": sum(
+            _integer(row.get("budget_check_before_call_count", 0))
+            for row in task_rows
+        ),
+        "budget_check_after_provider_call_count": sum(
+            _integer(row.get("budget_check_after_provider_call_count", 0))
+            for row in task_rows
+        ),
+        "runtime_automation_funnel": automation_funnel,
+        "runtime_support_funnel": support_funnel,
+        **{
+            # Replay is a resource-level diagnostic. Failed attempts and
+            # maintenance replay remain visible even though they are not
+            # formal task outcomes.
+            name: sum(_integer(row.get(name, 0)) for row in resource_rows)
+            for name in R92_TOOL_REPLAY_METRICS
+        },
+        "tool_replay_stage_distribution": tool_replay_stage_distribution,
+        "tool_replay_failure_code_distribution": (
+            tool_replay_failure_code_distribution
+        ),
         **{
             name: sum(_integer(row.get(name, 0)) for row in task_rows)
             for name in R21_RUNTIME_METRICS
@@ -1299,6 +1660,9 @@ def summarize_traces(
         },
         **top_level_learning_metrics,
         "learning_diagnostics_by_version": learning_diagnostics_by_version,
+        "learning_diagnostics_status_counts": dict(
+            sorted(learning_diagnostics_status_counts.items())
+        ),
         "planner_atomic_full_coverage_count": sum(
             _boolean(row.get("planner_atomic_full_coverage"))
             for row in task_rows
@@ -1342,6 +1706,20 @@ def summarize_traces(
             sum(_integer(row.get("total_tokens", 0)) for row in solved)
             + sum(_integer(row.get("total_tokens", 0)) for row in auxiliary_rows),
             len(solved),
+        ),
+        "success_conditioned_tokens_per_solved_task": _ratio(
+            sum(_integer(row.get("total_tokens", 0)) for row in solved),
+            len(solved),
+        ),
+        "all_run_tokens_per_solved_task": _ratio(
+            total_tokens, len(solved),
+        ),
+        "runtime_all_tasks_tokens_per_solved_task": _ratio(
+            runtime_all_task_tokens, len(solved),
+        ),
+        "runtime_tool_builder_tokens": runtime_tool_builder_tokens,
+        "maintenance_tokens": sum(
+            _integer(row.get("total_tokens", 0)) for row in maintenance_rows
         ),
         "llm_latency_ms": round(total_latency, 3),
         "llm_latency_ms_per_solved_task": _ratio(
@@ -1597,6 +1975,13 @@ def render_markdown(
             "> Mixed diagnostic versions are shown separately; no top-level "
             "learning-stage total or pass rate is computed.",
         ])
+    lines.extend(["", "### Learning execution status", ""])
+    lines.extend(_markdown_pairs(tuple(
+        (name, count)
+        for name, count in sorted(_mapping(
+            summary.get("learning_diagnostics_status_counts", {})
+        ).items())
+    )))
 
     lines.extend(["", "### E1 Atomic validation (v3.2-r4)", ""])
     lines.extend(_markdown_pairs((
@@ -1643,6 +2028,54 @@ def render_markdown(
                 for name in R4_LEARNING_METRICS
             ),
         )))
+    lines.extend(["", "## Runtime automation funnel", ""])
+    automation_funnel = _mapping(summary.get("runtime_automation_funnel", {}))
+    lines.extend(_markdown_pairs(tuple(
+        (name, automation_funnel.get(name, 0))
+        for name in R92_AUTOMATION_FUNNEL_FIELDS
+    )))
+    lines.extend(["", "## Runtime support funnel", ""])
+    support_funnel = _mapping(summary.get("runtime_support_funnel", {}))
+    lines.extend(_markdown_pairs(tuple(
+        (name, support_funnel.get(name, 0))
+        for name in R92_SUPPORT_FUNNEL_FIELDS
+    )))
+    lines.extend(["", "## Tool admission replay diagnostics", ""])
+    lines.extend(_markdown_pairs((
+        *tuple(
+            (name, summary.get(name, 0))
+            for name in R92_TOOL_REPLAY_METRICS
+        ),
+        (
+            "tool_replay_stage_distribution",
+            _canonical_json(summary.get("tool_replay_stage_distribution", {})),
+        ),
+        (
+            "tool_replay_failure_code_distribution",
+            _canonical_json(summary.get(
+                "tool_replay_failure_code_distribution", {}
+            )),
+        ),
+    )))
+    lines.extend(["", "### Runtime budget exhaustion audit", ""])
+    lines.extend(_markdown_pairs((
+        (
+            "session_token_limit_exceeded_count",
+            summary.get("session_token_limit_exceeded_count", 0),
+        ),
+        (
+            "session_turn_limit_exceeded_count",
+            summary.get("session_turn_limit_exceeded_count", 0),
+        ),
+        (
+            "budget_check_before_call_count",
+            summary.get("budget_check_before_call_count", 0),
+        ),
+        (
+            "budget_check_after_provider_call_count",
+            summary.get("budget_check_after_provider_call_count", 0),
+        ),
+    )))
     lines.extend(["", "### Runtime token decomposition", ""])
     lines.append(
         "| Bucket | Calls | Prompt | Completion | Reasoning | Avg total/call | "
@@ -1667,7 +2100,31 @@ def render_markdown(
     lines.extend(["", "## Token, latency, and cost", ""])
     accounting = (
         ("Total tokens", summary.get("total_tokens")),
-        ("Tokens / solved task", _display(summary.get("tokens_per_solved_task"))),
+        (
+            "Legacy tokens / solved task",
+            _display(summary.get("tokens_per_solved_task")),
+        ),
+        (
+            "Success-conditioned tokens / solved task",
+            _display(summary.get(
+                "success_conditioned_tokens_per_solved_task"
+            )),
+        ),
+        (
+            "All-run tokens / solved task",
+            _display(summary.get("all_run_tokens_per_solved_task")),
+        ),
+        (
+            "Runtime all-task tokens / solved task",
+            _display(summary.get(
+                "runtime_all_tasks_tokens_per_solved_task"
+            )),
+        ),
+        (
+            "Runtime ToolBuilder tokens",
+            summary.get("runtime_tool_builder_tokens", 0),
+        ),
+        ("Maintenance tokens", summary.get("maintenance_tokens", 0)),
         (
             "LLM latency ms / solved task",
             _display(summary.get("llm_latency_ms_per_solved_task")),
@@ -2095,6 +2552,9 @@ def _usage_report(trace: Any, metadata: Mapping[str, Any]) -> dict[str, Any]:
             bucket = session_buckets.get(str(event.get("session_id", "")), "unattributed")
         normalized = _normalize_usage(event)
         normalized["bucket"] = bucket
+        normalized["event_id"] = str(event.get("event_id", ""))
+        normalized["session_id"] = str(event.get("session_id", ""))
+        normalized["turn_index"] = _integer(event.get("turn_index", 0))
         normalized["provider_metadata"] = provider_metadata
         for cost_key in ("cost_usd", "cost"):
             if cost_key in event:
@@ -2771,16 +3231,15 @@ def _runtime_exhausted_session_counts(
     sessions: Sequence[Mapping[str, Any]],
     session_bucket_map: Mapping[str, str],
 ) -> dict[str, int]:
-    """Count only sessions backed by an actual token-exhaustion result.
+    """Count real Runtime session limit crossings from session snapshots.
 
-    A session reaching its numeric cap is not itself failure evidence: it may
-    have completed successfully on that exact call.  New traces expose the
-    route result that caught ``BudgetExhausted``.  Legacy FailureEnvelope-only
-    traces are used only when occurrence/stage identity selects exactly one
-    Runtime session; ambiguous evidence stays zero.
+    Final node/task failure is deliberately not used as a proxy.  New traces
+    carry an exact BudgetTracker exhaustion event.  For older snapshots, the
+    provider-authoritative numeric ``used > configured`` relation is the only
+    supported fallback; merely reaching a limit is not counted.
     """
 
-    session_rows: list[tuple[str, str, str]] = []
+    counts = {bucket: 0 for bucket in _RUNTIME_USAGE_BUCKETS}
     for session in sessions:
         session_id = str(session.get("session_id", ""))
         snapshot = _mapping(session.get("snapshot", {}))
@@ -2788,101 +3247,481 @@ def _runtime_exhausted_session_counts(
             snapshot.get("usage_bucket")
             or session_bucket_map.get(session_id, "")
         )
-        if bucket in _RUNTIME_USAGE_BUCKETS and session_id:
-            session_rows.append((
-                session_id,
-                bucket,
-                str(session.get("occurrence_id", "")),
-            ))
-
-    exhausted_ids: set[str] = set()
-
-    def add_unique(bucket: str, occurrence_id: str | None = None) -> None:
-        candidates = [
-            session_id
-            for session_id, candidate_bucket, candidate_occurrence in session_rows
-            if candidate_bucket == bucket
-            and (
-                occurrence_id is None
-                or candidate_occurrence == occurrence_id
-            )
+        if bucket not in _RUNTIME_USAGE_BUCKETS or not session_id:
+            continue
+        phases = [
+            _mapping(item)
+            for item in _sequence(snapshot.get("budget_phases", []))
         ]
-        if len(candidates) == 1:
-            exhausted_ids.add(candidates[0])
+        if not phases and _mapping(snapshot.get("budget", {})):
+            phases = [_mapping(snapshot.get("budget", {}))]
+        exhausted = False
+        for phase in phases:
+            events = _sequence(phase.get("exhaustion_events", []))
+            if events:
+                exhausted = True
+                break
+            if (
+                _integer(phase.get("used_total_tokens", 0))
+                > _integer(phase.get("max_total_tokens", 0))
+                or _integer(phase.get("used_turns", 0))
+                > _integer(phase.get("max_turns", 0))
+            ):
+                exhausted = True
+                break
+        counts[bucket] += int(exhausted)
+    return counts
 
-    def code(value: Any) -> str:
-        payload = _mapping(value)
-        return str(payload.get("failure_code") or payload.get("code") or "")
 
-    node_exhaustion = "runtime_node_token_budget_exhausted"
+def _terminal_reconciled_session_ids(
+    trace: Any,
+    sessions: Sequence[Mapping[str, Any]],
+) -> set[str]:
+    """Resolve task-terminal reconciliation to an unambiguous Runtime session.
+
+    R9's counters are task-wide totals and cannot identify which exhausted
+    session was followed by deterministic terminal reconciliation.  The node
+    result supplies occurrence/mode authority; a session is enriched only when
+    that occurrence and Runtime bucket select exactly one exhausted session.
+    """
+
+    reconciled_occurrence_buckets: set[tuple[str, str]] = set()
     for raw_node in _sequence(_field(trace, "node_records", [])):
         node = _mapping(raw_node)
         occurrence_id = str(node.get("occurrence_id", ""))
-        if code(node.get("direct_result", {})) == node_exhaustion:
-            add_unique("runtime_preparation", occurrence_id)
-        if code(node.get("seeded_result", {})) == node_exhaustion:
-            add_unique("runtime_seeded", occurrence_id)
-
-    for raw_step in _sequence(_field(trace, "cold_start_steps", [])):
-        step = _mapping(raw_step)
-        if code(step) != "provisional_seeded_budget_exhausted":
-            continue
-        step_id = str(step.get("step_id", ""))
-        if step_id:
-            add_unique("runtime_provisional_seeded", f"cold::{step_id}")
-
-    metadata = _mapping(_field(trace, "metadata", {}))
-    task_exhaustion = "runtime_task_token_budget_exhausted"
-    for key, default_bucket in (
-        ("dynamic_result", "runtime_dynamic"),
-        ("task_rescue", "runtime_dynamic"),
-        (
-            "cold_start_dynamic_continuation",
-            "runtime_dynamic_cold_start_continuation",
-        ),
-    ):
-        result = _mapping(metadata.get(key, {}))
-        if code(result) != task_exhaustion:
-            continue
-        bucket = default_bucket
-        if key == "dynamic_result" and _boolean(
-            result.get("cold_start_continuation", False)
+        for result_name, bucket in (
+            ("direct_result", "runtime_preparation"),
+            ("seeded_result", "runtime_seeded"),
         ):
-            bucket = "runtime_dynamic_cold_start_continuation"
-        add_unique(bucket)
+            result = _mapping(node.get(result_name, {}))
+            if (
+                occurrence_id
+                and _boolean(result.get("terminal_effect_reconciled", False))
+                and _boolean(result.get("atomic_effect_passed", False))
+            ):
+                reconciled_occurrence_buckets.add((occurrence_id, bucket))
 
-    # Legacy strict fallback: a formal FailureEnvelope is usable only when its
-    # code and occurrence resolve to one and only one eligible session.
-    for raw_failure in _sequence(_field(trace, "failures", [])):
-        failure = _mapping(raw_failure)
-        failure_code = code(failure)
-        occurrence_id = str(failure.get("occurrence_id", ""))
-        if failure_code == task_exhaustion:
-            candidates = [
+    exhausted_by_key: dict[tuple[str, str], list[str]] = {}
+    for session in sessions:
+        session_id = str(session.get("session_id", ""))
+        occurrence_id = str(session.get("occurrence_id", ""))
+        snapshot = _mapping(session.get("snapshot", {}))
+        bucket = str(snapshot.get("usage_bucket", ""))
+        phases = [
+            _mapping(item)
+            for item in _sequence(snapshot.get("budget_phases", []))
+        ]
+        budget = _mapping(snapshot.get("budget", {}))
+        if not phases and budget:
+            phases = [budget]
+        if (
+            session_id
+            and occurrence_id
+            and any(
+                _sequence(phase.get("exhaustion_events", []))
+                for phase in phases
+            )
+        ):
+            exhausted_by_key.setdefault((occurrence_id, bucket), []).append(
                 session_id
-                for session_id, bucket, _occurrence in session_rows
-                if bucket in {
-                    "runtime_dynamic",
-                    "runtime_dynamic_cold_start_continuation",
+            )
+
+    reconciled_session_ids: set[str] = set()
+    for key in reconciled_occurrence_buckets:
+        candidates = exhausted_by_key.get(key, [])
+        if len(candidates) == 1:
+            reconciled_session_ids.add(candidates[0])
+    return reconciled_session_ids
+
+
+def _runtime_budget_accounting(
+    trace: Any,
+    *,
+    usage: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Project session-local Runtime budgets and occurrence-level token sums."""
+
+    sessions = [
+        _mapping(item)
+        for item in _sequence(_field(trace, "agent_sessions", []))
+    ]
+    events = [
+        _mapping(item) for item in _sequence(usage.get("events", []))
+    ]
+    bucket_by_session = _session_bucket_map(trace)
+    terminal_reconciled_sessions = _terminal_reconciled_session_ids(
+        trace, sessions,
+    )
+    session_rows: list[dict[str, Any]] = []
+    exhaustion_rows: list[dict[str, Any]] = []
+    occurrence_rows: dict[str, dict[str, Any]] = {}
+    per_node_limits: set[int] = set()
+
+    for session in sessions:
+        session_id = str(session.get("session_id", ""))
+        snapshot = _mapping(session.get("snapshot", {}))
+        bucket = str(
+            snapshot.get("usage_bucket")
+            or bucket_by_session.get(session_id, "")
+        )
+        if bucket not in {
+            *_RUNTIME_PARENT_USAGE_BUCKETS,
+            "tool_builder_runtime",
+        }:
+            continue
+        occurrence_id = str(session.get("occurrence_id", ""))
+        session_events = [
+            item for item in events
+            if str(item.get("session_id", "")) == session_id
+        ]
+        session_tokens = sum(
+            _integer(item.get("total_tokens", 0)) for item in session_events
+        )
+        budget = _mapping(snapshot.get("budget", {}))
+        if not session_events:
+            session_tokens = _integer(budget.get("used_total_tokens", 0))
+        if bucket in {"runtime_preparation", "runtime_seeded"} and budget:
+            per_node_limits.add(_integer(budget.get("max_total_tokens", 0)))
+
+        phases = [
+            _mapping(item)
+            for item in _sequence(snapshot.get("budget_phases", []))
+        ]
+        if not phases and budget:
+            phases = [budget]
+        session_exhaustions: list[dict[str, Any]] = []
+        for phase in phases:
+            for raw in _sequence(phase.get("exhaustion_events", [])):
+                audit = _mapping(raw)
+                if not audit:
+                    continue
+                enriched = {
+                    **audit,
+                    "session_type": str(session.get("session_type", "")),
+                    "session_id": session_id,
+                    "occurrence_id": occurrence_id,
+                    "usage_bucket": bucket,
+                    "terminal_reconciled_after_session_failure": bool(
+                        audit.get(
+                            "terminal_reconciled_after_session_failure",
+                            False,
+                        )
+                        or session_id in terminal_reconciled_sessions
+                    ),
                 }
-            ]
-            if len(candidates) == 1:
-                exhausted_ids.add(candidates[0])
-        elif failure_code == node_exhaustion and occurrence_id:
-            candidates = [
-                session_id
-                for session_id, bucket, candidate_occurrence in session_rows
-                if bucket in {"runtime_preparation", "runtime_seeded"}
-                and candidate_occurrence == occurrence_id
-            ]
-            if len(candidates) == 1:
-                exhausted_ids.add(candidates[0])
+                session_exhaustions.append(enriched)
+                exhaustion_rows.append(enriched)
 
-    counts = {bucket: 0 for bucket in _RUNTIME_USAGE_BUCKETS}
-    by_id = {session_id: bucket for session_id, bucket, _ in session_rows}
-    for session_id in exhausted_ids:
-        counts[by_id[session_id]] += 1
-    return counts
+        session_rows.append({
+            "session_type": str(session.get("session_type", "")),
+            "session_id": session_id,
+            "occurrence_id": occurrence_id,
+            "usage_bucket": bucket,
+            "session_tokens": session_tokens,
+            "configured_max_turns": (
+                _integer(budget.get("max_turns", 0)) if budget else None
+            ),
+            "configured_max_total_tokens": (
+                _integer(budget.get("max_total_tokens", 0)) if budget else None
+            ),
+            "budget_scope": str(
+                snapshot.get("budget_scope", "runtime_agent_session")
+            ),
+            "exhaustion_events": session_exhaustions,
+        })
+
+        occurrence_key = occurrence_id or "__task__"
+        occurrence = occurrence_rows.setdefault(occurrence_key, {
+            "occurrence_id": occurrence_id,
+            "occurrence_total_runtime_tokens": 0,
+            "occurrence_preparation_tokens": 0,
+            "occurrence_seeded_tokens": 0,
+            "runtime_tool_builder_tokens": 0,
+        })
+        occurrence["occurrence_total_runtime_tokens"] += session_tokens
+        if bucket == "runtime_preparation":
+            occurrence["occurrence_preparation_tokens"] += session_tokens
+        elif bucket == "runtime_seeded":
+            occurrence["occurrence_seeded_tokens"] += session_tokens
+        elif bucket == "tool_builder_runtime":
+            occurrence["runtime_tool_builder_tokens"] += session_tokens
+
+    configured_per_node: int | list[int] | None
+    nonzero_limits = sorted(value for value in per_node_limits if value > 0)
+    if not nonzero_limits:
+        configured_per_node = None
+    elif len(nonzero_limits) == 1:
+        configured_per_node = nonzero_limits[0]
+    else:
+        configured_per_node = nonzero_limits
+    accounting = {
+        "configured_max_total_tokens_per_node": configured_per_node,
+        "actual_budget_scope": "runtime_agent_session",
+        "runtime_tool_builder_tokens": _integer(
+            _mapping(_mapping(usage.get("by_bucket", {})).get(
+                "tool_builder_runtime", {}
+            )).get("total_tokens", 0)
+        ),
+        "sessions": session_rows,
+        "occurrences": [
+            occurrence_rows[key] for key in sorted(occurrence_rows)
+        ],
+    }
+    return accounting, exhaustion_rows
+
+
+def _runtime_automation_funnel(
+    trace: Any,
+    *,
+    metadata: Mapping[str, Any],
+    usage: Mapping[str, Any],
+    v32_metrics: Mapping[str, Any],
+) -> dict[str, Any]:
+    explicit = _mapping(metadata.get("runtime_automation_funnel", {}))
+    result = {name: 0 for name in R92_AUTOMATION_FUNNEL_FIELDS}
+
+    request_audits = [
+        _mapping(audit)
+        for raw_session in _sequence(_field(trace, "agent_sessions", []))
+        for audit in _sequence(
+            _mapping(_mapping(raw_session).get("snapshot", {})).get(
+                "runtime_request_context_audits", []
+            )
+        )
+    ]
+    result.update({
+        "offered_request_count": sum(
+            _boolean(item.get("runtime_automation_offered", False))
+            for item in request_audits
+        ),
+        "interface_projected_request_count": sum(
+            _boolean(item.get(
+                "runtime_automation_interface_projected", False
+            ))
+            for item in request_audits
+        ),
+        "proposal_count": _integer(v32_metrics.get(
+            "runtime_automation_atomic_proposal_count", 0
+        )),
+        "r0_pass": _integer(v32_metrics.get(
+            "runtime_automation_r0_pass_count", 0
+        )),
+        "r0_reject": _integer(v32_metrics.get(
+            "runtime_automation_r0_reject_count", 0
+        )),
+        "trial_started": _integer(v32_metrics.get(
+            "runtime_tool_trial_count", 0
+        )),
+        "r1_pass": _integer(v32_metrics.get(
+            "runtime_tool_trial_r1_pass_count", 0
+        )),
+        "r1_reject": _integer(v32_metrics.get(
+            "runtime_tool_trial_r1_reject_count", 0
+        )),
+        # The legacy v3.2 counters cover every Tool execution, including
+        # registered Direct invocations.  R9.2's funnel is specifically about
+        # task-local automation trials, so only trial records (or the explicit
+        # runtime funnel below) may contribute these action counts.
+        "trial_internal_action_count": 0,
+        "trial_llm_bypassed_action_count": 0,
+        "builder_tokens": _integer(
+            _mapping(_mapping(usage.get("by_bucket", {})).get(
+                "tool_builder_runtime", {}
+            )).get("total_tokens", 0)
+        ),
+        "parent_runtime_tokens": sum(
+            _integer(_mapping(_mapping(usage.get("by_bucket", {})).get(
+                bucket, {}
+            )).get("total_tokens", 0))
+            for bucket in _RUNTIME_PARENT_USAGE_BUCKETS
+        ),
+    })
+
+    drafts_raw = metadata.get("runtime_automation_drafts", {})
+    drafts = (
+        [_mapping(item) for item in drafts_raw.values()]
+        if isinstance(drafts_raw, Mapping)
+        else [_mapping(item) for item in _sequence(drafts_raw)]
+    )
+    trials_raw = metadata.get("runtime_tool_trials", {})
+    trials = (
+        [_mapping(item) for item in trials_raw.values()]
+        if isinstance(trials_raw, Mapping)
+        else [_mapping(item) for item in _sequence(trials_raw)]
+    )
+    result["duplicate_id_cache_hit_count"] = sum(
+        _boolean(item.get("duplicate_id_cache_hit", False)) for item in drafts
+    )
+    result["builder_called"] = sum(
+        _boolean(item.get("builder_called", False))
+        or str(item.get("stage", "")) in {"builder", "static", "trial", "r1"}
+        for item in drafts
+    )
+    result["no_tool"] = sum(
+        str(item.get("failure_code", "")) == "runtime_automation_no_tool"
+        for item in drafts
+    )
+    result["budget_rejected"] = sum(
+        "budget" in str(item.get("failure_code", "")).casefold()
+        for item in drafts
+    )
+    result["content_rejected"] = sum(
+        str(item.get("failure_code", "")) in {
+            "runtime_automation_tool_builder_content_rejected",
+            "runtime_automation_tool_builder_failed",
+        }
+        for item in drafts
+    )
+    def is_no_tool(item: Mapping[str, Any]) -> bool:
+        return (
+            str(item.get("failure_code", ""))
+            == "runtime_automation_no_tool"
+            or str(_mapping(item.get("proposal", {})).get("decision", ""))
+            == "no_tool"
+        )
+
+    derived_static_pass = sum(
+        item.get("static_passed") is True
+        and item.get("proposal") is not None
+        and not is_no_tool(item)
+        for item in drafts
+    )
+    result["static_pass"] = derived_static_pass
+    derived_static_reject = sum(
+        item.get("static_passed") is False
+        and item.get("proposal") is not None
+        and not is_no_tool(item)
+        for item in drafts
+    )
+    result["static_reject"] = derived_static_reject
+    result["trial_started"] = max(result["trial_started"], len(trials))
+    result["trial_completed"] = len(trials)
+    result["trial_terminal_interrupted"] = sum(
+        _boolean(
+            item.get(
+                "terminal_interrupted",
+                _mapping(item.get("r1", {})).get(
+                    "terminal_interrupted", False
+                ),
+            )
+        )
+        for item in trials
+    )
+    result["parent_resumed_after_trial_count"] = sum(
+        _boolean(item.get("parent_resumed_after_trial", False))
+        for item in trials
+    )
+    result["parent_completed_after_trial_count"] = sum(
+        _boolean(item.get("parent_completed_after_trial", False))
+        for item in trials
+    )
+    execution_by_id = {
+        str(execution.get("attempt_id", "")): execution
+        for execution in (
+            _mapping(item)
+            for item in _sequence(_field(trace, "tool_executions", []))
+        )
+        if str(execution.get("attempt_id", ""))
+    }
+    trial_execution_ids = {
+        str(execution_id)
+        for trial in trials
+        for execution_id in _sequence(trial.get("tool_execution_ids", []))
+        if str(execution_id)
+    }
+    trial_action_count = sum(
+        _integer(
+            _mapping(execution.get("result", {})).get(
+                "executed_action_count",
+                _mapping(execution.get("result", {})).get(
+                    "executed_step_count", 0,
+                ),
+            )
+        )
+        for execution_id, execution in execution_by_id.items()
+        if execution_id in trial_execution_ids
+    )
+    for name in R92_AUTOMATION_FUNNEL_FIELDS:
+        if name in explicit:
+            result[name] = _nonnegative_integer(explicit[name])
+    # Runtime-trial action accounting is identity-based.  Neither the legacy
+    # all-Tool metric, an embedded result copy, nor an aggregate counter can
+    # establish that an action belonged to a task-local automation trial.
+    result["trial_internal_action_count"] = trial_action_count
+    result["trial_llm_bypassed_action_count"] = trial_action_count
+    if drafts:
+        # Per-draft stage records are the more specific authority.  In
+        # particular, an inconsistent aggregate cannot turn NO_TOOL into a
+        # static decision that never occurred.
+        result["static_pass"] = derived_static_pass
+        result["static_reject"] = derived_static_reject
+    result["units"] = {
+        **{name: "request" for name in (
+            "offered_request_count", "interface_projected_request_count"
+        )},
+        "proposal_count": "proposal",
+        "duplicate_id_cache_hit_count": "request",
+        **{name: "proposal" for name in (
+            "r0_pass", "r0_reject", "builder_called", "no_tool",
+            "budget_rejected", "content_rejected", "static_pass",
+            "static_reject",
+        )},
+        **{name: "trial" for name in (
+            "trial_started", "trial_completed", "trial_terminal_interrupted",
+            "r1_pass", "r1_reject", "parent_resumed_after_trial_count",
+            "parent_completed_after_trial_count",
+        )},
+        "trial_internal_action_count": "action",
+        "trial_llm_bypassed_action_count": "action",
+        "builder_tokens": "token",
+        "parent_runtime_tokens": "token",
+    }
+    return result
+
+
+def _runtime_support_funnel(
+    trace: Any,
+    *,
+    metadata: Mapping[str, Any],
+    v32_metrics: Mapping[str, Any],
+) -> dict[str, Any]:
+    explicit = _mapping(metadata.get("runtime_support_funnel", {}))
+    calls = [
+        _mapping(item)
+        for item in _sequence(_field(trace, "native_tool_calls", []))
+        if str(_mapping(item).get("tool_name", "")) == "invoke_support_atomic"
+    ]
+    result = {name: 0 for name in R92_SUPPORT_FUNNEL_FIELDS}
+    result.update({
+        "retrieved_count": _integer(v32_metrics.get(
+            "runtime_support_candidate_count", 0
+        )),
+        "raw_call_count": len(calls),
+        "execution_started_count": sum(
+            _boolean(_mapping(item.get("preflight_result", {})).get(
+                "started", False
+            ))
+            for item in calls
+        ),
+        "validated_output_published_count": _integer(v32_metrics.get(
+            "runtime_support_success_count", 0
+        )),
+    })
+    for name in R92_SUPPORT_FUNNEL_FIELDS:
+        if name in explicit:
+            result[name] = _nonnegative_integer(explicit[name])
+    result["units"] = {
+        "retrieved_count": "candidate",
+        "filtered_by_mode_count": "candidate",
+        "filtered_no_executable_count": "candidate",
+        "raw_call_count": "call",
+        "input_schema_rejection_count": "call",
+        "output_mapping_rejection_count": "call",
+        "preflight_not_ready_count": "call",
+        "execution_started_count": "execution",
+        "validated_output_published_count": "execution",
+    }
+    return result
 
 
 def _r9_authority_metrics(

@@ -11,7 +11,7 @@ import shutil
 import sqlite3
 import tempfile
 import time
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -25,6 +25,7 @@ from .agents import (
     ReplayAgentSession,
     UsageBucket,
     UsageLedger,
+    resolve_tool_builder_usage_bucket,
     structured_provider_turn_cap,
 )
 from .core.edges import GlobalGraphEdge, GlobalRelationType
@@ -38,9 +39,9 @@ from .core.errors import (
 )
 from .core.refs import canonical_json, content_hash
 from .core.serialization import atomic_write_json, to_primitive
-from .core.status import RuntimeMode, SkillStatus
+from .core.status import RuntimeMode, SkillStatus, ToolStatus
 from .evolution.admission import Admission
-from .evolution.aligner import Aligner
+from .evolution.aligner import Aligner, ToolAlignmentResult, _tool_signature
 from .evolution.atomicizer import AtomicProposalBatchRejected, Atomicizer
 from .evolution.composite_builder import CompositeBuilder
 from .evolution.composite_repair_session import CompositeSequenceProposalSession
@@ -81,11 +82,18 @@ from .evolution.portability import (
     validate_portability,
 )
 from .evolution.repair import RepairProposal, RepairStore
+from .evolution.replay import (
+    ReplayCaseResult,
+    ReplaySourceAuthority,
+    ReplaySourceAuthorityError,
+    replay_case_id,
+)
 from .evolution.repair_session import EvolutionRepairSession
 from .evolution.trace_replay import TraceRepairExecutor
 from .evolution.tool_compiler import (
     CompiledKnowledge,
     ToolCompiler,
+    build_occurrence_replay_case,
     rewrite_capability_labels,
 )
 from .tooling.builder_session import ToolBuilderSession, ToolProposalParseError
@@ -157,12 +165,16 @@ _SYSTEM_PROMPTS = {
     ),
     "runtime_preparation": (
         "Exactly ONE native ToolCall per turn. You are a runtime preparation agent. Use only "
-        "native tools offered in the current turn. Ground missing arguments through current "
-        "environment evidence, then invoke at most one learned implementation."
+        "native tools offered in the current turn. Complete only the current Atomic: ground "
+        "missing arguments, invoke a suitable learned implementation, propose one bounded "
+        "task-local automation through its public interface, or use a legal primitive action. "
+        "The Runtime agent never authors a Tool program."
     ),
     "runtime_seeded": (
         "Exactly ONE native ToolCall per turn. You are a fresh seeded runtime agent. Complete "
-        "only the supplied Atomic contract using current native actions."
+        "only the supplied Atomic contract using current native actions or, when appropriate, "
+        "propose one bounded task-local automation through the supplied public interface. The "
+        "Runtime agent never authors a Tool program."
     ),
     "runtime_dynamic": (
         "Exactly ONE native ToolCall per turn. You are a fresh full-dynamic task agent. Solve "
@@ -197,6 +209,16 @@ def installed_alfworld_version() -> str:
         return str(importlib_metadata.version("alfworld"))
     except Exception:
         return ""
+
+
+def _trace_release_metadata(config: Mapping[str, Any]) -> dict[str, str]:
+    """Project configured release identity into every newly created Trace."""
+
+    metadata = {"method_patch": str(config.get("method_patch", "3.1"))}
+    repair_revision = str(config.get("repair_revision", "")).strip()
+    if repair_revision:
+        metadata["repair_revision"] = repair_revision
+    return metadata
 
 
 _LONG_TERM_KNOWLEDGE_TABLES = (
@@ -740,7 +762,8 @@ class AtomicSkillGraphSystem:
         charged against the remaining allocation.
         """
 
-        if session_kind == "tool_builder_runtime" or session_kind.startswith("runtime"):
+        builder_bucket = resolve_tool_builder_usage_bucket(session_kind)
+        if builder_bucket is UsageBucket.TOOL_BUILDER_RUNTIME:
             shared_buckets = (
                 UsageBucket.RUNTIME_PREPARATION,
                 UsageBucket.RUNTIME_SEEDED,
@@ -777,11 +800,7 @@ class AtomicSkillGraphSystem:
 
     def _tool_builder_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:
         cfg = self._stage_config("tool_builder")
-        bucket = (
-            UsageBucket.TOOL_BUILDER_RUNTIME
-            if session_kind.startswith("runtime")
-            else UsageBucket.TOOL_BUILDER_EVOLUTION
-        )
+        bucket = resolve_tool_builder_usage_bucket(session_kind)
         return self._new_session(
             stage="tool_builder", bucket=bucket,
             session_type="ToolBuilderSession", occurrence_id=occurrence_id,
@@ -1237,9 +1256,7 @@ class AtomicSkillGraphSystem:
         trace_builder = self.orchestrator.create_trace_builder(
             task, attempt_id=attempt_id,
         )
-        trace_builder.trace.metadata["method_patch"] = str(
-            self.config.get("method_patch", "3.1")
-        )
+        trace_builder.trace.metadata.update(_trace_release_metadata(self.config))
         trace_builder.trace.metadata.setdefault("environment", {}).update({
             "alfworld_version": installed_alfworld_version(),
         })
@@ -1576,8 +1593,12 @@ class AtomicSkillGraphSystem:
         tool_alignment = self.aligner.align_tool_with_replays(
             compiled.tool,
             admission=self.admission,
-            replay=lambda tool, case: bool(
-                self.harness.replay_tool(task, tool, case)
+            replay=lambda tool, case: self._replay_case_with_source_authority(
+                tool,
+                case,
+                current_task=task,
+                current_trace=trace,
+                audit_trace=trace,
             ),
         )
         if not tool_alignment.admitted:
@@ -2053,23 +2074,142 @@ class AtomicSkillGraphSystem:
             SkillStatus.DRAFT,
         )
 
+    def _replay_source_authority(self) -> ReplaySourceAuthority:
+        experiment = dict(getattr(self, "config", {}).get("experiment") or {})
+        manifest_value = experiment.get("task_manifest_path")
+        manifest_path = self._resolve_path(manifest_value) if manifest_value else None
+        return ReplaySourceAuthority(
+            self.traces,
+            allowed_split=str(getattr(self.harness, "split", "")),
+            task_manifest_path=manifest_path,
+        )
+
+    @staticmethod
+    def _record_replay_case_result(
+        trace: TraceRecord | None,
+        result: ReplayCaseResult,
+    ) -> None:
+        if trace is None:
+            return
+        trace.metadata.setdefault("tool_replay_results", []).append(
+            to_primitive(result)
+        )
+
+    def _replay_case_with_source_authority(
+        self,
+        tool: Any,
+        case: dict[str, Any],
+        *,
+        current_task: HarnessTask | None,
+        current_trace: TraceRecord | None,
+        audit_trace: TraceRecord | None,
+    ) -> ReplayCaseResult:
+        try:
+            source_task = self._replay_source_authority().resolve(
+                case,
+                current_task=current_task,
+                current_trace=current_trace,
+            )
+        except ReplaySourceAuthorityError as exc:
+            self._record_replay_case_result(audit_trace, exc.result)
+            raise
+        result = self._replay_tool_candidate_result(
+            source_task,
+            tool,
+            case,
+            requested_task_id=(
+                str(current_task.task_id) if current_task is not None else ""
+            ),
+        )
+        self._record_replay_case_result(audit_trace, result)
+        return result
+
     def _replay_tool_candidate(
         self,
         task: HarnessTask,
         tool: Any,
         case: dict[str, Any],
     ) -> bool:
-        """Run one admission replay through the same ToolRunner authority.
+        """Compatibility bool adapter for an already-resolved replay task."""
 
-        The Harness only resets, replays validated prefix actions, and exposes
-        catalog/evidence; it never interprets ``tool_ir_v1``.
-        """
+        return self._replay_tool_candidate_result(
+            task, tool, case, requested_task_id=task.task_id,
+        ).passed
 
+    def _replay_tool_candidate_result(
+        self,
+        task: HarnessTask,
+        tool: Any,
+        case: dict[str, Any],
+        *,
+        requested_task_id: str,
+    ) -> ReplayCaseResult:
+        """Run one source-resolved admission replay through ToolRunner authority."""
+
+        source = dict(case.get("source_task") or {})
+        case_identity = replay_case_id(case)
+        trace_id = str(case.get("trace_id", ""))
+        source_task_id = str(source.get("task_id", ""))
+
+        def replay_result(
+            *,
+            stage: str,
+            passed: bool,
+            failure_code: str = "",
+            message: str = "",
+            started: bool = False,
+            executed_action_count: int = 0,
+            completed: bool = False,
+            terminal_interrupted: bool = False,
+            atomic_effect_passed: bool = False,
+            output_validation_passed: bool = False,
+        ) -> ReplayCaseResult:
+            return ReplayCaseResult(
+                case_id=case_identity,
+                source_trace_id=trace_id,
+                source_task_id=source_task_id,
+                requested_task_id=str(requested_task_id),
+                resolved_task_id=str(task.task_id),
+                stage=stage,
+                passed=passed,
+                failure_code=failure_code,
+                message=message,
+                started=started,
+                executed_action_count=executed_action_count,
+                completed=completed,
+                terminal_interrupted=terminal_interrupted,
+                atomic_effect_passed=atomic_effect_passed,
+                output_validation_passed=output_validation_passed,
+            )
+
+        if not source_task_id or source_task_id != task.task_id:
+            return replay_result(
+                stage="source_resolution",
+                passed=False,
+                failure_code="replay_source_task_mismatch",
+                message="resolved replay task does not match case source_task.task_id",
+            )
         if str(getattr(tool, "artifact_kind", "")) != "tool_ir_v1":
-            return bool(self.harness.replay_tool(task, tool, case))
-        expected_task = str((case.get("source_task") or {}).get("task_id", ""))
-        if expected_task and expected_task != task.task_id:
-            return False
+            try:
+                passed = bool(self.harness.replay_tool(task, tool, case))
+            except AtomicSkillGraphError:
+                raise
+            except (KeyError, ValueError) as exc:
+                return replay_result(
+                    stage="tool",
+                    passed=False,
+                    failure_code="source_replay_execution_failed",
+                    message=self._sanitize_failure_message(exc),
+                )
+            return replay_result(
+                stage="final_validation",
+                passed=passed,
+                failure_code="" if passed else "source_replay_failed",
+                started=passed,
+                completed=passed,
+                atomic_effect_passed=passed,
+                output_validation_passed=passed,
+            )
         from atomic_skillgraph.core.bindings import BindingExprKind, BindingExpression
         from atomic_skillgraph.core.results import PrimitiveToolStep, RuntimeLinearPlan
         from atomic_skillgraph.runtime.budget import RuntimeBudget
@@ -2097,6 +2237,7 @@ class AtomicSkillGraphSystem:
             task, plan, self.harness, TraceBuilder(trace_record),
             RuntimeBudget(global_action_budget=100, node_action_budget=35),
         )
+        stage = "prefix"
         try:
             for event in list(case.get("prefix") or []):
                 action_type = str(event.get("action_type", ""))
@@ -2110,52 +2251,162 @@ class AtomicSkillGraphSystem:
                         for role, value in arguments.items()
                     },
                 )
-                result = self.harness.execute_primitive(primitive, {})
-                if not result.accepted or (result.done and not result.won):
-                    return False
+                action_result = self.harness.execute_primitive(primitive, {})
+                if not action_result.accepted:
+                    return ReplayCaseResult(
+                        case_identity, trace_id, source_task_id,
+                        str(requested_task_id), str(task.task_id), "prefix", False,
+                        "replay_prefix_rejected", "source replay prefix was rejected",
+                    )
                 ctx.update_after_action(
-                    result,
+                    action_result,
                     {
                         "action_type": action_type,
                         "arguments": arguments,
-                        "accepted": result.accepted,
-                        "done": result.done,
-                        "won": result.won,
-                        "new_revision": result.new_revision,
-                        "observation": result.observation,
+                        "accepted": action_result.accepted,
+                        "done": action_result.done,
+                        "won": action_result.won,
+                        "new_revision": action_result.new_revision,
+                        "observation": action_result.observation,
                         "occurrence_id": "tool_ir_replay_prefix",
                         "origin": "tool_ir_replay",
                     },
                 )
+                if action_result.done:
+                    return ReplayCaseResult(
+                        case_identity, trace_id, source_task_id,
+                        str(requested_task_id), str(task.task_id), "prefix", False,
+                        (
+                            "replay_terminal_prefix"
+                            if action_result.won else "replay_prefix_terminal_failure"
+                        ),
+                        "source replay prefix ended before the complete Tool ran",
+                        terminal_interrupted=bool(action_result.won),
+                    )
             bindings = dict(case.get("bindings") or {})
-            result = ToolRunner(self.validation.tool).run(
+            stage = "tool"
+            execution = ToolRunner(self.validation.tool).run(
                 tool, bindings, ctx, occurrence_id="tool_ir_replay",
             )
-            if result.executed_action_count <= 0:
-                return False
+            common = {
+                "started": bool(execution.started),
+                "executed_action_count": int(execution.executed_action_count),
+                "completed": bool(execution.completed),
+                "terminal_interrupted": bool(execution.terminal_interrupted),
+                "atomic_effect_passed": bool(execution.atomic_effect_passed),
+                "output_validation_passed": bool(
+                    execution.completed
+                    and execution.failure_code != "tool_output_schema_error"
+                ),
+            }
+            if execution.executed_action_count <= 0:
+                return replay_result(
+                    stage="tool",
+                    passed=False,
+                    failure_code=(
+                        str(execution.failure_code) or "tool_ir_replay_not_started"
+                    ),
+                    message=str(execution.failure_message),
+                    **common,
+                )
             # Admission replay proves the complete Tool program, not merely a
             # benchmark-winning prefix.  A terminal interruption remains valid
             # task/Atomic evidence, but it is never Tool-admission evidence.
-            if not result.completed or result.terminal_interrupted:
-                return False
-            if not result.atomic_effect_passed:
-                return False
-            if result.failure_code:
-                return False
-            return True
-        except AtomicSkillGraphError:
-            raise
-        except (KeyError, TypeError, ValueError, RuntimeError):
+            if execution.terminal_interrupted:
+                return replay_result(
+                    stage="tool",
+                    passed=False,
+                    failure_code="tool_ir_replay_terminal_interrupted",
+                    message="complete Tool admission cannot use a terminal prefix",
+                    **common,
+                )
+            if not execution.completed or execution.failure_code:
+                return replay_result(
+                    stage="tool",
+                    passed=False,
+                    failure_code=(
+                        str(execution.failure_code) or "tool_ir_replay_incomplete"
+                    ),
+                    message=str(execution.failure_message),
+                    **common,
+                )
+            stage = "final_validation"
+            if not execution.atomic_effect_passed:
+                return replay_result(
+                    stage=stage,
+                    passed=False,
+                    failure_code="tool_ir_replay_atomic_effect_failed",
+                    message="complete Tool did not validate its Atomic effect",
+                    **common,
+                )
+            return replay_result(stage=stage, passed=True, **common)
+        except (KeyError, ValueError) as exc:
+            return replay_result(
+                stage=stage,
+                passed=False,
+                failure_code=f"tool_ir_replay_{stage}_failed",
+                message=self._sanitize_failure_message(exc),
+            )
+
+    @staticmethod
+    def _implementation_matches_exact_executable(
+        implementation: Any,
+        tool: Any,
+        atomic: AbstractAtomicSkill,
+    ) -> bool:
+        from atomic_skillgraph.core.bindings import BindingExprKind, BindingExpression
+
+        if implementation.abstract_ref != atomic.ref:
             return False
+        bindings = list(implementation.tool_bindings)
+        if len(bindings) != 1 or bindings[0].tool_ref != tool.ref:
+            return False
+        mapping = dict(bindings[0].parameter_mapping)
+        properties = set((tool.signature.get("properties") or {}).keys())
+        required = set(tool.signature.get("required") or [])
+        if required - set(mapping) or set(mapping) - properties:
+            return False
+        atomic_inputs = {str(item.name) for item in atomic.inputs}
+        for raw in mapping.values():
+            try:
+                expression = (
+                    raw if isinstance(raw, BindingExpression)
+                    else BindingExpression.from_dict(raw)
+                )
+            except (TypeError, ValueError):
+                return False
+            if (
+                expression.kind is BindingExprKind.SKILL_INPUT
+                and expression.source_role not in atomic_inputs
+            ):
+                return False
+            if expression.kind not in {
+                BindingExprKind.SKILL_INPUT,
+                BindingExprKind.CONSTANT,
+            }:
+                return False
+        return True
 
     def _existing_executable_reuse(
-        self, occurrence: Any, atomic_view: AbstractAtomicSkill,
+        self,
+        occurrence: Any,
+        atomic_view: AbstractAtomicSkill,
+        *,
+        source_task: HarnessTask | Mapping[str, Any],
     ) -> CompiledKnowledge | None:
         """Reuse an exact existing Implementation/Tool without calling ToolBuilder."""
 
         alignment = self.aligner.resolve_atomic(atomic_view)
         if not alignment.reused:
             return None
+        bundle = self.aligner.stage_atomic(atomic_view)
+        canonical_occurrence = (
+            self.aligner.atomic_canonicalizer.rewrite_canonical_occurrence(
+                occurrence,
+                bundle,
+                atomic_ref=bundle.atomic.ref,
+            )
+        )
         for implementation in self.skills.implementations_for(
             alignment.ref, mode=self.mode,
         ):
@@ -2170,8 +2421,45 @@ class AtomicSkillGraphSystem:
                 continue
             if len(tools) != 1:
                 continue
+            existing_tool = tools[0]
+            if not self._implementation_matches_exact_executable(
+                implementation, existing_tool, bundle.atomic,
+            ):
+                continue
+            current_case = build_occurrence_replay_case(
+                canonical_occurrence,
+                bundle.atomic,
+                source_task=source_task,
+                kind=(
+                    "tool_proposal_replay"
+                    if existing_tool.artifact_kind == "tool_ir_v1"
+                    else "source_replay"
+                ),
+            )
+            candidate_tool = replace(
+                existing_tool,
+                tests=[current_case],
+                provenance={
+                    **dict(existing_tool.provenance),
+                    "evolution_operation": "exact_executable_reuse",
+                    "source_ref": str(existing_tool.ref),
+                    "source_trace_id": str(canonical_occurrence.source_trace_id),
+                    "occurrence_id": str(canonical_occurrence.occurrence_id),
+                    "task_id": str(
+                        source_task.task_id
+                        if isinstance(source_task, HarnessTask)
+                        else source_task.get("task_id", "")
+                    ),
+                },
+                status=ToolStatus.ADMISSION_PENDING,
+            )
+            if _tool_signature(candidate_tool) != _tool_signature(existing_tool):
+                continue
             return CompiledKnowledge(
-                occurrence, atomic_view, tools[0], implementation,
+                canonical_occurrence,
+                bundle.atomic,
+                candidate_tool,
+                implementation,
             )
         return None
 
@@ -2435,6 +2723,7 @@ class AtomicSkillGraphSystem:
         atomic_view: AbstractAtomicSkill,
         normalized: dict[str, Any],
         trace: TraceRecord,
+        source_task: HarnessTask | None = None,
     ) -> tuple[CompiledKnowledge | None, dict[str, int]]:
         """Success Evolution Tool path: exact reuse else ToolBuilder + static gate."""
 
@@ -2453,7 +2742,11 @@ class AtomicSkillGraphSystem:
                 return compiled[0], self._r4_builder_return_metrics(record)
 
             stage = "exact_reuse"
-            exact = self._existing_executable_reuse(occurrence, atomic_view)
+            exact = self._existing_executable_reuse(
+                occurrence,
+                atomic_view,
+                source_task=source_task or occurrence.source_task,
+            )
             if exact is not None:
                 record["outcome"] = "exact_reuse"
                 return exact, self._r4_builder_return_metrics(record)
@@ -2641,7 +2934,11 @@ class AtomicSkillGraphSystem:
 
             stage = "tool_compile"
             item = self.tool_compiler.compile_proposal(
-                occurrence, atomic_view, proposal, provenance,
+                occurrence,
+                atomic_view,
+                proposal,
+                provenance,
+                source_task=source_task or occurrence.source_task,
             )
             record["outcome"] = "created"
             return item, self._r4_builder_return_metrics(record)
@@ -3446,7 +3743,7 @@ class AtomicSkillGraphSystem:
                     raise RuntimeError("canonical occurrence has no Atomic view")
                 occurrence_stage = "tool_build"
                 item, _builder_metrics = self._build_tool_for_occurrence(
-                    occurrence, atomic_view, normalized, trace,
+                    occurrence, atomic_view, normalized, trace, task,
                 )
                 if item is None:
                     # NO_TOOL is an explicit, valid Builder decision.  The Atomic
@@ -4022,23 +4319,77 @@ class AtomicSkillGraphSystem:
                     reason=atomic_only_reason,
                 )
                 continue
-            admitted_tool = self.admission.admit_tool(
-                item.tool,
-                replay=lambda tool, case: self._replay_tool_candidate(
-                    task, tool, case,
-                ),
-                atomic=item.atomic,
-                harness=self.harness,
+            replay_cache: dict[tuple[str, str], ReplayCaseResult] = {}
+
+            def replay_once(
+                tool: Any,
+                case: dict[str, Any],
+            ) -> ReplayCaseResult:
+                key = (_tool_signature(tool), content_hash(case))
+                cached = replay_cache.get(key)
+                if cached is not None:
+                    return cached
+                result = self._replay_case_with_source_authority(
+                    tool,
+                    case,
+                    current_task=task,
+                    current_trace=trace,
+                    audit_trace=trace,
+                )
+                replay_cache[key] = result
+                return result
+
+            replay_already_admitted = (
+                self.aligner.existing_tool_with_replay_cases(item.tool)
             )
-            tool_alignment = self.aligner.align_tool_with_replays(
-                admitted_tool,
-                admission=self.admission,
-                replay=lambda tool, case: self._replay_tool_candidate(
-                    task, tool, case,
-                ),
-            )
+            duplicate_replay_evidence = replay_already_admitted is not None
+            if replay_already_admitted is not None:
+                # Resume/idempotent extraction of the same immutable case must
+                # not execute the environment again. Keep the candidate ref
+                # for Implementation admission; alignment below uses the
+                # already-admitted executable ref.
+                admitted_tool = replace(
+                    item.tool,
+                    status=ToolStatus.CANDIDATE,
+                    metadata={
+                        **dict(item.tool.metadata),
+                        "admission": {
+                            **dict(item.tool.metadata.get("admission") or {}),
+                            "replay_case_reused": True,
+                            "source_tool_ref": str(replay_already_admitted.ref),
+                        },
+                    },
+                )
+                tool_alignment = ToolAlignmentResult(
+                    replay_already_admitted.ref,
+                )
+            else:
+                admitted_tool = self.admission.admit_tool(
+                    item.tool,
+                    replay=replay_once,
+                    atomic=item.atomic,
+                    harness=self.harness,
+                )
+                tool_alignment = self.aligner.align_tool_with_replays(
+                    admitted_tool,
+                    admission=self.admission,
+                    replay=replay_once,
+                )
             tool_ref = tool_alignment.ref
             tool_admission_count += int(bool(tool_alignment.admitted))
+            evidence_tool_operation = tool_alignment.operation
+            if duplicate_replay_evidence:
+                batch_evolution = dict(
+                    replay_already_admitted.metadata.get("batch_evolution")
+                    or {}
+                )
+                evidence_tool_operation = str(
+                    batch_evolution.get("operation")
+                    or replay_already_admitted.provenance.get(
+                        "evolution_operation", ""
+                    )
+                    or "discover"
+                )
             if (
                 tool_alignment.operation == "add_replay"
                 and tool_alignment.source_ref is not None
@@ -4108,7 +4459,7 @@ class AtomicSkillGraphSystem:
                     else "tool_admission_failed"
                 ),
                 metadata={
-                    "operation": tool_alignment.operation,
+                    "operation": evidence_tool_operation,
                     "admission_failures": list(
                         tool_alignment.admission_failures
                     ),
@@ -4415,15 +4766,71 @@ class AtomicSkillGraphSystem:
         milestone: str = "manual_final_batch",
         finalize_pending: bool = False,
     ) -> BatchMaintenanceResult:
-        """Run one auditable batch and return its queue-empty admission result.
+        """Run and persist one complete maintenance transaction Trace.
 
-        Evolution-repair Agent usage is persisted in a dedicated immutable
-        maintenance Trace before any replay/admission or ledger mutation.
+        Replay, lineage, credit and lifecycle work all belong to the same
+        immutable maintenance Trace.  The worker publishes its Trace context
+        as soon as it is created so both normal and exceptional exits save it
+        exactly once, after the last mutation/audit event.
         """
+
+        if getattr(self, "_active_maintenance_trace_context", None) is not None:
+            raise RuntimeError("nested evolution maintenance batch is forbidden")
+        self._active_maintenance_trace_context = None
+        try:
+            result = self._run_maintenance_once(
+                triggering_task_id=triggering_task_id,
+                milestone=milestone,
+                finalize_pending=finalize_pending,
+            )
+        except Exception as exc:
+            context = getattr(self, "_active_maintenance_trace_context", None)
+            if isinstance(context, dict):
+                trace = context["trace"]
+                trace.infrastructure_failure = bool(
+                    getattr(trace, "infrastructure_failure", False)
+                    or not isinstance(exc, AtomicSkillGraphError)
+                    or exc.layer is FailureLayer.INFRASTRUCTURE
+                )
+                trace.metadata.setdefault("maintenance_failure", {
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                })
+                self._finalize_maintenance_trace(
+                    trace,
+                    sessions_start=context["sessions_start"],
+                    usage_start=context["usage_start"],
+                    provider_offsets=context["provider_offsets"],
+                )
+            raise
+        else:
+            context = getattr(self, "_active_maintenance_trace_context", None)
+            if not isinstance(context, dict):
+                raise RuntimeError("maintenance Trace context was not established")
+            self._finalize_maintenance_trace(
+                context["trace"],
+                sessions_start=context["sessions_start"],
+                usage_start=context["usage_start"],
+                provider_offsets=context["provider_offsets"],
+            )
+            return result
+        finally:
+            self._active_maintenance_trace_context = None
+            self._evolution_batch_usage_start = None
+
+    def _run_maintenance_once(
+        self,
+        *,
+        triggering_task_id: str = "",
+        milestone: str = "manual_final_batch",
+        finalize_pending: bool = False,
+    ) -> BatchMaintenanceResult:
+        """Execute one maintenance batch; ``run_maintenance`` owns persistence."""
         if self.readonly:
             raise RuntimeError("frozen knowledge cannot run maintenance")
         assert (
             self.projection is not None
+            and self.ledger is not None
             and self.lifecycle is not None
             and self.evolution_maintenance is not None
             and self.repair_store is not None
@@ -4464,6 +4871,7 @@ class AtomicSkillGraphSystem:
             "trace_kind": "maintenance",
             "triggering_task_id": trigger,
             "milestone": milestone,
+            **_trace_release_metadata(self.config),
         })
         usage_start = len(self.usage.events)
         if self._evolution_batch_usage_start is not None:
@@ -4471,6 +4879,13 @@ class AtomicSkillGraphSystem:
         self._evolution_batch_usage_start = usage_start
         sessions_start = len(self._observed_sessions)
         provider_offsets = self._provider_request_offsets()
+        self._active_maintenance_trace_context = {
+            "trace": trace,
+            "sessions_start": sessions_start,
+            "usage_start": usage_start,
+            "provider_offsets": provider_offsets,
+        }
+        evidence_rowid_start = self.ledger.max_rowid()
         reviews: list[dict[str, Any]] = []
         typed_reviews = []
         composite_reviews = []
@@ -4572,10 +4987,6 @@ class AtomicSkillGraphSystem:
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 }
-                self._finalize_maintenance_trace(
-                    trace, sessions_start=sessions_start,
-                    usage_start=usage_start, provider_offsets=provider_offsets,
-                )
                 raise
             # Protocol/budget failures are attributable Agent outcomes.  They
             # close this proposal batch without mutating semantic assets.
@@ -4592,10 +5003,6 @@ class AtomicSkillGraphSystem:
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             }
-            self._finalize_maintenance_trace(
-                trace, sessions_start=sessions_start, usage_start=usage_start,
-                provider_offsets=provider_offsets,
-            )
             raise
         except (TypeError, ValueError) as exc:
             # Invalid semantic content is fail-closed but not infrastructure:
@@ -4623,11 +5030,6 @@ class AtomicSkillGraphSystem:
         )
         if semantic_error:
             trace.metadata["semantic_proposal_error"] = semantic_error
-        self._finalize_maintenance_trace(
-            trace, sessions_start=sessions_start, usage_start=usage_start,
-            provider_offsets=provider_offsets,
-        )
-
         typed_decision_by_id = {
             item.review_id: item for item in typed_decisions
         }
@@ -4834,7 +5236,9 @@ class AtomicSkillGraphSystem:
             traces=self.traces,
             planner_validator=self.planner.validator,
             harness_profile=str(self.harness.profile_name),
-            replay_tool=self._replay_maintenance_tool,
+            replay_tool=lambda tool, case: self._replay_maintenance_tool(
+                tool, case, audit_trace=trace,
+            ),
             replay_composite=replay_executor.replay_composite,
             finalize_pending=finalize_pending,
         )
@@ -4910,6 +5314,24 @@ class AtomicSkillGraphSystem:
             result.lifecycle_result = self.lifecycle.review(
                 sorted({item["target_ref"] for item in superseded})
             )
+        maintenance_credit_event_ids = [
+            record.event.event_id
+            for record in self.ledger.records_after(evidence_rowid_start)
+            if record.event.trace_id == trace.trace_id
+        ]
+        trace.metadata["maintenance_result"] = {
+            "maintenance_trace_id": result.maintenance_trace_id,
+            "admitted_assets": [
+                {"artifact_ref": ref, "artifact_kind": kind}
+                for ref, kind in result.admitted_assets
+            ],
+            "rejected_proposal_ids": list(result.rejected_proposal_ids),
+            "pending_proposal_ids": list(result.pending_proposal_ids),
+            "reviewed_ids": list(result.reviewed_ids),
+            "lineage": list(result.lineage),
+            "credit_event_ids": maintenance_credit_event_ids,
+            "lifecycle": to_primitive(result.lifecycle_result),
+        }
         self._last_maintenance_success_count = self._online_successes
         self._persist_maintenance_state()
         return result
@@ -5048,21 +5470,19 @@ class AtomicSkillGraphSystem:
         self.traces.save_atomic(trace)
 
     def _replay_maintenance_tool(
-        self, tool: Any, case: dict[str, Any],
+        self,
+        tool: Any,
+        case: dict[str, Any],
+        *,
+        audit_trace: TraceRecord,
     ) -> bool:
-        source = dict(case.get("source_task") or {})
-        required = {"task_id", "goal", "benchmark", "task_type"}
-        if not required.issubset(source) or not str(source.get("task_id", "")):
-            return False
-        task = HarnessTask(
-            task_id=str(source["task_id"]),
-            goal=str(source["goal"]),
-            benchmark=str(source["benchmark"]),
-            task_type=str(source["task_type"]),
-            context=dict(source.get("context") or {}),
-            metadata=dict(source.get("metadata") or {}),
-        )
-        return bool(self.harness.replay_tool(task, tool, case))
+        return self._replay_case_with_source_authority(
+            tool,
+            case,
+            current_task=None,
+            current_trace=None,
+            audit_trace=audit_trace,
+        ).passed
 
     def _attach_external_sessions(
         self, trace: TraceRecord, observations: list[_ObservedSession],

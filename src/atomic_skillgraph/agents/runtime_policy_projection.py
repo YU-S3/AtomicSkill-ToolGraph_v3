@@ -23,15 +23,23 @@ EDGE_FIELDS = (
     "consumer_step",
     "consumer_input_role",
 )
+RELATION_FIELDS = (
+    "relation_predicate",
+    "effect_domain",
+    "relevant_anchor_roles",
+    "public_relation_status",
+    "public_evidence_refs",
+)
 SHARED_FIELDS = (
     "consumer_summary",
     "consumer_preconditions",
     "consumer_effects",
     "consumer_known_semantic_anchors",
 )
-OBLIGATION_FIELDS = (
+LEGACY_OBLIGATION_FIELDS = (
     set(EDGE_FIELDS) | set(SHARED_FIELDS) | {"consumer_input_contract"}
 )
+OBLIGATION_FIELDS = LEGACY_OBLIGATION_FIELDS | set(RELATION_FIELDS)
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -95,7 +103,13 @@ def pack_downstream_context(raw: Any) -> tuple[Any, str]:
     edges: list[dict[str, Any]] = []
     occurrences: dict[str, int] = {}
     for obligation in obligations:
-        if not isinstance(obligation, dict) or set(obligation) != OBLIGATION_FIELDS:
+        if (
+            not isinstance(obligation, dict)
+            or frozenset(obligation) not in {
+                frozenset(LEGACY_OBLIGATION_FIELDS),
+                frozenset(OBLIGATION_FIELDS),
+            }
+        ):
             return original, "original_unrecognized_shape"
         if any(not isinstance(obligation[field], str) for field in EDGE_FIELDS):
             return original, "original_unrecognized_shape"
@@ -121,7 +135,9 @@ def pack_downstream_context(raw: Any) -> tuple[Any, str]:
             return original, "original_conflicting_input_contract"
         contracts[role] = copy.deepcopy(contract)
         edges.append({
-            field: copy.deepcopy(obligation[field]) for field in EDGE_FIELDS
+            field: copy.deepcopy(obligation[field])
+            for field in (*EDGE_FIELDS, *RELATION_FIELDS)
+            if field in obligation
         })
         occurrences[step] = occurrences.get(step, 0) + 1
     if max(occurrences.values(), default=0) < 2:

@@ -39,6 +39,7 @@ from atomic_skillgraph.evolution.atomicizer import (
     CanonicalAtomicOccurrence,
 )
 from atomic_skillgraph.evolution.extractor_session import ExtractionContentError
+from atomic_skillgraph.evolution.replay import ReplayCaseResult, replay_case_id
 from atomic_skillgraph.evolution.repair import RepairStore
 from atomic_skillgraph.evolution.tool_compiler import ToolCompiler
 from atomic_skillgraph.governance import (
@@ -81,6 +82,8 @@ from experiments.fakes import FakeAgentFactory, FakeReply
 
 
 def _normalized_take(value: str = "apple_1") -> dict[str, Any]:
+    task_id = f"task_{value}"
+    task_signature = f"fake:{task_id}:{value}"
     effect = {
         "predicate": "agent.holds",
         "args": {"object": value},
@@ -92,7 +95,18 @@ def _normalized_take(value: str = "apple_1") -> dict[str, Any]:
     }
     return {
         "trace_id": f"trace_{value}",
-        "source_task": {"task_id": f"task_{value}"},
+        "source_task": {
+            "task_id": task_id,
+            "task_signature": task_signature,
+            "goal": f"take {value}",
+            "benchmark": "fake",
+            "task_type": "pick",
+            "context": {},
+            "metadata": {
+                "task_signature": task_signature,
+                "split": "train",
+            },
+        },
         "semantic_authority_source": "validator_snapshot_v3_2",
         "actions": [{
             "event_index": 0,
@@ -337,15 +351,61 @@ def _minimal_system(
     )
     system.repair_store = RepairStore(database)
     system.gap_diagnoser = SimpleNamespace(diagnose=lambda *_args, **_kwargs: {})
+    source_task = dict(normalized["source_task"])
+    task = HarnessTask(
+        task_id=str(source_task["task_id"]),
+        goal=str(source_task["goal"]),
+        benchmark=str(source_task["benchmark"]),
+        task_type=str(source_task["task_type"]),
+        context=dict(source_task["context"]),
+        metadata=dict(source_task["metadata"]),
+    )
     trace = SimpleNamespace(
         metadata={},
         runtime_plan={},
-        trace_id="trace_static_or_no_tool",
+        trace_id=str(normalized["trace_id"]),
         benchmark_success=False,
         environment_actions=[],
-        task=SimpleNamespace(task_id="task_a"),
+        task=SimpleNamespace(
+            task_id=task.task_id,
+            task_signature=str(task.metadata["task_signature"]),
+            goal=task.goal,
+            benchmark=task.benchmark,
+            task_type=task.task_type,
+            metadata=dict(task.metadata),
+        ),
     )
-    task = SimpleNamespace(task_id="task_a", context={})
+    system.traces = SimpleNamespace(
+        exists=lambda _trace_id: False,
+        load_payload=lambda _trace_id: {},
+    )
+
+    def replay_result(
+        replay_task: HarnessTask,
+        _tool: Any,
+        case: dict[str, Any],
+        *,
+        requested_task_id: str,
+    ) -> ReplayCaseResult:
+        source = dict(case.get("source_task") or {})
+        return ReplayCaseResult(
+            case_id=replay_case_id(case),
+            source_trace_id=str(case.get("trace_id", "")),
+            source_task_id=str(source.get("task_id", "")),
+            requested_task_id=str(requested_task_id),
+            resolved_task_id=str(replay_task.task_id),
+            stage="final_validation",
+            passed=True,
+            started=True,
+            executed_action_count=1,
+            completed=True,
+            atomic_effect_passed=True,
+            output_validation_passed=True,
+        )
+
+    # These retention tests isolate admission/accounting. Dedicated replay
+    # suites exercise the real Harness reset and ToolRunner path.
+    system._replay_tool_candidate_result = replay_result
     return system, trace, task, database
 
 

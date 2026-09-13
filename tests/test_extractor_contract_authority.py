@@ -33,6 +33,7 @@ from atomic_skillgraph.governance import (
     LifecyclePolicy,
     LifecycleProjection,
 )
+from atomic_skillgraph.harness.protocol import HarnessTask
 from atomic_skillgraph.knowledge import (
     ArtifactStore,
     GraphStore,
@@ -185,6 +186,16 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
     monkeypatch, tmp_path,
 ) -> None:
     normalized = _normalized()
+    normalized["trace_id"] = "trace_partial"
+    normalized["source_task"] = {
+        "task_id": "task",
+        "task_signature": "fake:task",
+        "goal": "establish state",
+        "benchmark": "fake",
+        "task_type": "generic",
+        "context": {},
+        "metadata": {"task_signature": "fake:task", "split": "train"},
+    }
     normalized["actions"][0]["action_type"] = "TAKE"
     normalized["actions"][0]["authoritative_positive_effects"] = [{
         "predicate": "agent.holds",
@@ -269,13 +280,31 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
     system.gap_diagnoser = SimpleNamespace(
         diagnose=lambda *_args, **_kwargs: {},
     )
+    task = HarnessTask(
+        "task",
+        "establish state",
+        "fake",
+        "generic",
+        metadata={"task_signature": "fake:task", "split": "train"},
+    )
     trace = SimpleNamespace(
         metadata={},
         runtime_plan={},
         trace_id="trace_partial",
-        task=SimpleNamespace(task_id="task"),
+        task=SimpleNamespace(
+            task_id=task.task_id,
+            task_signature="fake:task",
+            goal=task.goal,
+            benchmark=task.benchmark,
+            task_type=task.task_type,
+            metadata=dict(task.metadata),
+        ),
     )
-    task = SimpleNamespace(task_id="task", context={})
+    replay_sources: dict[str, dict] = {}
+    system.traces = SimpleNamespace(
+        exists=lambda trace_id: trace_id in replay_sources,
+        load_payload=lambda trace_id: replay_sources[trace_id],
+    )
 
     prepared = system._prepare_evolution(trace, task)
 
@@ -310,17 +339,52 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
             "SELECT artifact_kind FROM evidence_events"
         )
     } == {"atomic", "implementation", "tool"}
+    replay_sources[trace.trace_id] = {
+        "task": {
+            "task_id": task.task_id,
+            "task_signature": "fake:task",
+            "goal": task.goal,
+            "benchmark": task.benchmark,
+            "task_type": task.task_type,
+            "metadata": dict(task.metadata),
+        },
+    }
 
     # A second independent Trace with the exact same canonical contract must
     # reuse the Atomic while adding auditable evidence/lifecycle support.
     normalized["trace_id"] = "trace_partial_2"
+    normalized["source_task"] = {
+        "task_id": "task_2",
+        "task_signature": "fake:task_2",
+        "goal": "establish state",
+        "benchmark": "fake",
+        "task_type": "generic",
+        "context": {},
+        "metadata": {
+            "task_signature": "fake:task_2",
+            "split": "train",
+        },
+    }
+    task_2 = HarnessTask(
+        "task_2",
+        "establish state",
+        "fake",
+        "generic",
+        metadata={"task_signature": "fake:task_2", "split": "train"},
+    )
     trace_2 = SimpleNamespace(
         metadata={},
         runtime_plan={},
         trace_id="trace_partial_2",
-        task=SimpleNamespace(task_id="task_2"),
+        task=SimpleNamespace(
+            task_id=task_2.task_id,
+            task_signature="fake:task_2",
+            goal=task_2.goal,
+            benchmark=task_2.benchmark,
+            task_type=task_2.task_type,
+            metadata=dict(task_2.metadata),
+        ),
     )
-    task_2 = SimpleNamespace(task_id="task_2", context={})
     prepared_2 = system._prepare_evolution(trace_2, task_2)
     applied_2 = system._apply_evolution(prepared_2, trace_2, task_2)
     assert applied_2["atomic_refs"] == applied["atomic_refs"]

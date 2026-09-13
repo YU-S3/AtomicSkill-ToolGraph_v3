@@ -683,6 +683,20 @@ class RuntimeBindingStore:
             if owner == occurrence_id
         }
 
+    def candidate_snapshot_for_node(
+        self, occurrence: RuntimeOccurrence | str,
+    ) -> dict[str, RuntimeBinding]:
+        """Return only task-local Agent proposals for the named occurrence."""
+
+        occurrence_id = (
+            occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
+        )
+        return {
+            role: binding
+            for (owner, role), binding in self._proposals.items()
+            if owner == occurrence_id
+        }
+
     def runtime_prompt_projection(
         self,
         occurrence: RuntimeOccurrence | str,

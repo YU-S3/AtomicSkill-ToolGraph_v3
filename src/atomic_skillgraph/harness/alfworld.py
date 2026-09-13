@@ -1246,6 +1246,52 @@ class AlfWorldAdapter:
     def action_catalog(self) -> list[HarnessActionSpec]:
         return self._catalog.items()
 
+    def public_runtime_relation_facts(self) -> list[dict[str, Any]]:
+        """Project only location facts evidenced by the public action catalog.
+
+        The validator channel remains private. A current TAKE affordance is
+        itself public evidence that its named object is at its named source,
+        so the projection is rebuilt exclusively from that catalog entry.
+        """
+
+        catalog_refs: dict[tuple[str, str], tuple[str, int]] = {}
+        for spec in self.action_catalog():
+            if str(spec.action_type).upper() != "TAKE":
+                continue
+            entity = str(spec.arguments.get("object", ""))
+            location = str(spec.arguments.get("source", ""))
+            if entity and location:
+                catalog_refs[(entity, location)] = (
+                    f"action_catalog:{spec.action_id}:revision:{spec.revision}",
+                    int(spec.revision),
+                )
+
+        public: list[dict[str, Any]] = []
+        for (
+            (entity, location), (public_ref, observed_revision)
+        ) in sorted(catalog_refs.items()):
+            public.extend((
+                {
+                    "predicate": "entity.discovered_at",
+                    "args": {"entity": entity, "location": location},
+                    "effect_domain": "evidence",
+                    "observed_at_revision": observed_revision,
+                    "source_kind": "public_action_catalog",
+                    "evidence_status": "observed",
+                    "public_evidence_ref": public_ref,
+                },
+                {
+                    "predicate": "object.at_location",
+                    "args": {"object": entity, "location": location},
+                    "effect_domain": "world",
+                    "observed_at_revision": observed_revision,
+                    "source_kind": "public_action_catalog",
+                    "evidence_status": "observed",
+                    "public_evidence_ref": public_ref,
+                },
+            ))
+        return public
+
     def _replace_action_catalog(
         self, admissible: list[Any], revision: int,
     ) -> list[HarnessActionSpec]:

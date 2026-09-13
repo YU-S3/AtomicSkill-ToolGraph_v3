@@ -11,12 +11,14 @@ from .plan_context import (
     RuntimeConsumerObligation, RuntimePlanContextBuilder,
     RuntimePlanPolicyContext,
 )
+from .output_obligations import OutputObligationAssessment
 from .task_context import TaskRuntimeContext
 from .state import ExplorationMemory, OccurrenceAtomicEvidenceState
 
 __all__ = [
     "ActionLoopGuard", "ExplorationMemory", "GroundingEvidenceStore",
     "IncrementalGroundingAuthority", "OccurrenceAtomicEvidenceState",
+    "OutputObligationAssessment",
     "RuntimeBindingStore",
     "RuntimeBudget", "RuntimeConsumerObligation", "RuntimePlanContextBuilder",
     "RuntimePlanPolicyContext", "TaskRuntimeContext",

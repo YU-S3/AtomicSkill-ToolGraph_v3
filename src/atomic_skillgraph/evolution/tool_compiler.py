@@ -5,15 +5,17 @@ from __future__ import annotations
 import copy
 import re
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Mapping
 
 from ..core.bindings import (
     BindingExpression, BindingExprKind, GroundingConstraint, GroundingConstraintKind,
     ToolBinding,
 )
 from ..core.contracts import AbstractAtomicSkill, ImplementationAtom, ToolAsset
-from ..core.refs import SkillRef, ToolRef
+from ..core.refs import SkillRef, ToolRef, content_hash
+from ..core.serialization import to_primitive
 from ..core.status import SkillStatus, ToolStatus
+from ..harness.protocol import HarnessTask
 from ..tooling.ir import (
     normalize_return_output_sources,
     normalize_tool_program,
@@ -87,6 +89,102 @@ def _role_for_value(value: Any, bindings: dict[str, Any]) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _task_source_payload(source_task: HarnessTask | Mapping[str, Any]) -> dict[str, Any]:
+    if isinstance(source_task, HarnessTask):
+        metadata = dict(source_task.metadata)
+        return {
+            "task_id": str(source_task.task_id),
+            "task_signature": str(metadata.get("task_signature", "")),
+            "goal": str(source_task.goal),
+            "benchmark": str(source_task.benchmark),
+            "task_type": str(source_task.task_type),
+            "context": copy.deepcopy(dict(source_task.context)),
+            "metadata": copy.deepcopy(metadata),
+        }
+    return copy.deepcopy(dict(source_task))
+
+
+def build_occurrence_replay_case(
+    canonical_occurrence: CanonicalAtomicOccurrence,
+    canonical_atomic: AbstractAtomicSkill,
+    *,
+    source_task: HarnessTask | Mapping[str, Any],
+    kind: str = "source_replay",
+    extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build one current-occurrence replay case after canonical role rewrite."""
+
+    def present(value: Any) -> bool:
+        return value is not None and value != ""
+
+    supplied = copy.deepcopy(dict(canonical_occurrence.source_task or {}))
+    authority = _task_source_payload(source_task)
+    for field in ("task_id", "task_signature", "goal", "benchmark", "task_type"):
+        left, right = supplied.get(field), authority.get(field)
+        if present(left) and present(right) and left != right:
+            raise ValueError(f"occurrence source task conflicts with current task field {field}")
+    for group in ("context", "metadata"):
+        supplied_group = dict(supplied.get(group) or {})
+        authority_group = dict(authority.get(group) or {})
+        for field in set(supplied_group) & set(authority_group):
+            left, right = supplied_group[field], authority_group[field]
+            if present(left) and present(right) and left != right:
+                raise ValueError(
+                    f"occurrence source task conflicts with current task field {group}.{field}"
+                )
+        authority[group] = {**supplied_group, **authority_group}
+    normalized_source = {
+        field: authority.get(field) or supplied.get(field, "")
+        for field in ("task_id", "task_signature", "goal", "benchmark", "task_type")
+    }
+    normalized_source["context"] = copy.deepcopy(dict(authority.get("context") or {}))
+    normalized_source["metadata"] = copy.deepcopy(dict(authority.get("metadata") or {}))
+
+    declared_roles = {str(item.name) for item in canonical_atomic.inputs}
+    required_roles = {
+        str(item.name) for item in canonical_atomic.inputs if bool(item.required)
+    }
+    bindings = copy.deepcopy(dict(canonical_occurrence.input_bindings))
+    unknown = sorted(set(bindings) - declared_roles)
+    missing = sorted(required_roles - set(bindings))
+    if unknown or missing:
+        raise ValueError(
+            "canonical replay bindings do not match Atomic inputs: "
+            f"unknown={unknown}, missing={missing}"
+        )
+    trace_id = str(canonical_occurrence.source_trace_id).strip()
+    if not trace_id:
+        raise ValueError("current occurrence replay requires source_trace_id")
+    case: dict[str, Any] = {
+        "kind": str(kind),
+        "trace_id": trace_id,
+        "occurrence_id": str(canonical_occurrence.occurrence_id),
+        "event_range": [
+            int(canonical_occurrence.event_start),
+            int(canonical_occurrence.event_end),
+        ],
+        "support_event_ids": [
+            str(event.get("event_id", event.get("action_id", index)))
+            for index, event in enumerate(canonical_occurrence.action_events)
+        ],
+        "bindings": bindings,
+        "source_task": normalized_source,
+        "prefix": [
+            {
+                "action_type": str(event["action_type"]),
+                "arguments": copy.deepcopy(dict(event.get("arguments") or {})),
+            }
+            for event in canonical_occurrence.prefix_events
+            if event.get("accepted")
+        ],
+        "effects": to_primitive(canonical_atomic.effects),
+    }
+    if extra:
+        case.update(copy.deepcopy(dict(extra)))
+    case["case_id"] = f"replay_case_{content_hash(case)[:24]}"
+    return case
+
+
 class ToolCompiler:
     def compile(self, occurrences: list[CanonicalAtomicOccurrence]) -> list[CompiledKnowledge]:
         result: list[CompiledKnowledge] = []
@@ -157,15 +255,12 @@ class ToolCompiler:
                     "required": sorted(tool_output_mapping), "additionalProperties": False,
                 }},
                 "primitive_ir", {"steps": primitive_steps, "output_mapping": tool_output_mapping},
-                [{"kind": "source_replay", "trace_id": occurrence.source_trace_id,
-                  "event_range": [occurrence.event_start, occurrence.event_end],
-                  "bindings": dict(occurrence.input_bindings),
-                  "source_task": dict(occurrence.source_task),
-                  "prefix": [
-                      {"action_type": event["action_type"], "arguments": dict(event.get("arguments", {}))}
-                      for event in occurrence.prefix_events if event.get("accepted")
-                  ],
-                  "effects": list(occurrence.effects)}],
+                [build_occurrence_replay_case(
+                    occurrence,
+                    atomic,
+                    source_task=occurrence.source_task,
+                    kind="source_replay",
+                )],
                 {"reviewed": True, "allowed_action_types": [item["action_type"] for item in primitive_steps]},
                 {"source_trace_id": occurrence.source_trace_id, "occurrence_id": occurrence.occurrence_id},
                 {}, ToolStatus.ADMISSION_PENDING,
@@ -197,6 +292,8 @@ class ToolCompiler:
         atomic: AbstractAtomicSkill,
         proposal: ToolProposal,
         provenance: ToolProvenance,
+        *,
+        source_task: HarnessTask | Mapping[str, Any] | None = None,
     ) -> CompiledKnowledge:
         """Compile an Agent-authored ToolProposal into ToolAsset/ImplementationAtom.
 
@@ -276,29 +373,17 @@ class ToolCompiler:
                 "evidence_outputs": proposal.evidence_outputs,
                 "path_expectations": proposal.path_expectations,
             },
-            [{
-                "kind": "tool_proposal_replay",
-                "trace_id": provenance.source_trace_id,
-                "occurrence_id": provenance.occurrence_id,
-                "draft_id": provenance.draft_id,
-                "bindings": dict(occurrence.input_bindings),
-                "source_task": dict(occurrence.source_task),
-                "prefix": [
-                    {
-                        "action_type": event["action_type"],
-                        "arguments": dict(event.get("arguments", {})),
-                    }
-                    for event in occurrence.prefix_events
-                    if event.get("accepted")
-                ],
-                "effects": [dict(
-                    predicate=item.predicate,
-                    args=dict(item.args),
-                    cardinality=int(item.cardinality),
-                    distinct_by=str(item.distinct_by),
-                    effect_domain=str(item.effect_domain.value),
-                ) for item in proposal.final_effects],
-            }],
+            [build_occurrence_replay_case(
+                occurrence,
+                atomic,
+                source_task=source_task or occurrence.source_task,
+                kind="tool_proposal_replay",
+                extra={
+                    "trace_id": provenance.source_trace_id,
+                    "occurrence_id": provenance.occurrence_id,
+                    "draft_id": provenance.draft_id,
+                },
+            )],
             {
                 "reviewed": True,
                 "allowed_action_types": sorted({

@@ -15,27 +15,34 @@ from typing import Any, Iterable, Mapping
 from ..core.bindings import (
     BindingExprKind,
     BindingExpression,
-    resolution_satisfies,
 )
 from ..core.contracts import AbstractAtomicSkill, ParameterSpec, SemanticPredicate
 from ..core.results import ValidationResult
-from ..core.semantic_types import semantic_types_compatible
+from ..core.semantic_types import (
+    normalize_semantic_type,
+    semantic_types_compatible,
+)
 from ..core.serialization import to_primitive
 from .ir import (
+    ACTION_CATALOG_ENTRY_FIELDS,
     CONDITION_OPERATORS,
+    CONDITION_SOURCES,
+    SELECTOR_META_FIELDS,
     normalize_return_output_sources,
     normalize_tool_program,
     program_paths,
     walk_program_nodes,
 )
 from .proposal import RuntimeAutomationAtomicDraft, ToolProposal
+from .runtime_interface import (
+    RuntimeAutomationInputResolution,
+    public_predicate_schema,
+    resolve_runtime_automation_inputs,
+)
 
 
 _OPCODES = {"ACTION", "IF", "FOR_EACH", "STOP_WHEN", "RETURN"}
-_CONDITION_SOURCES = {
-    "tool_input", "local_variable", "action_catalog",
-    "semantic_evidence", "binding_evidence",
-}
+_CONDITION_SOURCES = CONDITION_SOURCES
 _COLLECTION_SOURCES = {
     "tool_input", "local_variable", "action_catalog",
     "semantic_evidence", "binding_evidence", "local_deterministic",
@@ -44,19 +51,11 @@ _RETURN_SOURCES = {
     "tool_input", "local_variable", "semantic_evidence",
     "binding_evidence", "constant",
 }
-_INPUT_BINDING_KINDS = {
-    "current_occurrence_anchor",
-    "current_confirmed_binding",
-    "current_candidate_binding",
-    "data_flow",
-    "constant",
-}
 _FORBIDDEN_CODE_MARKERS = (
     "python", "shell", "subprocess", "import ", "eval(", "exec(",
     "os.system", "__builtins__", "open(", "http://", "https://",
     "socket", "requests.", "pathlib", "/proc/", "C:\\",
 )
-_CONCRETE_ID_RE = re.compile(r"(?:^|[ _])(?:[a-z0-9]+[ _])?\d+$", re.IGNORECASE)
 _WHOLE_INSTANCE_RE = re.compile(
     r"[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*[ _]+[0-9]+",
     re.ASCII,
@@ -131,12 +130,12 @@ def _predicate_signature(value: Any) -> tuple[Any, ...]:
 
 def _predicate_schema(harness: Any) -> list[Mapping[str, Any]]:
     method = getattr(harness, "semantic_predicate_schema", None)
-    if callable(method):
-        try:
-            return [dict(to_primitive(item)) for item in method()]
-        except Exception:
-            return []
-    return []
+    if not callable(method):
+        return []
+    try:
+        return [dict(to_primitive(item)) for item in method()]
+    except (AttributeError, TypeError, ValueError):
+        return []
 
 
 def _parameter_map(values: Iterable[ParameterSpec]) -> dict[str, ParameterSpec]:
@@ -205,6 +204,7 @@ def _validate_selector(
     node_id: str,
     *,
     fail: Any,
+    action_argument_roles: Mapping[str, set[str]] | None = None,
 ) -> None:
     kind = str(source.get("source", "")).casefold()
     if kind not in _COLLECTION_SOURCES:
@@ -215,6 +215,10 @@ def _validate_selector(
         if not isinstance(values, (list, tuple)) or not values:
             fail("tool_ir_selector_invalid", f"{node_id}: local_deterministic.values must be non-empty")
         return
+    if "where" in source and not isinstance(source.get("where"), Mapping):
+        fail("tool_ir_selector_invalid", f"{node_id}: where must be an object")
+    if "project" in source and not isinstance(source.get("project"), Mapping):
+        fail("tool_ir_selector_invalid", f"{node_id}: project must be an object")
     project = _selector_source(source.get("project"))
     if project:
         project_kind = str(project.get("kind", "field")).casefold()
@@ -226,6 +230,11 @@ def _validate_selector(
             fail("tool_ir_selector_invalid", f"{node_id}: field project requires field")
     elif not str(source.get("field", "")):
         fail("tool_ir_selector_invalid", f"{node_id}: selector requires field or project")
+    if project and str(source.get("field", "")):
+        fail(
+            "tool_ir_selector_invalid",
+            f"{node_id}: selector must use field or project, not both",
+        )
     where = _selector_source(source.get("where"))
     semantic = _selector_source(where.get("semantic_compatible_with"))
     if semantic:
@@ -235,6 +244,99 @@ def _validate_selector(
             fail("tool_ir_selector_invalid", f"{node_id}: semantic_compatible_with field required")
         if not str(where.get("argument_role", "")):
             fail("tool_ir_selector_invalid", f"{node_id}: semantic_compatible_with requires where.argument_role")
+
+    if kind != "action_catalog":
+        return
+
+    signatures = {
+        str(action_type): {str(role) for role in roles}
+        for action_type, roles in dict(action_argument_roles or {}).items()
+        if str(action_type)
+    }
+    if not signatures:
+        fail(
+            "tool_ir_selector_invalid",
+            f"{node_id}: action_catalog requires a public Harness primitive schema",
+        )
+        return
+    selected_action_type = str(where.get("action_type", ""))
+    if selected_action_type and selected_action_type not in signatures:
+        fail(
+            "tool_ir_selector_invalid",
+            f"{node_id}: unknown action_catalog action_type "
+            f"{selected_action_type}",
+        )
+    selected_roles = (
+        set(signatures.get(selected_action_type, set()))
+        if selected_action_type
+        else set().union(*signatures.values())
+    )
+
+    top_level_field = str(source.get("field", ""))
+    if top_level_field and top_level_field not in ACTION_CATALOG_ENTRY_FIELDS:
+        fail(
+            "tool_ir_selector_invalid",
+            f"{node_id}: action_catalog field {top_level_field} is not public",
+        )
+    project_kind = str(project.get("kind", "field")).casefold()
+    if project and project_kind == "field":
+        project_field = str(project.get("field", ""))
+        if project_field not in ACTION_CATALOG_ENTRY_FIELDS:
+            fail(
+                "tool_ir_selector_invalid",
+                f"{node_id}: action_catalog project.field {project_field} "
+                "is not public",
+            )
+    if project and project_kind == "argument":
+        project_role = str(project.get("role", ""))
+        if project_role not in selected_roles:
+            fail(
+                "tool_ir_selector_invalid",
+                f"{node_id}: action_catalog project.role {project_role} is not "
+                "in the selected Harness primitive signature",
+            )
+
+    selector_argument_role = str(where.get("argument_role", ""))
+    if selector_argument_role and selector_argument_role not in selected_roles:
+        fail(
+            "tool_ir_selector_invalid",
+            f"{node_id}: action_catalog argument_role "
+            f"{selector_argument_role} is not in the selected Harness "
+            "primitive signature",
+        )
+    if selector_argument_role and not semantic:
+        fail(
+            "tool_ir_selector_invalid",
+            f"{node_id}: action_catalog argument_role is only valid with "
+            "semantic_compatible_with",
+        )
+    if semantic and str(semantic.get("source", "")).casefold() == "action_catalog":
+        semantic_field = str(semantic.get("field", ""))
+        if semantic_field not in set(ACTION_CATALOG_ENTRY_FIELDS) | {
+            "length", "count", "size",
+        }:
+            fail(
+                "tool_ir_selector_invalid",
+                f"{node_id}: semantic_compatible_with action_catalog field "
+                f"{semantic_field} is not public",
+            )
+
+    action_catalog_meta = {
+        "action_type", "argument_role", "semantic_compatible_with",
+    }
+    for raw_role in where:
+        role = str(raw_role)
+        if role in action_catalog_meta:
+            continue
+        # ``predicate`` is metadata for semantic-evidence selectors, not for
+        # primitive catalog entries.  Every other key is exactly one direct
+        # primitive argument filter; wrapper objects therefore fail closed.
+        if role in SELECTOR_META_FIELDS or role not in selected_roles:
+            fail(
+                "tool_ir_selector_invalid",
+                f"{node_id}: action_catalog where role {role} is not in the "
+                "selected Harness primitive signature",
+            )
 
 
 def _condition_reference(condition: Mapping[str, Any]) -> tuple[str, str]:
@@ -417,6 +519,7 @@ def _scope_pass(
     atomic_inputs: set[str],
     atomic_outputs: set[str],
     fail: Any,
+    action_argument_roles: Mapping[str, set[str]] | None = None,
 ) -> None:
     """Fail-closed lexical scope without full SSA."""
 
@@ -463,7 +566,10 @@ def _scope_pass(
                     node.get("collection_source")
                 )
                 _validate_selector(
-                    collection_source, node_id, fail=fail,
+                    collection_source,
+                    node_id,
+                    fail=fail,
+                    action_argument_roles=action_argument_roles,
                 )
                 _check_selector_scoped_references(
                     collection_source,
@@ -572,6 +678,19 @@ def _instance_matches(
             for match in pattern.finditer(value)
         )
     return [text for _start, _end, text in sorted(set(spans))]
+
+
+def episode_literal_matches(
+    value: Any,
+    known_instances: Iterable[str] = (),
+    *,
+    annotation: bool = False,
+) -> tuple[str, ...]:
+    """Expose the single Tool portability matcher to other R0 boundaries."""
+
+    return tuple(
+        _instance_matches(value, known_instances, annotation=annotation)
+    )
 
 
 def _mask_formal_reference_spans(text: str, formal_roles: set[str]) -> str:
@@ -1204,14 +1323,41 @@ def normalize_runtime_output_derivations(
     ``runtime_automation_r0_output_derivation_invalid``.
     """
 
-    input_roles = {str(item.name) for item in draft.inputs}
+    inputs_by_role = {str(item.name): item for item in draft.inputs}
     required_outputs = [
-        str(item.name) for item in draft.outputs if bool(item.required)
+        item for item in draft.outputs if bool(item.required)
     ]
     authorities = _effect_formal_references(draft)
     derivations: dict[str, dict[str, str]] = {}
-    for output_role in required_outputs:
-        if output_role in input_roles:
+    for output_spec in required_outputs:
+        output_role = str(output_spec.name)
+        input_spec = inputs_by_role.get(output_role)
+        if input_spec is not None:
+            input_type = normalize_semantic_type(input_spec.semantic_type)
+            output_type = normalize_semantic_type(output_spec.semantic_type)
+            input_resolution = str(input_spec.required_resolution)
+            output_resolution = str(output_spec.required_resolution)
+            if (
+                not input_type
+                or not output_type
+                or input_resolution not in {
+                    "semantic", "concrete", "relation_verified",
+                }
+                or output_resolution not in {
+                    "semantic", "concrete", "relation_verified",
+                }
+                or not bool(input_spec.required)
+                or input_type != output_type
+                or input_resolution != output_resolution
+            ):
+                raise ValueError(
+                    "runtime_automation_r0_output_derivation_invalid: "
+                    f"same-named input/output role {output_role} can use "
+                    "input_identity only with identical semantic_type and "
+                    "required_resolution on a required input "
+                    f"(input={input_type}/{input_resolution}, "
+                    f"output={output_type}/{output_resolution})"
+                )
             derivations[output_role] = {
                 "kind": "input_identity",
                 "input_role": output_role,
@@ -1463,7 +1609,9 @@ class ToolStaticValidator:
                     fail("tool_ir_for_each_unbounded", f"FOR_EACH {node.get('node_id')} exceeds max_actions")
                 _validate_selector(
                     _selector_source(node.get("collection_source")),
-                    str(node.get("node_id", "")), fail=fail,
+                    str(node.get("node_id", "")),
+                    fail=fail,
+                    action_argument_roles=action_argument_roles,
                 )
                 variable = str(node.get("iteration_variable", ""))
                 if not variable:
@@ -1578,6 +1726,7 @@ class ToolStaticValidator:
             atomic_inputs=set(atomic_inputs),
             atomic_outputs=set(atomic_outputs) | proposal_outputs,
             fail=fail,
+            action_argument_roles=action_argument_roles,
         )
         checks["tool_ir_condition_source"] = "tool_ir_condition_source_invalid" not in codes
         checks["tool_ir_condition_operator"] = "tool_ir_condition_operator_unsupported" not in codes
@@ -1692,7 +1841,10 @@ class ToolStaticValidator:
             if source in {"semantic_evidence", "binding_evidence"}:
                 before = len(codes)
                 _validate_selector(
-                    dict(item), f"evidence_output:{role}", fail=fail,
+                    dict(item),
+                    f"evidence_output:{role}",
+                    fail=fail,
+                    action_argument_roles=action_argument_roles,
                 )
                 where = dict(item.get("where") or {})
                 predicate = str(where.get("predicate", "")).casefold()
@@ -1787,6 +1939,7 @@ class ToolStaticValidator:
         *,
         ctx: Any | None = None,
         occurrence: Any | None = None,
+        input_resolution: RuntimeAutomationInputResolution | None = None,
     ) -> ValidationResult:
         """R0: structure and task-local input binding authority."""
 
@@ -1802,35 +1955,186 @@ class ToolStaticValidator:
         checks["draft_roles"] = bool(draft.inputs and draft.outputs)
         if not checks["draft_roles"]:
             fail("runtime_automation_r0_role_closure", "draft must declare inputs and outputs")
-        names = {str(item.name) for item in [*draft.inputs, *draft.outputs]}
-        for predicate in [*draft.preconditions, *draft.effects]:
-            for role, value in dict(predicate.args).items():
-                if isinstance(value, str) and value.startswith("$") and value[1:] not in names:
-                    fail("runtime_automation_r0_role_closure", f"predicate {predicate.predicate} references unknown role {value}")
+        input_names = [str(item.name) for item in draft.inputs]
+        output_names = [str(item.name) for item in draft.outputs]
+        input_names_unique = len(input_names) == len(set(input_names))
+        output_names_unique = len(output_names) == len(set(output_names))
+        checks["draft_role_names_unique"] = bool(
+            input_names_unique and output_names_unique
+        )
+        if not checks["draft_role_names_unique"]:
+            duplicated_inputs = sorted({
+                role for role in input_names if input_names.count(role) > 1
+            })
+            duplicated_outputs = sorted({
+                role for role in output_names if output_names.count(role) > 1
+            })
+            fail(
+                "runtime_automation_r0_role_closure",
+                "draft input/output role lists must each be unique; "
+                f"duplicate inputs={duplicated_inputs}, "
+                f"duplicate outputs={duplicated_outputs}",
+            )
+        # A role may intentionally appear once in each boundary list.  That is
+        # the existing INPUT_IDENTITY output-derivation contract, not a
+        # duplicate declaration.
+        names = set(input_names) | set(output_names)
+        # Effects treat a same-named cross-boundary role as the declared input
+        # identity.  Preserve that authority instead of allowing a later
+        # output declaration to overwrite its semantic type.
+        parameter_types = {
+            str(item.name): str(item.semantic_type) for item in draft.inputs
+        }
+        for item in draft.outputs:
+            parameter_types.setdefault(str(item.name), str(item.semantic_type))
+        expected_occurrence_id = str(
+            getattr(occurrence, "occurrence_id", "") if occurrence is not None else ""
+        )
+        checks["draft_source_occurrence"] = bool(
+            not expected_occurrence_id
+            or str(draft.source_occurrence_id) == expected_occurrence_id
+        )
+        if not checks["draft_source_occurrence"]:
+            fail(
+                "runtime_automation_source_occurrence_mismatch",
+                "draft.source_occurrence_id does not identify the active occurrence",
+            )
+        draft_predicates = [*draft.preconditions, *draft.effects]
+        precondition_count = len(draft.preconditions)
+        predicate_formal_references_ok = True
+        predicate_source_roles: dict[tuple[int, str], str] = {}
+        for predicate_index, predicate in enumerate(
+            draft_predicates
+        ):
+            allowed_predicate_roles = (
+                set(input_names) if predicate_index < precondition_count else names
+            )
+            for argument_role, value in dict(predicate.args).items():
+                source_role = ""
+                reference_valid = False
+                if isinstance(value, str):
+                    if value.startswith("$") and len(value) > 1:
+                        source_role = value[1:]
+                        reference_valid = source_role in allowed_predicate_roles
+                elif isinstance(value, BindingExpression):
+                    source_role = str(value.source_role)
+                    reference_valid = bool(
+                        value.kind is BindingExprKind.SKILL_INPUT
+                        and source_role in allowed_predicate_roles
+                        and not value.source_step
+                        and value.constant is None
+                        and not value.transform_id
+                    )
+                elif isinstance(value, Mapping):
+                    raw_reference = dict(value)
+                    source_role = str(raw_reference.get("source_role", ""))
+                    allowed_reference_fields = {
+                        "kind", "source_role", "source_step", "constant",
+                        "transform_id",
+                    }
+                    reference_valid = bool(
+                        {"kind", "source_role"} <= set(raw_reference)
+                        and set(raw_reference) <= allowed_reference_fields
+                        and str(raw_reference.get("kind", "")) == (
+                            BindingExprKind.SKILL_INPUT.value
+                        )
+                        and source_role in allowed_predicate_roles
+                        and raw_reference.get("source_step", "") == ""
+                        and raw_reference.get("constant") is None
+                        and raw_reference.get("transform_id", "") == ""
+                    )
+                if not reference_valid:
+                    predicate_formal_references_ok = False
+                    fail(
+                        "runtime_automation_r0_role_closure",
+                        f"predicate {predicate.predicate}.{argument_role} must "
+                        "reference a declared draft role as $role or an exact "
+                        "skill_input expression",
+                    )
+                    continue
+                predicate_source_roles[(predicate_index, str(argument_role))] = (
+                    source_role
+                )
+        checks["draft_formal_predicate_references"] = (
+            predicate_formal_references_ok
+        )
         try:
             normalize_runtime_output_derivations(draft)
             checks["draft_output_derivations"] = True
         except ValueError as exc:
             checks["draft_output_derivations"] = False
             fail("runtime_automation_r0_output_derivation_invalid", str(exc))
-        predicate_schema = _predicate_schema(harness)
-        known_predicates = {str(item.get("predicate", "")).casefold() for item in predicate_schema}
-        if known_predicates:
-            unknown = {
-                _effect_name(item)
-                for item in [*draft.preconditions, *draft.effects]
-                if _effect_name(item) not in known_predicates
+        try:
+            predicate_schema = public_predicate_schema(harness)
+        except (TypeError, ValueError):
+            # Runtime automation requires the complete public signature.  A
+            # legacy/partial schema may still support ordinary Tool static
+            # validation, but it cannot authorize a new task-local contract.
+            predicate_schema = []
+        schema_by_name = {
+            str(item.get("predicate", "")).casefold(): item
+            for item in predicate_schema
+            if str(item.get("predicate", ""))
+        }
+        checks["draft_predicate_schema_available"] = bool(schema_by_name)
+        if not schema_by_name:
+            fail(
+                "runtime_automation_r0_predicate_schema_unavailable",
+                "public semantic predicate schema is unavailable",
+            )
+        predicate_signatures_ok = True
+        for predicate_index, predicate in enumerate(draft_predicates):
+            name = _effect_name(predicate)
+            schema = schema_by_name.get(name)
+            if schema is None:
+                predicate_signatures_ok = False
+                fail(
+                    "runtime_automation_r0_predicate_vocabulary",
+                    f"unknown predicate {name}",
+                )
+                continue
+            actual_roles = {str(role) for role in dict(predicate.args)}
+            expected_roles = {
+                str(role) for role in schema.get("argument_roles", ())
             }
-            checks["draft_predicate_vocabulary"] = not unknown
-            if unknown:
-                fail("runtime_automation_r0_predicate_vocabulary", f"unknown predicates {sorted(unknown)}")
-        else:
-            checks["draft_predicate_vocabulary"] = True
-
-        domains = {str(item.effect_domain.value) for item in draft.effects}
-        checks["draft_effect_domain"] = domains <= {"world", "evidence"}
-        if not checks["draft_effect_domain"]:
-            fail("runtime_automation_r0_effect_domain", f"invalid effect domains {sorted(domains)}")
+            if actual_roles != expected_roles:
+                predicate_signatures_ok = False
+                fail(
+                    "runtime_automation_r0_predicate_signature",
+                    f"predicate {name} argument roles {sorted(actual_roles)} "
+                    f"do not match public schema {sorted(expected_roles)}",
+                )
+            actual_domain = str(predicate.effect_domain.value)
+            expected_domain = str(schema.get("effect_domain", ""))
+            if actual_domain != expected_domain:
+                predicate_signatures_ok = False
+                fail(
+                    "runtime_automation_r0_effect_domain",
+                    f"predicate {name} effect domain {actual_domain!r} does "
+                    f"not match public schema {expected_domain!r}",
+                )
+            schema_types = dict(schema.get("argument_semantic_types") or {})
+            for argument_role, _value in dict(predicate.args).items():
+                source_role = predicate_source_roles.get(
+                    (predicate_index, str(argument_role)),
+                    "",
+                )
+                if source_role not in parameter_types:
+                    continue
+                if not semantic_types_compatible(
+                    str(schema_types.get(argument_role, "")),
+                    parameter_types[source_role],
+                ):
+                    predicate_signatures_ok = False
+                    fail(
+                        "runtime_automation_r0_predicate_signature",
+                        f"predicate {name}.{argument_role} is incompatible with "
+                        f"declared role {source_role}",
+                    )
+        checks["draft_predicate_vocabulary"] = bool(
+            schema_by_name and predicate_signatures_ok
+        )
+        checks["draft_effect_domain"] = predicate_signatures_ok
 
         text_blob = str(to_primitive(draft)).casefold()
         arbitrary = [marker for marker in _FORBIDDEN_CODE_MARKERS if marker in text_blob]
@@ -1838,144 +2142,67 @@ class ToolStaticValidator:
         if arbitrary:
             fail("runtime_automation_r0_arbitrary_code", f"forbidden marker(s): {arbitrary}")
 
-        specs = dict(getattr(draft, "input_binding_specs", None) or {})
-        declared_inputs = {str(item.name) for item in draft.inputs}
-        required_inputs = {
-            str(item.name) for item in draft.inputs if bool(item.required)
-        }
-        spec_roles = {str(role) for role in specs}
-        missing_specs = sorted(required_inputs - spec_roles)
-        unexpected_specs = sorted(spec_roles - declared_inputs)
-        checks["draft_input_binding_specs"] = not (
-            missing_specs or unexpected_specs
-        )
-        if missing_specs:
-            fail(
-                "runtime_automation_input_binding_invalid",
-                f"required input_binding_specs missing roles {missing_specs}",
+        if ctx is not None and occurrence is not None:
+            resolved_inputs = input_resolution or resolve_runtime_automation_inputs(
+                draft, ctx, occurrence,
             )
-        if unexpected_specs:
-            fail(
-                "runtime_automation_input_binding_invalid",
-                f"input_binding_specs contain undeclared roles "
-                f"{unexpected_specs}",
+            checks["draft_input_binding_specs"] = resolved_inputs.passed
+            for code, message in zip(
+                resolved_inputs.failure_codes, resolved_inputs.messages,
+            ):
+                fail(code, message)
+        else:
+            specs = dict(getattr(draft, "input_binding_specs", None) or {})
+            declared_inputs = {str(item.name) for item in draft.inputs}
+            required_inputs = {
+                str(item.name) for item in draft.inputs if bool(item.required)
+            }
+            invalid = bool(
+                required_inputs - set(specs)
+                or set(specs) - declared_inputs
+                or any(not isinstance(raw, Mapping) for raw in specs.values())
             )
-        for role, raw in specs.items():
-            spec = _selector_source(raw)
-            kind = str(spec.get("kind", "")).casefold()
-            if role not in declared_inputs:
-                checks["draft_input_binding_specs"] = False
-                fail("runtime_automation_input_binding_invalid", f"input_binding_specs role {role} is not a draft input")
-                continue
-            if kind not in _INPUT_BINDING_KINDS:
-                checks["draft_input_binding_specs"] = False
-                fail("runtime_automation_input_binding_invalid", f"input_binding_specs.{role} has unsupported kind {kind}")
-                continue
-            if ctx is not None and occurrence is not None:
-                binding_store = getattr(ctx, "binding_store", None)
-                snapshot = binding_store.snapshot_for_node(occurrence) if binding_store is not None else {}
-                resolved: Any = None
-                source_binding: Any = None
-                if kind == "current_occurrence_anchor":
-                    source_role = str(spec.get("source_role", ""))
-                    anchor = binding_store.semantic_anchor_for(occurrence, source_role) if binding_store is not None else None
-                    source_binding = anchor
-                    resolved = getattr(anchor, "value", None) if anchor is not None else None
-                    if not source_role or resolved in (None, ""):
-                        fail("runtime_automation_input_binding_invalid", f"{role}: current_occurrence_anchor.{source_role} unavailable")
-                elif kind in {"current_confirmed_binding", "current_candidate_binding"}:
-                    source_role = str(spec.get("source_role", ""))
-                    binding = snapshot.get(source_role)
-                    source_binding = binding
-                    if binding is None:
-                        fail("runtime_automation_input_binding_invalid", f"{role}: binding {source_role} unavailable")
-                        continue
-                    status = str(getattr(binding, "status", "")).casefold()
-                    if kind == "current_confirmed_binding" and status != "grounded":
-                        fail("runtime_automation_input_binding_invalid", f"{role}: binding {source_role} is not confirmed")
-                    resolved = getattr(binding, "value", None)
-                elif kind == "data_flow":
-                    source_role = str(spec.get("source_role", ""))
-                    output_binding = (
-                        binding_store.validated_outputs(
-                            occurrence.occurrence_id,
-                        ).get(source_role)
-                        if binding_store is not None else None
-                    )
-                    source_binding = output_binding
-                    resolved = (
-                        getattr(output_binding, "value", None)
-                        if output_binding is not None else None
-                    )
-                    if resolved in (None, ""):
-                        fail("runtime_automation_input_binding_invalid", f"{role}: data_flow.{source_role} unavailable")
-                elif kind == "constant":
-                    resolved = spec.get("value")
-                    if resolved in (None, "") or (
-                        isinstance(resolved, str) and _CONCRETE_ID_RE.search(resolved.casefold())
-                    ):
-                        fail("runtime_automation_input_binding_invalid", f"{role}: invalid episode concrete constant")
-                if resolved not in (None, "") and kind != "constant":
-                    input_spec = next(
-                        (item for item in draft.inputs if str(item.name) == role),
-                        None,
-                    )
-                    required_type = str(
-                        getattr(input_spec, "semantic_type", "") or "entity"
-                    )
-                    offered_type = str(
-                        getattr(source_binding, "semantic_type", "")
-                    )
-                    if not offered_type or not semantic_types_compatible(
-                        required_type, offered_type,
-                    ):
-                        fail(
-                            "runtime_automation_input_binding_invalid",
-                            f"{role}: semantic type {offered_type or '<unknown>'} "
-                            f"is incompatible with {required_type}",
-                        )
-                    actual_resolution = getattr(
-                        source_binding, "resolution", "semantic",
-                    )
-                    required_resolution = str(
-                        getattr(input_spec, "required_resolution", "semantic")
-                    )
-                    try:
-                        resolution_ok = resolution_satisfies(
-                            actual_resolution, required_resolution,
-                        )
-                    except (KeyError, TypeError, ValueError):
-                        resolution_ok = False
-                    if not resolution_ok:
-                        fail(
-                            "runtime_automation_input_binding_invalid",
-                            f"{role}: resolution {actual_resolution} does not "
-                            f"satisfy {required_resolution}",
-                        )
-                elif resolved not in (None, "") and kind == "constant":
-                    input_spec = next(
-                        (item for item in draft.inputs if str(item.name) == role),
-                        None,
-                    )
-                    if str(getattr(
-                        input_spec, "required_resolution", "semantic",
-                    )) != "semantic":
-                        fail(
-                            "runtime_automation_input_binding_invalid",
-                            f"{role}: semantic literal cannot satisfy "
-                            f"{input_spec.required_resolution} resolution",
-                        )
+            checks["draft_input_binding_specs"] = not invalid
+            if invalid:
+                fail(
+                    "runtime_automation_input_binding_invalid",
+                    "input_binding_specs are incomplete or reference undeclared roles",
+                )
 
-        checks["draft_no_episode_leakage"] = not bool(
-            draft.source_occurrence_id
-            and re.search(r"(?:_|\s)\d+$", draft.source_occurrence_id)
-            and any(
-                re.search(r"(?:_|\s)\d+$", str(value))
-                for predicate in [*draft.preconditions, *draft.effects]
-                for value in dict(predicate.args).values()
-                if isinstance(value, str) and not value.startswith("$")
+        known_instances = _collect_public_instances((), harness)
+        draft_literal_hits: list[EpisodeLiteralHit] = []
+        for index, predicate in enumerate(
+            [*draft.preconditions, *draft.effects]
+        ):
+            _append_literal_hits(
+                draft_literal_hits,
+                dict(predicate.args),
+                f"predicates[{index}].args",
+                known_instances,
             )
-        )
+        for role, raw in dict(
+            getattr(draft, "input_binding_specs", None) or {}
+        ).items():
+            if (
+                isinstance(raw, Mapping)
+                and str(raw.get("kind", "")).casefold() == "constant"
+            ):
+                _append_literal_hits(
+                    draft_literal_hits,
+                    raw.get("value"),
+                    f"input_binding_specs.{role}.value",
+                    known_instances,
+                )
+        checks["draft_no_episode_leakage"] = not draft_literal_hits
+        if draft_literal_hits:
+            fail(
+                "runtime_automation_r0_episode_concrete_id",
+                "; ".join(
+                    f"episode concrete literal at {hit.field_path}: "
+                    f"{hit.matched_text!r}"
+                    for hit in draft_literal_hits
+                ),
+            )
         passed = all(checks.values()) and not codes
         return ValidationResult("tool_r0", passed, checks, codes, messages)
 
@@ -1994,6 +2221,7 @@ def _as_semantic(value: Any) -> SemanticPredicate:
 
 
 __all__ = [
+    "episode_literal_matches",
     "ToolStaticReport",
     "ToolStaticValidator",
     "normalize_runtime_output_derivations",

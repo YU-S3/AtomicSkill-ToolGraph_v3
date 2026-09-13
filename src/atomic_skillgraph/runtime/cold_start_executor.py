@@ -18,6 +18,7 @@ from ..core.refs import SkillRef
 from ..core.results import NodeExecutionStatus, RuntimeOccurrence
 from ..core.serialization import to_primitive
 from ..core.status import SkillStatus
+from ..tooling.runtime_interface import build_runtime_automation_interface
 from .loop_guard import ActionLoopGuard
 
 
@@ -120,6 +121,9 @@ class ProvisionalNodeExecutor:
         prompt_bindings = ctx.binding_store.runtime_prompt_projection(
             occurrence, atomic.inputs,
         )
+        runtime_automation_interface = build_runtime_automation_interface(
+            ctx.harness, occurrence, ctx.binding_store,
+        )
         projection_audit: dict[str, Any] = {}
         prompt = self.node_executor.context_builder.seeded_node(
             task_goal=ctx.task_goal,
@@ -136,6 +140,7 @@ class ProvisionalNodeExecutor:
             action_catalog=ctx.action_catalog,
             relevant_action_history=ctx.relevant_history(occurrence.occurrence_id),
             remaining_budget=ctx.budget.snapshot(),
+            runtime_automation_interface=runtime_automation_interface,
             projection_audit=projection_audit,
         )
         tools = self.node_executor._node_tools(ctx, atomic)
@@ -161,6 +166,9 @@ class ProvisionalNodeExecutor:
                     )
                     break
                 if call.name == "propose_runtime_automation_atomic":
+                    action_count_before = len(
+                        ctx.trace_builder.trace.environment_actions
+                    )
                     payload = self.node_executor._process_runtime_automation_call(
                         call,
                         ctx,
@@ -175,10 +183,25 @@ class ProvisionalNodeExecutor:
                         tool_call_id=call.call_id,
                     )
                     tools = self.node_executor._node_tools(ctx, atomic)
+                    if self.node_executor._runtime_automation_reached_terminal(
+                        ctx, payload,
+                    ):
+                        self.node_executor._finalize_tool_result(
+                            session, call.call_id, payload, tools,
+                        )
+                        failure_code = "provisional_terminal_interrupted"
+                        break
                     turn = session.submit_tool_result(
                         call.call_id,
                         payload,
                         tools=tools,
+                        returned_action_executed=(
+                            len(ctx.trace_builder.trace.environment_actions)
+                            > action_count_before
+                        ),
+                    )
+                    self.node_executor._mark_runtime_trial_parent_resumed(
+                        ctx, payload,
                     )
                     continue
                 if call.name == "validate_current_atomic":
@@ -200,12 +223,21 @@ class ProvisionalNodeExecutor:
                         resolved, witness_refs = self._record_success(
                             effect, occurrence, ctx,
                         )
+                        self.node_executor._mark_runtime_trial_parent_completed(
+                            ctx, occurrence,
+                        )
                         failure_code = ""
                         break
                     turn = session.submit_tool_result(
-                        call.call_id, payload, tools=tools,
+                        call.call_id,
+                        payload,
+                        tools=tools,
+                        returned_action_executed=False,
                     )
                     continue
+                action_count_before = len(
+                    ctx.trace_builder.trace.environment_actions
+                )
                 payload, action_spec = self.node_executor._execute_environment_call(
                     call, session, occurrence, ctx,
                     span_id=span.span_id,
@@ -235,7 +267,13 @@ class ProvisionalNodeExecutor:
                         )
                         break
                     turn = session.submit_tool_result(
-                        call.call_id, payload, tools=tools,
+                        call.call_id,
+                        payload,
+                        tools=tools,
+                        returned_action_executed=(
+                            len(ctx.trace_builder.trace.environment_actions)
+                            > action_count_before
+                        ),
                     )
                     continue
                 effect = None
@@ -286,6 +324,9 @@ class ProvisionalNodeExecutor:
                     resolved, witness_refs = self._record_success(
                         effect, occurrence, ctx,
                     )
+                    self.node_executor._mark_runtime_trial_parent_completed(
+                        ctx, occurrence,
+                    )
                     failure_code = ""
                     break
                 if payload.get("done"):
@@ -294,7 +335,13 @@ class ProvisionalNodeExecutor:
                     )
                     break
                 turn = session.submit_tool_result(
-                    call.call_id, payload, tools=tools,
+                    call.call_id,
+                    payload,
+                    tools=tools,
+                    returned_action_executed=(
+                        len(ctx.trace_builder.trace.environment_actions)
+                        > action_count_before
+                    ),
                 )
         except AtomicSkillGraphError as exc:
             if exc.layer is FailureLayer.INFRASTRUCTURE:

@@ -8,7 +8,7 @@ benchmark workflow may enter this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from ..core.contracts import AbstractAtomicSkill
 from ..core.serialization import to_primitive
@@ -34,6 +34,10 @@ class SupportCandidate:
     effect_predicates: tuple[str, ...]
     diagnostics: tuple[dict[str, Any], ...]
     role_mappings: tuple[SupportRoleMapping, ...] = ()
+    inputs: tuple[dict[str, Any], ...] = ()
+    outputs: tuple[dict[str, Any], ...] = ()
+    execution_available: bool = False
+    missing_required_inputs: tuple[str, ...] = ()
 
 
 def _predicate_name(value: Any) -> str:
@@ -51,7 +55,8 @@ class SupportAtomicRetriever:
         blocked_atomic: AbstractAtomicSkill,
         missing_roles: Iterable[str],
         atomics: Iterable[AbstractAtomicSkill],
-        top_k: int = 3,
+        execution_availability: Mapping[str, bool] | None = None,
+        top_k: int | None = 3,
     ) -> list[SupportCandidate]:
         missing = {str(role) for role in missing_roles}
         if not missing:
@@ -60,6 +65,12 @@ class SupportAtomicRetriever:
         candidates: list[SupportCandidate] = []
         for atomic in atomics:
             if str(atomic.ref) == str(blocked_atomic.ref):
+                continue
+            execution_available = bool(
+                execution_availability is None
+                or execution_availability.get(str(atomic.ref), False)
+            )
+            if not execution_available:
                 continue
             mappings: list[SupportRoleMapping] = []
             supplied_roles: list[str] = []
@@ -127,8 +138,35 @@ class SupportAtomicRetriever:
                 })),
                 diagnostics=tuple(to_primitive(diagnostics)),
                 role_mappings=tuple(mappings),
+                inputs=tuple(
+                    {
+                        "name": str(item.name),
+                        "semantic_type": str(item.semantic_type),
+                        "required": bool(item.required),
+                        "runtime_resolvable": bool(item.runtime_resolvable),
+                        "required_resolution": str(item.required_resolution),
+                    }
+                    for item in atomic.inputs
+                ),
+                outputs=tuple(
+                    {
+                        "name": str(item.name),
+                        "semantic_type": str(item.semantic_type),
+                        "required": bool(item.required),
+                    }
+                    for item in atomic.outputs
+                ),
+                execution_available=True,
+                # A retrieved Atomic has no support occurrence or prepared
+                # argument bindings yet.  Required inputs remain explicitly
+                # missing until the selected call passes ordinary preflight.
+                missing_required_inputs=tuple(sorted(
+                    str(item.name) for item in atomic.inputs if item.required
+                )),
             ))
         candidates.sort(key=lambda item: (-item.score, item.atomic_ref))
+        if top_k is None:
+            return candidates
         return candidates[: max(0, int(top_k))]
 
 

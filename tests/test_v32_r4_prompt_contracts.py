@@ -13,14 +13,15 @@ from atomic_skillgraph.agents.protocol import (
 from atomic_skillgraph.agents.structured_submission import (
     ATOMIC_EXTRACTION_SCHEMA,
     BINDING_EXPRESSION_SCHEMA,
+    TOOL_IR_COLLECTION_SOURCE_SCHEMA,
     TOOL_PROPOSAL_SCHEMA,
 )
 from atomic_skillgraph.tooling.proposal import ToolProvenance
 
 
 _POLICY_SEPARATOR = "\n\nPOLICY_CONTEXT_JSON\n"
-_R4_TOOL_BUILDER_INSTRUCTION_SHA256 = (
-    "6c7ca98aeb43c8f2d83cf04e5e160f86e08ee6c6b451684676918589c62a85a6"
+_R92_TOOL_BUILDER_INSTRUCTION_SHA256 = (
+    "b42988f5492488ef8fd3c8b1a1912eeccf8d0fa3e18bfa2924439a50e4be3375"
 )
 
 
@@ -68,7 +69,7 @@ def _atomic_view() -> dict[str, object]:
     }
 
 
-def test_tool_builder_uses_frozen_r4_instruction_and_canonical_ref() -> None:
+def test_tool_builder_uses_r92_instruction_and_canonical_ref() -> None:
     provenance = ToolProvenance(
         source="success_evolution",
         atomic_ref="skill://example_navigation@1.0.0",
@@ -86,16 +87,62 @@ def test_tool_builder_uses_frozen_r4_instruction_and_canonical_ref() -> None:
     instruction, raw_payload = prompt.split(_POLICY_SEPARATOR, 1)
     payload = json.loads(raw_payload)
 
-    assert len(instruction) == 6785
+    assert len(instruction) == 7832
     assert hashlib.sha256(instruction.encode("utf-8")).hexdigest() == (
-        _R4_TOOL_BUILDER_INSTRUCTION_SHA256
+        _R92_TOOL_BUILDER_INSTRUCTION_SHA256
     )
     assert payload["atomic_ref"] == provenance.atomic_ref
     assert payload["canonical_atomic"]["effects"] == _atomic_view()["effects"]
     assert payload["source_kind"] == "success_evolution"
+    assert (
+        "an action_catalog loop local is an authorized primitive argument"
+        in instruction
+    )
+    assert (
+        "missing pre-trial atomic_evidence_support or semantic_delta is not by "
+        "itself a reason for NO_TOOL"
+        in instruction
+    )
+    assert "never substitute output_role or bare predicate/argument_role" in instruction
     assert "SECRET_TRACE_ID" not in prompt
     assert "SECRET_OCCURRENCE_ID" not in prompt
     assert "SECRET_TASK_ID" not in prompt
+
+
+def test_tool_builder_schema_names_existing_action_catalog_selector_shape() -> None:
+    properties = TOOL_IR_COLLECTION_SOURCE_SCHEMA["properties"]
+    assert "action_catalog" in properties["source"]["enum"]
+    assert set(properties["where"]["properties"]) >= {
+        "action_type", "argument_role", "semantic_compatible_with",
+    }
+    assert properties["project"]["properties"]["kind"]["enum"] == [
+        "field", "argument",
+    ]
+    description = TOOL_IR_COLLECTION_SOURCE_SCHEMA["description"]
+    assert "project.kind=argument" in description
+    assert "candidates, not effect evidence" in description
+    validate_schema_instance(
+        {
+            "source": "action_catalog",
+            "where": {
+                "action_type": "GO_TO",
+                "argument_role": "destination",
+                "semantic_compatible_with": {
+                    "source": "tool_input",
+                    "field": "target",
+                    "semantic_type": "entity",
+                },
+            },
+            "project": {"kind": "argument", "role": "destination"},
+            "distinct": True,
+        },
+        TOOL_IR_COLLECTION_SOURCE_SCHEMA,
+    )
+    with pytest.raises(SchemaValidationError):
+        validate_schema_instance(
+            {"source": "invented_candidate_source", "field": "value"},
+            TOOL_IR_COLLECTION_SOURCE_SCHEMA,
+        )
 
 
 def test_tool_builder_accepts_mapping_provenance_but_requires_atomic_ref() -> None:

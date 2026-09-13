@@ -466,6 +466,16 @@ _LOCATE_PROGRAM = [
 ]
 
 
+_MULTI_ACTION_LOCATE_PROGRAM = [
+    copy.deepcopy(_LOCATE_PROGRAM[0]),
+    {
+        **copy.deepcopy(_LOCATE_PROGRAM[0]),
+        "node_id": "search_again_at_fresh_revision",
+    },
+    copy.deepcopy(_LOCATE_PROGRAM[1]),
+]
+
+
 def _locate_proposal(atomic: AbstractAtomicSkill) -> dict[str, Any]:
     return {
         "proposal_version": "1",
@@ -489,7 +499,7 @@ def _locate_proposal(atomic: AbstractAtomicSkill) -> dict[str, Any]:
     }
 
 
-def _locate_draft_call() -> dict[str, Any]:
+def _locate_draft_call(source_occurrence_id: str) -> dict[str, Any]:
     return {
         "draft_id": "locate_1",
         "intent": "locate target",
@@ -507,7 +517,7 @@ def _locate_draft_call() -> dict[str, Any]:
             }
         ],
         "rationale": "Automate the mechanical target search.",
-        "source_occurrence_id": "take_occurrence",
+        "source_occurrence_id": str(source_occurrence_id),
         "input_binding_specs": {
             "target": {
                 "kind": "current_occurrence_anchor",
@@ -515,6 +525,23 @@ def _locate_draft_call() -> dict[str, Any]:
             }
         },
     }
+
+
+class _RuntimeLocateDraftReply(FakeReply):
+    """Submit the draft against the occurrence authority in this request."""
+
+    def materialize(self, *, call_id, tools, request=None):
+        if request is None:
+            raise AssertionError("Runtime automation reply requires its request")
+        interface = request.policy_context["runtime_automation_interface"]
+        occurrence_id = str(interface["source_occurrence_id"])
+        return FakeReply.tool(
+            "propose_runtime_automation_atomic",
+            _locate_draft_call(occurrence_id),
+            prompt_tokens=self.prompt_tokens,
+            completion_tokens=self.completion_tokens,
+            reasoning_tokens=self.reasoning_tokens,
+        ).materialize(call_id=call_id, tools=tools, request=request)
 
 
 def _locate_e1(
@@ -613,8 +640,8 @@ def _task_local_locate_proposal() -> dict[str, Any]:
              "runtime_resolvable": False, "required_resolution": "semantic",
              "description": ""},
         ],
-        "program": copy.deepcopy(_LOCATE_PROGRAM),
-        "max_actions": 1,
+        "program": copy.deepcopy(_MULTI_ACTION_LOCATE_PROGRAM),
+        "max_actions": 2,
         "final_effects": [
             {
                 "predicate": "entity.discovered_at",
@@ -977,9 +1004,9 @@ def test_gate29_cross_task_runtime_tool_reuse(tmp_path: Path) -> None:
     factory.enqueue(
         "runtime_preparation",
         [
-            FakeReply.tool("propose_runtime_automation_atomic", _locate_draft_call()),
+            _RuntimeLocateDraftReply(),
             FakeReply.tool("environment_action", {
-                "action_id": "r001_a002", "intent": "attempt_current_atomic",
+                "action_id": "r002_a002", "intent": "attempt_current_atomic",
             }),
         ],
     )
@@ -990,6 +1017,18 @@ def test_gate29_cross_task_runtime_tool_reuse(tmp_path: Path) -> None:
     outcome = dict(drafts["locate_1"])
     assert outcome.get("r0_passed") is True
     assert outcome.get("r1_passed") is True
+    trial_actions = [
+        action for action in trace_a.environment_actions
+        if action.action_type == "SEARCH"
+    ]
+    assert len(trial_actions) == 2
+    assert [action.revision for action in trial_actions] == [0, 1]
+    assert outcome["trial"]["trial_event_end"] - outcome["trial"][
+        "trial_event_start"
+    ] + 1 == 2
+    assert outcome["trial"]["result"]["tool_results"][0][
+        "executed_step_count"
+    ] == 2
     assert outcome.get("trial", {}).get("r1_outputs") == {
         "entity": "apple_1",
         "location": _room_for("apple_1"),
@@ -1130,11 +1169,9 @@ def test_r4_system_retained_atomic_is_retrieved_and_runs_seeded_for_new_entity(
     factory.enqueue(
         "runtime_preparation",
         [
-            FakeReply.tool(
-                "propose_runtime_automation_atomic", _locate_draft_call(),
-            ),
+            _RuntimeLocateDraftReply(),
             FakeReply.tool("environment_action", {
-                "action_id": "r001_a002",
+                "action_id": "r002_a002",
                 "intent": "attempt_current_atomic",
             }),
         ],

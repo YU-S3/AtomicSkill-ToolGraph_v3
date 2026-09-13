@@ -21,6 +21,7 @@ from ..core.results import RuntimeLinearPlan, RuntimeOccurrence
 from ..core.serialization import to_primitive
 from ..core.status import SkillStatus
 from .binding_store import RuntimeBindingStore
+from .output_obligations import assess_output_obligation
 
 
 class AtomicContractResolver(Protocol):
@@ -42,6 +43,11 @@ class RuntimeConsumerObligation:
     consumer_preconditions: tuple[dict[str, Any], ...]
     consumer_effects: tuple[dict[str, Any], ...]
     consumer_known_semantic_anchors: dict[str, dict[str, Any]]
+    relation_predicate: str = ""
+    effect_domain: str = ""
+    relevant_anchor_roles: tuple[str, ...] = ()
+    public_relation_status: str = "unknown"
+    public_evidence_refs: tuple[str, ...] = ()
 
     def policy_view(self) -> dict[str, Any]:
         return to_primitive(self)
@@ -171,6 +177,9 @@ class RuntimePlanContextBuilder:
         plan: RuntimeLinearPlan,
         current_step: str,
         binding_store: RuntimeBindingStore,
+        *,
+        public_facts: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+        public_revision: int = 0,
     ) -> RuntimePlanPolicyContext:
         if current_step not in plan.control_sequence:
             raise KeyError(current_step)
@@ -208,6 +217,26 @@ class RuntimePlanContextBuilder:
             consumer_input = input_by_role.get(edge.target_role)
             if consumer_input is None:
                 continue
+            known_anchors = self._known_anchors(
+                consumer_occurrence,
+                consumer_atomic,
+                binding_store,
+            )
+            producer_value = None
+            if producer_occurrence is not None:
+                producer_binding = binding_store.validated_outputs(
+                    producer_occurrence.occurrence_id,
+                ).get(edge.source_role)
+                if producer_binding is not None:
+                    producer_value = producer_binding.value
+            assessment = assess_output_obligation(
+                consumer_atomic=consumer_atomic,
+                consumer_input_role=edge.target_role,
+                known_anchors=known_anchors,
+                producer_output_value=producer_value,
+                public_facts=public_facts,
+                revision=public_revision,
+            )
             obligations.append(RuntimeConsumerObligation(
                 producer_step=current_step,
                 producer_output_role=edge.source_role,
@@ -222,11 +251,12 @@ class RuntimePlanContextBuilder:
                 consumer_effects=tuple(
                     to_primitive(item) for item in consumer_atomic.effects
                 ),
-                consumer_known_semantic_anchors=self._known_anchors(
-                    consumer_occurrence,
-                    consumer_atomic,
-                    binding_store,
-                ),
+                consumer_known_semantic_anchors=known_anchors,
+                relation_predicate=assessment.relation_predicate,
+                effect_domain=assessment.effect_domain,
+                relevant_anchor_roles=assessment.relevant_anchor_roles,
+                public_relation_status=assessment.public_relation_status,
+                public_evidence_refs=assessment.public_evidence_refs,
             ))
 
         # Preserve formal plan order.  The outline contains portable Atomic

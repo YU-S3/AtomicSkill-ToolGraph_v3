@@ -464,6 +464,7 @@ class ScriptedAgentSession:
         self._finalized = False
         self._messages: list[dict[str, Any]] = []
         self._tool_results: list[dict[str, Any]] = []
+        self._returned_action_executed: list[bool] = []
 
     @property
     def session_id(self) -> str:
@@ -476,6 +477,10 @@ class ScriptedAgentSession:
     @property
     def tool_results(self) -> tuple[dict[str, Any], ...]:
         return tuple(copy.deepcopy(self._tool_results))
+
+    @property
+    def returned_action_executed(self) -> tuple[bool, ...]:
+        return tuple(self._returned_action_executed)
 
     def enqueue(self, *replies: FakeReply) -> None:
         self._replies.extend(replies)
@@ -514,9 +519,11 @@ class ScriptedAgentSession:
         result: dict[str, Any],
         *,
         tools: list[NativeToolSpec] | None = None,
+        returned_action_executed: bool = False,
     ) -> AgentTurn:
         if self._pending is None or self._pending.call_id != call_id:
             raise AssertionError("fake ToolCall result does not match the pending call")
+        self._returned_action_executed.append(bool(returned_action_executed))
         self._append_tool_result(call_id, result)
 
         # A rejected learned invocation needs an actual repair turn.  A

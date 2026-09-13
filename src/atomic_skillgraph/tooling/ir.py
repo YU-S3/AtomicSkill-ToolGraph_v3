@@ -18,6 +18,13 @@ CONDITION_OPERATORS = frozenset({
     "exists", "not_exists", "equals", "not_equals",
     "contains", "empty", "non_empty",
 })
+CONDITION_SOURCES = (
+    "tool_input", "local_variable", "action_catalog",
+    "semantic_evidence", "binding_evidence",
+)
+ACTION_CATALOG_ENTRY_FIELDS = (
+    "action_id", "revision", "action_type", "arguments",
+)
 TOOL_IR_MAX_NESTING_DEPTH = 4
 
 
@@ -179,10 +186,7 @@ def evaluate_condition(condition: Any, state: ToolExecutionState) -> bool:
     if operator not in CONDITION_OPERATORS:
         raise ValueError("tool_ir_condition_operator_unsupported")
 
-    if source not in {
-        "tool_input", "local_variable", "action_catalog",
-        "semantic_evidence", "binding_evidence",
-    }:
+    if source not in CONDITION_SOURCES:
         raise ValueError("tool_ir_condition_source_unsupported")
     if not field_name:
         raise ValueError("tool_ir_condition_requires_field")
@@ -209,12 +213,15 @@ def evaluate_condition(condition: Any, state: ToolExecutionState) -> bool:
     raise ValueError("tool_ir_condition_operator_unsupported")
 
 
-_SELECTOR_META_FIELDS = frozenset({
+SELECTOR_META_FIELDS = frozenset({
     "action_type",
     "predicate",
     "argument_role",
     "semantic_compatible_with",
 })
+# Compatibility alias for existing imports.  New contracts use the public
+# name so the interpreter and static validator share one vocabulary.
+_SELECTOR_META_FIELDS = SELECTOR_META_FIELDS
 
 
 def _selector_entries(
@@ -246,18 +253,14 @@ def _selector_entries(
         )
         ok = True
         for raw_role, expected in where.items():
-            if raw_role in _SELECTOR_META_FIELDS:
+            if raw_role in SELECTOR_META_FIELDS:
                 continue
-            if raw_role.endswith("_in"):
-                roles = [str(value) for value in expected] if isinstance(expected, (list, tuple)) else [str(expected)]
-            else:
-                roles = [str(raw_role)]
-            for role in roles:
-                actual = arguments.get(role)
-                if expected is not None and actual != expected:
-                    ok = False
-                    break
-            if not ok:
+            # Primitive argument filters use their exact action-schema role as
+            # the direct ``where`` key.  There is no wrapper or ``*_in``
+            # dialect in Tool IR v1.
+            actual = arguments.get(str(raw_role))
+            if actual != expected:
+                ok = False
                 break
         semantic = _as_mapping(where.get("semantic_compatible_with"))
         if ok and semantic:
@@ -379,9 +382,18 @@ def normalize_return_output_sources(
         "source", "field", "where", "project", "kind", "constant",
         "value", "source_role", "distinct",
     }
-    if set(raw) <= source_spec_keys and (
-        "source" in raw or "kind" in raw
-    ):
+    # An Atomic output role may itself be named ``source`` or ``kind``.  Only
+    # treat the whole mapping as the legacy single selector when the reserved
+    # discriminator has its scalar selector shape; a nested mapping is already
+    # the canonical {output_role: source_spec} form.
+    legacy_source = raw.get("source")
+    legacy_kind = raw.get("kind")
+    looks_like_source_spec = (
+        isinstance(legacy_source, str) and bool(legacy_source.strip())
+    ) or (
+        isinstance(legacy_kind, str) and bool(legacy_kind.strip())
+    )
+    if set(raw) <= source_spec_keys and looks_like_source_spec:
         if len(roles) == 1:
             return {next(iter(roles)): dict(raw)}
     return dict(raw)
@@ -473,7 +485,10 @@ def program_paths(program: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
 
 
 __all__ = [
+    "ACTION_CATALOG_ENTRY_FIELDS",
     "CONDITION_OPERATORS",
+    "CONDITION_SOURCES",
+    "SELECTOR_META_FIELDS",
     "TOOL_IR_MAX_NESTING_DEPTH",
     "ToolExecutionState",
     "evaluate_condition",

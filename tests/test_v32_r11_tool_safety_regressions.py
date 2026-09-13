@@ -82,6 +82,25 @@ def test_single_output_return_normalization_updates_nested_program_tree() -> Non
     }
 
 
+def test_return_output_role_named_source_is_not_misread_as_legacy_selector() -> None:
+    selector = {
+        "source": "semantic_evidence",
+        "where": {"predicate": "entity.discovered_at"},
+        "project": {"kind": "argument", "role": "location"},
+    }
+
+    normalized = normalize_return_output_sources(
+        {
+            "node_id": "return_source",
+            "op": "RETURN",
+            "output_sources": {"source": selector},
+        },
+        {"source"},
+    )
+
+    assert normalized == {"source": selector}
+
+
 def _atomic_and_proposal() -> tuple[AbstractAtomicSkill, ToolProposal]:
     effect = SemanticPredicate("agent.holds", {"object": "$item"})
     atomic = AbstractAtomicSkill(

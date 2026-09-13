@@ -644,6 +644,9 @@ def test_exploration_does_not_consume_repeat_preflight(monkeypatch) -> None:
     )
 
     assert calls == 0
+    sessions = factory.sessions_of("runtime_preparation")
+    assert len(sessions) == 1
+    assert sessions[0].returned_action_executed == (True,)
     factory.assert_exhausted()
 
 

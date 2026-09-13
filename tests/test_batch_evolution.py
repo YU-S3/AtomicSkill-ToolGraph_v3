@@ -26,6 +26,7 @@ from atomic_skillgraph.evolution.aligner import Aligner
 from atomic_skillgraph.evolution.maintenance import (
     BatchMaintenanceResult, EvolutionMaintenance,
 )
+from atomic_skillgraph.evolution.replay import ReplayCaseResult
 from atomic_skillgraph.evolution.extractor_session import ExtractionContentError
 from atomic_skillgraph.evolution.repair import RepairProposal, RepairStore
 from atomic_skillgraph.evolution.repair_session import (
@@ -1336,6 +1337,15 @@ def test_maintenance_exception_clears_shared_batch_budget(tmp_path) -> None:
     with AtomicSkillGraphSystem(
         _system_config(tmp_path / "data_v3"), harness=FakeHarness(),
     ) as system:
+        saved_trace_ids: list[str] = []
+        save_atomic = system.traces.save_atomic
+
+        def save_once(trace):
+            saved_trace_ids.append(trace.trace_id)
+            return save_atomic(trace)
+
+        system.traces.save_atomic = save_once
+
         def fail_reviews(_tools):
             raise RuntimeError("maintenance database unavailable")
 
@@ -1343,6 +1353,140 @@ def test_maintenance_exception_clears_shared_batch_budget(tmp_path) -> None:
         with pytest.raises(RuntimeError, match="database unavailable"):
             system.run_maintenance(triggering_task_id="task", milestone="failure")
         assert system._evolution_batch_usage_start is None
+        assert len(saved_trace_ids) == 1
+        payload = system.traces.load_payload(saved_trace_ids[0])
+        assert payload["task"]["task_type"] == "maintenance"
+        assert payload["metadata"]["trace_kind"] == "maintenance"
+        assert payload["metadata"]["maintenance_failure"] == {
+            "error_type": "RuntimeError",
+            "error": "maintenance database unavailable",
+        }
+        assert payload["infrastructure_failure"] is True
+        assert payload["ended_at"] >= payload["started_at"] > 0
+
+
+def test_maintenance_trace_is_protected_before_credit_snapshot(tmp_path) -> None:
+    with AtomicSkillGraphSystem(
+        _system_config(tmp_path / "data_v3"), harness=FakeHarness(),
+    ) as system:
+        saved_trace_ids: list[str] = []
+        save_atomic = system.traces.save_atomic
+
+        def save_once(trace):
+            saved_trace_ids.append(trace.trace_id)
+            return save_atomic(trace)
+
+        def fail_credit_snapshot():
+            raise RuntimeError("credit ledger unavailable")
+
+        system.traces.save_atomic = save_once
+        system.ledger.max_rowid = fail_credit_snapshot
+
+        with pytest.raises(RuntimeError, match="credit ledger unavailable"):
+            system.run_maintenance(
+                triggering_task_id="task", milestone="credit_snapshot_failure",
+            )
+
+        assert system._evolution_batch_usage_start is None
+        assert len(saved_trace_ids) == 1
+        payload = system.traces.load_payload(saved_trace_ids[0])
+        assert payload["metadata"]["trace_kind"] == "maintenance"
+        assert payload["metadata"]["maintenance_failure"] == {
+            "error_type": "RuntimeError",
+            "error": "credit ledger unavailable",
+        }
+        assert payload["infrastructure_failure"] is True
+        assert payload["ended_at"] >= payload["started_at"] > 0
+
+
+def test_maintenance_persists_typed_replay_result_in_final_trace(tmp_path) -> None:
+    with AtomicSkillGraphSystem(
+        _system_config(tmp_path / "data_v3"), harness=FakeHarness(),
+    ) as system:
+        saved_trace_ids: list[str] = []
+        save_atomic = system.traces.save_atomic
+
+        def save_once(trace):
+            saved_trace_ids.append(trace.trace_id)
+            return save_atomic(trace)
+
+        system.traces.save_atomic = save_once
+        source_task = fake_task("source", "apple_1")
+        case = {
+            "case_id": "case_source",
+            "trace_id": "trace_source",
+            "source_task": {"task_id": source_task.task_id},
+        }
+        tool = replace(
+            ToolCompiler().compile([_take_canonical()])[0].tool,
+            status=ToolStatus.CANDIDATE,
+        )
+        system.tools.register(tool)
+        typed = ReplayCaseResult(
+            case_id="case_source",
+            source_trace_id="trace_source",
+            source_task_id="source",
+            requested_task_id="",
+            resolved_task_id="source",
+            stage="final_validation",
+            passed=True,
+            started=True,
+            executed_action_count=1,
+            completed=True,
+            atomic_effect_passed=True,
+            output_validation_passed=True,
+        )
+        system._replay_source_authority = lambda: SimpleNamespace(
+            resolve=lambda *_args, **_kwargs: source_task,
+        )
+        system._replay_tool_candidate_result = (
+            lambda *_args, **_kwargs: typed
+        )
+        system.evolution_maintenance.build_batch_reviews = lambda _tools: []
+        system.evolution_maintenance.build_typed_reviews = (
+            lambda **_kwargs: []
+        )
+        system.evolution_maintenance.build_composite_sequence_reviews = (
+            lambda **_kwargs: []
+        )
+
+        def run_batch(**kwargs):
+            assert kwargs["replay_tool"](tool, case) is True
+            return BatchMaintenanceResult(
+                maintenance_trace_id=kwargs["maintenance_trace_id"],
+                admitted_assets=((str(tool.ref), "tool"),),
+                reviewed_ids=("review_source",),
+            )
+
+        system.evolution_maintenance.run_batch = run_batch
+
+        result = system.run_maintenance(
+            triggering_task_id="source", milestone="typed_replay",
+        )
+
+        payload = system.traces.load_payload(result.maintenance_trace_id)
+        assert saved_trace_ids == [result.maintenance_trace_id]
+        assert payload["metadata"]["tool_replay_results"] == [
+            to_primitive(typed)
+        ]
+        maintenance_result = payload["metadata"]["maintenance_result"]
+        assert maintenance_result["maintenance_trace_id"] == result.maintenance_trace_id
+        assert maintenance_result["admitted_assets"] == [{
+            "artifact_ref": str(tool.ref),
+            "artifact_kind": "tool",
+        }]
+        assert maintenance_result["rejected_proposal_ids"] == []
+        assert maintenance_result["pending_proposal_ids"] == []
+        assert maintenance_result["reviewed_ids"] == ["review_source"]
+        assert maintenance_result["lineage"] == []
+        assert maintenance_result["lifecycle"] is not None
+        assert len(maintenance_result["credit_event_ids"]) == 2
+        assert {
+            record.event.event_id
+            for record in system.ledger.records_after(0)
+            if record.event.trace_id == result.maintenance_trace_id
+        } == set(maintenance_result["credit_event_ids"])
+        assert payload["ended_at"] >= payload["started_at"] > 0
 
 
 def test_evolution_producers_share_one_batch_token_cap(tmp_path) -> None:

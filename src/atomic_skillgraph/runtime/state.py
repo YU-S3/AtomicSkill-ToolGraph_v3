@@ -132,6 +132,10 @@ class ExplorationMemory:
     negative_observations: dict[str, Any] = field(default_factory=dict)
     accepted_actions_since_grounding_change: int = 0
     _last_grounding_signature: Any = None
+    _accepted_locations: dict[str, tuple[str, str]] = field(
+        default_factory=dict,
+        repr=False,
+    )
 
     @staticmethod
     def _catalog_values(catalog: Iterable[Any]) -> set[str]:
@@ -147,6 +151,37 @@ class ExplorationMemory:
                     values.add(value)
         return values
 
+    @staticmethod
+    def _catalog_locations(
+        catalog: Iterable[Any], *, revision: int,
+    ) -> dict[tuple[str, str], str]:
+        """Project only entity-location relations visible in the action catalog."""
+
+        result: dict[tuple[str, str], str] = {}
+        for spec in catalog:
+            arguments = (
+                dict(spec.get("arguments") or {})
+                if isinstance(spec, Mapping)
+                else dict(getattr(spec, "arguments", {}) or {})
+            )
+            entity = str(
+                arguments.get("object") or arguments.get("entity") or ""
+            )
+            location = str(
+                arguments.get("source") or arguments.get("location") or ""
+            )
+            if not entity or not location:
+                continue
+            action_id = str(
+                spec.get("action_id", "")
+                if isinstance(spec, Mapping)
+                else getattr(spec, "action_id", "")
+            )
+            result[(entity, location)] = (
+                f"action_catalog:{action_id or 'entry'}:revision:{int(revision)}"
+            )
+        return result
+
     def observe_catalog(
         self,
         catalog: Iterable[Any],
@@ -154,32 +189,90 @@ class ExplorationMemory:
         revision: int,
         current_facts: Iterable[Mapping[str, Any]] = (),
     ) -> None:
-        current_values = self._catalog_values(catalog)
-        locations: dict[str, str] = {}
+        catalog_items = list(catalog)
+        current_values = self._catalog_values(catalog_items)
+        catalog_locations = self._catalog_locations(
+            catalog_items, revision=revision,
+        )
+        locations: dict[
+            str, tuple[str, str, dict[str, str], str, str]
+        ] = {}
         for fact in current_facts:
             arguments = dict(fact.get("args") or {})
-            current_values.update(
-                value
-                for value in arguments.values()
-                if isinstance(value, str) and value
-            )
-            if str(fact.get("predicate", "")) != "object.at_location":
+            predicate = str(fact.get("predicate", ""))
+            if predicate not in {
+                "object.at_location",
+                "entity.discovered_at",
+            }:
                 continue
-            obj = str(arguments.get("object", ""))
+            obj = str(
+                arguments.get("object")
+                or arguments.get("entity")
+                or ""
+            )
             location = str(arguments.get("location", ""))
-            if obj and location:
-                locations[obj] = location
+            catalog_ref = catalog_locations.get((obj, location), "")
+            accepted_location, accepted_ref = self._accepted_locations.get(
+                obj, ("", ""),
+            )
+            if predicate == "entity.discovered_at":
+                source_kind = "public_action_catalog"
+                public_ref = catalog_ref
+            elif catalog_ref:
+                source_kind = "public_action_catalog"
+                public_ref = catalog_ref
+            elif accepted_location == location:
+                source_kind = "accepted_environment_action"
+                public_ref = accepted_ref
+            else:
+                source_kind = ""
+                public_ref = ""
+            if obj and location and public_ref:
+                locations[obj] = (
+                    location,
+                    predicate,
+                    {
+                        str(role): str(value)
+                        for role, value in arguments.items()
+                    },
+                    source_kind,
+                    public_ref,
+                )
                 current_values.update((obj, location))
         for value, entry in self.discovered.items():
-            entry["evidence_status"] = (
-                "observed" if value in current_values else "historical"
-            )
+            relation_is_current = value in locations
+            entry["evidence_status"] = "observed" if (
+                relation_is_current
+                or (
+                    "last_known_location" not in entry
+                    and value in current_values
+                )
+            ) else "historical"
+            if "last_known_location" in entry:
+                entry["location_evidence_status"] = (
+                    "observed" if relation_is_current else "historical"
+                )
         for value in sorted(current_values):
             entry = self.discovered.setdefault(value, {})
-            entry["evidence_status"] = "observed"
             entry["last_seen_revision"] = int(revision)
             if value in locations:
-                entry["last_known_location"] = locations[value]
+                (
+                    location,
+                    _predicate,
+                    _arguments,
+                    source_kind,
+                    public_ref,
+                ) = locations[value]
+                entry.update({
+                    "last_known_location": location,
+                    "observed_at_revision": int(revision),
+                    "source_kind": source_kind,
+                    "public_evidence_ref": public_ref,
+                    "evidence_status": "observed",
+                    "location_evidence_status": "observed",
+                })
+            elif "last_known_location" not in entry:
+                entry["evidence_status"] = "observed"
 
     def record_action(
         self,
@@ -199,6 +292,19 @@ class ExplorationMemory:
             destination = str(arguments.get("destination", ""))
             if destination:
                 self.visited.add(destination)
+        obj = str(arguments.get("object") or arguments.get("entity") or "")
+        if action_type == "TAKE" and obj:
+            self._accepted_locations.pop(obj, None)
+        if action_type in {"PUT", "MOVE"} and obj:
+            destination = str(
+                arguments.get("destination") or arguments.get("location") or ""
+            )
+            if destination:
+                action_id = str(record.get("action_id") or "accepted")
+                self._accepted_locations[obj] = (
+                    destination,
+                    f"accepted_action:{action_id}:revision:{int(revision)}",
+                )
         if action_type in {"LOOK", "EXAMINE", "INVENTORY"}:
             for value in arguments.values():
                 if isinstance(value, str) and value:
@@ -242,6 +348,12 @@ class ExplorationMemory:
                 key: copy.deepcopy(self.discovered[key])
                 for key in sorted(self.discovered)
                 if self.discovered[key].get("evidence_status") == "historical"
+            },
+            "observed_discoveries": {
+                key: copy.deepcopy(self.discovered[key])
+                for key in sorted(self.discovered)
+                if self.discovered[key].get("evidence_status") == "observed"
+                and "last_known_location" in self.discovered[key]
             },
             "negative_observations": {
                 key: copy.deepcopy(self.negative_observations[key])

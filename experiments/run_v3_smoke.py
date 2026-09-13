@@ -791,6 +791,7 @@ def run_failure_extractor_smoke(config_path: str | Path) -> int:
         "freeze_skills": False,
         "initialize_v3_bank": "empty",
         "output_dir": str(output),
+        "task_manifest_path": str(output / "task_manifest.json"),
     })
     config["experiment"] = experiment
     config["data_dir"] = str(output / "data_v3")
@@ -1166,6 +1167,7 @@ def run_look_at_authority_smoke(config_path: str | Path) -> int:
         "freeze_skills": False,
         "initialize_v3_bank": "empty",
         "output_dir": str(output),
+        "task_manifest_path": str(output / "task_manifest.json"),
     })
     config["experiment"] = experiment
     config["data_dir"] = str(output / "data_v3")
@@ -1648,6 +1650,7 @@ def run_r7_look_targeted(config_path: str | Path) -> int:
             "initialize_v3_bank": "empty",
             "allow_long_term_knowledge_writes": True,
             "output_dir": str(train_root),
+            "task_manifest_path": str(output / "train_task_manifest.json"),
         })
         train_config["experiment"] = train_experiment
         frozen_dir = output / "frozen" / "data_v3"
@@ -1751,6 +1754,7 @@ def run_r7_look_targeted(config_path: str | Path) -> int:
             "freeze_skills": True,
             "allow_long_term_knowledge_writes": False,
             "output_dir": str(eval_root),
+            "task_manifest_path": str(output / "eval_task_manifest.json"),
         })
         eval_config["experiment"] = eval_experiment
 
@@ -1874,6 +1878,7 @@ def run_real_alfworld(config_path: str | Path) -> int:
         "freeze_skills": False,
         "initialize_v3_bank": "empty",
         "output_dir": str(output),
+        "task_manifest_path": str(output / "task_manifest.json"),
     })
     config["experiment"] = experiment
     config["data_dir"] = str(output / "data_v3")

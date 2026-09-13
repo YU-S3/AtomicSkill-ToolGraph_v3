@@ -188,6 +188,41 @@ class Aligner:
         self.tools.register(replace(candidate, ref=ref))
         return ref
 
+    def existing_tool_with_replay_cases(
+        self,
+        candidate: ToolAsset,
+    ) -> ToolAsset | None:
+        """Return an admitted executable already carrying every candidate case."""
+
+        if candidate.status not in {
+            ToolStatus.ADMISSION_PENDING,
+            ToolStatus.CANDIDATE,
+        }:
+            return None
+        candidate_cases = {content_hash(item) for item in candidate.tests}
+        if not candidate_cases:
+            return None
+        matches = [
+            item
+            for item in self.tools.tools()
+            if _tool_signature(item) == _tool_signature(candidate)
+            and item.status in {
+                ToolStatus.CANDIDATE,
+                ToolStatus.ACTIVE,
+                ToolStatus.PREFERRED,
+            }
+            and candidate_cases.issubset({
+                content_hash(case) for case in item.tests
+            })
+        ]
+        if not matches:
+            return None
+        return sorted(
+            matches,
+            key=lambda item: (_version_key(item.ref.version), str(item.ref)),
+            reverse=True,
+        )[0]
+
     def align_tool_with_replays(
         self,
         candidate: ToolAsset,
@@ -196,11 +231,36 @@ class Aligner:
         replay: Callable[[ToolAsset, dict[str, Any]], bool],
     ) -> ToolAlignmentResult:
         """Reuse an executable or immutably add independently observed replays."""
+        signature = _tool_signature(candidate)
+        matches = [
+            item for item in self.tools.tools()
+            if _tool_signature(item) == signature
+            and item.status in {
+                ToolStatus.CANDIDATE,
+                ToolStatus.ACTIVE,
+                ToolStatus.PREFERRED,
+            }
+        ]
         if candidate.status is not ToolStatus.CANDIDATE:
+            if matches:
+                existing = sorted(
+                    matches,
+                    key=lambda item: (_version_key(item.ref.version), str(item.ref)),
+                    reverse=True,
+                )[0]
+                return ToolAlignmentResult(
+                    existing.ref,
+                    existing.ref,
+                    "add_replay",
+                    False,
+                    tuple(map(
+                        str,
+                        candidate.metadata.get("admission_failure") or [],
+                    )),
+                )
             # Admission failure is itself immutable diagnostic knowledge, but
-            # never a validated discovery.  Preserve the SHADOW Tool and keep
-            # its paired Implementation on the same non-usable version.
-            signature = _tool_signature(candidate)
+            # never a validated discovery. Preserve a SHADOW only when there
+            # is no older usable executable to retain as the immutable target.
             ref = self._next_tool_ref(
                 ToolRef(f"tool_{signature[:24]}", "1.0.0")
             )
@@ -214,16 +274,6 @@ class Aligner:
                     str, rejected.metadata.get("admission_failure") or [],
                 )),
             )
-        signature = _tool_signature(candidate)
-        matches = [
-            item for item in self.tools.tools()
-            if _tool_signature(item) == signature
-            and item.status in {
-                ToolStatus.CANDIDATE,
-                ToolStatus.ACTIVE,
-                ToolStatus.PREFERRED,
-            }
-        ]
         if not matches:
             ref = self._next_tool_ref(
                 ToolRef(f"tool_{signature[:24]}", "1.0.0")

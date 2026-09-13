@@ -1,0 +1,562 @@
+{
+  "cases": [
+    {
+      "occurrence_id": "occ_trace_aaa43bafd0df43adabdd13ea4e13b7a6_000",
+      "proposed_task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "source_trace_id": "trace_aaa43bafd0df43adabdd13ea4e13b7a6",
+      "tool_ref": "tool://tool_23e1111e1fafa41f23c6a4a9@1.0.1"
+    },
+    {
+      "occurrence_id": "occ_trace_aaa43bafd0df43adabdd13ea4e13b7a6_000",
+      "proposed_task_id": "alfworld_train_6_pick_cool_then_place_in_recep",
+      "source_task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "source_trace_id": "trace_aaa43bafd0df43adabdd13ea4e13b7a6",
+      "tool_ref": "tool://tool_23e1111e1fafa41f23c6a4a9@1.0.2"
+    },
+    {
+      "occurrence_id": "occ_trace_aaa43bafd0df43adabdd13ea4e13b7a6_000",
+      "proposed_task_id": "alfworld_train_13_pick_heat_then_place_in_recep",
+      "source_task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "source_trace_id": "trace_aaa43bafd0df43adabdd13ea4e13b7a6",
+      "tool_ref": "tool://tool_23e1111e1fafa41f23c6a4a9@1.0.3"
+    },
+    {
+      "occurrence_id": "occ_trace_aaa43bafd0df43adabdd13ea4e13b7a6_000",
+      "proposed_task_id": "alfworld_train_16_pick_two_obj_and_place",
+      "source_task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "source_trace_id": "trace_aaa43bafd0df43adabdd13ea4e13b7a6",
+      "tool_ref": "tool://tool_23e1111e1fafa41f23c6a4a9@1.0.4"
+    },
+    {
+      "occurrence_id": "occ_trace_aaa43bafd0df43adabdd13ea4e13b7a6_000",
+      "proposed_task_id": "alfworld_train_20_pick_two_obj_and_place",
+      "source_task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "source_trace_id": "trace_aaa43bafd0df43adabdd13ea4e13b7a6",
+      "tool_ref": "tool://tool_23e1111e1fafa41f23c6a4a9@1.0.5"
+    },
+    {
+      "occurrence_id": "occ_trace_aaa43bafd0df43adabdd13ea4e13b7a6_000",
+      "proposed_task_id": "alfworld_train_26_pick_two_obj_and_place",
+      "source_task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "source_trace_id": "trace_aaa43bafd0df43adabdd13ea4e13b7a6",
+      "tool_ref": "tool://tool_23e1111e1fafa41f23c6a4a9@1.0.6"
+    },
+    {
+      "occurrence_id": "occ_trace_aaa43bafd0df43adabdd13ea4e13b7a6_000",
+      "proposed_task_id": "alfworld_train_53_pick_two_obj_and_place",
+      "source_task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "source_trace_id": "trace_aaa43bafd0df43adabdd13ea4e13b7a6",
+      "tool_ref": "tool://tool_23e1111e1fafa41f23c6a4a9@1.0.7"
+    },
+    {
+      "occurrence_id": "occ_trace_aaa43bafd0df43adabdd13ea4e13b7a6_000",
+      "proposed_task_id": "alfworld_train_60_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "source_trace_id": "trace_aaa43bafd0df43adabdd13ea4e13b7a6",
+      "tool_ref": "tool://tool_23e1111e1fafa41f23c6a4a9@1.0.8"
+    },
+    {
+      "occurrence_id": "occ_trace_277dfc1f5d3a4686b6ad694c2415cbd7_000",
+      "proposed_task_id": "alfworld_train_45_pick_two_obj_and_place",
+      "source_task_id": "alfworld_train_23_pick_two_obj_and_place",
+      "source_trace_id": "trace_277dfc1f5d3a4686b6ad694c2415cbd7",
+      "tool_ref": "tool://tool_2b281184b46f73c36879aa79@1.0.1"
+    },
+    {
+      "occurrence_id": "occ_trace_277dfc1f5d3a4686b6ad694c2415cbd7_000",
+      "proposed_task_id": "alfworld_train_153_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_23_pick_two_obj_and_place",
+      "source_trace_id": "trace_277dfc1f5d3a4686b6ad694c2415cbd7",
+      "tool_ref": "tool://tool_2b281184b46f73c36879aa79@1.0.2"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_30_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.1"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_132_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.10"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_150_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.11"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_162_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.12"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_182_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.13"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_201_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.14"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_228_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.15"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_33_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.2"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_42_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.3"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_44_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.4"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_84_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.5"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_95_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.6"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_101_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.7"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_103_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.8"
+    },
+    {
+      "occurrence_id": "occ_trace_96badfba186f4f20b686bbcb8d52f2ba_001",
+      "proposed_task_id": "alfworld_train_128_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_trace_id": "trace_96badfba186f4f20b686bbcb8d52f2ba",
+      "tool_ref": "tool://tool_2cfeab67dc699915f11a468c@1.0.9"
+    },
+    {
+      "occurrence_id": "occ_trace_b90e77dbf5514cfba59d6a588ede49a3_000",
+      "proposed_task_id": "alfworld_train_59_pick_cool_then_place_in_recep",
+      "source_task_id": "alfworld_train_6_pick_cool_then_place_in_recep",
+      "source_trace_id": "trace_b90e77dbf5514cfba59d6a588ede49a3",
+      "tool_ref": "tool://tool_752581f286906787c6826c58@1.0.1"
+    },
+    {
+      "occurrence_id": "occ_trace_b90e77dbf5514cfba59d6a588ede49a3_000",
+      "proposed_task_id": "alfworld_train_74_pick_cool_then_place_in_recep",
+      "source_task_id": "alfworld_train_6_pick_cool_then_place_in_recep",
+      "source_trace_id": "trace_b90e77dbf5514cfba59d6a588ede49a3",
+      "tool_ref": "tool://tool_752581f286906787c6826c58@1.0.2"
+    },
+    {
+      "occurrence_id": "occ_trace_b90e77dbf5514cfba59d6a588ede49a3_000",
+      "proposed_task_id": "alfworld_train_135_pick_cool_then_place_in_recep",
+      "source_task_id": "alfworld_train_6_pick_cool_then_place_in_recep",
+      "source_trace_id": "trace_b90e77dbf5514cfba59d6a588ede49a3",
+      "tool_ref": "tool://tool_752581f286906787c6826c58@1.0.3"
+    },
+    {
+      "occurrence_id": "occ_trace_3df52d6b172646d1aff4e4a20ebe0c64_000",
+      "proposed_task_id": "alfworld_train_210_pick_heat_then_place_in_recep",
+      "source_task_id": "alfworld_train_13_pick_heat_then_place_in_recep",
+      "source_trace_id": "trace_3df52d6b172646d1aff4e4a20ebe0c64",
+      "tool_ref": "tool://tool_cd9ec0b80ad7181b6cb797d7@1.0.1"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_1_pick_and_place_simple",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.1"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_33_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.10"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_42_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.11"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_43_pick_and_place_simple",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.12"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_44_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.13"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_84_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.14"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_95_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.15"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_101_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.16"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_103_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.17"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_128_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.18"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_132_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.19"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_1_pick_and_place_simple",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.2"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_150_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.20"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_162_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.21"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_182_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.22"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_201_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.23"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_228_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.24"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.3"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.4"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.5"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_22_pick_and_place_simple",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.6"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_22_pick_and_place_simple",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.7"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_24_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.8"
+    },
+    {
+      "occurrence_id": "occ_trace_2ecc50e87e6e433a87876e9370a7b9c1_002",
+      "proposed_task_id": "alfworld_train_30_look_at_obj_in_light",
+      "source_task_id": "alfworld_train_0_pick_and_place_simple",
+      "source_trace_id": "trace_2ecc50e87e6e433a87876e9370a7b9c1",
+      "tool_ref": "tool://tool_e0667ae584d620eccbec94b6@1.0.9"
+    },
+    {
+      "occurrence_id": "occ_trace_e29eca15166f4326a326efe4d8acaed9_004",
+      "proposed_task_id": "alfworld_train_60_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "source_trace_id": "trace_e29eca15166f4326a326efe4d8acaed9",
+      "tool_ref": "tool://tool_e154ec0d93e3a7beaf486af8@1.0.1"
+    },
+    {
+      "occurrence_id": "occ_trace_e29eca15166f4326a326efe4d8acaed9_004",
+      "proposed_task_id": "alfworld_train_63_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "source_trace_id": "trace_e29eca15166f4326a326efe4d8acaed9",
+      "tool_ref": "tool://tool_e154ec0d93e3a7beaf486af8@1.0.2"
+    },
+    {
+      "occurrence_id": "occ_trace_e29eca15166f4326a326efe4d8acaed9_004",
+      "proposed_task_id": "alfworld_train_153_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "source_trace_id": "trace_e29eca15166f4326a326efe4d8acaed9",
+      "tool_ref": "tool://tool_e154ec0d93e3a7beaf486af8@1.0.3"
+    },
+    {
+      "occurrence_id": "occ_trace_35f741f2e9ba432e87b118ff391952e3_001",
+      "proposed_task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "source_task_id": "alfworld_train_1_pick_and_place_simple",
+      "source_trace_id": "trace_35f741f2e9ba432e87b118ff391952e3",
+      "tool_ref": "tool://tool_f8a1df2d429bd85790dba701@1.0.1"
+    },
+    {
+      "occurrence_id": "occ_trace_35f741f2e9ba432e87b118ff391952e3_001",
+      "proposed_task_id": "alfworld_train_22_pick_and_place_simple",
+      "source_task_id": "alfworld_train_1_pick_and_place_simple",
+      "source_trace_id": "trace_35f741f2e9ba432e87b118ff391952e3",
+      "tool_ref": "tool://tool_f8a1df2d429bd85790dba701@1.0.2"
+    },
+    {
+      "occurrence_id": "occ_trace_35f741f2e9ba432e87b118ff391952e3_001",
+      "proposed_task_id": "alfworld_train_43_pick_and_place_simple",
+      "source_task_id": "alfworld_train_1_pick_and_place_simple",
+      "source_trace_id": "trace_35f741f2e9ba432e87b118ff391952e3",
+      "tool_ref": "tool://tool_f8a1df2d429bd85790dba701@1.0.3"
+    }
+  ],
+  "schema_version": 1,
+  "selection": {
+    "criterion": "single immutable replay case source_task_id differs from the tool proposed event task_id",
+    "shadow_tool_count": 75,
+    "source_task_mismatch_count": 59
+  },
+  "source_run": "alfworld_train_full_120_r9_seed42",
+  "source_tasks": {
+    "alfworld_train_0_pick_and_place_simple": {
+      "benchmark": "alfworld",
+      "context": {
+        "env_index": 0,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_and_place_simple-CellPhone-None-Desk-316/trial_T20190911_210304_361742/game.tw-pddl"
+      },
+      "goal": "put a cellphone in desk.",
+      "metadata": {
+        "env_index": 0,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_and_place_simple-CellPhone-None-Desk-316/trial_T20190911_210304_361742/game.tw-pddl",
+        "split": "train",
+        "task_signature": "d1d0e3927843611f7f01d22b27789546bc3a73d40c1b3d6938af7a2f4701aa03"
+      },
+      "task_id": "alfworld_train_0_pick_and_place_simple",
+      "task_signature": "d1d0e3927843611f7f01d22b27789546bc3a73d40c1b3d6938af7a2f4701aa03",
+      "task_type": "pick_and_place_simple"
+    },
+    "alfworld_train_13_pick_heat_then_place_in_recep": {
+      "benchmark": "alfworld",
+      "context": {
+        "env_index": 13,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_heat_then_place_in_recep-Egg-None-DiningTable-18/trial_T20190908_051346_079516/game.tw-pddl"
+      },
+      "goal": "heat some egg and put it in diningtable.",
+      "metadata": {
+        "env_index": 13,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_heat_then_place_in_recep-Egg-None-DiningTable-18/trial_T20190908_051346_079516/game.tw-pddl",
+        "split": "train",
+        "task_signature": "1058826e421e4a10e0e1aef9595c51402fe6608603cffce94d56a31814433840"
+      },
+      "task_id": "alfworld_train_13_pick_heat_then_place_in_recep",
+      "task_signature": "1058826e421e4a10e0e1aef9595c51402fe6608603cffce94d56a31814433840",
+      "task_type": "pick_heat_then_place_in_recep"
+    },
+    "alfworld_train_1_pick_and_place_simple": {
+      "benchmark": "alfworld",
+      "context": {
+        "env_index": 1,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_and_place_simple-KeyChain-None-Sofa-217/trial_T20190908_065419_074210/game.tw-pddl"
+      },
+      "goal": "put some keychain on sofa.",
+      "metadata": {
+        "env_index": 1,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_and_place_simple-KeyChain-None-Sofa-217/trial_T20190908_065419_074210/game.tw-pddl",
+        "split": "train",
+        "task_signature": "ff67ac0b6a129fbaad7165ce1541746d52daceabc0aa8d14e9d2c0f0cd56d962"
+      },
+      "task_id": "alfworld_train_1_pick_and_place_simple",
+      "task_signature": "ff67ac0b6a129fbaad7165ce1541746d52daceabc0aa8d14e9d2c0f0cd56d962",
+      "task_type": "pick_and_place_simple"
+    },
+    "alfworld_train_23_pick_two_obj_and_place": {
+      "benchmark": "alfworld",
+      "context": {
+        "env_index": 23,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-CD-None-Drawer-319/trial_T20190907_145438_983650/game.tw-pddl"
+      },
+      "goal": "put two cd in drawer.",
+      "metadata": {
+        "env_index": 23,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-CD-None-Drawer-319/trial_T20190907_145438_983650/game.tw-pddl",
+        "split": "train",
+        "task_signature": "d4b4da4bc5ad21fe671e798185123107313e058e7b8595f9133001bfab912283"
+      },
+      "task_id": "alfworld_train_23_pick_two_obj_and_place",
+      "task_signature": "d4b4da4bc5ad21fe671e798185123107313e058e7b8595f9133001bfab912283",
+      "task_type": "pick_two_obj_and_place"
+    },
+    "alfworld_train_24_look_at_obj_in_light": {
+      "benchmark": "alfworld",
+      "context": {
+        "env_index": 24,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/look_at_obj_in_light-Book-None-DeskLamp-316/trial_T20190908_101923_519368/game.tw-pddl"
+      },
+      "goal": "look at book under the desklamp.",
+      "metadata": {
+        "env_index": 24,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/look_at_obj_in_light-Book-None-DeskLamp-316/trial_T20190908_101923_519368/game.tw-pddl",
+        "split": "train",
+        "task_signature": "e3612ddf9837ee089577545a73dd36a5b824f6822e3a854c7cb6b19ecc6a97c6"
+      },
+      "task_id": "alfworld_train_24_look_at_obj_in_light",
+      "task_signature": "e3612ddf9837ee089577545a73dd36a5b824f6822e3a854c7cb6b19ecc6a97c6",
+      "task_type": "look_at_obj_in_light"
+    },
+    "alfworld_train_2_pick_two_obj_and_place": {
+      "benchmark": "alfworld",
+      "context": {
+        "env_index": 2,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-RemoteControl-None-ArmChair-217/trial_T20190909_115806_934559/game.tw-pddl"
+      },
+      "goal": "find two remotecontrol and put them in armchair.",
+      "metadata": {
+        "env_index": 2,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-RemoteControl-None-ArmChair-217/trial_T20190909_115806_934559/game.tw-pddl",
+        "split": "train",
+        "task_signature": "6842c1fc755243cdb063ea36feb4a727ae47f2ffb49bfc6036fcf01bf98abb5e"
+      },
+      "task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "task_signature": "6842c1fc755243cdb063ea36feb4a727ae47f2ffb49bfc6036fcf01bf98abb5e",
+      "task_type": "pick_two_obj_and_place"
+    },
+    "alfworld_train_4_pick_clean_then_place_in_recep": {
+      "benchmark": "alfworld",
+      "context": {
+        "env_index": 4,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Ladle-None-CounterTop-8/trial_T20190909_121844_285394/game.tw-pddl"
+      },
+      "goal": "clean some ladle and put it in countertop.",
+      "metadata": {
+        "env_index": 4,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Ladle-None-CounterTop-8/trial_T20190909_121844_285394/game.tw-pddl",
+        "split": "train",
+        "task_signature": "df1172765d85f08503150c3399fe1a6f4e629e974a72683964f822b4c3cc0278"
+      },
+      "task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "task_signature": "df1172765d85f08503150c3399fe1a6f4e629e974a72683964f822b4c3cc0278",
+      "task_type": "pick_clean_then_place_in_recep"
+    },
+    "alfworld_train_6_pick_cool_then_place_in_recep": {
+      "benchmark": "alfworld",
+      "context": {
+        "env_index": 6,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_cool_then_place_in_recep-Bread-None-CounterTop-17/trial_T20190907_151028_159967/game.tw-pddl"
+      },
+      "goal": "cool some bread and put it in countertop.",
+      "metadata": {
+        "env_index": 6,
+        "game_file": "/home/yangchengyu/.cache/alfworld/json_2.1.1/train/pick_cool_then_place_in_recep-Bread-None-CounterTop-17/trial_T20190907_151028_159967/game.tw-pddl",
+        "split": "train",
+        "task_signature": "db463fd5f4d3342b50160766c9aa25e190c867ed70d6dc156e993dc5219e51d3"
+      },
+      "task_id": "alfworld_train_6_pick_cool_then_place_in_recep",
+      "task_signature": "db463fd5f4d3342b50160766c9aa25e190c867ed70d6dc156e993dc5219e51d3",
+      "task_type": "pick_cool_then_place_in_recep"
+    }
+  }
+}

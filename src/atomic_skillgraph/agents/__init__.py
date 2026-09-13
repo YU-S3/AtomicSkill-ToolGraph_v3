@@ -40,6 +40,7 @@ from .usage import (
     UsageBucket,
     UsageEvent,
     UsageLedger,
+    resolve_tool_builder_usage_bucket,
     sum_usage,
 )
 
@@ -71,6 +72,7 @@ __all__ = [
     "UsageBucket",
     "UsageEvent",
     "UsageLedger",
+    "resolve_tool_builder_usage_bucket",
     "sum_usage",
     "structured_provider_turn_cap",
     "ensure_provider_capability",

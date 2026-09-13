@@ -342,8 +342,27 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
 
     attempts: list[CreditAttempt] = []
     sequence = 0
-    invocations = list(_field(trace, "implementation_invocations", ()) or ())
-    tool_executions = list(_field(trace, "tool_executions", ()) or ())
+    metadata = _field(trace, "metadata", {}) or {}
+    exclusions = _field(metadata, "runtime_trial_credit_exclusions", {}) or {}
+    excluded_implementation_ids = {
+        str(value)
+        for value in _field(exclusions, "implementation_attempt_ids", ()) or ()
+    }
+    excluded_tool_ids = {
+        str(value)
+        for value in _field(exclusions, "tool_execution_ids", ()) or ()
+    }
+    invocations = [
+        item
+        for item in list(_field(trace, "implementation_invocations", ()) or ())
+        if str(_field(item, "attempt_id", ""))
+        not in excluded_implementation_ids
+    ]
+    tool_executions = [
+        item
+        for item in list(_field(trace, "tool_executions", ()) or ())
+        if str(_field(item, "attempt_id", "")) not in excluded_tool_ids
+    ]
 
     for invocation in invocations:
         result = _field(invocation, "result", {}) or {}

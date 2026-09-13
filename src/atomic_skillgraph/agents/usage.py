@@ -38,6 +38,25 @@ class UsageBucket(str, Enum):
 REAL_USAGE_BUCKETS = tuple(bucket for bucket in UsageBucket if bucket is not UsageBucket.UNATTRIBUTED)
 
 
+def resolve_tool_builder_usage_bucket(session_kind: str) -> UsageBucket:
+    """Normalize Runtime/Evolution ToolBuilder aliases to their metering bucket.
+
+    Runtime automation historically passed both ``tool_builder_runtime`` and
+    ``runtime*`` session-kind labels.  Keep those aliases in one place so the
+    session's initial bucket, its shared allocation, and the bucket selected by
+    ``ToolBuilderSession`` cannot disagree before the first provider call.
+    Unknown legacy labels retain the former Evolution default.
+    """
+
+    normalized = str(session_kind or "").strip().casefold()
+    if (
+        normalized == UsageBucket.TOOL_BUILDER_RUNTIME.value
+        or normalized.startswith("runtime")
+    ):
+        return UsageBucket.TOOL_BUILDER_RUNTIME
+    return UsageBucket.TOOL_BUILDER_EVOLUTION
+
+
 @dataclass(frozen=True)
 class LLMUsage:
     prompt_tokens: int = 0
@@ -234,20 +253,48 @@ class BudgetTracker:
         self.budget = budget
         self.used_turns = 0
         self.used_total_tokens = 0
+        self._exhaustion_events: list[dict[str, Any]] = []
 
-    def check_before_call(self) -> None:
+    def check_before_call(
+        self, *, returned_action_executed: bool = False,
+    ) -> None:
         if self.used_turns >= self.budget.max_turns:
-            self._raise("agent turn budget exhausted")
+            self._raise(
+                "agent turn budget exhausted",
+                budget_reason="turn_limit",
+                budget_check_stage="before_call",
+                returned_action_executed=returned_action_executed,
+            )
         if self.used_total_tokens >= self.budget.max_total_tokens:
-            self._raise("agent token budget exhausted")
+            self._raise(
+                "agent token budget exhausted",
+                budget_reason="token_limit",
+                budget_check_stage="before_call",
+                returned_action_executed=returned_action_executed,
+            )
 
     def consume(self, usage: LLMUsage) -> None:
+        used_before = self._used_snapshot()
         self.used_turns += usage.call_count
         self.used_total_tokens += usage.total_tokens
         if self.used_turns > self.budget.max_turns:
-            self._raise("agent turn budget exceeded by provider call")
+            self._raise(
+                "agent turn budget exceeded by provider call",
+                budget_reason="turn_limit",
+                budget_check_stage="after_provider_call",
+                used_before=used_before,
+                actual_call_usage=usage,
+                provider_call_recorded=True,
+            )
         if self.used_total_tokens > self.budget.max_total_tokens:
-            self._raise("agent token budget exceeded by provider call")
+            self._raise(
+                "agent token budget exceeded by provider call",
+                budget_reason="token_limit",
+                budget_check_stage="after_provider_call",
+                used_before=used_before,
+                actual_call_usage=usage,
+                provider_call_recorded=True,
+            )
 
     @property
     def remaining_turns(self) -> int:
@@ -266,10 +313,77 @@ class BudgetTracker:
             "used_total_tokens": self.used_total_tokens,
             "remaining_total_tokens": self.remaining_total_tokens,
             "exhaustion_code": self.budget.exhaustion_code,
+            "exhaustion_events": copy.deepcopy(self._exhaustion_events),
         }
 
-    def _raise(self, message: str) -> None:
-        raise BudgetExhausted(
+    def raise_semantic_turn_exhausted(
+        self,
+        semantic_max_turns: int,
+        *,
+        returned_action_executed: bool = False,
+    ) -> None:
+        """Record the session-wide semantic turn cap without changing it."""
+
+        self._raise(
+            "agent semantic turn budget exhausted",
+            budget_reason="turn_limit",
+            budget_check_stage="before_call",
+            configured_limit={
+                **self._configured_limit(),
+                "semantic_max_turns": int(semantic_max_turns),
+            },
+            returned_action_executed=returned_action_executed,
+        )
+
+    def _used_snapshot(self) -> dict[str, int]:
+        return {
+            "turns": int(self.used_turns),
+            "total_tokens": int(self.used_total_tokens),
+        }
+
+    def _configured_limit(self) -> dict[str, int]:
+        return {
+            "max_turns": int(self.budget.max_turns),
+            "max_total_tokens": int(self.budget.max_total_tokens),
+        }
+
+    def _raise(
+        self,
+        message: str,
+        *,
+        budget_reason: str,
+        budget_check_stage: str,
+        used_before: dict[str, int] | None = None,
+        actual_call_usage: LLMUsage | None = None,
+        provider_call_recorded: bool = False,
+        configured_limit: dict[str, int] | None = None,
+        returned_action_executed: bool = False,
+    ) -> None:
+        audit = {
+            "session_token_limit_exceeded": budget_reason == "token_limit",
+            "session_turn_limit_exceeded": budget_reason == "turn_limit",
+            "budget_reason": budget_reason,
+            "budget_check_stage": budget_check_stage,
+            "budget_error_code": self.budget.exhaustion_code,
+            "used_before": dict(used_before or self._used_snapshot()),
+            "actual_call_usage": (
+                actual_call_usage.to_dict()
+                if actual_call_usage is not None
+                else LLMUsage().to_dict()
+            ),
+            "used_after": self._used_snapshot(),
+            "configured_limit": dict(
+                configured_limit or self._configured_limit()
+            ),
+            "provider_call_recorded": bool(provider_call_recorded),
+            # Provider-call overruns remain false.  A before-call rejection
+            # reached from submit_tool_result marks the preceding, already
+            # persisted action result as executed without granting a free turn.
+            "returned_action_executed": bool(returned_action_executed),
+            "terminal_reconciled_after_session_failure": False,
+        }
+        self._exhaustion_events.append(copy.deepcopy(audit))
+        error = BudgetExhausted(
             self.budget.exhaustion_code,
             message,
             # A configured experiment budget is part of Agent control flow,
@@ -277,6 +391,8 @@ class BudgetTracker:
             # exhaustion code and must not trigger infrastructure rollback.
             layer=FailureLayer.RUNTIME_AGENT,
         )
+        error.budget_audit = copy.deepcopy(audit)
+        raise error
 
 
 def _metering_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -315,5 +431,6 @@ __all__ = [
     "UsageBucket",
     "UsageEvent",
     "UsageLedger",
+    "resolve_tool_builder_usage_bucket",
     "sum_usage",
 ]

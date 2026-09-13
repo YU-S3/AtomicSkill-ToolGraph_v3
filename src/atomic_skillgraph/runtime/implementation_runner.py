@@ -47,7 +47,12 @@ class ImplementationRunner:
     def run(
         self, compiled: CompiledInvocation, preflight: ToolCallPreflightResult,
         occurrence: Any, ctx: Any, *, agent_prepared: bool,
+        execution_scope: str = "registered",
     ) -> ImplementationExecutionResult:
+        if execution_scope not in {"registered", "runtime_trial"}:
+            raise ValueError(
+                f"unsupported Implementation execution_scope: {execution_scope!r}"
+            )
         attempt_id = f"impl_attempt_{uuid.uuid4().hex}"
         if not preflight.passed:
             return ImplementationExecutionResult(
@@ -56,6 +61,9 @@ class ImplementationRunner:
                 node_status=NodeExecutionStatus.FAILED_NOT_STARTED,
             )
         span = ctx.trace_builder.start_span("implementation", occurrence.occurrence_id)
+        tool_execution_start = len(
+            getattr(ctx.trace_builder.trace, "tool_executions", ())
+        )
         atomic_values = dict(preflight.normalized_arguments)
         tool_outputs: dict[tuple[str, str], Any] = {}
         tool_results = []
@@ -70,7 +78,14 @@ class ImplementationRunner:
             except (KeyError, TypeError, ValueError):
                 failure_layer, failure_code = "implementation", "implementation_mapping_error"
                 break
-            result = self.tool_runner.run(tool, arguments, ctx, occurrence_id=occurrence.occurrence_id, parent_span_id=span.span_id)
+            result = self.tool_runner.run(
+                tool,
+                arguments,
+                ctx,
+                occurrence_id=occurrence.occurrence_id,
+                parent_span_id=span.span_id,
+                execution_scope=execution_scope,
+            )
             tool_results.append(result)
             started = started or result.started
             for role, value in result.output_candidates.items():
@@ -101,7 +116,11 @@ class ImplementationRunner:
         for output in compiled.atomic.outputs:
             if output.name not in output_candidates and output.name in atomic_values:
                 output_candidates[output.name] = atomic_values[output.name]
-        bindings = ctx.binding_store.snapshot_for_node(occurrence)
+        bindings = (
+            {}
+            if execution_scope == "runtime_trial"
+            else ctx.binding_store.snapshot_for_node(occurrence)
+        )
         bindings.update({item.role: item for item in preflight.binding_updates})
         if compiled.atomic.validator_spec.get("output_derivations"):
             try:
@@ -128,7 +147,7 @@ class ImplementationRunner:
             occurrence.occurrence_id, "atomic", to_primitive(atomic_validation), ctx.world_revision,
         ))
         atomic_passed = bool(started and atomic_validation.passed)
-        if atomic_passed:
+        if atomic_passed and execution_scope == "registered":
             repeat_values = {
                 **dict(atomic_values),
                 **{
@@ -175,8 +194,36 @@ class ImplementationRunner:
                 str(ref) for ref in atomic_validation.witness_refs
             )),
         )
-        ctx.trace_builder.trace.implementation_invocations.append(ImplementationInvocationRecord(
+        invocation_record = ImplementationInvocationRecord(
             attempt_id, occurrence.occurrence_id, str(compiled.implementation.ref),
             dict(preflight.normalized_arguments), to_primitive(preflight), to_primitive(result), span.span_id,
-        ))
+        )
+        ctx.trace_builder.trace.implementation_invocations.append(invocation_record)
+        if execution_scope == "runtime_trial":
+            trace = ctx.trace_builder.trace
+            metadata = getattr(trace, "metadata", None)
+            if not isinstance(metadata, dict):
+                metadata = {}
+                trace.metadata = metadata
+            exclusions = metadata.setdefault(
+                "runtime_trial_credit_exclusions",
+                {
+                    "implementation_attempt_ids": [],
+                    "tool_execution_ids": [],
+                },
+            )
+            exclusions["implementation_attempt_ids"] = list(dict.fromkeys([
+                *exclusions.get("implementation_attempt_ids", []),
+                attempt_id,
+            ]))
+            trial_tool_ids = [
+                str(item.attempt_id)
+                for item in list(getattr(trace, "tool_executions", ()))[
+                    tool_execution_start:
+                ]
+            ]
+            exclusions["tool_execution_ids"] = list(dict.fromkeys([
+                *exclusions.get("tool_execution_ids", []),
+                *trial_tool_ids,
+            ]))
         return result

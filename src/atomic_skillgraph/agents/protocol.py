@@ -171,6 +171,7 @@ class AgentSession(Protocol):
         result: dict[str, Any],
         *,
         tools: list[NativeToolSpec] | None = None,
+        returned_action_executed: bool = False,
     ) -> AgentTurn: ...
 
     def finalize_tool_result(self, call_id: str, result: dict[str, Any]) -> None: ...

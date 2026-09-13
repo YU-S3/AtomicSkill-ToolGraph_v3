@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from experiments.fakes import FakeHarness
 from atomic_skillgraph.agents.protocol import (
     AgentTurn,
     NativeToolCall,
@@ -43,6 +44,7 @@ from atomic_skillgraph.runtime.node_executor import NodeExecutor
 from atomic_skillgraph.runtime.orchestrator import RuntimeOrchestrator
 from atomic_skillgraph.traces.schema import (
     ColdStartStepRecord,
+    EnvironmentActionRecord,
     TaskRecord,
     TraceBuilder,
     TraceRecord,
@@ -536,6 +538,8 @@ class _ProvisionalEnvironmentSession:
     def __init__(self) -> None:
         self.session_id = "provisional-environment-session"
         self.final_payload: dict | None = None
+        self.returned_action_executed: bool | None = None
+        self.finalized = False
 
     def next_turn(self, prompt: str, *, tools: list[object]) -> AgentTurn:
         return AgentTurn(
@@ -556,9 +560,36 @@ class _ProvisionalEnvironmentSession:
             1.0,
         )
 
-    def finalize_tool_result(self, call_id: str, result: dict) -> None:
+    def submit_tool_result(
+        self,
+        call_id: str,
+        result: dict,
+        *,
+        tools: list[object],
+        returned_action_executed: bool = False,
+    ) -> AgentTurn:
         assert call_id == "provisional-action-call"
         self.final_payload = dict(result)
+        self.returned_action_executed = returned_action_executed
+        return AgentTurn(
+            "",
+            [NativeToolCall(
+                "provisional-status-call",
+                "report_runtime_status",
+                {"status": "cannot_resolve"},
+            )],
+            "tool_calls",
+            1,
+            1,
+            2,
+            0,
+            1.0,
+        )
+
+    def finalize_tool_result(self, call_id: str, result: dict) -> None:
+        assert call_id == "provisional-status-call"
+        assert result == {"accepted": True}
+        self.finalized = True
 
     def snapshot(self) -> dict:
         return {"session_id": self.session_id}
@@ -571,6 +602,7 @@ class _ProvisionalAutomationSession:
         self.offered: list[list[str]] = []
         self.submitted_payload: dict | None = None
         self.submitted_session_id = ""
+        self.returned_action_executed: bool | None = None
         self.finalized = False
 
     def next_turn(self, prompt: str, *, tools: list[object]) -> AgentTurn:
@@ -611,11 +643,17 @@ class _ProvisionalAutomationSession:
         )
 
     def submit_tool_result(
-        self, call_id: str, result: dict, *, tools: list[object],
+        self,
+        call_id: str,
+        result: dict,
+        *,
+        tools: list[object],
+        returned_action_executed: bool = False,
     ) -> AgentTurn:
         assert call_id == "provisional-automation-call"
         self.submitted_session_id = self.session_id
         self.submitted_payload = dict(result)
+        self.returned_action_executed = returned_action_executed
         self.offered.append([item.name for item in tools])
         return AgentTurn(
             "",
@@ -757,6 +795,7 @@ def test_provisional_scaffold_session_has_no_learned_invocation_tool() -> None:
     )
     binding_store = RuntimeBindingStore()
     ctx = SimpleNamespace(
+        harness=FakeHarness(),
         binding_store=binding_store,
         world_revision=0,
         trace_builder=_trace_builder(),
@@ -843,10 +882,24 @@ def test_provisional_environment_followup_audits_the_final_atomic_result() -> No
         payload = {
             "accepted": False,
             "observation": "rejected",
-            "done": True,
+            "done": False,
             "won": False,
             "new_revision": context.world_revision,
         }
+        context.trace_builder.trace.environment_actions.append(
+            EnvironmentActionRecord(
+                action_id="r000_a001",
+                revision=context.world_revision,
+                action_type="GO_TO",
+                arguments={"destination": "unknown"},
+                accepted=False,
+                observation="rejected",
+                done=False,
+                won=False,
+                new_revision=context.world_revision,
+                span_id="runtime-provisional-test",
+            )
+        )
         executor._augment_runtime_payload(
             payload,
             context,
@@ -860,6 +913,7 @@ def test_provisional_environment_followup_audits_the_final_atomic_result() -> No
     executor._execute_environment_call = execute_environment
     trace_builder = _trace_builder()
     ctx = SimpleNamespace(
+        harness=FakeHarness(),
         binding_store=SimpleNamespace(
             resolve_occurrence_specs=lambda *_args, **_kwargs: None,
             runtime_prompt_projection=lambda *_args, **_kwargs: {
@@ -910,6 +964,8 @@ def test_provisional_environment_followup_audits_the_final_atomic_result() -> No
 
     assert len(seen_environment_atomics) == 1
     assert session.final_payload is not None
+    assert session.returned_action_executed is True
+    assert session.finalized is True
     assert session.final_payload["atomic_validation"]["failure_code"] == (
         "environment_action_rejected"
     )
@@ -953,6 +1009,7 @@ def test_provisional_automation_followup_preserves_result_and_projection(
     r3_events: list[tuple[str, str, dict]] = []
     trace_builder = _trace_builder()
     ctx = SimpleNamespace(
+        harness=FakeHarness(),
         binding_store=binding_store,
         world_revision=0,
         trace_builder=trace_builder,
@@ -1001,6 +1058,7 @@ def test_provisional_automation_followup_preserves_result_and_projection(
     )
 
     assert session.submitted_session_id == session.session_id
+    assert session.returned_action_executed is False
     assert session.finalized is True
     assert len(session.offered) == 2
     assert session.submitted_payload is not None
