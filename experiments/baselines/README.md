@@ -109,6 +109,52 @@ export PYTHONPATH="$PWD/src:$PWD"
     --config configs/baselines/b3_skillopt.yaml
 ```
 
+### B3 legacy controller-code 单项豁免恢复
+
+仅当既有三 seed Test 在创建输出目录之前全部只因
+`controller_code` 失败时，才允许使用该恢复入口。它会暂时切换到 campaign
+锁定的 controller commit，通过仓库 `runs/` 下的审计 bootstrap 只替换旧
+`run_method.hash_code(REPO_ROOT)` 的两次返回值；commit、clean tree、Python、
+SkillOpt runtime、模型、manifest、ALFWorld gamefile 和 Frozen digest 仍由旧正式
+runner 原样校验。恢复结束或被中断后，控制器会切回启动时的 branch/commit。
+
+先执行不调用 API 的 bootstrap-authority preflight。它只证明受控豁免、旧
+checkout、Frozen 和 exactly-once 边界可用；模型、运行时、ALFWorld 与完整
+manifest preflight 仍由随后启动的旧正式 runner 执行。只有该检查返回
+`passed: true` 才启动三个并行 Test134：
+
+```bash
+set -euo pipefail
+REPO=/mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
+B3_PY="$REPO/.venv_b3_skillopt/bin/python"
+CAMPAIGN="$REPO/runs/baselines/protocol_faithful_matched_train_v2/b3_skillopt/formal_3seed_authorityfix_20260912T052314Z"
+FAILED="$CAMPAIGN/recovered_test_20260912T212811Z"
+
+cd "$REPO"
+set -a
+. /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env
+set +a
+export ALFWORLD_DATA=/home/yangchengyu/.cache/alfworld
+export PYTHONPATH="$REPO/src:$REPO"
+export PYTHONUNBUFFERED=1
+
+"$B3_PY" -m experiments.baselines.recover_b3_test \
+    --campaign-root "$CAMPAIGN" \
+    --failed-attempt-root "$FAILED" \
+    --preflight-only \
+    --acknowledge-controller-code-waiver
+
+"$B3_PY" -m experiments.baselines.recover_b3_test \
+    --campaign-root "$CAMPAIGN" \
+    --failed-attempt-root "$FAILED" \
+    --acknowledge-controller-code-waiver
+```
+
+该入口不执行 Train，也不自动重试任何已经生成 Test `run_manifest.json` 的
+seed。结果目录会包含中央 waiver receipt、每 seed application receipt、
+`campaign_report.json` 和 `recovered_test_report.json`；报告身份明确标记为
+`accepted_with_controller_code_waiver`。
+
 ## B4 SkillGen-S
 
 ### Supervision 前置条件
