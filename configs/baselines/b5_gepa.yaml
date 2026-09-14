@@ -3,8 +3,8 @@ schema_version: 1
 
 method: b5_gepa
 protocol_revision: '2.3'
-model:
-  provider_completion_cap: 65536
+# Inherit the complete frozen model mapping (including cap=65536) from common.yaml.
+# A partial model mapping would replace provider/base_url/model in the shallow merge.
 protocol_profile: formal_v2
 experiment_kind: formal
 campaign_id: protocol_faithful_matched_train_v2

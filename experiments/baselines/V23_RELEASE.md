@@ -4,7 +4,7 @@ The v2.3 implementation changes accounting/preflight/reporting only. EmbodiSkill
 and GEPA upstream trees, frozen dataset manifests, method budgets, B3 completed
 artifacts and Ours are unchanged. Formal training is not part of this validation.
 
-Offline validation: 311 tests passed with pinned SkillOpt on the B5 environment's
+Offline validation: 312 tests passed with pinned SkillOpt on the B5 environment's
 import path; four heavy B4 cases are covered separately in the B4 environment
 (23 tests passed). The real upstream readonly test compares pre-v2.3 and v2.3
 transport with identical scripted responses: retrieval/solver prompts, actions,
@@ -28,6 +28,14 @@ directory. `launch_gepa.sh formal PREPARED_OUTPUT` revalidates source/config,
 smoke/load receipts, worker counts and evidence hashes before any Train process.
 A changed/missing/failed receipt is rejected. Formal cannot silently downgrade
 or upgrade the locked cap. B4 and B5 cannot run simultaneously.
+
+The first v2.3 live qualification also exposed an incomplete formal `model`
+override: the existing shallow config merge discarded provider/base URL/model
+when the method YAML specified only the cap. Formal now inherits the complete
+frozen common model mapping. Both campaign and controller config paths are
+covered by a regression; model parameters and transport cap are unchanged.
+The earlier smoke artifacts are retained, and final receipts must come from the
+new committed source, including a rerun of B4 because its code hash covers B5.
 
 B3 historical 16384 transport is disclosed in the read-only common paper report's
 `methods.b3_skillopt.comparability_note`. Old success rows, task pairing and token

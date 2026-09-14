@@ -209,3 +209,17 @@ def test_guard_does_not_downgrade_for_provider_failure(tmp_path):
     (out/"provider_load_probe.json").write_text(json.dumps(dict(passed=False,memory_load_report=str(mp))))
     with pytest.raises(RuntimeError,match="not a memory fallback"):
         q.guarded_probe_runner(lambda *a,**kw:1)(["--output-dir",str(out),"--concurrency","48"])
+
+
+def test_checked_in_formal_config_keeps_full_model_identity_in_both_entrypoints(tmp_path):
+    from experiments.baselines.b5_gepa.driver import load_lock_and_driver
+    from experiments.baselines.common.model_config import ModelConfig
+    repo=Path(__file__).resolve().parents[3]
+    config=repo/"configs/baselines/b5_gepa.yaml"
+    spec=campaign.GEPACampaignSpec("b5_gepa",(42,43,44),config,config,config,config,tmp_path,Path(sys.executable),repo)
+    _,driver=load_lock_and_driver(repo_root=repo,config_path=config)
+    merged=campaign._merged_config(spec)
+    assert merged==driver.config
+    model=ModelConfig.from_mapping(merged["model"])
+    model.validate_formal_identity()
+    assert merged["model"]["provider_completion_cap"]==65536
