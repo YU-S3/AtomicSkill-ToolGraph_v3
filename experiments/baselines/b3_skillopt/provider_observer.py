@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from experiments.baselines.common.provider_gate import CampaignProviderGate
+from experiments.baselines.common.reasoning_budget import response_evidence, DEFAULT_CAP, POLICY_VERSION
 
 
 class ObservedProviderFailure(RuntimeError):
@@ -304,6 +305,9 @@ class ProviderCallObserver:
                         observer._note_provider_boundary_failure(error)
                         raise error
                     kwargs["reasoning_effort"] = observer.reasoning_effort
+                    if observer.method == "b5_gepa":
+                        hint = int(kwargs.pop("max_completion_tokens", kwargs.get("max_tokens", DEFAULT_CAP)))
+                        kwargs["max_tokens"] = max(DEFAULT_CAP, hint)
                     gate_context = nullcontext(None)
                     if observer.campaign_gate is not None:
                         logical_call_id = str(
@@ -338,6 +342,9 @@ class ProviderCallObserver:
                                 diagnostics.setdefault("physical_usage", []).append({
                                     "prompt_tokens": None, "completion_tokens": None,
                                     "reasoning_tokens": None, "usage_status": "unavailable",
+                                    **({**response_evidence(None, cap=kwargs["max_tokens"], hint=hint),
+                                        "provider_attempt_id":uuid.uuid4().hex,
+                                        "logical_call_id":diagnostics["logical_call_id"]} if observer.method == "b5_gepa" else {}),
                                 })
                             raise
                         finally:
@@ -366,6 +373,9 @@ class ProviderCallObserver:
                         "reasoning_tokens": getattr(details, "reasoning_tokens", None),
                         "usage_status": "reported" if raw_usage is not None else "unavailable",
                         "request_id": request_id,
+                        **({**response_evidence(response, cap=kwargs["max_tokens"], hint=hint),
+                            "provider_attempt_id":uuid.uuid4().hex,
+                            "logical_call_id":diagnostics["logical_call_id"]} if observer.method == "b5_gepa" else {}),
                     })
                 if diagnostics is not None and request_id:
                     diagnostics.setdefault("provider_request_ids", []).append(request_id)
@@ -381,6 +391,21 @@ class ProviderCallObserver:
                     raise error
                 tool_calls = getattr(message, "tool_calls", None) or []
                 content = getattr(message, "content", None)
+                if observer.method == "b5_gepa":
+                    parser = None
+                    if str((diagnostics or {}).get("role")) == "target" and (diagnostics or {}).get("stage") != "provider_load_probe":
+                        parser = lambda text: bool(re.search(r"<action>\s*\S.*?</action>", text, flags=re.S))
+                    elif str((diagnostics or {}).get("stage")) == "gepa_reflection":
+                        from gepa.strategies.instruction_proposal import InstructionProposalSignature
+                        parser = lambda text: bool(InstructionProposalSignature.output_extractor(text)["new_instruction"].strip())
+                    evidence = response_evidence(response, cap=kwargs["max_tokens"], hint=hint, parser=parser)
+                    evidence["http_token_limit_field"] = "max_tokens"
+                    if diagnostics is not None:
+                        diagnostics["physical_usage"][-1].update(evidence)
+                    if evidence["budget_exhausted"]:
+                        error = _ProviderResponseError("COMPLETION_BUDGET_EXHAUSTED")
+                        observer._note_provider_boundary_failure(error)
+                        raise error
                 if diagnostics is not None and diagnostics.get("role") == "target":
                     diagnostics["model_action_parse_failure"] = not bool(
                         isinstance(content, str) and re.search(r"<action>\s*\S.*?</action>", content, flags=re.S)
@@ -942,8 +967,17 @@ class ProviderCallObserver:
             payload["total_tokens"] = payload["prompt_tokens"] + payload["completion_tokens"]
             payload["billed_usage"] = billed
             payload["physical_attempt_usage"] = physical
-            payload["usage_complete"] = all(row["usage_status"] == "reported" for row in physical)
+            payload["usage_complete"] = all(row["usage_status"] in {"reported", "known"} for row in physical)
             payload["reasoning_tokens_status"] = "reported" if billed["reasoning_tokens"] is not None else "unavailable"
+            if self.method == "b5_gepa":
+                values = [row.get("visible_completion_tokens") for row in physical]
+                payload["visible_completion_tokens"] = sum(values) if all(isinstance(v, int) for v in values) else None
+                payload["budget_exhaustion_count"] = sum(bool(row.get("budget_exhausted")) for row in physical)
+                payload["finish_reason_length_count"] = sum(row.get("finish_reason") == "length" for row in physical)
+                payload["budget_policy_version"] = POLICY_VERSION
+                for field in ("method_output_token_hint", "provider_completion_cap", "finish_reason",
+                              "content_present", "content_length_chars", "content_parse_success", "usage_status"):
+                    payload[field] = physical[-1].get(field)
         if str(payload.get("role")) == "target":
             payload["model_action_parse_failure"] = bool(diagnostics.get("model_action_parse_failure", False))
         with self._lock:

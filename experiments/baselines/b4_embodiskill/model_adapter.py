@@ -9,6 +9,8 @@ class MethodTransport:
     def __init__(self, client, output, *, readonly):
         self.client, self.output, self.readonly = client, output, readonly
         self.stage = "trajectory_condensation"
+        self.json_parser = None
+        self.action_parser = None
 
     @contextmanager
     def scope(self, stage):
@@ -32,13 +34,22 @@ class MethodTransport:
             raise RuntimeError(f"Forbidden evaluation learning call: {stage}")
         try:
             return self.client.chat(messages=rows, stage=stage, role=role,
-                max_tokens=max_tokens, temperature=temperature, stop=stop_strs)
+                method_output_token_hint=max_tokens, temperature=temperature, stop=stop_strs,
+                content_parser=self.json_parser if stage == "episode_reflection" or stage.startswith("manual_")
+                    else self.action_parser if role == "target" else None)
         except ProviderFailure as exc:
             # Upstream explicitly propagates this class; do not multiply its retries.
-            raise LLMRequestError(str(exc)) from exc
+            failure = LLMRequestError(str(exc))
+            failure.failure_kind = exc.failure_kind
+            failure.failure_code = getattr(exc, "failure_code", None)
+            raise failure from exc
 
 
 def instrument_method(skill, team, transport, output, *, readonly):
+    if transport is not None:
+        transport.json_parser = lambda text: isinstance(skill._parse_json_response(text), dict)
+    if team is not None and transport is not None:
+        transport.action_parser = team.env.process_action
     def wrap(owner, name, stage, forbidden=False):
         original = getattr(owner, name)
         @wraps(original)

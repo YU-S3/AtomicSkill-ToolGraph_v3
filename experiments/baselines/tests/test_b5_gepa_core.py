@@ -781,7 +781,7 @@ def test_optimize_call_uses_frozen_classic_arguments_and_smoke_budget(
     )
     monkeypatch.setattr(worker_module, "_collect_episodes", lambda root: [episode])
     monkeypatch.setattr(worker_module, "_validate_episode_action_evidence", lambda root: None)
-    events = SimpleNamespace(events=lambda: [{"event": "provider_call"}])
+    events = SimpleNamespace(events=lambda: [{"event": "provider_call", "role":"target"}])
     monkeypatch.setattr(worker_module, "_provider_event_view", lambda **kwargs: events)
     monkeypatch.setattr(
         worker_module,
@@ -865,7 +865,7 @@ def test_resume_reconciles_current_validation_sidecars_not_cumulative_full_val(
         "_validate_episodes",
         lambda episodes, **kwargs: {"train": 6, "validation": 24},
     )
-    events = SimpleNamespace(events=lambda: [{"event": "provider_call"}])
+    events = SimpleNamespace(events=lambda: [{"event": "provider_call", "role":"target"}])
     monkeypatch.setattr(worker_module, "_provider_event_view", lambda **kwargs: events)
     monkeypatch.setattr(
         worker_module,

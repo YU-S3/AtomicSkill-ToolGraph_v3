@@ -53,7 +53,7 @@ SkillOpt worker              EmbodiSkill worker/Python3.12 GEPA worker/Python 3.
   `{"skill_text": ...}`。GEPA proposal/iteration/candidate state transition 串行，
   只并行同一 evaluation batch 内彼此独立的 ALFWorld episode；Val-24 只用于
   candidate scoring，不进入 reflection dataset，冻结后 Test-134 不构造 optimizer。
-- B4/B5 正式 campaign 内 seeds42/43/44 并行，seed 内知识更新串行；每 seed 独立 evaluation 最多16路，共用global48 gate。不同方法不能重叠。B3 已完成的正式结果冻结，不重跑。
+- B4/B5 正式 campaign 内 seeds42/43/44 并行，seed 内知识更新串行。v2.2 将 B4 固定为每 seed 8 路、global24；B5 保留 global48/36/24 建锁前探针。不同方法不能重叠。B3 已完成的正式结果冻结，不重跑。
 
 ## B3 命令（§36）
 
@@ -149,10 +149,12 @@ seed。结果目录会包含中央 waiver receipt、每 seed application receipt
 `campaign_report.json` 和 `recovered_test_report.json`；报告身份明确标记为
 `accepted_with_controller_code_waiver`。
 
-## B4 EmbodiSkill (v2.1)
+## B4 EmbodiSkill (v2.2)
 
-当前真实 API smoke 尚未放行：high reasoning 在 512-token 上限内未输出动作。
-证据、已通过检查及待确认预算调整见 [验证记录](B4_EMBODISKILL_VALIDATION.md)。
+v2.2 将 upstream 512/2048 保留为正文输出 hint，独立的 provider 总 completion cap
+固定为 65536，模型保持 deepseek-v4-flash + high。DeepSeek HTTP 使用 `max_tokens=65536`。
+只消费 content；reasoning 只计费和审计。预算耗尽且正文不可用时立即上抛协议错误，
+保留真实 usage，不做相同预算的重试。实际放行证据见 [验证记录](B4_EMBODISKILL_VALIDATION.md)。
 
 直接调用 air-embodied-brain/EmbodiSkill commit
 `760126030eab1d33ec6a6f30988f0f1fb58df3a7`。不再需要 subgoal JSONL。
@@ -176,16 +178,19 @@ cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
 cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 bash experiments/baselines/launch_embodiskill.sh smoke "runs/baselines/b4_smoke_$STAMP" &&
-bash experiments/baselines/launch_embodiskill.sh formal "runs/baselines/b4_formal_$STAMP"
+bash experiments/baselines/launch_embodiskill.sh formal "runs/baselines/b4_formal_$STAMP" \
+  "runs/baselines/b4_smoke_$STAMP/smoke_qualification.json"
 ```
 
 入口自动从 v3/.env 读取 MODEL_API_KEY，API key 不进入 job JSON。
 smoke 是 2 Train + 2 Val + 2 Test（固定 smoke manifests 的前两题），保留正式
-max_trials 和全部方法参数，检查真实 reflection/revision/version advance，
+max_trials 和全部方法参数，另在隔离状态上运行 recovery/diagnosis live role probe。
+检查真实 reflection/revision/version advance、各阶段正文解析及计费完整性，
 不把 smoke 正确率作为正式指标。formal 固定 seeds42/43/44 并行；
-Train 和手册更新在每 seed 内严格串行。正式创建前实际加载
-ALFWorld+Chroma+embedding 并调用模型做并发/内存验证，
-只能在建锁前从48降至36或24；不能安全容纳24则拒绝启动。
+Train 和手册更新在每 seed 内严格串行。当前机器已验证 24 个
+ALFWorld+Chroma+embedding worker，正式锁固定 3×8，不再每轮尝试 48/36。
+需要复查负载时可以单独运行 `launch_embodiskill.sh load-probe UNIQUE_OUTPUT`。
+formal 必须提供同源码、配置、环境和预算版本的成功 smoke receipt，旧版证据不能放行。
 
 恢复已有 formal（失败 attempt 保留计费证据，仅重做尚未提交的状态边界）：
 
@@ -285,8 +290,8 @@ export PYTHONPATH="$REPO/src:$REPO"
 ```
 
 正式 B4/B5 controller 会拒绝 dirty `experiments/`/`configs/` source tree。正式
-运行前只需形成一个本地 clean commit 作为 provenance authority；本轮修改不推送
-GitHub，也不需要 PR。一个 method 的 campaign 完成并释放
+运行前需要一个本地 clean commit 作为 provenance authority；v2.2 按要求推送
+GitHub 的 baseline-skillopt 分支，不创建 PR。一个 method 的 campaign 完成并释放
 `runs/baselines/.formal_method_campaign.lock` 后，才能启动另一个 method。
 
 每个 phase 使用不可复用的唯一目录。B3 主要产物包括：

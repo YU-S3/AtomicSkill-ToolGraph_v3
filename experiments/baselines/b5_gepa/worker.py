@@ -836,6 +836,9 @@ def _run_optimization(
     ):
         raise RuntimeError("GEPA optimization lacks target or reflection provider usage")
     usage.save(phase_dir / "usage.json")
+    from experiments.baselines.common.reasoning_budget import summarize_budget_events
+    from experiments.baselines.b4_embodiskill.state import write_json
+    write_json(phase_dir / "reasoning_budget_report.json", summarize_budget_events(provider_events.events()))
     return {
         "output_dir": str(Path(wire.output_dir).resolve()),
         "episodes": {
@@ -943,6 +946,9 @@ def _run_frozen_evaluation(
     if usage.evolution.calls != 0:
         raise RuntimeError("frozen GEPA evaluation invoked the optimizer/reflection LM")
     usage.save(phase_dir / "usage.json")
+    from experiments.baselines.common.reasoning_budget import summarize_budget_events
+    from experiments.baselines.b4_embodiskill.state import write_json
+    write_json(phase_dir / "reasoning_budget_report.json", summarize_budget_events(provider_events.events()))
     final_digest = digest_directory(frozen.root)
     if final_digest != before:
         raise WorkerPhaseError("frozen GEPA artifact changed while finalizing evidence")

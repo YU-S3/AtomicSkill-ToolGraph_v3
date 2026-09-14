@@ -22,18 +22,21 @@ from experiments.baselines.common.artifact_digest import digest_directory
 from experiments.baselines.common.freeze import freeze_files, FrozenArtifact, assert_frozen_unchanged
 from experiments.baselines.common.schema import CommonEpisodeRecord
 from experiments.baselines.common.post_evaluator import TaskRow, summarize_rows, write_rows_jsonl, write_evaluated_episodes_jsonl
+from experiments.baselines.common.reasoning_budget import policy_metadata
 
 
 def usage(events):
     result = dict(physical_attempts=len(events), logical_calls=len({e["logical_call_id"] for e in events}),
         provider_retries=sum(e["attempt"] > 1 for e in events),
         failed_attempts=sum(e["status"] != "succeeded" for e in events),
-        usage_complete=all(e.get("usage_status") == "reported" for e in events),
+        usage_complete=all(e.get("usage_status") in {"reported", "known"} for e in events),
+        budget_exhaustion_count=sum(bool(e.get("budget_exhausted")) for e in events),
+        finish_reason_length_count=sum(e.get("finish_reason") == "length" for e in events),
         api_cost=None, api_cost_unpriced=True)
     for role in ("target", "evolution"):
         rows = [e for e in events if e["role"] == role]
         bucket = {"calls": len({e["logical_call_id"] for e in rows}), "physical_attempts": len(rows)}
-        for key in ("prompt_tokens", "completion_tokens", "reasoning_tokens"):
+        for key in ("prompt_tokens", "completion_tokens", "reasoning_tokens", "visible_completion_tokens"):
             values = [e.get(key) for e in rows]
             bucket[key] = sum(values) if all(isinstance(v, int) and v >= 0 for v in values) else None
             bucket[key + "_known_subtotal"] = sum(v for v in values if isinstance(v, int) and v >= 0)
@@ -111,14 +114,18 @@ class SeedController:
     def run(self):
         train, val, test = self.manifests
         cfg = self.config
-        manifest = dict(protocol="protocol-faithful-matched-train-v2.1", method=METHOD_ID,
+        manifest = dict(protocol="protocol-faithful-matched-train-v2.2", method=METHOD_ID,
             run_seed=self.seed, controller_commit=self.spec["git_state"]["commit"],
             external_repo=self.spec["source_receipt"]["repo"],
             external_commit=self.spec["source_receipt"]["declared_commit"],
             train_manifest_hash=train.digest, validation_manifest_hash=val.digest, test_manifest_hash=test.digest,
             alfworld_package_version=self.spec["identity"]["dependencies"]["distributions"]["alfworld"],
             alfworld_data_signature=hashlib.sha256("".join(m.digest for m in self.manifests).encode()).hexdigest(),
-            model=cfg["model"]["model"], reasoning_effort=cfg["model"]["reasoning_effort"],
+            model=cfg["model"]["model"], **policy_metadata(cfg["model"]),
+            upstream_output_hints=cfg["upstream_output_hints"],
+            b4_workers_per_seed=cfg["parallel"]["episode_workers_per_seed"],
+            b4_seed_lanes=cfg["parallel"]["seed_lanes"],
+            b4_campaign_provider_max_inflight=cfg["parallel"]["campaign_provider_max_inflight"],
             max_environment_actions=cfg["max_environment_actions"], **cfg["parallel"],
             method_specific_alfworld_prior=True, num_epochs=cfg["train"]["num_epochs"],
             train_chunk_size=cfg["train"]["train_chunk_size"], validation_policy="epoch_snapshot_read_only",
@@ -135,6 +142,8 @@ class SeedController:
         test_tasks = test.tasks[:cfg["selection"].get("test_size", len(test.tasks))]
         chunks = train_chunks(train_tasks, seed=self.seed, epochs=cfg["train"]["num_epochs"],
                               chunk_size=cfg["train"]["train_chunk_size"])
+        if cfg["experiment_kind"] == "smoke":
+            self.operation("live_role_probe", "role_probe", task=train_tasks[0])
         current, best, best_rate, best_epoch = None, None, -1., None
         trains, validations, revisions, history = [], [], [], []
         for epoch, chunk in enumerate(chunks):
@@ -206,6 +215,9 @@ class SeedController:
         summary["evolution_revision_usage"] = usage([e for r in revisions for e in read_jsonl(Path(r["attempt"]) / "provider_calls.jsonl")])
         summary["smoke_checks"] = smoke_checks(trains, revisions, validations, tests)
         if cfg["experiment_kind"] == "smoke":
+            qualification = stage_qualification(events)
+            write_json(self.root / "stage_qualification.json", qualification)
+            summary["smoke_checks"]["role_complete_budget_qualification"] = qualification["passed"]
             summary["passed"] = all(summary["smoke_checks"].values())
         write_json(self.root / "summary.json", summary)
         if summary["passed"]:
@@ -242,6 +254,7 @@ class SeedController:
             record.set_posthoc_outcome(contract_consistency=flags.task_contract_success)
             for role in ("target", "evolution"):
                 setattr(record, role+"_llm_calls", cost[role]["calls"])
+                setattr(record, role+"_visible_completion_tokens", cost[role]["visible_completion_tokens"])
                 for key in ("prompt_tokens", "completion_tokens", "reasoning_tokens"):
                     # Existing common row schema is integer-only. Keep explicit completeness
                     # and null authoritative totals alongside known subtotals, never claim exact zero.
@@ -261,6 +274,26 @@ class SeedController:
         result = summarize_rows(rows, task_types=sorted({r.task_type for r in records}))
         write_json(out / "summary.json", result)
         return result
+
+
+def stage_qualification(events):
+    required = ("solver", "stuck_recovery", "trajectory_condensation", "failure_diagnosis",
+                "episode_reflection", "manual_revision")
+    stages = {}
+    for stage in required:
+        rows = [e for e in events if e["stage"] == stage or
+                (stage == "manual_revision" and e["stage"].startswith("manual_"))]
+        stages[stage] = dict(passed=bool(rows) and any(e.get("content_parse_success") and
+            e["status"] == "succeeded" for e in rows), calls=rows)
+    complete = all(e.get("usage_status") == "known" for e in events)
+    attempt_ids = [e.get("provider_attempt_id") for e in events]
+    complete = complete and all(attempt_ids) and len(set(attempt_ids)) == len(events)
+    budget_ok = all(not e.get("budget_exhausted") and
+        not (e.get("finish_reason") == "length" and not e.get("content_parse_success"))
+        and e.get("provider_completion_cap") == 65536 and e.get("http_token_limit_field") == "max_tokens" for e in events)
+    return dict(passed=all(s["passed"] for s in stages.values()) and complete and budget_ok,
+        stages=stages, all_billed_usage_known=complete, no_unusable_truncation=budget_ok,
+        response_consumption="content_only", reasoning_content_used_by_method=False)
 
 
 def smoke_checks(trains, revisions, validations, tests):

@@ -94,11 +94,13 @@ def test_missing_usage_is_null_not_zero():
     assert not cost["usage_complete"]
 
 
-def test_frozen_formal_config_and_allowed_parallel_fallback():
-    for w in (8,12,16):
+def test_frozen_formal_config_and_fixed_current_machine_parallelism():
+    validate_config(load_config(False))
+    for w in (12,16):
         cfg = load_config(False)
         cfg["parallel"].update(episode_workers_per_seed=w,test_workers_per_seed=w,campaign_provider_max_inflight=3*w)
-        validate_config(cfg)
+        with pytest.raises(ValueError, match="3 x 8"):
+            validate_config(cfg)
     cfg["parallel"]["seed_lanes"] = 1
     with pytest.raises(ValueError):
         validate_config(cfg)
@@ -167,7 +169,7 @@ def test_training_chunk_revision_selection_and_freeze(tmp_path, monkeypatch):
     monkeypatch.setattr(controller,"report",lambda phase,receipts:{"tasks":len(receipts)})
     monkeypatch.setattr("experiments.baselines.b4_embodiskill.controller.smoke_checks",lambda *args:{"simulated":True})
     result = controller.run()
-    assert [p for p,e,t in operations[:5]] == ["train","train","revision","validation","validation"]
+    assert [p for p,e,t in operations[:6]] == ["role_probe","train","train","revision","validation","validation"]
     assert len({t for p,e,t in operations if p=="train"}) == 4
     assert result["best_epoch"] == 0  # Equal Val score must keep the earlier state.
     assert result["frozen_unchanged"]
@@ -245,6 +247,20 @@ def test_pinned_core_train_revision_reload_readonly_with_scripted_provider(tmp_p
     assert readonly_skill.skill_size == 1
     assert readonly_skill.get_active_manual_data()["version"] == version+1
     assert digest_directory(state) == before
+    # Typed exhaustion must escape the real TeamSolver without its three empty-action retries.
+    from agentkit.llm import LLMRequestError
+    from experiments.baselines.common.model_client import CompletionBudgetExhausted
+    calls = []
+    def exhausted(**kw):
+        calls.append(kw)
+        raise CompletionBudgetExhausted("COMPLETION_BUDGET_EXHAUSTED")
+    failed_skill,failed_team=build(tmp_path/"budget_failure/state",False)
+    failed_skill.llm_model.client.chat=exhausted
+    with pytest.raises(LLMRequestError) as failure:
+        failed_team.schedule(task,update_skill=True)
+    assert failure.value.failure_kind == "protocol_failure"
+    assert failure.value.failure_code == "COMPLETION_BUDGET_EXHAUSTED"
+    assert len(calls) == 1 and failed_skill.skill_size == 0
 
 
 @pytest.mark.parametrize("done,won", [(True, False), (True, True), (False, False)])

@@ -282,6 +282,10 @@ def _write_run_identity(
         "resume": dict(ctx.resume) if ctx.resume is not None else None,
         "model": ctx.model_config.model,
         "model_identity": ctx.model_config.to_wire(),
+        "provider_completion_cap": 65536,
+        "response_consumption": "content_only",
+        "reasoning_content_used_by_method": False,
+        "budget_policy_version": "reasoning-aware-v2.2",
         "reasoning_effort": ctx.model_config.reasoning_effort,
         "max_environment_actions": ctx.max_environment_actions,
         "episode_workers": int(

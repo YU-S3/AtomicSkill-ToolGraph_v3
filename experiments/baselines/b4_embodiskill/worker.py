@@ -82,7 +82,11 @@ def run(job):
                 for agent in team.agents_team.values():
                     agent.add_task_instruction(get_dataset_system_prompt("alfworld", config))
                 instrument_method(skill, team, transport, output, readonly=readonly)
-                reward, won, trajectory = team.schedule(config, update_skill=not readonly)
+                if phase == "role_probe":
+                    trajectory = live_role_probe(team, skill, env, config)
+                    won = env.won
+                else:
+                    reward, won, trajectory = team.schedule(config, update_skill=not readonly)
                 if bool(won) != env.won:
                     raise RuntimeError("Upstream success label differs from official won")
                 result.update(task=task.to_dict(), official_success=env.won, done=env.done,
@@ -100,6 +104,36 @@ def run(job):
     return result
 
 
+def live_role_probe(team, skill, env, config):
+    """Exercise official recovery and diagnosis on an isolated partial episode.
+
+    This is transport qualification, not a training example or task-failure label.
+    No save/reflection/manual hook is called and its state is never reused.
+    """
+    from tasks.workflow.format import format_task_prompt_with_skills
+    from agentkit.skill.common import AgentMessage
+    env.reset()
+    skill.init_task_context(config["task_main"], config["task_description"])
+    agent = team.get_agent(team.ground_truth_name)
+    prompt = format_task_prompt_with_skills(retrieved_skills=[],
+        task_description=skill.summarize(), skills=[], few_shots=config["few_shots"])
+    action = env.process_action(agent.response(prompt, team.reasoning_config))
+    if not action:
+        raise RuntimeError("Live recovery probe returned no consumable action")
+    skill.add_agent_node(AgentMessage(agent_name=agent.name,
+        system_instruction=agent.system_instruction, user_instruction=prompt, message=action),
+        upstream_agent_ids=[])
+    observation, reward, done = env.step(action)
+    skill.move_skill_state(action, observation, reward=reward)
+    context = skill.current_task_context
+    context.add_extra_field("clean_traj", f"> {action}\n{observation}\n")
+    diagnosis = skill._detect_mistakes(context)
+    if not diagnosis.strip():
+        raise RuntimeError("Live diagnosis probe returned no content")
+    return dict(probe_kind="independent_live_role", partial_episode=True,
+        counted_as_train=False, recovery_action=action, diagnosis=diagnosis)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--job", required=True)
@@ -111,7 +145,8 @@ def main():
     except Exception as exc:
         infrastructure = isinstance(exc, (OSError, TimeoutError, ImportError)) or type(exc).__name__ in {"LLMRequestError", "ProviderFailure"}
         write_json(Path(job["output"]) / "rollout_failure.json", dict(
-            failure_kind="infrastructure_failure" if infrastructure else "protocol_failure", error_type=type(exc).__name__,
+            failure_kind=getattr(exc, "failure_kind", "infrastructure_failure" if infrastructure else "protocol_failure"),
+            failure_code=getattr(exc, "failure_code", None), error_type=type(exc).__name__,
             error=sanitize_error_text(exc), traceback=sanitize_error_text(traceback.format_exc()),
             task_id=job.get("task", {}).get("task_id"), phase=job["phase"]))
         return 1

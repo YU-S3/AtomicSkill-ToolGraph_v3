@@ -359,7 +359,7 @@ def build_campaign_lock(
             "enabled": True,
             "concurrency": 48,
             "requests": 96,
-            "max_completion_tokens": 256,
+            "max_completion_tokens": 65536,
             "reasoning_effort": "high",
         },
         "provider probe",
@@ -371,6 +371,8 @@ def build_campaign_lock(
     )
 
     model = ModelConfig.from_mapping(dict(config.get("model") or {}))
+    if config.get("model", {}).get("provider_completion_cap") != 65536:
+        raise ValueError("B5 v2.2 requires fixed provider_completion_cap=65536")
     model.validate_formal_identity()
     model.require_api_key()
     configured_python = resolve_formal_python(
@@ -473,6 +475,10 @@ def build_campaign_lock(
         "initial_skill_sha256": initial_digest,
         "model": model.model,
         "model_identity": model.to_wire(),
+        "provider_completion_cap": 65536,
+        "response_consumption": "content_only",
+        "reasoning_content_used_by_method": False,
+        "budget_policy_version": "reasoning-aware-v2.2",
         "reasoning_effort": model.reasoning_effort,
         "seed_lanes": 3,
         "campaign_provider_max_inflight": 48,

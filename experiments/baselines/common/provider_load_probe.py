@@ -188,6 +188,7 @@ def _write_json_exclusive(path: Path, payload: dict[str, Any]) -> None:
 
 def run_provider_load_probe(
     *,
+    method: str = "b3_skillopt",
     output_dir: str | Path,
     campaign_gate: CampaignProviderGate,
     model: str,
@@ -233,7 +234,7 @@ def run_provider_load_probe(
 
     observer = install_provider_observer(
         output_path=events_path,
-        method="b3_skillopt",
+        method=method,
         phase="provider_load_probe",
         model=str(model),
         reasoning_effort=str(reasoning_effort),
@@ -448,6 +449,7 @@ def _bind_skillopt_source(root: str | Path) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--method", choices=("b3_skillopt", "b5_gepa"), default="b3_skillopt")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--gate-dir", required=True)
     parser.add_argument("--campaign-id", required=True)
@@ -503,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
         max_inflight=args.max_inflight,
     )
     report = run_provider_load_probe(
+        method=args.method,
         output_dir=args.output_dir,
         campaign_gate=gate,
         model=args.model,

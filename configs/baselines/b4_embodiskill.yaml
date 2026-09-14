@@ -1,7 +1,20 @@
 schema_version: 1
 method: b4_embodiskill
 protocol_profile: formal_v2
-protocol_revision: '2.1'
+protocol_revision: '2.2'
+response_policy:
+  consumable_payload: content_only
+  reasoning_content_used_by_method: false
+  count_reasoning_tokens_in_cost: true
+  fail_fast_on_budget_exhaustion: true
+upstream_output_hints:
+  solver: 512
+  stuck_recovery: 512
+  trajectory_condensation: 512
+  failure_diagnosis: 512
+  episode_reflection: 512
+  manual_revision: 2048
+  manual_refactor: 2048
 experiment_kind: formal
 worker_python: .venv_b4_embodiskill/bin/python
 train:
@@ -32,12 +45,12 @@ selection:
   tie_policy: keep_earlier_best
 parallel:
   seed_lanes: 3
-  episode_workers_per_seed: 16
-  test_workers_per_seed: 16
-  campaign_provider_max_inflight: 48
+  episode_workers_per_seed: 8
+  test_workers_per_seed: 8
+  campaign_provider_max_inflight: 24
   mp_start_method: spawn
 provider_transport:
   sdk_max_retries: 0
   application_retry_limit: 5
   retry_delays_seconds: [2, 5, 10, 20]
-  completion_budget_authority: upstream_requested
+  completion_budget_authority: reasoning-aware-v2.2

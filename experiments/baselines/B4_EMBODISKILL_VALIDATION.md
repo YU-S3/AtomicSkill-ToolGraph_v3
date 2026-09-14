@@ -1,6 +1,6 @@
-# EmbodiSkill v2.1 integration validation — 2026-09-14
+# EmbodiSkill v2.2 integration validation — 2026-09-14
 
-Status: implemented locally; real end-to-end smoke is **not qualified**. No formal training has been started.
+Status: v2.2 implementation and offline regressions completed; final real-API qualification is in progress. No formal training has been started.
 
 ## Implementation
 
@@ -47,7 +47,15 @@ Evidence is under:
 
 Files: `provider_calls.jsonl`, `model_responses.jsonl`, `rollout_failure.json`, `worker.log`. These original failure artifacts have been retained.
 
-The frozen design §21.3 explicitly fixes reflection to 512 tokens and manual revision to 2048; the upstream default Solver/condensation calls also use 512. DeepSeek's completion allowance includes reasoning tokens. Increasing the transport allowance requires an explicit B4 protocol decision, not an unrecorded workaround. An allowance of 16384 for B4 was proposed to the user and has **not** been applied.
+The v2.2 amendment supersedes that transport mapping. Solver/reflection hints remain 512 and revision hints remain 2048; the fixed provider completion cap is 65536. DeepSeek's documented HTTP field is `max_tokens`, so requests send `max_tokens=65536`, independently of those upstream hints. Only `content` is consumed; reasoning usage remains billed. A length-truncated, unusable response near the cap raises `COMPLETION_BUDGET_EXHAUSTED`, propagated as upstream `LLMRequestError`, with no same-cap retry. Non-length empty responses retain their original retry semantics.
+
+B5 target/reflection transport also has this independent allowance; its 16384 upstream values are hints. Its provider load probe uses 65536. B3's upstream request path is unchanged, protected by a regression test. Ours source/config and external EmbodiSkill core are unchanged.
+
+## Historical B3 audit (read-only)
+
+Scanned the persisted provider sidecars under `runs/baselines/protocol_faithful_matched_train_v2/b3_skillopt/formal_3seed_authorityfix_20260912T052314Z`, including recovery evidence: 64,434 event rows (17,965 / 23,231 / 23,238 for seeds 42 / 43 / 44). These are persisted rows, not a new billed-call total; historical copies may repeat a call.
+
+No scanned row reported failed status, completion >= 32,000, or completion equal to reasoning tokens. Historical events do not contain `finish_reason`, `content_present`, or `content_parse_success`, so this audit cannot retrospectively prove every response's finish/parse status. It found no evidence of the systematic reasoning-only exhaustion seen in B4. Original B3 results, configurations, costs and artifacts were retained; no B3 rerun was started.
 
 ## Concurrency verification
 
@@ -69,7 +77,8 @@ The launch script loads the existing `AtomicSkill-ToolGraph_v3/.env` and uses a 
 cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 bash experiments/baselines/launch_embodiskill.sh smoke "runs/baselines/b4_smoke_$STAMP" &&
-bash experiments/baselines/launch_embodiskill.sh formal "runs/baselines/b4_formal_$STAMP"
+bash experiments/baselines/launch_embodiskill.sh formal "runs/baselines/b4_formal_$STAMP" \
+  "runs/baselines/b4_smoke_$STAMP/smoke_qualification.json"
 ```
 
-This is the gated entry point, **not a claim that formal execution is currently cleared**. Do not remove the smoke condition while the budget blocker remains unresolved. The formal command also checks clean local source and actual allowed concurrency before creating its campaign lock.
+The formal command also checks clean local source and requires a matching successful `smoke_qualification.json` before creating its campaign lock. Fixed B4 concurrency is three seed lanes × eight workers (global24), based on the successful load evidence above.

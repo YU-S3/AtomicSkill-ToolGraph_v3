@@ -21,6 +21,7 @@ from experiments.baselines.common.source_identity import hash_code, sanitize_err
 from experiments.baselines.run_seed_campaign import _method_campaign_lease
 from experiments.baselines.b4_embodiskill.controller import SeedController, worker_environment, usage
 from experiments.baselines.b4_embodiskill.state import write_json, read_json, read_jsonl
+from experiments.baselines.common.reasoning_budget import policy_metadata, OUTPUT_HINTS, POLICY_VERSION
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -44,7 +45,7 @@ def load_config(smoke):
 
 def validate_config(cfg):
     expected_transport = dict(sdk_max_retries=0, application_retry_limit=5,
-        retry_delays_seconds=[2,5,10,20], completion_budget_authority="upstream_requested")
+        retry_delays_seconds=[2,5,10,20], completion_budget_authority=POLICY_VERSION)
     if cfg["provider_transport"] != expected_transport or cfg["max_environment_actions"] != 100:
         raise ValueError("Transport/action boundary differs from the frozen protocol")
     expected_method = dict(workflow="team",reasoning="io",successful_topk=1,failed_topk=0,
@@ -55,6 +56,12 @@ def validate_config(cfg):
         raise ValueError("EmbodiSkill method parameters differ from the frozen protocol")
     if cfg["model"]["model"] != "deepseek-v4-flash" or cfg["model"]["reasoning_effort"] != "high":
         raise ValueError("Model authority mismatch")
+    if cfg["model"].get("provider_completion_cap") != 65536 or cfg.get("protocol_revision") != "2.2":
+        raise ValueError("v2.2 requires a fixed 65536 completion cap")
+    if cfg.get("upstream_output_hints") != OUTPUT_HINTS or cfg.get("response_policy") != dict(
+        consumable_payload="content_only", reasoning_content_used_by_method=False,
+        count_reasoning_tokens_in_cost=True, fail_fast_on_budget_exhaustion=True):
+        raise ValueError("Reasoning budget/response policy mismatch")
     if cfg["experiment_kind"] == "formal":
         expected = dict(train=dict(num_epochs=4,train_size=120,train_chunk_size=30),
             selection=dict(validation_size=24,metric="official_won_rate",acceptance="strict_improvement",tie_policy="keep_earlier_best"))
@@ -63,8 +70,8 @@ def validate_config(cfg):
                 raise ValueError(f"Formal {section} differs from frozen protocol")
         parallel = cfg["parallel"]
         w = parallel["episode_workers_per_seed"]
-        if w not in (8, 12, 16) or parallel["seed_lanes"] != 3 or parallel["test_workers_per_seed"] != w or parallel["campaign_provider_max_inflight"] != 3*w:
-            raise ValueError("Formal parallelism must be 3 x 16/12/8, cap 48/36/24")
+        if w != 8 or parallel["seed_lanes"] != 3 or parallel["test_workers_per_seed"] != w or parallel["campaign_provider_max_inflight"] != 24:
+            raise ValueError("v2.2 formal parallelism must be 3 x 8, cap 24")
 
 
 def memory():
@@ -184,7 +191,13 @@ def run(args):
     spec = dict(repo=str(REPO), output=str(output), config=cfg,
         source=source["root"], source_receipt=source, worker_python=str(python), embedding_path=embedding_receipt["path"], git_state=git_state,
         alfworld_data=str(data), campaign_id=output.name, gate_dir=str(output / "provider_gate"),
-        provider_cap=cfg["parallel"]["campaign_provider_max_inflight"], identity=identity)
+        provider_cap=cfg["parallel"]["campaign_provider_max_inflight"], identity=identity,
+        **policy_metadata(cfg["model"]), upstream_output_hints=cfg["upstream_output_hints"],
+        b4_workers_per_seed=cfg["parallel"]["episode_workers_per_seed"],
+        b4_seed_lanes=cfg["parallel"]["seed_lanes"],
+        b4_campaign_provider_max_inflight=cfg["parallel"]["campaign_provider_max_inflight"])
+    if not args.smoke and not args.load_probe_only and not args.resume:
+        verify_smoke_qualification(args.smoke_receipt, identity, cfg)
     with _method_campaign_lease(REPO, owner="b4_"+output.name):
         if output.exists():
             if not args.resume:
@@ -197,9 +210,9 @@ def run(args):
         else:
             output.mkdir(parents=True)
             write_json(output / "preflight.json", dict(manifests=receipts, identity=identity))
-            if not args.smoke:
+            if args.load_probe_only:
                 passed = False
-                for workers in (16,12,8):
+                for workers in (8,):
                     cfg["parallel"].update(episode_workers_per_seed=workers,test_workers_per_seed=workers,
                         campaign_provider_max_inflight=3*workers)
                     spec["provider_cap"] = 3*workers
@@ -210,7 +223,7 @@ def run(args):
                 if not passed:
                     write_json(output / "load_probe_summary.json", dict(passed=False,
                         formal_train_started=False, failure="no_allowed_concurrency_passed",
-                        reports=[str(output/"load_probes"/f"workers_{n}"/"report.json") for n in (48,36,24)]))
+                        reports=[str(output/"load_probes"/"workers_24"/"report.json")]))
                     raise RuntimeError("No protocol-allowed concurrency passed real memory/provider load smoke; see load_probes")
             if args.load_probe_only:
                 report = dict(passed=True, load_probe_only=True, formal_train_started=False,
@@ -261,6 +274,11 @@ def run(args):
         from experiments.baselines.common.integrity import assert_no_secrets_on_disk
         assert_no_secrets_on_disk(output, api_key_env="MODEL_API_KEY")
         write_json(output / "campaign_summary.json", result)
+        if args.smoke and passed:
+            write_json(output / "smoke_qualification.json", dict(passed=True, identity=identity,
+                formal_config_hash=sha256_json(load_config(False)),
+                **policy_metadata(cfg["model"]), upstream_output_hints=cfg["upstream_output_hints"],
+                summary_sha256=sha256_json(result), output=str(output)))
         (output / "REPORT.md").write_text("# EmbodiSkill campaign\n\n"+
             f"Status: {'complete' if passed else 'failed/incomplete'}. Profile: {cfg['experiment_kind']}.\n\n"+
             "See campaign_summary.json, seed_*/{train,validation,test}/task_rows.jsonl and seed_*/attempts/ for auditable results.\n\n"+
@@ -269,11 +287,28 @@ def run(args):
         return 0 if passed else 1
 
 
+def verify_smoke_qualification(path, identity, cfg):
+    if not path:
+        raise ValueError("Formal requires --smoke-receipt from a passing v2.2 real smoke")
+    receipt = read_json(path)
+    summary = read_json(Path(path).parent / "campaign_summary.json")
+    if not receipt.get("passed") or not summary.get("passed") or receipt.get("summary_sha256") != sha256_json(summary):
+        raise ValueError("Smoke qualification is failed or inconsistent")
+    for key in ("code_hash", "upstream_tree", "worker_runtime", "dependencies", "embedding"):
+        if receipt["identity"].get(key) != identity.get(key):
+            raise ValueError(f"Smoke qualification differs from formal {key}")
+    if any(receipt.get(k) != v for k,v in policy_metadata(cfg["model"]).items()):
+        raise ValueError("Smoke transport policy differs from formal")
+    if receipt.get("formal_config_hash") != sha256_json(cfg):
+        raise ValueError("Formal configuration changed since smoke qualification")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--output", required=True)
     p.add_argument("--smoke", action="store_true")
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--smoke-receipt")
     p.add_argument("--load-probe-only", action="store_true",
                    help="Only verify formal memory/API concurrency; never start training")
     tokens = list(sys.argv[1:] if argv is None else argv)

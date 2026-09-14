@@ -53,6 +53,8 @@ class TaskRow:
     termination_reason: str = ""
     infrastructure_error: str = ""
     evolution_reasoning_tokens: int = 0
+    target_visible_completion_tokens: int | None = None
+    evolution_visible_completion_tokens: int | None = None
     contract_consistency: bool | None = None
     common_strict_success: bool | None = None
     task_contract_success: InitVar[bool | None | object] = _UNSET
@@ -125,6 +127,8 @@ class TaskRow:
             evolution_prompt_tokens=episode.evolution_prompt_tokens,
             evolution_completion_tokens=episode.evolution_completion_tokens,
             evolution_reasoning_tokens=episode.evolution_reasoning_tokens,
+            target_visible_completion_tokens=episode.target_visible_completion_tokens,
+            evolution_visible_completion_tokens=episode.evolution_visible_completion_tokens,
             embedding_calls=episode.embedding_calls,
             wall_time_ms=episode.wall_time_ms,
             infrastructure_failure=episode.infrastructure_failure,
@@ -162,6 +166,8 @@ class TaskRow:
             "evolution_prompt_tokens": self.evolution_prompt_tokens,
             "evolution_completion_tokens": self.evolution_completion_tokens,
             "evolution_reasoning_tokens": self.evolution_reasoning_tokens,
+            "target_visible_completion_tokens": self.target_visible_completion_tokens,
+            "evolution_visible_completion_tokens": self.evolution_visible_completion_tokens,
             "embedding_calls": self.embedding_calls,
             "wall_time_ms": self.wall_time_ms,
             "infrastructure_failure": self.infrastructure_failure,
@@ -418,6 +424,8 @@ def summarize_rows(
     # integer row subtotals. Do not publish those subtotals as exact totals.
     missing = []
     for role in ("target", "evolution"):
+        visible = [getattr(row, role+"_visible_completion_tokens") for row in valid]
+        summary[role+"_visible_completion_tokens"] = sum(visible) if all(isinstance(v, int) for v in visible) else None
         for key in ("prompt_tokens", "completion_tokens", "reasoning_tokens"):
             if any(not token_usage_known(row, role, key) for row in valid):
                 field = role + "_" + key

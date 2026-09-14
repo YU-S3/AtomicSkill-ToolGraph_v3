@@ -87,7 +87,7 @@ def main(argv=None):
     try:
         with loaded_workers(arg('--skillopt-root'),str(Path(os.environ['ALFWORLD_DATA'])/task.gamefile_rel),
                             int(arg('--concurrency')),memory_path):
-            return provider_main(args)
+            return provider_main(args + ["--method", "b5_gepa"])
     except MemoryError:
         from experiments.baselines.b4_embodiskill.state import read_json
         report = read_json(memory_path)

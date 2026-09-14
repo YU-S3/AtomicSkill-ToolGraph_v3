@@ -2,6 +2,9 @@
 schema_version: 1
 
 method: b5_gepa
+protocol_revision: '2.2'
+model:
+  provider_completion_cap: 65536
 protocol_profile: formal_v2
 experiment_kind: formal
 campaign_id: protocol_faithful_matched_train_v2
@@ -40,7 +43,7 @@ provider_probe:
   enabled: true
   concurrency: 48
   requests: 96
-  max_completion_tokens: 256
+  max_completion_tokens: 65536
   reasoning_effort: high
 
 resume:

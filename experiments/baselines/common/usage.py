@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import Any
 
 
+def visible_completion_tokens(completion: int | None, reasoning: int | None) -> int | None:
+    """Derive visible usage only when both provider counters are available."""
+    if completion is None or reasoning is None or not 0 <= reasoning <= completion:
+        return None
+    return completion - reasoning
+
+
 @dataclass
 class RoleUsage:
     calls: int = 0

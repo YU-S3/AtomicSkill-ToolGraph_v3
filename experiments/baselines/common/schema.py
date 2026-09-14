@@ -46,11 +46,13 @@ class CommonEpisodeRecord:
     target_prompt_tokens: int = 0
     target_completion_tokens: int = 0
     target_reasoning_tokens: int = 0
+    target_visible_completion_tokens: int | None = None
 
     evolution_llm_calls: int = 0
     evolution_prompt_tokens: int = 0
     evolution_completion_tokens: int = 0
     evolution_reasoning_tokens: int = 0
+    evolution_visible_completion_tokens: int | None = None
 
     embedding_calls: int = 0
     wall_time_ms: int = 0

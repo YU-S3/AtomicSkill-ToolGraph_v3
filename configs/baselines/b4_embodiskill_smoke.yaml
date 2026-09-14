@@ -2,7 +2,7 @@
 schema_version: 1
 method: b4_embodiskill
 protocol_profile: smoke_v1
-protocol_revision: '2.1'
+protocol_revision: '2.2'
 experiment_kind: smoke
 worker_python: .venv_b4_embodiskill/bin/python
 train:

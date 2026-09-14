@@ -18,7 +18,7 @@ ARGS=()
 case "$MODE" in
   smoke) ARGS+=(--smoke) ;;
   load-probe) ARGS+=(--load-probe-only) ;;
-  formal) ;;
+  formal) ARGS+=(--smoke-receipt "${3:?Provide the passing smoke_qualification.json path}") ;;
   resume) ARGS+=(--resume) ;;
   *) echo "Expected smoke, load-probe, formal, or resume" >&2; exit 2 ;;
 esac
