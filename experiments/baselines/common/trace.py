@@ -67,6 +67,7 @@ def load_episodes(path: str | Path) -> list[CommonEpisodeRecord]:
                 "environment_actions", "invalid_actions", "command_turns",
                 "timeout", "termination_reason", "target_llm_calls", "target_prompt_tokens",
                 "target_completion_tokens", "target_reasoning_tokens",
+                "target_visible_completion_tokens", "evolution_visible_completion_tokens",
                 "evolution_llm_calls", "evolution_prompt_tokens",
                 "evolution_completion_tokens", "evolution_reasoning_tokens", "embedding_calls",
                 "wall_time_ms", "artifact_digest_before",

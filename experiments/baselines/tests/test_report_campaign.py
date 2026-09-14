@@ -45,6 +45,8 @@ def _write_test_run(
             target_llm_calls=1,
             target_prompt_tokens=10,
             target_completion_tokens=2,
+            target_visible_completion_tokens=2,
+            evolution_visible_completion_tokens=0,
             wall_time_ms=100,
         )
         episode.set_posthoc_outcome(contract_consistency=True)

@@ -53,9 +53,20 @@ B5 target/reflection transport also has this independent allowance; its 16384 up
 
 ## Historical B3 audit (read-only)
 
-Scanned the persisted provider sidecars under `runs/baselines/protocol_faithful_matched_train_v2/b3_skillopt/formal_3seed_authorityfix_20260912T052314Z`, including recovery evidence: 64,434 event rows (17,965 / 23,231 / 23,238 for seeds 42 / 43 / 44). These are persisted rows, not a new billed-call total; historical copies may repeat a call.
+Scanned the persisted provider sidecars under `runs/baselines/protocol_faithful_matched_train_v2/b3_skillopt/formal_3seed_authorityfix_20260912T052314Z`, including recovery evidence: 64,434 unique `(run_id, call_id)` records (17,965 / 23,231 / 23,238 for seeds 42 / 43 / 44). This is an audit record count, not a replacement billed-call total.
 
-No scanned row reported failed status, completion >= 32,000, or completion equal to reasoning tokens. Historical events do not contain `finish_reason`, `content_present`, or `content_parse_success`, so this audit cannot retrospectively prove every response's finish/parse status. It found no evidence of the systematic reasoning-only exhaustion seen in B4. Original B3 results, configurations, costs and artifacts were retained; no B3 rerun was started.
+The historical target cap was 16384. There are 16 records with completion >=16000 and four exactly at 16384. No record has completion equal to reasoning tokens, but that alone does **not** establish usable output. Matching the three target records to the corresponding task/rollout conversation ordinal shows `missing action tag` followed by the upstream `look` fallback:
+
+| Seed | Stage/task | Call ID | Conversation step |
+| --- | --- | --- | --- |
+| 42 | Test `alfworld_eval_out_of_distribution_97_pick_heat_then_place_in_recep` | `provider_3e08ba85291544a8a22e9f57aa7c9e0f` | 18 |
+| 44 | Train `alfworld_train_3391_pick_heat_then_place_in_recep` | `provider_092e773f1f6f45958b4c93c1a1d02105` | 41 |
+| 44 | Val `alfworld_eval_in_distribution_84_pick_two_obj_and_place` | `provider_58126e50b75f478a94486d680f04c87c` | 28 |
+| 42 | Analyst | `provider_23c2be6f39394c008cfcf2486f0cbb4e` | Not attributable to an individual saved response |
+
+The matching target conversations are respectively under `recovered_test_waiver_20260913T073609Z/seed_42/test/rollout/predictions/`, `seed_44/train/train/steps/step_0001/rollout/predictions/`, and `seed_44/train/train/steps/step_0008/selection_eval/predictions/`, each followed by the task ID and `conversation.json`.
+
+These are concrete **cap-associated unusable-action observations**, not proof of systematic failure throughout B3. Historical events do not contain `finish_reason`, `content_present`, or `content_parse_success`, and the fallback replaces the raw malformed content, so definitive truncation attribution is unavailable. The Val call also records a recovered `empty_message` retry, without physical-attempt usage sufficient to reconstruct the failed attempt's tokens. Original B3 configurations, results and costs were retained under the frozen historical protocol; no B3 rerun or retrospective relabeling was started. This limitation must accompany use of the historical B3 comparison. New B4/B5 audit and fail-fast paths prevent silently accepting this budget-exhaustion pattern.
 
 ## Concurrency verification
 
