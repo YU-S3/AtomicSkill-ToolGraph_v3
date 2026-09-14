@@ -192,7 +192,10 @@ class Aligner:
         self,
         candidate: ToolAsset,
     ) -> ToolAsset | None:
-        """Return an admitted executable already carrying every candidate case."""
+        """Return an executable only when current-authority certificates cover it."""
+        from ..governance.ledger import EvidenceLedger
+        from .replay_certificates import ReplayCertificates
+        certificates = ReplayCertificates(EvidenceLedger(self.tools.database))
 
         if candidate.status not in {
             ToolStatus.ADMISSION_PENDING,
@@ -211,9 +214,8 @@ class Aligner:
                 ToolStatus.ACTIVE,
                 ToolStatus.PREFERRED,
             }
-            and candidate_cases.issubset({
-                content_hash(case) for case in item.tests
-            })
+            and all(certificates.lookup(_tool_signature(item), case) is not None
+                    for case in candidate.tests)
         ]
         if not matches:
             return None
@@ -230,7 +232,12 @@ class Aligner:
         admission: Any,
         replay: Callable[[ToolAsset, dict[str, Any]], bool],
     ) -> ToolAlignmentResult:
-        """Reuse an executable or immutably add independently observed replays."""
+        """Align an admitted executable; replay evidence never changes its ref.
+
+        Admission runs on the incoming cases before this method. The caller's
+        certificate-aware replay boundary performs novel cases and records
+        their outcomes separately from the immutable ToolAsset.
+        """
         signature = _tool_signature(candidate)
         matches = [
             item for item in self.tools.tools()
@@ -285,52 +292,17 @@ class Aligner:
             key=lambda item: (_version_key(item.ref.version), str(item.ref)),
             reverse=True,
         )[0]
-        existing_cases = {
-            content_hash(item): item for item in existing.tests
-        }
-        novel = [
-            item for item in candidate.tests
-            if content_hash(item) not in existing_cases
-        ]
-        if not novel:
-            return ToolAlignmentResult(existing.ref)
-        merged_cases = [*existing.tests, *novel]
-        next_ref = self._next_tool_ref(existing.ref)
-        replacement = replace(
-            existing,
-            ref=next_ref,
-            tests=merged_cases,
-            provenance={
-                **existing.provenance,
-                "evolution_operation": "add_replay",
-                "source_ref": str(existing.ref),
-                "source_trace_ids": sorted({
-                    str(item.get("trace_id", ""))
-                    for item in merged_cases
-                    if item.get("trace_id")
-                }),
-            },
-            metadata={
-                **existing.metadata,
-                "batch_evolution": {
-                    "operation": "add_replay",
-                    "source_ref": str(existing.ref),
-                    "added_replay_count": len(novel),
-                },
-            },
-            status=ToolStatus.ADMISSION_PENDING,
-        )
-        admitted = admission.admit_tool(replacement, replay=replay)
-        if admitted.status is not ToolStatus.CANDIDATE:
-            return ToolAlignmentResult(
-                existing.ref,
-                existing.ref,
-                "add_replay",
-                False,
-                tuple(map(str, admitted.metadata.get("admission_failure") or [])),
-            )
-        self.tools.register(admitted)
-        return ToolAlignmentResult(admitted.ref, existing.ref, "add_replay")
+        return ToolAlignmentResult(existing.ref, existing.ref, "add_replay")
+
+    def replay_target_ref(self, candidate: ToolAsset) -> ToolRef:
+        """Resolve the same eventual ref as alignment without registering it."""
+        signature = _tool_signature(candidate)
+        matches = [item for item in self.tools.tools()
+                   if _tool_signature(item) == signature and item.status in {
+                       ToolStatus.CANDIDATE, ToolStatus.ACTIVE, ToolStatus.PREFERRED}]
+        if matches:
+            return max(matches, key=lambda item: (_version_key(item.ref.version), str(item.ref))).ref
+        return self._next_tool_ref(ToolRef(f"tool_{signature[:24]}", "1.0.0"))
 
     def align_implementation(self, candidate: ImplementationAtom, atomic_ref: SkillRef, tool_ref: ToolRef) -> SkillRef:
         candidate = replace(

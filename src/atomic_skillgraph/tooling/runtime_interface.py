@@ -128,6 +128,13 @@ _TOOL_IR_COLLECTION_SOURCE_DEFINITIONS: tuple[dict[str, Any], ...] = (
             },
         },
         "distinct": "optional boolean",
+        "refresh_each_iteration": (
+            "Optional boolean, FOR_EACH action_catalog only. False (default) "
+            "uses the entry snapshot. True queries the current revision before "
+            "each iteration and takes the first unseen projected value; vanished "
+            "values are skipped and new values are visible. Empty after progress "
+            "ends the loop; strict empty entry still rejects. Bounds are unchanged."
+        ),
     },
 )
 
@@ -145,11 +152,21 @@ RUNTIME_OUTPUT_DERIVATION_RULES = (
     "must already be authorized. Ambiguous derivations are explicitly rejected. "
     "A unique predicate/argument derivation is not a unique concrete witness: "
     "final validation also requires one jointly consistent current witness assignment. "
-    "Input constraints apply only through their declared role references in final "
-    "Effects; an unreferenced descriptive input does not constrain a fresh output. "
-    "Keep the target-defining input role referenced in the promised Effect. "
-    "Tool RETURN candidates and prose descriptions cannot disambiguate an "
-    "otherwise ambiguous formal Effect."
+    "Role names are neutral symbols; predicate argument names never imply a binding lookup. "
+    "Use explicit $role references. Ordinary strings are literal values. A semantic target "
+    "is not a concrete identity. To return a concrete member, declare a distinct concrete "
+    "output role with output_semantic_constraints: {output_role: {compatible_with_input: input_role}}. "
+    "The input must be required and type-compatible. R1 checks Harness compatibility, then "
+    "compares against that input's actual VALUE, not its semantic_type label. "
+    "Do not invent a generic category literal solely to constrain a relation-derived output: "
+    "that literal must satisfy the same Harness family matcher. Only declare membership "
+    "constraints required by the capability; other concrete outputs remain effect-derived. R1 "
+    "uses declared concrete RETURN candidates only to filter current authoritative facts. "
+    "Candidates and prose never create witnesses; missing, stale or incompatible results fail. "
+    "Without an explicit effect reference or output semantic constraint, a descriptive input "
+    "does not constrain the result. Invalid same-name upgrades are rejected, never auto-renamed. "
+    "Declare only necessary final Effects supported by the public predicate validation_source. "
+    "A policy projection is not automatically validator authority."
 )
 
 
@@ -239,6 +256,7 @@ def public_predicate_schema(harness: Any) -> list[dict[str, Any]]:
         normalized = {
             "predicate": str(item.get("predicate", "")),
             "effect_domain": str(item.get("effect_domain", "")),
+            "validation_source": str(item.get("validation_source", "")),
             "argument_roles": [str(role) for role in item.get("argument_roles", ())],
             "argument_semantic_types": {
                 str(role): str(value)

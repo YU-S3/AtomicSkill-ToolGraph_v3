@@ -462,7 +462,12 @@ class StructuredSubmissionClient:
 TOOL_IR_COLLECTION_SOURCE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["source"],
+    "anyOf": [
+        {"not": {"required": ["refresh_each_iteration"]}},
+        {"properties": {"source": {"const": "action_catalog"}}},
+    ],
     "properties": {
+        "refresh_each_iteration": {"type": "boolean", "description": "Only for action_catalog FOR_EACH: re-query current catalog before each iteration, selecting the first unseen value; default false preserves the entry snapshot."},
         "source": {
             "type": "string",
             "enum": [
@@ -719,6 +724,15 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
     "properties": {
+        "output_semantic_constraints": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object", "required": ["compatible_with_input"],
+                "additionalProperties": False,
+                "properties": {"compatible_with_input": NONEMPTY_STRING_SCHEMA},
+            },
+            "description": "Map a concrete output role to its required, type-compatible input anchor. A constraint supplies no witness and never upgrades a same-name semantic input.",
+        },
         "draft_id": NONEMPTY_STRING_SCHEMA,
         "intent": NONEMPTY_STRING_SCHEMA,
         "inputs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},

@@ -1570,6 +1570,7 @@ class AtomicSkillGraphSystem:
         self.traces.save_atomic(trace)
 
         if run_mode is RuntimeMode.ONLINE:
+            self._commit_replay_certificates(trace)
             if trace.learning_eligible:
                 self._online_successes += 1
             if not trace.infrastructure_failure:
@@ -1590,9 +1591,10 @@ class AtomicSkillGraphSystem:
     ) -> tuple[tuple[str, str, str], list[Any]]:
         compiled = prepared.compiled
         atomic_ref = self.aligner.align_atomic(compiled.atomic)
-        tool_alignment = self.aligner.align_tool_with_replays(
+        certified_tool = self.admission.admit_tool(
             compiled.tool,
-            admission=self.admission,
+            atomic=compiled.atomic,
+            harness=self.harness,
             replay=lambda tool, case: self._replay_case_with_source_authority(
                 tool,
                 case,
@@ -1600,6 +1602,9 @@ class AtomicSkillGraphSystem:
                 current_trace=trace,
                 audit_trace=trace,
             ),
+        )
+        tool_alignment = self.aligner.align_tool_with_replays(
+            certified_tool, admission=self.admission, replay=None,
         )
         if not tool_alignment.admitted:
             raise RuntimeError(
@@ -1856,6 +1861,7 @@ class AtomicSkillGraphSystem:
             ),
             "provisional_selected_count": int(selected),
         })
+        self._capture_replay_bank_metrics(trace)
 
     def _provider_instances(self) -> list[Any]:
         values: list[Any] = list(self._provider_cache.values())
@@ -2113,6 +2119,25 @@ class AtomicSkillGraphSystem:
         except ReplaySourceAuthorityError as exc:
             self._record_replay_case_result(audit_trace, exc.result)
             raise
+        from .evolution.replay_certificates import ReplayCertificates
+        certificates = ReplayCertificates(EvidenceLedger(self.tools.database))
+        signature = _tool_signature(tool)
+        pending = [EvidenceEvent(**item) for item in (
+            audit_trace.metadata.get("replay_certificate_events", [])
+            if audit_trace is not None else [])]
+        metrics = (audit_trace.metadata.setdefault("replay_accounting", {})
+                   if audit_trace is not None else {})
+        for name in ("replay_case_observations", "fresh_replay_executions",
+                     "replay_certificate_reuses", "replay_failures"):
+            metrics.setdefault(name, 0)
+        metrics["replay_case_observations"] = metrics.get("replay_case_observations", 0) + 1
+        cached = certificates.lookup(signature, case, pending=pending)
+        if cached is not None:
+            metrics["replay_certificate_reuses"] = metrics.get("replay_certificate_reuses", 0) + 1
+            # Certificate reuse is not an environment execution and must not
+            # appear in tool_replay_results or acquire deployment credit.
+            return cached
+        metrics["fresh_replay_executions"] = metrics.get("fresh_replay_executions", 0) + 1
         result = self._replay_tool_candidate_result(
             source_task,
             tool,
@@ -2122,7 +2147,48 @@ class AtomicSkillGraphSystem:
             ),
         )
         self._record_replay_case_result(audit_trace, result)
+        metrics["replay_failures"] = metrics.get("replay_failures", 0) + int(not result.passed)
+        if not self.readonly and audit_trace is not None:
+            event = certificates.certificate(
+                signature, case, result,
+                artifact_ref=str(self.aligner.replay_target_ref(tool)
+                                 if current_task is not None else tool.ref),
+                trace_id=audit_trace.trace_id, task_id=audit_trace.task.task_id,
+            )
+            audit_trace.metadata.setdefault("replay_certificate_events", []).append(to_primitive(event))
+            audit_trace.evidence_event_refs = list(dict.fromkeys([
+                *getattr(audit_trace, "evidence_event_refs", []), event.event_id,
+            ]))
         return result
+
+    def _commit_replay_certificates(self, trace: TraceRecord) -> None:
+        """Publish only after the immutable audit Trace has been persisted."""
+        if not self.readonly:
+            events = [EvidenceEvent(**item) for item in
+                      trace.metadata.get("replay_certificate_events", [])]
+            if events:
+                self._commit_evidence(events)
+
+    def _capture_replay_bank_metrics(self, trace: TraceRecord) -> None:
+        from .evolution.replay_certificates import ReplayCertificates
+        tools = self.tools.tools()
+        signatures = {str(tool.ref): _tool_signature(tool) for tool in tools}
+        implementations: dict[str, set[str]] = {sig: set() for sig in signatures.values()}
+        for implementation in self.skills.implementations():
+            for binding in implementation.tool_bindings:
+                signature = signatures.get(str(binding.tool_ref))
+                if signature is not None:
+                    implementations[signature].add(str(implementation.ref))
+        certificates = ReplayCertificates(EvidenceLedger(self.tools.database))
+        evidence_ids = {event.event_id for signature in implementations
+                        for event in certificates.events(signature)}
+        evidence_ids.update(item["event_id"] for item in trace.metadata.get("replay_certificate_events", []))
+        trace.metadata["replay_bank_metrics"] = {
+            "observed_at": time.time(),
+            "unique_executable_tools": len(implementations),
+            "replay_evidence_count": len(evidence_ids),
+            "implementation_count_per_executable": {sig: len(refs) for sig, refs in sorted(implementations.items())},
+        }
 
     def _replay_tool_candidate(
         self,
@@ -4339,60 +4405,28 @@ class AtomicSkillGraphSystem:
                 replay_cache[key] = result
                 return result
 
-            replay_already_admitted = (
-                self.aligner.existing_tool_with_replay_cases(item.tool)
+            # Static/interface admission still runs on every candidate. Only
+            # certified identical cases skip the physical replay boundary.
+            admitted_tool = self.admission.admit_tool(
+                item.tool, replay=replay_once, atomic=item.atomic, harness=self.harness,
             )
-            duplicate_replay_evidence = replay_already_admitted is not None
-            if replay_already_admitted is not None:
-                # Resume/idempotent extraction of the same immutable case must
-                # not execute the environment again. Keep the candidate ref
-                # for Implementation admission; alignment below uses the
-                # already-admitted executable ref.
-                admitted_tool = replace(
-                    item.tool,
-                    status=ToolStatus.CANDIDATE,
-                    metadata={
-                        **dict(item.tool.metadata),
-                        "admission": {
-                            **dict(item.tool.metadata.get("admission") or {}),
-                            "replay_case_reused": True,
-                            "source_tool_ref": str(replay_already_admitted.ref),
-                        },
-                    },
-                )
-                tool_alignment = ToolAlignmentResult(
-                    replay_already_admitted.ref,
-                )
-            else:
-                admitted_tool = self.admission.admit_tool(
-                    item.tool,
-                    replay=replay_once,
-                    atomic=item.atomic,
-                    harness=self.harness,
-                )
-                tool_alignment = self.aligner.align_tool_with_replays(
-                    admitted_tool,
-                    admission=self.admission,
-                    replay=replay_once,
-                )
+            tool_alignment = self.aligner.align_tool_with_replays(
+                admitted_tool, admission=self.admission, replay=replay_once,
+            )
             tool_ref = tool_alignment.ref
             tool_admission_count += int(bool(tool_alignment.admitted))
             evidence_tool_operation = tool_alignment.operation
-            if duplicate_replay_evidence:
-                batch_evolution = dict(
-                    replay_already_admitted.metadata.get("batch_evolution")
-                    or {}
-                )
-                evidence_tool_operation = str(
-                    batch_evolution.get("operation")
-                    or replay_already_admitted.provenance.get(
-                        "evolution_operation", ""
-                    )
-                    or "discover"
-                )
+            # Reprocessing the executable's originating Trace must describe the
+            # same discovery fact, even though alignment now finds its ref.
+            # Tool.tests is the immutable admission payload, never extended by
+            # later certificates, so this remains stable as evidence grows.
+            if any(case.get("trace_id") == trace.trace_id
+                   for case in self.tools.get(tool_ref).tests):
+                evidence_tool_operation = "discover"
             if (
                 tool_alignment.operation == "add_replay"
                 and tool_alignment.source_ref is not None
+                and tool_alignment.source_ref != tool_ref
             ):
                 assert self.repair_store is not None
                 replay_repair = RepairProposal.create(
@@ -5467,7 +5501,9 @@ class AtomicSkillGraphSystem:
         if self._provider_override is None:
             _require_formal_usage(usage, trace.agent_turns)
         trace.finish()
+        self._capture_replay_bank_metrics(trace)
         self.traces.save_atomic(trace)
+        self._commit_replay_certificates(trace)
 
     def _replay_maintenance_tool(
         self,

@@ -302,7 +302,7 @@ def test_gate45_terminal_empirical_credit_survives_periodic_maintenance(
             return payloads[str(trace_id)]
 
     class EmptyTools:
-        def tools(self):
+        def tools_with_replay_evidence(self):
             return []
 
     maintenance = EvolutionMaintenance(RepairStore(database))

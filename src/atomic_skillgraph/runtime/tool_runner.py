@@ -789,10 +789,32 @@ class ToolRunner:
                 count = 0
                 missing = object()
                 previous = state.local.get(variable, missing)
+                live = collection_source.get("refresh_each_iteration", False)
+                if not isinstance(live, bool) or ("refresh_each_iteration" in collection_source and collection_source.get("source") != "action_catalog"):
+                    raise ValueError("tool_ir_selector_invalid: live loop requires action_catalog")
+                seen = []
                 try:
-                    for value in values:
-                        if count >= max_iterations or state.failure_code or terminal:
+                    while count < max_iterations:
+                        if state.failure_code or terminal:
                             break
+                        if live:
+                            # The selector belongs to the enclosing scope, not
+                            # to the previous iteration's shadowing local.
+                            if previous is missing:
+                                state.local.pop(variable, None)
+                            else:
+                                state.local[variable] = previous
+                            current = resolve_collection(collection_source, state,
+                                semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None))
+                            remaining = [value for value in current if value not in seen]
+                            if not remaining:
+                                break
+                            value = remaining[0]
+                            seen.append(value)
+                        else:
+                            if count >= len(values):
+                                break
+                            value = values[count]
                         state.path_tokens.append(
                             f"{node_id}:iteration:{count + 1}"
                         )

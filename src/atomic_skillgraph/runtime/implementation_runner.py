@@ -137,6 +137,7 @@ class ImplementationRunner:
                 ctx.harness.validator_channel(),
                 current_revision=ctx.world_revision,
                 authoritative_evidence_facts=authoritative_evidence_facts,
+                semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None),
             )
         else:
             atomic_validation = self.validation.atomic.validate(

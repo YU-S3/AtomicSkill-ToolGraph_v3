@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any, Mapping
 
 from ..core.contracts import ParameterSpec, SemanticPredicate
+from ..core.semantic_types import semantic_types_compatible
 
 
 class ToolProgramOp(str, Enum):
@@ -15,6 +16,26 @@ class ToolProgramOp(str, Enum):
     FOR_EACH = "FOR_EACH"
     STOP_WHEN = "STOP_WHEN"
     RETURN = "RETURN"
+
+
+def validate_output_semantic_constraints(inputs, outputs, constraints) -> None:
+    """Validate symbols/types only; actual candidates require Harness witnesses."""
+    if not isinstance(constraints, dict):
+        raise ValueError("output_semantic_constraints must be an object")
+    input_specs, output_specs = ({p.name: p for p in specs} for specs in (inputs, outputs))
+    for role, constraint in constraints.items():
+        if not isinstance(constraint, dict) or set(constraint) != {"compatible_with_input"}:
+            raise ValueError("output constraint requires only compatible_with_input")
+        source = constraint["compatible_with_input"]
+        if not isinstance(source, str) or role not in output_specs or source not in input_specs:
+            raise ValueError("output constraint must reference declared output and input roles")
+        target, anchor = output_specs[role], input_specs[source]
+        if target.required_resolution not in {"concrete", "relation_verified"}:
+            raise ValueError("constrained output must have concrete resolution")
+        if not anchor.required or not semantic_types_compatible(target.semantic_type, anchor.semantic_type):
+            raise ValueError("output constraint requires a required, type-compatible input")
+        if role == source and anchor.required_resolution != target.required_resolution:
+            raise ValueError("same-name semantic input cannot be upgraded into a concrete output")
 
 
 @dataclass
@@ -29,6 +50,7 @@ class RuntimeAutomationAtomicDraft:
     source_occurrence_id: str
     metadata: dict[str, Any] = field(default_factory=dict)
     input_binding_specs: dict[str, Any] = field(default_factory=dict)
+    output_semantic_constraints: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -134,6 +156,7 @@ def runtime_automation_draft_from_dict(value: Mapping[str, Any]) -> RuntimeAutom
         source_occurrence_id=str(value.get("source_occurrence_id", "")),
         metadata=dict(value.get("metadata", {})),
         input_binding_specs=dict(value.get("input_binding_specs", {})),
+        output_semantic_constraints=dict(value.get("output_semantic_constraints", {})),
     )
 
 

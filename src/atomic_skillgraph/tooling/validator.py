@@ -34,7 +34,7 @@ from .ir import (
     walk_program_nodes,
     validate_match_condition_shape,
 )
-from .proposal import RuntimeAutomationAtomicDraft, ToolProposal
+from .proposal import RuntimeAutomationAtomicDraft, ToolProposal, validate_output_semantic_constraints
 from .runtime_interface import (
     RuntimeAutomationInputResolution,
     public_predicate_schema,
@@ -155,6 +155,8 @@ def _validate_program_node_shapes(nodes: Iterable[dict[str, Any]]) -> None:
         if not node_id:
             raise ValueError("tool_ir_schema_invalid: nested node lacks node_id")
         opcode = str(node.get("op", ""))
+        if opcode != "FOR_EACH" and isinstance(node.get("collection_source"), Mapping) and "refresh_each_iteration" in node["collection_source"]:
+            raise ValueError("tool_ir_schema_invalid: refresh_each_iteration belongs only to FOR_EACH")
         if opcode == "ACTION":
             if (
                 "argument_mapping" in node
@@ -191,6 +193,9 @@ def _validate_program_node_shapes(nodes: Iterable[dict[str, Any]]) -> None:
                     f"tool_ir_schema_invalid: FOR_EACH {node_id}.max_iterations must be an integer"
                 )
         elif opcode == "RETURN":
+            if any(isinstance(spec, Mapping) and "refresh_each_iteration" in spec
+                   for spec in _selector_source(node.get("output_sources")).values()):
+                raise ValueError("tool_ir_schema_invalid: RETURN cannot request live iteration")
             if (
                 "output_sources" in node
                 and not isinstance(node.get("output_sources"), Mapping)
@@ -208,6 +213,10 @@ def _validate_selector(
     action_argument_roles: Mapping[str, set[str]] | None = None,
 ) -> None:
     kind = str(source.get("source", "")).casefold()
+    if "refresh_each_iteration" in source and (
+        kind != "action_catalog" or not isinstance(source["refresh_each_iteration"], bool)
+    ):
+        fail("tool_ir_selector_invalid", f"{node_id}: refresh_each_iteration requires action_catalog and a boolean")
     if kind not in _COLLECTION_SOURCES:
         fail("tool_ir_selector_invalid", f"{node_id}: unknown collection source {kind}")
         return
@@ -2085,7 +2094,10 @@ class ToolStaticValidator:
             predicate_formal_references_ok
         )
         try:
-            normalize_runtime_output_derivations(draft)
+            output_derivations = normalize_runtime_output_derivations(draft)
+            validate_output_semantic_constraints(draft.inputs, draft.outputs, draft.output_semantic_constraints)
+            if any(role not in output_derivations for role in draft.output_semantic_constraints):
+                raise ValueError("constrained output requires a declared output derivation")
             checks["draft_output_derivations"] = True
         except ValueError as exc:
             checks["draft_output_derivations"] = False

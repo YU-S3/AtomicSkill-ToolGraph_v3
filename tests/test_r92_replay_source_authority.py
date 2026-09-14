@@ -623,6 +623,8 @@ def test_c06_apply_evolution_replays_each_case_once_and_deduplicates_version(
     system.mode = RuntimeMode.ONLINE
     system.credit = CreditAssigner()
     ledger = EvidenceLedger(database)
+    system.ledger = ledger
+    system.readonly = False
     append_results = []
     system._commit_evidence = lambda events: append_results.append(
         ledger.append_transaction(events)
@@ -677,6 +679,7 @@ def test_c06_apply_evolution_replays_each_case_once_and_deduplicates_version(
     def apply_once(compiled=compiled_b, active_task=task_b):
         trace = SimpleNamespace(
             metadata={},
+            evidence_event_refs=[],
             trace_id=str(compiled.occurrence.source_trace_id),
             task=SimpleNamespace(task_id=active_task.task_id),
             environment_actions=[],
@@ -686,31 +689,35 @@ def test_c06_apply_evolution_replays_each_case_once_and_deduplicates_version(
             composite=None,
             source_composite_ref="",
         )
-        return system._apply_evolution(prepared, trace, active_task), trace
+        applied = system._apply_evolution(prepared, trace, active_task)
+        system._commit_replay_certificates(trace)
+        return applied, trace
 
     first, first_trace = apply_once()
 
-    assert physical_replays == ["task-b", "task-a"]
+    assert physical_replays == ["task-b"]
     first_results = first_trace.metadata["tool_replay_results"]
     assert [item["resolved_task_id"] for item in first_results] == [
-        "task-b", "task-a",
+        "task-b",
     ]
-    assert len(first_results) == 2
-    assert len(tools.list_refs()) == 2
+    assert len(first_results) == 1
+    assert len(tools.list_refs()) == 1
     first_tool_ref = first["tool_refs"][0]
     assert append_results[-1].inserted_count > 0
-    assert first_tool_ref != tool_a.ref
+    assert first_tool_ref == tool_a.ref
     assert [
         item["source_task"]["task_id"]
         for item in tools.get(first_tool_ref).tests
-    ] == ["task-a", "task-b"]
+    ] == ["task-a"]
+    assert {item["source_task"]["task_id"] for item in
+            tools.tools_with_replay_evidence()[0].tests} == {"task-a", "task-b"}
 
     duplicate, duplicate_trace = apply_once()
 
-    assert physical_replays == ["task-b", "task-a"]
+    assert physical_replays == ["task-b"]
     assert duplicate_trace.metadata.get("tool_replay_results", []) == []
     assert duplicate["tool_refs"] == [first_tool_ref]
-    assert len(tools.list_refs()) == 2
+    assert len(tools.list_refs()) == 1
     assert append_results[-1].inserted_count == 0
     assert append_results[-1].duplicate_count > 0
 
@@ -732,7 +739,9 @@ def test_c06_apply_evolution_replays_each_case_once_and_deduplicates_version(
     assert len(rejected_trace.metadata["tool_replay_results"]) == 1
     assert rejected_trace.metadata["tool_replay_results"][0]["passed"] is False
     assert rejected["tool_refs"] == [first_tool_ref]
-    assert len(tools.list_refs()) == 2
-    assert repair_proposals[-1].status == "rejected"
-    assert repair_proposals[-1].target_ref == str(first_tool_ref)
+    assert len(tools.list_refs()) == 1
+    assert repair_proposals == []
+    rejected_event = ledger.records_after(0)[-1].event
+    assert rejected_event.event.value == "replay_rejected"
+    assert rejected_event.artifact_ref == str(first_tool_ref)
     database.close()

@@ -131,5 +131,5 @@ def test_output_derivation_explanation_is_shared_without_changing_r0():
     assert RUNTIME_OUTPUT_DERIVATION_RULES in PREPARATION_ONLY
     assert RUNTIME_OUTPUT_DERIVATION_RULES in SEEDED_ONLY
     assert RUNTIME_OUTPUT_DERIVATION_RULES in RUNTIME_AUTOMATION_ATOMIC_SCHEMA["properties"]["effects"]["description"]
-    assert "unreferenced descriptive input" in RUNTIME_OUTPUT_DERIVATION_RULES
-    assert "Tool RETURN candidates and prose descriptions cannot disambiguate" in RUNTIME_OUTPUT_DERIVATION_RULES
+    assert "output_semantic_constraints" in RUNTIME_OUTPUT_DERIVATION_RULES
+    assert "Candidates and prose never create witnesses" in RUNTIME_OUTPUT_DERIVATION_RULES

@@ -493,7 +493,7 @@ class EvolutionMaintenance:
         """Build evidence-only cohorts; this method never proposes semantics."""
         usable = [
             item
-            for item in tools.tools()
+            for item in tools.tools_with_replay_evidence()
             if item.status in {
                 ToolStatus.CANDIDATE,
                 ToolStatus.ACTIVE,
@@ -1355,7 +1355,7 @@ class EvolutionMaintenance:
     ) -> list[tuple[dict[str, Any], EvolutionToolEditProposal]]:
         usable = [
             item
-            for item in tools.tools()
+            for item in tools.tools_with_replay_evidence()
             if item.status in {
                 ToolStatus.CANDIDATE,
                 ToolStatus.ACTIVE,
@@ -2152,7 +2152,7 @@ def _atomic_merge_evidence(
             continue
         binding = implementation.tool_bindings[0]
         try:
-            tool = tools.get(binding.tool_ref)
+            tool = tools.get_with_replay_evidence(binding.tool_ref)
         except KeyError:
             continue
         if tool.status not in {

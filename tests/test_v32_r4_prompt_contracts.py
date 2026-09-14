@@ -20,8 +20,8 @@ from atomic_skillgraph.tooling.proposal import ToolProvenance
 
 
 _POLICY_SEPARATOR = "\n\nPOLICY_CONTEXT_JSON\n"
-_R921_TOOL_BUILDER_INSTRUCTION_SHA256 = (
-    "7c1cc67f3b10700a795dafba0595e02aeb29d98367d7cdfc4050768ef9496edd"
+_R922_TOOL_BUILDER_INSTRUCTION_SHA256 = (
+    "2b9d008b0563c4eea0c3bef0d70aed8d608fafe82fbace2d0b68d0c28529871b"
 )
 
 
@@ -69,7 +69,7 @@ def _atomic_view() -> dict[str, object]:
     }
 
 
-def test_tool_builder_uses_r921_instruction_and_canonical_ref() -> None:
+def test_tool_builder_uses_r922_instruction_and_canonical_ref() -> None:
     provenance = ToolProvenance(
         source="success_evolution",
         atomic_ref="skill://example_navigation@1.0.0",
@@ -87,9 +87,9 @@ def test_tool_builder_uses_r921_instruction_and_canonical_ref() -> None:
     instruction, raw_payload = prompt.split(_POLICY_SEPARATOR, 1)
     payload = json.loads(raw_payload)
 
-    assert len(instruction) == 11618
+    assert len(instruction) == 12613
     assert hashlib.sha256(instruction.encode("utf-8")).hexdigest() == (
-        _R921_TOOL_BUILDER_INSTRUCTION_SHA256
+        _R922_TOOL_BUILDER_INSTRUCTION_SHA256
     )
     assert payload["atomic_ref"] == provenance.atomic_ref
     assert payload["canonical_atomic"]["effects"] == _atomic_view()["effects"]

@@ -22,6 +22,8 @@ from ..knowledge.database import SCHEMA_VERSION, StateDatabase
 class EvidenceEventType(str, Enum):
     PROPOSED = "proposed"
     VALIDATED = "validated"
+    REPLAY_VALIDATED = "replay_validated"
+    REPLAY_REJECTED = "replay_rejected"
     SELECTED = "selected"
     PREFLIGHT_REJECTED = "preflight_rejected"
     EXECUTION_STARTED = "execution_started"

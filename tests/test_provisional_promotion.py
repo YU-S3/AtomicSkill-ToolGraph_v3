@@ -274,6 +274,7 @@ def test_promotion_evidence_is_trace_first_and_appended_with_runtime_events() ->
         ),
         admission=Admission(ToolValidator()),
         harness=_Harness(),
+        _replay_case_with_source_authority=lambda *_args, **_kwargs: True,
         credit=SimpleNamespace(assign=lambda _trace: [promotion_event]),
         _add_structural_edge=lambda *_args, **_kwargs: None,
         _commit_evidence=lambda _events: pytest.fail(
@@ -334,6 +335,7 @@ def test_promotion_evidence_is_trace_first_and_appended_with_runtime_events() ->
         _commit_failure_side_task_evidence=failure_side,
         _finalize_v31_metrics=lambda *_args, **_kwargs: None,
         traces=SimpleNamespace(save_atomic=save_atomic),
+        _commit_replay_certificates=lambda _trace: None,
         _commit_evidence=append_evidence,
         _review_task_deployments=review_deployments,
         _online_successes=0,

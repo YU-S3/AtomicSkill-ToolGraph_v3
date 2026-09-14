@@ -91,6 +91,10 @@ R92_SUPPORT_FUNNEL_FIELDS = (
 
 R92_TOOL_REPLAY_METRICS = (
     "tool_replay_case_count",
+    "replay_case_observations",
+    "fresh_replay_executions",
+    "replay_certificate_reuses",
+    "replay_failures",
     "tool_replay_pass_count",
     "tool_replay_failure_count",
     "tool_replay_source_task_mismatch_count",
@@ -443,6 +447,7 @@ REPORT_COLUMNS = (
     "runtime_automation_funnel",
     "runtime_support_funnel",
     "tool_replay_results",
+    "replay_bank_metrics",
     *R92_TOOL_REPLAY_METRICS,
     "tool_replay_stage_distribution",
     "tool_replay_failure_code_distribution",
@@ -877,6 +882,10 @@ def _tool_replay_diagnostics(metadata: Mapping[str, Any]) -> dict[str, Any]:
 
     return {
         "tool_replay_results": results,
+        "replay_bank_metrics": dict(metadata.get("replay_bank_metrics") or {}),
+        **{key: int(dict(metadata.get("replay_accounting") or {}).get(key, 0))
+           for key in ("replay_case_observations", "fresh_replay_executions",
+                       "replay_certificate_reuses", "replay_failures")},
         "tool_replay_case_count": len(results),
         "tool_replay_pass_count": passed_count,
         "tool_replay_failure_count": len(results) - passed_count,
@@ -1256,6 +1265,8 @@ def summarize_traces(
         if _is_maintenance_trace(item)
     ]
     resource_rows = [*rows, *auxiliary_rows]
+    latest_bank_row = max((row for row in resource_rows if row.get("replay_bank_metrics")),
+                          key=lambda row: float(row["replay_bank_metrics"].get("observed_at", 0)), default={})
     task_rows = rows
     reasoning_audit = dict(reasoning_effort_audit or {})
     if reasoning_audit:
@@ -1622,6 +1633,8 @@ def summarize_traces(
             for name in R31_RUNTIME_METRICS
         },
         **r9_totals,
+        **{key: value for key, value in dict(latest_bank_row.get("replay_bank_metrics") or {}).items()
+           if key != "observed_at"},
         **{
             name: sum(_integer(row.get(name, 0)) for row in task_rows)
             for name in V32_METHOD_METRICS

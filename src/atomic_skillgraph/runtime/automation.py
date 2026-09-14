@@ -239,6 +239,7 @@ class RuntimeAutomationCoordinator:
                 "output_derivations": normalize_runtime_output_derivations(
                     draft
                 ),
+                "output_semantic_constraints": to_primitive(draft.output_semantic_constraints),
             },
             [],
             {"steps": [], "runtime_automation": True},

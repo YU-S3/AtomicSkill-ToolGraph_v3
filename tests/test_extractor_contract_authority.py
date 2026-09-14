@@ -272,6 +272,7 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
     system.admission = Admission(ValidationEngine().tool)
     system.credit = CreditAssigner()
     system.ledger = EvidenceLedger(database)
+    system.readonly = False
     system.projection = LifecycleProjection(database, system.ledger)
     system.lifecycle = LifecycleController(
         database, system.projection, LifecyclePolicy(),
@@ -291,6 +292,7 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
         metadata={},
         runtime_plan={},
         trace_id="trace_partial",
+        evidence_event_refs=[],
         task=SimpleNamespace(
             task_id=task.task_id,
             task_signature="fake:task",

@@ -68,6 +68,24 @@ class ToolRegistry:
     def tools(self, *, mode: RuntimeMode | str | None = None) -> list[ToolAsset]:
         return [self.get(ref) for ref in self.list_refs(mode=mode)]
 
+    def tools_with_replay_evidence(self) -> list[ToolAsset]:
+        """Maintenance view; persisted executable payloads remain immutable."""
+        return [self.get_with_replay_evidence(ref) for ref in self.list_refs()]
+
+    def get_with_replay_evidence(self, ref: ToolRef | str) -> ToolAsset:
+        """Explicit evidence view for consumers of historical replay cases."""
+        from dataclasses import replace
+        from ..core.refs import content_hash
+        from ..evolution.aligner import _tool_signature
+        from ..evolution.replay_certificates import ReplayCertificates
+        from ..governance.ledger import EvidenceLedger
+        certificates = ReplayCertificates(EvidenceLedger(self.database))
+        tool = self.get(ref)
+        cases = {content_hash(case): case for case in tool.tests}
+        for case in certificates.cases(_tool_signature(tool)):
+            cases.setdefault(content_hash(case), case)
+        return replace(tool, tests=list(cases.values()))
+
     def update_status(self, ref: ToolRef | str, status: ToolStatus | str) -> None:
         if self.database.readonly:
             raise RuntimeError("frozen registry is read-only")

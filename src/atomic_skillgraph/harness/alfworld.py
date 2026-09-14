@@ -474,7 +474,7 @@ class AlfWorldValidatorChannel:
             elif isinstance(value, str) and value.startswith("$"):
                 expected[role] = bindings.get(value[1:])
             else:
-                expected[role] = bindings.get(role, value)
+                expected[role] = value
         return name, expected, max(1, int(cardinality)), distinct_by
 
     def _matching_facts(

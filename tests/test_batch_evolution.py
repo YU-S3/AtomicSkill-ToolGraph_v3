@@ -359,7 +359,7 @@ def test_batch_duplicate_detection_replays_admits_new_version_and_empties_queue(
     database.close()
 
 
-def test_tool_add_replay_creates_immutable_candidate_and_replays_full_union(
+def test_tool_add_replay_keeps_executable_and_admits_only_incoming_case(
     tmp_path,
 ) -> None:
     database = StateDatabase(tmp_path / "state.sqlite3")
@@ -378,26 +378,27 @@ def test_tool_add_replay_creates_immutable_candidate_and_replays_full_union(
         status=ToolStatus.CANDIDATE,
     )
     replayed: list[str] = []
+    admission = Admission(ValidationEngine().tool)
+    callback = lambda _tool, case: not replayed.append(str(case["trace_id"]))
+    admitted = admission.admit_tool(candidate, replay=callback)
     result = Aligner(skills, tools).align_tool_with_replays(
-        candidate,
-        admission=Admission(ValidationEngine().tool),
-        replay=lambda _tool, case: not replayed.append(str(case["trace_id"])),
-    )
+        admitted, admission=admission, replay=callback)
     assert result.operation == "add_replay"
     assert result.admitted is True
-    assert str(result.ref).endswith("@1.0.1")
-    assert replayed == ["old", "new"]
+    assert result.ref == base.ref
+    assert replayed == ["new"]
     assert [case["trace_id"] for case in tools.get(base.ref).tests] == ["old"]
-    assert [case["trace_id"] for case in tools.get(result.ref).tests] == ["old", "new"]
+    assert [case["trace_id"] for case in tools.get(result.ref).tests] == ["old"]
 
     rejected = Aligner(skills, tools).align_tool_with_replays(
-        replace(candidate, tests=[_replay_case("rejected")]),
+        admission.admit_tool(replace(candidate, tests=[_replay_case("rejected")]),
+                             replay=lambda _tool, case: False),
         admission=Admission(ValidationEngine().tool),
         replay=lambda _tool, case: case["trace_id"] != "rejected",
     )
     assert rejected.admitted is False
     assert rejected.ref == result.ref
-    assert len(tools.list_refs()) == 2
+    assert len(tools.list_refs()) == 1
     database.close()
 
 
@@ -541,7 +542,7 @@ def test_periodic_maintenance_retains_cross_cycle_evidence_until_final_close(
     maintenance = EvolutionMaintenance(store)
 
     class EmptyTools:
-        def tools(self):
+        def tools_with_replay_evidence(self):
             return []
 
     class EmptySkills:
@@ -768,7 +769,7 @@ def test_composite_insight_requires_multi_trace_evidence_and_reaches_planner_hin
     add_support("unique", unique=True)
 
     class EmptyTools:
-        def tools(self):
+        def tools_with_replay_evidence(self):
             return []
 
     batch = maintenance.run_batch(
@@ -1485,7 +1486,8 @@ def test_maintenance_persists_typed_replay_result_in_final_trace(tmp_path) -> No
             record.event.event_id
             for record in system.ledger.records_after(0)
             if record.event.trace_id == result.maintenance_trace_id
-        } == set(maintenance_result["credit_event_ids"])
+        } == set(maintenance_result["credit_event_ids"]) | {
+            item["event_id"] for item in payload["metadata"]["replay_certificate_events"]}
         assert payload["ended_at"] >= payload["started_at"] > 0
 
 

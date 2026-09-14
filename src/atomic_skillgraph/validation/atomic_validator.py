@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from ..core.bindings import BindingResolution, BindingStatus, RuntimeBinding
 from ..core.contracts import AbstractAtomicSkill
 from ..core.results import AtomicEffectResolution, RuntimeOccurrence, ValidationResult
+from ..tooling.proposal import validate_output_semantic_constraints
 
 
 class AtomicValidator:
@@ -43,6 +44,7 @@ class AtomicValidator:
         *,
         current_revision: int,
         authoritative_evidence_facts: list[dict[str, Any]] | None = None,
+        semantic_compatible: Any = None,
     ) -> ValidationResult:
         """Validate generated outputs against Harness effect witnesses.
 
@@ -66,6 +68,24 @@ class AtomicValidator:
             for role, value in dict(tool_output_candidates or {}).items()
             if role in output_roles
         }
+        constraints = atomic.validator_spec.get("output_semantic_constraints", {})
+        preferred_bindings = {}
+        if constraints:
+            try:
+                validate_output_semantic_constraints(atomic.inputs, atomic.outputs, constraints)
+            except ValueError as exc:
+                return ValidationResult("atomic", False, {}, ["atomic_output_semantic_constraint_invalid"], [str(exc)])
+            input_specs = {p.name: p for p in atomic.inputs}
+            for role, constraint in constraints.items():
+                source = constraint["compatible_with_input"]
+                if (role not in candidate_outputs or source not in plain or not callable(semantic_compatible)
+                    or not semantic_compatible(role=source, concrete_value=candidate_outputs[role],
+                        semantic_anchor=plain[source], semantic_type=input_specs[source].semantic_type)):
+                    return ValidationResult("atomic", False, {"output_semantic_compatibility": False},
+                        ["atomic_output_semantic_mismatch"], [f"Output {role} does not match its declared input anchor"])
+            preferred_bindings = {p.name: candidate_outputs[p.name] for p in atomic.outputs
+                if p.required_resolution in {"concrete", "relation_verified"}
+                and p.name in candidate_outputs and p.name not in plain}
         for role, derivation in derivations.items():
             if derivation.get("kind") == "input_identity":
                 input_role = str(derivation.get("input_role", ""))
@@ -90,7 +110,7 @@ class AtomicValidator:
                 "output_specs": list(atomic.outputs),
                 "output_identity": output_identity,
                 "preferred_values": [],
-                "preferred_bindings": {},
+                "preferred_bindings": preferred_bindings,
                 "authoritative_evidence_facts": list(
                     authoritative_evidence_facts or []
                 ),
