@@ -4,7 +4,7 @@ The v2.3 implementation changes accounting/preflight/reporting only. EmbodiSkill
 and GEPA upstream trees, frozen dataset manifests, method budgets, B3 completed
 artifacts and Ours are unchanged. Formal training is not part of this validation.
 
-Offline validation: 312 tests passed with pinned SkillOpt on the B5 environment's
+Offline validation: 313 tests passed with pinned SkillOpt on the B5 environment's
 import path; four heavy B4 cases are covered separately in the B4 environment
 (23 tests passed). The real upstream readonly test compares pre-v2.3 and v2.3
 transport with identical scripted responses: retrieval/solver prompts, actions,
@@ -36,6 +36,14 @@ frozen common model mapping. Both campaign and controller config paths are
 covered by a regression; model parameters and transport cap are unchanged.
 The earlier smoke artifacts are retained, and final receipts must come from the
 new committed source, including a rerun of B4 because its code hash covers B5.
+
+The first full 48-worker load completed all 96 provider requests, respected the
+memory reserve and released every worker, but exposed a legacy hard-coded B3
+method check in the shared provider evidence validator. The checker now matches
+the explicitly declared probe method (B3 remains the default), rejecting a B5
+event under B3 identity and vice versa. Real preserved events were inspected
+read-only to confirm this cause; they were not rewritten into release receipts.
+Fresh smoke/load qualification is required from the resulting committed source.
 
 B3 historical 16384 transport is disclosed in the read-only common paper report's
 `methods.b3_skillopt.comparability_note`. Old success rows, task pairing and token

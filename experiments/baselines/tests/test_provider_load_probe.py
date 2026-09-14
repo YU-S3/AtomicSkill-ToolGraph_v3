@@ -49,9 +49,11 @@ def _install_fake_client(monkeypatch, completions) -> None:
     )
 
 
+@pytest.mark.parametrize("method", ["b3_skillopt", "b5_gepa"])
 def test_exact_32_by_16_probe_writes_complete_evidence(
     tmp_path: Path,
     monkeypatch,
+    method: str,
 ) -> None:
     lock = threading.Lock()
     current = 0
@@ -61,7 +63,7 @@ def test_exact_32_by_16_probe_writes_complete_evidence(
         def create(self, **kwargs):
             nonlocal current, peak
             assert kwargs["reasoning_effort"] == "high"
-            assert kwargs["max_tokens"] == 256
+            assert kwargs["max_tokens"] == (65536 if method == "b5_gepa" else 256)
             with lock:
                 current += 1
                 peak = max(peak, current)
@@ -80,6 +82,7 @@ def test_exact_32_by_16_probe_writes_complete_evidence(
         max_inflight=16,
     )
     report = run_provider_load_probe(
+        method=method,
         output_dir=output,
         campaign_gate=gate,
         model="deepseek-v4-flash",
@@ -116,6 +119,12 @@ def test_exact_32_by_16_probe_writes_complete_evidence(
     assert {event["stage"] for event in events} == {"provider_load_probe"}
     assert all(event["provider_service_latency_ms"] >= 0 for event in events)
     assert all(event["logical_call_latency_ms"] >= 0 for event in events)
+    from experiments.baselines.common.provider_load_probe import _event_is_complete
+    for event in events:
+        args=dict(run_id="load_probe_fixture",run_seed=42,model="deepseek-v4-flash",reasoning_effort="high")
+        assert _event_is_complete(event,method=method,**args)
+        other="b3_skillopt" if method=="b5_gepa" else "b5_gepa"
+        assert not _event_is_complete(event,method=other,**args)
 
 
 def test_d1_http_429_is_classified_and_recovery_is_accepted(

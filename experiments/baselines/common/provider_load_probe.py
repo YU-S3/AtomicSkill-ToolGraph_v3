@@ -104,6 +104,7 @@ def _event_is_complete(
     run_seed: int,
     model: str,
     reasoning_effort: str,
+    method: str = "b3_skillopt",
 ) -> bool:
     if not _REQUIRED_EVENT_FIELDS.issubset(event):
         return False
@@ -129,7 +130,7 @@ def _event_is_complete(
         recovered = event.get("recovered")
         shared_complete = bool(
             int(event.get("schema_version", 0)) >= 2
-            and event.get("method") == "b3_skillopt"
+            and event.get("method") == method
             and event.get("phase") == "provider_load_probe"
             and event.get("run_id") == str(run_id)
             and int(event.get("run_seed", -1)) == int(run_seed)
@@ -340,6 +341,7 @@ def run_provider_load_probe(
         and all(
             _event_is_complete(
                 event,
+                method=method,
                 run_id=run_id,
                 run_seed=run_seed,
                 model=model,
