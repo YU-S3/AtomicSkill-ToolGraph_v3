@@ -181,6 +181,7 @@ class ToolRunner:
             ]
         return ToolExecutionState(
             bindings=dict(bindings),
+            catalog_revision=ctx.world_revision,
             catalog=[dict(item) for item in catalog],
             semantic_facts=self._semantic_facts_with_domains(
                 facts, ctx.harness,
@@ -360,6 +361,7 @@ class ToolRunner:
             },
         )
         state.executed_action_count += 1
+        state.catalog_revision = ctx.world_revision
         snapshot_method = getattr(ctx, "tool_evidence_snapshot", None)
         if callable(snapshot_method):
             snapshot = snapshot_method()
@@ -521,10 +523,13 @@ class ToolRunner:
 
     def _resolved_effect(
         self, effect: dict[str, Any], state: ToolExecutionState,
+        *, witness_bindings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Resolve serialized BindingExpression effect args for Harness validation."""
 
         effect_bindings = self._effect_bindings(state)
+        if witness_bindings is not None:
+            effect_bindings.update(witness_bindings)
         args: dict[str, Any] = {}
         for role, raw in dict(effect.get("args") or {}).items():
             if isinstance(raw, dict) and raw.get("kind") == "skill_input":
@@ -591,7 +596,9 @@ class ToolRunner:
         if not resolution_errors and not has_fresh_output and callable(validate_effect):
             passed = bool(validate_effect({
                 "effects": [effect for effect, _wildcards, _errors in resolutions],
-                "bindings": self._effect_bindings(state),
+                # All references are already resolved. A predicate argument
+                # name must not be rebound to an unrelated same-named input.
+                "bindings": {},
             }).passed)
         if not passed and not resolution_errors and has_fresh_output:
             # A step may establish a declared fresh output whose concrete value
@@ -739,7 +746,10 @@ class ToolRunner:
                     return "FAIL_TOOL"
             elif opcode == "IF":
                 condition = dict(node.get("condition") or {})
-                branch_taken = evaluate_condition(condition, state)
+                branch_taken = evaluate_condition(
+                    condition, state,
+                    semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None),
+                )
                 branch = node.get("then_branch") if branch_taken else node.get("else_branch")
                 state.path_tokens.append(
                     f"{node_id}:{'then' if branch_taken else 'else'}"
@@ -813,7 +823,10 @@ class ToolRunner:
                     )
             elif opcode == "STOP_WHEN":
                 condition = dict(node.get("condition") or {})
-                if evaluate_condition(condition, state):
+                if evaluate_condition(
+                    condition, state,
+                    semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None),
+                ):
                     state.stop_condition_witnesses.append(
                         f"stop:{node.get('node_id')}"
                     )
@@ -993,8 +1006,29 @@ class ToolRunner:
                     self._resolved_effect(effect, state)
                     for effect in final_effects
                 ],
-                "bindings": self._effect_bindings(state),
+                "bindings": {},
             }).passed)
+            # Preserve the direct concrete path. For semantic inputs, ask the
+            # same Harness authority for a current, jointly consistent witness
+            # assignment before final validation. This never rewrites inputs,
+            # RETURN outputs, or parent bindings, nor invents benchmark rules.
+            resolve_effect = getattr(ctx.harness.validator_channel(), "resolve_atomic_effect", None)
+            if not atomic_effect_passed and callable(resolve_effect):
+                resolution = resolve_effect({
+                    "effects": final_effects,
+                    "known_bindings": self._effect_bindings(state),
+                    "semantic_anchors": {},
+                    "current_revision": ctx.world_revision,
+                    "authoritative_evidence_facts": list(state.semantic_facts),
+                })
+                if resolution.passed and resolution.witness_refs:
+                    atomic_effect_passed = bool(validate_effect({
+                        "effects": [self._resolved_effect(
+                            effect, state,
+                            witness_bindings=resolution.resolved_bindings,
+                        ) for effect in final_effects],
+                        "bindings": {},
+                    }).passed)
         final_effect_result = {
             "passed": atomic_effect_passed,
             "observed_effects": [dict(item) for item in observed_effects],

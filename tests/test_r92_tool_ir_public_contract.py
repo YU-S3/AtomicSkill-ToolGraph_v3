@@ -311,7 +311,7 @@ def test_action_catalog_interpreter_uses_direct_argument_filter_keys() -> None:
 
 def test_public_condition_contract_matches_native_submission_schema() -> None:
     contract = public_tool_ir_condition_contract()
-    properties = TOOL_IR_CONDITION_SCHEMA["properties"]
+    properties = TOOL_IR_CONDITION_SCHEMA["oneOf"][0]["properties"]
 
     assert set(contract["sources"]) == set(properties["source"]["enum"])
     assert set(contract["operators"]) == set(properties["op"]["enum"])

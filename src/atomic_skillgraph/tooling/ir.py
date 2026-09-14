@@ -51,6 +51,7 @@ class ToolExecutionState:
     failure_code: str = ""
     failure_message: str = ""
     program_node_id: str = ""
+    catalog_revision: int | None = None
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:
@@ -177,7 +178,75 @@ def _lookup(source: str, field_name: str, state: ToolExecutionState) -> Any:
     return None
 
 
-def evaluate_condition(condition: Any, state: ToolExecutionState) -> bool:
+def validate_match_condition_shape(condition: Any) -> tuple[dict[str, Any], str]:
+    """The narrow selector-condition shape shared by static and execution."""
+    def invalid(message: str) -> None:
+        raise ValueError(f"tool_ir_condition_match_invalid: {message}")
+
+    if not isinstance(condition, Mapping) or set(condition) - {"match", "op"}:
+        invalid("match cannot be mixed with legacy fields")
+    operator = condition.get("op", "exists")
+    if not isinstance(operator, str) or operator not in {"exists", "not_exists"}:
+        invalid("match supports only exists/not_exists")
+    selector = condition.get("match")
+    if not isinstance(selector, Mapping) or set(selector) - {"source", "where", "project", "distinct"}:
+        invalid("unexpected selector fields")
+    if selector.get("source") != "action_catalog":
+        invalid("only action_catalog is public for match")
+    if "distinct" in selector and not isinstance(selector["distinct"], bool):
+        invalid("distinct must be boolean")
+    where, project = selector.get("where"), selector.get("project")
+    if not isinstance(where, Mapping) or not isinstance(where.get("action_type"), str) or not where["action_type"]:
+        invalid("where.action_type is required")
+    if (not isinstance(project, Mapping) or set(project) != {"kind", "role"}
+            or project.get("kind") != "argument" or not isinstance(project.get("role"), str)
+            or not project["role"]):
+        invalid("project must name an argument role")
+    semantic = where.get("semantic_compatible_with")
+    if "semantic_compatible_with" in where:
+        if (not isinstance(semantic, Mapping) or set(semantic) - {"source", "field", "semantic_type"}
+                or not isinstance(semantic.get("source"), str)
+                or semantic.get("source") not in {"tool_input", "local_variable"}
+                or not isinstance(semantic.get("field"), str) or not semantic["field"]
+                or not isinstance(where.get("argument_role"), str) or not where["argument_role"]
+                or ("semantic_type" in semantic and not isinstance(semantic["semantic_type"], str))):
+            invalid("semantic comparison must name an input/local and argument role")
+    elif "argument_role" in where:
+        invalid("argument_role requires semantic_compatible_with")
+    for role, value in where.items():
+        if role != "semantic_compatible_with" and isinstance(value, (Mapping, list, tuple)):
+            invalid("direct filters must be scalar")
+    return dict(selector), str(operator)
+
+
+def evaluate_condition(condition: Any, state: ToolExecutionState, *, semantic_compatible: Any = None) -> bool:
+    if isinstance(condition, Mapping) and "match" in condition:
+        selector, operator = validate_match_condition_shape(condition)
+        semantic = selector["where"].get("semantic_compatible_with")
+        if semantic is not None:
+            values = state.bindings if semantic["source"] == "tool_input" else state.local
+            if semantic["field"] not in values or values[semantic["field"]] in (None, ""):
+                raise ValueError("tool_ir_condition_reference_unavailable")
+            if not callable(semantic_compatible):
+                raise ValueError("tool_ir_condition_matcher_unavailable")
+        # The runner refreshes this catalog after every accepted action. Never
+        # interpret corrupt or stale entries as a negative target observation.
+        for entry in state.catalog:
+            if (not isinstance(entry, Mapping) or not isinstance(entry.get("arguments"), Mapping)
+                    or not entry.get("action_id") or not isinstance(entry.get("revision"), int)
+                    or isinstance(entry.get("revision"), bool)
+                    or (state.catalog_revision is not None and entry["revision"] != state.catalog_revision)):
+                raise ValueError("tool_ir_condition_catalog_invalid")
+            if entry.get("action_type") == selector["where"]["action_type"]:
+                roles = {selector["project"]["role"]}
+                if semantic is not None:
+                    roles.add(selector["where"]["argument_role"])
+                if any(entry["arguments"].get(role) in (None, "") for role in roles):
+                    raise ValueError("tool_ir_condition_projection_invalid")
+        values = resolve_collection(selector, state, semantic_compatible=semantic_compatible)
+        if any(value in (None, "") for value in values):
+            raise ValueError("tool_ir_condition_projection_invalid")
+        return bool(values) if operator == "exists" else not values
     condition = _as_mapping(condition)
     source = str(condition.get("source", "")).casefold()
     field_name = str(condition.get("field", ""))

@@ -91,7 +91,7 @@ def test_runtime_prompts_do_not_misclassify_bounded_semantic_search() -> None:
         assert "preconditions may reference declared inputs only" in prompt
         assert "effects may reference declared inputs and outputs" in prompt
         assert "Use $role references" in prompt
-        assert "never as a copied runtime value" in prompt
+        assert "never copied runtime values" in prompt
         assert "do not automate merely to use automation" in prompt
 
 
@@ -101,8 +101,9 @@ def test_runtime_draft_schema_explains_role_reference_derivation() -> None:
     effect_help = properties["effects"]["description"]
 
     assert "$<input_role>" in precondition_help
-    assert "$<output_role>" in effect_help
-    assert "Every required output" in effect_help
+    assert "$<role>" in effect_help
+    assert "Each fresh required output" in effect_help
+    assert "exactly one distinct (predicate, argument_role)" in effect_help
     assert "angle-bracket placeholder" in effect_help
 
 
@@ -141,7 +142,9 @@ def test_first_runtime_request_projects_complete_public_interface(
     assert {
         item["kind"] for item in interface["input_binding_kinds"]
     } == set(RUNTIME_INPUT_BINDING_KINDS)
+    from atomic_skillgraph.tooling.runtime_interface import RUNTIME_OUTPUT_DERIVATION_RULES
     assert interface["fresh_output_rules"] == {
+        "derivation_contract": RUNTIME_OUTPUT_DERIVATION_RULES,
         "future_effect_witness_allowed": True,
         "existing_output_witness_required_at_r0": False,
         "outputs_must_be_validated_after_trial": True,

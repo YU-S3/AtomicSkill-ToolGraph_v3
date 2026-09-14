@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from ..core.bindings import BindingStatus, RuntimeBinding
+from ..core.bindings import BindingResolution, BindingStatus, RuntimeBinding
 from ..core.contracts import AbstractAtomicSkill
 from ..core.results import AtomicEffectResolution, RuntimeOccurrence, ValidationResult
 
@@ -143,12 +143,36 @@ class AtomicValidator:
                     witness_refs=list(resolution.witness_refs),
                 )
         merged_outputs = {**authoritative_outputs, **candidate_outputs}
+        input_specs = {item.name: item for item in atomic.inputs}
+        for role, value in resolution.resolved_bindings.items():
+            original = bindings.get(role)
+            spec = input_specs.get(role)
+            if role in plain and value != plain[role] and not resolution.witness_refs:
+                return ValidationResult(
+                    "atomic", False, {"input_assignment_witnessed": False},
+                    ["atomic_effect_input_witness_missing"],
+                    ["Changing a validation-local input assignment requires an authoritative witness"],
+                )
+            locked = (
+                isinstance(original, RuntimeBinding)
+                and original.resolution in {BindingResolution.CONCRETE, BindingResolution.RELATION_VERIFIED}
+            ) or (spec is not None and spec.required_resolution != "semantic")
+            if locked and role in plain and value != plain[role]:
+                return ValidationResult(
+                    "atomic", False, {"concrete_input_preserved": False},
+                    ["atomic_effect_input_binding_conflict"],
+                    ["Effect witness conflicts with an already concrete input"],
+                    witness_refs=list(resolution.witness_refs),
+                )
+        # A semantic input remains immutable Tool input. Its concrete witness
+        # is a local assignment for final validation only, already constrained
+        # by the original known bindings in the Harness resolver request.
         merged_bindings = {
             **plain,
             **{
                 role: value
                 for role, value in resolution.resolved_bindings.items()
-                if role not in plain
+                if role in input_specs or role in output_roles
             },
         }
         final = self.validate(

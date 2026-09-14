@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import copy
 import re
 import hashlib
 from dataclasses import dataclass
@@ -209,6 +210,19 @@ _ALFWORLD_PREDICATE_SPECS: tuple[PredicateSpec, ...] = (
 
 _ALFWORLD_PREDICATE_DOMAINS = {
     spec.predicate: spec.effect_domain for spec in _ALFWORLD_PREDICATE_SPECS
+}
+
+# Existing public catalog projection, exposed as data so consumers do not
+# have to guess which public argument witnesses a predicate role. This is
+# not an action policy and does not add facts to the validator.
+_PUBLIC_CATALOG_RELATION_SCHEMA = {
+    "action_type": "TAKE",
+    "argument_roles": ["object", "source"],
+    "predicates": [
+        {"predicate": "entity.discovered_at", "argument_mapping": {"entity": "object", "location": "source"}},
+        {"predicate": "object.at_location", "argument_mapping": {"object": "object", "location": "source"}},
+    ],
+    "availability": "Current public catalog only; reading this relation does not execute the action. After another action, re-query the refreshed catalog. Historical discovery does not guarantee a currently selectable witness.",
 }
 
 
@@ -1254,12 +1268,13 @@ class AlfWorldAdapter:
         so the projection is rebuilt exclusively from that catalog entry.
         """
 
+        relation = _PUBLIC_CATALOG_RELATION_SCHEMA
         catalog_refs: dict[tuple[str, str], tuple[str, int]] = {}
         for spec in self.action_catalog():
-            if str(spec.action_type).upper() != "TAKE":
+            if str(spec.action_type).upper() != relation["action_type"]:
                 continue
-            entity = str(spec.arguments.get("object", ""))
-            location = str(spec.arguments.get("source", ""))
+            entity = str(spec.arguments.get(relation["argument_roles"][0], ""))
+            location = str(spec.arguments.get(relation["argument_roles"][1], ""))
             if entity and location:
                 catalog_refs[(entity, location)] = (
                     f"action_catalog:{spec.action_id}:revision:{spec.revision}",
@@ -1270,27 +1285,22 @@ class AlfWorldAdapter:
         for (
             (entity, location), (public_ref, observed_revision)
         ) in sorted(catalog_refs.items()):
-            public.extend((
-                {
-                    "predicate": "entity.discovered_at",
-                    "args": {"entity": entity, "location": location},
-                    "effect_domain": "evidence",
+            arguments = dict(zip(relation["argument_roles"], (entity, location)))
+            for projection in relation["predicates"]:
+                public.append({
+                    "predicate": projection["predicate"],
+                    "args": {role: arguments[source] for role, source in projection["argument_mapping"].items()},
+                    "effect_domain": _ALFWORLD_PREDICATE_DOMAINS[projection["predicate"]],
                     "observed_at_revision": observed_revision,
                     "source_kind": "public_action_catalog",
                     "evidence_status": "observed",
                     "public_evidence_ref": public_ref,
-                },
-                {
-                    "predicate": "object.at_location",
-                    "args": {"object": entity, "location": location},
-                    "effect_domain": "world",
-                    "observed_at_revision": observed_revision,
-                    "source_kind": "public_action_catalog",
-                    "evidence_status": "observed",
-                    "public_evidence_ref": public_ref,
-                },
-            ))
+                })
         return public
+
+    def public_catalog_relation_schema(self) -> list[dict[str, Any]]:
+        """Static schema for the public projection above; no episode values."""
+        return [copy.deepcopy(_PUBLIC_CATALOG_RELATION_SCHEMA)]
 
     def _replace_action_catalog(
         self, admissible: list[Any], revision: int,

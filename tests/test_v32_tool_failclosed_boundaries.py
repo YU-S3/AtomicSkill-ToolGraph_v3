@@ -482,6 +482,7 @@ def test_runtime_automation_admission_requires_executed_path_effects(
         static_validator=Static(),
     )
     ctx = SimpleNamespace(
+        world_revision=0, action_catalog=[],
         harness=SimpleNamespace(
             profile_name="alfworld",
             semantic_predicate_schema=lambda: [],

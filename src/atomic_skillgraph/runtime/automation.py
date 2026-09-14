@@ -314,6 +314,18 @@ class RuntimeAutomationCoordinator:
                     "tool_ir_collection_sources": (
                         public_tool_ir_collection_sources()
                     ),
+                    "runtime_entry": {
+                        "revision": ctx.world_revision,
+                        "input_values": dict(input_resolution.values),
+                        "action_catalog": [
+                            {"action_type": action.action_type,
+                             "arguments": dict(action.arguments)}
+                            for action in ctx.action_catalog
+                        ],
+                    },
+                    "public_catalog_relations": getattr(
+                        ctx.harness, "public_catalog_relation_schema", lambda: [],
+                    )(),
                 },
                 bucket="tool_builder_runtime",
             )

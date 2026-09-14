@@ -14,7 +14,7 @@ from typing import Any
 
 from ..core.errors import AgentProtocolError, FailureLayer
 from ..tooling.ir import CONDITION_OPERATORS, CONDITION_SOURCES
-from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS
+from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS, RUNTIME_OUTPUT_DERIVATION_RULES
 from .protocol import (
     AgentSession,
     AgentTurn,
@@ -512,6 +512,12 @@ TOOL_IR_COLLECTION_SOURCE_SCHEMA: dict[str, Any] = {
     },
     "description": (
         "FOR_EACH selector over an existing Tool IR source. For source="
+        "action_catalog or semantic_evidence, a filtered/projected selector "
+        "with ZERO matching entries aborts the ENTIRE Tool with "
+        "tool_ir_selector_no_match; it does not mean zero harmless iterations. "
+        "For optional action candidates, first guard the lookup using IF with "
+        "the matching action_catalog condition.match, then enumerate only in "
+        "that true branch. Query false permits continued execution. For source="
         "action_catalog, each current public entry has action_id, revision, "
         "action_type, and arguments. Filter with where.action_type and optional "
         "exact primitive-argument values directly as where.<argument_role>; "
@@ -526,7 +532,7 @@ TOOL_IR_COLLECTION_SOURCE_SCHEMA: dict[str, Any] = {
 }
 
 
-TOOL_IR_CONDITION_SCHEMA: dict[str, Any] = {
+TOOL_IR_LEGACY_CONDITION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["source", "field"],
     "additionalProperties": False,
@@ -560,6 +566,55 @@ TOOL_IR_CONDITION_SCHEMA: dict[str, Any] = {
         "the current Tool inputs, lexical locals, public action catalog, public "
         "semantic evidence, or public binding evidence."
     ),
+}
+
+
+TOOL_IR_MATCH_CONDITION_SCHEMA: dict[str, Any] = {
+    "type": "object", "required": ["match"], "additionalProperties": False,
+    "properties": {
+        "op": {"type": "string", "enum": ["exists", "not_exists"]},
+        "match": {
+            "type": "object", "required": ["source", "where", "project"],
+            "additionalProperties": False,
+            "properties": {
+                "source": {"const": "action_catalog"},
+                "where": {
+                    "type": "object", "required": ["action_type"],
+                    "additionalProperties": {"type": ["string", "number", "boolean", "null"]},
+                    "oneOf": [
+                        {"required": ["argument_role", "semantic_compatible_with"]},
+                        {"not": {"anyOf": [
+                            {"required": ["argument_role"]},
+                            {"required": ["semantic_compatible_with"]},
+                        ]}},
+                    ],
+                    "properties": {
+                        "action_type": NONEMPTY_STRING_SCHEMA,
+                        "argument_role": NONEMPTY_STRING_SCHEMA,
+                        "semantic_compatible_with": {
+                            "type": "object", "required": ["source", "field"],
+                            "additionalProperties": False,
+                            "properties": {
+                                "source": {"enum": ["tool_input", "local_variable"]},
+                                "field": NONEMPTY_STRING_SCHEMA,
+                                "semantic_type": {"type": "string"},
+                            },
+                        },
+                    },
+                },
+                "project": {
+                    "type": "object", "required": ["kind", "role"],
+                    "additionalProperties": False,
+                    "properties": {"kind": {"const": "argument"}, "role": NONEMPTY_STRING_SCHEMA},
+                },
+                "distinct": {"type": "boolean"},
+            },
+        },
+    },
+}
+TOOL_IR_CONDITION_SCHEMA: dict[str, Any] = {
+    "oneOf": [TOOL_IR_LEGACY_CONDITION_SCHEMA, TOOL_IR_MATCH_CONDITION_SCHEMA],
+    "description": "Legacy field condition or selector_condition_v1: a read-only current action_catalog match query; no match is false, not an execution failure or global absence fact.",
 }
 
 
@@ -685,8 +740,8 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
             "description": (
                 "Use public predicate argument-role keys exactly. Reference "
                 "declared inputs and outputs with $<role>, for example "
-                "{entity: $object, location: $source}. Every required output "
-                "must occur as its $<output_role> in at least one effect. A "
+                "{entity: $object, location: $source}. "
+                + RUNTIME_OUTPUT_DERIVATION_RULES + " A "
                 "fresh output may lack a witness before the future trial; do "
                 "not replace it with a runtime value or angle-bracket "
                 "placeholder."

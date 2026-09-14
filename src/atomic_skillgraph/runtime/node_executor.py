@@ -426,6 +426,15 @@ class NodeExecutor:
         audit_occurrence_id = (
             "" if occurrence is None else str(occurrence.occurrence_id)
         )
+        if "draft_id" in payload:
+            # A trial can advance several revisions before returning control.
+            # Refresh even cached/rejected automation replies from the current
+            # public surface; never replay their previous catalog snapshot.
+            payload.update(
+                new_revision=ctx.world_revision,
+                observation=ctx.observation,
+                action_catalog=self._policy_catalog(ctx.action_catalog, ctx.world_revision),
+            )
         if occurrence is not None and atomic is not None:
             payload["current_state_snapshot"] = self._current_state_snapshot(
                 occurrence,
@@ -1558,6 +1567,24 @@ class NodeExecutor:
                 "parent_completed_after_trial_count",
             )
 
+    def _mark_prior_trials_seeded_continuation(
+        self, ctx: Any, occurrence: Any, session_id: str,
+    ) -> None:
+        """A new Seeded turn can resume a parent after Preparation exhaustion."""
+
+        for draft_id, trial in getattr(ctx, "runtime_tool_trials", {}).items():
+            if not isinstance(trial, dict) or (
+                str(trial.get("source_occurrence_id", ""))
+                != str(occurrence.occurrence_id)
+                or trial.get("terminal_interrupted", False)
+                or trial.get("parent_resumed_after_trial", False)
+            ):
+                continue
+            self._mark_runtime_trial_parent_resumed(
+                ctx, {"draft_id": draft_id, "trial": trial},
+            )
+            trial["parent_continuation_session_id"] = session_id
+
     def _runtime_automation_terminal_boundary(
         self,
         occurrence: Any,
@@ -2544,6 +2571,11 @@ class NodeExecutor:
                 origin="initial",
             )
             turn = session.next_turn(prompt, tools=tools)
+            # Mark only after a real parent Runtime turn was obtained. A failed
+            # provider call or terminal trial is not evidence of continuation.
+            self._mark_prior_trials_seeded_continuation(
+                ctx, occurrence, session.session_id,
+            )
             while True:
                 self._record_turn(session, turn, ctx)
                 call = turn.tool_calls[0]

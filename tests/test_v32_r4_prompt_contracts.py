@@ -20,8 +20,8 @@ from atomic_skillgraph.tooling.proposal import ToolProvenance
 
 
 _POLICY_SEPARATOR = "\n\nPOLICY_CONTEXT_JSON\n"
-_R92_TOOL_BUILDER_INSTRUCTION_SHA256 = (
-    "b42988f5492488ef8fd3c8b1a1912eeccf8d0fa3e18bfa2924439a50e4be3375"
+_R921_TOOL_BUILDER_INSTRUCTION_SHA256 = (
+    "7c1cc67f3b10700a795dafba0595e02aeb29d98367d7cdfc4050768ef9496edd"
 )
 
 
@@ -69,7 +69,7 @@ def _atomic_view() -> dict[str, object]:
     }
 
 
-def test_tool_builder_uses_r92_instruction_and_canonical_ref() -> None:
+def test_tool_builder_uses_r921_instruction_and_canonical_ref() -> None:
     provenance = ToolProvenance(
         source="success_evolution",
         atomic_ref="skill://example_navigation@1.0.0",
@@ -87,9 +87,9 @@ def test_tool_builder_uses_r92_instruction_and_canonical_ref() -> None:
     instruction, raw_payload = prompt.split(_POLICY_SEPARATOR, 1)
     payload = json.loads(raw_payload)
 
-    assert len(instruction) == 7832
+    assert len(instruction) == 11618
     assert hashlib.sha256(instruction.encode("utf-8")).hexdigest() == (
-        _R92_TOOL_BUILDER_INSTRUCTION_SHA256
+        _R921_TOOL_BUILDER_INSTRUCTION_SHA256
     )
     assert payload["atomic_ref"] == provenance.atomic_ref
     assert payload["canonical_atomic"]["effects"] == _atomic_view()["effects"]
@@ -119,6 +119,7 @@ def test_tool_builder_schema_names_existing_action_catalog_selector_shape() -> N
         "field", "argument",
     ]
     description = TOOL_IR_COLLECTION_SOURCE_SCHEMA["description"]
+    assert "ZERO matching entries aborts the ENTIRE Tool" in description
     assert "project.kind=argument" in description
     assert "candidates, not effect evidence" in description
     validate_schema_instance(

@@ -32,6 +32,7 @@ from .ir import (
     normalize_tool_program,
     program_paths,
     walk_program_nodes,
+    validate_match_condition_shape,
 )
 from .proposal import RuntimeAutomationAtomicDraft, ToolProposal
 from .runtime_interface import (
@@ -550,13 +551,18 @@ def _scope_pass(
                     fail=fail,
                 )
             elif opcode in {"IF", "STOP_WHEN"}:
-                source, target = _condition_reference(_selector_source(node.get("condition")))
-                _check_scoped_reference(
-                    source, target,
-                    available_locals=current,
-                    atomic_inputs=atomic_inputs,
-                    fail=fail, node_id=node_id, context="condition",
-                )
+                condition = _selector_source(node.get("condition"))
+                if "match" in condition:
+                    _check_selector_scoped_references(
+                        _selector_source(condition.get("match")), available_locals=current,
+                        atomic_inputs=atomic_inputs, fail=fail, node_id=node_id, context="condition.match",
+                    )
+                else:
+                    source, target = _condition_reference(condition)
+                    _check_scoped_reference(
+                        source, target, available_locals=current,
+                        atomic_inputs=atomic_inputs, fail=fail, node_id=node_id, context="condition",
+                    )
                 if opcode == "IF":
                     then_out = visit(list(node.get("then_branch") or []), current)
                     else_out = visit(list(node.get("else_branch") or []), current)
@@ -1065,6 +1071,11 @@ def _program_episode_literal_hits(
                             )
             elif opcode in {"IF", "STOP_WHEN"}:
                 condition = node.get("condition")
+                if isinstance(condition, Mapping) and isinstance(condition.get("match"), Mapping):
+                    _scan_selector_literals(
+                        hits, condition["match"],
+                        _field_path(_field_path(node_path, "condition"), "match"), known_instances,
+                    )
                 if isinstance(condition, Mapping) and "value" in condition:
                     _append_literal_hits(
                         hits, condition.get("value"),
@@ -1686,9 +1697,24 @@ class ToolStaticValidator:
         )
 
         # 4. Conditions, RETURN closure and fail-closed lexical scope.
+        from ..agents.structured_submission import TOOL_IR_CONDITION_SCHEMA
+        from ..agents.protocol import validate_schema_instance, SchemaValidationError
         for node, _depth in all_nodes:
             if str(node.get("op", "")) in {"IF", "STOP_WHEN"}:
                 condition = _selector_source(node.get("condition"))
+                try:
+                    validate_schema_instance(condition, TOOL_IR_CONDITION_SCHEMA)
+                except SchemaValidationError as exc:
+                    fail("tool_ir_condition_source_invalid", str(exc))
+                if "match" in condition:
+                    try:
+                        selector, _operator = validate_match_condition_shape(condition)
+                    except ValueError as exc:
+                        fail("tool_ir_condition_match_invalid", str(exc))
+                    else:
+                        _validate_selector(selector, str(node.get("node_id", "")),
+                                           fail=fail, action_argument_roles=action_argument_roles)
+                    continue
                 if str(condition.get("source", "")).casefold() not in _CONDITION_SOURCES:
                     fail("tool_ir_condition_source_invalid", f"{node['op']} {node.get('node_id')} condition source invalid")
                 if not str(condition.get("field", "")):

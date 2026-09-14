@@ -86,6 +86,10 @@ _TOOL_IR_COLLECTION_SOURCE_DEFINITIONS: tuple[dict[str, Any], ...] = (
             "Enumerate values projected from the current public admissible "
             "primitive-action catalog at FOR_EACH entry. This exposes "
             "candidates only; it does not select an action or prove an effect."
+            " A filtered/projected FOR_EACH with zero matches aborts the entire "
+            "Tool with tool_ir_selector_no_match. Optional candidates need an "
+            "IF condition.match guard before enumeration; false skips that "
+            "lookup and permits subsequent work."
         ),
         "entry_fields": list(ACTION_CATALOG_ENTRY_FIELDS),
         "where": {
@@ -128,7 +132,48 @@ _TOOL_IR_COLLECTION_SOURCE_DEFINITIONS: tuple[dict[str, Any], ...] = (
 )
 
 
+RUNTIME_OUTPUT_DERIVATION_RULES = (
+    "A required same-name input/output uses input_identity only when required, "
+    "semantic type and minimum resolution agree; a semantic class cannot be "
+    "upgraded to a concrete instance by renaming. Each fresh required output "
+    "must have exactly one distinct (predicate, argument_role) derivation in "
+    "the declared final Effects. Repeated references to the same pair count "
+    "once. Final Effects describe the capability's promised outcome; Builder "
+    "puts intermediate action effects in ACTION.expected_effects. Do not "
+    "delete necessary final effects to pass R0 or arbitrarily select a witness. "
+    "Future output witnesses need not exist at R0, but every input source "
+    "must already be authorized. Ambiguous derivations are explicitly rejected. "
+    "A unique predicate/argument derivation is not a unique concrete witness: "
+    "final validation also requires one jointly consistent current witness assignment. "
+    "Input constraints apply only through their declared role references in final "
+    "Effects; an unreferenced descriptive input does not constrain a fresh output. "
+    "Keep the target-defining input role referenced in the promised Effect. "
+    "Tool RETURN candidates and prose descriptions cannot disambiguate an "
+    "otherwise ambiguous formal Effect."
+)
+
+
 _TOOL_IR_CONDITION_CONTRACT: dict[str, Any] = {
+    "capabilities": ["selector_condition_v1"],
+    "match_shape": {
+        "op": "exists or not_exists; defaults to exists",
+        "match": {
+            "source": "action_catalog",
+            "where": "required public action_type; direct argument filters and optional semantic_compatible_with",
+            "project": {"kind": "argument", "role": "an argument of the selected public primitive"},
+            "distinct": "optional boolean",
+        },
+    },
+    "match_rules": (
+        "Use either match/op or the legacy shape, never both. Match compares "
+        "current public action candidates; semantic comparison source/field "
+        "must name a declared tool_input or in-scope local_variable and uses "
+        "the Harness matcher. Empty matches mean false (not_exists true), not "
+        "selector failure or a global absence fact. Querying creates no witness "
+        "or binding. Invalid selectors/references are errors. No field paths, "
+        "nested match, private facts, or new operators. Required RETURN and "
+        "filtered FOR_EACH keep their strict no-result failure semantics."
+    ),
     "shape": {
         "source": "one of sources",
         "field": "required source field or declared role",
@@ -374,6 +419,7 @@ def build_runtime_automation_interface(
         ],
         "current_input_sources": dynamic["current_input_sources"],
         "fresh_output_rules": {
+            "derivation_contract": RUNTIME_OUTPUT_DERIVATION_RULES,
             "future_effect_witness_allowed": True,
             "existing_output_witness_required_at_r0": False,
             "outputs_must_be_validated_after_trial": True,
