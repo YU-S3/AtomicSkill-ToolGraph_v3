@@ -78,3 +78,17 @@ def test_formal_gate_rejects_missing_or_changed_evidence(tmp_path):
     cfg["model"]["base_url"]="https://different-provider.invalid"
     with pytest.raises(ValueError,match="configuration changed"):
         verify_smoke_qualification(tmp_path/"smoke_qualification.json",identity,cfg)
+
+
+def test_failed_billed_usage_is_reported_without_inventing_unknown_cost():
+    from experiments.baselines.common.reasoning_budget import summarize_budget_events
+    failed=response_evidence(reply("",65536,65536,"length"),cap=65536,hint=512)
+    events=[dict(role="optimizer",physical_attempt_usage=[failed])]
+    report=summarize_budget_events(events)
+    assert report["evolution_completion_tokens"]==65536
+    assert report["evolution_visible_completion_tokens"]==0
+    assert report["budget_exhaustion_count"]==1 and report["provider_attempts"]==1
+    events[0]["physical_attempt_usage"].append(response_evidence(None,cap=65536,hint=512))
+    report=summarize_budget_events(events)
+    assert report["evolution_completion_tokens"] is None
+    assert report["evolution_completion_tokens_known_subtotal"]==65536

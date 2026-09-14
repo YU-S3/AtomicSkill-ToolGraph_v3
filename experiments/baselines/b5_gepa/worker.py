@@ -1110,6 +1110,11 @@ def main(argv: list[str] | None = None) -> int:
                     phase_dir=_phase_dir(wire), observer=observer
                 )
                 evidence.setdefault("provider_calls", len(event_view.events()))
+                from experiments.baselines.common.reasoning_budget import summarize_budget_events
+                from experiments.baselines.b4_embodiskill.state import write_json
+                billed = summarize_budget_events(event_view.events())
+                evidence["billed_attempt_usage"] = billed
+                write_json(_phase_dir(wire) / "reasoning_budget_report.json", billed)
                 usage_path = _phase_dir(wire) / "usage.json"
                 if not usage_path.exists() and event_view.events():
                     partial = _provider_usage(
@@ -1120,6 +1125,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     partial.save(usage_path)
                     evidence["partial_usage"] = partial.to_dict()
+                    evidence["partial_usage_scope"] = "successful_logical_calls_only; billed_attempt_usage includes failed attempts"
             except Exception:
                 evidence.setdefault("provider_calls", observer.event_cursor())
         if wire is not None and not Path(wire.result_path).exists():
