@@ -1,6 +1,42 @@
 # EmbodiSkill v2.2 integration validation — 2026-09-14
 
-Status: v2.2 implementation and offline regressions completed; final real-API qualification is in progress. No formal training has been started.
+Status: **B4 and B5 real-API smoke passed; B4 v2.2 formal gate verified without starting Train.** Execution source commit: `6a85939`. No formal training has been started.
+
+## Final v2.2 qualification
+
+- Full common/B3/B5 regression suite: **290 passed, 4 skipped**. The four heavy B4 dependency cases were separately exercised in the EmbodiSkill worker environment (22 passing tests, including the real upstream lifecycle and typed budget-failure propagation).
+- B4: `runs/baselines/b4_embodiskill_v22_smoke_20260914_03/`, **passed=true**, **source_config_unchanged=true**, 1127.13 seconds (18m47s). It executed 2 Train + 2 read-only Val + 2 frozen Test episodes, plus independent live recovery/diagnosis probes. All nine smoke checks passed. Frozen state remained unchanged. The two smoke Test episodes succeeded; this is not a formal accuracy estimate.
+- All 86 B4 physical requests have known usage, unique attempt IDs and consumable/parseable content. No retry, failed request, length finish or budget exhaustion occurred. Every request records provider cap 65536 and HTTP field `max_tokens`.
+- B5: `runs/baselines/b5_gepa_v22_smoke_20260914_01/smoke_report.json`, **passed=true**. Actual optimizer budget: 24 metric calls, 3 reflection calls, followed by 6 frozen read-only Test episodes. 63 physical requests, zero retries/failures/length finishes/budget exhaustion; frozen digest unchanged. This retains the existing two-action engineering smoke configuration and is not a formal performance estimate.
+- EmbodiSkill pinned upstream core remains unpatched. Formal B4 config remains Train120/Val24/Test134 with seeds 42/43/44 and fixed 3×8/global24 parallelism. Completed B3 artifacts and Ours source/config were not changed.
+
+Actual billed token evidence (completion includes reasoning):
+
+| Smoke/role | Requests | Prompt | Completion | Reasoning | Visible completion |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| B4 target | 74 | 100992 | 90398 | 89496 | 902 |
+| B4 evolution | 12 | 14035 | 26216 | 25055 | 1161 |
+| B5 target, including frozen Test | 60 | 92660 | 13462 | 8256 | 5206 |
+| B5 evolution | 3 | 7734 | 26031 | 21207 | 4824 |
+
+No pricing table is frozen, so monetary API cost remains null/unpriced. Costs are not estimated from the 65536 ceiling.
+
+B4 required-role evidence, all with parse success and no length finish:
+
+| Stage | Calls | Maximum actual completion | Reasoning subtotal | Visible subtotal |
+| --- | ---: | ---: | ---: | ---: |
+| Solver | 73 | 4541 | 86656 | 851 |
+| Stuck recovery | 1 | 2891 | 2840 | 51 |
+| Trajectory condensation | 2 | 6247 | 10914 | 459 |
+| Failure diagnosis | 2 | 1378 | 2475 | 177 |
+| Episode reflection | 2 | 3206 | 3996 | 325 |
+| Manual revision | 1 | 275 | 99 | 176 |
+
+The other five B4 calls are upstream trajectory reranking and are included in the billed totals. Per-request cap, usage, finish reason, content length and parse result are retained in `seed_42/stage_qualification.json` and each attempt's `provider_calls.jsonl` / `model_responses.jsonl`. B5 additionally writes `smoke/reasoning_budget_report.json` and `smoke_test/reasoning_budget_report.json`.
+
+The successful B4 receipt is `runs/baselines/b4_embodiskill_v22_smoke_20260914_03/smoke_qualification.json`. Its formal-config hash, actual current code hash and pinned upstream tree were checked through the real formal gate without invoking the training runner.
+
+Earlier v2.2 attempts are retained: `_01` completed the method chain but was rejected because source changed during integration; `_02` completed all method checks but revealed that the common episode reader omitted the newly persisted visible-token fields. The reader was corrected without weakening row consistency, regression fixtures now contain non-null visible usage, and the preserved `_02` artifacts successfully rebuild through the corrected report reader. `_03` is the fresh, fixed-source end-to-end release evidence.
 
 ## Implementation
 
@@ -21,7 +57,7 @@ Status: v2.2 implementation and offline regressions completed; final real-API qu
 - Real GEPA dependency/ALFWorld single-worker load: passed, including exact gamefile reset. No model calls or optimizer execution.
 - `git diff --check`: passed.
 
-## Real API blocker
+## Historical v2.1 API blocker
 
 The latest complete attempt is:
 
@@ -78,7 +114,7 @@ The replacement load-only probe writes its evidence to:
 
 The replacement probe **passed at 24 workers** (three seed lanes × eight evaluation workers). All 24 actual model requests succeeded with nonempty output and no truncation. At full load the measured available WSL memory was 6,688,051,200 bytes, above the 2,475,482,112-byte reserve. The 48/36 targets were rejected before full loading by the measured memory projection.
 
-The authoritative result is `load_probe_summary.json` and the per-cap `load_probes/workers_*/report.json`. This qualifies the load test only; the end-to-end method smoke above is still blocked. Load-only mode never starts Train. All validation processes have exited.
+The authoritative result is `load_probe_summary.json` and the per-cap `load_probes/workers_*/report.json`. That result qualified load only; the end-to-end blocker at that time is now resolved by the v2.2 qualification above. Load-only mode never starts Train.
 
 ## Entry points
 
@@ -93,3 +129,12 @@ bash experiments/baselines/launch_embodiskill.sh formal "runs/baselines/b4_forma
 ```
 
 The formal command also checks clean local source and requires a matching successful `smoke_qualification.json` before creating its campaign lock. Fixed B4 concurrency is three seed lanes × eight workers (global24), based on the successful load evidence above.
+
+For this already-qualified local checkout, start formal directly (the launcher loads the existing v3 `.env`):
+
+```bash
+cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
+bash experiments/baselines/launch_embodiskill.sh formal \
+  "runs/baselines/b4_v22_3seed_$(date -u +%Y%m%dT%H%M%SZ)" \
+  runs/baselines/b4_embodiskill_v22_smoke_20260914_03/smoke_qualification.json
+```
