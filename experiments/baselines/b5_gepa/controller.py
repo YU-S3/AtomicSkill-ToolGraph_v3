@@ -136,6 +136,14 @@ def _load_campaign_descriptor(
     _validate_campaign_probe_receipt(
         payload, campaign_root=lock_path.parent, model=model
     )
+    from .qualification import verify_load_receipt, verify_smoke_receipt
+    from .run_seed_campaign import _provider_cap_mismatches
+    verify_load_receipt(payload, lock_path.parent)
+    if _provider_cap_mismatches(config, payload, cap=payload["campaign_provider_max_inflight"]):
+        raise ValueError("B5 load receipt differs from controller worker config")
+    smoke_ref = payload.get("smoke_qualification", {})
+    if verify_smoke_receipt(smoke_ref.get("path"), payload) != smoke_ref:
+        raise ValueError("B5 campaign smoke qualification changed")
     gate_dir = Path(str(payload.get("provider_gate_dir", ""))).expanduser().resolve()
     try:
         gate_dir.relative_to(lock_path.parent.resolve())
@@ -929,6 +937,9 @@ def main(argv: list[str] | None = None) -> int:
             "report": report_name,
             "completed_at_unix": time.time(),
         })
+        if args.phase == "smoke":
+            from .qualification import write_smoke_receipt
+            write_smoke_receipt(ctx)
         _write_json_atomic(ctx.output_dir / "run_state.json", {
             "schema_version": 1,
             "run_id": run_id,

@@ -44,6 +44,18 @@ def usage(events):
     return result
 
 
+def reranking_usage(events):
+    """Physical-attempt costs, including failed retrieval requests, with null authority."""
+    rows = [e for e in events if e["stage"] == "trajectory_reranking"]
+    result = {"trajectory_reranking_calls": len(rows)}
+    for key in ("prompt_tokens", "completion_tokens", "reasoning_tokens", "visible_completion_tokens"):
+        values = [e.get(key) for e in rows]
+        known = [v for v in values if isinstance(v, int) and v >= 0]
+        result["trajectory_reranking_" + key] = sum(known) if len(known) == len(values) else None
+        result["trajectory_reranking_" + key + "_known_subtotal"] = sum(known)
+    return result
+
+
 class WorkerFailure(RuntimeError):
     def __init__(self, message, failure_kind):
         super().__init__(message)
@@ -212,6 +224,7 @@ class SeedController:
             embedding_calls=sum(r["result"]["embedding_calls"] for r in trains+revisions+validations))
         summary["method_metrics"] = method_metrics(trains, revisions, validations, tests,
             best=best, best_epoch=best_epoch, best_rate=best_rate)
+        summary["method_metrics"].update(reranking_usage(events))
         summary["evolution_revision_usage"] = usage([e for r in revisions for e in read_jsonl(Path(r["attempt"]) / "provider_calls.jsonl")])
         summary["smoke_checks"] = smoke_checks(trains, revisions, validations, tests)
         if cfg["experiment_kind"] == "smoke":
@@ -236,7 +249,8 @@ class SeedController:
         for receipt in receipts:
             r = receipt["result"]
             task = ManifestTask.from_dict(r["task"])
-            cost = usage(read_jsonl(Path(receipt["attempt"]) / "provider_calls.jsonl"))
+            provider_events = read_jsonl(Path(receipt["attempt"]) / "provider_calls.jsonl")
+            cost = usage(provider_events)
             flags = evaluator.evaluate(task, r["actions"], official_success=r["official_success"])
             if flags.replayed_terminal_won != r["official_success"] or flags.environment_actions != len(r["actions"]):
                 raise RuntimeError("Posthoc replay differs from actual episode")
@@ -250,7 +264,7 @@ class SeedController:
                 artifact_digest_after=receipt["state_digest"] if phase == "train" else (r["source_digest"] or ""),
                 method_metrics=dict(usage=cost, manual_version=r["manual_before"]["version"],
                     method_specific_alfworld_prior=True, trajectory_records=r["trajectory_records"],
-                    attempt=receipt["attempt"]))
+                    attempt=receipt["attempt"], **reranking_usage(provider_events)))
             record.set_posthoc_outcome(contract_consistency=flags.task_contract_success)
             for role in ("target", "evolution"):
                 setattr(record, role+"_llm_calls", cost[role]["calls"])
@@ -277,7 +291,7 @@ class SeedController:
 
 
 def stage_qualification(events):
-    required = ("solver", "stuck_recovery", "trajectory_condensation", "failure_diagnosis",
+    required = ("solver", "stuck_recovery", "trajectory_reranking", "trajectory_condensation", "failure_diagnosis",
                 "episode_reflection", "manual_revision")
     stages = {}
     for stage in required:
@@ -291,7 +305,11 @@ def stage_qualification(events):
     budget_ok = all(not e.get("budget_exhausted") and
         not (e.get("finish_reason") == "length" and not e.get("content_parse_success"))
         and e.get("provider_completion_cap") == 65536 and e.get("http_token_limit_field") == "max_tokens" for e in events)
-    return dict(passed=all(s["passed"] for s in stages.values()) and complete and budget_ok,
+    from .model_adapter import TARGET_STAGES
+    roles_ok = all(e["role"] == ("target" if e["stage"] in TARGET_STAGES else "evolution") for e in events)
+    readonly_ok = all(e["role"] == "target" for e in events if e.get("phase") in {"validation", "test"})
+    return dict(passed=all(s["passed"] for s in stages.values()) and complete and budget_ok and roles_ok and readonly_ok,
+        correct_stage_roles=roles_ok, readonly_inference_only=readonly_ok,
         stages=stages, all_billed_usage_known=complete, no_unusable_truncation=budget_ok,
         response_consumption="content_only", reasoning_content_used_by_method=False)
 

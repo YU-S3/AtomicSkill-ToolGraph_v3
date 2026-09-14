@@ -4,6 +4,8 @@ from functools import wraps
 
 from experiments.baselines.common.model_client import append_event, ProviderFailure
 
+TARGET_STAGES = frozenset({"solver", "stuck_recovery", "trajectory_reranking"})
+
 
 class MethodTransport:
     def __init__(self, client, output, *, readonly):
@@ -29,14 +31,14 @@ class MethodTransport:
         stage = self.stage
         if rows[0]["content"] == EmbodiSkillPrompts.detect_mistakes_system_prompt:
             stage = "failure_diagnosis"
-        role = "target" if stage in {"solver", "stuck_recovery"} else "evolution"
-        if self.readonly and role == "evolution" and stage != "trajectory_reranking":
+        role = "target" if stage in TARGET_STAGES else "evolution"
+        if self.readonly and role == "evolution":
             raise RuntimeError(f"Forbidden evaluation learning call: {stage}")
         try:
             return self.client.chat(messages=rows, stage=stage, role=role,
                 method_output_token_hint=max_tokens, temperature=temperature, stop=stop_strs,
                 content_parser=self.json_parser if stage == "episode_reflection" or stage.startswith("manual_")
-                    else self.action_parser if role == "target" else None)
+                    else self.action_parser if stage in {"solver", "stuck_recovery"} else None)
         except ProviderFailure as exc:
             # Upstream explicitly propagates this class; do not multiply its retries.
             failure = LLMRequestError(str(exc))

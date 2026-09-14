@@ -191,9 +191,11 @@ def test_pinned_core_train_revision_reload_readonly_with_scripted_provider(tmp_p
     from experiments.baselines.b4_embodiskill.model_adapter import MethodTransport
     from experiments.baselines.common.artifact_digest import digest_directory
     stages = []
+    requests = []
     class ScriptedClient:
         def chat(self, **kw):
             stages.append(kw["stage"])
+            requests.append({k:v for k,v in kw.items() if k != "content_parser"})
             if kw["stage"] == "episode_reflection":
                 return json.dumps(dict(is_empty=False, reflection_type="S_NEW",target_section="Search",
                     content="Inspect visible surfaces before opening containers.",target_skill=""))
@@ -218,9 +220,9 @@ def test_pinned_core_train_revision_reload_readonly_with_scripted_provider(tmp_p
             return "You completed the task.",1,True
         def feedback(self):
             return 1,True,"Success"
-    def build(state,readonly):
+    def build(state,readonly,transport_cls=MethodTransport):
         output=state.parent/"events"
-        transport=MethodTransport(ScriptedClient(),output,readonly=readonly)
+        transport=transport_cls(ScriptedClient(),output,readonly=readonly)
         skill=EmbodiSkill(namespace="EmbodiSkill",global_config={**load_config(False)["embodiskill"],
             "working_dir":str(state.parent),"persist_dir":str(state),"task":"alfworld","current_epoch_id":0},
             llm_model=transport,embedding_func=Embedding())
@@ -242,10 +244,31 @@ def test_pinned_core_train_revision_reload_readonly_with_scripted_provider(tmp_p
     before=copy_state(state,tmp_path/"eval/state")
     readonly_skill,readonly_team=build(tmp_path/"eval/state",True)
     stages.clear()
+    requests.clear()
     readonly_team.schedule({**task,"task_main":"put-another-apple-in-bowl"},update_skill=False)
     assert set(stages) <= {"solver","trajectory_reranking","stuck_recovery"}
+    assert "trajectory_reranking" in stages
+    assert all(r["role"] == "target" for r in requests)
+    fixed_requests = list(requests)
     assert readonly_skill.skill_size == 1
     assert readonly_skill.get_active_manual_data()["version"] == version+1
+    assert digest_directory(state) == before
+    class LegacyAuditTransport(MethodTransport):
+        # Exact pre-v2.3 readonly mapping; scripted responses and upstream core are unchanged.
+        def __call__(self,messages,temperature=.1,max_tokens=512,stop_strs=None,num_comps=1,**kwargs):
+            role = "target" if self.stage in {"solver","stuck_recovery"} else "evolution"
+            return self.client.chat(messages=[dict(role=m.role,content=m.content) for m in messages],
+                stage=self.stage, role=role, method_output_token_hint=max_tokens,
+                temperature=temperature, stop=stop_strs,
+                content_parser=self.action_parser if role=="target" else None)
+    copy_state(state,tmp_path/"legacy/state")
+    legacy_skill,legacy_team=build(tmp_path/"legacy/state",True,LegacyAuditTransport)
+    requests.clear()
+    legacy_team.schedule({**task,"task_main":"put-another-apple-in-bowl"},update_skill=False)
+    assert [{k:v for k,v in r.items() if k != "role"} for r in requests] == [
+        {k:v for k,v in r.items() if k != "role"} for r in fixed_requests]
+    assert legacy_skill.get_active_manual_data() == readonly_skill.get_active_manual_data()
+    assert legacy_skill.skill_size == readonly_skill.skill_size
     assert digest_directory(state) == before
     # Typed exhaustion must escape the real TeamSolver without its three empty-action retries.
     from agentkit.llm import LLMRequestError

@@ -85,7 +85,7 @@ class AuditedChatClient:
                     event["completion_budget_exhausted"] = event["budget_exhausted"]
                     if event["budget_exhausted"]:
                         failure, retry = "COMPLETION_BUDGET_EXHAUSTED", False
-                    elif not content.strip() and role == "evolution":
+                    elif not content.strip() and (role == "evolution" or stage == "trajectory_reranking"):
                         failure, retry = "empty_evolution_message", True
                     elif usage is None:
                         failure, retry = "missing_usage", True

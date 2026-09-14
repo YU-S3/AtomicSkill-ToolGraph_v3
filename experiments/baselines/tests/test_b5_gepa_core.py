@@ -1287,6 +1287,12 @@ def test_campaign_descriptor_requires_three_parallel_seed_lanes(
         SimpleNamespace(digest="2" * 64),
         SimpleNamespace(digest="3" * 64),
     ]
+    # This test isolates the descriptor's existing seed/source checks. Full v2.3
+    # receipt verification and rejection paths are exercised in test_v23_release.
+    from experiments.baselines.b5_gepa import qualification
+    monkeypatch.setattr(qualification, "verify_load_receipt", lambda *a: None)
+    monkeypatch.setattr(qualification, "verify_smoke_receipt", lambda *a: {})
+    monkeypatch.setattr(campaign_module, "_provider_cap_mismatches", lambda *a, **kw: [])
 
     descriptor = controller_module._load_campaign_descriptor(
         path,
@@ -1941,6 +1947,8 @@ def test_three_seed_campaign_runs_train_freeze_then_test_per_lane(
         ),
     )
     paper_inputs: list[dict[str, list[Path]]] = []
+    monkeypatch.setattr(campaign_module, "verify_smoke_receipt", lambda *a: {})
+    monkeypatch.setattr(campaign_module, "write_load_receipt", lambda *a: None)
 
     def build_paper_report(method_runs, **kwargs):
         paper_inputs.append({
@@ -2001,7 +2009,7 @@ def test_three_seed_campaign_runs_train_freeze_then_test_per_lane(
         spec,
         command_runner=runner,
         source_inspector=lambda repo: dict(source),
-        lock_builder=lambda *args: {"campaign_id": "test_campaign"},
+        lock_builder=lambda *args: {"campaign_id": "test_campaign", "formal_config_digest": "test"},
     )
 
     assert report["passed"] is True, report

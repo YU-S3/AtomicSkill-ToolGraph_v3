@@ -2,7 +2,7 @@
 schema_version: 1
 
 method: b5_gepa
-protocol_revision: '2.2'
+protocol_revision: '2.3'
 model:
   provider_completion_cap: 65536
 protocol_profile: formal_v2
@@ -40,6 +40,10 @@ provider_transport:
   deterministic_jitter_ratio: 0.10
 
 provider_probe:
+  # Real resident ALFWorld workers + provider load, highest pass BEFORE lock.
+  allowed_global_caps: [48, 36, 24]
+  memory_reserve_fraction: 0.15
+  memory_reserve_min_bytes: 2147483648
   enabled: true
   concurrency: 48
   requests: 96

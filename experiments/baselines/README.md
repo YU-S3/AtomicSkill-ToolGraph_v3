@@ -256,38 +256,41 @@ print(verify_worker_environment(
 PY
 ```
 
-### 真实 smoke 与三 seed formal campaign
+### v2.3 真实 smoke、内存预检与三 seed formal campaign
 
-先确认 B3/B4 及其它真实 API 实验已经结束。B5 smoke 与 formal campaign 都从
-固定 `.venv_b5_gepa/bin/python` 启动；`&&` 保证 smoke 失败时不会启动正式
-实验。campaign 入口强制 seeds 必须恰为 `42 43 44` 且并行，seed 内只允许独立 task evaluation 并发，优化器迭代仍串行。
+先确认 B3/B4 及其它真实 API 实验已经结束。入口固定使用 `.venv_b5_gepa/bin/python`，
+自动加载 v3 `.env`。smoke 生成绑定最终 source/config/model/manifests 的新凭据；
+旧 v2.2 凭据不能放行。preflight 只加载真实 pinned GEPA/SkillOpt/ALFWorld workers，
+逐档 48→36→24 检查内存 reserve、exact gamefile reset、同档 provider 负载和正常释放。
+仅内存拒绝允许降档，provider/protocol 错误不伪装成内存 fallback。选择最高通过档位后，
+写入 `load_probe_summary.json`、resolved config 和 `campaign_lock.json`，此时不启动 Train。
+formal 重新验证凭据、源代码及锁，再同时启动三个 seed；锁定后不自动升降并发。
 
 ```bash
-set -euo pipefail
-REPO=/mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
-B5_PY="$REPO/.venv_b5_gepa/bin/python"
-cd "$REPO"
-set -a
-. /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env
-set +a
-export PYTHONPATH="$REPO/src:$REPO"
-: "${MODEL_API_KEY:?MODEL_API_KEY is missing}"
-: "${ALFWORLD_DATA:?ALFWORLD_DATA is missing}"
-
-"$B5_PY" -m experiments.baselines.b5_gepa.controller \
-    --phase smoke \
-    --seed 42 \
-    --train-manifest data/baseline_manifests/train_6_smoke.json \
-    --validation-manifest data/baseline_manifests/validation_6_smoke.json \
-    --test-manifest data/baseline_manifests/test_6_smoke.json \
-    --config configs/baselines/b5_gepa_smoke.yaml &&
-"$B5_PY" -m experiments.baselines.b5_gepa.run_seed_campaign \
-    --seeds 42 43 44 \
-    --train-manifest data/baseline_manifests/train_120.json \
-    --validation-manifest data/baseline_manifests/validation_24.json \
-    --test-manifest data/baseline_manifests/test_ood_full_134.json \
-    --config configs/baselines/b5_gepa.yaml
+cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+bash experiments/baselines/launch_gepa.sh smoke "runs/baselines/b5_smoke_$STAMP" &&
+bash experiments/baselines/launch_gepa.sh preflight "runs/baselines/b5_formal_$STAMP" \
+  "runs/baselines/b5_smoke_$STAMP/smoke_qualification.json" &&
+bash experiments/baselines/launch_gepa.sh formal "runs/baselines/b5_formal_$STAMP"
 ```
+
+如果已完成当前 checkout 的 smoke 和 preflight，只执行最后一条 formal，使用已准备的目录。
+seed 内独立 task evaluation 可并发，GEPA 优化器迭代仍串行。24 workers 仍不满足内存条件则 NO-GO。
+
+### v2.3 成本语义与历史可比性
+
+B4 `trajectory_reranking` 是当前任务的只读检索推理，公共成本归入 target；
+仍单独报告 `trajectory_reranking_calls` 及 prompt/completion/reasoning/visible tokens，
+由物理调用直接聚合，包含失败尝试。Frozen Test 允许 reranking，但长期知识写边界不变。
+solver/stuck recovery 属于 target；condensation/diagnosis/reflection/manual 更新属于 evolution。
+
+B3 已完成结果保留，不重跑、不回写。其历史 completion cap 为 16384；少量到达上限的调用后
+出现 missing-action → look fallback，但旧响应证据不足以确定截断归因，也不能断言系统性预算耗尽。
+公共报告的 `methods.b3_skillopt.comparability_note` 披露该限制，不改变成功率、配对行或原始用量。
+所有方法使用同一冻结模型和 high reasoning；transport 上限按协议版本记录，不能声称 generation
+上限完全一致。实际比较依据 calls/tokens/actions，硬上限不作为成本。美元 pricing 非放行条件，
+`api_cost=null/unpriced` 合法，缺失 token 保留 null 和 known subtotal。
 
 正式 B4/B5 controller 会拒绝 dirty `experiments/`/`configs/` source tree。正式
 运行前需要一个本地 clean commit 作为 provenance authority；v2.2 按要求推送

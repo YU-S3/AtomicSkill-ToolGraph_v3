@@ -112,6 +112,19 @@ def build_campaign_report(
         )
         for method, runs in artifacts.items()
     }
+    if "b3_skillopt" in method_reports:
+        method_reports["b3_skillopt"]["comparability_note"] = {
+            "method": "b3_skillopt",
+            "transport_protocol": "historical_pre_v2.2",
+            "provider_completion_cap": 16384,
+            "reasoning_effort": "high",
+            "known_limitation": (
+                "A small number of cap-associated target calls were followed by the upstream "
+                "missing-action fallback; historical response evidence is insufficient for "
+                "definitive truncation attribution. There is no evidence of systematic budget exhaustion."
+            ),
+            "result_status": "retained_formal_result",
+        }
 
     if b0_method in artifacts:
         baseline_rows = _paired_rows(artifacts[b0_method])
@@ -157,6 +170,13 @@ def build_campaign_report(
         "schema_version": 1,
         "passed": True,
         "source": "read_only_completed_test_episode_artifacts",
+        "transport_comparability": (
+            "All methods use the same frozen base model and high reasoning setting. "
+            "Provider completion allowances are protocol-versioned transport safeguards; "
+            "actual compute is compared using recorded calls/tokens/actions, not hard ceilings. "
+            "B3 historical cap is 16384; B4/B5 reasoning-aware cap is 65536. "
+            "API pricing is optional offline accounting and is not a formal release gate."
+        ),
         "expected_seeds": list(seeds),
         "task_types": list(families),
         "bootstrap": {

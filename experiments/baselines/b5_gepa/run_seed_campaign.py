@@ -16,7 +16,7 @@ import statistics
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -43,6 +43,8 @@ from experiments.baselines.common.runtime_python import (
 )
 from experiments.baselines.common.usage import UsageSnapshot
 from experiments.baselines.report_campaign import build_campaign_report
+from .qualification import (guarded_probe_runner, write_load_receipt, verify_load_receipt,
+                            verify_smoke_receipt, IDENTITY_KEYS)
 from experiments.baselines.run_seed_campaign import (
     _campaign_cost_summary,
     _cost_accounting,
@@ -194,7 +196,7 @@ def _run_provider_probe_with_fallback(
         _shared_run_provider_probe_with_fallback(
             spec,
             lock_payload,
-            command_runner=command_runner,
+            command_runner=guarded_probe_runner(command_runner),
             caps=(48, 36, 24),
         )
     )
@@ -361,6 +363,9 @@ def build_campaign_lock(
             "requests": 96,
             "max_completion_tokens": 65536,
             "reasoning_effort": "high",
+            "allowed_global_caps": [48, 36, 24],
+            "memory_reserve_fraction": 0.15,
+            "memory_reserve_min_bytes": 2147483648,
         },
         "provider probe",
     )
@@ -1094,6 +1099,9 @@ def run_campaign(
     command_runner: CommandRunner | None = None,
     source_inspector: SourceInspector | None = None,
     lock_builder: Callable[..., dict[str, Any]] | None = None,
+    smoke_receipt: Path | None = None,
+    preflight_only: bool = False,
+    prepared: bool = False,
 ) -> dict[str, Any]:
     command_runner = command_runner or _default_command_runner
     source_inspector = source_inspector or inspect_clean_source
@@ -1104,19 +1112,48 @@ def run_campaign(
         + f"_{os.getpid()}_{uuid.uuid4().hex[:8]}"
     )
     with _method_campaign_lease(spec.repo_root, owner=campaign_run_id):
-        if spec.output_dir.exists():
+        if spec.output_dir.exists() and not prepared:
             raise FileExistsError(spec.output_dir)
         source = source_inspector(spec.repo_root)
         payload = lock_builder(spec, spec.output_dir, campaign_run_id, source)
-        spec.output_dir.parent.mkdir(parents=True, exist_ok=True)
-        spec.output_dir.mkdir(exist_ok=False)
-        runtime_spec, payload, probe_report = _run_provider_probe_with_fallback(
-            spec, payload, command_runner=command_runner
-        )
+        lock_path = spec.output_dir / "campaign_lock.json"
+        if prepared:
+            if preflight_only or any(spec.output_dir.glob("seed_*")):
+                raise ValueError("Prepared B5 launch requires an unused preflight directory")
+            locked = _read_json(lock_path, "prepared B5 campaign lock")
+            if any(locked.get(k) != payload.get(k) for k in IDENTITY_KEYS):
+                raise ValueError("Prepared B5 source/model/manifests/runtime changed")
+            if locked.get("source_formal_config_digest") != payload["formal_config_digest"]:
+                raise ValueError("Prepared B5 original formal config changed")
+            verify_load_receipt(locked, spec.output_dir)
+            smoke_ref = locked["smoke_qualification"]
+            if verify_smoke_receipt(smoke_ref["path"], locked) != smoke_ref:
+                raise ValueError("Prepared B5 smoke receipt changed")
+            payload = locked
+            campaign_run_id = payload["campaign_run_id"]
+            runtime_spec = replace(spec, config=Path(payload["config_path"]))
+            config = _merged_config(runtime_spec)
+            if (_provider_cap_mismatches(config, payload, cap=payload["campaign_provider_max_inflight"])
+                    or _formal_config_digest(config) != payload["formal_config_digest"]):
+                raise ValueError("Prepared B5 resolved concurrency/config changed")
+            probe_report = payload["provider_probe_receipt"]["report"]
+        else:
+            payload["smoke_qualification"] = verify_smoke_receipt(smoke_receipt, payload)
+            payload["source_formal_config_digest"] = payload["formal_config_digest"]
+            spec.output_dir.parent.mkdir(parents=True, exist_ok=True)
+            spec.output_dir.mkdir(exist_ok=False)
+            runtime_spec, payload, probe_report = _run_provider_probe_with_fallback(
+                spec, payload, command_runner=command_runner
+            )
+            write_load_receipt(spec, payload)
         if source_inspector(spec.repo_root) != source:
             raise RuntimeError("controller source changed during B5 provider preflight")
-        lock_path = spec.output_dir / "campaign_lock.json"
-        _write_json_atomic(lock_path, payload, overwrite=False)
+        if not prepared:
+            _write_json_atomic(lock_path, payload, overwrite=False)
+        if preflight_only:
+            return dict(passed=True, formal_train_started=False, campaign_lock=str(lock_path),
+                        load_probe_receipt=payload["load_probe_receipt_path"],
+                        selected_global_cap=payload["campaign_provider_max_inflight"])
         lock_digest = _sha256_file(lock_path)
         campaign_started_at_unix = time.time()
         started = time.perf_counter()
@@ -1225,6 +1262,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default="configs/baselines/b5_gepa.yaml")
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--python", default=None)
+    parser.add_argument("--smoke-receipt", type=Path, default=None)
+    parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--prepared", action="store_true")
     args = parser.parse_args(argv)
     try:
         repo_root = REPO_ROOT.resolve()
@@ -1264,7 +1304,8 @@ def main(argv: list[str] | None = None) -> int:
             python=configured_python,
             repo_root=repo_root,
         )
-        report = run_campaign(spec)
+        report = run_campaign(spec, smoke_receipt=args.smoke_receipt,
+                              preflight_only=args.preflight_only, prepared=args.prepared)
         print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
         return 0 if report.get("passed") is True else 1
     except Exception as exc:
