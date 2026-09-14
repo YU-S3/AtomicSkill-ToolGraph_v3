@@ -1,7 +1,7 @@
 """Baseline-local source identity and sanitized error helpers.
 
 This module deliberately has no dependency on ``atomic_skillgraph`` so the
-isolated Python 3.9 SkillGen runtime can import the baseline controller.
+isolated Python 3.12 EmbodiSkill runtime can import the baseline controller.
 """
 
 from __future__ import annotations

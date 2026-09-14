@@ -98,6 +98,19 @@ def test_six_family_macro_and_cost_distributions_are_complete() -> None:
     assert summary["p90_latency_ms"] == 600
 
 
+def test_nullable_provider_usage_is_not_reported_as_exact_zero():
+    from dataclasses import replace
+    row = replace(_row(1), method_metrics={"usage": {"target": {
+        "prompt_tokens": None, "completion_tokens": None, "reasoning_tokens": None}}})
+    summary = summarize_rows([row], task_types=[row.task_type])
+    assert summary["target_prompt_tokens"] is None
+    assert summary["target_prompt_tokens_known_subtotal"] == 10
+    assert summary["tokens_per_task"] is None
+    assert summary["p50_tokens"] is None
+    assert not summary["token_usage_complete"]
+    assert summary["official_success_rate"] == 1
+
+
 def test_macro_is_independent_of_row_order() -> None:
     rows = [_row(index) for index in range(1, 7)]
     forward = summarize_rows(rows, task_types=list(_FAMILIES))

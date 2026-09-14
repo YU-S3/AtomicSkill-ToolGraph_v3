@@ -1,0 +1,23 @@
+# Engineering smoke only; subsets of the public six-family smoke manifests.
+schema_version: 1
+method: b4_embodiskill
+protocol_profile: smoke_v1
+protocol_revision: '2.1'
+experiment_kind: smoke
+worker_python: .venv_b4_embodiskill/bin/python
+train:
+  num_epochs: 1
+  train_size: 2
+  train_chunk_size: 2
+selection:
+  validation_size: 2
+  test_size: 2
+  metric: official_won_rate
+  acceptance: strict_improvement
+  tie_policy: keep_earlier_best
+parallel:
+  seed_lanes: 1
+  episode_workers_per_seed: 2
+  test_workers_per_seed: 2
+  campaign_provider_max_inflight: 2
+  mp_start_method: spawn

@@ -186,46 +186,29 @@ def _external_wire(tmp_path, *, method: str, phase: str) -> WorkerWire:
         "supervision_path": None,
         "external_skillopt_root": None,
     }
-    if method == "b4_skillgen_s":
-        if phase in {"train", "smoke"}:
-            identity["supervision_digest"] = "d" * 64
-            values["manifest_path"] = str(tmp_path / "train.json")
-            values["supervision_path"] = str(tmp_path / "labels.jsonl")
-        else:
-            identity.update({
-                "evaluation_manifest_digest": "e" * 64,
-                "frozen_artifact_digest": "f" * 64,
-            })
-            values["frozen_artifact_path"] = str(tmp_path / "frozen")
-            if phase == "train_eval":
-                values["manifest_path"] = str(tmp_path / "train.json")
-            else:
-                identity["test_manifest_digest"] = "e" * 64
-                values["test_manifest_path"] = str(tmp_path / "test.json")
+    identity.update({
+        "validation_manifest_digest": "d" * 64,
+        "skillopt_source_digest": "e" * 64,
+    })
+    values["external_skillopt_root"] = str(tmp_path / "skillopt")
+    if phase in {"train", "smoke"}:
+        identity["initial_skill_digest"] = "f" * 64
+        values.update({
+            "manifest_path": str(tmp_path / "train.json"),
+            "validation_manifest_path": str(tmp_path / "validation.json"),
+            "initial_skill_path": str(tmp_path / "initial.md"),
+        })
     else:
         identity.update({
-            "validation_manifest_digest": "d" * 64,
-            "skillopt_source_digest": "e" * 64,
+            "evaluation_manifest_digest": "1" * 64,
+            "frozen_artifact_digest": "2" * 64,
         })
-        values["external_skillopt_root"] = str(tmp_path / "skillopt")
-        if phase in {"train", "smoke"}:
-            identity["initial_skill_digest"] = "f" * 64
-            values.update({
-                "manifest_path": str(tmp_path / "train.json"),
-                "validation_manifest_path": str(tmp_path / "validation.json"),
-                "initial_skill_path": str(tmp_path / "initial.md"),
-            })
+        values["frozen_artifact_path"] = str(tmp_path / "frozen")
+        if phase == "train_eval":
+            values["manifest_path"] = str(tmp_path / "train.json")
         else:
-            identity.update({
-                "evaluation_manifest_digest": "1" * 64,
-                "frozen_artifact_digest": "2" * 64,
-            })
-            values["frozen_artifact_path"] = str(tmp_path / "frozen")
-            if phase == "train_eval":
-                values["manifest_path"] = str(tmp_path / "train.json")
-            else:
-                identity["test_manifest_digest"] = "1" * 64
-                values["test_manifest_path"] = str(tmp_path / "test.json")
+            identity["test_manifest_digest"] = "1" * 64
+            values["test_manifest_path"] = str(tmp_path / "test.json")
     return WorkerWire(
         method=method,
         phase=phase,
@@ -239,68 +222,6 @@ def _external_wire(tmp_path, *, method: str, phase: str) -> WorkerWire:
         external_method_root=str(tmp_path / method),
         **values,
     )
-
-
-@pytest.mark.parametrize(
-    "phase", ["smoke", "train", "train_eval", "smoke_test", "test"],
-)
-def test_b4_wire_accepts_only_phase_authorized_inputs(tmp_path, phase: str) -> None:
-    wire = _external_wire(tmp_path, method="b4_skillgen_s", phase=phase)
-    assert WorkerWire.from_dict(wire.to_dict()) == wire
-
-
-@pytest.mark.parametrize("phase", ["train_eval", "smoke_test", "test"])
-def test_b4_frozen_phases_reject_supervision(
-    tmp_path, phase: str,
-) -> None:
-    wire = _external_wire(tmp_path, method="b4_skillgen_s", phase=phase)
-    payload = wire.to_dict()
-    payload["supervision_path"] = str(tmp_path / "labels.jsonl")
-    with pytest.raises(ValueError, match="forbids: supervision_path"):
-        WorkerWire.from_dict(payload)
-
-
-@pytest.mark.parametrize("phase", ["smoke_test", "test"])
-def test_b4_heldout_phases_reject_train_content(tmp_path, phase: str) -> None:
-    wire = _external_wire(tmp_path, method="b4_skillgen_s", phase=phase)
-    payload = wire.to_dict()
-    payload["manifest_path"] = str(tmp_path / "train.json")
-    with pytest.raises(ValueError, match="forbids: manifest_path"):
-        WorkerWire.from_dict(payload)
-
-
-def test_b4_training_smoke_rejects_test_and_frozen_content(tmp_path) -> None:
-    wire = _external_wire(tmp_path, method="b4_skillgen_s", phase="smoke")
-    payload = wire.to_dict()
-    payload["test_manifest_path"] = str(tmp_path / "test.json")
-    with pytest.raises(ValueError, match="forbids: test_manifest_path"):
-        WorkerWire.from_dict(payload)
-
-    payload = wire.to_dict()
-    payload["frozen_artifact_path"] = str(tmp_path / "frozen")
-    with pytest.raises(ValueError, match="forbids: frozen_artifact_path"):
-        WorkerWire.from_dict(payload)
-
-    payload = wire.to_dict()
-    payload["identity"]["test_manifest_digest"] = "9" * 64
-    with pytest.raises(ValueError, match="forbids identity keys: test_manifest_digest"):
-        WorkerWire.from_dict(payload)
-
-
-def test_b4_smoke_test_rejects_supervision_identity(tmp_path) -> None:
-    wire = _external_wire(tmp_path, method="b4_skillgen_s", phase="smoke_test")
-    payload = wire.to_dict()
-    payload["identity"]["supervision_digest"] = "9" * 64
-    with pytest.raises(ValueError, match="forbids identity keys: supervision_digest"):
-        WorkerWire.from_dict(payload)
-
-
-def test_b4_wire_rejects_validation_even_when_only_digest_is_exposed(tmp_path) -> None:
-    wire = _external_wire(tmp_path, method="b4_skillgen_s", phase="train")
-    payload = wire.to_dict()
-    payload["identity"]["validation_manifest_digest"] = "9" * 64
-    with pytest.raises(ValueError, match="must not bind Validation"):
-        WorkerWire.from_dict(payload)
 
 
 @pytest.mark.parametrize(
@@ -328,7 +249,7 @@ def test_b5_frozen_phases_reject_validation_and_initial_skill_paths(
 
 
 def test_external_worker_gets_controlled_pythonpath(tmp_path, monkeypatch) -> None:
-    wire = _external_wire(tmp_path, method="b4_skillgen_s", phase="test")
+    wire = _external_wire(tmp_path, method="b5_gepa", phase="test")
     captured: dict = {}
 
     def fake_run(*args, **kwargs):
@@ -349,7 +270,7 @@ def test_external_worker_gets_controlled_pythonpath(tmp_path, monkeypatch) -> No
     path_entries = captured["env"]["PYTHONPATH"].split(worker_protocol.os.pathsep)
     assert str(worker_protocol._REPO_ROOT) == path_entries[0]
     assert str(worker_protocol._REPO_ROOT / "src") == path_entries[1]
-    assert str(tmp_path / "b4_skillgen_s") == path_entries[2]
+    assert str(tmp_path / "b5_gepa" / "src") == path_entries[2]
     assert str(tmp_path / "untrusted") not in path_entries
     assert captured["env"]["PYTHONNOUSERSITE"] == "1"
     assert captured["cwd"] == worker_protocol._REPO_ROOT

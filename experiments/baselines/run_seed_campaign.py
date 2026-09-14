@@ -606,6 +606,7 @@ def _provider_probe_command(
         str(retry["jitter_ratio"]),
     ]
     if spec.method == "b5_gepa":
+        command[2] = "experiments.baselines.b5_gepa.load_probe"
         command.extend([
             "--skillopt-root",
             str((spec.repo_root / ".external" / "skillopt").resolve()),
@@ -750,10 +751,11 @@ def _runtime_spec_for_provider_cap(
     lock_payload: dict[str, Any],
     *,
     cap: int,
+    initial_cap: int = 16,
 ) -> tuple[CampaignSpec, dict[str, Any]]:
     """Materialize the selected pre-campaign cap as the phase config identity."""
 
-    if cap == int(_PROVIDER_CAP_FALLBACKS[0]):
+    if cap == initial_cap:
         return spec, lock_payload
     method_config = yaml.safe_load(spec.config.read_text(encoding="utf-8"))
     if not isinstance(method_config, dict):
@@ -779,17 +781,18 @@ def _run_provider_probe_with_fallback(
     lock_payload: Mapping[str, Any],
     *,
     command_runner: CommandRunner,
+    caps: tuple[int, ...] = _PROVIDER_CAP_FALLBACKS,
 ) -> tuple[CampaignSpec, dict[str, Any], dict[str, Any]]:
-    """Probe 16, then 12 and 8 before freezing exactly one campaign cap."""
+    """Probe allowed caps in order before freezing exactly one campaign cap."""
 
     requested_cap = int(lock_payload["campaign_provider_max_inflight"])
-    if requested_cap != _PROVIDER_CAP_FALLBACKS[0]:
-        raise ValueError("formal provider probing must start at global cap 16")
+    if requested_cap != caps[0]:
+        raise ValueError(f"formal provider probing must start at global cap {caps[0]}")
     attempts: list[dict[str, Any]] = []
     selected_payload: dict[str, Any] | None = None
     selected_report: dict[str, Any] | None = None
 
-    for index, cap in enumerate(_PROVIDER_CAP_FALLBACKS):
+    for index, cap in enumerate(caps):
         candidate = _payload_for_provider_cap(
             lock_payload,
             campaign_root=spec.output_dir,
@@ -824,12 +827,18 @@ def _run_provider_probe_with_fallback(
             )
             selected_payload = candidate
             break
-        can_fallback = _probe_failure_allows_lower_cap(
-            report,
-            lock_payload=candidate,
-            report_path=report_path,
-        )
-        if not can_fallback or index == len(_PROVIDER_CAP_FALLBACKS) - 1:
+        if spec.method == "b5_gepa" and report.get("memory_load_passed") is False:
+            memory_path = Path(str(report.get("memory_load_report", "")))
+            memory_path.resolve().relative_to(spec.output_dir.resolve())
+            memory_report = _read_json(memory_path, "B5 memory load report")
+            can_fallback = (memory_report.get("target_workers") == cap
+                            and bool(memory_report.get("samples"))
+                            and memory_report.get("memory_load_passed") is False)
+        else:
+            can_fallback = _probe_failure_allows_lower_cap(
+                report, lock_payload=candidate, report_path=report_path,
+            )
+        if not can_fallback or index == len(caps) - 1:
             raise RuntimeError(
                 f"global{cap} provider load probe failed and cannot be "
                 "admitted as a lower-cap formal campaign"
@@ -842,6 +851,7 @@ def _run_provider_probe_with_fallback(
         spec,
         selected_payload,
         cap=selected_cap,
+        initial_cap=caps[0],
     )
     locked_probe = dict(selected_payload["provider_probe"])
     final_receipt = attempts[-1]

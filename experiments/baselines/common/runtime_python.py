@@ -122,11 +122,11 @@ def verify_runtime_python(
     normalized = str(method).strip().lower()
     aliases = {
         "skillopt": "b3_skillopt",
-        "skillgen": "b4_skillgen_s",
+        "embodiskill": "b4_embodiskill",
         "gepa": "b5_gepa",
     }
     normalized = aliases.get(normalized, normalized)
-    if normalized not in {"b3_skillopt", "b4_skillgen_s", "b5_gepa"}:
+    if normalized not in {"b3_skillopt", "b4_embodiskill", "b5_gepa"}:
         raise ValueError(f"unsupported formal runtime method: {method!r}")
 
     expected = _lexical_absolute(expected_python)
@@ -145,7 +145,7 @@ def verify_runtime_python(
         receipt["gepa_importable"] = _package_importable("gepa")
         receipt["alfworld_distribution_version"] = _distribution_version("alfworld")
         receipt["gepa_distribution_version"] = _distribution_version("gepa")
-    if normalized in {"b4_skillgen_s", "b5_gepa"}:
+    if normalized in {"b4_embodiskill", "b5_gepa"}:
         receipt["skillopt_distribution_version"] = _installed_distribution_version(
             "skillopt"
         )
@@ -154,7 +154,7 @@ def verify_runtime_python(
         )
     labels = {
         "b3_skillopt": "B3",
-        "b4_skillgen_s": "B4",
+        "b4_embodiskill": "B4",
         "b5_gepa": "B5",
     }
     label = labels[normalized]
@@ -182,7 +182,7 @@ def verify_runtime_python(
     if normalized == "b5_gepa":
         if receipt["gepa_importable"] is not True:
             raise RuntimeError("formal B5 runtime cannot import gepa")
-    if normalized in {"b4_skillgen_s", "b5_gepa"}:
+    if normalized in {"b4_embodiskill", "b5_gepa"}:
         contaminated = {
             name: receipt[f"{name.replace('-', '_')}_distribution_version"]
             for name in ("skillopt", "atomic-skillgraph")
@@ -227,7 +227,7 @@ def verify_runtime_python_executable(
     """Verify an isolated worker interpreter without running its controller.
 
     Baseline controllers run in the main experiment environment.  B4 in
-    particular requires Python 3.9 for pinned SkillGen dependencies, while
+    particular requires Python 3.12 for pinned EmbodiSkill dependencies, while
     post-hoc evaluation uses the newer controller runtime.  This probe checks
     the exact worker executable with a controlled source-only ``PYTHONPATH``.
     """

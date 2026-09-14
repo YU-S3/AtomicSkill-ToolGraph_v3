@@ -24,9 +24,7 @@ from .manifest import ManifestTask, TaskManifestSet
 from .schema import CommonEpisodeRecord
 
 
-# Kept local so this minimal shared validation boundary remains importable in
-# SkillGen's frozen Python 3.9 worker.  Importing experiments.protocol would
-# initialize the Python >=3.10 AtomicSkillGraph package for an unrelated tuple.
+# Keep this public benchmark boundary independent of the Ours package.
 ALFWORLD_FORMAL_TASK_TYPES = (
     "pick_and_place_simple",
     "look_at_obj_in_light",

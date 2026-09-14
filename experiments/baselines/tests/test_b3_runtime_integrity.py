@@ -971,7 +971,7 @@ def test_provider_observer_retries_response_without_usage_evidence(
     assert events[0]["completion_tokens"] == 2
 
 
-def test_provider_observer_retries_empty_model_message(
+def test_provider_observer_retries_empty_evolution_message_and_counts_billed_usage(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -998,7 +998,7 @@ def test_provider_observer_retries_empty_model_message(
     observer.install()
     try:
         text, usage = backend._chat_messages_impl(
-            [], 32, 5, "rollout", role="target",
+            [], 32, 5, "reflection", role="evolution",
         )
     finally:
         observer.uninstall()
@@ -1013,6 +1013,8 @@ def test_provider_observer_retries_empty_model_message(
     assert event["failure_code_counts"] == {"empty_message": 1}
     assert event["last_failure_code"] == "empty_message"
     assert event["recovered"] is True
+    assert event["completion_tokens"] == 3
+    assert event["billed_usage"]["completion_tokens"] == 3
 
 
 def test_provider_observer_explicitly_recovers_two_transient_timeouts(

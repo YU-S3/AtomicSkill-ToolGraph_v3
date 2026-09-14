@@ -1,0 +1,43 @@
+schema_version: 1
+method: b4_embodiskill
+protocol_profile: formal_v2
+protocol_revision: '2.1'
+experiment_kind: formal
+worker_python: .venv_b4_embodiskill/bin/python
+train:
+  num_epochs: 4
+  train_size: 120
+  train_chunk_size: 30
+embodiskill:
+  workflow: team
+  reasoning: io
+  successful_topk: 1
+  failed_topk: 0
+  skills_topk: 5
+  threshold: 0.0
+  hop: 1
+  llm_concurrency: 1
+  max_trials: 30
+  static_few_shots: 1
+  manual_reflection_max_tokens: 512
+  manual_revision_max_tokens: 2048
+  manual_sections_refactor_threshold: 100
+  execution_notes_refactor_threshold: 50
+embedding:
+  model: sentence-transformers/all-MiniLM-L6-v2
+selection:
+  validation_size: 24
+  metric: official_won_rate
+  acceptance: strict_improvement
+  tie_policy: keep_earlier_best
+parallel:
+  seed_lanes: 3
+  episode_workers_per_seed: 16
+  test_workers_per_seed: 16
+  campaign_provider_max_inflight: 48
+  mp_start_method: spawn
+provider_transport:
+  sdk_max_retries: 0
+  application_retry_limit: 5
+  retry_delays_seconds: [2, 5, 10, 20]
+  max_completion_tokens: 512

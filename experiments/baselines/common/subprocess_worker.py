@@ -29,7 +29,6 @@ _REQUIRED_IDENTITY_KEYS = (
 )
 _METHOD_PHASES = {
     "b3_skillopt": frozenset({"smoke", "train", "train_eval", "test"}),
-    "b4_skillgen_s": frozenset({"smoke", "train", "train_eval", "smoke_test", "test"}),
     "b5_gepa": frozenset({"smoke", "train", "train_eval", "smoke_test", "test"}),
 }
 
@@ -90,40 +89,6 @@ def _validate_method_authority(wire: "WorkerWire") -> None:
 
     _require_identity(wire, "external_source_digest")
     _require_paths(wire, "external_method_root")
-    if wire.method == "b4_skillgen_s":
-        _forbid_paths(
-            wire,
-            "validation_manifest_path",
-            "external_skillopt_root",
-            "initial_skill_path",
-            "skill_init_rel",
-        )
-        if "validation_manifest_digest" in wire.identity:
-            raise ValueError("B4 worker wire must not bind Validation data")
-        if wire.phase in {"train", "smoke"}:
-            _require_identity(wire, "supervision_digest")
-            _forbid_identity(
-                wire,
-                "test_manifest_digest",
-                "evaluation_manifest_digest",
-                "frozen_artifact_digest",
-            )
-            _require_paths(wire, "manifest_path", "supervision_path")
-            _forbid_paths(wire, "test_manifest_path", "frozen_artifact_path")
-            return
-        _forbid_identity(wire, "supervision_digest")
-        _forbid_paths(wire, "supervision_path")
-        _require_identity(wire, "evaluation_manifest_digest", "frozen_artifact_digest")
-        _require_paths(wire, "frozen_artifact_path")
-        if wire.phase == "train_eval":
-            _require_paths(wire, "manifest_path")
-            _forbid_paths(wire, "test_manifest_path")
-        else:
-            _require_identity(wire, "test_manifest_digest")
-            _require_paths(wire, "test_manifest_path")
-            _forbid_paths(wire, "manifest_path")
-        return
-
     _require_identity(wire, "validation_manifest_digest", "skillopt_source_digest")
     _require_paths(wire, "external_skillopt_root")
     _forbid_paths(wire, "supervision_path", "skill_init_rel")

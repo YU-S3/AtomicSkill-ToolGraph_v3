@@ -50,125 +50,40 @@ _GEPA_INSTALL_PACKAGES = [
     "openai==1.75.0",
 ]
 
-# SkillGen's published requirements file contains machine-local conda URLs and
-# optional visualization packages.  These are the import/runtime dependencies
-# of the frozen ALFWorld sampling, graph/TD, embedding, and retrieval path.
-_SKILLGEN_INSTALL_PACKAGES = [
+# Only dependencies imported by the pinned EmbodiSkill ALFWorld core.
+_EMBODISKILL_INSTALL_PACKAGES = [
     *_COMMON_ALFWORLD_PACKAGES,
-    # ALFWorld declares lower bounds for its TextWorld stack.  On Python 3.9,
-    # an unconstrained 2026 resolution selects spaCy/thinc releases that no
-    # longer publish a compatible build.  Keep the exact upstream SkillGen
-    # environment identities for this method-defining dependency chain.
-    "textworld==1.6.2",
-    "fast_downward_textworld==20.6.3",
-    "jericho==3.3.0",
-    "spacy==3.4.4",
-    "thinc==8.1.12",
-    "pydantic==1.10.8",
-    "blis==0.7.11",
-    "catalogue==2.0.10",
-    "confection==0.1.5",
-    "cymem==2.0.11",
-    "hashids==1.3.1",
-    "langcodes==3.5.0",
-    "language_data==1.3.0",
-    "mementos==1.3.1",
-    "more-itertools==10.6.0",
-    "murmurhash==1.0.12",
-    "pathy==0.11.0",
-    "preshed==3.0.9",
-    "prompt_toolkit==3.0.51",
-    "smart-open==6.4.0",
-    "srsly==2.5.1",
-    "TatSu==5.8.3",
-    "typer==0.7.0",
-    "wasabi==0.10.1",
-    "gym==0.26.0",
-    "jsonlines==4.0.0",
-    "matplotlib==3.8.4",
-    "networkx==3.2.1",
-    "numpy==1.22.4",
-    "openai==1.75.0",
-    "pandas==1.4.2",
-    "python-dotenv==1.1.0",
-    "PyYAML==6.0",
-    "requests==2.27.1",
-    "scikit-learn==1.1.1",
-    "sentence-transformers==4.1.0",
-    "tqdm==4.64.0",
-    "transformers==4.51.3",
+    "langchain==0.3.25", "langchain-chroma==0.2.3",
+    "sentence-transformers==3.4.1", "transformers==4.51.3",
+    "networkx==3.3", "finch-clust==0.2.0",
+    "openai==1.78.1", "python-dotenv==1.1.0", "PyYAML==6.0.2",
+    "numpy==1.26.4",
+    # Chroma 0.6 uses the three-positional-argument telemetry client interface.
+    "posthog==3.25.0",
 ]
-_SKILLGEN_TORCH_PACKAGES = ["torch==2.6.0"]
+_EMBODISKILL_TORCH_PACKAGES = ["torch==2.6.0"]
 _PYTORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
-
 _WORKER_EXPECTED_DISTRIBUTIONS = {
-    "skillgen": {
-        "alfworld": "0.4.2",
-        "blis": "0.7.11",
-        "catalogue": "2.0.10",
-        "confection": "0.1.5",
-        "cymem": "2.0.11",
-        "fast_downward_textworld": "20.6.3",
-        "gym": "0.26.0",
-        "gymnasium": "1.1.1",
-        "hashids": "1.3.1",
-        "jericho": "3.3.0",
-        "jsonlines": "4.0.0",
-        "langcodes": "3.5.0",
-        "language_data": "1.3.0",
-        "matplotlib": "3.8.4",
-        "mementos": "1.3.1",
-        "more-itertools": "10.6.0",
-        "murmurhash": "1.0.12",
-        "networkx": "3.2.1",
-        "numpy": "1.22.4",
-        "omegaconf": "2.3.0",
-        "openai": "1.75.0",
-        "pandas": "1.4.2",
-        "pathy": "0.11.0",
-        "preshed": "3.0.9",
-        "prompt_toolkit": "3.0.51",
-        "pydantic": "1.10.8",
-        "python-dotenv": "1.1.0",
-        "PyYAML": "6.0",
-        "requests": "2.27.1",
-        "scikit-learn": "1.1.1",
-        "sentence-transformers": "4.1.0",
-        "smart-open": "6.4.0",
-        "spacy": "3.4.4",
-        "srsly": "2.5.1",
-        "TatSu": "5.8.3",
-        "textworld": "1.6.2",
-        "thinc": "8.1.12",
-        "torch": "2.6.0",
-        "tqdm": "4.64.0",
-        "transformers": "4.51.3",
-        "typer": "0.7.0",
-        "wasabi": "0.10.1",
+    "embodiskill": {
+        package.split("==")[0]: package.split("==")[1]
+        for package in _EMBODISKILL_INSTALL_PACKAGES + _EMBODISKILL_TORCH_PACKAGES
     },
     "gepa": {
-        "alfworld": "0.4.2",
-        "gepa": "0.1.3",
-        "gymnasium": "1.1.1",
-        "omegaconf": "2.3.0",
-        "openai": "1.75.0",
+        "alfworld": "0.4.2", "gepa": "0.1.3", "gymnasium": "1.1.1",
+        "omegaconf": "2.3.0", "openai": "1.75.0",
     },
 }
 _WORKER_FORBIDDEN_DISTRIBUTIONS = {
-    "skillgen": ("atomic-skillgraph", "skillopt"),
-    "gepa": ("atomic-skillgraph", "skillopt"),
+    method: ("atomic-skillgraph", "skillopt") for method in _WORKER_EXPECTED_DISTRIBUTIONS
 }
 _WORKER_FORBIDDEN_MODULES = {
-    "skillgen": ("atomic_skillgraph", "skillopt"),
-    "gepa": ("atomic_skillgraph", "skillopt"),
+    method: ("atomic_skillgraph", "skillopt") for method in _WORKER_EXPECTED_DISTRIBUTIONS
 }
 
 
 def worker_expected_distributions(method: str) -> dict[str, str]:
-    """Return a copy of the frozen distribution authority for one worker."""
-
     normalized = str(method).strip().lower()
-    aliases = {"b4_skillgen_s": "skillgen", "b5_gepa": "gepa"}
+    aliases = {"b4_embodiskill": "embodiskill", "b5_gepa": "gepa"}
     normalized = aliases.get(normalized, normalized)
     if normalized not in _WORKER_EXPECTED_DISTRIBUTIONS:
         raise ValueError(f"unsupported isolated worker method: {method!r}")
@@ -925,11 +840,11 @@ def setup_method_worker_venv(
             venv_path=venv_path,
             lock_path=lock_path,
         )
-    if normalized not in {"skillgen", "gepa"}:
+    if normalized not in {"embodiskill", "gepa"}:
         raise ValueError(f"unsupported worker method: {normalized}")
     lock = load_lock(lock_path) if lock_path else load_lock()
     verify_key_files(source_root, normalized, lock)
-    python_version = "3.9" if normalized == "skillgen" else "3.12"
+    python_version = "3.12"
     python, python_receipt = _prepare_worker_python(
         venv_path,
         python_version=python_version,
@@ -952,11 +867,11 @@ def setup_method_worker_venv(
         )
         packages = _GEPA_INSTALL_PACKAGES
     else:
-        packages = _SKILLGEN_INSTALL_PACKAGES
+        packages = _EMBODISKILL_INSTALL_PACKAGES
         _run(
             [
                 str(python), "-m", "pip", "install", "--index-url",
-                _PYTORCH_CPU_INDEX, *_SKILLGEN_TORCH_PACKAGES,
+                _PYTORCH_CPU_INDEX, *_EMBODISKILL_TORCH_PACKAGES,
             ],
             cwd=REPO_ROOT,
             path_prepend=venv_bin,
@@ -993,7 +908,7 @@ def main(argv: list[str] | None = None) -> int:
         help="baseline_lock.yaml path",
     )
     parser.add_argument(
-        "--method", default="skillopt", choices=["skillopt", "skillgen", "gepa"],
+        "--method", default="skillopt", choices=["skillopt", "embodiskill", "gepa"],
         help="external method to materialize and verify",
     )
     parser.add_argument(
@@ -1024,7 +939,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.setup_worker_venv:
             venv_defaults = {
                 "skillopt": REPO_ROOT / ".venv_b3_skillopt",
-                "skillgen": REPO_ROOT / ".venv_b4_skillgen",
+                "embodiskill": REPO_ROOT / ".venv_b4_embodiskill",
                 "gepa": REPO_ROOT / ".venv_b5_gepa",
             }
             shared_skillopt: Path | None = None

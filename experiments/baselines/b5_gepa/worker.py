@@ -661,6 +661,10 @@ def _write_optimization_artifacts(
         "selection_strategy": None,
         "adapter": adapter_metrics,
     }
+    summary["legitimate_zero_reflection_terminal"] = (
+        int(summary["resumed_metric_calls"]) == 0
+        and legitimate_zero_reflection(summary, _collect_episodes(phase_dir / "evaluations"), callback_summary)
+    )
     lineage = {
         "schema_version": 1,
         "candidates": [
@@ -814,9 +818,12 @@ def _run_optimization(
         summary["attempt_full_val_evals_including_resume_replay"]
     ) * len(val_examples):
         raise RuntimeError("GEPA validation episodes do not prove full-eval policy")
-    if role_counts.get("train", 0) <= 0 and int(summary["resumed_metric_calls"]) == 0:
+    zero_reflection = (reflection_lm.calls == 0 and int(summary["resumed_metric_calls"]) == 0
+                       and legitimate_zero_reflection(summary, episodes, callback.summary()))
+    summary["legitimate_zero_reflection_terminal"] = zero_reflection
+    if role_counts.get("train", 0) <= 0 and int(summary["resumed_metric_calls"]) == 0 and not zero_reflection:
         raise RuntimeError("GEPA optimization produced no Train minibatch episodes")
-    if reflection_lm.calls <= 0 and int(summary["resumed_metric_calls"]) == 0:
+    if reflection_lm.calls <= 0 and int(summary["resumed_metric_calls"]) == 0 and not zero_reflection:
         raise RuntimeError("GEPA optimization produced no reflection proposal")
     provider_events = _provider_event_view(phase_dir=phase_dir, observer=observer)
     usage = _provider_usage(
@@ -825,7 +832,7 @@ def _run_optimization(
         wall_time_ms=int((time.monotonic() - started) * 1000),
     )
     if usage.target.calls <= 0 or (
-        usage.evolution.calls <= 0 and int(summary["resumed_metric_calls"]) == 0
+        usage.evolution.calls <= 0 and int(summary["resumed_metric_calls"]) == 0 and not zero_reflection
     ):
         raise RuntimeError("GEPA optimization lacks target or reflection provider usage")
     usage.save(phase_dir / "usage.json")
@@ -844,6 +851,22 @@ def _run_optimization(
         "provider_evidence": _provider_evidence_summary(provider_events),
         "optimizer_constructed": True,
     }
+
+
+def legitimate_zero_reflection(summary, episodes, callbacks):
+    """Upstream may spend its budget on perfect parents and never propose."""
+    counts = callbacks.get("event_counts", {})
+    train = [e for e in episodes if e.method_metrics.get("dataset_role", e.phase) == "train"]
+    return bool(
+        int(summary["reflection_calls"]) == 0
+        and int(summary["actual_total_metric_calls"]) >= int(summary["configured_max_metric_calls"])
+        and int(summary["candidate_count"]) == 1
+        and counts.get("optimization_end", 0) == 1
+        and counts.get("proposal_start", 0) == 0
+        and counts.get("error", 0) == 0
+        and all(e.official_success for e in train)
+        and (counts.get("evaluation_skipped", 0) > 0 or not train)
+    )
 
 
 def _run_frozen_evaluation(

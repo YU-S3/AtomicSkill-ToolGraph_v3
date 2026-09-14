@@ -266,8 +266,8 @@ def test_pinned_local_source_requires_git_commit_proof(tmp_path) -> None:
     spec.update(compute_runtime_tree(source, spec))
     lock = {
         "schema_version": 1,
-        "skillgen": {
-            "repo": "https://example.invalid/skillgen",
+        "embodiskill": {
+            "repo": "https://example.invalid/embodiskill",
             "commit": "a" * 40,
             "runtime_tree": spec,
             "key_files": {
@@ -282,9 +282,9 @@ def test_pinned_local_source_requires_git_commit_proof(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="must retain Git metadata"):
         ensure_pinned_source(
-            "skillgen",
+            "embodiskill",
             local_source=source,
-            destination=tmp_path / "external" / "skillgen",
+            destination=tmp_path / "external" / "embodiskill",
             lock_path=lock_path,
         )
 
@@ -448,8 +448,8 @@ def test_worker_isolation_probe_discards_ambient_pythonpath(
 def test_new_method_dependency_sets_are_exactly_pinned() -> None:
     package_sets = (
         bootstrap_external._COMMON_ALFWORLD_PACKAGES,
-        bootstrap_external._SKILLGEN_INSTALL_PACKAGES,
-        bootstrap_external._SKILLGEN_TORCH_PACKAGES,
+        bootstrap_external._EMBODISKILL_INSTALL_PACKAGES,
+        bootstrap_external._EMBODISKILL_TORCH_PACKAGES,
         bootstrap_external._GEPA_INSTALL_PACKAGES,
     )
     assert all(
@@ -459,34 +459,14 @@ def test_new_method_dependency_sets_are_exactly_pinned() -> None:
     )
 
 
-def test_skillgen_python39_resolution_and_receipt_pin_upstream_textworld_chain() -> None:
-    expected = {
-        "textworld": "1.6.2",
-        "fast_downward_textworld": "20.6.3",
-        "jericho": "3.3.0",
-        "spacy": "3.4.4",
-        "thinc": "8.1.12",
-        "pydantic": "1.10.8",
-        "blis": "0.7.11",
-        "catalogue": "2.0.10",
-        "confection": "0.1.5",
-        "cymem": "2.0.11",
-        "preshed": "3.0.9",
-        "srsly": "2.5.1",
-    }
-    requirements = set(bootstrap_external._SKILLGEN_INSTALL_PACKAGES)
-
-    for distribution, version in expected.items():
-        assert f"{distribution}=={version}" in requirements
-        assert (
-            bootstrap_external._WORKER_EXPECTED_DISTRIBUTIONS["skillgen"][
-                distribution
-            ]
-            == version
-        )
+def test_embodiskill_dependency_identity():
+    expected = bootstrap_external.worker_expected_distributions("b4_embodiskill")
+    assert expected["sentence-transformers"] == "3.4.1"
+    assert expected["langchain-chroma"] == "0.2.3"
+    assert expected["torch"] == "2.6.0"
 
 
-@pytest.mark.parametrize("method,version", [("skillgen", "3.9"), ("gepa", "3.12")])
+@pytest.mark.parametrize("method,version", [("embodiskill", "3.12"), ("gepa", "3.12")])
 def test_new_method_setup_does_not_install_repo_or_skillopt_distribution(
     tmp_path, monkeypatch, method: str, version: str,
 ) -> None:
@@ -540,7 +520,7 @@ def test_new_method_setup_does_not_install_repo_or_skillopt_distribution(
     ]
     assert str(bootstrap_external.REPO_ROOT) not in editable_targets
     assert str(skillopt) not in editable_targets
-    if method == "skillgen":
+    if method == "embodiskill":
         assert editable_targets == []
         assert any(
             "--index-url" in command

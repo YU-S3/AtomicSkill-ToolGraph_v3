@@ -1,12 +1,14 @@
 """Run the formal three-seed B5 GEPA campaign.
 
-The three method x seed lanes run serially.  Independent task evaluations
-inside each lane retain their configured process parallelism.
+The three method x seed lanes run concurrently. Independent task evaluations
+inside each lane retain their configured process parallelism; candidate
+evolution remains serial within a lane.
 """
 
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import math
 import os
@@ -143,14 +145,14 @@ def _provider_cap_mismatches(
     config_probe = dict(config.get("provider_probe") or {})
     probe = dict(payload.get("provider_probe") or {})
     checks = {
-        "config.parallel.seed_lanes": int(parallel.get("seed_lanes", 0)) == 1,
-        "lock.parallel.seed_lanes": int(locked_parallel.get("seed_lanes", 0)) == 1,
+        "config.parallel.seed_lanes": int(parallel.get("seed_lanes", 0)) == 3,
+        "lock.parallel.seed_lanes": int(locked_parallel.get("seed_lanes", 0)) == 3,
         "config.parallel.episode_workers_per_seed": int(
             parallel.get("episode_workers_per_seed", 0)
-        ) == cap,
+        ) == cap // 3,
         "config.parallel.test_workers_per_seed": int(
             parallel.get("test_workers_per_seed", 0)
-        ) == cap,
+        ) == cap // 3,
         "config.parallel.campaign_provider_max_inflight": int(
             parallel.get("campaign_provider_max_inflight", 0)
         ) == cap,
@@ -158,10 +160,10 @@ def _provider_cap_mismatches(
         == "spawn",
         "lock.parallel.episode_workers_per_seed": int(
             locked_parallel.get("episode_workers_per_seed", 0)
-        ) == cap,
+        ) == cap // 3,
         "lock.parallel.test_workers_per_seed": int(
             locked_parallel.get("test_workers_per_seed", 0)
-        ) == cap,
+        ) == cap // 3,
         "lock.parallel.campaign_provider_max_inflight": int(
             locked_parallel.get("campaign_provider_max_inflight", 0)
         ) == cap,
@@ -170,8 +172,8 @@ def _provider_cap_mismatches(
         "lock.campaign_provider_max_inflight": int(
             payload.get("campaign_provider_max_inflight", 0)
         ) == cap,
-        "config.env.workers": int(env.get("workers", 0)) == cap,
-        "config.env.max_api_workers": int(env.get("max_api_workers", 0)) == cap,
+        "config.env.workers": int(env.get("workers", 0)) == cap // 3,
+        "config.env.max_api_workers": int(env.get("max_api_workers", 0)) == cap // 3,
         "config.provider_probe.concurrency": int(
             config_probe.get("concurrency", 0)
         ) == cap,
@@ -193,16 +195,17 @@ def _run_provider_probe_with_fallback(
             spec,
             lock_payload,
             command_runner=command_runner,
+            caps=(48, 36, 24),
         )
     )
     payload = dict(selected_payload)
     cap = int(payload.get("campaign_provider_max_inflight", 0))
-    if cap not in (16, 12, 8):
+    if cap not in (48, 36, 24):
         raise ValueError(f"unsupported B5 provider cap selected: {cap}")
 
-    if cap == 16:
+    if cap == 48:
         if runtime_spec.config.resolve() != spec.config.resolve():
-            raise ValueError("B5 cap 16 must retain the checked-in formal config")
+            raise ValueError("B5 cap 48 must retain the checked-in formal config")
         config = _merged_config(runtime_spec)
         mismatches = _provider_cap_mismatches(config, payload, cap=cap)
         if payload.get("formal_config_digest") != _formal_config_digest(config):
@@ -228,16 +231,16 @@ def _run_provider_probe_with_fallback(
     if not isinstance(method_config, dict):
         raise ValueError("B5 generated runtime config root must be a mapping")
     parallel = dict(payload.get("parallel") or {})
-    if int(parallel.get("seed_lanes", 0)) != 1:
-        raise ValueError("B5 provider fallback requires exactly one seed lane")
+    if int(parallel.get("seed_lanes", 0)) != 3:
+        raise ValueError("B5 provider fallback requires exactly three seed lanes")
     parallel.update({
-        "episode_workers_per_seed": cap,
-        "test_workers_per_seed": cap,
+        "episode_workers_per_seed": cap // 3,
+        "test_workers_per_seed": cap // 3,
         "campaign_provider_max_inflight": cap,
         "mp_start_method": "spawn",
     })
     env = dict(method_config.get("env") or {})
-    env.update({"workers": cap, "max_api_workers": cap})
+    env.update({"workers": cap // 3, "max_api_workers": cap // 3})
     provider_probe = dict(payload.get("provider_probe") or {})
     provider_probe["concurrency"] = cap
     method_config.update({
@@ -318,10 +321,10 @@ def build_campaign_lock(
     _expect(
         parallel,
         {
-            "seed_lanes": 1,
+            "seed_lanes": 3,
             "episode_workers_per_seed": 16,
             "test_workers_per_seed": 16,
-            "campaign_provider_max_inflight": 16,
+            "campaign_provider_max_inflight": 48,
             "mp_start_method": "spawn",
         },
         "parallel setting",
@@ -354,8 +357,8 @@ def build_campaign_lock(
         probe,
         {
             "enabled": True,
-            "concurrency": 16,
-            "requests": 32,
+            "concurrency": 48,
+            "requests": 96,
             "max_completion_tokens": 256,
             "reasoning_effort": "high",
         },
@@ -471,8 +474,8 @@ def build_campaign_lock(
         "model": model.model,
         "model_identity": model.to_wire(),
         "reasoning_effort": model.reasoning_effort,
-        "seed_lanes": 1,
-        "campaign_provider_max_inflight": 16,
+        "seed_lanes": 3,
+        "campaign_provider_max_inflight": 48,
         "parallel": parallel,
         "retry_policy": {
             "sdk_max_retries": int(transport["sdk_max_retries"]),
@@ -1111,16 +1114,13 @@ def run_campaign(
         lock_digest = _sha256_file(lock_path)
         campaign_started_at_unix = time.time()
         started = time.perf_counter()
-        lanes = [
-            _run_lane(
-                runtime_spec,
-                seed=seed,
-                campaign_lock=lock_path,
-                lock_digest=lock_digest,
-                command_runner=command_runner,
+        def run_seed(seed):
+            return _run_lane(
+                runtime_spec, seed=seed, campaign_lock=lock_path,
+                lock_digest=lock_digest, command_runner=command_runner,
             )
-            for seed in FORMAL_SEEDS
-        ]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            lanes = list(pool.map(run_seed, FORMAL_SEEDS))
         if _sha256_file(lock_path) != lock_digest:
             raise RuntimeError("B5 campaign lock changed during execution")
         if source_inspector(spec.repo_root) != source:

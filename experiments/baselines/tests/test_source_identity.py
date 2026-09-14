@@ -14,7 +14,7 @@ def test_hash_code_ignores_all_virtual_environment_variants(tmp_path: Path) -> N
     for name in (
         ".venv",
         ".venv_b3_skillopt",
-        ".venv_b4_skillgen",
+        ".venv_b4_embodiskill",
         ".venv_b5_gepa_polluted_20260912",
     ):
         runtime_file = tmp_path / name / "lib" / "runtime.py"

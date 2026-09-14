@@ -233,7 +233,7 @@ def test_b4_runtime_binds_python_packages_and_isolation(
     monkeypatch.setattr(
         runtime_python.sys,
         "version_info",
-        type("Version", (), {"major": 3, "minor": 9, "micro": 25})(),
+        type("Version", (), {"major": 3, "minor": 12, "micro": 25})(),
     )
     monkeypatch.setattr(
         runtime_python.importlib.util,
@@ -243,7 +243,7 @@ def test_b4_runtime_binds_python_packages_and_isolation(
     versions = {
         "alfworld": "0.4.2",
         "torch": "2.6.0+cpu",
-        "sentence-transformers": "4.1.0",
+        "sentence-transformers": "3.4.1",
     }
 
     def version(name: str) -> str:
@@ -255,15 +255,15 @@ def test_b4_runtime_binds_python_packages_and_isolation(
     receipt = runtime_python.verify_runtime_python(
         expected_python=runtime_python.sys.executable,
         require_venv=True,
-        method="b4_skillgen_s",
-        expected_python_major_minor="3.9",
+        method="b4_embodiskill",
+        expected_python_major_minor="3.12",
         expected_distributions={
             "alfworld": "0.4.2",
             "torch": "2.6.0",
-            "sentence-transformers": "4.1.0",
+            "sentence-transformers": "3.4.1",
         },
     )
-    assert receipt["python_major_minor"] == "3.9"
+    assert receipt["python_major_minor"] == "3.12"
     assert receipt["alfworld_distribution_version"] == "0.4.2"
     assert receipt["torch_distribution_version"] == "2.6.0+cpu"
     assert receipt["skillopt_distribution_version"] is None
@@ -287,25 +287,25 @@ def test_b4_runtime_rejects_wrong_python_or_forbidden_distribution(
             )
         ],
     )
-    with pytest.raises(RuntimeError, match="requires Python 3.9"):
+    with pytest.raises(RuntimeError, match="requires Python 3.11"):
         runtime_python.verify_runtime_python(
             expected_python=runtime_python.sys.executable,
             require_venv=True,
-            method="b4_skillgen_s",
-            expected_python_major_minor="3.9",
+            method="b4_embodiskill",
+            expected_python_major_minor="3.11",
         )
 
     monkeypatch.setattr(
         runtime_python.sys,
         "version_info",
-        type("Version", (), {"major": 3, "minor": 9, "micro": 25})(),
+        type("Version", (), {"major": 3, "minor": 12, "micro": 25})(),
     )
     with pytest.raises(RuntimeError, match="forbidden distributions"):
         runtime_python.verify_runtime_python(
             expected_python=runtime_python.sys.executable,
             require_venv=True,
-            method="b4_skillgen_s",
-            expected_python_major_minor="3.9",
+            method="b4_embodiskill",
+            expected_python_major_minor="3.12",
         )
 
 
@@ -317,7 +317,7 @@ def test_b4_runtime_ignores_distribution_metadata_from_source_pythonpath(
     monkeypatch.setattr(
         runtime_python.sys,
         "version_info",
-        type("Version", (), {"major": 3, "minor": 9, "micro": 25})(),
+        type("Version", (), {"major": 3, "minor": 12, "micro": 25})(),
     )
     monkeypatch.setattr(
         runtime_python.importlib.util,
@@ -337,8 +337,8 @@ def test_b4_runtime_ignores_distribution_metadata_from_source_pythonpath(
     receipt = runtime_python.verify_runtime_python(
         expected_python=runtime_python.sys.executable,
         require_venv=True,
-        method="b4_skillgen_s",
-        expected_python_major_minor="3.9",
+        method="b4_embodiskill",
+        expected_python_major_minor="3.12",
     )
 
     assert receipt["atomic_skillgraph_distribution_version"] is None
@@ -349,11 +349,11 @@ def test_verify_runtime_python_executable_uses_controlled_source_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = tmp_path / "repo"
-    python = _executable(repo / ".venv_b4_skillgen" / "bin" / "python")
+    python = _executable(repo / ".venv_b4_embodiskill" / "bin" / "python")
     observed: dict[str, object] = {}
     receipt = {
         "sys_executable": str(python),
-        "python_major_minor": "3.9",
+        "python_major_minor": "3.12",
         "venv_active": True,
     }
 
@@ -371,9 +371,9 @@ def test_verify_runtime_python_executable_uses_controlled_source_path(
         repo_root=repo,
         expected_python=python,
         require_venv=True,
-        method="b4_skillgen_s",
+        method="b4_embodiskill",
         expected_distributions={"alfworld": "0.4.2"},
-        expected_python_major_minor="3.9",
+        expected_python_major_minor="3.12",
     )
 
     assert result == receipt

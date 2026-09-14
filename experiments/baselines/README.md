@@ -1,7 +1,7 @@
 # Baseline 对比实验基础设施（Baseline Comparison）
 
 本目录实现冻结版 external-baseline 协议的公共底座，以及 **B3 SkillOpt**、
-**B4 SkillGen-S** 和 **B5 GEPA**。
+**B4 EmbodiSkill** 和 **B5 GEPA**。
 正式数据身份为 Train-120 / Validation-24 / Frozen Test-134，运行 seed 为
 42、43、44。
 
@@ -12,16 +12,16 @@ Controller（主实验环境: asg_alfworld_venv）
   experiments/baselines/run_method.py
   experiments/baselines/common/           公共协议（manifest/usage/trace/freeze/authority）
   experiments/baselines/b3_skillopt/      B3 driver / freeze
-  experiments/baselines/b4_skillgen_s/    B4 campaign / controller / driver
+  experiments/baselines/b4_embodiskill/    B4 campaign / controller / driver
   experiments/baselines/b5_gepa/          B5 campaign / controller / driver
         │  subprocess（worker wire JSON；密钥只经环境变量传递）
         ├──────────────────────────┬──────────────────────────┐
         ▼                          ▼                          ▼
-.venv_b3_skillopt            .venv_b4_skillgen          .venv_b5_gepa
-SkillOpt worker              SkillGen worker/Python 3.9 GEPA worker/Python 3.12
+.venv_b3_skillopt            .venv_b4_embodiskill          .venv_b5_gepa
+SkillOpt worker              EmbodiSkill worker/Python3.12 GEPA worker/Python 3.12
         │                          │                          │
-.external/skillopt           .external/skillgen          .external/gepa
-完整源码树 SHA-256 校验       commit 816c91f...           tag v0.1.4 / 8b0ce6c...
+.external/skillopt           .external/embodiskill          .external/gepa
+完整源码树 SHA-256 校验       commit 7601260...           tag v0.1.4 / 8b0ce6c...
                                                            + .external/skillopt
 ```
 
@@ -48,18 +48,12 @@ SkillOpt worker              SkillGen worker/Python 3.9 GEPA worker/Python 3.12
   连接、超时、429/5xx、空响应和无效 usage 等瞬态失败重试，永久性 4xx
   立即失败。每次逻辑调用记录实际 attempt 数、恢复状态和非敏感失败码，
   最终失败仍 fail-closed，绝不作为普通 hard=0 样本进入 SkillOpt。
-- B4 保留 SkillGen 的 trajectory sampling、subgoal progress、TaskGraph、
-  TD(lambda) credit、step-wise skill/golden segment extraction 和冻结后检索推理；
-  不接收 Validation。每个 seed 对 Train-120 产生 `120 x 6 = 720` 个独立
-  sampling episode，完成 barrier 后才允许 extraction，最后只读 Test-134。
+- B4 保留官方 TeamSolver、手册反思修订和 trajectory retrieval；Train120 恰好一次，epoch 后只读 Val24 选择完整 best snapshot。
 - B5 从与 B1/B3 相同的 SkillOpt `initial.md` 出发，只优化
   `{"skill_text": ...}`。GEPA proposal/iteration/candidate state transition 串行，
   只并行同一 evaluation batch 内彼此独立的 ALFWorld episode；Val-24 只用于
   candidate scoring，不进入 reflection dataset，冻结后 Test-134 不构造 optimizer。
-- B4/B5 的正式 campaign 都严格串行执行 seed `42 -> 43 -> 44`，每个 seed
-  内最多 16 个独立 episode 并发，并共享 campaign 级 provider `global16`
-  gate。禁止同时运行多个 method campaign；只要 B3 仍在运行，就不得启动
-  B4/B5 real-API smoke 或正式 campaign。
+- B4/B5 正式 campaign 内 seeds42/43/44 并行，seed 内知识更新串行；每 seed 独立 evaluation 最多16路，共用global48 gate。不同方法不能重叠。B3 已完成的正式结果冻结，不重跑。
 
 ## B3 命令（§36）
 
@@ -155,108 +149,58 @@ seed。结果目录会包含中央 waiver receipt、每 seed application receipt
 `campaign_report.json` 和 `recovered_test_report.json`；报告身份明确标记为
 `accepted_with_controller_code_waiver`。
 
-## B4 SkillGen-S
+## B4 EmbodiSkill (v2.1)
 
-### Supervision 前置条件
+当前真实 API smoke 尚未放行：high reasoning 在 512-token 上限内未输出动作。
+证据、已通过检查及待确认预算调整见 [验证记录](B4_EMBODISKILL_VALIDATION.md)。
 
-B4 的 `subgoal_progress` 必须来自 SkillGen 自己的、与 Train gamefile 对应的
-upstream-format label 文件。用户必须将该文件的绝对路径写入
-`SKILLGEN_TRAIN_LABELS`。不得从 Ours TaskContract、hidden PDDL、expert plan、
-Test label 或其它未来信息生成或补齐监督。
+直接调用 air-embodied-brain/EmbodiSkill commit
+`760126030eab1d33ec6a6f30988f0f1fb58df3a7`。不再需要 subgoal JSONL。
+保留 TeamSolver、stuck recovery、ALFWorld 1-shot、all-MiniLM-L6-v2 检索、
+skill-aware reflection 和版本化手册。每 seed 从空手册与空轨迹库开始，
+Train120 按该 seed 的单个 permutation 分成 4×30，每题只训练一次；
+每 epoch 后官方 revise_manual，再只读 Val24，严格提高才替换 best。
+最后冻结完整 best persistent state，在 task-local 副本上只读 Test134。
 
-当前 pinned `.external/skillgen/data/alfworld/all.jsonl` 只覆盖
-`valid_unseen`/Test-134，对 `train_6_smoke.json` 和 `train_120.json` 的覆盖均为
-0。因此它只能作为诊断文件，不能填入 `SKILLGEN_TRAIN_LABELS`。在 authentic
-Train label 到位前，B4 必须 fail-closed，**不要运行真实 B4 smoke 或 formal
-campaign**。现有 Train-6 诊断证据在：
-
-```text
-runs/baselines/preflight/b4_skillgen_shipped_label_check/preflight_label_coverage.json
-```
-
-### 隔离环境 bootstrap 与 verify
-
-bootstrap 会锁定 SkillGen commit
-`816c91f458ddb87be32657c882cb0431b9cfea01`，创建 Python 3.9 worker venv，
-并校验源码树、关键文件、精确依赖和禁止分发包。若 `.external/skillgen` 尚不
-存在，命令会从 lock 中的远程仓库 clone；已有目录则只接受完全匹配的干净
-pinned checkout。
+初始化隔离 Python3.12 环境（只需一次）：
 
 ```bash
-set -euo pipefail
-REPO=/mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
-ASG_PY=/home/yangchengyu/asg_alfworld_venv/bin/python
-cd "$REPO"
-export PATH="/home/yangchengyu/.local/bin:$PATH"
-export PYTHONPATH="$REPO/src:$REPO"
-
-"$ASG_PY" -m experiments.baselines.bootstrap_external \
-    --lock experiments/baselines/baseline_lock.yaml \
-    --method skillgen \
-    --setup-worker-venv
-
-# 只重验 pinned source；不调用模型 API。
-"$ASG_PY" -m experiments.baselines.bootstrap_external \
-    --lock experiments/baselines/baseline_lock.yaml \
-    --method skillgen
+cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
+/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.baselines.bootstrap_external \
+  --method embodiskill --setup-worker-venv
 ```
 
-环境级 verify 会在剥离 `PYTHONPATH` 和 user-site 后检查 Python 3.9、全部固定
-distribution 版本，以及 `atomic-skillgraph`/`skillopt` 分发包与模块均不存在：
+真实 smoke → 三 seed 正式实验（smoke 非零退出就不会启动 formal）：
 
 ```bash
-"$ASG_PY" - <<'PY'
-from pathlib import Path
-from experiments.baselines.bootstrap_external import (
-    verify_worker_environment,
-    verify_worker_python,
-    worker_expected_distributions,
-)
-
-python = Path.cwd() / ".venv_b4_skillgen/bin/python"
-print(verify_worker_python(python, expected_version="3.9"))
-print(verify_worker_environment(
-    python,
-    expected_versions=worker_expected_distributions("b4_skillgen_s"),
-    forbidden_distributions=("atomic-skillgraph", "skillopt"),
-    forbidden_modules=("atomic_skillgraph", "skillopt"),
-))
-PY
+cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+bash experiments/baselines/launch_embodiskill.sh smoke "runs/baselines/b4_smoke_$STAMP" &&
+bash experiments/baselines/launch_embodiskill.sh formal "runs/baselines/b4_formal_$STAMP"
 ```
 
-### 真实 smoke 与三 seed formal campaign
+入口自动从 v3/.env 读取 MODEL_API_KEY，API key 不进入 job JSON。
+smoke 是 2 Train + 2 Val + 2 Test（固定 smoke manifests 的前两题），保留正式
+max_trials 和全部方法参数，检查真实 reflection/revision/version advance，
+不把 smoke 正确率作为正式指标。formal 固定 seeds42/43/44 并行；
+Train 和手册更新在每 seed 内严格串行。正式创建前实际加载
+ALFWorld+Chroma+embedding 并调用模型做并发/内存验证，
+只能在建锁前从48降至36或24；不能安全容纳24则拒绝启动。
 
-以下命令只在 authentic Train label 已提供后执行。B4 controller/campaign 必须
-由 ASG controller Python 启动；实际 sampling、extraction 和 inference worker
-由 config 中的 `.venv_b4_skillgen/bin/python`（Python 3.9）启动。smoke 通过后
-才允许 formal campaign；formal campaign 自身固定串行运行 42、43、44。
+恢复已有 formal（失败 attempt 保留计费证据，仅重做尚未提交的状态边界）：
 
 ```bash
-set -euo pipefail
-REPO=/mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
-ASG_PY=/home/yangchengyu/asg_alfworld_venv/bin/python
-cd "$REPO"
-set -a
-. /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env
-set +a
-export PYTHONPATH="$REPO/src:$REPO"
-: "${MODEL_API_KEY:?MODEL_API_KEY is missing}"
-: "${ALFWORLD_DATA:?ALFWORLD_DATA is missing}"
-: "${SKILLGEN_TRAIN_LABELS:?set this to authentic upstream-format Train labels}"
-
-"$ASG_PY" -m experiments.baselines.b4_skillgen_s.controller \
-    --phase smoke \
-    --seed 42 \
-    --train-manifest data/baseline_manifests/train_6_smoke.json \
-    --test-manifest data/baseline_manifests/test_6_smoke.json \
-    --supervision "$SKILLGEN_TRAIN_LABELS" \
-    --config configs/baselines/b4_skillgen_s_smoke.yaml &&
-"$ASG_PY" -m experiments.baselines.b4_skillgen_s.campaign \
-    --train-manifest data/baseline_manifests/train_120.json \
-    --test-manifest data/baseline_manifests/test_ood_full_134.json \
-    --supervision "$SKILLGEN_TRAIN_LABELS" \
-    --config configs/baselines/b4_skillgen_s.yaml
+bash experiments/baselines/launch_embodiskill.sh resume runs/baselines/原来的目录
 ```
+
+结果在 campaign 根目录的 `campaign_summary.json`、`paper_report.json`、
+`REPORT.md`。逐 seed 的 `train/validation/test` 保存 `task_rows.jsonl`
+和 `evaluated_common_episodes.jsonl`；`attempts/操作/attempt-id/`
+保存 `provider_calls.jsonl`（每个物理调用）、`model_responses.jsonl`、
+`environment_actions.jsonl`、`method_events.jsonl` 和 `result.json`。
+失败时有 `rollout_failure.json`。API价格未冻结，金额明确为 null；
+未知 token 保留 null 和已知小计。Frozen 位于 `seed_*/frozen/`，
+包含整个 Chroma/graph/manual/versions/reflections 以及 source/config/manifests。
 
 ## B5 GEPA
 
@@ -311,8 +255,7 @@ PY
 
 先确认 B3/B4 及其它真实 API 实验已经结束。B5 smoke 与 formal campaign 都从
 固定 `.venv_b5_gepa/bin/python` 启动；`&&` 保证 smoke 失败时不会启动正式
-实验。campaign 入口强制 seeds 必须恰为 `42 43 44` 且依次串行，只允许每个
-seed 内的独立 task evaluation 并发。
+实验。campaign 入口强制 seeds 必须恰为 `42 43 44` 且并行，seed 内只允许独立 task evaluation 并发，优化器迭代仍串行。
 
 ```bash
 set -euo pipefail
@@ -356,10 +299,12 @@ official 成功来自 SkillOpt 环境的
 `infos["won"]`；strict 成功由 controller 用 Ours Harness 边界后验重放计算
 （`common/task_authority.py`），不回馈给 baseline Agent。
 
-B4/B5 的 campaign 根目录额外保存不可变 `campaign_lock.json`、
-`campaign_report.json` 和 `completion.json`（失败则为 `campaign_failure.json`）；
+B4 campaign 根目录保存 `campaign_lock.json`、`campaign_summary.json`、
+`REPORT.md`，完成后还有 `paper_report.json`；各 seed 的 `summary.json`
+含全量尝试成本、Train/Val/修订成本和方法资产计数，失败则保存 `campaign_failure.json`。
+B5 根目录继续保存 `campaign_report.json` 和 `completion.json`。
 各 seed lane 保存自己的 common episode sidecar、usage、freeze digest 和
-Train/Test 报告。B4 冻结完整 retrieval library；B5 冻结 `best_skill.md`、
+Train/Test 报告。B4 冻结完整 EmbodiSkill persistent state；B5 冻结 `best_skill.md`、
 `gepa_result.json` 与 `candidate_lineage.json`。所有最终 task row 均按
 `manifest_index` 恢复顺序。
 
@@ -377,6 +322,5 @@ ALFWORLD_DATA=/home/yangchengyu/.cache/alfworld \
 确定性覆盖：seed-42 canonical/shuffle 选择、Train/Val 嵌套、完整 Test134、
 split 不重叠、freeze digest 篡改检测、密钥落盘扫描、
 usage 缺失 fail-closed、以及带脚本化 LLM 的完整上游 ReflACT 链路
-（seed→rollout→reflect→patch→gate→best_skill）；另覆盖 B4 label authority、
-sampling/extraction/freeze 边界和 B5 GEPA candidate/Validation/reflection/freeze
+（seed→rollout→reflect→patch→gate→best_skill）；另覆盖 B4 task/chunk/checkpoint/readonly/freeze 边界和 B5 GEPA candidate/Validation/reflection/freeze
 边界。

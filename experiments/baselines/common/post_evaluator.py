@@ -341,7 +341,7 @@ def summarize_rows(
         row for row in valid if row.common_strict_success is not None
     ]
 
-    return {
+    summary = {
         "tasks": scored_tasks,
         "attempted_tasks": len(rows),
         "infrastructure_failed_episodes": infra,
@@ -414,6 +414,39 @@ def summarize_rows(
         "paired_transfer_status": "unavailable_without_matching_b0_result",
         **pricing,
     }
+    # New audited workers keep nullable authoritative usage beside legacy
+    # integer row subtotals. Do not publish those subtotals as exact totals.
+    missing = []
+    for role in ("target", "evolution"):
+        for key in ("prompt_tokens", "completion_tokens", "reasoning_tokens"):
+            if any(not token_usage_known(row, role, key) for row in valid):
+                field = role + "_" + key
+                summary[field + "_known_subtotal"] = summary[field]
+                summary[field] = None
+                missing.append(field)
+        if any(role + "_" + key in missing for key in ("prompt_tokens", "completion_tokens")):
+            for field in (role+"_tokens", role+"_tokens_per_task"):
+                summary[field+"_known_subtotal"] = summary[field]
+                summary[field] = None
+    if any(not row_total_tokens_known(row) for row in valid):
+        for field in ("llm_tokens", "tokens_per_task", "tokens_per_solved", "p50_tokens", "p90_tokens"):
+            summary[field+"_known_subtotal"] = summary[field]
+            summary[field] = None
+    summary["token_usage_complete"] = not missing
+    summary["unavailable_token_fields"] = missing
+    return summary
+
+
+def token_usage_known(row, role, key):
+    audit = (row.method_metrics or {}).get("usage", {})
+    bucket = audit.get(role, {})
+    # Historical rows retain their original schema/authority.
+    return not isinstance(bucket, dict) or key not in bucket or bucket[key] is not None
+
+
+def row_total_tokens_known(row):
+    return all(token_usage_known(row, role, key) for role in ("target", "evolution")
+               for key in ("prompt_tokens", "completion_tokens"))
 
 
 def _require_optional_bool(name: str, value: bool | None) -> None:

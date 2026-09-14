@@ -53,7 +53,7 @@ from .common.usage import UsageSnapshot
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _METHOD = "b3_skillopt"
 _METHOD_ENTRYPOINTS = {
-    "b4_skillgen_s": "experiments.baselines.b4_skillgen_s.controller",
+    "b4_embodiskill": "experiments.baselines.b4_embodiskill.campaign",
     "b5_gepa": "experiments.baselines.b5_gepa.controller",
 }
 

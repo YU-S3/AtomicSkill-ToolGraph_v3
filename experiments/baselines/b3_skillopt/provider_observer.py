@@ -15,6 +15,7 @@ import contextvars
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -332,6 +333,13 @@ class ProviderCallObserver:
                         service_started = time.perf_counter()
                         try:
                             response = self._wrapped.create(**kwargs)
+                        except Exception:
+                            if diagnostics is not None:
+                                diagnostics.setdefault("physical_usage", []).append({
+                                    "prompt_tokens": None, "completion_tokens": None,
+                                    "reasoning_tokens": None, "usage_status": "unavailable",
+                                })
+                            raise
                         finally:
                             if diagnostics is not None:
                                 diagnostics["provider_service_latency_ms"] = int(
@@ -349,6 +357,16 @@ class ProviderCallObserver:
                         observer._note_provider_boundary_failure(exc)
                     raise
                 request_id = str(getattr(response, "_request_id", "") or "").strip()
+                raw_usage = getattr(response, "usage", None)
+                if diagnostics is not None:
+                    details = getattr(raw_usage, "completion_tokens_details", None)
+                    diagnostics.setdefault("physical_usage", []).append({
+                        "prompt_tokens": getattr(raw_usage, "prompt_tokens", None),
+                        "completion_tokens": getattr(raw_usage, "completion_tokens", None),
+                        "reasoning_tokens": getattr(details, "reasoning_tokens", None),
+                        "usage_status": "reported" if raw_usage is not None else "unavailable",
+                        "request_id": request_id,
+                    })
                 if diagnostics is not None and request_id:
                     diagnostics.setdefault("provider_request_ids", []).append(request_id)
                 choices = getattr(response, "choices", None) or []
@@ -363,7 +381,11 @@ class ProviderCallObserver:
                     raise error
                 tool_calls = getattr(message, "tool_calls", None) or []
                 content = getattr(message, "content", None)
-                if not tool_calls and not (
+                if diagnostics is not None and diagnostics.get("role") == "target":
+                    diagnostics["model_action_parse_failure"] = not bool(
+                        isinstance(content, str) and re.search(r"<action>\s*\S.*?</action>", content, flags=re.S)
+                    )
+                if str((diagnostics or {}).get("role")) != "target" and not tool_calls and not (
                     isinstance(content, str) and content.strip()
                 ):
                     error = _ProviderResponseError("empty_message")
@@ -373,7 +395,9 @@ class ProviderCallObserver:
                 completion_tokens = int(
                     getattr(usage, "completion_tokens", 0) or 0
                 )
-                if completion_tokens <= 0:
+                if usage is None or completion_tokens < 0 or (completion_tokens == 0 and (
+                    str((diagnostics or {}).get("role")) != "target" or bool(content)
+                )):
                     error = _ProviderResponseError("invalid_usage")
                     observer._note_provider_boundary_failure(error)
                     raise error
@@ -490,6 +514,7 @@ class ProviderCallObserver:
             attempts_used = 0
             backoff_ms = 0
             last_exception: Exception | None = None
+            accepted_response = False
             try:
                 for attempt in range(1, retry_limit + 1):
                     attempts_used = attempt
@@ -521,8 +546,9 @@ class ProviderCallObserver:
                                 "total_tokens", prompt_tokens + completion_tokens,
                             ) or 0
                         )
-                        if completion_tokens <= 0 or total_tokens <= 0:
+                        if completion_tokens < 0 or total_tokens <= 0 or (completion_tokens == 0 and role != "target"):
                             raise _ProviderResponseError("invalid_usage")
+                        accepted_response = True
                         break
                     except Exception as exc:
                         last_exception = exc
@@ -547,9 +573,9 @@ class ProviderCallObserver:
                     str(code) for code in diagnostics["failure_codes"]
                 ).items()))
                 recovered = bool(failure_counts) and last_exception is not None and (
-                    completion_tokens > 0 and total_tokens > 0
+                    accepted_response
                 )
-                if completion_tokens > 0 and total_tokens > 0:
+                if accepted_response:
                     try:
                         observer._record(
                             call_id=call_id,
@@ -902,6 +928,24 @@ class ProviderCallObserver:
 
     def _record(self, **payload: Any) -> None:
         key = self._episode_context.get()
+        diagnostics = self._attempt_diagnostics.get() or {}
+        physical = diagnostics.get("physical_usage", [])
+        if physical:
+            billed = {}
+            for field in ("prompt_tokens", "completion_tokens", "reasoning_tokens"):
+                values = [row.get(field) for row in physical]
+                complete = all(isinstance(v, int) and v >= 0 for v in values)
+                subtotal = sum(v for v in values if isinstance(v, int) and v >= 0)
+                billed[field] = subtotal if complete else None
+                billed[field + "_known_subtotal"] = subtotal
+                payload[field] = subtotal if field != "reasoning_tokens" or complete else None
+            payload["total_tokens"] = payload["prompt_tokens"] + payload["completion_tokens"]
+            payload["billed_usage"] = billed
+            payload["physical_attempt_usage"] = physical
+            payload["usage_complete"] = all(row["usage_status"] == "reported" for row in physical)
+            payload["reasoning_tokens_status"] = "reported" if billed["reasoning_tokens"] is not None else "unavailable"
+        if str(payload.get("role")) == "target":
+            payload["model_action_parse_failure"] = bool(diagnostics.get("model_action_parse_failure", False))
         with self._lock:
             rollout_id, task_id = key if key is not None else ("", "")
             rollout_id = str(payload.pop("rollout_id_override", rollout_id))

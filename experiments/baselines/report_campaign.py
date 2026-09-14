@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .common.formal_validation import ALFWORLD_FORMAL_TASK_TYPES
-from .common.post_evaluator import TaskRow, load_rows_jsonl, summarize_rows
+from .common.post_evaluator import TaskRow, load_rows_jsonl, summarize_rows, row_total_tokens_known
 from .common.trace import load_episodes
 
 
@@ -384,6 +384,8 @@ def _summarize_method(
         )
         for metric, values in row_metrics.items()
     }
+    if not all(row_total_tokens_known(row) for row in all_rows):
+        bootstrap["tokens_per_task"] = {"status": "unavailable_with_missing_provider_usage"}
     if all_priced:
         cost_values = [
             seed_summaries[str(run.seed)]["cost_per_task"] for run in runs

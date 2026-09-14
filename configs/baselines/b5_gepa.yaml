@@ -38,8 +38,8 @@ provider_transport:
 
 provider_probe:
   enabled: true
-  concurrency: 16
-  requests: 32
+  concurrency: 48
+  requests: 96
   max_completion_tokens: 256
   reasoning_effort: high
 
@@ -48,10 +48,10 @@ resume:
   authority: gepa_run_dir
 
 parallel:
-  seed_lanes: 1
+  seed_lanes: 3
   episode_workers_per_seed: 16
   test_workers_per_seed: 16
-  campaign_provider_max_inflight: 16
+  campaign_provider_max_inflight: 48
   mp_start_method: spawn
 
 env:

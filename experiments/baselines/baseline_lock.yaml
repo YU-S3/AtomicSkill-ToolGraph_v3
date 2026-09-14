@@ -41,38 +41,22 @@ skillopt:
     LICENSE: 9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15
     pyproject.toml: c2a1c6753320b0c77fee66226cdf48ef5690812d52d341087143366f7c69e74c
 
-skillgen:
-  repo: https://github.com/ruomengd/SkillGen
-  commit: 816c91f458ddb87be32657c882cb0431b9cfea01
-  license: upstream repository does not publish a license file
+embodiskill:
+  repo: https://github.com/air-embodied-brain/EmbodiSkill
+  commit: 760126030eab1d33ec6a6f30988f0f1fb58df3a7
   local_snapshot_verification: git_commit+canonical_runtime_tree_sha256+canonical_key_file_sha256
   runtime_tree:
     algorithm: sha256-path-canonical-content-v2
-    roots:
-      - data/alfworld
-      - dataset
-      - environment/alfworld
-      - prompt
-      - skill_extraction
-    root_files:
-      - README.md
-      - requirements.txt
-      - sampling.py
-      - inference_skillgen.py
-      - utils.py
-    file_count: 32
-    sha256: c45da993b64cbd3f032bd743b619223a77ae1e4ef6b5c98a40f72cb63177f81c
+    roots: [agentkit, tasks, configs]
+    root_files: [README.md, requirements.txt]
+    file_count: 35
+    sha256: 5699d242c3e13cee5604bf6279f5e74289c2b5cc4d3909d16d019b5c9f07c4cc
   key_files:
-    data/alfworld/all.jsonl: 05b9b5dbe9b9c9f5da39331c9b2ede007100e3b0fef0ea03900f8d0bc07fd4c5
-    environment/alfworld/alfworld_env.py: 7784a88a26447155aeffffef4f474582bbff32894ae835e49f7ab6edc17954e2
-    sampling.py: 30fecf4dacd577f310805782c7d1afc916ff791368a7c91aec60aeea3e3de70f
-    inference_skillgen.py: b37082ce789e0c5b06900fe1d53bd30d5d1e013086a480d18f73182dca28c512
-    prompt/func_prompting.py: beaf3989a16ec2117887ca345ad9d90ed6001368cccedd2b96e9659156eb11d0
-    skill_extraction/domain_graph.py: 6bf3f6c8632992b0fa5b590e86ef293d4e09f3eb168252ab8297535ca6fa93d4
-    skill_extraction/extract_skills.py: ea375c5565830a52c5d9fed8abc9e5790dd88d87a57fdd663fa00e7d08e7a86c
-    skill_extraction/extraction_utils.py: ec9d62a6e63770a04adae93816c4abeef01ad5cb40c71b08163e8f9956028179
-    skill_extraction/embed_skills.py: 2e29c3127ae1b92fc70cd6bd66d9ece57ccee1df80f8815cf1a408a74d4cfd89
-    skill_extraction/retrieve_segment.py: 1d3f833615e44abbdec74f2932045d7209269c30eea822fabba87a18715b02e1
+    agentkit/skill/embodiskill_skill/EmbodiSkill.py: 0f74bde6ac4bc134124e34ad23dbf6324dc468513063ff59950b00b5e7196f36
+    tasks/workflow/team/team.py: 0b5d902c86c5816331a79d51ac93a32a1b206f031ff4f6ad9353847995e9850a
+    tasks/workflow/team/team_prompt.py: e8168ff72456f76b99606f368548269d28ab663b0488b2ed9df9020a5e409e78
+    tasks/workflow/format.py: 0912da1f4b771350f87c78297a6352273e0f48809e306987c152f19925f93950
+    tasks/run_epochs.py: 83c99d5be52bd59529dc8c680560b14312187e744853e42261ac404deaab5db3
 
 gepa:
   repo: https://github.com/gepa-ai/gepa
@@ -112,6 +96,6 @@ methods:
   b0_dynamic: not_implemented
   b1_static_skill: not_implemented
   b2_expel: not_implemented
-  b4_skillgen_s: implemented_label_authority_required
+  b4_embodiskill: implemented
   b5_gepa: implemented
   b6_flowevo: not_implemented

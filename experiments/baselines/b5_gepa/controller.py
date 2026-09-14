@@ -123,7 +123,7 @@ def _load_campaign_descriptor(
         "provider_cap": int(payload.get("campaign_provider_max_inflight", 0))
         == int(parallel.get("campaign_provider_max_inflight", 0)),
         "seed_lanes": int(payload.get("seed_lanes", 0))
-        == int(parallel.get("seed_lanes", 0)) == 1,
+        == int(parallel.get("seed_lanes", 0)) == 3,
         "mp_start_method": dict(payload.get("parallel") or {}).get(
             "mp_start_method"
         )

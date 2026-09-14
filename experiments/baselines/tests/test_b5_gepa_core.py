@@ -900,7 +900,7 @@ def test_resume_reconciles_current_validation_sidecars_not_cumulative_full_val(
     )
 
     assert result["episodes"] == {"total": 30, "train": 6, "validation": 24}
-    assert result["train_summary"] == summary
+    assert result["train_summary"] == {**summary, "legitimate_zero_reflection_terminal": False}
 
 
 def test_formal_config_freezes_720_metric_calls_and_same_initial_skill() -> None:
@@ -933,10 +933,10 @@ def test_formal_config_freezes_720_metric_calls_and_same_initial_skill() -> None
         "max_completion_tokens"
     ]
     assert b5["parallel"] == {
-        "seed_lanes": 1,
+        "seed_lanes": 3,
         "episode_workers_per_seed": 16,
         "test_workers_per_seed": 16,
-        "campaign_provider_max_inflight": 16,
+        "campaign_provider_max_inflight": 48,
         "mp_start_method": "spawn",
     }
     assert smoke["parallel"] == {
@@ -998,7 +998,7 @@ def test_run_manifest_persists_frozen_protocol_authorities(tmp_path: Path) -> No
         run_seed=42,
         identity={"initial_skill_digest": "a" * 64},
         code_hash="b" * 64,
-        campaign={"campaign_provider_max_inflight": 16},
+        campaign={"campaign_provider_max_inflight": 48},
         resume=None,
         model_config=model,
         max_environment_actions=100,
@@ -1026,9 +1026,9 @@ def test_run_manifest_persists_frozen_protocol_authorities(tmp_path: Path) -> No
             "protocol_profile": "formal_v2",
             "gepa": {"max_metric_calls": 720},
             "parallel": {
-                "seed_lanes": 1,
+                "seed_lanes": 3,
                 "episode_workers_per_seed": 16,
-                "campaign_provider_max_inflight": 16,
+                "campaign_provider_max_inflight": 48,
             },
             "env": {"workers": 16, "max_api_workers": 16},
         },
@@ -1059,7 +1059,7 @@ def test_run_manifest_persists_frozen_protocol_authorities(tmp_path: Path) -> No
     assert manifest["model"] == "deepseek-v4-flash"
     assert manifest["model_identity"] == model.to_wire()
     assert manifest["episode_workers"] == 16
-    assert manifest["provider_max_inflight"] == 16
+    assert manifest["provider_max_inflight"] == 48
     assert manifest["method_specific_prior"] is False
     assert "frozen_artifact_digest" not in manifest
 
@@ -1219,7 +1219,7 @@ def test_frozen_test_persists_posthoc_rows_and_binds_manifest(
     assert manifest["frozen_artifact_digest"] == frozen.digest
 
 
-def test_campaign_descriptor_requires_one_serial_seed_lane(
+def test_campaign_descriptor_requires_three_parallel_seed_lanes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     model = ModelConfig.from_mapping({
@@ -1231,8 +1231,8 @@ def test_campaign_descriptor_requires_one_serial_seed_lane(
     })
     config = {
         "parallel": {
-            "seed_lanes": 1,
-            "campaign_provider_max_inflight": 16,
+            "seed_lanes": 3,
+            "campaign_provider_max_inflight": 48,
             "mp_start_method": "spawn",
         }
     }
@@ -1266,11 +1266,11 @@ def test_campaign_descriptor_requires_one_serial_seed_lane(
         "model": "deepseek-v4-flash",
         "reasoning_effort": "high",
         "formal_config_digest": controller_module._formal_config_digest(config),
-        "campaign_provider_max_inflight": 16,
-        "seed_lanes": 1,
+        "campaign_provider_max_inflight": 48,
+        "seed_lanes": 3,
         "parallel": {
-            "seed_lanes": 1,
-            "campaign_provider_max_inflight": 16,
+            "seed_lanes": 3,
+            "campaign_provider_max_inflight": 48,
             "mp_start_method": "spawn",
         },
         "provider_gate_dir": str(campaign_root / "provider_gate"),
@@ -1300,9 +1300,9 @@ def test_campaign_descriptor_requires_one_serial_seed_lane(
         git_state={"commit": "4" * 40},
         code_digest="5" * 64,
     )
-    assert descriptor["campaign_provider_max_inflight"] == 16
+    assert descriptor["campaign_provider_max_inflight"] == 48
 
-    payload["seed_lanes"] = 3
+    payload["seed_lanes"] = 1
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="seed_lanes"):
         controller_module._load_campaign_descriptor(
@@ -1360,11 +1360,11 @@ def test_b5_provider_probe_binds_pinned_skillopt_source(tmp_path: Path) -> None:
             "reasoning_effort": "high",
         },
         "provider_probe": {
-            "concurrency": 16,
-            "requests": 32,
+            "concurrency": 48,
+            "requests": 96,
             "max_completion_tokens": 256,
         },
-        "campaign_provider_max_inflight": 16,
+        "campaign_provider_max_inflight": 48,
         "retry_policy": {
             "sdk_max_retries": 0,
             "attempts": 5,
@@ -1381,7 +1381,7 @@ def test_b5_provider_probe_binds_pinned_skillopt_source(tmp_path: Path) -> None:
     ).resolve()
 
 
-@pytest.mark.parametrize("selected_cap", [12, 8])
+@pytest.mark.parametrize("selected_cap", [36, 24])
 def test_b5_provider_fallback_binds_all_worker_authorities(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1396,13 +1396,13 @@ def test_b5_provider_fallback_binds_all_worker_authorities(
     source_config = config_dir / "b5_gepa.yaml"
     source_payload = {
         "parallel": {
-            "seed_lanes": 1,
+            "seed_lanes": 3,
             "episode_workers_per_seed": 16,
             "test_workers_per_seed": 16,
-            "campaign_provider_max_inflight": 16,
+            "campaign_provider_max_inflight": 48,
             "mp_start_method": "spawn",
         },
-        "provider_probe": {"concurrency": 16, "requests": 32},
+        "provider_probe": {"concurrency": 48, "requests": 96},
         "env": {"workers": 16, "max_api_workers": 16},
     }
     source_config.write_text(yaml.safe_dump(source_payload), encoding="utf-8")
@@ -1466,14 +1466,14 @@ def test_b5_provider_fallback_binds_all_worker_authorities(
     generated = yaml.safe_load(runtime_config.read_text(encoding="utf-8"))
     assert source_config.read_text(encoding="utf-8") == yaml.safe_dump(source_payload)
     assert generated["parallel"] == {
-        "seed_lanes": 1,
-        "episode_workers_per_seed": selected_cap,
-        "test_workers_per_seed": selected_cap,
+        "seed_lanes": 3,
+        "episode_workers_per_seed": selected_cap // 3,
+        "test_workers_per_seed": selected_cap // 3,
         "campaign_provider_max_inflight": selected_cap,
         "mp_start_method": "spawn",
     }
-    assert generated["env"]["workers"] == selected_cap
-    assert generated["env"]["max_api_workers"] == selected_cap
+    assert generated["env"]["workers"] == selected_cap // 3
+    assert generated["env"]["max_api_workers"] == selected_cap // 3
     assert generated["provider_probe"]["concurrency"] == selected_cap
     assert payload["parallel"] == generated["parallel"]
     assert payload["campaign_provider_max_inflight"] == selected_cap
@@ -1493,7 +1493,7 @@ def test_b5_provider_fallback_binds_all_worker_authorities(
     assert Path(command[command.index("--config") + 1]) == runtime_config
 
 
-def test_b5_provider_cap_16_validates_without_rewriting_source_config(
+def test_b5_provider_cap_48_validates_without_rewriting_source_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1503,13 +1503,13 @@ def test_b5_provider_cap_16_validates_without_rewriting_source_config(
     source_config = config_dir / "b5_gepa.yaml"
     source_payload = {
         "parallel": {
-            "seed_lanes": 1,
+            "seed_lanes": 3,
             "episode_workers_per_seed": 16,
             "test_workers_per_seed": 16,
-            "campaign_provider_max_inflight": 16,
+            "campaign_provider_max_inflight": 48,
             "mp_start_method": "spawn",
         },
-        "provider_probe": {"concurrency": 16, "requests": 32},
+        "provider_probe": {"concurrency": 48, "requests": 96},
         "env": {"workers": 16, "max_api_workers": 16},
     }
     source_bytes = yaml.safe_dump(source_payload).encode("utf-8")
@@ -1530,9 +1530,9 @@ def test_b5_provider_cap_16_validates_without_rewriting_source_config(
         "provider_probe": {
             **dict(source_payload["provider_probe"]),
             "passed": True,
-            "selected_cap": 16,
+            "selected_cap": 48,
         },
-        "campaign_provider_max_inflight": 16,
+        "campaign_provider_max_inflight": 48,
         "config_path": str(source_config),
         "formal_config_digest": campaign_module._formal_config_digest(
             campaign_module._merged_config(spec)
@@ -1551,7 +1551,7 @@ def test_b5_provider_cap_16_validates_without_rewriting_source_config(
     )
 
     assert resolved_spec.config == source_config
-    assert payload["campaign_provider_max_inflight"] == 16
+    assert payload["campaign_provider_max_inflight"] == 48
     assert source_config.read_bytes() == source_bytes
 
 
@@ -2030,17 +2030,17 @@ def test_three_seed_campaign_runs_train_freeze_then_test_per_lane(
         "mean"
     ] == 0.0
     assert len(commands) == 6
-    assert [
+    assert sorted([
         (int(argument(command, "--seed")), argument(command, "--phase"))
         for command in commands
-    ] == [
+    ]) == sorted([
         (42, "train"),
         (42, "test"),
         (43, "train"),
         (43, "test"),
         (44, "train"),
         (44, "test"),
-    ]
+    ])
     for seed in FORMAL_SEEDS:
         seed_commands = [
             command
@@ -2310,3 +2310,14 @@ def test_failed_attempt_action_journal_makes_environment_cost_exact(
         "measurement_complete": True,
         "environment_actions": 2,
     }
+def test_zero_reflection_requires_completed_budget_and_perfect_parent_evidence():
+    from experiments.baselines.b5_gepa.worker import legitimate_zero_reflection
+    summary = dict(reflection_calls=0, actual_total_metric_calls=720,configured_max_metric_calls=720,candidate_count=1)
+    episodes = [SimpleNamespace(method_metrics={"dataset_role":"train"},phase="train",official_success=True)]
+    callback = dict(event_counts={"optimization_end":1,"evaluation_skipped":232})
+    assert legitimate_zero_reflection(summary,episodes,callback)
+    episodes[0].official_success = False
+    assert not legitimate_zero_reflection(summary,episodes,callback)
+    episodes[0].official_success = True
+    summary["actual_total_metric_calls"] = 24
+    assert not legitimate_zero_reflection(summary,episodes,callback)
