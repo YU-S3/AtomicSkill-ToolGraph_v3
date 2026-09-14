@@ -17,6 +17,7 @@ Status: implemented locally; real end-to-end smoke is **not qualified**. No form
 - EmbodiSkill worker-specific suite after additional coverage: 15 passed. This includes **scripted-provider** execution of the real upstream training → trajectory store → reflection → manual revision → snapshot reload → read-only evaluation path. It is not a real-API smoke pass.
 - Follow-up GEPA/reporting checks: 44 passed.
 - Follow-up B4 controller checks after atomic frozen-directory publication: 11 passed, 4 dependency skips in the B5 environment.
+- The per-seed `run_manifest.json` and frozen provenance record the actual seed, source commit, data identities, model, ALFWorld package and selected concurrency. Frozen state is published by directory rename after the full copy verifies.
 - Real GEPA dependency/ALFWorld single-worker load: passed, including exact gamefile reset. No model calls or optimizer execution.
 - `git diff --check`: passed.
 
@@ -56,7 +57,9 @@ The replacement load-only probe writes its evidence to:
 
 `runs/baselines/b4_embodiskill_load_20260914_02/`
 
-The authoritative result is `load_probe_summary.json` and the per-cap `load_probes/workers_*/report.json`. Missing or failed results do not authorize formal execution. Load-only mode never starts Train.
+The replacement probe **passed at 24 workers** (three seed lanes × eight evaluation workers). All 24 actual model requests succeeded with nonempty output and no truncation. At full load the measured available WSL memory was 6,688,051,200 bytes, above the 2,475,482,112-byte reserve. The 48/36 targets were rejected before full loading by the measured memory projection.
+
+The authoritative result is `load_probe_summary.json` and the per-cap `load_probes/workers_*/report.json`. This qualifies the load test only; the end-to-end method smoke above is still blocked. Load-only mode never starts Train. All validation processes have exited.
 
 ## Entry points
 

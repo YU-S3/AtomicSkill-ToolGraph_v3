@@ -142,7 +142,9 @@ def test_training_chunk_revision_selection_and_freeze(tmp_path, monkeypatch):
     cfg["train"] = dict(train_size=4,num_epochs=2,train_chunk_size=2)
     manifests = [TaskManifestSet.load(REPO/"data/baseline_manifests"/(name+"_6_smoke.json"))
                  for name in ("train","validation","test")]
-    spec = dict(output=str(tmp_path),config=cfg,campaign_id="unit",source_receipt={})
+    spec = dict(output=str(tmp_path),config=cfg,campaign_id="unit",
+        source_receipt={"repo":"scripted-test","declared_commit":"fixture"},git_state={"commit":"fixture"},
+        identity={"dependencies":{"distributions":{"alfworld":"fixture"}}})
     controller = SeedController(spec,42,manifests)
     operations = []
     def operation(name, phase, *, source=None, task=None, epoch=0, rate=0):

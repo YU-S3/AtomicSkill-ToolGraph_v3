@@ -111,6 +111,25 @@ class SeedController:
     def run(self):
         train, val, test = self.manifests
         cfg = self.config
+        manifest = dict(protocol="protocol-faithful-matched-train-v2.1", method=METHOD_ID,
+            run_seed=self.seed, controller_commit=self.spec["git_state"]["commit"],
+            external_repo=self.spec["source_receipt"]["repo"],
+            external_commit=self.spec["source_receipt"]["declared_commit"],
+            train_manifest_hash=train.digest, validation_manifest_hash=val.digest, test_manifest_hash=test.digest,
+            alfworld_package_version=self.spec["identity"]["dependencies"]["distributions"]["alfworld"],
+            alfworld_data_signature=hashlib.sha256("".join(m.digest for m in self.manifests).encode()).hexdigest(),
+            model=cfg["model"]["model"], reasoning_effort=cfg["model"]["reasoning_effort"],
+            max_environment_actions=cfg["max_environment_actions"], **cfg["parallel"],
+            method_specific_alfworld_prior=True, num_epochs=cfg["train"]["num_epochs"],
+            train_chunk_size=cfg["train"]["train_chunk_size"], validation_policy="epoch_snapshot_read_only",
+            best_snapshot_metric="official_won_rate", team_solver=True, static_few_shots=1,
+            embedding_model=cfg["embedding"]["model"], formal=cfg["experiment_kind"]=="formal")
+        manifest_path = self.root / "run_manifest.json"
+        if manifest_path.exists():
+            if read_json(manifest_path) != manifest:
+                raise RuntimeError("Seed run manifest changed on resume")
+        else:
+            write_json(manifest_path, manifest)
         train_tasks = train.tasks[:cfg["train"]["train_size"]]
         val_tasks = val.tasks[:cfg["selection"]["validation_size"]]
         test_tasks = test.tasks[:cfg["selection"].get("test_size", len(test.tasks))]
@@ -150,6 +169,7 @@ class SeedController:
             write_json(provenance / "config.json", cfg)
             write_json(provenance / "source.json", self.spec["source_receipt"])
             write_json(provenance / "campaign_lock.json", self.spec)
+            write_json(provenance / "run_manifest.json", manifest)
             for name, manifest in zip(("train", "validation", "test"), self.manifests):
                 write_json(provenance / f"{name}_manifest.json", manifest.to_dict())
             files = {"state/"+p.relative_to(best).as_posix(): p for p in best.rglob("*") if p.is_file()}

@@ -43,6 +43,10 @@ def load_config(smoke):
 
 
 def validate_config(cfg):
+    expected_transport = dict(sdk_max_retries=0, application_retry_limit=5,
+        retry_delays_seconds=[2,5,10,20], completion_budget_authority="upstream_requested")
+    if cfg["provider_transport"] != expected_transport or cfg["max_environment_actions"] != 100:
+        raise ValueError("Transport/action boundary differs from the frozen protocol")
     expected_method = dict(workflow="team",reasoning="io",successful_topk=1,failed_topk=0,
         skills_topk=5,threshold=0.0,hop=1,llm_concurrency=1,max_trials=30,static_few_shots=1,
         manual_reflection_max_tokens=512,manual_revision_max_tokens=2048,

@@ -40,4 +40,4 @@ provider_transport:
   sdk_max_retries: 0
   application_retry_limit: 5
   retry_delays_seconds: [2, 5, 10, 20]
-  max_completion_tokens: 512
+  completion_budget_authority: upstream_requested
