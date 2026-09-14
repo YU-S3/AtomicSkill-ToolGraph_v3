@@ -777,25 +777,35 @@ class ToolRunner:
                 max_iterations = int(node.get("max_iterations", len(values)) or 0)
                 variable = str(node.get("iteration_variable", ""))
                 count = 0
-                for value in values:
-                    if count >= max_iterations or state.failure_code or terminal:
-                        break
-                    state.path_tokens.append(
-                        f"{node_id}:iteration:{count + 1}"
-                    )
-                    state.local[variable] = value
-                    signal = self._execute_ir_nodes(
-                        list(node.get("body") or []), state, ctx,
-                        occurrence_id=occurrence_id, span_id=span_id, tool=tool,
-                        terminal=terminal,
-                    )
-                    count += 1
-                    if signal in {"RETURN_PROGRAM", "BENCHMARK_TERMINAL", "FAIL_TOOL"}:
-                        state.loop_iteration_counts[str(node.get("node_id", ""))] = count
-                        return signal
-                    if signal == "BREAK_LOOP":
-                        state.loop_iteration_counts[str(node.get("node_id", ""))] = count
-                        break
+                missing = object()
+                previous = state.local.get(variable, missing)
+                try:
+                    for value in values:
+                        if count >= max_iterations or state.failure_code or terminal:
+                            break
+                        state.path_tokens.append(
+                            f"{node_id}:iteration:{count + 1}"
+                        )
+                        state.local[variable] = value
+                        signal = self._execute_ir_nodes(
+                            list(node.get("body") or []), state, ctx,
+                            occurrence_id=occurrence_id, span_id=span_id, tool=tool,
+                            terminal=terminal,
+                        )
+                        count += 1
+                        if signal in {"RETURN_PROGRAM", "BENCHMARK_TERMINAL", "FAIL_TOOL"}:
+                            state.loop_iteration_counts[str(node.get("node_id", ""))] = count
+                            return signal
+                        if signal == "BREAK_LOOP":
+                            state.loop_iteration_counts[str(node.get("node_id", ""))] = count
+                            break
+                finally:
+                    # Match the static validator's lexical loop scope on every
+                    # control signal, including exceptions from primitive calls.
+                    if previous is missing:
+                        state.local.pop(variable, None)
+                    else:
+                        state.local[variable] = previous
                 state.loop_iteration_counts[str(node.get("node_id", ""))] = count
                 if count > 1:
                     state.stop_condition_witnesses.append(

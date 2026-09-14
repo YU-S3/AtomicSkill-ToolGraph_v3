@@ -40,6 +40,7 @@ LEGACY_OBLIGATION_FIELDS = (
     set(EDGE_FIELDS) | set(SHARED_FIELDS) | {"consumer_input_contract"}
 )
 OBLIGATION_FIELDS = LEGACY_OBLIGATION_FIELDS | set(RELATION_FIELDS)
+CANDIDATE_FIELDS = {"producer_value_context"}
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -108,6 +109,7 @@ def pack_downstream_context(raw: Any) -> tuple[Any, str]:
             or frozenset(obligation) not in {
                 frozenset(LEGACY_OBLIGATION_FIELDS),
                 frozenset(OBLIGATION_FIELDS),
+                frozenset(OBLIGATION_FIELDS | CANDIDATE_FIELDS),
             }
         ):
             return original, "original_unrecognized_shape"
@@ -136,7 +138,7 @@ def pack_downstream_context(raw: Any) -> tuple[Any, str]:
         contracts[role] = copy.deepcopy(contract)
         edges.append({
             field: copy.deepcopy(obligation[field])
-            for field in (*EDGE_FIELDS, *RELATION_FIELDS)
+            for field in (*EDGE_FIELDS, *RELATION_FIELDS, *sorted(CANDIDATE_FIELDS))
             if field in obligation
         })
         occurrences[step] = occurrences.get(step, 0) + 1

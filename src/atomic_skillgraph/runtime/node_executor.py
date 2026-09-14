@@ -31,6 +31,7 @@ from ..traces.schema import (
     ImplementationInvocationRecord, NativeToolCallRecord, ValidationRecord,
 )
 from ..validation.engine import ValidationEngine
+from ..validation.atomic_validator import AtomicValidator
 from .automation import safe_runtime_automation_outcome
 from .implementation_runner import ImplementationRunner
 from .grounding_state import IncrementalGroundingAuthority
@@ -234,6 +235,7 @@ class NodeExecutor:
         occurrence: Any,
         *,
         plan_context_plan: Any | None = None,
+        producer_output_candidates: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         builder = getattr(self, "plan_context_builder", None)
         plan = plan_context_plan or getattr(ctx, "plan", None)
@@ -267,6 +269,29 @@ class NodeExecutor:
             if accepts_keywords or "public_revision" in parameters:
                 build_kwargs["public_revision"] = int(
                     getattr(ctx, "world_revision", 0)
+                )
+            if accepts_keywords or "producer_output_candidates" in parameters:
+                candidates = {}
+                skills = getattr(builder, "skills", None)
+                atomic = skills.get_atomic(occurrence.node_ref) if skills else None
+                bindings = ctx.binding_store.snapshot_for_node(occurrence)
+                derivations = AtomicValidator._output_derivations(atomic) if atomic else {}
+                for role, derivation in derivations.items():
+                    if derivation.get("kind") != "input_identity":
+                        continue
+                    binding = bindings.get(derivation.get("input_role"))
+                    if binding is not None and binding.status is BindingStatus.GROUNDED:
+                        candidates[role] = {
+                            "value": binding.value,
+                            "source": "input_identity",
+                            "revision": binding.world_revision,
+                            "resolution": binding.resolution.value,
+                        }
+                candidates.update(producer_output_candidates or {})
+                build_kwargs["producer_output_candidates"] = candidates
+            if accepts_keywords or "public_action_catalog" in parameters:
+                build_kwargs["public_action_catalog"] = tuple(
+                    to_primitive(action) for action in getattr(ctx, "action_catalog", ())
                 )
             return dict(builder.build(
                 plan,
@@ -841,6 +866,33 @@ class NodeExecutor:
             current_revision=ctx.world_revision,
             authoritative_evidence_facts=authoritative_evidence_facts,
         )
+        # Assess pre-publication candidates without committing outputs, Repeat
+        # identity or new evidence. Only current public values are projected.
+        candidate_context = self._downstream_plan_context(
+            ctx, occurrence,
+            producer_output_candidates={
+                parameter.name: {
+                    "value": resolution.output_candidates[parameter.name],
+                    "source": "effect_resolution",
+                    "revision": ctx.world_revision,
+                    # A contract's minimum resolution is not the evidence
+                    # level of this actual witness. Public visibility is still
+                    # checked independently by the downstream context builder.
+                    "resolution": "concrete" if resolution.passed else "semantic",
+                }
+                for parameter in atomic.outputs
+                if parameter.name in resolution.output_candidates
+            },
+        )
+        if resolution.output_candidates and candidate_context.get("output_obligations"):
+            ctx.trace_builder.trace.metadata.setdefault(
+                "producer_output_candidate_assessments", [],
+            ).append({
+                "occurrence_id": occurrence.occurrence_id,
+                "revision": ctx.world_revision,
+                "before_output_publication": True,
+                "context": candidate_context,
+            })
         if not resolution.passed:
             if resolution_out is not None:
                 resolution_out.append(resolution)

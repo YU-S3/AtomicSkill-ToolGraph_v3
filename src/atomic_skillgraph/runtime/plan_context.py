@@ -21,7 +21,7 @@ from ..core.results import RuntimeLinearPlan, RuntimeOccurrence
 from ..core.serialization import to_primitive
 from ..core.status import SkillStatus
 from .binding_store import RuntimeBindingStore
-from .output_obligations import assess_output_obligation
+from .output_obligations import _public_fact_revision, assess_output_obligation
 
 
 class AtomicContractResolver(Protocol):
@@ -48,6 +48,7 @@ class RuntimeConsumerObligation:
     relevant_anchor_roles: tuple[str, ...] = ()
     public_relation_status: str = "unknown"
     public_evidence_refs: tuple[str, ...] = ()
+    producer_value_context: dict[str, Any] | None = None
 
     def policy_view(self) -> dict[str, Any]:
         return to_primitive(self)
@@ -180,6 +181,8 @@ class RuntimePlanContextBuilder:
         *,
         public_facts: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
         public_revision: int = 0,
+        producer_output_candidates: dict[str, dict[str, Any]] | None = None,
+        public_action_catalog: tuple[dict[str, Any], ...] = (),
     ) -> RuntimePlanPolicyContext:
         if current_step not in plan.control_sequence:
             raise KeyError(current_step)
@@ -223,12 +226,49 @@ class RuntimePlanContextBuilder:
                 binding_store,
             )
             producer_value = None
+            value_context = None
             if producer_occurrence is not None:
                 producer_binding = binding_store.validated_outputs(
                     producer_occurrence.occurrence_id,
                 ).get(edge.source_role)
                 if producer_binding is not None:
                     producer_value = producer_binding.value
+                    value_context = {"status": "published", "source": "validated_output"}
+            if producer_value is None:
+                candidate = (producer_output_candidates or {}).get(edge.source_role, {})
+                # Candidate provenance is supplied by Runtime, never a binding
+                # authority. Project only values visible at this revision.
+                public_values = [
+                    value
+                    for fact in public_facts
+                    if fact.get("public_evidence_ref")
+                    and _public_fact_revision(fact) == public_revision
+                    for value in dict(fact.get("args") or {}).values()
+                ] + [
+                    value
+                    for action in public_action_catalog
+                    if action.get("revision") == public_revision
+                    for value in dict(action.get("arguments") or {}).values()
+                ]
+                if (
+                    candidate.get("source") in {
+                        "effect_resolution", "agent_proposal", "input_identity",
+                    }
+                    and not isinstance(candidate.get("revision"), bool)
+                    and candidate.get("revision") == public_revision
+                    and candidate.get("resolution") in {"concrete", "relation_verified"}
+                    and candidate.get("value") not in (None, "")
+                    and candidate.get("value") in public_values
+                ):
+                    producer_value = candidate["value"]
+                    value_context = {
+                        "status": "candidate",
+                        "source": candidate["source"],
+                        "revision": public_revision,
+                        "resolution": candidate["resolution"],
+                        "value": to_primitive(producer_value),
+                        "is_binding_authority": False,
+                    }
             assessment = assess_output_obligation(
                 consumer_atomic=consumer_atomic,
                 consumer_input_role=edge.target_role,
@@ -257,6 +297,7 @@ class RuntimePlanContextBuilder:
                 relevant_anchor_roles=assessment.relevant_anchor_roles,
                 public_relation_status=assessment.public_relation_status,
                 public_evidence_refs=assessment.public_evidence_refs,
+                producer_value_context=value_context,
             ))
 
         # Preserve formal plan order.  The outline contains portable Atomic

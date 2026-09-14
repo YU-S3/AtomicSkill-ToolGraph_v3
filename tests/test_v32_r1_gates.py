@@ -442,7 +442,11 @@ def test_gate7_stop_when_breaks_loop_then_return_runs() -> None:
                 "node_id": "ret",
                 "op": "RETURN",
                 "output_sources": {
-                    "found": {"source": "local_variable", "field": "loc"}
+                    "found": {
+                        "source": "semantic_evidence",
+                        "where": {"predicate": "agent.at_location"},
+                        "project": {"kind": "argument", "role": "location"},
+                    }
                 },
             },
         ],
