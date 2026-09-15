@@ -204,11 +204,14 @@ def lane_run(spec, seed, tasks, stop=None):
     # Rollup retains failed attempts too, with unique logical/physical ids.
     from experiments.baselines.common.post_evaluator import _write_jsonl_atomic
     _write_jsonl_atomic(target/"provider_calls.jsonl", events, overwrite=True)
-    summary = summarize_rows(rows)
+    summary = summarize_rows(rows, task_types=list(dict.fromkeys(t.task_type for t in tasks)))
     assert_frozen_unchanged(frozen)
     report = dict(passed=True, method=METHOD, phase=spec["phase"], seed=seed, run_id=spec["campaign_id"],
         test=summary, training_cost=driver.train(), test_cost=dict(api_cost=None, api_cost_unpriced=True,
-        usage=usage_totals(events)), frozen_unchanged=True)
+        usage=usage_totals(events),
+        all_attempt_environment_actions=sum(r.method_metrics.get("all_attempt_environment_actions",r.environment_actions) for r in records),
+        provider_service_latency_ms=sum(e.get("provider_service_latency_ms",0) for e in events),
+        failed_logical_calls=sum(e.get("status")!="succeeded" for e in events)), frozen_unchanged=True)
     write_json(lane/"summary.json", report)
     write_json(lane/f"{spec['phase']}_report.json", report)
     write_json(lane/"completion.json", dict(passed=True, phase=spec["phase"], run_id=spec["campaign_id"],

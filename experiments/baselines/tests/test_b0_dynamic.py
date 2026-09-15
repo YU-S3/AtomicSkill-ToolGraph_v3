@@ -121,3 +121,36 @@ def test_canonical_b0_automatically_used_for_transfer(tmp_path):
     report=build_campaign_report({"b0_dynamic":b0,"ours":ours},task_types=_FAMILIES,bootstrap_samples=20)
     assert report["passed"]
     assert "b0_dynamic" in report["ours_pairwise"]["comparisons"]
+
+
+def test_complete_lane_reports_and_resume_without_execution(tmp_path,monkeypatch):
+    from experiments.baselines.common.manifest import ManifestTask
+    from experiments.baselines.common.schema import CommonEpisodeRecord
+    seed=42
+    lane=tmp_path/"seed_42"
+    frozen=PureDynamicDriver().freeze(lane)
+    tasks=[]
+    for index,family in enumerate(("family_a","family_b")):
+        task=ManifestTask(index=index,task_id=f"task_{index}",task_type=family,source_split="valid_unseen",
+            env_index=index,gamefile_rel=f"game_{index}",gamefile_sha256="a"*64,task_signature=f"{index:064x}")
+        tasks.append(task)
+        path=lane/"test/episodes"/f"task_{index:04d}"
+        write_json(path/"attempts/attempt_0001/outcome.json",dict(wall_time_ms=10))
+        record=CommonEpisodeRecord(method="b0_dynamic",phase="test",run_seed=seed,
+            task_id=task.task_id,task_type=family,manifest_index=index,gamefile=task.gamefile_rel,
+            gamefile_hash=task.gamefile_sha256,official_success=True,contract_consistency=True,
+            common_strict_success=True,target_llm_calls=1,target_prompt_tokens=10,target_completion_tokens=2,
+            invalid_actions=0,artifact_digest_before=frozen.digest,artifact_digest_after=frozen.digest)
+        write_json(path/"record.json",record.to_dict())
+        write_json(path/"completion.json",dict(passed=True,record_hash=file_hash(path/"record.json"),
+            evidence_digest=digest_directory(path/"attempts")))
+    def forbidden(*a,**kw):
+        raise AssertionError("Completed lane must not execute an episode")
+    monkeypatch.setattr(PureDynamicDriver,"evaluate",forbidden)
+    spec=dict(output=str(tmp_path),identity={},config=config(),phase="test",cap=24,campaign_id="test_complete")
+    result=campaign.lane_run(spec,seed,tasks)
+    assert result["passed"] and result["test"]["tasks"]==2
+    assert result["test"]["common_strict_success"]==2
+    assert result["training_cost"]["tokens"]==0
+    assert campaign.lane_run(spec,seed,tasks)==result
+    assert (lane/"test_report.json").is_file()

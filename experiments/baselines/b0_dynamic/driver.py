@@ -93,7 +93,6 @@ def run_episode_job(job):
     example = task_example(entry)
     frozen = FrozenArtifact.load(job["frozen"])
     assert_frozen_unchanged(frozen)
-    started = time.monotonic()
     try:
         outcome = completed_outcome(root, example)
         if outcome is None:
@@ -146,6 +145,7 @@ def run_episode_job(job):
             raise ValueError("Action ceiling exceeded")
         official = bool(outcome["skillopt_row"]["hard"])
         from experiments.baselines.common.task_authority import StrictTaskEvaluator
+        replay_started = time.monotonic()
         strict = StrictTaskEvaluator(job["alfworld_data"]).evaluate(entry, actions, official_success=official)
         if strict.replayed_terminal_won != official:
             raise ValueError("Saved won and replay won differ")
@@ -162,13 +162,15 @@ def run_episode_job(job):
             target_completion_tokens=usage["completion_tokens_known_subtotal"],
             target_reasoning_tokens=usage["reasoning_tokens_known_subtotal"],
             target_visible_completion_tokens=usage["visible_completion_tokens"],
+            evolution_visible_completion_tokens=0,
             wall_time_ms=sum(read_json(p)["wall_time_ms"] for p in (root/"attempts").glob("*/outcome.json")),
             artifact_digest_before=frozen.digest, artifact_digest_after=frozen.digest,
             method_metrics=dict(skill_text=None, persistent_experience=False, usage={"target":usage},
                 observed_gamefile=outcome["actual_gamefile"],
                 model_action_parse_failures=sum(bool(e.get("model_action_parse_failure")) for e in events),
-                all_attempt_environment_actions=sum(len(read_json(p)["conversation"]) for p in (root/"attempts").glob("*/outcome.json")),
-                replay_wall_time_ms=int((time.monotonic()-started)*1000)))
+                all_attempt_environment_actions=sum(e.get("event")=="environment_action"
+                    for p in (root/"attempts").glob("*/attempt_environment_actions/*.jsonl") for e in read_jsonl(p)),
+                replay_wall_time_ms=int((time.monotonic()-replay_started)*1000)))
         assert_frozen_unchanged(frozen)
         write_json(root / "record.json", record.to_dict())
         write_json(root / "completion.json", dict(passed=True,
