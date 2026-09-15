@@ -154,3 +154,48 @@ def test_complete_lane_reports_and_resume_without_execution(tmp_path,monkeypatch
     assert result["training_cost"]["tokens"]==0
     assert campaign.lane_run(spec,seed,tasks)==result
     assert (lane/"test_report.json").is_file()
+
+
+@pytest.mark.parametrize("report_fails",[False,True])
+def test_formal_controller_publishes_only_complete_reports(tmp_path,monkeypatch,report_fails):
+    from contextlib import nullcontext
+    from experiments.baselines.common.manifest import ManifestTask
+    from experiments.baselines.common.formal_validation import ALFWORLD_FORMAL_TASK_TYPES
+    from experiments.baselines.common.post_evaluator import load_rows_jsonl,summarize_rows
+    from experiments.baselines.tests import test_report_campaign as fixtures
+    from experiments.baselines import report_campaign
+    monkeypatch.setenv("MODEL_API_KEY","UNIT_ONLY_CREDENTIAL_NOT_PERSISTED")
+    monkeypatch.setenv("ALFWORLD_DATA",str(tmp_path))
+    monkeypatch.setattr(campaign,"source_identity",lambda source:{"commit":"scripted"})
+    monkeypatch.setattr(campaign,"verify_formal_manifest",lambda *a,**kw:None)
+    monkeypatch.setattr(campaign,"verify_receipt",lambda *a,**kw:None)
+    monkeypatch.setattr(campaign,"_method_campaign_lease",lambda *a,**kw:nullcontext())
+    monkeypatch.setattr(campaign,"preflight",lambda *a,**kw:{"selected_cap":24})
+    tasks=[ManifestTask(index=i,task_id=f"task_{i}",task_type=family,source_split="valid_unseen",
+        env_index=i,gamefile_rel=f"game_{i}.tw-pddl",gamefile_sha256=f"{i+1:064x}",task_signature=f"{i:064x}")
+        for i,family in enumerate(ALFWORLD_FORMAL_TASK_TYPES)]
+    monkeypatch.setattr(campaign.TaskManifestSet,"load",lambda *a:NS(tasks=tasks,digest="manifest"))
+    monkeypatch.setattr(fixtures,"_FAMILIES",list(ALFWORLD_FORMAL_TASK_TYPES))
+    def execute(spec,selected):
+        assert selected==tasks and spec["phase"]=="test"
+        results=[]
+        for seed in (42,43,44):
+            lane=Path(spec["output"])/f"seed_{seed}"
+            fixtures._write_test_run(lane,method="b0_dynamic",seed=seed,successes=[True]*6)
+            summary=summarize_rows(load_rows_jsonl(lane/"test/task_rows.jsonl"),task_types=list(ALFWORLD_FORMAL_TASK_TYPES))
+            results.append(dict(passed=True,seed=seed,test=summary))
+        return results
+    monkeypatch.setattr(campaign,"execute",execute)
+    root=tmp_path/"formal"
+    args=NS(config=str(campaign.REPO/"configs/baselines/b0_dynamic.yaml"),skillopt_root=str(tmp_path),
+        output=str(root),mode="formal",qualification=str(tmp_path/"smoke.json"))
+    if report_fails:
+        def broken(*a,**kw):
+            raise ValueError("Report evidence rejected")
+        monkeypatch.setattr(report_campaign,"build_campaign_report",broken)
+        with pytest.raises(ValueError,match="Report evidence"):
+            campaign.run(args)
+        assert not (root/"campaign_summary.json").exists()
+    else:
+        assert campaign.run(args)==0
+        assert (root/"REPORT.md").is_file() and (root/"paper_report.json").is_file()
