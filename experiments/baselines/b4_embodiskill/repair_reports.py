@@ -160,6 +160,9 @@ def main(argv=None):
     write_json(recovery / "protected_hashes.json", before)
     code_root = Path(__file__).resolve().parents[3]
     code_hash = hash_code(code_root / "experiments/baselines")
+    # Resolve report provenance before spending time on real replay.
+    report_commit = subprocess.check_output(
+        ["git", "-C", str(code_root), "rev-parse", "HEAD"], text=True).strip()
     with concurrent.futures.ProcessPoolExecutor(max_workers=2, mp_context=multiprocessing.get_context("spawn")) as pool:
         futures = [pool.submit(report_seed, str(root), str(recovery), seed) for seed in (42,43,44)]
         lanes = [future.result() for future in futures]
@@ -167,28 +170,27 @@ def main(argv=None):
     passed = all(lane["passed"] for lane in lanes) and unchanged and code_hash == hash_code(code_root / "experiments/baselines")
     evidence = dict(passed=passed, mode="offline_checkpoint_replay", model_calls=0,
         original_evidence_unchanged=unchanged, protected_files=len(before),
-        report_code_hash=code_hash, report_commit=subprocess.check_output(
-            ["git", "-C", str(code_root), "rev-parse", "HEAD"], text=True).strip(),
+        report_code_hash=code_hash, report_commit=report_commit,
         duration_seconds=time.monotonic()-started, lanes=[dict(seed=x["seed"], passed=x["passed"],
             error=x.get("error")) for x in lanes])
     if passed:
         paper = build_campaign_report({"b4_embodiskill": [root/f"seed_{seed}" for seed in (42,43,44)]})
-        write_json(root / "paper_report.json", paper)
         result = read_json(recovery / "campaign_summary.before.json")
         result.update(passed=True, lanes=lanes, posthoc_report_recovery=evidence)
         rates = [lane["test"]["official_success"]/lane["test"]["tasks"] for lane in lanes]
         result["official_test_success_rate"] = dict(mean=statistics.mean(rates), std=statistics.stdev(rates),
             per_seed=dict(zip((42,43,44), rates)))
-        write_json(root / "campaign_summary.json", result)
         report = ["# B4 EmbodiSkill Full120 / Test134", "", "Status: complete; offline report recovery passed.", "",
             "| Seed | Official Test | Strict Test |", "| --- | --- | --- |"]
         for lane in lanes:
             test = lane["test"]
-            report.append(f'| {lane["seed"]} | {test["official_success"]}/{test["tasks"]} | {test["contract_consistent_success"]}/{test["tasks"]} |')
+            report.append(f'| {lane["seed"]} | {test["official_success"]}/{test["tasks"]} | {test["common_strict_success"]}/{test["tasks"]} |')
         report.extend(["", f"Mean official success: {statistics.mean(rates):.6%}.", "",
             "Reports use the original actions and official won signals. No model requests or learning reruns.",
             "Historical failed provider attempts retain unknown usage and known subtotals; exact total cost remains unavailable.",
             "Original failure report and recovery evidence: " + str(recovery.relative_to(root)), ""])
+        write_json(root / "paper_report.json", paper)
+        write_json(root / "campaign_summary.json", result)
         (root / "REPORT.md").write_text("\n".join(report), encoding="utf-8")
     write_json(recovery / "recovery_report.json", evidence)
     print(json.dumps(evidence, indent=2))
