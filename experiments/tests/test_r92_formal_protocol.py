@@ -187,7 +187,7 @@ def test_r92_train_freeze_provenance_records_repair_revision() -> None:
     expression = _assigned_expression(train_runner.run, "freeze_provenance")
 
     provenance = _eval_expression(
-        expression, {"manifest": manifest, "system": system}
+        expression, {"manifest": manifest, "system": system, "recovery": None}
     )
 
     assert isinstance(provenance, dict)

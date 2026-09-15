@@ -213,6 +213,7 @@ class OpenAICompatibleProvider:
         while True:
             audit_id = f"provider_request_{uuid.uuid4().hex}"
             started_at = time.time()
+            self._request_context.response_diagnostic = {}
             try:
                 response = requests.post(
                     self.config.endpoint,
@@ -239,6 +240,11 @@ class OpenAICompatibleProvider:
                     continue
                 raise AgentProviderError(code, message) from exc
 
+            body = getattr(response, "content", b"")
+            self._request_context.response_diagnostic = {
+                "body_bytes": len(body) if isinstance(body, bytes) else None,
+                "body_sha256": hashlib.sha256(body).hexdigest() if isinstance(body, bytes) and body else "",
+            }
             provider_request_id = _provider_request_id(response, {})
             if not response.ok:
                 code = _http_error_code(response.status_code, response.text)
@@ -263,17 +269,26 @@ class OpenAICompatibleProvider:
                     "provider_invalid_response", message, payload_fingerprint, payload_fields,
                     provider_request_id,
                 )
+                if retry_count < self.config.max_retries:
+                    retry_count += 1
+                    self._backoff(retry_count, response=response)
+                    continue
                 raise AgentProviderError(
                     "provider_invalid_response", message, http_status=response.status_code,
                 ) from exc
             if not isinstance(data, dict):
+                self._request_context.response_diagnostic["json_type"] = type(data).__name__
                 message = "LLM provider response must be a JSON object"
                 self._append_request_record(
                     audit_id, started_at, "error", response.status_code, retry_count, None,
                     "provider_invalid_response", message, payload_fingerprint, payload_fields,
                     provider_request_id,
                 )
-                raise AgentProviderError("provider_invalid_response", message)
+                if retry_count < self.config.max_retries:
+                    retry_count += 1
+                    self._backoff(retry_count, response=response)
+                    continue
+                raise AgentProviderError("provider_invalid_response", message, http_status=response.status_code)
             provider_request_id = _provider_request_id(response, data)
             try:
                 turn = self._parse_response(
@@ -291,6 +306,15 @@ class OpenAICompatibleProvider:
                     exc.code, _sanitize(str(exc), secrets=diagnostic_secrets), payload_fingerprint,
                     payload_fields, provider_request_id,
                 )
+                # Only retry an unusable, unmetered provider envelope here.
+                # Metered/model-authored invalid turns retain the existing
+                # session accounting and protocol-repair path.
+                if (not isinstance(usage_turn, AgentTurn)
+                        and exc.code == "provider_usage_missing"
+                        and retry_count < self.config.max_retries):
+                    retry_count += 1
+                    self._backoff(retry_count, response=response)
+                    continue
                 raise
             self._append_request_record(
                 audit_id, started_at, "success", response.status_code, retry_count, turn, "", "",
@@ -508,6 +532,8 @@ class OpenAICompatibleProvider:
             "reasoning_content_sha256": (
                 hashlib.sha256(reasoning.encode("utf-8")).hexdigest() if reasoning else ""
             ),
+            "response_diagnostic": dict(getattr(self._request_context, "response_diagnostic", {})),
+            "attempt_latency_ms": round((time.time() - started_at) * 1000, 3),
         }
         with self._records_lock:
             self._request_records.append(record)

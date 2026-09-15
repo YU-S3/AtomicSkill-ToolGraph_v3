@@ -657,7 +657,7 @@ def _run_final_batch_maintenance(
         raise
 
 
-def run(config_path: str | Path, *, resume: bool = False) -> int:
+def run(config_path: str | Path, *, resume: bool = False, provider_recovery: bool = False) -> int:
     invocation_started_monotonic = time.monotonic()
     invocation_started_at = datetime.now(timezone.utc)
     config_path = _path(config_path)
@@ -674,12 +674,18 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
     run_id = str(experiment.get("name", "alfworld_train_full_30"))
     config_digest = hash_config(config_path)
     code_digest = hash_code(REPO_ROOT)
+    from experiments.provider_recovery import prepare_recovery, checkpoint_identity
+    if provider_recovery and not resume:
+        raise ProtocolError("--provider-recovery requires --resume")
+    recovery = prepare_recovery(REPO_ROOT, output_dir, code_digest, config_digest, enabled=provider_recovery)
+    if recovery:
+        config["execution_provenance"] = recovery
     capability_manifest = ensure_provider_capability(
         config,
-        output_dir=output_dir,
+        output_dir=output_dir / "provider_recovery_probe" if recovery else output_dir,
         config_hash=config_digest,
         code_hash=code_digest,
-        run_if_missing=not resume,
+        run_if_missing=not resume or bool(recovery),
     )
     print(json.dumps({
         "provider_capability_manifest": {
@@ -712,7 +718,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
     recovered_task = checkpoint.recover_if_present(
         run_id=run_id,
         config_hash=config_digest,
-        code_commit=code_digest,
+        code_commit=checkpoint_identity(output_dir, code_digest, recovery),
         resume=resume,
     )
     if recovered_task:
@@ -770,7 +776,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             manifest = store.validate_resume(
                 run_id,
                 config_hash=config_digest,
-                code_commit=code_digest,
+                code_commit=recovery["original_code_hash"] if recovery else code_digest,
                 knowledge_digest=persisted.knowledge_digest,
                 tasks=task_items,
             )
@@ -1074,6 +1080,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             "source_initial_knowledge_digest": manifest.knowledge_digest,
             "source_final_knowledge_digest": system.knowledge_digest(),
             "source_llm_config_hash": str(manifest.metadata.get("llm_config_hash", "")),
+            **({"provider_recovery": recovery} if recovery else {}),
             **(
                 {"repair_revision": str(manifest.metadata["repair_revision"])}
                 if manifest.metadata.get("repair_revision")
@@ -1143,8 +1150,9 @@ def main(argv: list[str] | None = None) -> int:
         help="full-30 YAML configuration",
     )
     parser.add_argument("--resume", action="store_true", help="resume at completed-task boundaries")
+    parser.add_argument("--provider-recovery", action="store_true", help="record an exact-release provider repair continuation")
     args = parser.parse_args(argv)
-    return run(args.config, resume=args.resume)
+    return run(args.config, resume=args.resume, provider_recovery=args.provider_recovery)
 
 
 if __name__ == "__main__":

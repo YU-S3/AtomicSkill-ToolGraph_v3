@@ -555,13 +555,17 @@ def _verify_source_train(
             "r9_formal_freeze_audit_passed": True,
             "r9_formal_freeze_audit": formal_audit,
         })
+    from experiments.provider_recovery import read_recovery
+    recovery = read_recovery(REPO_ROOT, train_run_dir, current_code_digest)
+    if recovery:
+        expected_provenance["provider_recovery"] = recovery
     if freeze_manifest.get("provenance") != expected_provenance:
         raise ProtocolError("frozen snapshot provenance does not match source train manifest")
     if expected_source_git_revision and str(
         metadata.get("git_revision", "")
     ) != expected_source_git_revision:
         raise ProtocolError("source train git revision differs from the configured revision")
-    if require_source_code_match and train_manifest.code_commit != current_code_digest:
+    if require_source_code_match and train_manifest.code_commit != current_code_digest and not recovery:
         raise ProtocolError("frozen evaluation code differs from the source train code")
     if str(metadata.get("llm_config_hash", "")) != current_llm_hash:
         raise ProtocolError("frozen evaluation LLM configuration differs from source train")

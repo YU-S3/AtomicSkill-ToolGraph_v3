@@ -468,7 +468,8 @@ def test_planner_provider_error_persists_failure_trace(tmp_path: Path) -> None:
     assert trace["learning_eligible"] is False
     assert trace["ended_at"] >= trace["started_at"]
     assert trace["failures"][0]["attempt_id"] == "attempt_planner_fixture"
-    assert trace["provider_requests"][0]["request_id"] == "provider_req_planner_failure"
+    assert trace["provider_requests"][0]["request_id"] == "audit_req_planner_failure"
+    assert trace["provider_requests"][0]["provider_request_id"] == "provider_req_planner_failure"
     assert trace["provider_requests"][0]["http_status"] == 400
     assert trace["provider_requests"][0]["usage_status"] == "unavailable"
     assert trace["resource_usage_complete"] is False
@@ -565,7 +566,7 @@ def test_attempt_capture_does_not_mask_primary_error(tmp_path: Path) -> None:
     ]
 
 
-def test_unavailable_retry_usage_aborts_before_evolution(
+def test_recorded_retry_uncertainty_is_retained_without_aborting(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RETRY_USAGE_KEY", "fixture-key")
@@ -627,17 +628,17 @@ def test_unavailable_retry_usage_aborts_before_evolution(
 
         system.orchestrator.run_task = provider_only_runtime
         system._prepare_evolution = forbidden_evolution
-        with pytest.raises(AtomicSkillGraphError) as error:
-            system.run_task(
-                fake_task("incomplete-usage", "apple_1"),
-                attempt_id="attempt_incomplete_usage",
-            )
+        system.run_task(
+            fake_task("incomplete-usage", "apple_1"),
+            attempt_id="attempt_incomplete_usage",
+        )
         payloads = list(system.traces.iter_payloads())
 
-    assert getattr(error.value, "code", "") == "provider_usage_missing"
     assert evolution_called is False
     assert len(payloads) == 1
     assert payloads[0]["resource_usage_complete"] is False
+    assert payloads[0]["infrastructure_failure"] is False
+    assert len(payloads[0]["metadata"]["provider_infrastructure_audit"]["unknown_usage_request_ids"]) == 1
     assert [item["usage_status"] for item in payloads[0]["provider_requests"]] == [
         "unavailable", "reported",
     ]

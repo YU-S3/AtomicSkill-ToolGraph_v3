@@ -1,0 +1,6 @@
+{
+  "original_code_hash": "3ebb5612ca0cbffe67a94b7d97f30d66eb5739e19fc060b86373b8a95cf4e73b",
+  "original_git_revision": "c05f001325279e2525a1b74b332d54a5797bcef9",
+  "patched_inventory_hash": "7e2290e60ea5b196d7dc2f88800cd0e69764f26c82169dadd540e5c35d64b079",
+  "scope": "provider retry, truthful incomplete-cost reporting, exact-release resume provenance; task policy and budgets unchanged"
+}

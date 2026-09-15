@@ -1309,9 +1309,9 @@ class AtomicSkillGraphSystem:
             task, mode=run_mode, trace_builder=trace_builder,
             attempt_id=str(trace_builder.trace.metadata.get("attempt_id", "")),
         )
-        # Internal HTTP retries are individually auditable.  If any attempt
-        # lacks provider usage, the episode is not a valid formal success and
-        # must stop before Extractor/Evolution or credit can mutate knowledge.
+        # HTTP attempts remain individually auditable. Missing decision-turn
+        # usage blocks learning; recorded infrastructure uncertainty is retained
+        # separately and cannot erase a later valid, metered Agent result.
         self._attach_provider_requests(trace, provider_offsets)
         self._require_resource_usage_complete(trace)
         refresh_learning_eligibility(trace)
@@ -1896,7 +1896,7 @@ class AtomicSkillGraphSystem:
                     continue
                 audit_request_id = str(payload.get("request_id", ""))
                 request_id = str(
-                    payload.get("provider_request_id") or audit_request_id
+                    audit_request_id or payload.get("provider_request_id", "")
                 )
                 if not request_id or request_id in existing:
                     continue
@@ -1916,6 +1916,8 @@ class AtomicSkillGraphSystem:
                     error_code=str(payload.get("error_code", "")),
                     sanitized_error=str(payload.get("sanitized_error", ""))[:4000],
                     payload_fingerprint=str(payload.get("payload_fingerprint", "")),
+                    response_diagnostic=dict(payload.get("response_diagnostic") or {}),
+                    provider_request_id=str(payload.get("provider_request_id", "")),
                 )
                 trace.provider_requests.append(record)
                 existing.add(request_id)
@@ -1923,6 +1925,14 @@ class AtomicSkillGraphSystem:
         trace.resource_usage_complete = all(
             item.usage_status == "reported" for item in trace.provider_requests
         )
+        from .agents.provider_audit import recorded_unmetered_infrastructure
+        trace.metadata["provider_infrastructure_audit"] = {
+            "unknown_usage_request_ids": [item.request_id for item in trace.provider_requests
+                if recorded_unmetered_infrastructure(item)],
+            "token_totals_are_lower_bounds": not trace.resource_usage_complete,
+        }
+        if self.config.get("execution_provenance"):
+            trace.metadata["execution_provenance"] = dict(self.config["execution_provenance"])
         if payload_fields:
             trace.metadata["provider_payload_field_names"] = sorted(payload_fields)
 
@@ -1937,6 +1947,14 @@ class AtomicSkillGraphSystem:
     @staticmethod
     def _require_resource_usage_complete(trace: TraceRecord) -> None:
         if trace.resource_usage_complete:
+            return
+        from .agents.provider_audit import recorded_unmetered_infrastructure
+        # Unusable HTTP attempts cannot execute Agent actions. Preserve their
+        # unknown billing, but do not discard a subsequent valid, metered turn.
+        if trace.provider_requests and all(
+            item.usage_status == "reported" or recorded_unmetered_infrastructure(item)
+            for item in trace.provider_requests
+        ):
             return
         unavailable = [
             item.request_id

@@ -386,6 +386,7 @@ REPORT_COLUMNS = (
     "learning_eligible",
     "infrastructure_failure",
     "resource_usage_complete",
+    "provider_unknown_usage_request_count",
     "plan_source",
     "source_composite_ref",
     "planner_outcome",
@@ -1063,6 +1064,10 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "resource_usage_complete": _boolean(
             _field(trace, "resource_usage_complete", True)
         ),
+        "provider_unknown_usage_request_count": sum(
+            _field(request, "usage_status", "unavailable") != "reported"
+            for request in _sequence(_field(trace, "provider_requests", []))
+        ),
         "plan_source": str(plan.get("source", "")),
         "source_composite_ref": plan.get("source_composite_ref") or "",
         "planner_outcome": str(planner.get("final_outcome", "")),
@@ -1143,7 +1148,8 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
             if ended_at > 0.0 and started_at > 0.0
             else 0.0
         ),
-        "cost_usd": _trace_cost(trace, metadata, usage["events"]),
+        "cost_usd": (_trace_cost(trace, metadata, usage["events"])
+                     if _field(trace, "resource_usage_complete", True) else None),
         "failure_codes": failure_codes,
         "runtime_failure_diagnostic": runtime_failure,
         "task_token_budget_exhausted_count": int(
@@ -1714,6 +1720,13 @@ def summarize_traces(
         "planned_node_count": planned_nodes,
         "completed_node_count": completed_nodes,
         "total_tokens": total_tokens,
+        "resource_usage_complete": all(row.get("resource_usage_complete", True) for row in resource_rows),
+        "provider_unknown_usage_request_count": sum(
+            _integer(row.get("provider_unknown_usage_request_count", 0)) for row in resource_rows),
+        "token_totals_are_lower_bounds": any(
+            not row.get("resource_usage_complete", True) for row in resource_rows),
+        "unknown_provider_tokens": (None if any(
+            not row.get("resource_usage_complete", True) for row in resource_rows) else 0),
         "tokens_per_task": _ratio(total_tokens, task_count),
         "tokens_per_solved_task": _ratio(
             sum(_integer(row.get("total_tokens", 0)) for row in solved)
@@ -2112,6 +2125,9 @@ def render_markdown(
         )
     lines.extend(["", "## Token, latency, and cost", ""])
     accounting = (
+        ("Provider usage complete", summary.get("resource_usage_complete", True)),
+        ("HTTP attempts with unknown usage", summary.get("provider_unknown_usage_request_count", 0)),
+        ("Token totals are lower bounds (unknown usage is not zero)", summary.get("token_totals_are_lower_bounds", False)),
         ("Total tokens", summary.get("total_tokens")),
         (
             "Legacy tokens / solved task",
@@ -2392,16 +2408,22 @@ def write_reports(
 
 
 def validate_formal_usage(traces: Iterable[Mapping[str, Any] | Any]) -> dict[str, Any]:
-    """Fail closed unless every formal provider call is fully and exactly attributed."""
+    """Require metered Agent turns; retain audited infra attempts as unknown cost."""
+    from atomic_skillgraph.agents.provider_audit import recorded_unmetered_infrastructure
     items = list(traces)
     rows: list[dict[str, Any]] = []
     for trace in items:
-        if _field(trace, "resource_usage_complete", True) is not True:
+        requests = _sequence(_field(trace, "provider_requests", []))
+        if (_field(trace, "resource_usage_complete", True) is not True
+                and not (requests and all(
+                    _field(request, "usage_status", "unavailable") == "reported"
+                    or recorded_unmetered_infrastructure(request) for request in requests))):
             raise ValueError(
                 f"trace {_field(trace, 'trace_id', '<unknown>')} has incomplete provider usage"
             )
         for request in _sequence(_field(trace, "provider_requests", [])):
-            if str(_field(request, "usage_status", "unavailable")) != "reported":
+            if (str(_field(request, "usage_status", "unavailable")) != "reported"
+                    and not recorded_unmetered_infrastructure(request)):
                 raise ValueError(
                     f"trace {_field(trace, 'trace_id', '<unknown>')} has an unaudited provider request"
                 )

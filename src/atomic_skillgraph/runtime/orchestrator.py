@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..agents.provider_audit import decision_usage_auditable
+
 from dataclasses import replace
 from typing import Any
 
@@ -40,7 +42,7 @@ from .cold_start_executor import ProvisionalNodeExecutor, provisional_atomic_vie
 def refresh_learning_eligibility(trace: TraceRecord) -> None:
     trace.learning_eligible = bool(
         trace.strict_task_success
-        and trace.resource_usage_complete
+        and decision_usage_auditable(trace)
         and not trace.infrastructure_failure
     )
 

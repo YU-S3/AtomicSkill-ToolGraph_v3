@@ -459,7 +459,7 @@ def test_failed_task_preserves_http200_failure_extractor_overcap_audit(
         assert f1_events[0]["total_tokens"] == 270000
         assert f1_events[0]["latency_ms"] >= 0
         assert len(result.provider_requests) == 1
-        assert result.provider_requests[0].request_id == "req_failure_f1_over_cap"
+        assert result.provider_requests[0].provider_request_id == "req_failure_f1_over_cap"
         assert result.provider_requests[0].usage_status == "reported"
         sessions = [
             item for item in result.agent_sessions

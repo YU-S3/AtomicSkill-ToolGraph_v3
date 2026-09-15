@@ -66,6 +66,8 @@ class ProviderRequestRecord:
     error_code: str
     sanitized_error: str
     payload_fingerprint: str
+    response_diagnostic: dict[str, Any] = field(default_factory=dict)
+    provider_request_id: str = ""
 
 
 @dataclass
