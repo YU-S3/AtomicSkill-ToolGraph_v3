@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -57,9 +58,10 @@ def reranking_usage(events):
 
 
 class WorkerFailure(RuntimeError):
-    def __init__(self, message, failure_kind):
+    def __init__(self, message, failure_kind, *, retryable=False, attempt=None):
         super().__init__(message)
         self.failure_kind = failure_kind
+        self.retryable, self.attempt = retryable, attempt
 
 
 class SeedController:
@@ -68,8 +70,26 @@ class SeedController:
         self.root = Path(spec["output"]) / f"seed_{seed}"
         self.root.mkdir(parents=True, exist_ok=True)
         self.config = spec["config"]
+        self._failure_lock = threading.Lock()
 
     def operation(self, name, phase, *, source=None, task=None, epoch=0, rate=0):
+        # Only a positively classified transient provider failure can replay an
+        # operation. Each replay starts at the same committed input snapshot.
+        from experiments.baselines.common.model_client import append_event
+        for index in range(3):
+            try:
+                return self._operation_once(name, phase, source=source, task=task, epoch=epoch, rate=rate)
+            except WorkerFailure as exc:
+                if not exc.retryable or exc.failure_kind != "infrastructure_failure" or index == 2:
+                    raise
+                delay = (60, 120)[index]
+                append_event(self.root / "recovery_events.jsonl", dict(
+                    operation=name, failed_attempt=exc.attempt, retry_index=index + 1,
+                    delay_seconds=delay, source=str(source) if source is not None else None,
+                    failure_kind=exc.failure_kind))
+                time.sleep(delay)
+
+    def _operation_once(self, name, phase, *, source=None, task=None, epoch=0, rate=0):
         receipt = load_checkpoint(self.root, name)
         if receipt:
             return receipt
@@ -94,10 +114,12 @@ class SeedController:
             failure_path = attempt / "rollout_failure.json"
             failure = read_json(failure_path) if failure_path.exists() else {}
             kind = failure.get("failure_kind", "infrastructure_failure")
-            write_json(self.root / "failure.json", dict(operation=name, phase=phase,
-                attempt=str(attempt), exit_code=completed.returncode, failure_kind=kind,
-                usage=usage(read_jsonl(attempt / "provider_calls.jsonl"))))
-            raise WorkerFailure(f"B4 {name} worker failed; see {failure_path}", kind)
+            with self._failure_lock:
+                write_json(self.root / "failure.json", dict(operation=name, phase=phase,
+                    attempt=str(attempt), exit_code=completed.returncode, failure_kind=kind,
+                    usage=usage(read_jsonl(attempt / "provider_calls.jsonl"))))
+            raise WorkerFailure(f"B4 {name} worker failed; see {failure_path}", kind,
+                retryable=failure.get("retryable") is True, attempt=str(attempt))
         result = read_json(attempt / "result.json")
         result["process_wall_time_ms"] = int((time.monotonic()-started)*1000)
         result["source_digest"] = before
@@ -121,7 +143,20 @@ class SeedController:
             return self.operation(f"{phase}_{epoch:02d}_{index:03d}", phase,
                 source=source, task=task, epoch=epoch)
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            return list(pool.map(one, enumerate(tasks)))
+            futures = [pool.submit(one, pair) for pair in enumerate(tasks)]
+            results, failures = [], []
+            for future in futures:
+                try:
+                    results.append(future.result())
+                except WorkerFailure as exc:
+                    if exc.failure_kind != "infrastructure_failure":
+                        raise
+                    failures.append(exc)
+            # A failed provider episode must not cancel other independent,
+            # already queued episodes. Committed results survive continuation.
+            if failures:
+                raise failures[0]
+            return results
 
     def run(self):
         train, val, test = self.manifests
@@ -215,6 +250,8 @@ class SeedController:
             summary[phase] = self.report(phase, receipts)
         events = [e for p in (self.root / "attempts").rglob("provider_calls.jsonl") for e in read_jsonl(p)]
         summary["all_attempts_usage"] = usage(events)
+        if "transport_recovery" in self.spec:
+            summary["transport_recovery"] = self.spec["transport_recovery"]
         summary["all_attempts_embedding_calls"] = sum(e["calls"]
             for p in (self.root/"attempts").rglob("embedding_calls.jsonl") for e in read_jsonl(p))
         summary["training_cost"] = dict(

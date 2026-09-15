@@ -147,6 +147,7 @@ def main():
         write_json(Path(job["output"]) / "rollout_failure.json", dict(
             failure_kind=getattr(exc, "failure_kind", "infrastructure_failure" if infrastructure else "protocol_failure"),
             failure_code=getattr(exc, "failure_code", None), error_type=type(exc).__name__,
+            retryable=getattr(exc, "retryable", False),
             error=sanitize_error_text(exc), traceback=sanitize_error_text(traceback.format_exc()),
             task_id=job.get("task", {}).get("task_id"), phase=job["phase"]))
         return 1

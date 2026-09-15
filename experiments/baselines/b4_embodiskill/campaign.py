@@ -203,9 +203,13 @@ def run(args):
             if not args.resume:
                 raise FileExistsError(f"Use a new output path, or --resume for {output}")
             locked = read_json(output / "campaign_lock.json")
-            if locked["identity"] != identity or locked.get("resolved_config_hash") != sha256_json(locked["config"]):
-                raise RuntimeError("Resume source/config/manifests/runtime identity changed")
-            spec = locked
+            if getattr(args, "transport_repair", False):
+                from experiments.baselines.b4_embodiskill.transport_repair import prepare_transport_resume
+                spec = prepare_transport_resume(REPO, output, locked, spec, args.smoke_receipt)
+            else:
+                if locked["identity"] != identity or locked.get("resolved_config_hash") != sha256_json(locked["config"]):
+                    raise RuntimeError("Resume source/config/manifests/runtime identity changed")
+                spec = locked
             cfg = spec["config"]
         else:
             output.mkdir(parents=True)
@@ -252,8 +256,9 @@ def run(args):
             lanes = list(pool.map(one,seeds))
         passed = all(lane["passed"] for lane in lanes)
         source_after = compute_runtime_tree(Path(spec["source"]), load_lock()["embodiskill"]["runtime_tree"])
+        execution_identity = spec.get("execution_identity", spec["identity"])
         identity_unchanged = (
-            hash_code(REPO / "experiments/baselines") == spec["identity"]["code_hash"]
+            hash_code(REPO / "experiments/baselines") == execution_identity["code_hash"]
             and source_after == spec["identity"]["upstream_tree"]
             and sha256_json(load_config(args.smoke)) == spec["identity"]["config_hash"]
             and [TaskManifestSet.load(REPO / "data/baseline_manifests" / (name+".json")).digest
@@ -263,6 +268,8 @@ def run(args):
             campaign_id=spec["campaign_id"], lanes=lanes, makespan_seconds=time.monotonic()-started,
             parallel=cfg["parallel"], formal_train_started=not args.smoke,
             source_config_unchanged=identity_unchanged)
+        if "transport_recovery" in spec:
+            result["transport_recovery"] = spec["transport_recovery"]
         if passed:
             rates = [sum(row["official_success"] for row in read_jsonl(output/f"seed_{seed}/test/episodes.jsonl"))/len(manifests[2].tasks[:cfg["selection"].get("test_size",len(manifests[2].tasks))]) for seed in seeds]
             result["official_test_success_rate"] = dict(mean=statistics.mean(rates),
@@ -308,6 +315,8 @@ def main(argv=None):
     p.add_argument("--output", required=True)
     p.add_argument("--smoke", action="store_true")
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--transport-repair", action="store_true",
+                   help="Resume only an audited transport-only code change with a fresh smoke receipt")
     p.add_argument("--smoke-receipt")
     p.add_argument("--load-probe-only", action="store_true",
                    help="Only verify formal memory/API concurrency; never start training")
@@ -317,6 +326,10 @@ def main(argv=None):
         del tokens[i:i+2]
     tokens = [t for t in tokens if not t.startswith("--method=")]
     args = p.parse_args(tokens)
+    if args.transport_repair and (not args.resume or args.smoke or not args.smoke_receipt):
+        p.error("--transport-repair requires --resume and --smoke-receipt, and cannot run smoke")
+    if args.transport_repair and not Path(args.output).is_dir():
+        p.error("Transport repair requires an existing campaign directory")
     if args.load_probe_only and (args.smoke or args.resume):
         p.error("--load-probe-only cannot be combined with --smoke or --resume")
     return run(args)

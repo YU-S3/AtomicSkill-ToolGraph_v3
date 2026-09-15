@@ -44,6 +44,7 @@ class MethodTransport:
             failure = LLMRequestError(str(exc))
             failure.failure_kind = exc.failure_kind
             failure.failure_code = getattr(exc, "failure_code", None)
+            failure.retryable = getattr(exc, "retryable", False)
             raise failure from exc
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: bash experiments/baselines/launch_embodiskill.sh smoke|load-probe|formal|resume OUTPUT
+# Usage: bash experiments/baselines/launch_embodiskill.sh smoke|load-probe|formal|resume|resume-repair OUTPUT [SMOKE_RECEIPT]
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ASG_PY="${ASG_PY:-/home/yangchengyu/asg_alfworld_venv/bin/python}"
@@ -20,7 +20,8 @@ case "$MODE" in
   load-probe) ARGS+=(--load-probe-only) ;;
   formal) ARGS+=(--smoke-receipt "${3:?Provide the passing smoke_qualification.json path}") ;;
   resume) ARGS+=(--resume) ;;
-  *) echo "Expected smoke, load-probe, formal, or resume" >&2; exit 2 ;;
+  resume-repair) ARGS+=(--resume --transport-repair --smoke-receipt "${3:?Provide the new passing smoke_qualification.json path}") ;;
+  *) echo "Expected smoke, load-probe, formal, resume, or resume-repair" >&2; exit 2 ;;
 esac
 mkdir -p runs/baselines/launch_logs
 "$ASG_PY" -m experiments.baselines.b4_embodiskill.campaign \
