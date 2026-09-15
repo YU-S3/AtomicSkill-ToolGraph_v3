@@ -9,6 +9,7 @@ import statistics
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import yaml
@@ -248,7 +249,10 @@ def run(args):
                             for e in read_jsonl(path)]
                 failure = dict(passed=False, seed=seed, error=sanitize_error_text(exc),
                     failure_kind=getattr(exc, "failure_kind",
-                        "infrastructure_failure" if isinstance(exc, (OSError, TimeoutError)) else "protocol_failure"),
+                        "infrastructure_failure" if isinstance(exc, (OSError, TimeoutError))
+                        or getattr(exc, "code", None) == "infrastructure_failure" else "protocol_failure"),
+                    error_code=getattr(exc, "code", getattr(exc, "failure_code", None)),
+                    error_type=type(exc).__name__, traceback=sanitize_error_text(traceback.format_exc()),
                     all_attempts_usage=usage(attempts))
                 write_json(output / f"seed_{seed}" / "campaign_failure.json", failure)
                 return failure

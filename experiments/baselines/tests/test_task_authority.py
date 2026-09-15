@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import sys
+import concurrent.futures
+import threading
+import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -11,6 +14,37 @@ import pytest
 from atomic_skillgraph.harness.alfworld import AlfWorldAdapter
 from experiments.baselines.common import task_authority
 from experiments.baselines.common.manifest import ManifestTask
+
+
+def test_independent_evaluators_serialize_shared_parser_and_release_after_error(monkeypatch):
+    active = 0
+    maximum = 0
+    counter_lock = threading.Lock()
+    seen = []
+    def replay(self, entry, actions, *, official_success):
+        nonlocal active, maximum
+        with counter_lock:
+            active += 1
+            maximum = max(maximum, active)
+        try:
+            time.sleep(.005)
+            seen.append(entry)
+            if entry == 0:
+                raise RuntimeError("replay failed")
+            return entry
+        finally:
+            with counter_lock:
+                active -= 1
+    monkeypatch.setattr(task_authority.StrictTaskEvaluator, "_evaluate_locked", replay)
+    def run(entry):
+        try:
+            return task_authority.StrictTaskEvaluator().evaluate(entry, [], official_success=False)
+        except RuntimeError:
+            return "failed"
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(run, range(12)))
+    assert maximum == 1 and results == ["failed", *range(1, 12)]
+    assert sorted(seen) == list(range(12))
 
 
 def _install_fake_alfworld(monkeypatch, environment_module: ModuleType) -> None:

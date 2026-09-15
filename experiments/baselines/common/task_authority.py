@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,11 @@ _SPLIT_MAP = {
     "valid_seen": "eval_in_distribution",
     "valid_unseen": "eval_out_of_distribution",
 }
+
+# TextWorld's PDDL GameLogic uses a process-global TatSu parser with mutable
+# parse stacks. Protect the whole environment lifetime, including reset/step
+# and close; separate worker processes still replay independently.
+_REPLAY_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -109,6 +115,12 @@ class StrictTaskEvaluator:
         action_texts: list[str],
         *,
         official_success: bool,
+    ) -> StrictOutcome:
+        with _REPLAY_LOCK:
+            return self._evaluate_locked(entry, action_texts, official_success=official_success)
+
+    def _evaluate_locked(
+        self, entry: ManifestTask, action_texts: list[str], *, official_success: bool,
     ) -> StrictOutcome:
         adapter, probe = self._build_probe_task(entry)
         try:

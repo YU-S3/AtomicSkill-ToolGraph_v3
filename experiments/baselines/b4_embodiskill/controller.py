@@ -241,6 +241,14 @@ class SeedController:
             frozen = FrozenArtifact.load(frozen_dir)
         tests = self.evaluate("test", test_tasks, frozen.root / "state", best_epoch)
         assert_frozen_unchanged(frozen)
+        return self.finalize_reports(trains, revisions, validations, tests,
+            best=best, best_epoch=best_epoch, best_rate=best_rate, history=history)
+
+    def finalize_reports(self, trains, revisions, validations, tests, *, best, best_epoch, best_rate, history):
+        """Only replay saved actions and report; no worker/provider execution."""
+        cfg = self.config
+        frozen = FrozenArtifact.load(self.root / "frozen")
+        assert_frozen_unchanged(frozen)
         summary = dict(passed=True, seed=self.seed, best_epoch=best_epoch, best_validation_rate=best_rate,
             train_episodes=len(trains), unique_train_tasks=len({r["result"]["task"]["task_id"] for r in trains}),
             validation_episodes=len(validations), test_episodes=len(tests),
@@ -283,8 +291,12 @@ class SeedController:
         from experiments.baselines.common.task_authority import StrictTaskEvaluator
         evaluator = StrictTaskEvaluator(self.spec["alfworld_data"])
         records = []
-        for receipt in receipts:
+        for index, receipt in enumerate(receipts):
             r = receipt["result"]
+            if self.spec.get("report_recovery_progress"):
+                write_json(Path(self.spec["report_recovery_progress"]), dict(
+                    seed=self.seed, phase=phase, completed=index, total=len(receipts),
+                    task_id=r["task"]["task_id"], operation=receipt["operation"]))
             task = ManifestTask.from_dict(r["task"])
             provider_events = read_jsonl(Path(receipt["attempt"]) / "provider_calls.jsonl")
             cost = usage(provider_events)
