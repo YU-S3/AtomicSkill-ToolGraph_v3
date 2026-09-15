@@ -44,6 +44,8 @@ def validate_response(response):
     choices = getattr(response, "choices", None)
     if not isinstance(choices, (list, tuple)) or not choices:
         raise InvalidProviderResponse("Response has no nonempty choices array")
+    if not isinstance(getattr(choices[0], "finish_reason", None), str):
+        raise InvalidProviderResponse("First choice has no valid finish_reason")
     message = getattr(choices[0], "message", None)
     if message is None or not hasattr(message, "content"):
         raise InvalidProviderResponse("First choice has no message/content field")

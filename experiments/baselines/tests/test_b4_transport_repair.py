@@ -20,7 +20,7 @@ def good():
                   "completion_tokens_details": {"reasoning_tokens": 18}}}
 
 
-@pytest.mark.parametrize("bad", ["html", "json", "empty_choices", "null_message", "invalid_content"])
+@pytest.mark.parametrize("bad", ["html", "json", "empty_choices", "null_message", "invalid_content", "missing_finish"])
 def test_real_sdk_malformed_envelope_retries_same_request(tmp_path, monkeypatch, bad):
     requests = []
     def handler(request):
@@ -35,6 +35,8 @@ def test_real_sdk_malformed_envelope_retries_same_request(tmp_path, monkeypatch,
                 body["choices"] = []
             elif bad == "null_message":
                 body["choices"][0]["message"] = None
+            elif bad == "missing_finish":
+                del body["choices"][0]["finish_reason"]
             else:
                 body["choices"][0]["message"]["content"] = {"bad": True}
             return httpx.Response(200, json=body)
