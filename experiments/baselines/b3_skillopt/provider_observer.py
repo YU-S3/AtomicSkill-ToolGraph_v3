@@ -305,7 +305,7 @@ class ProviderCallObserver:
                         observer._note_provider_boundary_failure(error)
                         raise error
                     kwargs["reasoning_effort"] = observer.reasoning_effort
-                    if observer.method == "b5_gepa":
+                    if observer.method in {"b5_gepa", "b0_dynamic"}:
                         hint = int(kwargs.pop("max_completion_tokens", kwargs.get("max_tokens", DEFAULT_CAP)))
                         kwargs["max_tokens"] = max(DEFAULT_CAP, hint)
                     gate_context = nullcontext(None)
@@ -344,7 +344,7 @@ class ProviderCallObserver:
                                     "reasoning_tokens": None, "usage_status": "unavailable",
                                     **({**response_evidence(None, cap=kwargs["max_tokens"], hint=hint),
                                         "provider_attempt_id":uuid.uuid4().hex,
-                                        "logical_call_id":diagnostics["logical_call_id"]} if observer.method == "b5_gepa" else {}),
+                                        "logical_call_id":diagnostics["logical_call_id"]} if observer.method in {"b5_gepa", "b0_dynamic"} else {}),
                                 })
                             raise
                         finally:
@@ -375,7 +375,7 @@ class ProviderCallObserver:
                         "request_id": request_id,
                         **({**response_evidence(response, cap=kwargs["max_tokens"], hint=hint),
                             "provider_attempt_id":uuid.uuid4().hex,
-                            "logical_call_id":diagnostics["logical_call_id"]} if observer.method == "b5_gepa" else {}),
+                            "logical_call_id":diagnostics["logical_call_id"]} if observer.method in {"b5_gepa", "b0_dynamic"} else {}),
                     })
                 if diagnostics is not None and request_id:
                     diagnostics.setdefault("provider_request_ids", []).append(request_id)
@@ -391,7 +391,21 @@ class ProviderCallObserver:
                     raise error
                 tool_calls = getattr(message, "tool_calls", None) or []
                 content = getattr(message, "content", None)
-                if observer.method == "b5_gepa":
+                if observer.method == "b0_dynamic":
+                    # B0's prompt authority must be auditable, including empty
+                    # visible responses before upstream's missing-action fallback.
+                    # Never persist or consume provider hidden reasoning content.
+                    response_row = dict(logical_call_id=(diagnostics or {}).get("logical_call_id"),
+                        messages=kwargs.get("messages"), content=content,
+                        finish_reason=getattr(choices[0], "finish_reason", None))
+                    with observer._lock:
+                        response_path = observer.output_path.with_name("model_responses.jsonl")
+                        response_path.parent.mkdir(parents=True, exist_ok=True)
+                        with response_path.open("a", encoding="utf-8") as handle:
+                            handle.write(json.dumps(response_row, ensure_ascii=False)+"\n")
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                if observer.method in {"b5_gepa", "b0_dynamic"}:
                     parser = None
                     if str((diagnostics or {}).get("role")) == "target" and (diagnostics or {}).get("stage") != "provider_load_probe":
                         parser = lambda text: bool(re.search(r"<action>\s*\S.*?</action>", text, flags=re.S))
@@ -969,7 +983,7 @@ class ProviderCallObserver:
             payload["physical_attempt_usage"] = physical
             payload["usage_complete"] = all(row["usage_status"] in {"reported", "known"} for row in physical)
             payload["reasoning_tokens_status"] = "reported" if billed["reasoning_tokens"] is not None else "unavailable"
-            if self.method == "b5_gepa":
+            if self.method in {"b5_gepa", "b0_dynamic"}:
                 values = [row.get("visible_completion_tokens") for row in physical]
                 payload["visible_completion_tokens"] = sum(values) if all(isinstance(v, int) for v in values) else None
                 payload["budget_exhaustion_count"] = sum(bool(row.get("budget_exhausted")) for row in physical)

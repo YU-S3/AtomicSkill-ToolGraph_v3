@@ -81,6 +81,10 @@ def build_campaign_report(
     families = tuple(str(value) for value in task_types)
     if not method_runs:
         raise ValueError("at least one method run is required")
+    # Keep the historical alias accepted while recognizing the implemented
+    # frozen method id without requiring a manual --b0-method override.
+    if b0_method == "b0_pure_dynamic" and b0_method not in method_runs and "b0_dynamic" in method_runs:
+        b0_method = "b0_dynamic"
 
     artifacts: dict[str, list[_SeedArtifact]] = {}
     for raw_method, roots in method_runs.items():

@@ -93,7 +93,7 @@ gepa:
 # Baseline implementation status. Source identity above is authoritative.
 methods:
   b3_skillopt: implemented
-  b0_dynamic: not_implemented
+  b0_dynamic: implemented
   b1_static_skill: not_implemented
   b2_expel: not_implemented
   b4_embodiskill: implemented

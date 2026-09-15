@@ -7,7 +7,7 @@ from experiments.baselines.b3_skillopt.provider_observer import ProviderCallObse
 from experiments.baselines.tests.test_reasoning_budget import reply
 
 
-@pytest.mark.parametrize("method,exhausted", [("b5_gepa",True),("b5_gepa",False),("b3_skillopt",False)])
+@pytest.mark.parametrize("method,exhausted", [("b5_gepa",True),("b5_gepa",False),("b0_dynamic",True),("b0_dynamic",False),("b3_skillopt",False)])
 def test_actual_skillopt_backend_budget_and_frozen_b3(tmp_path,monkeypatch,method,exhausted):
     import skillopt.model.openai_compatible_backend as backend
     payloads=[]
@@ -31,12 +31,14 @@ def test_actual_skillopt_backend_budget_and_frozen_b3(tmp_path,monkeypatch,metho
             result,_=backend._chat_messages_impl([],512,5,"rollout",role="target")
             assert result=="<action>look</action>"
         assert len(payloads)==1
-        if method=="b5_gepa":
+        if method in {"b5_gepa", "b0_dynamic"}:
             assert payloads[0]["max_tokens"]==65536 and "max_completion_tokens" not in payloads[0]
             row=observer.events()[0]
             assert row["method_output_token_hint"]==512
             assert row["reasoning_tokens"]==(65536 if exhausted else 40000)
             assert row["budget_exhaustion_count"]==int(exhausted)
+            if method == "b0_dynamic":
+                assert "PRIVATE REASONING" not in (tmp_path/"model_responses.jsonl").read_text()
         else:
             assert payloads[0]["max_tokens"]==512 and "max_completion_tokens" not in payloads[0]
     finally:

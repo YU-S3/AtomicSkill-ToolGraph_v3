@@ -1,0 +1,22 @@
+schema_version: 1
+method: b0_dynamic
+protocol_revision: '2.3'
+seeds: [42, 43, 44]
+max_environment_actions: 100
+method_output_token_hint: 16384
+model:
+  provider: openai_compatible
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-flash
+  api_key_env: MODEL_API_KEY
+  reasoning_effort: high
+  provider_completion_cap: 65536
+parallel:
+  seed_lanes: 3
+  allowed_global_caps: [48, 36, 24]
+  mp_start_method: spawn
+provider_transport:
+  sdk_max_retries: 0
+  application_retry_limit: 5
+  retry_delays_seconds: [2, 5, 10, 20]
+  deterministic_jitter_ratio: 0.10
