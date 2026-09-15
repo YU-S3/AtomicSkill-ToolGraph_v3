@@ -306,8 +306,11 @@ def run(args):
             passed = smoke_checks(root)
         summary = dict(passed=passed, method=METHOD, lanes=results,
             duration_seconds=time.monotonic()-started, phase=spec["phase"], test_manifest_digest=test_digest)
-        write_json(root/f"campaign_summary_{time.time_ns()}.json", summary)
-        write_json(root/"campaign_summary.json", summary)
+        # Smoke's qualification hashes its summary. Formal completion is
+        # published only after the required paper report is actually built.
+        if is_smoke:
+            write_json(root/f"campaign_summary_{time.time_ns()}.json", summary)
+            write_json(root/"campaign_summary.json", summary)
         assert_no_secrets_on_disk(root, api_key_env=cfg["model"]["api_key_env"])
         if passed and is_smoke:
             # Persist qualifications only when real six-family, three-seed
@@ -330,6 +333,9 @@ def run(args):
             lines += ["", f'Mean official success: {statistics.mean(r["test"]["official_success"]/r["test"]["tasks"] for r in results):.4%}',
                       "", "API cost is unpriced. Unknown billed usage remains null with known subtotals."]
             (root/"REPORT.md").write_text("\n".join(lines)+"\n")
+        if not is_smoke:
+            write_json(root/f"campaign_summary_{time.time_ns()}.json", summary)
+            write_json(root/"campaign_summary.json", summary)
         print(f"B0 {args.mode}: passed={passed}; output={root}", flush=True)
         return 0 if passed else 1
 
