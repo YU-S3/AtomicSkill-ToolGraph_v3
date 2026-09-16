@@ -10,6 +10,7 @@ from ..core.errors import AtomicSkillGraphError, FailureLayer
 from ..core.refs import canonical_json
 from ..core.serialization import to_primitive
 from .atomicizer import reduce_action_state
+from ..traces.canonical import canonical_action_indices, canonical_metadata_items, canonical_trace_records
 
 
 def _fact_identity(fact: dict[str, Any]) -> tuple[str, str]:
@@ -195,6 +196,7 @@ def _semantic_snapshot_states(
         raise _semantic_snapshot_error(
             "formal v3.2 trace is missing semantic_state_snapshots"
         )
+    raw_timeline = canonical_metadata_items(trace, "semantic_state_snapshots")
 
     states: dict[int, dict[str, Any]] = {}
     signatures: dict[int, str] = {}
@@ -352,7 +354,8 @@ class TraceNormalizer:
             )
         ) == "3.2"
         actions = []
-        for index, record in enumerate(trace.environment_actions):
+        for index in canonical_action_indices(trace):
+            record = trace.environment_actions[index]
             value = to_primitive(record)
             actions.append({
                 "event_index": index, "action_id": value["action_id"],
@@ -415,22 +418,22 @@ class TraceNormalizer:
                 positive = [{
                     **fact,
                     "revision": int(action["after_revision"]),
-                    "event_index": index,
+                    "event_index": action["event_index"],
                     "source_kind": "semantic_snapshot_delta",
                     "action_id": action_id,
                 } for fact in positive]
                 negative = [{
                     **fact,
                     "revision": int(action["before_revision"]),
-                    "event_index": index,
+                    "event_index": action["event_index"],
                     "source_kind": "semantic_snapshot_delta",
                     "action_id": action_id,
                 } for fact in negative]
             action.update({
                 # The E1 transport uses the normal Python half-open interval.
                 # AtomicOccurrenceProposal stores the converted inclusive end.
-                "extractor_event_start": index,
-                "extractor_event_end_exclusive": index + 1,
+                "extractor_event_start": action["event_index"],
+                "extractor_event_end_exclusive": action["event_index"] + 1,
                 "input_role_candidates": dict(action.get("arguments") or {}),
                 "authoritative_before_state_facts": before,
                 "authoritative_positive_effects": positive,
@@ -439,8 +442,8 @@ class TraceNormalizer:
                 # Official ``won`` is never used to synthesize a semantic fact.
                 "authoritative_terminal_effect_certificates": [],
             })
-        spans = [to_primitive(item) for item in trace.runtime_spans if item.learnable]
-        validations = [to_primitive(item) for item in trace.validations]
+        spans = [to_primitive(item) for item in canonical_trace_records(trace, "runtime_spans") if item.learnable]
+        validations = [to_primitive(item) for item in canonical_trace_records(trace, "validations")]
         input_authorities: list[dict[str, Any]] = []
         seen_input_authorities: set[tuple[str, str, str]] = set()
         for action in actions:
@@ -489,7 +492,7 @@ class TraceNormalizer:
                     or not isinstance(end, int)
                     or start < 0
                     or end < start
-                    or end >= len(actions)
+                    or end >= len(trace.environment_actions)
                 ):
                     continue
                 runtime_trial_event_indexes.update(range(start, end + 1))
@@ -516,14 +519,15 @@ class TraceNormalizer:
             },
             "task_contract": task_contract, "benchmark_success": trace.benchmark_success,
             "actions": actions, "runtime_spans": spans, "validations": validations,
+            "raw_action_count": len(trace.environment_actions),
             "semantic_authority_source": (
                 "validator_snapshot_v3_2"
                 if current_v32
                 else "legacy_action_reducer"
             ),
             "node_records": [to_primitive(item) for item in trace.node_records],
-            "implementation_invocations": [to_primitive(item) for item in trace.implementation_invocations],
-            "tool_executions": [to_primitive(item) for item in trace.tool_executions],
+            "implementation_invocations": [to_primitive(item) for item in canonical_trace_records(trace, "implementation_invocations")],
+            "tool_executions": [to_primitive(item) for item in canonical_trace_records(trace, "tool_executions")],
             "boundary_authorities": {
                 "inputs": input_authorities,
                 "effects": [],

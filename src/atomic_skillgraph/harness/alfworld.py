@@ -1076,6 +1076,7 @@ class AlfWorldAdapter:
         self._current_task: HarnessTask | None = None
         self._observation = ""
         self._done = self._won = False
+        self._runtime_accepted_prefix: list[dict[str, Any]] = []
 
     def _build_config(self) -> dict[str, Any]:
         split_map = {"eval_out_of_distribution": "valid_unseen", "eval_in_distribution": "valid_seen", "train": "train"}
@@ -1251,6 +1252,7 @@ class AlfWorldAdapter:
             )
         self._current_task, self._observation = task, observation
         self._revision = 0
+        self._runtime_accepted_prefix = []
         self._done = self._won = False
         self._validator.reset()
         catalog = self._replace_action_catalog(admissible, self._revision)
@@ -1259,6 +1261,65 @@ class AlfWorldAdapter:
 
     def action_catalog(self) -> list[HarnessActionSpec]:
         return self._catalog.items()
+
+    def _runtime_state_digest(self) -> str:
+        import hashlib
+        import json
+        snapshot = self._validator.snapshot()
+        facts = [{k: v for k, v in fact.items() if k != "witness_ref"}
+                 for fact in snapshot["facts"]]
+        facts.sort(key=lambda value: json.dumps(value, sort_keys=True))
+        payload = {"facts": facts, "done": self._done, "won": self._won,
+                   "catalog": sorted((item.action_type, json.dumps(item.arguments, sort_keys=True))
+                                     for item in self.action_catalog())}
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+    def capture_runtime_checkpoint(self):
+        from .protocol import HarnessRuntimeCheckpoint
+        if self._current_task is None:
+            raise ValueError("runtime checkpoint requires an active task")
+        return HarnessRuntimeCheckpoint(
+            copy.deepcopy(self._current_task), tuple(copy.deepcopy(self._runtime_accepted_prefix)),
+            self._revision, self._runtime_state_digest(),
+        )
+
+    def restore_runtime_checkpoint(self, checkpoint):
+        if self._done or self._won:
+            raise AtomicSkillGraphError(
+                "runtime_checkpoint_restore_failed", "terminal world cannot be rolled back",
+                layer=FailureLayer.INFRASTRUCTURE,
+            )
+        try:
+            result = self.reset(checkpoint.task)
+            for signature in checkpoint.accepted_prefix:
+                candidates = [item for item in self.action_catalog()
+                              if item.action_type == signature["action_type"]
+                              and item.arguments == signature["arguments"]]
+                if len(candidates) != 1:
+                    raise ValueError("checkpoint replay requires exactly one canonical action")
+                result = self.execute_action(candidates[0].action_id, candidates[0].revision)
+                if not result.accepted or result.done or result.won:
+                    raise ValueError("checkpoint replay rejected or reached terminal")
+            digest = self._runtime_state_digest()
+            if digest != checkpoint.state_digest:
+                raise ValueError("checkpoint replay state digest mismatch")
+            # Rebase the restored catalog to the checkpoint revision, never
+            # dispatch an action with a stale pre-reset action id.
+            self._revision = checkpoint.revision
+            self._validator.revision = checkpoint.revision
+            catalog = self._replace_action_catalog(
+                [item.raw_action for item in self.action_catalog()], checkpoint.revision,
+            )
+            self._validator.set_catalog(catalog)
+            return HarnessActionResult(True, result.observation, False, False,
+                                       self._revision, catalog, {
+                "restore_replay_action_count": len(checkpoint.accepted_prefix),
+                "restored_digest": digest,
+            })
+        except Exception as exc:
+            raise AtomicSkillGraphError(
+                "runtime_checkpoint_restore_failed", str(exc), layer=FailureLayer.INFRASTRUCTURE,
+            ) from exc
 
     def public_runtime_relation_facts(self) -> list[dict[str, Any]]:
         """Project only location facts evidenced by the public action catalog.
@@ -1346,6 +1407,10 @@ class AlfWorldAdapter:
         won_values = infos.get("won", [False])
         won = bool(won_values[0]) if won_values else False
         accepted = "nothing happens" not in observation.casefold()
+        if accepted:
+            self._runtime_accepted_prefix.append({
+                "action_type": spec.action_type, "arguments": copy.deepcopy(spec.arguments),
+            })
         admissible = list(infos.get("admissible_commands", [[]])[0])
         old_revision = self._revision
         self._revision += 1

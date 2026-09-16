@@ -43,6 +43,12 @@ class TaskRuntimeContext:
     plan_conflict_declared: bool = False
     plan_conflict_context: dict[str, Any] = field(default_factory=dict)
     task_rescue_used: bool = False
+    runtime_config: dict[str, Any] = field(default_factory=dict)
+    graph_bootstrap_completed: bool = False
+    runtime_step_modes: dict[str, str] = field(default_factory=dict)
+    rejected_runtime_implementations: dict[str, set[str]] = field(default_factory=dict)
+    rejected_runtime_candidates: dict[str, dict[str, Any]] = field(default_factory=dict)
+    runtime_step_feedback: dict[str, dict[str, Any]] = field(default_factory=dict)
     occurrence_evidence: dict[str, OccurrenceAtomicEvidenceState] = field(
         default_factory=dict,
     )

@@ -475,6 +475,10 @@ class AtomicSkillGraphSystem:
             )
 
         self.database = StateDatabase(self.data_dir / "state.sqlite3", readonly=self.readonly)
+        self.runtime_support_store = None
+        if self.config.get("runtime", {}).get("persistent_runtime_support_promotion"):
+            from .knowledge.runtime_support_store import RuntimeSupportStore
+            self.runtime_support_store = RuntimeSupportStore(self.database)
         self.artifacts = ArtifactStore(self.data_dir, self.database)
         try:
             self.artifacts.verify_all()
@@ -844,12 +848,38 @@ class AtomicSkillGraphSystem:
         )
 
     def _runtime_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:
+        single_step = session_kind.startswith("runtime_step_")
+        if single_step:
+            session_kind = "runtime_" + session_kind.removeprefix("runtime_step_")
         cfg = self._stage_config("runtime")
         bucket = UsageBucket(session_kind)
         task_level = session_kind in {
             "runtime_dynamic", "runtime_dynamic_cold_start_continuation",
         }
         token_name = "max_total_tokens_per_task" if task_level else "max_total_tokens_per_node"
+        token_cap = int(cfg.get(token_name, cfg.get("max_total_tokens_per_node", 80000)))
+        exhaustion_code = (
+            "runtime_task_token_budget_exhausted" if task_level
+            else "runtime_node_token_budget_exhausted"
+        )
+        short_steps = bool(self.config.get("runtime", {}).get("short_runtime_steps", False))
+        if short_steps:
+            # Reconstruct the allocation from the authoritative usage ledger,
+            # not from session lifetime. Preparation/Seeded/Draft share one
+            # occurrence allocation; Builder is charged only to the task cap.
+            session_ids = {
+                item.session.session_id for item in self._observed_sessions
+                if item.task_id == self._current_task_id
+                and item.occurrence_id == occurrence_id
+                and item.session_type in {"RuntimePreparationSession", "SeededSession"}
+            }
+            used = sum(event.usage.total_tokens for event in self.usage.events[self._current_task_usage_start:]
+                       if event.session_id in session_ids)
+            node_remaining = max(0, token_cap - used)
+            task_remaining = self._shared_tool_builder_tokens("runtime")
+            token_cap = task_remaining if task_level else min(node_remaining, task_remaining)
+            if task_level or task_remaining <= node_remaining:
+                exhaustion_code = "runtime_task_token_budget_exhausted"
         return self._new_session(
             stage=(
                 "runtime_dynamic"
@@ -871,12 +901,9 @@ class AtomicSkillGraphSystem:
                 if task_level
                 else self._runtime_turn_caps[0]
             ),
-            max_tokens=int(cfg.get(token_name, cfg.get("max_total_tokens_per_node", 80000))),
-            exhaustion_code=(
-                "runtime_task_token_budget_exhausted"
-                if task_level
-                else "runtime_node_token_budget_exhausted"
-            ),
+            max_tokens=token_cap,
+            exhaustion_code=exhaustion_code,
+            semantic_max_turns=1 if single_step else None,
         )
 
     def _extractor_session(self, task_id: str) -> _SessionProxy:
@@ -1561,15 +1588,29 @@ class AtomicSkillGraphSystem:
                 assert self.evolution_maintenance is not None
                 self.evolution_maintenance.commit_repairs(repair_proposals)
 
+        support_observations = []
+        if run_mode is RuntimeMode.ONLINE and getattr(self, "runtime_support_store", None) is not None:
+            from .evolution.runtime_support_promotion import collect_observations, prepare_and_apply
+            support_observations = collect_observations(self, trace)
+            promotion_events.extend(prepare_and_apply(self, trace, task, support_observations))
+            trace.metadata["runtime_support_observation_ids"] = [item["observation_id"] for item in support_observations]
+            trace.metadata.setdefault("r10_metrics", {})["runtime_support_observation_count"] = len(support_observations)
+            trace.evidence_event_refs = list(dict.fromkeys([
+                *trace.evidence_event_refs, *[event.event_id for event in promotion_events],
+            ]))
         trace.runtime_plan["failure_stage"] = ""
         self._finalize_v31_metrics(
             trace,
             failure_side_read_start=failure_side_read_start,
             counters=failure_metrics,
         )
+        from .runtime.r10_metrics import finalize as finalize_r10_metrics
+        finalize_r10_metrics(trace, getattr(self, "config", {}))
         self.traces.save_atomic(trace)
 
         if run_mode is RuntimeMode.ONLINE:
+            for observation in support_observations:
+                self.runtime_support_store.append(observation)
             self._commit_replay_certificates(trace)
             if trace.learning_eligible:
                 self._online_successes += 1
@@ -3475,8 +3516,8 @@ class AtomicSkillGraphSystem:
                 or not isinstance(end, int)
                 or start < 0
                 or end < start - 1
-                or start > len(normalized.get("actions", []))
-                or end >= len(normalized.get("actions", []))
+                or start > normalized.get("raw_action_count", len(normalized.get("actions", [])))
+                or end >= normalized.get("raw_action_count", len(normalized.get("actions", [])))
             )
             empty_range = (
                 not malformed_range
@@ -5753,6 +5794,9 @@ class AtomicSkillGraphSystem:
         for table in _LONG_TERM_KNOWLEDGE_TABLES:
             if self.database.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None:
                 return False
+        if self.database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_support_observations'").fetchone():
+            if self.database.execute("SELECT 1 FROM runtime_support_observations LIMIT 1").fetchone():
+                return False
         if self.artifacts.root.exists() and any(
             path.is_file() or path.is_symlink()
             for path in self.artifacts.root.rglob("*")
@@ -5808,6 +5852,8 @@ class AtomicSkillGraphSystem:
             ),
         }
         table_records: dict[str, list[list[Any]]] = {}
+        if self.database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_support_observations'").fetchone():
+            specs["runtime_support_observations"] = ("*", "observation_id")
         for table, (columns, order) in specs.items():
             table_records[table] = [
                 [to_primitive(value) for value in row]

@@ -425,6 +425,10 @@ class RuntimeAutomationCoordinator:
         tool_record_start = len(
             getattr(ctx.trace_builder.trace, "tool_executions", ())
         )
+        checkpoint = None
+        if getattr(ctx, "runtime_config", {}).get("rollback_automatic_execution_failure"):
+            from .checkpoint import capture
+            checkpoint = capture(ctx, occurrence.occurrence_id)
         result = self.implementation_runner.run(
             _TaskLocalInvocation(compiled), preflight, occurrence, ctx,
             agent_prepared=False,
@@ -593,6 +597,42 @@ class RuntimeAutomationCoordinator:
                 "after_revision": int(tool_results[-1].after_revision),
             })
         ctx.runtime_tool_trials[draft.draft_id] = trial
+        if r1_passed and getattr(ctx, "runtime_config", {}).get("persistent_runtime_support_promotion"):
+            from dataclasses import replace
+            from ..evolution.contract_canonicalizer import AtomicContractCanonicalizer
+            from ..evolution.tool_compiler import build_occurrence_replay_case
+            from ..traces.canonical import canonical_action_indices
+            canonicalizer = AtomicContractCanonicalizer()
+            source = replace(
+                compiled.occurrence, input_bindings=dict(trial_bindings),
+                output_bindings=dict(result.validated_outputs),
+                source_task={}, event_start=trial_event_start, event_end=trial_event_end,
+                action_events=[to_primitive(trace_actions[i]) for i in range(trial_event_start, trial_event_end + 1)],
+                prefix_events=[to_primitive(trace_actions[i]) for i in canonical_action_indices(ctx.trace_builder.trace)
+                               if i < trial_event_start],
+            )
+            # R1 provenance is task-local evidence, not the reusable contract.
+            # Preserve all semantic/output constraints; move only source ids
+            # out of the prospective persistent validator specification.
+            persistent_spec = {key: value for key, value in compiled.atomic.validator_spec.items()
+                               if key not in {"task_local", "occurrence_id", "trace_id"}}
+            persistent_spec["validator_id"] = "harness_atomic_effect"
+            persistent_atomic = replace(compiled.atomic, validator_spec=persistent_spec,
+                metadata={"runtime_support_promotion": True,
+                          "source_runtime_trace_id": ctx.trace_builder.trace.trace_id})
+            bundle = canonicalizer.canonicalize(persistent_atomic, compiled.tool, compiled.implementation)
+            source = canonicalizer.rewrite_canonical_occurrence(source, bundle, atomic_ref=bundle.atomic.ref)
+            bundle.tool.tests = [build_occurrence_replay_case(
+                source, bundle.atomic, source_task=ctx.task, kind="tool_proposal_replay",
+            )]
+            trial["promotion_bundle"] = {
+                "atomic": to_primitive(bundle.atomic), "tool": to_primitive(bundle.tool),
+                "implementation": to_primitive(bundle.implementation),
+            }
+            trial["tool_proposal"] = to_primitive(proposal)
+        if checkpoint is not None and not r1_passed:
+            from .checkpoint import restore
+            restore(ctx, checkpoint, "runtime_automation_r1_rejected")
         _increment_funnel(ctx, "trial_started", int(bool(result.started)))
         _increment_funnel(ctx, "trial_completed", int(bool(tool_completed)))
         _increment_funnel(

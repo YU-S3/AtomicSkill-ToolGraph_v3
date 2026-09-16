@@ -16,6 +16,61 @@ from ..core.support_authority import support_role_authority
 
 
 @dataclass(frozen=True)
+class SupportObligation:
+    kind: str
+    consumer_atomic_ref: str
+    consumer_occurrence_id: str
+    role: str = ""
+    semantic_type: str = ""
+    required_resolution: str = ""
+    predicate: str = ""
+    predicate_args: tuple[tuple[str, Any], ...] = ()
+    effect_domain: str = ""
+    cardinality: int = 1
+    distinct_by: str = ""
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"binding", "predicate"}:
+            raise ValueError("invalid Support obligation kind")
+
+
+def predicate_input_mapping(producer: Any, consumer: Any, obligation: SupportObligation) -> list[dict[str, str]]:
+    """Exact predicate positions prove role identity, never role spelling/type alone."""
+    from ..core.support_authority import _referenced_role
+    from ..core.semantic_types import semantic_types_compatible
+    producer_roles = {item.name: item for item in (*producer.inputs, *producer.outputs)}
+    consumer_roles = {item.name: item for item in consumer.inputs}
+    mappings = []
+    for effect in producer.effects:
+        if (effect.predicate != obligation.predicate
+                or str(effect.effect_domain.value) != obligation.effect_domain
+                or effect.cardinality < obligation.cardinality
+                or effect.distinct_by != obligation.distinct_by
+                or set(effect.args) != dict(obligation.predicate_args).keys()):
+            continue
+        mapping: dict[str, str] = {}
+        valid = True
+        for position, target in obligation.predicate_args:
+            source = effect.args[position]
+            left, right = _referenced_role(source), _referenced_role(target)
+            if not left or not right:
+                if to_primitive(source) != to_primitive(target):
+                    valid = False
+                continue
+            p, c = producer_roles.get(left), consumer_roles.get(right)
+            if p is None or c is None or not semantic_types_compatible(p.semantic_type, c.semantic_type):
+                valid = False
+                break
+            if left in mapping and mapping[left] != right:
+                valid = False
+                break
+            mapping[left] = right
+        if valid and mapping not in mappings:
+            mappings.append(mapping)
+    return mappings
+
+
+@dataclass(frozen=True)
 class SupportRoleMapping:
     producer_role: str
     consumer_role: str
@@ -38,6 +93,7 @@ class SupportCandidate:
     outputs: tuple[dict[str, Any], ...] = ()
     execution_available: bool = False
     missing_required_inputs: tuple[str, ...] = ()
+    predicate_obligations: tuple[dict[str, Any], ...] = ()
 
 
 def _predicate_name(value: Any) -> str:
@@ -57,9 +113,11 @@ class SupportAtomicRetriever:
         atomics: Iterable[AbstractAtomicSkill],
         execution_availability: Mapping[str, bool] | None = None,
         top_k: int | None = 3,
+        obligations: Iterable[SupportObligation] = (),
     ) -> list[SupportCandidate]:
         missing = {str(role) for role in missing_roles}
-        if not missing:
+        obligations = tuple(obligations)
+        if not missing and not obligations:
             return []
         blocked_inputs = {str(item.name): item for item in blocked_atomic.inputs}
         candidates: list[SupportCandidate] = []
@@ -126,11 +184,14 @@ class SupportAtomicRetriever:
                     ))
                     if output.name not in supplied_roles:
                         supplied_roles.append(output.name)
-            if not mappings:
+            predicate_obligations = tuple({"obligation": to_primitive(obligation), "input_mapping": mapping}
+                for obligation in obligations if obligation.kind == "predicate"
+                for mapping in predicate_input_mapping(atomic, blocked_atomic, obligation))
+            if not mappings and not predicate_obligations:
                 continue
             candidates.append(SupportCandidate(
                 atomic_ref=str(atomic.ref),
-                score=float(len(mappings)),
+                score=float(len(mappings) + len(predicate_obligations)),
                 supplied_roles=tuple(sorted(supplied_roles)),
                 output_roles=tuple(sorted(str(item.name) for item in atomic.outputs)),
                 effect_predicates=tuple(sorted({
@@ -157,6 +218,7 @@ class SupportAtomicRetriever:
                     for item in atomic.outputs
                 ),
                 execution_available=True,
+                predicate_obligations=predicate_obligations,
                 # A retrieved Atomic has no support occurrence or prepared
                 # argument bindings yet.  Required inputs remain explicitly
                 # missing until the selected call passes ordinary preflight.

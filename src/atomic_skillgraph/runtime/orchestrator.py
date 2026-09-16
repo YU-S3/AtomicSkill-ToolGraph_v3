@@ -400,6 +400,7 @@ class RuntimeOrchestrator:
         initial_observation = str(task.context.get("initial_observation", ""))
         plan = self.planner.build_plan(task, self.harness, mode=mode, initial_observation=initial_observation)
         ctx = self._create_context(task, plan, builder)
+        ctx.runtime_config = dict(self.runtime_config)
 
         initial_terminal = self.validation.task.terminal(
             ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
@@ -491,7 +492,10 @@ class RuntimeOrchestrator:
                     max_candidates=int(self.runtime_config.get("max_implementation_candidates", 3)),
                     task_id=task.task_id,
                 )
-                if not invocations:
+                if self.runtime_config.get("verified_composite_executor", False):
+                    from .composite_executor import VerifiedCompositeExecutor
+                    direct = VerifiedCompositeExecutor(self.node_executor).run_occurrence(occurrence, ctx)
+                elif not invocations:
                     direct = self.node_executor.not_started(occurrence, failure_code="no_compatible_implementation")
                 else:
                     direct = self.node_executor.try_autonomous(occurrence, invocations, ctx)
@@ -546,7 +550,8 @@ class RuntimeOrchestrator:
                             failure_code=direct.failure_code,
                             message=direct.failure_code,
                         )
-                    seeded = self.node_executor.run_seeded_fresh(occurrence, ctx)
+                    seeded = (direct if self.runtime_config.get("verified_composite_executor", False)
+                              else self.node_executor.run_seeded_fresh(occurrence, ctx))
                     node.seeded_result = to_primitive(seeded)
                     final = seeded
                     if _task_terminal(ctx) and not seeded.atomic_effect_passed:

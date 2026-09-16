@@ -175,6 +175,22 @@ def audit_failed_attempt(
 def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
     """Fail closed unless a formal run uses the probed DeepSeek V4 dialect."""
 
+    if str(config.get("repair_revision", "")) == "R10":
+        runtime = dict(config.get("runtime") or {})
+        flags = ("graph_bootstrap_agent_step", "verified_composite_executor", "short_runtime_steps",
+                 "support_closure", "rollback_automatic_execution_failure", "lazy_runtime_automation_interface",
+                 "persistent_runtime_support_promotion")
+        wrong = [name for name in flags if runtime.get(name) is not True]
+        limits = dict(dict(config.get("llm") or {}).get("runtime") or {})
+        wrong += [name for name, value in {"max_total_tokens_per_node": 100000,
+                                           "max_total_tokens_per_task": 300000,
+                                           "max_completion_tokens": 32768}.items() if limits.get(name) != value]
+        wrong += [name for name, value in {"node_action_budget": 35, "global_action_budget": 100,
+                                           "max_implementation_candidates": 3,
+                                           "runtime_support_min_independent_tasks": 2}.items() if runtime.get(name) != value]
+        if wrong:
+            raise ProtocolError("R10 formal execution protocol mismatch: " + ", ".join(wrong))
+
     llm = dict(config.get("llm") or {})
     protocol = dict(llm.get("protocol") or {})
     expected = {
@@ -2878,6 +2894,8 @@ def _knowledge_table_rows(connection: Any) -> dict[str, list[list[Any]]]:
         str(row[0])
         for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
+    if "runtime_support_observations" in existing:
+        specs["runtime_support_observations"] = ("*", "observation_id")
     result: dict[str, list[list[Any]]] = {}
     for table, (columns, order) in specs.items():
         if table not in existing:

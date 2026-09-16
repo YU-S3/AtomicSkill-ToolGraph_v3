@@ -980,6 +980,15 @@ class Atomicizer:
         self, proposals: list[AtomicOccurrenceProposal], normalized_trace: dict[str, Any],
     ) -> list[CanonicalAtomicOccurrence]:
         events = normalized_trace.get("actions", [])
+        if events and any(item.get("event_index", i) != i for i, item in enumerate(events)):
+            # Sparse canonical projection retains immutable Trace coordinates.
+            # Tombstones carry no action/effect authority and never enter a slice.
+            indexed = [{"canonical_discarded": True, "accepted": False, "arguments": {}}
+                       for _ in range(int(normalized_trace.get("raw_action_count", 0))
+                                      or max(item["event_index"] for item in events) + 1)]
+            for item in events:
+                indexed[item["event_index"]] = item
+            events = indexed
         spans = normalized_trace.get("runtime_spans", [])
         span_by_id = {
             str(span.get("span_id", "")): span
@@ -1018,7 +1027,10 @@ class Atomicizer:
                 raise ValueError(f"duplicate/empty Atomic phase id: {proposal.phase_id!r}")
             if not (0 <= proposal.event_start <= proposal.event_end < len(events)):
                 raise ValueError(f"invalid event range for {proposal.phase_id}")
-            envelope_events = events[proposal.event_start: proposal.event_end + 1]
+            if events[proposal.event_start].get("canonical_discarded") or events[proposal.event_end].get("canonical_discarded"):
+                raise ValueError(f"Atomic boundary names a rolled-back event: {proposal.phase_id}")
+            envelope_events = [item for item in events[proposal.event_start: proposal.event_end + 1]
+                               if not item.get("canonical_discarded")]
             if not envelope_events or not all(item.get("accepted") for item in envelope_events):
                 raise ValueError(f"Atomic proposal contains rejected/no events: {proposal.phase_id}")
             if current_e1_authority and not proposal.support_event_ids:
@@ -1537,7 +1549,7 @@ class Atomicizer:
             result.append(CanonicalAtomicOccurrence(
                 "", proposal.phase_id, proposal.intent, proposal.event_start, proposal.event_end,
                 inputs, outputs, input_specs, output_specs, preconditions, effects, selected,
-                list(events[:proposal.event_start]), dict(normalized_trace.get("source_task") or {}),
+                  [item for item in events[:proposal.event_start] if not item.get("canonical_discarded")], dict(normalized_trace.get("source_task") or {}),
                 normalized_trace["trace_id"], SkillRef(f"{logical_id}_{signature}", "1.0.0"),
                 list(dict.fromkeys([
                     f"trace:{normalized_trace['trace_id']}:events:{proposal.event_start}-{proposal.event_end}",

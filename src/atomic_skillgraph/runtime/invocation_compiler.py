@@ -331,6 +331,16 @@ class InvocationCompiler:
             })
             # Agent proposals must be certified, even when schema-valid.
             for role, proposal in proposals.items():
+                parameter = by_parameter[role]
+                anchor = binding_store.semantic_anchor_for(occurrence, role)
+                if (str(parameter.required_resolution) == "semantic"
+                        and anchor is not None and anchor.value == proposal.value):
+                    # A declared semantic input is not a concrete entity.
+                    # Reusing the exact formal anchor proves this argument;
+                    # it neither invents a new anchor nor upgrades resolution.
+                    grounded[role] = anchor
+                    matched.extend(anchor.evidence_refs)
+                    continue
                 entity_constraint = GroundingConstraint(
                     f"proposal_concrete_{role}", GroundingConstraintKind.ARGUMENT_CONCRETE,
                     argument_mapping={role: BindingExpression(BindingExprKind.SKILL_INPUT, source_role=role)},

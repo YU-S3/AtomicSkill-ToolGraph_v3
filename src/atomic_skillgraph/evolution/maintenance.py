@@ -15,6 +15,7 @@ from ..core.refs import SkillRef, ToolRef, bump_version, content_hash
 from ..core.results import RuntimeLinearPlan, RuntimeOccurrence
 from ..core.serialization import to_primitive
 from ..core.status import RuntimeMode, SkillStatus, ToolStatus
+from ..traces.canonical import failure_prefix_action_indices
 from .repair import RepairProposal, RepairStore
 from .aligner import _atomic_signature
 from .repair_session import EvolutionToolCandidateProposal, EvolutionToolEditProposal
@@ -289,8 +290,8 @@ class EvolutionMaintenance:
                         "action_type": str(item.action_type),
                         "arguments": dict(item.arguments),
                     }
-                    for item in trace.environment_actions[: int(span.action_start)]
-                    if item.accepted
+                    for index, item in enumerate(trace.environment_actions[: int(span.action_start)])
+                    if item.accepted and index in failure_prefix_action_indices(trace, int(span.action_start))
                 ]
                 replay_case = {
                     "kind": "source_replay",

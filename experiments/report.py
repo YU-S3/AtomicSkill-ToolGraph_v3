@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+from atomic_skillgraph.runtime.r10_metrics import COUNTERS as R10_COUNTERS, aggregate as aggregate_r10_metrics
 
 
 USAGE_BUCKETS = (
@@ -1179,6 +1180,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         ),
         "runtime_automation_funnel": automation_funnel,
         "runtime_support_funnel": support_funnel,
+        "r10_metrics": dict(metadata.get("r10_metrics", {})),
         **tool_replay,
         **r21_runtime,
         **r31_runtime,
@@ -1612,6 +1614,7 @@ def summarize_traces(
         ),
         "runtime_automation_funnel": automation_funnel,
         "runtime_support_funnel": support_funnel,
+        "r10_metrics": aggregate_r10_metrics(task_rows),
         **{
             # Replay is a resource-level diagnostic. Failed attempts and
             # maintenance replay remain visible even though they are not
@@ -2060,6 +2063,10 @@ def render_markdown(
         (name, automation_funnel.get(name, 0))
         for name in R92_AUTOMATION_FUNNEL_FIELDS
     )))
+    r10 = _mapping(summary.get("r10_metrics", {}))
+    if any(r10.values()):
+        lines.extend(["", "## R10 graph execution, support and rollback", ""])
+        lines.extend(_markdown_pairs(tuple(r10.items())))
     lines.extend(["", "## Runtime support funnel", ""])
     support_funnel = _mapping(summary.get("runtime_support_funnel", {}))
     lines.extend(_markdown_pairs(tuple(

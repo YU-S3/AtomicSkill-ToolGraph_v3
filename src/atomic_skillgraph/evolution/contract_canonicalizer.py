@@ -153,6 +153,38 @@ def _rewrite_nested(value: Any, role_map: Mapping[str, str]) -> Any:
     return value
 
 
+def _rewrite_tool_ir(value: Any, inputs: Mapping[str, str], outputs: Mapping[str, str]) -> Any:
+    """Alpha-rename only typed interface references; locals/literals stay intact."""
+    roles = {**outputs, **inputs}
+    if isinstance(value, SemanticPredicate):
+        return _rewrite_predicate(value, roles)
+    expression = _as_expression(value)
+    if expression is not None:
+        if expression.kind is BindingExprKind.SKILL_INPUT:
+            rewritten = _rewrite_expression(expression, inputs)
+        elif expression.kind is BindingExprKind.TOOL_OUTPUT:
+            rewritten = _rewrite_expression(expression, outputs)
+        else:
+            rewritten = expression
+        return to_primitive(rewritten) if isinstance(value, dict) else rewritten
+    if isinstance(value, list):
+        return [_rewrite_tool_ir(item, inputs, outputs) for item in value]
+    if not isinstance(value, dict):
+        return copy.deepcopy(value)
+    result = {key: _rewrite_tool_ir(item, inputs, outputs) for key, item in value.items()}
+    if isinstance(value.get("source"), str) and value["source"] in {"tool_input", "tool_output"} and "field" in value:
+        mapping = inputs if value["source"] == "tool_input" else outputs
+        result["field"] = mapping.get(value["field"], value["field"])
+    if "predicate" in value and isinstance(value.get("args"), dict):
+        result["args"] = {key: (
+            "$" + roles.get(item[1:], item[1:]) if isinstance(item, str) and item.startswith("$")
+            else _rewrite_tool_ir(item, inputs, outputs)
+        ) for key, item in value["args"].items()}
+    if isinstance(value.get("output_sources"), dict):
+        result["output_sources"] = {outputs.get(key, key): item for key, item in result["output_sources"].items()}
+    return result
+
+
 def _rewrite_validator_spec(
     validator_spec: Mapping[str, Any],
     input_role_map: Mapping[str, str],
@@ -162,8 +194,26 @@ def _rewrite_validator_spec(
 
     payload = copy.deepcopy(dict(validator_spec))
     raw_identity = payload.pop("output_identity", None)
+    raw_derivations = payload.pop("output_derivations", None)
+    raw_constraints = payload.pop("output_semantic_constraints", None)
     expression_roles = {**output_role_map, **input_role_map}
     rewritten = _rewrite_nested(payload, expression_roles)
+    if raw_derivations is not None:
+        rewritten["output_derivations"] = {
+            output_role_map.get(role, role): {
+                **copy.deepcopy(derivation),
+                **({"input_role": input_role_map.get(derivation["input_role"], derivation["input_role"])}
+                   if "input_role" in derivation else {}),
+            } for role, derivation in raw_derivations.items()
+        }
+    if raw_constraints is not None:
+        rewritten["output_semantic_constraints"] = {
+            output_role_map.get(role, role): {
+                **copy.deepcopy(constraint),
+                "compatible_with_input": input_role_map.get(
+                    constraint["compatible_with_input"], constraint["compatible_with_input"]),
+            } for role, constraint in raw_constraints.items()
+        }
     if raw_identity is not None:
         rewritten["output_identity"] = sorted([
             {
@@ -608,6 +658,11 @@ class AtomicContractCanonicalizer:
                 interface["output_schema"], output_roles,
             )
         artifact = copy.deepcopy(tool.artifact)
+        if tool.artifact_kind == "tool_ir_v1":
+            artifact = _rewrite_tool_ir(artifact, input_roles, output_roles)
+            for item in artifact.get("evidence_outputs", []):
+                if "role" in item:
+                    item["role"] = output_roles.get(item["role"], item["role"])
         steps = []
         for raw_step in artifact.get("steps", []) or []:
             step = dict(raw_step)

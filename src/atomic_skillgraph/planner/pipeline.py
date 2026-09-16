@@ -54,6 +54,7 @@ def _planner_audit_payload(audit: PlannerAudit) -> dict[str, Any]:
     """Serialize declared and extension Planner audit fields together."""
 
     payload = dict(to_primitive(audit))
+    payload["p0_metrics"] = dict(getattr(audit, "p0_metrics", {}))
     payload.update({
         name: int(getattr(audit, name, 0))
         for name in _R9_PLANNER_AUDIT_FIELDS
@@ -265,6 +266,7 @@ class PlannerPipeline:
             task, contract, mode=mode, harness_profile=harness.profile_name,
         )
         audit.composite_candidates = p0.audit_candidates
+        audit.p0_metrics = dict(getattr(p0, "metrics", {}))
         audit.composite_rejections = p0.rejections
         for composite in p0.candidates:
             provisional_audit = _planner_audit_payload(audit)

@@ -51,6 +51,16 @@ class HarnessActionResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class HarnessRuntimeCheckpoint:
+    """Adapter-owned restore material; never part of the policy prompt."""
+
+    task: HarnessTask
+    accepted_prefix: tuple[dict[str, Any], ...]
+    revision: int
+    state_digest: str
+
+
 class AtomicEffectResolutionRequest(TypedDict, total=False):
     """Validator request for action-derived Atomic witness resolution.
 
@@ -94,6 +104,8 @@ class HarnessAdapter(Protocol):
     profile_name: str
 
     def reset(self, task: HarnessTask) -> HarnessActionResult: ...
+    def capture_runtime_checkpoint(self) -> HarnessRuntimeCheckpoint: ...
+    def restore_runtime_checkpoint(self, checkpoint: HarnessRuntimeCheckpoint) -> HarnessActionResult: ...
     def action_catalog(self) -> list[HarnessActionSpec]: ...
     def execute_action(self, action_id: str, revision: int) -> HarnessActionResult: ...
     def semantic_value_compatible(

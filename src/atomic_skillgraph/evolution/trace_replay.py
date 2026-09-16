@@ -13,6 +13,7 @@ from ..core.results import PrimitiveToolStep, RuntimeOccurrence
 from ..core.serialization import to_primitive
 from ..core.status import SkillStatus
 from .typed_repairs import RepairEvidence
+from ..traces.canonical import failure_prefix_action_indices
 
 
 _INTRINSIC_CODES = {
@@ -141,9 +142,12 @@ def build_trace_repair_evidence(
             "arguments": dict(item.get("arguments") or {}),
         }
 
-    prefix = [item for raw in actions[:start] if (item := accepted(raw)) is not None]
+    canonical = failure_prefix_action_indices(payload, start)
+    prefix = [item for i, raw in enumerate(actions[:start])
+              if i in canonical and (item := accepted(raw)) is not None]
     occurrence_actions = [
-        item for raw in actions[start:end] if (item := accepted(raw)) is not None
+        item for raw in actions[start:end]
+        if (item := accepted(raw)) is not None
     ]
     if target_layer == "atomic" and not occurrence_actions:
         return None

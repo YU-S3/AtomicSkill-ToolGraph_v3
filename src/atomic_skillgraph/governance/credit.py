@@ -343,6 +343,12 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
     attempts: list[CreditAttempt] = []
     sequence = 0
     metadata = _field(trace, "metadata", {}) or {}
+    rolled_back_attempts = {
+        str(attempt_id)
+        for rollback in _field(metadata, "runtime_rollbacks", ())
+        for ids in _field(rollback, "discarded_attempt_ids", {}).values()
+        for attempt_id in ids
+    }
     exclusions = _field(metadata, "runtime_trial_credit_exclusions", {}) or {}
     excluded_implementation_ids = {
         str(value)
@@ -373,6 +379,8 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         )
         completed = bool(_field(result, "completed", False))
         atomic_passed = bool(_field(result, "atomic_effect_passed", False))
+        if completed and atomic_passed and str(_field(invocation, "attempt_id", "")) in rolled_back_attempts:
+            continue
         terminal_interrupted = bool(_field(result, "terminal_interrupted", False))
         failure_layer = _result_failure_layer(result, preflight)
         outcome: CreditOutcome | None = None
@@ -424,6 +432,8 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
             outcome = CreditOutcome.DIRECT_FAILURE
         elif started and completed:
             outcome = CreditOutcome.DIRECT_SUCCESS
+            if str(_field(execution, "attempt_id", "")) in rolled_back_attempts:
+                outcome = None
         attempts.append(
             CreditAttempt(
                 artifact_ref=str(_field(execution, "tool_ref", "")),
@@ -444,7 +454,9 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         sequence += 1
 
     node_records = list(_field(trace, "node_records", ()) or ())
-    for node in node_records:
+    from ..traces.canonical import canonical_metadata_items
+    support_nodes = canonical_metadata_items(trace, "runtime_support_node_records")
+    for node in [*node_records, *support_nodes]:
         status = _enum_value(_field(node, "status", "not_started"))
         occurrence_id = str(_field(node, "occurrence_id", ""))
         atomic_ref = str(_field(node, "atomic_ref", ""))

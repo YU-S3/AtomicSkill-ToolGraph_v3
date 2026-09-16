@@ -75,7 +75,7 @@ class NodeExecutor:
         self._activate_occurrence_state(
             occurrence, invocations[0].atomic, list(invocations), ctx,
         )
-        preferred = [item for item in invocations if item.implementation.quality.get("preferred")]
+        preferred = [item for item in invocations if item.implementation.quality.get("preferred")] if len(invocations) > 1 else []
         if len(invocations) > 1 and len(preferred) != 1:
             return None
         compiled = preferred[0] if preferred else invocations[0]
@@ -87,6 +87,10 @@ class NodeExecutor:
             # Missing runtime-resolvable arguments are Preparation work, not an
             # attempted Direct failure and do not create long-term evidence.
             return None
+        if getattr(ctx, "runtime_config", {}).get("verified_composite_executor"):
+            from .node_gate import precondition_gate
+            if not precondition_gate(self, occurrence, compiled, ctx).ready:
+                return None
         current = ctx.binding_store.snapshot_for_node(occurrence)
         effective = dict(current)
         effective.update({item.role: item for item in preflight.binding_updates})
@@ -98,15 +102,36 @@ class NodeExecutor:
         if any(
             parameter.required
             and parameter.runtime_resolvable
+            and not (getattr(ctx, "runtime_config", {}).get("verified_composite_executor")
+                     and str(parameter.required_resolution) == "semantic"
+                     and effective.get(parameter.name) is not None
+                     and effective[parameter.name].status is BindingStatus.GROUNDED)
             and not self._runtime_role_is_deterministic(
                 effective.get(parameter.name),
             )
             for parameter in compiled.atomic.inputs
         ):
             return None
+        checkpoint = None
+        if getattr(ctx, "runtime_config", {}).get("rollback_automatic_execution_failure"):
+            from .checkpoint import capture
+            checkpoint = capture(ctx, occurrence.occurrence_id)
         result = self.implementation_runner.run(
             compiled, preflight, occurrence, ctx, agent_prepared=False,
         )
+        if getattr(ctx, "runtime_config", {}).get("verified_composite_executor"):
+            records = ctx.trace_builder.trace.implementation_invocations
+            if records:
+                ctx.trace_builder.trace.metadata.setdefault("r10_automatic_invocations", []).append({
+                    "occurrence_id": occurrence.occurrence_id, "attempt_id": records[-1].attempt_id,
+                    "implementation_ref": str(compiled.implementation.ref),
+                })
+        if checkpoint is not None:
+            from .checkpoint import increment, restore
+            increment(ctx, "llm_free_environment_action_count",
+                      len(ctx.trace_builder.trace.environment_actions) - checkpoint.action_prefix_end)
+            if not result.atomic_effect_passed:
+                restore(ctx, checkpoint, result.failure_code)
         if bool(getattr(result, "atomic_effect_passed", False)):
             ctx.clear_failed_invocation(occurrence.occurrence_id)
         return result
@@ -449,11 +474,12 @@ class NodeExecutor:
                 == occurrence.occurrence_id
                 else None
             )
-            payload["runtime_automation_interface_update"] = (
-                build_runtime_automation_interface_update(
-                    occurrence, ctx.binding_store,
+            if not getattr(ctx, "runtime_config", {}).get("lazy_runtime_automation_interface", False):
+                payload["runtime_automation_interface_update"] = (
+                    build_runtime_automation_interface_update(
+                        occurrence, ctx.binding_store,
+                    )
                 )
-            )
             occurrence_id = occurrence.occurrence_id
         else:
             occurrence_id = ""
@@ -1142,6 +1168,7 @@ class NodeExecutor:
         blocked_atomic: Any,
         missing_roles: list[str],
         ctx: Any,
+        obligations: tuple[Any, ...] = (),
     ) -> list[Any]:
         atomics_method = getattr(self.invocation_compiler.skills, "atomics", None)
         if not callable(atomics_method):
@@ -1152,12 +1179,14 @@ class NodeExecutor:
         except TypeError:
             all_pool = list(mode_pool)
         all_compatible = self.support_retriever.retrieve(
+            obligations=obligations,
             blocked_atomic=blocked_atomic,
             missing_roles=missing_roles,
             atomics=all_pool,
             top_k=None,
         )
         mode_compatible = self.support_retriever.retrieve(
+            obligations=obligations,
             blocked_atomic=blocked_atomic,
             missing_roles=missing_roles,
             atomics=mode_pool,
@@ -1165,6 +1194,7 @@ class NodeExecutor:
         )
         availability = self._support_execution_availability(mode_pool)
         executable = self.support_retriever.retrieve(
+            obligations=obligations,
             blocked_atomic=blocked_atomic,
             missing_roles=missing_roles,
             atomics=mode_pool,
@@ -1700,6 +1730,8 @@ class NodeExecutor:
             getattr(candidate, "role_mappings", ())
         )
         if not role_mappings:
+            if getattr(candidate, "predicate_obligations", ()) and not call.arguments.get("output_mapping"):
+                return {}
             return None
         requested = dict(call.arguments.get("output_mapping") or {})
         if not requested:
@@ -1823,7 +1855,8 @@ class NodeExecutor:
         )
         invocations = self.invocation_compiler.compile_candidates(
             support_occurrence, ctx.binding_store,
-            max_candidates=1, task_id=ctx.task_id,
+            max_candidates=3 if getattr(ctx, "runtime_config", {}).get("short_runtime_steps") else 1,
+            task_id=ctx.task_id,
         )
         if not invocations:
             return finalize({
@@ -1842,7 +1875,44 @@ class NodeExecutor:
         v32_metrics["runtime_support_selected_count"] = int(
             v32_metrics.get("runtime_support_selected_count", 0)
         ) + 1
-        compiled = invocations[0]
+        preferred = [item for item in invocations if item.implementation.quality.get("preferred")] if len(invocations) > 1 else []
+        if len(invocations) > 1 and len(preferred) != 1:
+            return finalize({"accepted": False, "error": "support_implementation_ambiguous"})
+        compiled = preferred[0] if preferred else invocations[0]
+        predicate_options = getattr(candidate, "predicate_obligations", ())
+        if output_mapping and getattr(ctx, "runtime_config", {}).get("short_runtime_steps"):
+            from dataclasses import replace
+            from ..core.semantic_types import semantic_types_compatible
+            constraints = support_atomic.validator_spec.get("output_semantic_constraints", {})
+            specs = {item.name: item for item in support_atomic.inputs}
+            anchors = {}
+            for output, consumer in output_mapping.items():
+                source = constraints.get(output, {}).get("compatible_with_input")
+                anchor = ctx.binding_store.semantic_anchor_for(occurrence, consumer) if source else None
+                if source not in specs or anchor is None:
+                    continue
+                if not semantic_types_compatible(specs[source].semantic_type, anchor.semantic_type):
+                    continue
+                if source in anchors and anchors[source].value != anchor.value:
+                    return finalize({"accepted": False, "error": "support_semantic_anchor_ambiguous"})
+                anchors[source] = replace(anchor, role=source)
+            ctx.binding_store.commit_grounded(support_occurrence.occurrence_id, anchors)
+        if predicate_options and not output_mapping:
+            parent = ctx.binding_store.snapshot_for_node(occurrence)
+            mappings = [option["input_mapping"] for option in predicate_options]
+            valid = [mapping for mapping in mappings if all(
+                consumer in parent and parent[consumer].status is BindingStatus.GROUNDED
+                and (producer not in arguments or arguments[producer] == parent[consumer].value)
+                for producer, consumer in mapping.items()
+                if producer in {item.name for item in support_atomic.inputs})]
+            if len(valid) != 1:
+                return finalize({"accepted": False, "error": "support_predicate_mapping_ambiguous"})
+            from dataclasses import replace
+            ctx.binding_store.commit_grounded(support_occurrence.occurrence_id, {
+                producer: replace(parent[consumer], role=producer)
+                for producer, consumer in valid[0].items()
+                if producer in {item.name for item in support_atomic.inputs}
+            })
         parent_refresh = getattr(ctx, "_after_action_refresh", None)
         parent_failed_invocation = (
             dict(ctx.last_failed_invocation)
@@ -1899,6 +1969,13 @@ class NodeExecutor:
                     if prepared.passed
                     else prepared
                 )
+                if preflight.passed and getattr(ctx, "runtime_config", {}).get("short_runtime_steps"):
+                    from .node_gate import precondition_gate
+                    gate = precondition_gate(self, support_occurrence, compiled, ctx)
+                    if not gate.ready:
+                        preflight = ToolCallPreflightResult(False, str(compiled.implementation.ref),
+                            failure_layer="runtime_binding", failure_code=gate.reason,
+                            message="Support Atomic preconditions are not currently satisfied")
                 if preflight.passed:
                     result = self.implementation_runner.run(
                         compiled,
@@ -1980,7 +2057,7 @@ class NodeExecutor:
             and validated_outputs[producer_role] not in (None, "")
         }
         output_mapping_complete = bool(
-            output_mapping
+            (output_mapping or predicate_options)
             and len(support_outputs) == len(output_mapping)
         )
         passed = bool(atomic_effect_passed and output_mapping_complete)
@@ -2043,6 +2120,13 @@ class NodeExecutor:
                 "output_mapping": dict(output_mapping),
                 "reason": "missing_binding_support",
             })
+            if getattr(ctx, "runtime_config", {}).get("short_runtime_steps") and getattr(result, "started", False):
+                ctx.trace_builder.trace.metadata.setdefault("runtime_support_node_records", []).append({
+                    "occurrence_id": support_occurrence.occurrence_id,
+                    "step_id": support_occurrence.step_id,
+                    "atomic_ref": str(support_ref), "status": result.node_status.value,
+                    "direct_result": to_primitive(result), "validated_outputs": support_outputs,
+                })
         return finalize(payload)
 
     def run_preparation_session(

@@ -24,6 +24,7 @@ class CompositeRetrieval:
         default_factory=list,
     )
     terminal_empirical_audit: list[dict[str, Any]] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
 
 
 class CompositeRetriever:
@@ -71,10 +72,12 @@ class CompositeRetriever:
                 reasons.append("unvalidated_temporary_edge")
             return reasons
 
-        def exact_compatible(composite: CompositeSkill) -> bool:
+        def complete_p0_eligible(composite: CompositeSkill) -> bool:
             profiles = composite.metadata.get("harness_profiles") or []
             return (
-                complete_composite_contract_diagnosis(
+                str(dict(composite.metadata.get("completion_authority") or {}).get(
+                    "kind") or "complete_contract") == "complete_contract"
+                and complete_composite_contract_diagnosis(
                     contract, composite.goal_contract,
                 ).passed
                 and (not profiles or harness_profile in profiles)
@@ -82,10 +85,11 @@ class CompositeRetriever:
             )
 
         compatible_active_available = any(
-            item.status is SkillStatus.ACTIVE and exact_compatible(item)
+            item.status is SkillStatus.ACTIVE and complete_p0_eligible(item)
             for item in composites
         )
         bootstrap_candidate_ref = ""
+        bootstrap_candidates = []
         if mode is RuntimeMode.ONLINE and not compatible_active_available:
             bootstrap_candidates = [
                 (
@@ -97,16 +101,28 @@ class CompositeRetriever:
                 )
                 for item in composites
                 if item.status is SkillStatus.CANDIDATE
-                and exact_compatible(item)
+                and complete_p0_eligible(item)
             ]
             if bootstrap_candidates:
                 bootstrap_candidates.sort(key=lambda item: (-item[0], item[1]))
                 bootstrap_candidate_ref = bootstrap_candidates[0][1]
+        result.metrics = {
+            "p0_complete_eligible_candidate_count": sum(
+                complete_p0_eligible(item) for item in composites
+            ),
+            "p0_terminal_empirical_excluded_before_ranking_count": sum(
+                dict(item.metadata.get("completion_authority") or {}).get("kind")
+                == "terminal_empirical" for item in composites
+            ),
+            "p0_bootstrap_candidate_count": len(bootstrap_candidates),
+            "p0_bootstrap_selected_ref": bootstrap_candidate_ref,
+            "p0_bootstrap_invalid_winner_count": 0,
+        }
         for composite in composites:
             completion = dict(
                 composite.metadata.get("completion_authority") or {}
             )
-            if completion.get("kind") == "terminal_empirical":
+            if str(completion.get("kind") or "complete_contract") != "complete_contract":
                 result.audit_candidates.append({
                     "composite_ref": str(composite.ref),
                     "score": lexical_similarity(
@@ -172,7 +188,7 @@ class CompositeRetriever:
                         contract_diagnosis
                     )
                 result.rejections.append(rejection)
-            else:
+            elif complete_p0_eligible(composite):
                 ranked.append((score, str(composite.ref), composite))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         result.candidates = [item[2] for item in ranked[: self.top_k]]

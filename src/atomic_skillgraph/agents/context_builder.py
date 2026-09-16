@@ -19,6 +19,7 @@ from .runtime_prompt_texts import (
     DYNAMIC_PROMPT,
     PREPARATION_PROMPT,
     SEEDED_PROMPT,
+    R10_STEP_PROMPT,
 )
 
 
@@ -64,6 +65,8 @@ class ContextBuilder:
         runtime_automation_drafts: Iterable[Any] = (),
         runtime_automation_interface: Mapping[str, Any] | None = None,
         projection_audit: dict[str, Any] | None = None,
+        runtime_step_mode: str | None = None,
+        rejected_candidates: Iterable[Any] = (),
     ) -> str:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
@@ -127,10 +130,13 @@ class ContextBuilder:
             ),
         }
         projected, audit = project_runtime_payload(payload)
+        if runtime_step_mode is not None:
+            projected["runtime_step_mode"] = runtime_step_mode
+            projected["rejected_candidates"] = _policy_value(list(rejected_candidates))
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         return _render(
-            PREPARATION_PROMPT,
+            R10_STEP_PROMPT if runtime_step_mode is not None else PREPARATION_PROMPT,
             projected,
             sort_keys=False,
         )

@@ -1280,3 +1280,31 @@ def test_p0_complete_match_is_exact_and_candidate_bootstrap_is_top_one() -> None
         and "candidate_bootstrap_not_top1" in item["reasons"]
         for item in result.rejections
     )
+
+
+def test_r10_terminal_empirical_cannot_steal_complete_bootstrap() -> None:
+    atomic = _atomic("place_r10", inputs=("object", "location"), effects=(
+        SemanticPredicate("object.at_location", {
+            "object": _input("object"), "location": _input("location"),
+        }),
+    ))
+    complete = _complete_composite(
+        "complete_r10", atomic, cardinality=1,
+        status=SkillStatus.CANDIDATE, summary="transfer capability",
+    )
+    empirical = _complete_composite(
+        "empirical_r10", atomic, cardinality=1,
+        status=SkillStatus.CANDIDATE, summary="place object",
+    )
+    empirical.metadata["completion_authority"] = {"kind": "terminal_empirical"}
+    result = CompositeRetriever(
+        _CompositeSkills(atomic, [empirical, complete]),
+        candidate_policy=CandidateUsePolicy(exploration_quota=0.0),
+    ).retrieve_complete(
+        SimpleNamespace(task_id="r10", goal="place object"),
+        complete.goal_contract, mode=RuntimeMode.ONLINE,
+        harness_profile="repeat_test",
+    )
+    assert result.candidates == [complete]
+    assert result.metrics["p0_bootstrap_selected_ref"] == str(complete.ref)
+    assert result.metrics["p0_terminal_empirical_excluded_before_ranking_count"] == 1
