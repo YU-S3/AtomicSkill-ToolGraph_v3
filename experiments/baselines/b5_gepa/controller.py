@@ -78,6 +78,7 @@ def _load_campaign_descriptor(
     seed: int,
     git_state: dict[str, Any],
     code_digest: str,
+    recovery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lock_path = _path(path)
     try:
@@ -105,8 +106,10 @@ def _load_campaign_descriptor(
         "train_manifest": payload.get("train_manifest_digest") == train.digest,
         "validation_manifest": payload.get("validation_manifest_digest") == validation.digest,
         "test_manifest": payload.get("test_manifest_digest") == test.digest,
-        "controller_commit": payload.get("controller_commit") == git_state.get("commit"),
-        "controller_code": payload.get("controller_code_digest") == code_digest,
+        "controller_commit": payload.get("controller_commit") == (
+            recovery["original_commit"] if recovery else git_state.get("commit")),
+        "controller_code": payload.get("controller_code_digest") == (
+            recovery["original_code_digest"] if recovery else code_digest),
         "external_commit": observed_external_commit == expected_external_commit,
         "external_runtime": observed_runtime == expected_runtime,
         "skillopt_commit": payload.get("external_skillopt_commit")
@@ -674,6 +677,7 @@ def _prepare_resume(
     source_run: Path,
     destination_run: Path,
     expected_ctx: RunContext,
+    recovery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Import only GEPA's durable run_dir from a proven infrastructure failure."""
 
@@ -689,12 +693,13 @@ def _prepare_resume(
         )
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError("GEPA resume source lacks readable run/failure evidence") from exc
+    repaired_source = bool(recovery and str(source_run) == recovery["source_run"])
     if (
         manifest.get("method") != METHOD_ID
         or manifest.get("phase") != "train"
         or int(manifest.get("run_seed", -1)) != expected_ctx.run_seed
         or failure.get("passed") is not False
-        or failure.get("failure_kind") != "infrastructure_failure"
+        or (failure.get("failure_kind") != "infrastructure_failure" and not repaired_source)
     ):
         raise ValueError(
             "GEPA resume source must be a matching failed Train infrastructure attempt"
@@ -702,16 +707,20 @@ def _prepare_resume(
     if (source_run / "completion.json").exists():
         raise ValueError("GEPA resume source is already completed")
     source_identity = dict(manifest.get("identity") or {})
-    if source_identity != dict(expected_ctx.identity):
+    expected_identity = dict(expected_ctx.identity)
+    if repaired_source:
+        expected_identity["controller_code_digest"] = recovery["original_code_digest"]
+    if source_identity != expected_identity:
         mismatches = sorted(
             key
-            for key in set(source_identity) | set(expected_ctx.identity)
-            if source_identity.get(key) != expected_ctx.identity.get(key)
+            for key in set(source_identity) | set(expected_identity)
+            if source_identity.get(key) != expected_identity.get(key)
         )
         raise ValueError("GEPA resume identity mismatch: " + ", ".join(mismatches))
     source_git = dict(manifest.get("controller_git") or {})
     current_git = _controller_git_state()
-    if source_git.get("commit") != current_git.get("commit"):
+    expected_commit = recovery["original_commit"] if repaired_source else current_git.get("commit")
+    if source_git.get("commit") != expected_commit:
         raise ValueError("GEPA resume controller commit mismatch")
     if manifest.get("external_commit") != expected_ctx.external_commit:
         raise ValueError("GEPA resume external commit mismatch")
@@ -740,7 +749,8 @@ def _prepare_resume(
         "authority": "gepa_run_dir",
         "source_run": str(source_run),
         "source_run_id": str(manifest.get("run_id", "")),
-        "source_failure_kind": "infrastructure_failure",
+        "source_failure_kind": failure["failure_kind"],
+        "recovery": recovery if repaired_source else None,
         "source_state_digest": state_digest,
         "destination_state": str(destination_state),
         "resume_replay_policy": "count_as_provider_cost_not_algorithm_metric_calls",
@@ -758,6 +768,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-run", default=None)
     parser.add_argument("--resume-source-run", default=None)
     parser.add_argument("--campaign-lock", default=None)
+    parser.add_argument("--recovery-receipt", default=None)
     parser.add_argument("--config", default="configs/baselines/b5_gepa.yaml")
     parser.add_argument("--output-dir", default=None)
     args = parser.parse_args(argv)
@@ -830,6 +841,12 @@ def main(argv: list[str] | None = None) -> int:
         code_digest = hash_code(REPO_ROOT)
         python_runtime = None
         campaign = None
+        recovery = None
+        if args.recovery_receipt:
+            if args.phase not in {"train", "test"} or not args.campaign_lock:
+                raise ValueError("Recovery receipt requires a formal campaign")
+            from .recover_campaign import validate_recovery
+            recovery = validate_recovery(_path(args.recovery_receipt), _path(args.campaign_lock))
         if args.phase in {"train", "test"}:
             if git_state["dirty"]:
                 raise RuntimeError("formal GEPA requires a clean experiments/configs source tree")
@@ -861,6 +878,7 @@ def main(argv: list[str] | None = None) -> int:
                 seed=int(config["run_seed"]),
                 git_state=git_state,
                 code_digest=code_digest,
+                recovery=recovery,
             )
         elif args.campaign_lock:
             raise ValueError("GEPA smoke does not accept a campaign lock")
@@ -897,6 +915,7 @@ def main(argv: list[str] | None = None) -> int:
                     source_run=_path(args.resume_source_run),
                     destination_run=output_dir,
                     expected_ctx=ctx,
+                    recovery=recovery,
                 ),
             )
         _write_run_identity(

@@ -876,7 +876,7 @@ class ProviderCallObserver:
             prompt = int(source.get("prompt_tokens", -1))
             completion = int(source.get("completion_tokens", -1))
             total = int(source.get("total_tokens", -1))
-            if prompt < 0 or completion <= 0 or total != prompt + completion:
+            if prompt < 0 or completion < 0 or total <= 0 or total != prompt + completion:
                 raise ValueError("episode cache provider usage is invalid")
             call_id = f"cached_{uuid.uuid4().hex}"
             imported_ids.append(call_id)

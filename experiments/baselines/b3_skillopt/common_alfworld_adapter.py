@@ -1440,7 +1440,7 @@ def _reconcile_episode_provider_usage(
                 raise RuntimeError(
                     f"episode {episode.task_id!r} has non-numeric provider usage"
                 ) from exc
-            if prompt < 0 or completion <= 0 or total != prompt + completion:
+            if prompt < 0 or completion < 0 or total <= 0 or total != prompt + completion:
                 raise RuntimeError(
                     f"episode {episode.task_id!r} has invalid provider usage"
                 )

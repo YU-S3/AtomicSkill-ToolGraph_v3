@@ -706,13 +706,15 @@ def _run_lane(
     campaign_lock: Path,
     lock_digest: str,
     command_runner: CommandRunner,
+    initial_resume_source: Path | None = None,
+    initial_usage_path: Path | None = None,
 ) -> dict[str, Any]:
     lane_root = spec.output_dir / f"seed_{seed}"
     lane_root.mkdir(exist_ok=False)
     train_attempts: list[dict[str, Any]] = []
-    source_for_resume: Path | None = None
-    resume_lineage: list[Path] = []
-    failed_attempt_lineage: list[Path] = []
+    source_for_resume = initial_resume_source
+    resume_lineage = [initial_resume_source] if initial_resume_source else []
+    failed_attempt_lineage = list(resume_lineage)
     train_root: Path | None = None
     test_root: Path | None = None
     try:
@@ -797,6 +799,7 @@ def _run_lane(
         )
         actual_attempt_usage = _actual_usage_receipt(
             [
+                *([initial_usage_path] if initial_usage_path else []),
                 *(Path(str(row["root"])) / "train" / "usage.json" for row in train_attempts),
                 test_root / "test" / "usage.json",
             ],
@@ -818,8 +821,11 @@ def _run_lane(
         }
     except Exception as exc:
         usage_paths = [
-            Path(str(row["root"])) / "train" / "usage.json"
-            for row in train_attempts
+            *([initial_usage_path] if initial_usage_path else []),
+            *(
+                Path(str(row["root"])) / "train" / "usage.json"
+                for row in train_attempts
+            ),
         ]
         if test_root is not None:
             usage_paths.append(test_root / "test" / "usage.json")

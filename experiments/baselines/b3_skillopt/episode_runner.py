@@ -366,7 +366,7 @@ def _usage_from_provider_events(
         prompt = int(event.get("prompt_tokens", -1))
         completion = int(event.get("completion_tokens", -1))
         total = int(event.get("total_tokens", -1))
-        if prompt < 0 or completion <= 0 or total != prompt + completion:
+        if prompt < 0 or completion < 0 or total <= 0 or total != prompt + completion:
             raise RuntimeError("episode provider evidence has invalid token usage")
         reasoning_status = str(
             event.get("reasoning_tokens_status", "unavailable")

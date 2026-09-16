@@ -941,14 +941,15 @@ def _provider_usage(
             completion_tokens=int(event.get("completion_tokens", 0)),
             reasoning_tokens=reasoning_tokens,
         )
-        if usage.prompt_tokens < 0 or usage.completion_tokens <= 0:
+        if (usage.prompt_tokens < 0 or usage.completion_tokens < 0
+                or (usage.completion_tokens == 0 and role != "target")):
             raise ValueError("provider-call evidence has invalid token usage")
         if usage.reasoning_tokens < 0 or (
             usage.reasoning_tokens > usage.completion_tokens
         ):
             raise ValueError("provider-call evidence has invalid reasoning-token usage")
         total = int(event.get("total_tokens", 0))
-        if total != usage.prompt_tokens + usage.completion_tokens:
+        if total <= 0 or total != usage.prompt_tokens + usage.completion_tokens:
             raise ValueError(
                 "provider total_tokens does not equal prompt_tokens + "
                 "completion_tokens"

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # smoke OUTPUT | preflight OUTPUT SMOKE_RECEIPT | formal PREPARED_OUTPUT
+# recover SOURCE_CAMPAIGN RECOVERY_OUTPUT SMOKE_RECEIPT
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 B5_PY="$REPO/.venv_b5_gepa/bin/python"
-MODE="${1:?Specify smoke, preflight, or formal}"
+MODE="${1:?Specify smoke, preflight, formal, or recover}"
 OUTPUT="${2:?Specify a unique output, or the already prepared directory for formal}"
 cd "$REPO"
 set -a
@@ -15,6 +16,12 @@ export PYTHONPATH="$REPO/src:$REPO"
 export PYTHONUNBUFFERED=1
 ARGS=()
 case "$MODE" in
+  recover)
+    MODULE=experiments.baselines.b5_gepa.recover_campaign
+    ARGS+=(--source-campaign "$OUTPUT"
+      --smoke-receipt "${4:?Provide current passing smoke_qualification.json}")
+    OUTPUT="${3:?Provide a separate recovery directory}"
+    ;;
   smoke)
     MODULE=experiments.baselines.b5_gepa.controller
     ARGS+=(--phase smoke --seed 42
@@ -36,7 +43,7 @@ case "$MODE" in
       ARGS+=(--prepared)
     fi
     ;;
-  *) echo 'Expected smoke, preflight, or formal' >&2; exit 2 ;;
+  *) echo 'Expected smoke, preflight, formal, or recover' >&2; exit 2 ;;
 esac
 mkdir -p runs/baselines/launch_logs
 "$B5_PY" -m "$MODULE" "${ARGS[@]}" --output-dir "$OUTPUT" \
