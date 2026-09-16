@@ -430,6 +430,27 @@ def test_lazy_draft_r1_collects_only_after_parent_and_strict_success(tmp_path):
     assert collect_observations(system, ctx.trace_builder.trace) == []
 
 
+def test_support_observation_uses_benchmark_success_not_contract_diagnostic(tmp_path):
+    from atomic_skillgraph.evolution.runtime_support_promotion import collect_observations
+    system, ctx, _ = staged_observation(tmp_path)
+    trace = ctx.trace_builder.trace
+    trace.benchmark_success = trace.strict_task_success = trace.learning_eligible = True
+    trace.infrastructure_failure = False
+    trace.task_contract_success = False
+    observations = collect_observations(system, trace)
+    assert len(observations) == 1
+    assert observations[0]["trial"]["r1"]["admission_eligible"]
+    assert observations[0]["trial"]["parent_completed_after_trial"]
+    assert observations[0]["bundle"]
+    assert trace.task_contract_success is False  # Preserve the diagnostic.
+    for field, denied_value in (("benchmark_success", False), ("learning_eligible", False),
+                                ("infrastructure_failure", True)):
+        before = getattr(trace, field)
+        setattr(trace, field, denied_value)
+        assert collect_observations(system, trace) == []
+        setattr(trace, field, before)
+
+
 def test_two_source_support_promotion_uses_cross_case_replay(tmp_path):
     from atomic_skillgraph.evolution.runtime_support_promotion import prepare_and_apply
     first, ctx1, obs1 = staged_observation(tmp_path / "first", "independent_1")

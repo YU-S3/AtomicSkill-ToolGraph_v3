@@ -15,8 +15,10 @@ from .contract_canonicalizer import atomic_contract_signature
 
 
 def collect_observations(system: Any, trace: Any) -> list[dict]:
+    # Benchmark won is task-success authority; TaskContract agreement remains
+    # diagnostic and must not veto otherwise auditable, eligible learning.
     if (system.readonly or not trace.learning_eligible or trace.infrastructure_failure
-            or not trace.benchmark_success or not trace.task_contract_success):
+            or not trace.benchmark_success):
         return []
     observations = []
     seen = set()
