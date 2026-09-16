@@ -94,7 +94,7 @@ gepa:
 methods:
   b3_skillopt: implemented
   b0_dynamic: implemented
-  b1_static_skill: not_implemented
+  b1_static_skill: implemented
   b2_expel: not_implemented
   b4_embodiskill: implemented
   b5_gepa: implemented
