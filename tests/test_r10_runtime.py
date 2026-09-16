@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from atomic_skillgraph.agents.protocol import AgentTurn, NativeToolCall
-from atomic_skillgraph.core.errors import AtomicSkillGraphError
+from atomic_skillgraph.core.errors import AtomicSkillGraphError, BudgetExhausted
 from atomic_skillgraph.runtime.budget import RuntimeBudget
 from atomic_skillgraph.runtime.task_context import TaskRuntimeContext
 from atomic_skillgraph.runtime.runtime_step import run_runtime_step
@@ -119,6 +119,66 @@ def test_checkpoint_restores_world_and_logic_not_usage_or_trace(tmp_path):
     assert canonical_action_indices(ctx.trace_builder.trace) == []
     assert ctx.budget.used_global_actions == 1
     assert len(system.usage.events) == 1
+
+
+@pytest.mark.parametrize("budget_kind", ["node", "global"])
+def test_automatic_partial_tool_budget_exhaustion_restores_checkpoint(tmp_path, monkeypatch, budget_kind):
+    from experiments.r10_world_checks import install_fixture, bind
+    from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
+    from atomic_skillgraph.core.contracts import SemanticPredicate
+    from atomic_skillgraph.core.results import RuntimeOccurrence
+    from atomic_skillgraph.runtime import checkpoint as checkpoints
+    from atomic_skillgraph.core.serialization import to_primitive
+
+    system, ctx, _, _, provider = setup(tmp_path, lambda *args: pytest.fail("automatic Tool must not call policy"))
+    expr = BindingExpression(BindingExprKind.SKILL_INPUT, source_role="target")
+    opened = SemanticPredicate("container.open", {"container": expr})
+    atomic, impl = install_fixture(system, "budget_partial", [], [opened],
+                                  [("GO_TO", "destination"), ("OPEN", "object")], source_target="cabinet_1")
+    occurrence = RuntimeOccurrence("budget_partial", "budget_partial", atomic.ref, [], {},
+                                   [str(impl.ref)], atomic.effects)
+    ctx.begin_occurrence(occurrence)
+    ctx.budget.begin_node(occurrence.occurrence_id)
+    bind(ctx, occurrence, "cabinet_1")
+    invocations = system.invocation_compiler.compile_candidates(occurrence, ctx.binding_store,
+                                                               task_id=ctx.task.task_id)
+    setattr(ctx.budget, "node_action_budget" if budget_kind == "node" else "global_action_budget", 1)
+    ctx.budget.used_tokens["runtime"] = 17
+    ctx.budget.used_turns["runtime"] = 1
+    initial_digest = ctx.harness._runtime_state_digest()
+    saved = []
+    def record_capture(*args, **kwargs):
+        value = capture(*args, **kwargs)
+        saved.append(value)
+        return value
+    monkeypatch.setattr(checkpoints, "capture", record_capture)
+
+    with pytest.raises(BudgetExhausted) as error:
+        system.orchestrator.node_executor.try_autonomous(occurrence, invocations, ctx)
+
+    expected_code = "runtime_node_action_budget_exhausted" if budget_kind == "node" else "episode_action_budget_exhausted"
+    assert error.value.code == expected_code
+    assert len(saved) == 1
+    assert ctx.harness._runtime_state_digest() == initial_digest
+    checkpoint = saved[0]
+    for name, value in checkpoint.logical.items():
+        assert to_primitive(getattr(ctx, name)) == to_primitive(value), name
+    for store, state in ((ctx.binding_store, checkpoint.binding_state), (ctx.evidence_store, checkpoint.evidence_state)):
+        assert {k: v for k, v in vars(store).items() if not callable(v)} == state
+    trace = ctx.trace_builder.trace
+    assert len(trace.environment_actions) == 1
+    assert canonical_action_indices(trace) == []
+    assert ctx.budget.used_global_actions == ctx.budget.used_node_actions == 1
+    assert ctx.budget.used_tokens == {"runtime": 17}
+    assert ctx.budget.used_turns == {"runtime": 1}
+    assert not provider.requests
+    assert trace.metadata["r10_metrics"]["runtime_rollback_count"] == 1
+    assert trace.metadata["r10_metrics"]["llm_free_environment_action_count"] == 1
+    assert trace.metadata["runtime_rollbacks"][0]["failure_code"] == expected_code
+    ctx.trace_builder.finish()
+    assert not ctx.trace_builder._open_spans
+    assert trace.runtime_spans
+    assert all(span.action_end >= span.action_start for span in trace.runtime_spans)
 
 
 def test_bootstrap_then_automatic_completion(tmp_path):

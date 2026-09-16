@@ -14,7 +14,7 @@ from ..agents.protocol import AgentTurn, NativeToolSpec, SchemaValidationError, 
 from ..core.bindings import (
     BindingResolution, BindingStatus, RuntimeBinding,
 )
-from ..core.errors import AtomicSkillGraphError, FailureLayer
+from ..core.errors import AtomicSkillGraphError, BudgetExhausted, FailureLayer
 from ..core.refs import SkillRef
 from ..core.results import (
     AtomicEffectResolution, ImplementationExecutionResult, NodeExecutionStatus,
@@ -116,9 +116,20 @@ class NodeExecutor:
         if getattr(ctx, "runtime_config", {}).get("rollback_automatic_execution_failure"):
             from .checkpoint import capture
             checkpoint = capture(ctx, occurrence.occurrence_id)
-        result = self.implementation_runner.run(
-            compiled, preflight, occurrence, ctx, agent_prepared=False,
-        )
+        try:
+            result = self.implementation_runner.run(
+                compiled, preflight, occurrence, ctx, agent_prepared=False,
+            )
+        except BudgetExhausted as exc:
+            # Registered Tools propagate exhaustion rather than returning a
+            # Tool failure. Roll back partial automatic work without refunding
+            # resources or changing the original budget error's authority.
+            if checkpoint is not None:
+                from .checkpoint import increment, restore
+                increment(ctx, "llm_free_environment_action_count",
+                          len(ctx.trace_builder.trace.environment_actions) - checkpoint.action_prefix_end)
+                restore(ctx, checkpoint, exc.code)
+            raise
         if getattr(ctx, "runtime_config", {}).get("verified_composite_executor"):
             records = ctx.trace_builder.trace.implementation_invocations
             if records:
