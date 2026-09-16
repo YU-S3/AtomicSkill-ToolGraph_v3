@@ -78,3 +78,19 @@ R10 第 9 节 / Support-6 要求 **Active-only 自动闭包、Candidate 必须�
 结论：按用户确认后的 T5-A/B/C 接受已有完整链，并在本轮分别复测 promotion 与普通 activation/reuse。唯一新增代码 blocker 已修复，无需扩修 Candidate exposure、P0、Tool IR、action-catalog、模型、reasoning 或预算；先前真实泛化失败继续保留。允许新的空 bank Full-120，不允许拿 R9.2 的旧正式 run resume 冒充本次 R10。
 
 本轮结果目录：WSL `/home/yangchengyu/asg_r10_authority_validation/`；Windows 本地副本 `runs/r10_authority_validation/`。
+
+## Budget-exception rollback 最终补丁
+
+基于 `5fe7922` 核对后，确认自动 registered Tool 在部分 ACTION 成功、下一 ACTION 抛出 `BudgetExhausted` 时，会绕过只处理返回结果的回滚分支。实现提交 `29e63ef` 仅在 `NodeExecutor.try_autonomous()` 捕获该异常：累计已发生的 LLM-free 环境动作，按原 checkpoint 恢复世界与逻辑，然后原样重新抛出。正常失败返回路径不变；没有修改 ToolRunner 的异常语义，没有把预算耗尽转成 Tool intrinsic failure，没有退款。
+
+- 新增 node/global 两个参数化回归，使用真实编译的两 ACTION registered Tool 和确定性测试 harness（不是正式 ALFWorld 成功率实验）。旧代码两例均在 world digest 恢复断言失败，修复后通过。
+- 验证原 exhaustion code 保留；world、logical、binding、evidence 恢复；原始 Trace 保留一个已接受动作、canonical 排除该动作；node/global action 与 token/turn 计数不退款；rollback 和 LLM-free action 各计数一次；`TraceBuilder.finish()` 关闭异常遗留 span。
+- 全量 pytest：**1338 passed in 40.92s**；`git diff --check` 通过。
+- 最终 code hash：`d8b28af841e889bda11041f4ed90c34a5d98496d003b0d69b3ac27907cbc1da9`。
+- train config hash 保持 `5387e563b8a3d264086ffd4286ae7e7f8446a5455e062428b1959e6429e5c11d`。
+- 真实 provider probe 首次 HTTP 200，但 Probe A 缺少 reasoning_content，明确失败；未修改配置/门槛，独立复测 **passed**。首次失败保存在 `provider_probe/`，通过记录在 `provider_probe_retry/`，没有覆盖失败证据。
+- 本轮没有重跑 promotion/reuse，没有更改 P0、Support、Candidate 生命周期、RuntimeStep、模型、reasoning、100K/300K 或 Tool IR，也没有启动正式 train/test。
+
+本轮验收目录：WSL `/home/yangchengyu/asg_r10_budget_validation/`；Windows 副本 `runs/r10_budget_validation/`。T2 按真实 P1/P2 → atomic_composition → 同一 executor 的路径验收，不把目标任务 won 追加为该实现门槛；已有任务失败记录继续保留。
+
+结论：本次确认的 budget-exception rollback blocker 已消除，可按既有指令启动新的空 bank R10 seed42 Full-120 → Frozen-134。放行不代表正式任务全部成功或 provider 永不波动；正式入口原有 provider gate 继续生效。
