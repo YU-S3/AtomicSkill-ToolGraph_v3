@@ -72,6 +72,16 @@ def test_empty_optimizer_not_accepted_as_target(empty_event):
         phase_usage({**empty_event, "role":"optimizer"})
 
 
+@pytest.mark.parametrize("missing", ["prompt_tokens", "completion_tokens", "total_tokens"])
+def test_absent_counter_is_not_assumed_zero(empty_event, missing):
+    event = dict(empty_event)
+    del event[missing]
+    with pytest.raises((ValueError, RuntimeError)):
+        _usage_from_provider_events([event], require_all_succeeded=True)
+    with pytest.raises(ValueError):
+        phase_usage(event)
+
+
 def write(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value), encoding="utf-8")

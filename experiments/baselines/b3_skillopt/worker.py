@@ -937,8 +937,8 @@ def _provider_usage(
             reasoning_tokens = 0
         usage = RoleUsage(
             calls=1,
-            prompt_tokens=int(event.get("prompt_tokens", 0)),
-            completion_tokens=int(event.get("completion_tokens", 0)),
+            prompt_tokens=int(event.get("prompt_tokens", -1)),
+            completion_tokens=int(event.get("completion_tokens", -1)),
             reasoning_tokens=reasoning_tokens,
         )
         if (usage.prompt_tokens < 0 or usage.completion_tokens < 0
