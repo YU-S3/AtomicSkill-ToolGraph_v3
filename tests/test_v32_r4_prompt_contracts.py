@@ -304,7 +304,8 @@ def test_r102_schema_additions_preserve_formal_binding_boundaries() -> None:
     assert "later revision is not interchangeable" in (
         atomic_properties["precondition_witness_refs"]["description"]
     )
-    assert "stated source_role" in atomic_properties["input_provenance_refs"]["description"]
+    assert "role == submitted source_role" in atomic_properties["input_provenance_refs"]["description"]
+    assert "NOT optional authority.source_role" in atomic_properties["input_provenance_refs"]["description"]
     assert "same value" in atomic_properties["input_provenance_refs"]["description"]
 
     tool_properties = TOOL_PROPOSAL_SCHEMA["properties"]
