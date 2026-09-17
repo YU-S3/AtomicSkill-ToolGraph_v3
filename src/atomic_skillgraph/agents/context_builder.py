@@ -451,7 +451,11 @@ Inputs can be semantic anchors known at entry; outputs can be newly discovered c
 values or typed boolean/list/map results. E1 declares capability/evidence, not Tool IR.
 
 Map each formal input to input_provenance_refs[formal_role] =
-{authority_ref, source_role}. The supplied authority's source_role, value, type,
+{authority_ref, source_role}. Set source_role to the cited authority entry's exact
+role field (authority.role), NOT its optional source_role lineage metadata.
+For example, an authority with role="target" and source_role="object" is cited
+with source_role="target" even when your new formal input has another name.
+The cited role, value, type,
 resolution, entry time and occurrence/task scope must match. Formal-role renaming is
 allowed only through that explicit mapping. Prefer public_binding/public_catalog
 authorities with available_revision at or before the occurrence entry. Action arguments
@@ -465,6 +469,7 @@ using it. These refs are evidence, not variable definitions. The existing ToolBu
 authors bounded loops/selectors/locals and RETURN; do not externalize every local
 operand or embed episode identifiers into permanent contracts, intent or guideline.
 
+phase_id is a unique ID for each proposed occurrence in this submission, not a required copy of the source RuntimeSpan/occurrence ID. Repeated uses of the same capability still need distinct phase_id values.
 event_start is inclusive and event_end is exclusive in this submission. A single event at index i uses [i, i+1). Code performs the exclusive-to-inclusive conversion; do not subtract one yourself.
 The precondition boundary is exactly canonical_trace.actions[event_start].authoritative_before_state_facts.
 Preconditions cite exactly the entry action's authoritative_before_state_facts,
@@ -530,7 +535,7 @@ required inside that occurrence.
   the interval contiguous. Precondition and effect witnesses must be explicit.
   Only extract causal capabilities supported before benchmark terminal success.
 
-Before the one native submission, verify every proposed occurrence independently: [event_start,event_end) contains its support_event_ids; each input explicitly maps to its authority's source_role and value; every precondition reference belongs to the exact entry snapshot; every Effect reference belongs to the selected support events and matches the declared predicate/domain; every output has one legal input_identity or effect_witness derivation, and every entity output equal to any declared input identity uses explicit input_identity rather than effect_witness. Do not change correct sibling occurrences to hide an invalid one. This self-check adds no tool call and no retry.
+Before the one native submission, verify every proposed occurrence independently: [event_start,event_end) contains its support_event_ids; each input's submitted source_role equals the cited authority.role and its value matches; every precondition reference belongs to the exact entry snapshot; every Effect reference belongs to the selected support events and matches the declared predicate/domain; every output has one legal input_identity or effect_witness derivation, and every entity output equal to any declared input identity uses explicit input_identity rather than effect_witness. Do not change correct sibling occurrences to hide an invalid one. This self-check adds no tool call and no retry.
 For every proposed occurrence:
 
 1. every episode concrete identity referenced by a precondition must be

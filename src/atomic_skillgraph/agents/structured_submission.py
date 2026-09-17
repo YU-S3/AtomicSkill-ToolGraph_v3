@@ -222,7 +222,10 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
                 "notes": {"type": "array", "maxItems": 2,
                           "items": {"type": "string", "minLength": 1, "maxLength": 200}},
             }},
-        "phase_id": NONEMPTY_STRING_SCHEMA,
+        "phase_id": {**NONEMPTY_STRING_SCHEMA, "description": (
+            "Unique proposed occurrence ID within this submission. It need not equal "
+            "a source RuntimeSpan/occurrence ID. Repeated uses of a capability need "
+            "distinct phase_id values; do not duplicate the source owner's ID.")},
         "intent": NONEMPTY_STRING_SCHEMA,
         "event_start": {
             "type": "integer",
@@ -298,8 +301,9 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "description": (
                 "One supplied code-authoritative boundary input reference for "
                 "every input_roles key. Key sets must match, and each referenced "
-                "boundary_authorities.inputs entry must have the stated source_role "
-                "and same value; explicit formal-role renaming is allowed."
+                "boundary_authorities.inputs entry must have role == submitted source_role "
+                "and the same value. Use authority.role, NOT optional authority.source_role "
+                "lineage metadata; explicit formal-role renaming is allowed."
             ),
         },
         "output_derivations": {
