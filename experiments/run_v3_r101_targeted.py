@@ -28,7 +28,7 @@ from experiments import self_tooling_targeted as route
 
 REPO = Path(__file__).resolve().parents[1]
 DEV_IDS = (2, 3, 15, 16, 28, 34, 36, 40, 45, 46, 53, 57, 1, 7, 12, 31)
-CHAIN_IDS = (0, 1, 3, 4, 7, 8, 10, 12)
+CHAIN_IDS = (0, 1, 3, 4, 7, 10, 12, 18)
 
 
 def file_hash(path):
