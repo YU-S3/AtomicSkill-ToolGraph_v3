@@ -21,6 +21,7 @@ class RuntimeStepResult:
     result: Any = None
     failure_code: str = ""
     automation_request: dict[str, Any] | None = None
+    control_owner: str = "executor"
 
 
 def automation_request_tool() -> NativeToolSpec:
@@ -117,6 +118,10 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         turn = session.next_turn(prompt, tools=tools)
         executor._record_turn(session, turn, ctx)
         call = turn.tool_calls[0]
+        # A fresh provider session is not a policy handoff. This applies even
+        # to cached/ordinary rejected exploration, before dispatching the call.
+        if call.name == "environment_action" and call.arguments.get("intent") == "explore":
+            outcome.control_owner = "agent"
         selected_action = next((item for item in ctx.action_catalog
             if call.name == 'environment_action' and item.action_id == call.arguments.get('action_id')
             and item.revision == ctx.world_revision), None)
@@ -240,6 +245,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
             "session_id": session.session_id, "occurrence_id": occurrence.occurrence_id,
             "mode": mode, "bootstrap": bootstrap, "draft": draft_request is not None,
             "accepted_semantic_turn_count": len(turns),
+            "control_owner_after": outcome.control_owner,
         })
         values = metrics(ctx)
         values["runtime_step_max_semantic_turns"] = max(

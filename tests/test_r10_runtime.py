@@ -192,6 +192,134 @@ def test_bootstrap_then_automatic_completion(tmp_path):
     assert len(provider.requests) == 2
 
 
+@pytest.mark.parametrize("mode", ["preparation", "seeded"])
+@pytest.mark.parametrize("rejected", [False, True])
+def test_O1_O2_explore_retains_owner_before_cache_and_feedback(tmp_path, monkeypatch, mode, rejected):
+    system, ctx, occurrence, invocations, provider = setup(
+        tmp_path, lambda request, count: action(request, "GO_TO", destination="cabinet_1"))
+    ex = system.orchestrator.node_executor
+    if rejected:
+        monkeypatch.setattr(ex, "_execute_environment_call", lambda *a, **kw: (
+            {"accepted": False, "failure_code": "fixture_affordance_rejected"}, None))
+    first = run_runtime_step(ex, mode, occurrence, ctx, invocations, [])
+    second = run_runtime_step(ex, mode, occurrence, ctx, invocations, [])
+    assert first.control_owner == second.control_owner == "agent"
+    assert all(row["control_owner_after"] == "agent" for row in ctx.trace_builder.trace.metadata["runtime_steps"])
+    assert all(row["accepted_semantic_turn_count"] == 1 for row in ctx.trace_builder.trace.metadata["runtime_steps"])
+    if rejected:
+        assert "fixture_affordance_rejected" in str(provider.requests[1].policy_context)
+        assert not ctx.trace_builder.trace.environment_actions
+
+
+@pytest.mark.parametrize("handoff", ["validate_current_atomic", "invoke_support_atomic", "implementation", "request_runtime_automation", "attempt_current_atomic"])
+def test_O5_O8_native_handoffs_default_to_executor(tmp_path, monkeypatch, handoff):
+    from atomic_skillgraph.agents.protocol import NativeToolSpec
+    def choose(request, count):
+        if handoff == "implementation":
+            return next(t.name for t in request.tools if t.name.startswith("invoke_impl_")), {"object": "apple_1", "source": "cabinet_1"}
+        if handoff == "attempt_current_atomic":
+            name, args = action(request, "GO_TO", destination="cabinet_1")
+            return name, {**args, "intent": "attempt_current_atomic"}
+        if handoff == "validate_current_atomic":
+            return handoff, {"candidate_bindings": {}}
+        return handoff, ({"reason": "test", "intended_capability": "test"} if handoff == "request_runtime_automation" else {})
+    system, ctx, occurrence, invocations, provider = setup(tmp_path, choose)
+    ex = system.orchestrator.node_executor
+    selected = []
+    if handoff == "invoke_support_atomic":
+        original_tools = ex._node_tools
+        monkeypatch.setattr(ex, "_node_tools", lambda *a, **kw: [
+            *[t for t in original_tools(*a, **kw) if t.name != handoff],
+            NativeToolSpec(handoff, "fixture dispatch seam", {"type": "object", "properties": {}})])
+        monkeypatch.setattr(ex, "_invoke_support_atomic_call", lambda *a, **kw: selected.append(True) or {"accepted": False})
+    result = run_runtime_step(ex, "preparation", occurrence, ctx, invocations, [])
+    assert result.control_owner == "executor"
+    assert ctx.trace_builder.trace.metadata["runtime_steps"][-1]["control_owner_after"] == "executor"
+    if handoff == "invoke_support_atomic":
+        assert selected == [True]  # Selected route still reaches the normal handler.
+
+
+@pytest.mark.parametrize("ending", ["handoff", "direct", "effect"])
+@pytest.mark.parametrize("rejected", [False, True])
+def test_O1_O3_O4_O5_controller_always_validates_without_stealing_exploration(tmp_path, monkeypatch, ending, rejected):
+    from atomic_skillgraph.runtime import composite_executor as module
+    def choose(request, count):
+        if count == 1:
+            return action(request, "GO_TO", destination="cabinet_1")
+        assert count == 2 and ending == "handoff"
+        return "validate_current_atomic", {"candidate_bindings": {}}
+    system, ctx, occurrence, invocations, provider = setup(tmp_path, choose)
+    ex = system.orchestrator.node_executor
+    ctx.runtime_config["support_closure"] = True
+    if rejected:
+        monkeypatch.setattr(ex, "_execute_environment_call", lambda *a, **kw: (
+            {"accepted": False, "failure_code": "fixture_affordance_rejected"}, None))
+    checks, closures = [], []
+    passed = SimpleNamespace(atomic_effect_passed=True, started=True, node_status=None)
+    def effect(*a, **kw):
+        checks.append("effect")
+        return passed if (ending == "effect" and provider.requests) or closures else None
+    def direct(*a, **kw):
+        checks.append("direct")
+        return passed if ending == "direct" else None
+    def closure(*a, **kw):
+        assert len(provider.requests) == 2 and ending == "handoff"
+        closures.append(True)
+        return True
+    monkeypatch.setattr(ex, "_complete_from_current_effect", effect)
+    monkeypatch.setattr(ex, "try_autonomous", direct)
+    monkeypatch.setattr(ex, "_validate_current_atomic_call", lambda *a, **kw: (None, {"passed": False}))
+    monkeypatch.setattr(module.SupportClosure, "close", closure)
+    monkeypatch.setattr(module.SupportClosure, "obligations", lambda *a: [SimpleNamespace(kind="predicate")])
+    monkeypatch.setattr(ex, "_retrieve_runtime_support_candidates", lambda **kw: [])
+    assert VerifiedCompositeExecutor(ex).run_occurrence(occurrence, ctx) is passed
+    assert len(provider.requests) == (2 if ending == "handoff" else 1)
+    assert len(closures) == (1 if ending == "handoff" else 0)
+    if ending != "effect":
+        assert "direct" in checks
+    if ending == "handoff":
+        assert ctx.trace_builder.trace.metadata["r10_metrics"]["automatic_support_suppressed_by_agent_ownership_count"] == 1
+
+
+def test_O9_new_occurrence_resets_ownership_and_O12_no_duplicate_direct(tmp_path, monkeypatch):
+    from atomic_skillgraph.runtime import composite_executor as module
+    system, ctx, occurrence, invocations, provider = setup(
+        tmp_path, lambda request, count: action(request, "GO_TO", destination="cabinet_1"))
+    ex = system.orchestrator.node_executor
+    ctx.runtime_config["support_closure"] = True
+    closed, calls = [], []
+    passed = SimpleNamespace(atomic_effect_passed=True, started=True, node_status=None)
+    monkeypatch.setattr(ex, "_complete_from_current_effect", lambda *a, **kw: passed if provider.requests and not calls else None)
+    monkeypatch.setattr(ex, "_retrieve_runtime_support_candidates", lambda **kw: [])
+    monkeypatch.setattr(module.SupportClosure, "obligations", lambda *a: [])
+    executor = VerifiedCompositeExecutor(ex)
+    assert executor.run_occurrence(occurrence, ctx) is passed  # Ends Agent-owned.
+    other = copy.deepcopy(occurrence)
+    other.occurrence_id = "next_occurrence"
+    def direct(*a, **kw):
+        calls.append(True)
+        return passed if closed else None
+    monkeypatch.setattr(ex, "_complete_from_current_effect", lambda *a, **kw: None)
+    monkeypatch.setattr(ex, "try_autonomous", direct)
+    monkeypatch.setattr(module.SupportClosure, "close", lambda *a, **kw: closed.append(True) or True)
+    assert executor.run_occurrence(other, ctx) is passed
+    assert len(provider.requests) == 1 and closed == [True] and len(calls) == 2
+    # The next ready occurrence attempts direct once, without opening Support.
+    calls.clear()
+    assert executor.run_occurrence(other, ctx) is passed
+    assert len(calls) == 1 and closed == [True]
+
+
+def test_O11_ownership_dispatch_has_no_environment_or_task_policy():
+    import inspect
+    from atomic_skillgraph.runtime.runtime_step import RuntimeStepResult
+    text = inspect.getsource(run_runtime_step)
+    dispatch = text[text.index('# A fresh provider session'):text.index('selected_action =')]
+    assert 'call.name == "environment_action"' in dispatch and '"intent"' in dispatch
+    assert not any(word in dispatch for word in ('task_type', 'GO_TO', 'OPEN', 'TAKE', 'cabinet', 'location'))
+    assert RuntimeStepResult().control_owner == "executor"
+
+
 def test_typed_rejection_survives_fresh_steps_but_not_state_changes(tmp_path, monkeypatch):
     def choose(request, count):
         name = next(tool.name for tool in request.tools if tool.name.startswith("invoke_impl_"))
@@ -461,8 +589,10 @@ def staged_observation(tmp_path, case_id="r10_step"):
         "tool_builder": route.RouteProvider(case, "tool_builder", [])}
     executor = system.orchestrator.node_executor
     step = run_runtime_step(executor, "preparation", occurrence, ctx, invocations, [], bootstrap=True)
+    assert step.control_owner == "executor"
     assert not ctx.runtime_tool_trials
-    run_runtime_step(executor, "preparation", occurrence, ctx, invocations, [], draft_request=step.automation_request)
+    draft_step = run_runtime_step(executor, "preparation", occurrence, ctx, invocations, [], draft_request=step.automation_request)
+    assert draft_step.control_owner == "executor"
     assert len(ctx.runtime_tool_trials) == 1
     trial = next(iter(ctx.runtime_tool_trials.values()))
     assert trial["r1"]["admission_eligible"], trial

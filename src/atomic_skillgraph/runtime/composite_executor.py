@@ -19,6 +19,7 @@ class VerifiedCompositeExecutor:
         occurrence_id = occurrence.occurrence_id
         excluded = ctx.rejected_runtime_implementations.setdefault(occurrence_id, set())
         mode = ctx.runtime_step_modes.get(occurrence_id, "preparation")
+        agent_preparing = False
         try:
             while True:
                 for draft_id, trial in ctx.runtime_tool_trials.items():
@@ -47,7 +48,11 @@ class VerifiedCompositeExecutor:
                 result = None
                 if not bootstrap:
                     increment(ctx, "composite_auto_gate_attempt_count")
-                    if ctx.runtime_config.get("support_closure", False):
+                    # Closing the current Atomic is not choosing a new route.
+                    # A non-None result has already attempted execution (or
+                    # replayed its exact rejection): do not attempt it twice.
+                    result = executor.try_autonomous(occurrence, compiled, ctx) if compiled else None
+                    if result is None and not agent_preparing and ctx.runtime_config.get("support_closure", False):
                         supported = SupportClosure(executor).close(occurrence, ctx, compiled)
                         if ctx.benchmark_terminal():
                             return executor._runtime_automation_terminal_boundary(occurrence)
@@ -58,7 +63,7 @@ class VerifiedCompositeExecutor:
                             if effect is not None:
                                 executor._mark_runtime_trial_parent_completed(ctx, occurrence)
                                 return effect
-                    result = executor.try_autonomous(occurrence, compiled, ctx) if compiled else None
+                            result = executor.try_autonomous(occurrence, compiled, ctx) if compiled else None
                 if result is not None:
                     if result.atomic_effect_passed:
                         increment(ctx, "composite_auto_node_count")
@@ -81,12 +86,17 @@ class VerifiedCompositeExecutor:
                     if ctx.benchmark_terminal():
                         return result
                 atomic = executor.invocation_compiler.skills.get_atomic(occurrence.node_ref)
+                obligations = tuple(SupportClosure(executor).obligations(occurrence, atomic, ctx, compiled))
+                if agent_preparing:
+                    increment(ctx, "agent_preparation_continuation_count")
+                    if obligations and ctx.runtime_config.get("support_closure", False):
+                        increment(ctx, "automatic_support_suppressed_by_agent_ownership_count")
                 missing = ctx.binding_store.runtime_prompt_projection(
                     occurrence, atomic.inputs,
                 )["missing_or_insufficient_bindings"]
                 support_candidates = executor._retrieve_runtime_support_candidates(
                     blocked_atomic=atomic, missing_roles=missing, ctx=ctx,
-                    obligations=tuple(SupportClosure(executor).obligations(occurrence, atomic, ctx, compiled)),
+                    obligations=obligations,
                 )
                 if not bootstrap:
                     increment(ctx, "composite_breakpoint_count")
@@ -96,6 +106,7 @@ class VerifiedCompositeExecutor:
                 if step.automation_request:
                     step = run_runtime_step(executor, mode, occurrence, ctx, compiled,
                                             support_candidates, draft_request=step.automation_request)
+                agent_preparing = step.control_owner == "agent"
                 if step.failure_code:
                     return executor.not_started(occurrence, failure_code=step.failure_code)
                 if step.result is not None:
