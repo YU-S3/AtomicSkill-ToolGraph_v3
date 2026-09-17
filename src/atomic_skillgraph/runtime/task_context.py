@@ -96,7 +96,7 @@ class TaskRuntimeContext:
         context = cls(
             task.task_id, task.goal, plan.task_contract, plan, 0, reset.new_revision,
             reset.observation, reset.catalog, [], binding_store, evidence_store, {},
-            budget.global_action_budget, 0, budget.token_limits, trace_builder,
+            budget.global_action_budget, 0, {}, trace_builder,
             harness, task, budget, progress,
         )
         reset_snapshot = harness.validator_channel().snapshot()

@@ -242,6 +242,10 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
             "max_total_tokens_per_batch": 120000,
         },
     }
+    r1021 = config.get("repair_revision") == "R10.2.1"
+    if r1021:
+        stage_expected["runtime"].pop("max_total_tokens_per_node")
+        stage_expected["runtime"]["max_total_tokens_per_task"] = 600000
     for stage, fields_expected in stage_expected.items():
         configured = dict(llm.get(stage) or {})
         for name, wanted in fields_expected.items():
@@ -268,10 +272,26 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
             "use max_total_tokens_per_phase"
         )
     runtime = dict(config.get("runtime") or {})
+    if r1021:
+        for name in ("node_action_budget", "max_turns_per_node"):
+            if name in runtime:
+                mismatches.append(f"removed runtime node cap configured: {name}")
+        if "max_total_tokens_per_node" in dict(llm.get("runtime") or {}):
+            mismatches.append("removed llm.runtime node token cap configured")
+        for name, wanted in {
+            "rollback_automatic_execution_failure": True,
+            "persistent_runtime_support_promotion": True,
+            "max_implementation_candidates": 3,
+            "runtime_support_min_independent_tasks": 2,
+        }.items():
+            if runtime.get(name) != wanted:
+                mismatches.append(f"runtime.{name}: expected {wanted!r}, got {runtime.get(name)!r}")
     for name, wanted in (
         ("global_action_budget", 100),
         ("node_action_budget", 35),
     ):
+        if r1021 and name == "node_action_budget":
+            continue
         actual = runtime.get(name)
         if actual != wanted:
             mismatches.append(

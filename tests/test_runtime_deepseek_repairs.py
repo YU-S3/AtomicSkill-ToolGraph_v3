@@ -58,25 +58,20 @@ from experiments.fakes import FakeHarness, fake_task
 def test_runtime_turn_cap_covers_action_budget() -> None:
     assert required_runtime_turn_caps(
         global_action_budget=100,
-        node_action_budget=35,
         learned_toolcall_repair_limit=2,
         protocol_repair_limit=1,
-    ) == (41, 104)
+    ) == (106, 104)
     assert validate_runtime_turn_caps(
         global_action_budget=100,
-        node_action_budget=35,
         learned_toolcall_repair_limit=2,
         protocol_repair_limit=1,
-        max_turns_per_node=41,
         max_turns_per_task=104,
-    ) == (41, 104)
-    with pytest.raises(ValueError, match="max_turns_per_node"):
+    ) == (106, 104)
+    with pytest.raises(ValueError, match="max_turns_per_task"):
         validate_runtime_turn_caps(
             global_action_budget=100,
-            node_action_budget=35,
             learned_toolcall_repair_limit=2,
-            max_turns_per_node=12,
-            max_turns_per_task=104,
+            max_turns_per_task=12,
         )
 
 
@@ -395,7 +390,7 @@ def test_environment_action_does_not_auto_commit_binding() -> None:
         action_catalog=list(reset.catalog),
         world_revision=reset.new_revision,
         observation=reset.observation,
-        budget=RuntimeBudget(global_action_budget=5, node_action_budget=5),
+        budget=RuntimeBudget(global_action_budget=5),
         harness=harness,
         trace_builder=SimpleNamespace(trace=trace),
         binding_store=bindings,

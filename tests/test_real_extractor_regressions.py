@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from fixtures.typed_e1 import entity_ports, public_entities
 
 from atomic_skillgraph.agents import (
     ReplayAgentSession,
@@ -129,6 +130,8 @@ def _observed_with_trace() -> tuple[TraceRecord, TaskContract]:
 
 
 def _project_normal_effect_boundary(normalized: dict) -> None:
+    # This controlled world exposes the desk, clock and lamp before their use.
+    public_entities(normalized, {'object': 'alarmclock_1', 'source': 'desk_1', 'light': 'desklamp_1'})
     normalized["boundary_authorities"]["effects"] = [
         dict(fact)
         for action in normalized["actions"]
@@ -138,7 +141,7 @@ def _project_normal_effect_boundary(normalized: dict) -> None:
 
 
 def _e1_occurrences() -> list[dict]:
-    return [
+    occurrences = [
         {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
             "phase_id": "take_target",
             "intent": "take target object",
@@ -222,6 +225,13 @@ def _e1_occurrences() -> list[dict]:
             "rationale": "Current held/light/location state establishes the relation.",
         },
     ]
+    for item in occurrences:
+        item.update(entity_ports(item['input_roles'], item['output_roles']))
+        item['input_provenance_refs'] = {role: {'authority_ref': f'fixture_public:{role}', 'source_role': role}
+                                         for role in item['input_roles']}
+        if item['phase_id'] == 'observe_under_light':
+            item['local_value_authority_refs'] = ['fixture_public:light']
+    return occurrences
 
 
 def test_real_trace_authority_half_open_e1_and_state_derived_effect() -> None:
@@ -350,6 +360,9 @@ def test_invalid_e1_extra_is_rejected_without_discarding_valid_causal_occurrence
         [],
         [SemanticPredicate("agent.inventory_empty", {})],
         "invalid extra",
+        input_provenance_contract="code_authority_v3_2",
+        boundary_schema_version="2",
+        support_event_ids=[normalized['actions'][0]['action_id']],
     )
     canonical, rejections = Atomicizer().validate_proposed_subset(
         [invented, *valid], normalized,

@@ -6,7 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 import atomic_skillgraph.system as system_module
-from atomic_skillgraph.core.contracts import SemanticPredicate, TaskContract
+from atomic_skillgraph.core.contracts import ParameterSpec, SemanticPredicate, TaskContract
+from fixtures.typed_e1 import public_entities
 from atomic_skillgraph.core.errors import AtomicSkillGraphError, FailureLayer
 from atomic_skillgraph.core.results import RuntimeLinearPlan
 from atomic_skillgraph.evolution.atomicizer import (
@@ -208,7 +209,7 @@ def test_gate37_task_context_records_reset_and_every_step_snapshot() -> None:
         plan,
         harness,
         builder,
-        RuntimeBudget(global_action_budget=4, node_action_budget=4),
+        RuntimeBudget(global_action_budget=4),
     )
     ctx.begin_occurrence(SimpleNamespace(occurrence_id="occ"))
 
@@ -516,6 +517,10 @@ def test_gate40_current_e1_reads_only_final_boundary_effect_authority() -> None:
         input_provenance_contract="code_authority_v3_2",
     )
 
+    proposal.boundary_schema_version = '2'
+    proposal.input_specs = [ParameterSpec(role, 'entity', required_resolution='concrete') for role in proposal.input_roles]
+    proposal.output_specs = [ParameterSpec(role, 'entity', required_resolution='concrete') for role in proposal.output_roles]
+    proposal.input_provenance_refs = public_entities(normalized, {'object': 'apple_1'})
     with pytest.raises(ValueError, match="lacks accepted state/validator"):
         Atomicizer().validate_and_canonicalize([proposal], normalized)
 
@@ -625,6 +630,10 @@ def test_gate40_current_e1_precondition_has_no_reducer_or_top_level_fallback() -
         input_provenance_contract="code_authority_v3_2",
     )
 
+    proposal.boundary_schema_version = '2'
+    proposal.input_specs = [ParameterSpec(role, 'entity', required_resolution='concrete') for role in proposal.input_roles]
+    proposal.output_specs = [ParameterSpec(role, 'entity', required_resolution='concrete') for role in proposal.output_roles]
+    proposal.input_provenance_refs = public_entities(normalized, {'object': 'apple_1'})
     with pytest.raises(ValueError, match="precondition lacks before-state"):
         Atomicizer().validate_and_canonicalize([proposal], normalized)
 

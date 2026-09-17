@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
+from atomic_skillgraph.core.serialization import to_primitive
 from pathlib import Path
 from typing import Any
 
@@ -113,7 +114,7 @@ class Gate36Harness(LocatingHarness):
 def _config(tmp_path: Path) -> dict[str, Any]:
     return {
         "schema_version": 3,
-        "repair_revision": "R10.2",
+        "repair_revision": "R10.2.1",
         "method_patch": "3.2",
         "data_dir": str(tmp_path / "bank"),
         "trace_data_dir": str(tmp_path / "traces"),
@@ -142,7 +143,6 @@ def _config(tmp_path: Path) -> dict[str, Any]:
         "extraction": {
             "extract_full_dynamic_success": True,
             "extract_task_rescue_success": True,
-            "extract_novel_seeded_success": True,
             "skip_stable_direct_success": True,
         },
         "cold_start": {"enabled": False},
@@ -435,6 +435,23 @@ def _e1_reply(request: FakeProviderRequest) -> dict[str, Any]:
             })
     if not occurrences:
         raise AssertionError("Gate36 Extractor received no accepted causal action")
+    for item in occurrences:
+        inputs = ([ParameterSpec('target', 'entity', runtime_resolvable=True)] if item['phase_id'].startswith('locate_') else
+                  [ParameterSpec('object', 'entity', runtime_resolvable=True, required_resolution='concrete'),
+                   ParameterSpec('location', 'location', runtime_resolvable=True, required_resolution='concrete')])
+        outputs = ([ParameterSpec('entity', 'entity'), ParameterSpec('location', 'location')] if item['phase_id'].startswith('locate_') else
+                   [ParameterSpec('held_object', 'entity', required_resolution='concrete')])
+        item.update(boundary_schema_version='2', input_specs=to_primitive(inputs), output_specs=to_primitive(outputs),
+                    output_semantic_constraints={}, local_value_authority_refs=[])
+        entry = actions[item['event_start']]['before_revision']
+        item['input_provenance_refs'] = {}
+        for role, value in item['input_roles'].items():
+            source = next(a for a in context['boundary_authorities']['inputs']
+                          if a.get('value') == value and a.get('kind') == 'public_catalog'
+                          and a.get('available_revision', entry + 1) <= entry)
+            item['input_provenance_refs'][role] = {'authority_ref': source['authority_ref'], 'source_role': source['role']}
+        if 'entity' in item['output_roles']:
+            item['output_derivations']['entity'] = {'kind': 'input_identity', 'input_role': 'target'}
     return {"occurrences": occurrences}
 
 
@@ -584,7 +601,7 @@ def test_gate36_full_system_runtime_self_tool_persists_and_reuses(tmp_path: Path
         augmentations = list(trace_b.metadata.get("runtime_graph_augmentation") or [])
         assert any(
             item["support_atomic_ref"] == locate_atomic_ref
-            and item["output_mapping"] == {"location": "location", "entity": "object"}
+            and item["output_mapping"] == {"location": "location"}
             for item in augmentations
         )
         target_executions = [

@@ -359,12 +359,15 @@ class BudgetTracker:
         configured_limit: dict[str, int] | None = None,
         returned_action_executed: bool = False,
     ) -> None:
+        error_code = self.budget.exhaustion_code
+        if budget_reason in {"turn_limit", "semantic_turn_limit"} and error_code.startswith("runtime_"):
+            error_code = "runtime_protocol_turn_exhausted"
         audit = {
             "session_token_limit_exceeded": budget_reason == "token_limit",
             "session_turn_limit_exceeded": budget_reason == "turn_limit",
             "budget_reason": budget_reason,
             "budget_check_stage": budget_check_stage,
-            "budget_error_code": self.budget.exhaustion_code,
+            "budget_error_code": error_code,
             "used_before": dict(used_before or self._used_snapshot()),
             "actual_call_usage": (
                 actual_call_usage.to_dict()
@@ -384,7 +387,7 @@ class BudgetTracker:
         }
         self._exhaustion_events.append(copy.deepcopy(audit))
         error = BudgetExhausted(
-            self.budget.exhaustion_code,
+            error_code,
             message,
             # A configured experiment budget is part of Agent control flow,
             # not an API/network/process outage.  Callers retain the specific

@@ -18,6 +18,7 @@ from atomic_skillgraph.core.serialization import to_primitive
 from atomic_skillgraph.core.status import SkillStatus
 from atomic_skillgraph.governance.ledger import EvidenceEvent, EvidenceEventType
 from atomic_skillgraph.system import AtomicSkillGraphSystem
+from atomic_skillgraph.traces.schema import NodeTraceRecord, EnvironmentActionRecord, RuntimeSpan
 from experiments.fakes import FakeHarness, fake_task
 from experiments.protocol import (
     AttemptTraceLedger,
@@ -47,7 +48,7 @@ def _config(
 ) -> dict[str, object]:
     return {
         "schema_version": 3,
-        "repair_revision": "R10.2",
+        "repair_revision": "R10.2.1",
         "data_dir": str(data_dir),
         "trace_data_dir": str(trace_dir),
         "llm": {
@@ -122,6 +123,10 @@ def _install_failed_deployment_runtime(system: AtomicSkillGraphSystem) -> None:
             "source_composite_ref": COMPOSITE_REF,
             "failure_stage": "runtime",
         }
+        trace.node_records.append(NodeTraceRecord('occ-1', 'step-1', 'skill://boundary-atomic@1.0.0'))
+        trace.environment_actions.append(EnvironmentActionRecord('attempt-1', 0, 'FIXTURE_ACTION', {},
+            True, 'controlled unsuccessful deployment', False, False, 1, 'owned'))
+        trace.runtime_spans.append(RuntimeSpan('owned', 'stored_composite', 'occ-1', 0, 1, None, True))
         return trace_builder.finish()
 
     system.orchestrator.run_task = failed_runtime

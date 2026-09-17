@@ -128,7 +128,7 @@ def test_all_e1_rejections_preserve_every_reason() -> None:
     ]
 
     with pytest.raises(AtomicProposalBatchRejected) as caught:
-        Atomicizer().validate_proposed_subset(proposals, _single_event_trace())
+        Atomicizer(legacy_source_replay=True).validate_proposed_subset(proposals, _single_event_trace())
 
     assert caught.value.rejections == [
         {
@@ -173,8 +173,4 @@ def test_atomic_batch_rejection_deep_copies_diagnostics() -> None:
 
 
 def test_no_e1_proposals_has_an_empty_rejection_list() -> None:
-    with pytest.raises(AtomicProposalBatchRejected) as caught:
-        Atomicizer().validate_proposed_subset([], {})
-
-    assert caught.value.rejections == []
-    assert str(caught.value).endswith("no proposals")
+    assert Atomicizer(legacy_source_replay=True).validate_proposed_subset([], {}) == ([], [])

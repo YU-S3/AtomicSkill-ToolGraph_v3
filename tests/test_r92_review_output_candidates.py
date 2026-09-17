@@ -1,6 +1,7 @@
 """Public pre-publication diagnostics must not become binding authority."""
 
 import copy
+from fixtures.certified_values import concrete_entities
 from types import SimpleNamespace
 
 import pytest
@@ -134,7 +135,8 @@ def test_identity_derivation_requires_explicit_contract_and_current_grounding():
 
 def test_published_output_takes_precedence_over_agent_candidate():
     executor, ctx, nav, _, _ = _context()
-    ctx.binding_store.publish_validated_outputs(nav, {"destination": "desk_2"}, ["valid:2"], 2)
+    ctx.binding_store.publish_validated_outputs(nav, {"destination": "desk_2"}, ["valid:2"], 2,
+        certified_bindings=concrete_entities({'destination': 'desk_2'}, ['valid:2'], 2))
     before = copy.deepcopy(vars(ctx.binding_store))
     view = executor._downstream_plan_context(
         ctx, nav, producer_output_candidates={"destination": _candidate("cabinet_3")},

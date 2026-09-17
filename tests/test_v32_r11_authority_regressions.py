@@ -350,6 +350,7 @@ def test_prepare_evolution_exposes_runtime_r1_fact_to_e1(
                 "source_occurrence_id": "occ",
                 "source_role": "object",
                 "value": "cup",
+                "semantic_type": "entity", "resolution": "semantic", "available_revision": 3,
             }},
             "r1_outputs": {
                 "entity": "cup_3",
@@ -411,6 +412,7 @@ def test_prepare_evolution_exposes_runtime_r1_fact_to_e1(
         "source_kind": "current_occurrence_anchor",
         "source_occurrence_id": "occ",
         "source_role": "object",
+        "semantic_type": "entity", "resolution": "semantic", "available_revision": 3,
     }
     assert captured["boundary_authorities"]["effects"][0] == {
         "witness_ref": (

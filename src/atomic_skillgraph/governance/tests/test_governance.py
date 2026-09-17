@@ -170,6 +170,8 @@ def test_credit_assigner_enforces_started_and_failure_layer_boundaries() -> None
 def test_credit_assigner_consumes_standard_trace_record_shape() -> None:
     trace = {
         "trace_id": "trace-standard",
+        "environment_actions": [{'action_id': 'owned-terminal', 'accepted': True, 'won': True, 'span_id': 'span-impl'}],
+        "runtime_spans": [{'span_id': 'span-impl', 'occurrence_id': 'occ-1', 'action_start': 0, 'action_end': 1}],
         "task": {"task_id": "task-standard"},
         "infrastructure_failure": False,
         "implementation_invocations": [

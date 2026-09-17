@@ -51,7 +51,7 @@ from experiments.run_v3_smoke import _validated_dataflow
 def _config() -> dict:
     return {
         "schema_version": 3,
-        "repair_revision": "R10.2",
+        "repair_revision": "R10.2.1",
         "llm": {
             "provider": "openai_compatible",
             "base_url": "https://example.test/v1",
@@ -107,17 +107,15 @@ def test_reasoning_metering_never_adds_a_visible_token_budget_gate() -> None:
     assert "max_visible_tokens_per_turn" not in first.snapshot()
 
 
-def test_task_level_dynamic_keeps_global_usage_but_leaves_node_quota() -> None:
-    budget = RuntimeBudget(global_action_budget=3, node_action_budget=1)
+def test_task_level_dynamic_keeps_global_usage_without_node_quota() -> None:
+    budget = RuntimeBudget(global_action_budget=3)
     budget.begin_node("occ_last")
     budget.consume_action()
-    with pytest.raises(BudgetExhausted) as node_failure:
-        budget.consume_action()
-    assert getattr(node_failure.value, "code", "") == "runtime_node_action_budget_exhausted"
+    budget.consume_action()
+    assert budget.used_node_actions == 2
 
     budget.end_node()
-    assert budget.snapshot()["node_budget_active"] is False
-    budget.consume_action()
+    assert budget.current_occurrence_id == ''
     budget.consume_action()
     with pytest.raises(BudgetExhausted) as global_failure:
         budget.consume_action()
@@ -126,7 +124,7 @@ def test_task_level_dynamic_keeps_global_usage_but_leaves_node_quota() -> None:
     tracker = BudgetTracker(AgentBudget(0, 1, "runtime_node_token_budget_exhausted"))
     with pytest.raises(BudgetExhausted) as token_failure:
         tracker.check_before_call()
-    assert token_failure.value.code == "runtime_node_token_budget_exhausted"
+    assert token_failure.value.code == "runtime_protocol_turn_exhausted"
     assert token_failure.value.layer is FailureLayer.RUNTIME_AGENT
 
 

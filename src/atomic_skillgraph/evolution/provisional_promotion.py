@@ -25,6 +25,8 @@ from .contract_canonicalizer import (
 )
 from .portability import resolve_capability_label
 from .tool_compiler import CompiledKnowledge, rewrite_capability_labels
+from .typed_boundary import public_value_authorities
+from ..core.serialization import json_values_equal
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,8 @@ class ProvisionalPromotionCompiler:
         if not bool(getattr(trace, "strict_task_success", False)):
             return []
         normalized = self.normalizer.build(trace)
+        public_authorities = public_value_authorities(trace)
+        normalized.setdefault('boundary_authorities', {}).setdefault('inputs', []).extend(public_authorities)
         prepared: list[PreparedPromotion] = []
         seen: set[str] = set()
         for trial in successful_trials:
@@ -156,25 +160,26 @@ class ProvisionalPromotionCompiler:
                 continue
             try:
                 proposal = self._proposal(provisional, trial)
+                entry_revision = normalized['actions'][proposal.event_start]['before_revision']
+                selected = normalized['actions'][proposal.event_start:proposal.event_end + 1]
+                owners = {str(span.get('occurrence_id', '')) for span in normalized.get('runtime_spans', [])
+                          if span.get('span_id') in {e.get('span_id') for e in selected}}
+                available = [a for a in public_authorities
+                             if not a['source_occurrence_id'] or a['source_occurrence_id'] == '__task__'
+                             or a['source_occurrence_id'] in owners]
+                for role, value in proposal.input_roles.items():
+                    candidates = [a for a in available if a['role'] == role
+                                  and a['available_revision'] <= entry_revision
+                                  and json_values_equal(a['value'], value)]
+                    if not candidates:
+                        raise ValueError(f'promotion input lacks entry-time typed authority: {role}')
+                    authority = max(candidates, key=lambda a: a['available_revision'])
+                    proposal.input_provenance_refs[role] = {
+                        'authority_ref': authority['authority_ref'], 'source_role': authority['role']}
+                proposal.local_value_authority_refs = [a['authority_ref'] for a in available]
                 occurrence = self.atomicizer.validate_and_canonicalize(
                     [proposal], normalized,
                 )[0]
-                # Atomicizer infers semantic types from human-readable role
-                # aliases.  Failure-side contracts already use alpha-neutral
-                # names (input_000, ...), so retain the code-validated span
-                # while restoring the authoritative provisional role specs.
-                contract = dict(provisional.atomic_contract)
-                occurrence = replace(
-                    occurrence,
-                    input_specs=[
-                        _parameter(item)
-                        for item in contract.get("inputs", ())
-                    ],
-                    output_specs=[
-                        _parameter(item)
-                        for item in contract.get("outputs", ())
-                    ],
-                )
                 raw = self.tool_compiler.compile([occurrence])[0]
                 bundle = self.canonicalizer.canonicalize(
                     raw.atomic, raw.tool, raw.implementation,
@@ -339,6 +344,11 @@ class ProvisionalPromotionCompiler:
             event_end=end - 1,
             input_roles=input_roles,
             output_roles=output_roles,
+            boundary_schema_version='2', input_specs=inputs, output_specs=outputs,
+            input_provenance_contract='provisional_typed_v2',
+            output_derivations=copy.deepcopy(dict(contract.get('validator_spec') or {}).get('output_derivations') or {
+                role: {'kind': 'input_identity', 'input_role': source} for role, source in identity.items()}),
+            output_semantic_constraints=copy.deepcopy(dict(contract.get('validator_spec') or {}).get('output_semantic_constraints') or {}),
             preconditions=[
                 _predicate(item, all_bindings)
                 for item in contract.get("preconditions", ())

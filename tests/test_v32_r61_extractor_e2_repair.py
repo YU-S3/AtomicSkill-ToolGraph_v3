@@ -20,6 +20,7 @@ from atomic_skillgraph.knowledge import (
 )
 from atomic_skillgraph.system import AtomicSkillGraphSystem
 from atomic_skillgraph.validation.contract_matcher import ExactContractMatcher
+from fixtures.typed_e1 import declare_take_fixture
 
 
 def _normalized_trace() -> dict[str, object]:
@@ -56,7 +57,7 @@ def _normalized_trace() -> dict[str, object]:
 
 
 def _atomic_proposal() -> AtomicOccurrenceProposal:
-    return AtomicOccurrenceProposal(
+    return declare_take_fixture(AtomicOccurrenceProposal(
         phase_id="phase",
         intent="establish_state",
         event_start=0,
@@ -68,7 +69,7 @@ def _atomic_proposal() -> AtomicOccurrenceProposal:
             "agent.holds", {"object": "item_1"},
         )],
         rationale="accepted transition",
-    )
+    ), _normalized_trace())
 
 
 def _system(tmp_path, extractor_type, composite_builder):
@@ -76,9 +77,9 @@ def _system(tmp_path, extractor_type, composite_builder):
     artifacts = ArtifactStore(tmp_path, database)
     system = object.__new__(AtomicSkillGraphSystem)
     system.config = {}
-    system.normalizer = SimpleNamespace(
-        build=lambda _trace: _normalized_trace(),
-    )
+    normalized = _normalized_trace()
+    declare_take_fixture(_atomic_proposal(), normalized)
+    system.normalizer = SimpleNamespace(build=lambda _trace: normalized)
     system.atomicizer = Atomicizer()
     system.skills = SkillRegistry(artifacts, database)
     system.tools = ToolRegistry(artifacts, database)

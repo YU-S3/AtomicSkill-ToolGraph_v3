@@ -655,32 +655,12 @@ def test_cold_continuation_session_is_fresh_and_never_graph_credit() -> None:
     def session_factory(kind: str, occurrence_id: str) -> _StatusSession:
         session = _StatusSession(f"session-{len(created)}", [])
         created.append(session)
-        assert kind == "runtime_dynamic_cold_start_continuation"
+        assert kind == "runtime_step_dynamic_cold_start_continuation"
         return session
 
-    terminal_failed = ValidationResult.fail(
-        "task",
-        "task_contract_unsatisfied",
-        "not yet",
-        task_contract=False,
-    )
-    validation = SimpleNamespace(
-        task=SimpleNamespace(terminal=lambda *args, **kwargs: terminal_failed),
-        tool=SimpleNamespace(),
-    )
-    executor = NodeExecutor(SimpleNamespace(), validation, session_factory)
-    ctx = SimpleNamespace(
-        task_goal="goal",
-        observation="observation",
-        action_catalog=[],
-        action_history=[],
-        budget=_Budget(),
-        trace_builder=_trace_builder(),
-        harness=SimpleNamespace(
-            validator_channel=lambda: SimpleNamespace(won=False),
-        ),
-        task_contract=SimpleNamespace(),
-    )
+    from test_stored_composite_binding_authority import _single_nav_context, _PickPlaceHarness
+    runtime, ctx, _, _ = _single_nav_context(_PickPlaceHarness(), session_factory)
+    executor = runtime.node_executor
     first = executor.run_dynamic(
         ctx,
         cold_start_continuation=True,

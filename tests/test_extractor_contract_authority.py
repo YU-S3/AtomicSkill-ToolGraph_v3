@@ -148,7 +148,7 @@ def test_e1_policy_context_carries_only_code_authoritative_target_witnesses() ->
         required_task_contract_witnesses=authority,
     )
     instruction, payload = prompt.split("\n\nPOLICY_CONTEXT_JSON\n", 1)
-    assert "collectively cover every supplied" in instruction
+    assert "incomplete Composite coverage must not force invented capabilities" in instruction
     supplied = json.loads(payload)["required_task_contract_witnesses"]
     assert supplied["all_targets_witnessed"] is True
     assert supplied["targets"][0]["witness_facts"][0]["predicate"] == (
@@ -229,6 +229,10 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
         )],
         rationale="lacks action/binding provenance",
     )
+
+    from fixtures.typed_e1 import declare_take_fixture
+    declare_take_fixture(proposal, normalized)
+    declare_take_fixture(rejected_proposal, normalized)
 
     class FakeExtractor:
         e2_called = False
@@ -358,6 +362,8 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
     # A second independent Trace with the exact same canonical contract must
     # reuse the Atomic while adding auditable evidence/lifecycle support.
     normalized["trace_id"] = "trace_partial_2"
+    normalized['boundary_authorities']['inputs'] = []
+    declare_take_fixture(proposal, normalized)
     normalized["source_task"] = {
         "task_id": "task_2",
         "task_signature": "fake:task_2",
@@ -439,6 +445,9 @@ def test_e2_rejection_does_not_discard_prepared_atomic(
         )],
         rationale="accepted transition",
     )
+
+    from fixtures.typed_e1 import declare_take_fixture
+    declare_take_fixture(proposal, normalized)
 
     class RejectingE2Extractor:
         e2_called = False

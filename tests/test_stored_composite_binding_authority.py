@@ -4,6 +4,7 @@ import json
 from typing import Any, Mapping
 
 from experiments.fakes import FakeAgentFactory, FakeReply
+from fixtures.certified_values import concrete_entities
 from atomic_skillgraph.core.bindings import (
     BindingExpression,
     BindingExprKind,
@@ -512,6 +513,12 @@ def _single_nav_context(harness, factory):
     tools = {str(nav[2].ref): nav[2]}
 
     class Skills:
+        def atomics(self, **_kwargs):
+            return list(atomics.values())
+
+        def implementations_for(self, ref, **_kwargs):
+            return [item for item in implementations.values() if str(item.abstract_ref) == str(ref)]
+
         def get_atomic(self, ref):
             return atomics[str(ref)]
 
@@ -697,6 +704,9 @@ def test_missing_entry_affordance_still_rejects_when_effect_not_satisfied() -> N
     )
     ctx.evidence_store.add_validated_tool_output(
         "destination", "cabinet_3", ["validator:test:cabinet_3"],
+        certified_binding=concrete_entities(
+            {'destination': 'cabinet_3'}, ['validator:test:cabinet_3'], ctx.world_revision)['destination'],
+        occurrence_id=occurrence.occurrence_id,
     )
     compiled = invocations[0]
     prepared = runtime.invocation_compiler.prepare_arguments(
@@ -981,8 +991,8 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
     assert sum(
         1 for item in trace.implementation_invocations
         if item.result["completed"]
-    ) == 2
-    assert any(
+    ) == 3
+    assert not any(
         item.result.get("terminal_interrupted")
         for item in trace.implementation_invocations
     )
@@ -992,11 +1002,11 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
         for item in trace.tool_executions
     )
     assert all(item.result["started"] for item in trace.tool_executions)
-    assert sum(1 for item in trace.tool_executions if item.result["completed"]) == 2
+    assert sum(1 for item in trace.tool_executions if item.result["completed"]) == 3
     assert sum(
         1 for item in trace.tool_executions
         if item.result.get("terminal_interrupted")
-    ) == 1
+    ) == 0
     assert any(
         item["occurrence_id"] == "take"
         and item["role"] == "source"

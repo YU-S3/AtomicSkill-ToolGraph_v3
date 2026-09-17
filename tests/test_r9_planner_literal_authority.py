@@ -278,7 +278,7 @@ def test_system_wires_code_owned_literal_authorities_into_planner(
 ) -> None:
     config = {
         "schema_version": 3,
-        "repair_revision": "R10.2",
+        "repair_revision": "R10.2.1",
         "data_dir": str(tmp_path / "data_v3"),
         "experiment": {
             "runtime_mode": "online",

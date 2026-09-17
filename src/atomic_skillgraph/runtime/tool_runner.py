@@ -49,6 +49,10 @@ class ToolRunner:
         execution_scope: str = "registered",
     ) -> ToolExecutionResult:
         before_revision = ctx.world_revision
+        if ctx.execution_terminal():
+            return ToolExecutionResult(str(tool.ref), False, False, False, False, 0, None, [], {},
+                before_revision, before_revision, "runtime_agent", "benchmark_terminal", "No new Tool after terminal",
+                official_terminal_observed=True)
         attempt_id = f"tool_attempt_{uuid.uuid4().hex}"
         from ..tooling.entry_contract import check_tool_entry
         entry = check_tool_entry(tool, bindings, ctx.harness, ctx.evidence_store, ctx.world_revision)
@@ -114,11 +118,8 @@ class ToolRunner:
             else:
                 failure_index, failure_code, failure_message = index, "tool_primitive_rejected", "Harness rejected primitive"
                 break
-            if result.won:
-                terminal_interrupted = True
-                break
-            if result.done:
-                failure_index, failure_code, failure_message = index, "tool_execution_error", "environment ended without success"
+            if result.won or result.done:
+                terminal_interrupted = index + 1 < len(steps)
                 break
         completed = failure_index is None and not terminal_interrupted and executed == len(steps)
         outputs: dict[str, Any] = {}
@@ -147,6 +148,7 @@ class ToolRunner:
             executed, failure_index, partial, outputs, before_revision, ctx.world_revision,
             "tool" if failure_code else "", failure_code, failure_message,
             terminal_interrupted=terminal_interrupted,
+            official_terminal_observed=ctx.execution_terminal(),
             intrinsic_failure=bool(failure_index is not None and not terminal_interrupted),
             executed_node_count=executed,
             remaining_node_count=max(0, len(steps) - executed),
@@ -716,8 +718,12 @@ class ToolRunner:
                     f"exhausted at node {node.get('node_id')}"
                 )
                 return "FAIL_TOOL"
-            if state.failure_code or terminal:
-                return "BENCHMARK_TERMINAL" if terminal else "FAIL_TOOL"
+            if state.failure_code:
+                return "FAIL_TOOL"
+            # Follow the original PC and lexical scopes after terminal. Only
+            # local control/RETURN is legal; never skip a pending world action.
+            if terminal and node.get("op") == "ACTION":
+                return "BENCHMARK_TERMINAL"
             state.executed_nodes.append(node_id)
             state.path_tokens.append(node_id)
             opcode = str(node.get("op", ""))
@@ -760,14 +766,8 @@ class ToolRunner:
                     )
                     state.program_node_id = str(node.get("node_id", ""))
                     return "FAIL_TOOL"
-                if outcome["won"]:
+                if outcome["won"] or outcome["done"]:
                     terminal.append(outcome)
-                    return "BENCHMARK_TERMINAL"
-                if outcome["done"]:
-                    state.failure_code = "tool_execution_error"
-                    state.failure_message = "environment ended without success"
-                    state.program_node_id = str(node.get("node_id", ""))
-                    return "FAIL_TOOL"
             elif opcode == "IF":
                 condition = dict(node.get("condition") or {})
                 branch_taken = evaluate_condition(
@@ -819,7 +819,7 @@ class ToolRunner:
                 seen = []
                 try:
                     while count < max_iterations:
-                        if state.failure_code or terminal:
+                        if state.failure_code:
                             break
                         if live:
                             # The selector belongs to the enclosing scope, not
@@ -1023,14 +1023,15 @@ class ToolRunner:
             ctx.trace_builder.finish_span(span_id)
             raise
 
-        terminal_interrupted = bool(terminal and terminal[0].get("won"))
+        terminal_interrupted = bool(terminal and control_signal == "BENCHMARK_TERMINAL")
         outputs = dict(state.outputs)
         output_validation = self.validator.validate_output(tool, outputs)
         completed = bool(control_signal == "RETURN_PROGRAM")
         if completed and not output_validation.passed:
             completed = False
-            state.failure_code = "tool_output_schema_error"
-            state.failure_message = "; ".join(output_validation.messages)
+            if not state.failure_code:
+                state.failure_code = "tool_output_schema_error"
+                state.failure_message = "; ".join(output_validation.messages)
         final_effects = [dict(item) if isinstance(item, dict) else to_primitive(item) for item in tool.artifact.get("final_effects", [])]
         observed_effects: list[dict[str, Any]] = []
         missing_effects: list[dict[str, Any]] = []
@@ -1044,7 +1045,7 @@ class ToolRunner:
                 observed_effects.append(dict(effect))
             else:
                 missing_effects.append(dict(effect))
-        atomic_effect_passed = False
+        atomic_effect_passed = not final_effects
         validate_effect = getattr(ctx.harness.validator_channel(), "validate_atomic_effect", None)
         if callable(validate_effect) and final_effects:
             atomic_effect_passed = bool(validate_effect({
@@ -1081,6 +1082,12 @@ class ToolRunner:
             "missing_effects": [dict(item) for item in missing_effects],
             "failure_code": "" if atomic_effect_passed else "tool_ir_final_effect_failed",
         }
+        if completed and not atomic_effect_passed:
+            completed = False
+            if not state.failure_code:
+                state.failure_code = "tool_ir_final_effect_failed"
+                state.failure_message = "Tool did not fulfil all authored final effects"
+        completed = completed and not state.failure_code
         failure_layer = ""
         failure_code = state.failure_code
         failure_message = state.failure_message
@@ -1124,6 +1131,7 @@ class ToolRunner:
                 terminal_interrupted=terminal_interrupted,
                 final_effect_result=final_effect_result,
             ),
+            official_terminal_observed=ctx.execution_terminal(),
         )
         ctx.trace_builder.finish_span(span_id)
         ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(

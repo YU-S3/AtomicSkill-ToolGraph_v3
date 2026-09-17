@@ -58,8 +58,8 @@ def run(config_path, output):
     output.mkdir(parents=True, exist_ok=False)
     config = isolated_config(load_config(config_path), output)
     config['experiment']['task_manifest_path'] = None
-    if config.get('repair_revision') != 'R10.2':
-        raise ValueError('R10.2 configuration required')
+    if config.get('repair_revision') != 'R10.2.1':
+        raise ValueError('R10.2.1 configuration required')
     manifest = {'formal_experiment': False, 'fixture_active_status_not_lifecycle_evidence': True,
         'code_hash': hash_code(REPO), 'config_hash': hash_config(config), 'env_index': 0,
         'contracts': to_primitive(contracts())}
@@ -128,7 +128,7 @@ def run(config_path, output):
             plan = RuntimeLinearPlan(task.task_id, 'atomic_composition', None, occurrences,
                 ['upstream', 'downstream'], [], edges, system.harness.task_contract(task), {'acceptance_fixture': True})
             ctx = TaskRuntimeContext.create(task, plan, system.harness, trace_builder,
-                RuntimeBudget(global_action_budget=100, node_action_budget=35))
+                RuntimeBudget(global_action_budget=100))
             ctx.runtime_config = config['runtime']
             ctx.task_goal = ('TARGETED DATAFLOW ACCEPTANCE, not the episode goal: choose a destination '
                 'from public observation/catalog and invoke the offered reach implementation. '
@@ -141,7 +141,8 @@ def run(config_path, output):
             for occurrence in occurrences:
                 ctx.budget.begin_node(occurrence.occurrence_id)
                 ctx.binding_store.apply_data_flow(plan, occurrence.step_id, ctx.validated_outputs, revision=ctx.world_revision)
-                ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
+                ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision,
+                    input_specs=system.skills.get_atomic(occurrence.node_ref).inputs)
                 ctx.begin_occurrence(occurrence)
                 result = VerifiedCompositeExecutor(system.orchestrator.node_executor).run_occurrence(occurrence, ctx)
                 results.append(result)
@@ -151,10 +152,12 @@ def run(config_path, output):
                 if not result.atomic_effect_passed:
                     break
                 refs = system.orchestrator._latest_atomic_witnesses(ctx, occurrence.occurrence_id)
-                ctx.binding_store.publish_validated_outputs(occurrence, result.validated_outputs, refs, ctx.world_revision)
+                ctx.binding_store.publish_validated_outputs(occurrence, result.validated_outputs, refs, ctx.world_revision,
+                    certified_bindings=result.validated_output_bindings)
                 ctx.validated_outputs[occurrence.occurrence_id] = dict(result.validated_outputs)
                 for role, value in result.validated_outputs.items():
-                    ctx.evidence_store.add_validated_tool_output(role, value, refs)
+                    ctx.evidence_store.add_validated_tool_output(role, value, refs,
+                        certified_binding=result.validated_output_bindings[role], occurrence_id=occurrence.occurrence_id)
             system._attach_external_sessions(trace, system._observed_sessions)
             trace.llm_usage = [event.to_dict() for event in system.usage.events]
             trace.metadata['usage_reconciliation'] = _reconcile_events(system.usage.events)
@@ -187,7 +190,7 @@ def run(config_path, output):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='configs/alfworld_train_full_120_r102_seed42.yaml')
+    parser.add_argument('--config', default='configs/alfworld_train_full_120_r1021_seed42.yaml')
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
     raise SystemExit(0 if run(args.config, args.output)['passed'] else 1)

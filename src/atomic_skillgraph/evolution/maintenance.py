@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import re
 from collections import Counter, defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 from ..core.contracts import AbstractAtomicSkill, CompositeSkill, ToolAsset
@@ -15,7 +15,7 @@ from ..core.refs import SkillRef, ToolRef, bump_version, content_hash
 from ..core.results import RuntimeLinearPlan, RuntimeOccurrence
 from ..core.serialization import to_primitive
 from ..core.status import RuntimeMode, SkillStatus, ToolStatus
-from ..traces.canonical import failure_prefix_action_indices
+from ..traces.canonical import failure_prefix_action_indices, canonical_action_indices, canonical_trace_records
 from .repair import RepairProposal, RepairStore
 from .aligner import _atomic_signature
 from .repair_session import EvolutionToolCandidateProposal, EvolutionToolEditProposal
@@ -29,6 +29,37 @@ from .typed_repairs import RepairEvidence
 class ExtractionDecision:
     should_extract: bool
     reasons: list[str]
+    uncovered_event_ids: list[str] = field(default_factory=list)
+
+
+def uncovered_successful_runtime_work(trace: Any) -> list[str]:
+    """Event coverage, not occurrence coverage; rolled-back work is not positive."""
+    if not (trace.benchmark_success and trace.learning_eligible) or trace.infrastructure_failure:
+        return []
+    spans = {s.span_id: s for s in canonical_trace_records(trace, "runtime_spans")}
+    committed = {
+        record.span_id for record in canonical_trace_records(trace, "tool_executions")
+        if record.result.get("started") and record.result.get("completed")
+        and not record.result.get("failure_code")
+        and not record.result.get("terminal_interrupted")
+    }
+    already = set(trace.metadata.get("extracted_event_ids", []))
+    uncovered = []
+    for index in canonical_action_indices(trace):
+        action = trace.environment_actions[index]
+        if not action.accepted or action.action_id in already:
+            continue
+        cursor, seen, covered = action.span_id, set(), False
+        while cursor and cursor not in seen:
+            seen.add(cursor)
+            if cursor in committed:
+                covered = True
+                break
+            span = spans.get(cursor)
+            cursor = span.parent_span_id if span else None
+        if not covered:
+            uncovered.append(action.action_id)
+    return uncovered
 
 
 @dataclass
@@ -54,16 +85,17 @@ class ExtractionPolicy:
     def __init__(
         self, *, extract_full_dynamic_success: bool = True,
         extract_task_rescue_success: bool = True,
-        extract_novel_seeded_success: bool = True,
         skip_stable_direct_success: bool = True,
     ) -> None:
         self.extract_full_dynamic_success = bool(extract_full_dynamic_success)
         self.extract_task_rescue_success = bool(extract_task_rescue_success)
-        self.extract_novel_seeded_success = bool(extract_novel_seeded_success)
         self.skip_stable_direct_success = bool(skip_stable_direct_success)
 
     def decide(self, trace: Any) -> ExtractionDecision:
         reasons: list[str] = []
+        if not (trace.benchmark_success and trace.learning_eligible) or trace.infrastructure_failure:
+            return ExtractionDecision(False, [])
+        uncovered = uncovered_successful_runtime_work(trace)
         strict_success = bool(
             getattr(trace, "strict_task_success", False)
             or (
@@ -79,10 +111,8 @@ class ExtractionPolicy:
             reasons.append("full_dynamic_success")
         if self.extract_task_rescue_success and trace.task_rescue_required and strict_success:
             reasons.append("task_rescue_success")
-        if self.extract_novel_seeded_success and any(node.status == "seeded_success" for node in trace.node_records):
-            known = {span.occurrence_id for span in trace.runtime_spans if span.kind == "tool"}
-            if any(node.status == "seeded_success" and node.occurrence_id not in known for node in trace.node_records):
-                reasons.append("novel_seeded_span")
+        if uncovered:
+            reasons.append("uncovered_successful_runtime_work")
         if any(
             span.learnable
             and (
@@ -99,11 +129,11 @@ class ExtractionPolicy:
             and not reasons
         ):
             reasons.append("stable_direct_diagnostic")
-        return ExtractionDecision(bool(reasons), list(dict.fromkeys(reasons)))
+        return ExtractionDecision(bool(reasons), list(dict.fromkeys(reasons)), uncovered)
 
     def should_extract(self, trace: Any) -> bool:
         decision = self.decide(trace)
-        trace.extraction_policy = {"should_extract": decision.should_extract, "reasons": decision.reasons}
+        trace.extraction_policy = {"should_extract": decision.should_extract, "reasons": decision.reasons, "uncovered_event_ids": decision.uncovered_event_ids}
         return decision.should_extract
 
 

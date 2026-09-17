@@ -1069,7 +1069,7 @@ def test_normal_runtime_direct_repeat_commit_is_not_cold_start_only() -> None:
 
     class _AtomicValidator:
         @staticmethod
-        def validate(*_args: Any, **_kwargs: Any) -> ValidationResult:
+        def validate_execution_result(*_args: Any, **_kwargs: Any) -> ValidationResult:
             return ValidationResult.ok("atomic", effect_satisfied=True)
 
     class _TraceBuilder:
@@ -1122,6 +1122,7 @@ def test_normal_runtime_direct_repeat_commit_is_not_cold_start_only() -> None:
     trace_builder = _TraceBuilder()
     ctx = SimpleNamespace(
         trace_builder=trace_builder,
+        execution_terminal=lambda: False,
         binding_store=binding_store,
         harness=SimpleNamespace(
             validator_channel=lambda: SimpleNamespace(),

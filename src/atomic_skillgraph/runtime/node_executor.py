@@ -197,10 +197,7 @@ class NodeExecutor:
                 0, int(snapshot.get("remaining_global_actions", 0))
             ),
         }
-        if bool(snapshot.get("node_budget_active")):
-            result["remaining_node_actions"] = max(
-                0, int(snapshot.get("remaining_node_actions", 0))
-            )
+        result["node_actions_used"] = int(snapshot.get("used_node_actions", 0))
         return result
 
     @staticmethod
@@ -968,6 +965,7 @@ class NodeExecutor:
             atomic.inputs,
             resolution.witness_refs,
             ctx.world_revision,
+            certified_bindings=resolution.certified_input_bindings,
         )
         repeat_commit = ctx.binding_store.commit_repeat_bindings(
             occurrence.step_id,
@@ -1029,6 +1027,8 @@ class NodeExecutor:
             True,
             realized_bindings=committed,
             validated_outputs=dict(resolution.output_candidates),
+            validated_output_bindings=dict(resolution.validated_output_bindings),
+            certified_input_bindings=dict(resolution.certified_input_bindings),
             atomic_witness_refs=list(resolution.witness_refs),
             before_state_ref="",
             after_state_ref=f"revision:{ctx.world_revision}",
@@ -1361,6 +1361,9 @@ class NodeExecutor:
                 "message": str(exc),
             }
 
+        consumer_scope = getattr(occurrence, "consumer_scope", "node")
+        draft.metadata.update(consumer_scope=consumer_scope,
+            parent_atomic_ref="" if consumer_scope == "task" else str(occurrence.node_ref))
         serialized_draft = to_primitive(draft)
         occurrence_id = str(occurrence.occurrence_id)
         if str(draft.source_occurrence_id) != occurrence_id:
@@ -1536,10 +1539,13 @@ class NodeExecutor:
     ) -> ImplementationExecutionResult:
         """Return control without presenting the trial as parent success."""
 
-        return self.not_started(
-            occurrence,
-            failure_code="runtime_automation_terminal_boundary",
-        )
+        result = self.not_started(occurrence, failure_code="")
+        # The Agent entered this node, but no parent Implementation completed.
+        # Keep its execution attribution distinct from unentered future nodes.
+        result.node_status = NodeExecutionStatus.TERMINAL_PARTIAL
+        result.terminal_interrupted = True
+        result.official_terminal_observed = True
+        return result
 
     @staticmethod
     def _runtime_automation_reached_terminal(
@@ -1739,6 +1745,9 @@ class NodeExecutor:
             }
             return finalize(payload)
         arguments = dict(call.arguments.get("arguments") or {})
+        if getattr(occurrence, "consumer_scope", "node") == "task":
+            from .task_runtime import invoke_task_capability
+            return finalize(invoke_task_capability(self, call, occurrence, ctx, candidate))
         output_mapping = self._resolve_support_output_mapping(
             call, candidate,
         )
@@ -1883,7 +1892,7 @@ class NodeExecutor:
                 None,
             )
             if callable(resolve_specs):
-                resolve_specs(support_occurrence, ctx.world_revision)
+                resolve_specs(support_occurrence, ctx.world_revision, input_specs=compiled.atomic.inputs)
             prepared = self.invocation_compiler.prepare_arguments(
                 compiled,
                 call_name=compiled.spec.name,
@@ -2043,6 +2052,7 @@ class NodeExecutor:
             if getattr(result, "started", False):
                 ctx.trace_builder.trace.metadata.setdefault("runtime_support_node_records", []).append({
                     "occurrence_id": support_occurrence.occurrence_id,
+                    "consumer_occurrence_id": occurrence.occurrence_id,
                     "step_id": support_occurrence.step_id,
                     "atomic_ref": str(support_ref), "status": result.node_status.value,
                     "direct_result": to_primitive(result), "validated_outputs": support_outputs,
@@ -2085,189 +2095,9 @@ class NodeExecutor:
                     mode = "seeded"
         return self._runtime_automation_terminal_boundary(occurrence)
 
-    def run_dynamic(
-        self,
-        ctx: Any,
-        *,
-        rescue: bool = False,
-        cold_start_continuation: bool = False,
-        continuation_context: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        clear_occurrence = getattr(ctx, "clear_active_occurrence", None)
-        if callable(clear_occurrence):
-            clear_occurrence()
-        session_kind = (
-            "runtime_dynamic_cold_start_continuation"
-            if cold_start_continuation
-            else "runtime_dynamic"
-        )
-        session = self.session_factory(session_kind, "__task__")
-        session_record = self._record_session_start(
-            session,
-            "ColdStartDynamicContinuationSession"
-            if cold_start_continuation
-            else "DynamicTaskSession",
-            "", ctx,
-        )
-        span_kind = (
-            "cold_start_dynamic_continuation"
-            if cold_start_continuation
-            else "task_rescue" if rescue else "full_dynamic"
-        )
-        span = ctx.trace_builder.start_span(span_kind, "", learnable=True)
-        relevant_history = getattr(ctx, "relevant_history", None)
-        recent_actions = (
-            relevant_history("")
-            if callable(relevant_history)
-            else [
-                item for item in list(getattr(ctx, "action_history", []))
-                if item.get("accepted") is not False
-            ][-5:]
-        )
-        memory = getattr(ctx, "exploration_memory", None)
-        projection_audit: dict[str, Any] = {}
-        prompt = self.context_builder.dynamic_task(
-            task_goal=ctx.task_goal, observation=ctx.observation, action_catalog=ctx.action_catalog,
-            relevant_action_history=recent_actions, remaining_budget=ctx.budget.snapshot(),
-            task_progress=self._task_progress_policy(ctx),
-            exploration_memory=(memory.policy_view() if memory else {}),
-            recent_failed_learned_invocation=getattr(
-                ctx, "last_failed_invocation", None,
-            ),
-            rescue_method_guidance=(
-                self._rescue_method_guidance(ctx) if rescue else None
-            ),
-            projection_audit=projection_audit,
-        )
-        if cold_start_continuation:
-            import json
-            prompt = (
-                "COLD_START_CONTINUATION_CONTEXT_JSON\n"
-                + json.dumps(
-                    to_primitive(continuation_context or {}),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-                + "\n\n"
-                + prompt
-            )
-        tools = [
-            self._environment_tool(ctx, node_level=False),
-            self._status_tool(),
-        ]
-        success = False
-        failure_code = ""
-        loop_guard = ActionLoopGuard()
-
-        def outcome(terminal: Any) -> dict[str, Any]:
-            benchmark_won = bool(
-                getattr(ctx.harness.validator_channel(), "won", False)
-            )
-            task_contract_success = bool(
-                dict(getattr(terminal, "checks", {}) or {}).get(
-                    "task_contract", False,
-                )
-            )
-            return {
-                "benchmark_won": benchmark_won,
-                "task_contract_success": task_contract_success,
-                # v3.2: benchmark won is the sole task-success authority.
-                "strict_success": benchmark_won,
-                "success": benchmark_won,
-                "failure_code": failure_code,
-                "rescue": rescue,
-                "cold_start_continuation": cold_start_continuation,
-            }
-
-        try:
-            terminal = self.validation.task.terminal(
-                ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
-            )
-            if terminal.passed:
-                return outcome(terminal)
-            self._record_runtime_context_projection(
-                ctx,
-                projection_audit,
-                session_id=session.session_id,
-                occurrence_id="",
-                origin="initial",
-            )
-            turn = session.next_turn(prompt, tools=tools)
-            while True:
-                self._record_turn(session, turn, ctx)
-                call = turn.tool_calls[0]
-                if call.name == "report_runtime_status":
-                    self._finalize_tool_result(session, call.call_id, {"accepted": True}, tools)
-                    failure_code = "benchmark_failure"
-                    break
-                action_count_before = len(
-                    ctx.trace_builder.trace.environment_actions
-                )
-                payload, _ = self._execute_environment_call(
-                    call, session, None, ctx,
-                    span_id=span.span_id,
-                    origin=(
-                        "cold_start_dynamic_continuation"
-                        if cold_start_continuation
-                        else "task_rescue" if rescue else "full_dynamic"
-                    ),
-                    loop_guard=loop_guard,
-                )
-                if payload.get("loop_blocked"):
-                    tools = [
-                        self._environment_tool(ctx, node_level=False),
-                        self._status_tool(),
-                    ]
-                    if payload.get("fallback_required"):
-                        self._finalize_tool_result(session, call.call_id, payload, tools)
-                        failure_code = "runtime_action_loop_blocked"
-                        break
-                    turn = session.submit_tool_result(
-                        call.call_id,
-                        payload,
-                        tools=tools,
-                        returned_action_executed=(
-                            len(ctx.trace_builder.trace.environment_actions)
-                            > action_count_before
-                        ),
-                    )
-                    continue
-                terminal = self.validation.task.terminal(ctx.task_contract, ctx.harness.validator_channel(), payload["won"])
-                tools = [
-                    self._environment_tool(ctx, node_level=False),
-                    self._status_tool(),
-                ]
-                if terminal.passed:
-                    self._finalize_tool_result(session, call.call_id, payload, tools)
-                    success = True
-                    break
-                if payload["done"]:
-                    self._finalize_tool_result(session, call.call_id, payload, tools)
-                    failure_code = terminal.failure_codes[0] if terminal.failure_codes else "benchmark_failure"
-                    break
-                turn = session.submit_tool_result(
-                    call.call_id,
-                    payload,
-                    tools=tools,
-                    returned_action_executed=(
-                        len(ctx.trace_builder.trace.environment_actions)
-                        > action_count_before
-                    ),
-                )
-        except AtomicSkillGraphError as exc:
-            if exc.layer == FailureLayer.INFRASTRUCTURE:
-                raise
-            failure_code = exc.code
-        finally:
-            ctx.trace_builder.finish_span(span.span_id)
-            self._finish_session(session_record, session, ctx)
-        terminal = self.validation.task.terminal(
-            ctx.task_contract,
-            ctx.harness.validator_channel(),
-            bool(getattr(ctx.harness.validator_channel(), "won", False)),
-        )
-        result = outcome(terminal)
-        # Keep success aligned with the benchmark terminal authority.
-        result["strict_success"] = result["benchmark_won"]
-        result["success"] = result["benchmark_won"]
-        return result
+    def run_dynamic(self, ctx: Any, *, rescue: bool = False,
+                    cold_start_continuation: bool = False,
+                    continuation_context: dict[str, Any] | None = None) -> dict[str, Any]:
+        from .task_runtime import run_dynamic
+        return run_dynamic(self, ctx, rescue=rescue, cold_start_continuation=cold_start_continuation,
+                           continuation_context=continuation_context)

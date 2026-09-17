@@ -9,8 +9,10 @@ from typing import Any, Callable
 from ..core.bindings import (
     BindingExprKind, BindingExpression, EvidenceStability, GroundingConstraint,
     GroundingConstraintKind, GroundingEvidence,
+    RuntimeBinding, BindingResolution, BindingStatus,
 )
 from ..harness.protocol import HarnessActionSpec
+from ..core.serialization import json_value_key, json_values_equal
 
 
 class GroundingEvidenceStore:
@@ -46,7 +48,7 @@ class GroundingEvidenceStore:
                 # authenticates only a caller-supplied value, never supplies
                 # a missing role or proves a current relationship/existence.
                 if not any(item.evidence_type == "observed_value_identity"
-                           and item.payload.get("value") == value
+                           and json_values_equal(item.payload.get("value"), value)
                            for item in self._evidence.values()):
                     self._add(GroundingEvidence(
                         evidence_id=f"observed_identity:{uuid.uuid4().hex}",
@@ -70,18 +72,25 @@ class GroundingEvidenceStore:
             stability=EvidenceStability.PERSISTENT,
         ))
 
-    def add_validated_tool_output(self, role: str, value: Any, validation_refs: list[str]) -> GroundingEvidence:
+    def add_validated_tool_output(self, role: str, value: Any, validation_refs: list[str],
+                                  *, certified_binding: RuntimeBinding, occurrence_id: str) -> GroundingEvidence:
         if not validation_refs:
             raise ValueError("validated output identity requires validation witnesses")
-        self._add(GroundingEvidence(
-            evidence_id=f"identity:{role}:{uuid.uuid4().hex}", evidence_type="validated_value_identity",
-            payload={"role": role, "value": value, "validation_refs": list(validation_refs)},
-            source="validated_output", observed_at_revision=self.revision,
-            valid_from_revision=self.revision, stability=EvidenceStability.PERSISTENT,
-        ))
+        if (not isinstance(certified_binding, RuntimeBinding) or certified_binding.role != role or not json_values_equal(certified_binding.value, value)
+            or certified_binding.status is not BindingStatus.GROUNDED):
+            raise ValueError('Output identity metadata disagrees with actual value')
+        if certified_binding.resolution is not BindingResolution.SEMANTIC:
+            self._add(GroundingEvidence(
+                evidence_id=f"identity:{role}:{uuid.uuid4().hex}", evidence_type="validated_value_identity",
+                payload={"role": role, "value": value, "validation_refs": list(certified_binding.evidence_refs)},
+                source="validated_output", observed_at_revision=self.revision,
+                valid_from_revision=self.revision, stability=EvidenceStability.PERSISTENT,
+            ))
         return self._add(GroundingEvidence(
             evidence_id=f"tool_output:{role}:{uuid.uuid4().hex}", evidence_type="validated_tool_output",
-            payload={"role": role, "value": value, "validation_refs": list(validation_refs)}, source="tool_output",
+            payload={"role": role, "value": value, "validation_refs": list(validation_refs),
+                     "semantic_type": certified_binding.semantic_type, "resolution": certified_binding.resolution.value,
+                     "source_occurrence_id": occurrence_id}, source="tool_output",
             observed_at_revision=self.revision, valid_from_revision=self.revision,
             stability=EvidenceStability.STATE_SCOPED,
         ))
@@ -122,20 +131,20 @@ class GroundingEvidenceStore:
         constraint = constraint if isinstance(constraint, GroundingConstraint) else GroundingConstraint(**constraint)
         values = self._constraint_values(constraint, bindings)
         valid = [item for item in self._evidence.values() if item.valid_at(revision)]
-        if constraint.kind is GroundingConstraintKind.ARGUMENT_EXISTS:
-            if values is None:
+        if constraint.kind in {GroundingConstraintKind.ARGUMENT_EXISTS, GroundingConstraintKind.ARGUMENT_CONCRETE}:
+            if not values:
                 return []
-            matched = [item for item in valid if item.evidence_type in {"entity_concrete", "task_binding", "validated_tool_output"} and item.payload.get("value") in values.values()]
-            return matched if len(matched) >= len(set(values.values())) else []
-        if constraint.kind is GroundingConstraintKind.ARGUMENT_CONCRETE:
-            if values is None:
-                return []
+            allowed = ({"entity_concrete", "task_binding", "validated_tool_output"}
+                if constraint.kind is GroundingConstraintKind.ARGUMENT_EXISTS else
+                {"entity_concrete", "validated_value_identity", "observed_value_identity"})
+            required = {json_value_key(value) for value in values.values()}
             matched = [
                 item for item in valid
-                if item.evidence_type in {"entity_concrete", "validated_tool_output", "validated_value_identity", "observed_value_identity"}
-                and item.payload.get("value") in values.values()
+                if item.evidence_type in allowed
+                and json_value_key(item.payload.get("value")) in required
             ]
-            return matched if len({item.payload.get("value") for item in matched}) >= len(set(values.values())) else []
+            covered = {json_value_key(item.payload.get("value")) for item in matched}
+            return matched if required <= covered else []
         if constraint.kind is GroundingConstraintKind.HARNESS_AFFORDANCE:
             if values is None:
                 return []

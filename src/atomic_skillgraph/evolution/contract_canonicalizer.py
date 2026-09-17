@@ -798,6 +798,16 @@ class AtomicContractCanonicalizer:
                 for item in occurrence.effects
             ],
             "proposed_ref": atomic_ref or bundle.atomic.ref,
+            "input_provenance_refs": {
+                bundle.input_role_map.get(role, role): copy.deepcopy(value)
+                for role, value in occurrence.input_provenance_refs.items()
+            },
+            "output_derivations": _rewrite_validator_spec(
+                {"output_derivations": occurrence.output_derivations},
+                bundle.input_role_map, bundle.output_role_map)["output_derivations"],
+            "output_semantic_constraints": _rewrite_validator_spec(
+                {"output_semantic_constraints": occurrence.output_semantic_constraints},
+                bundle.input_role_map, bundle.output_role_map)["output_semantic_constraints"],
         }
         return replace(occurrence, **changes)
 

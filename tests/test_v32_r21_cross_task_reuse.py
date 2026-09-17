@@ -10,6 +10,8 @@ are allowed; Extractor, Admission, Registry, and Lifecycle are never bypassed.
 """
 
 from __future__ import annotations
+from fixtures.typed_e1 import entity_ports
+from atomic_skillgraph.evolution.typed_boundary import public_value_authorities
 from fixtures.r102 import compile_fixture
 
 import copy
@@ -375,7 +377,7 @@ class LocatingHarness:
             )
             ctx = TaskRuntimeContext.create(
                 replay_task, plan, self, TraceBuilder(trace),
-                RuntimeBudget(global_action_budget=10, node_action_budget=5),
+                RuntimeBudget(global_action_budget=10),
             )
             bindings = copy.deepcopy(dict(case.get("bindings") or {}))
             result = ToolRunner(ValidationEngine().tool).run(
@@ -499,13 +501,7 @@ def _locate_proposal(atomic: AbstractAtomicSkill) -> dict[str, Any]:
         "outputs": [_param_spec(item) for item in atomic.outputs],
         "program": copy.deepcopy(_LOCATE_PROGRAM),
         "max_actions": 1,
-        "final_effects": [
-            {
-                "predicate": "entity.discovered_at",
-                "args": {"entity": "$entity", "location": "$location"},
-                "effect_domain": "evidence",
-            }
-        ],
+        "final_effects": to_primitive(atomic.effects),
         "evidence_outputs": [],
         "path_expectations": [],
         "rationale": "Bounded deterministic target search.",
@@ -563,7 +559,11 @@ def _locate_e1(
     event_id: str,
     witness_ref: str = "effect:w_locate",
 ) -> dict[str, Any]:
-    return {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
+    return {"boundary_schema_version": "2",
+        "input_specs": [to_primitive(ParameterSpec('target', 'entity', runtime_resolvable=True))],
+        "output_specs": [to_primitive(ParameterSpec('entity', 'entity')), to_primitive(ParameterSpec('location', 'location'))],
+        "output_semantic_constraints": {}, "local_value_authority_refs": [],
+        "guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": "locate_p1",
         "intent": "locate target entity",
         "event_start": 0,
@@ -581,12 +581,10 @@ def _locate_e1(
             }
         ],
         "rationale": "The accepted SEARCH transition discovered the target.",
-        "input_provenance_refs": {"target": "runtime_input:locate_1:target"},
+        "input_provenance_refs": {"target": {'authority_ref': "runtime_input:locate_1:target", 'source_role': 'target'}},
         "output_derivations": {
             "entity": {
-                "kind": "effect_witness",
-                "predicate": "entity.discovered_at",
-                "argument_role": "entity",
+                "kind": "input_identity", "input_role": "target",
             },
             "location": {
                 "kind": "effect_witness",
@@ -673,18 +671,18 @@ def _take_e1(
     location: str,
     event_id: str,
     witness_ref: str,
+    authorities: list[dict],
 ) -> dict[str, Any]:
-    return {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
+    return {**entity_ports(['object', 'location'], ['held_object']), "guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": "take_p1",
         "intent": "take target object",
         "event_start": 0,
         "event_end": 1,
         "support_event_ids": [event_id],
         "input_roles": {"object": target, "location": location},
-        "input_provenance_refs": {
-            "object": f"action_arg:{event_id}:object",
-            "location": f"action_arg:{event_id}:location",
-        },
+        "input_provenance_refs": {role: {'authority_ref': a['authority_ref'], 'source_role': a['role']}
+            for role, value in {'object': target, 'location': location}.items()
+            for a in [next(a for a in authorities if a['value'] == value and a['kind'] == 'public_catalog' and a['available_revision'] == 0)]},
         "output_roles": {"held_object": target},
         "output_derivations": {
             "held_object": {
@@ -724,6 +722,8 @@ def _register_take_graph(
         if fact["predicate"] == "agent.holds"
     )
     normalized["boundary_authorities"]["effects"] = [dict(take_effect)]
+    authorities = public_value_authorities(trace)
+    normalized['boundary_authorities']['inputs'].extend(authorities)
     session = factory.new_session(
         "extractor",
         [FakeReply.structured({"occurrences": [
@@ -732,6 +732,7 @@ def _register_take_graph(
                 _room_for(task.context["target_item"]),
                 str(trace.environment_actions[0].action_id),
                 str(take_effect["witness_ref"]),
+                authorities,
             ),
         ]})],
     )
@@ -1063,7 +1064,7 @@ def test_gate29_cross_task_runtime_tool_reuse(tmp_path: Path) -> None:
     assert {
         expression.source_role
         for expression in learned_atomic.effects[0].args.values()
-    } == {"entity", "location"}
+    } == {"target", "location"}  # entity is an explicit input_identity, not a fresh role.
     assert learned_atomic.status is SkillStatus.CANDIDATE
     assert tools.get(locate_refs["tool_ref"]).status is ToolStatus.CANDIDATE
     assert (
@@ -1245,7 +1246,7 @@ def test_r4_system_retained_atomic_is_retrieved_and_runs_seeded_for_new_entity(
     rejected_tool_payload = _locate_proposal(preview_atomic)
     # The Atomic's final Effect uses its fresh output roles.  Returning the
     # input role here is schema-valid but a strict Tool static mismatch.
-    rejected_tool_payload["final_effects"][0]["args"]["entity"] = {
+    rejected_tool_payload["final_effects"][0]["args"]["location"] = {
         "kind": "skill_input", "source_role": "target",
     }
 
@@ -1407,7 +1408,7 @@ def test_r4_system_retained_atomic_is_retrieved_and_runs_seeded_for_new_entity(
         plan,
         harness,
         TraceBuilder(trace_b),
-        RuntimeBudget(global_action_budget=10, node_action_budget=5),
+        RuntimeBudget(global_action_budget=10),
     )
     ctx.binding_store.resolve_occurrence_specs(
         occurrence, ctx.world_revision,

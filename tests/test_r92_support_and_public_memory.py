@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.certified_values import concrete_entities
 
 from types import SimpleNamespace
 
@@ -310,6 +311,7 @@ def test_dataflow_obligation_projects_supported_and_unknown_public_relation() ->
         {"destination": "desk_2"},
         ["validator:nav"],
         2,
+        certified_bindings=concrete_entities({'destination': 'desk_2'}, ['validator:nav'], 2),
     )
     builder = RuntimePlanContextBuilder(_Registry(navigate, take))
 
@@ -585,6 +587,7 @@ def test_downstream_relation_never_projects_validator_only_truth() -> None:
         {"destination": "desk_2"},
         ["validator:nav"],
         2,
+        certified_bindings=concrete_entities({'destination': 'desk_2'}, ['validator:nav'], 2),
     )
     executor = NodeExecutor.__new__(NodeExecutor)
     executor.plan_context_builder = RuntimePlanContextBuilder(
@@ -1034,6 +1037,7 @@ def test_support_success_publishes_to_parent_and_refreshes_after_revision() -> N
         True,
         validated_outputs={"location": "desk_2"},
         atomic_witness_refs=["fixture:validated_support"],
+        validated_output_bindings=concrete_entities({'location': 'desk_2'}, ['fixture:validated_support'], 1),
     )
 
     payload = executor._invoke_support_atomic_call(

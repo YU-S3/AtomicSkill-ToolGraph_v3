@@ -1178,6 +1178,11 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "runtime_automation_funnel": automation_funnel,
         "runtime_support_funnel": support_funnel,
         "r10_metrics": dict(metadata.get("r10_metrics", {})),
+        "r1021_retired_limits": dict(metadata.get("r1021_retired_limits", {})),
+        "r1021_learning_coverage": {
+            "uncovered_event_ids": list(_mapping(_field(trace, "extraction_policy", {})).get("uncovered_event_ids", [])),
+            "extracted_event_ids": list(metadata.get("extracted_event_ids", [])),
+        },
         "r101_metrics": dict(metadata.get("r101_metrics", {})),
         **tool_replay,
         **r21_runtime,
@@ -1613,6 +1618,10 @@ def summarize_traces(
         "runtime_automation_funnel": automation_funnel,
         "runtime_support_funnel": support_funnel,
         "r10_metrics": aggregate_r10_metrics(task_rows),
+        "r1021_retired_limit_crossings": [
+            {"task_id": row["task_id"], **row["r1021_retired_limits"]}
+            for row in task_rows if row.get("r1021_retired_limits", {}).get("crossings")
+        ],
         "r101_metrics": aggregate_r101_metrics(task_rows),
         **{
             # Replay is a resource-level diagnostic. Failed attempts and

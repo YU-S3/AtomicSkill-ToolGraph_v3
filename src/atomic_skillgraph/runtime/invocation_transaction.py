@@ -86,13 +86,15 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
             {binding.role: binding for binding in preflight.binding_updates})
         result = runner.run(compiled, preflight, occurrence, ctx,
                             agent_prepared=agent_prepared, execution_scope=execution_scope)
-        transaction.accepted = bool(result.atomic_effect_passed)
+        transaction.accepted = bool(result.completed and result.atomic_effect_passed and not result.failure_code)
         if transaction.accepted and accept_result is not None:
             report = accept_result(result)
             transaction.accepted = report.passed
             if not report.passed:
                 result.atomic_effect_passed = False
                 result.validated_outputs = {}
+                result.validated_output_bindings = {}
+                result.certified_input_bindings = {}
                 result.failure_layer = 'runtime_binding'
                 result.failure_code = report.failure_codes[0]
         transaction.failure_code = result.failure_code or 'invocation_rejected'

@@ -429,6 +429,8 @@ def build_runtime_automation_interface(
     )
     return {
         "schema_version": RUNTIME_AUTOMATION_INTERFACE_VERSION,
+        "consumer_scope": getattr(occurrence, "consumer_scope", "node"),
+        "parent_atomic_ref": "" if getattr(occurrence, "consumer_scope", "node") == "task" else str(occurrence.node_ref),
         "source_occurrence_id": dynamic["source_occurrence_id"],
         "primitive_actions": public_primitive_action_schema(harness),
         "predicate_vocabulary": public_predicate_schema(harness),
@@ -635,6 +637,7 @@ def resolve_runtime_automation_inputs(
             "resolution": str(resolved_binding.resolution.value),
             "source": str(resolved_binding.source.value),
             "world_revision": int(resolved_binding.world_revision),
+            "available_revision": int(ctx.world_revision),
             "evidence_refs": [str(ref) for ref in resolved_binding.evidence_refs],
             "authority_ref": f"runtime_input:{draft.draft_id}:{role}",
         }

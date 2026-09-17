@@ -141,6 +141,7 @@ def _normalized_take(value: str = "apple_1") -> dict[str, Any]:
                 "source_kind": "action_argument",
                 "role": "item",
                 "value": value,
+                "semantic_type": "entity", "resolution": "concrete", "available_revision": 0,
             }],
             "effects": [effect],
         },
@@ -163,11 +164,14 @@ def _take_proposal(value: str = "apple_1") -> AtomicOccurrenceProposal:
         support_event_ids=["e0"],
         precondition_witness_refs=[],
         effect_witness_refs=["action:e0:revision:1"],
-        input_provenance_refs={"item": "action_arg:e0:item"},
+        input_provenance_refs={"item": {"authority_ref": "action_arg:e0:item", "source_role": "item"}},
         output_derivations={
             "result": {"kind": "input_identity", "input_role": "item"},
         },
         input_provenance_contract="code_authority_v3_2",
+        boundary_schema_version="2",
+        input_specs=[ParameterSpec('item', 'entity', required_resolution='concrete')],
+        output_specs=[ParameterSpec('result', 'entity', required_resolution='concrete')],
     )
 
 
@@ -1092,7 +1096,7 @@ def test_final_effect_output_role_example_passes_schema_static_and_tool_runner()
         plan,
         harness,
         TraceBuilder(trace),
-        RuntimeBudget(global_action_budget=5, node_action_budget=5),
+        RuntimeBudget(global_action_budget=5),
     )
     result = ToolRunner(ValidationEngine().tool).run(
         compiled.tool,

@@ -596,6 +596,11 @@ class ReplayAgentSession:
         self, *, returned_action_executed: bool = False,
     ) -> None:
         if self._budget_tracker is not None:
+            remaining = getattr(self, "shared_remaining_tokens", None)
+            if callable(remaining):
+                from dataclasses import replace
+                self._budget_tracker.budget = replace(self._budget_tracker.budget,
+                    max_total_tokens=self._budget_tracker.used_total_tokens + max(0, int(remaining())))
             self._budget_tracker.check_before_call(
                 returned_action_executed=returned_action_executed,
             )
@@ -1331,8 +1336,8 @@ def _compact_replay_budget(value: Any) -> dict[str, int] | None:
     aliases = (
         ("remaining_global_actions", "remaining_global_actions"),
         ("task_actions_remaining", "remaining_global_actions"),
-        ("remaining_node_actions", "remaining_node_actions"),
-        ("node_actions_remaining", "remaining_node_actions"),
+        ("used_node_actions", "node_actions_used"),
+        ("node_actions_used", "node_actions_used"),
     )
     for source, target in aliases:
         if source not in value or target in result:

@@ -114,7 +114,7 @@ def _take_occurrence(
         [SemanticPredicate("agent.holds", {"object": object_name})],
         "verified transition",
     )
-    return Atomicizer().validate_and_canonicalize(
+    return Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [proposal], normalized,
     )[0]
 
@@ -644,11 +644,12 @@ def test_terminal_outcome_truth_table(
 
 
 def test_token_exhaustion_codes_are_task_and_node_scoped() -> None:
-    task_budget = RuntimeBudget(
-        token_limits={"runtime_dynamic": 1},
-    )
+    # Historical failure-code reporting remains readable. Usage enforcement
+    # itself now belongs to BudgetTracker, not RuntimeBudget's removed ledger.
+    from atomic_skillgraph.agents.usage import AgentBudget, BudgetTracker, LLMUsage
+    task_budget = BudgetTracker(AgentBudget(10, 1, 'runtime_task_token_budget_exhausted'))
     with pytest.raises(BudgetExhausted) as task_error:
-        task_budget.consume_llm("runtime_dynamic", 2)
+        task_budget.consume(LLMUsage(total_tokens=2, call_count=1))
     assert task_error.value.code == "runtime_task_token_budget_exhausted"
     task_failure = FailureLocalizer().localize(
         code=task_error.value.code,
@@ -660,11 +661,9 @@ def test_token_exhaustion_codes_are_task_and_node_scoped() -> None:
     )
     assert task_failure.layer is FailureLayer.RUNTIME_AGENT
 
-    node_budget = RuntimeBudget(
-        token_limits={"runtime_seeded": 1},
-    )
+    node_budget = BudgetTracker(AgentBudget(10, 1, 'runtime_node_token_budget_exhausted'))
     with pytest.raises(BudgetExhausted) as node_error:
-        node_budget.consume_llm("runtime_seeded", 2)
+        node_budget.consume(LLMUsage(total_tokens=2, call_count=1))
     assert node_error.value.code == "runtime_node_token_budget_exhausted"
     node_failure = FailureLocalizer().localize(
         code=node_error.value.code,

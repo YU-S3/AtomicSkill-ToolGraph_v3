@@ -385,16 +385,17 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         failure_layer = _result_failure_layer(result, preflight)
         outcome: CreditOutcome | None = None
         if started:
-            if terminal_interrupted:
+            if terminal_interrupted and not _field(result, "failure_code", ""):
                 # Benchmark terminal authority interrupts Tool IR.  The current
                 # occurrence is not evidence for a completed Implementation, and
                 # it must not be recorded as an intrinsic failure either.
-                continue
-            outcome = (
-                CreditOutcome.DIRECT_SUCCESS
-                if completed and atomic_passed
-                else CreditOutcome.DIRECT_FAILURE
-            )
+                outcome = None
+            else:
+                outcome = (
+                    CreditOutcome.DIRECT_SUCCESS
+                    if completed and atomic_passed
+                    else CreditOutcome.DIRECT_FAILURE
+                )
             if outcome is CreditOutcome.DIRECT_FAILURE and not failure_layer:
                 raise CreditAssignmentError(
                     f"started failed Implementation lacks failure_layer: "
@@ -515,6 +516,7 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
     runtime_plan = _field(trace, "runtime_plan", {}) or {}
     composite_ref = _field(runtime_plan, "source_composite_ref", None)
     if composite_ref:
+        deployment = composite_deployment_evidence(trace)
         composite_ref = str(composite_ref)
         planner_audit = _field(runtime_plan, "planner_audit", {}) or {}
         selected_authority = _field(
@@ -561,20 +563,8 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         if bool(_field(trace, "task_rescue_required", False)):
             composite_outcome = CreditOutcome.TASK_RESCUE_REQUIRED
             composite_layer = FailureLayer.COMPOSITE.value
-        elif (
-            bool(_field(trace, "graph_self_sufficient_success", False))
-            and (not terminal_empirical or terminal_candidate_executed)
-        ):
+        elif deployment['success']:
             composite_outcome = CreditOutcome.SELF_SUFFICIENT_SUCCESS
-        elif bool(_field(trace, "benchmark_success", False)) and not bool(
-            _field(
-                trace,
-                "task_contract_success",
-                _field(trace, "learning_eligible", False),
-            )
-        ):
-            composite_outcome = CreditOutcome.CONTRACT_MISMATCH
-            composite_layer = FailureLayer.TASK_CONTRACT.value
         if composite_outcome is not None:
             attempts.append(
                 CreditAttempt(
@@ -589,14 +579,9 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
             )
             sequence += 1
 
-        deployment_success = bool(
-            _field(trace, "benchmark_success", False)
-            and _field(trace, "task_contract_success", False)
-            and _field(trace, "graph_self_sufficient_success", False)
-            and _field(trace, "graph_full_completion", False)
-            and not _field(trace, "task_rescue_required", False)
-            and _trace_has_graph_execution_evidence(trace)
-        )
+        if not deployment['executed']:
+            return tuple(attempts)
+        deployment_success = deployment['success']
         attempts.append(
             CreditAttempt(
                 artifact_ref=composite_ref,
@@ -610,6 +595,7 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
                     else CreditOutcome.DEPLOYMENT_UNSUCCESSFUL
                 ),
                 metadata={
+                    **deployment,
                     "benchmark_success": bool(_field(trace, "benchmark_success", False)),
                     "task_contract_success": bool(
                         _field(trace, "task_contract_success", False)
@@ -623,7 +609,7 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
                     "task_rescue_required": bool(
                         _field(trace, "task_rescue_required", False)
                     ),
-                    "graph_execution_evidence": _trace_has_graph_execution_evidence(trace),
+                    "graph_execution_evidence": deployment['executed'],
                 },
             )
         )
@@ -631,26 +617,50 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
     return tuple(attempts)
 
 
-def _trace_has_graph_execution_evidence(trace: Mapping[str, Any] | Any) -> bool:
-    """Return code-authoritative evidence that a selected graph actually ran."""
-
-    for span in _field(trace, "runtime_spans", ()) or ():
-        try:
-            if int(_field(span, "action_end", 0)) > int(_field(span, "action_start", 0)):
-                return True
-        except (TypeError, ValueError):
+def composite_deployment_evidence(trace) -> dict[str, Any]:
+    """Pure, canonical event ownership; official outcome is not Tool completeness."""
+    plan = _field(trace, 'runtime_plan', {}) or {}
+    graph_ids = {str(_field(n, 'occurrence_id', '')) for n in _field(trace, 'node_records', ())}
+    graph_ids.discard('')
+    spans = {str(_field(s, 'span_id', '')): s for s in _field(trace, 'runtime_spans', ())}
+    from ..traces.canonical import canonical_action_indices
+    actions = _field(trace, 'environment_actions', [])
+    owned, terminal = [], []
+    for index in canonical_action_indices(trace):
+        action = actions[index]
+        if not _field(action, 'accepted', False):
             continue
-    for name in ("implementation_invocations", "tool_executions"):
-        for record in _field(trace, name, ()) or ():
-            result = _field(record, "result", {}) or {}
-            if bool(_field(result, "started", False)):
-                return True
-    for node in _field(trace, "node_records", ()) or ():
-        for name in ("direct_result", "seeded_result"):
-            result = _field(node, name, {}) or {}
-            if bool(_field(result, "started", False)):
-                return True
-    return False
+        span_id = str(_field(action, 'span_id', ''))
+        visited = set()
+        belongs = False
+        while span_id in spans and span_id not in visited:
+            visited.add(span_id)
+            span = spans[span_id]
+            if str(_field(span, 'occurrence_id', '')) in graph_ids:
+                belongs = True
+                break
+            span_id = str(_field(span, 'parent_span_id', ''))
+        if not belongs:
+            belongs = any(str(_field(s, 'occurrence_id', '')) in graph_ids
+                and int(_field(s, 'action_start', 0)) <= index < int(_field(s, 'action_end', 0))
+                for s in spans.values())
+        if belongs:
+            owned.append(index)
+            if _field(action, 'won', False):
+                terminal.append(index)
+    rescue = bool(_field(trace, 'task_rescue_required', False))
+    polluted = bool(_field(trace, 'infrastructure_failure', False))
+    excluded = _field(_field(_field(trace, 'metadata', {}), 'runtime_trial_credit_exclusions', {}),
+                      'implementation_attempt_ids', ())
+    started = [str(_field(item, 'attempt_id', '')) for item in _field(trace, 'implementation_invocations', ())
+               if str(_field(item, 'occurrence_id', '')) in graph_ids
+               and bool(_field(_field(item, 'result', {}), 'started', False))
+               and str(_field(item, 'attempt_id', '')) not in excluded]
+    return {'source_composite_ref': _field(plan, 'source_composite_ref', None),
+        'executed': bool(owned or started), 'graph_action_indices': owned, 'terminal_action_indices': terminal,
+        'started_implementation_attempt_ids': started,
+        'rescue': rescue, 'official_won': bool(_field(trace, 'benchmark_success', False)),
+        'success': bool(_field(trace, 'benchmark_success', False) and terminal and not rescue and not polluted)}
 
 
 def _field(value: Mapping[str, Any] | Any, name: str, default: Any = None) -> Any:

@@ -188,15 +188,9 @@ def test_extractor_e1_contains_only_the_frozen_boundary_replacements() -> None:
         "The precondition boundary is exactly canonical_trace.actions[event_start]."
         "authoritative_before_state_facts."
     ) in instruction
-    assert (
-        "for every input role r, select exactly one supplied "
-        "boundary_authorities.inputs entry a with a.role == r and "
-        "a.value == input_roles[r]; then copy a.authority_ref exactly;"
-    ) in instruction
-    assert (
-        "this equality applies to the Atomic input role and the input authority "
-        "role, not to a predicate's argument name."
-    ) in instruction
+    assert 'input_provenance_refs[formal_role]' in instruction
+    assert '{authority_ref, source_role}' in instruction
+    assert 'allowed only through that explicit mapping' in instruction
     assert (
         "precondition_witness_refs must name those exact entry-state certificates, "
         "with matching predicate, arguments, and effect_domain;"
@@ -217,8 +211,8 @@ def test_extractor_e1_contains_only_the_frozen_boundary_replacements() -> None:
     # Existing non-boundary extraction semantics remain present.
     assert "support_event_ids, not envelope overlap" in instruction
     assert "shared_precondition_event_ids is not a general list" in instruction
-    assert "bounded Runtime-created automation that has passed R1" in instruction
-    assert "collectively cover every supplied" in instruction
+    assert 'existing ToolBuilder' in instruction
+    assert "incomplete Composite coverage must not force invented capabilities" in instruction
     assert "preconditions:\n- may be empty;" not in instruction
 
 
@@ -226,10 +220,10 @@ def test_r7_b1_extractor_explains_code_owned_semantic_aliases() -> None:
     prompt = ContextBuilder().extractor_e1(canonical_trace={"actions": []})
     instruction = prompt.split(_POLICY_SEPARATOR, 1)[0]
 
-    assert "code-owned semantic_alias" in instruction
-    assert "copying its role, value, and authority_ref exactly" in instruction
-    assert "Never invent an alias" in instruction
-    assert "rename an action_argument authority yourself" in instruction
+    assert 'public_binding/public_catalog' in instruction
+    assert 'Do not invent authority references' in instruction
+    assert 'entry time and occurrence/task scope must match' in instruction
+    assert 'Formal-role renaming' in instruction
 
 
 def test_r7_b2_extractor_requires_predicate_role_closure() -> None:
@@ -255,7 +249,7 @@ def test_r7_b3_extractor_forbids_reclassifying_input_as_fresh_output() -> None:
         "do not reclassify that existing identity as a fresh output"
     ) in instruction
     assert (
-        "distinct concrete identities happen to use the same primitive argument"
+        "use explicit formal-input/source-role mappings, with real authority refs."
     ) in instruction
 
 
@@ -268,6 +262,8 @@ def test_r102_schema_additions_preserve_formal_binding_boundaries() -> None:
         "adapter_transform",
     ]
     assert ATOMIC_EXTRACTION_SCHEMA["required"] == [
+        "boundary_schema_version", "input_specs", "output_specs",
+        "output_semantic_constraints", "local_value_authority_refs",
         "phase_id",
         "intent",
         "event_start",
@@ -308,7 +304,7 @@ def test_r102_schema_additions_preserve_formal_binding_boundaries() -> None:
     assert "later revision is not interchangeable" in (
         atomic_properties["precondition_witness_refs"]["description"]
     )
-    assert "same role" in atomic_properties["input_provenance_refs"]["description"]
+    assert "stated source_role" in atomic_properties["input_provenance_refs"]["description"]
     assert "same value" in atomic_properties["input_provenance_refs"]["description"]
 
     tool_properties = TOOL_PROPOSAL_SCHEMA["properties"]

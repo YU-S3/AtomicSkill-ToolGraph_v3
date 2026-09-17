@@ -13,7 +13,7 @@ from atomic_skillgraph.evolution.atomicizer import Atomicizer
 from atomic_skillgraph.evolution.extractor_session import CompositeExtractionProposal
 from atomic_skillgraph.governance.ledger import EvidenceEvent, EvidenceEventType
 from atomic_skillgraph.system import AtomicSkillGraphSystem, _PreparedEvolution
-from atomic_skillgraph.traces.schema import RuntimeSpan
+from atomic_skillgraph.traces.schema import RuntimeSpan, NodeTraceRecord, EnvironmentActionRecord
 from atomic_skillgraph.validation.contract_matcher import ExactContractMatcher
 from experiments.fakes import FakeHarness, fake_task
 from tests.test_v32_r4_learning_retention import _normalized_take, _take_proposal
@@ -25,7 +25,7 @@ COMPOSITE_REF = "skill://r91-task-review@1.0.0"
 def _config(data_dir: Path) -> dict[str, object]:
     return {
         "schema_version": 3,
-        "repair_revision": "R10.2",
+        "repair_revision": "R10.2.1",
         "data_dir": str(data_dir),
         "trace_data_dir": str(data_dir.parent / "traces"),
         "llm": {
@@ -113,7 +113,10 @@ def _install_runtime_outcome(
         trace.graph_full_completion = successful
         trace.task_rescue_required = task_rescue_required
         trace.infrastructure_failure = infrastructure_failure
-        if successful:
+        if source == 'stored_composite':
+            trace.node_records.append(NodeTraceRecord('occ-1', 'step-1', 'skill://fixture-atomic@1.0.0'))
+            trace.environment_actions.append(EnvironmentActionRecord('a1', 0, 'FIXTURE_ACTION', {},
+                True, 'controlled deployment observation', successful, successful, 1, f'span-{task.task_id}'))
             trace.runtime_spans.append(RuntimeSpan(
                 span_id=f"span-{task.task_id}",
                 kind=source,

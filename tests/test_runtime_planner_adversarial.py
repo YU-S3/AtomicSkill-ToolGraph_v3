@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.certified_values import concrete_entities
 
 import json
 from pathlib import Path
@@ -598,7 +599,8 @@ def test_dataflow_expression_resolves_step_id_to_occurrence_owner() -> None:
     # Register the plan's step/occurrence ownership without applying the edge
     # to its target yet, then resolve the explicit expression.
     store.apply_data_flow(plan, "s1", revision=1)
-    store.publish_validated_outputs(source, {"held": "apple_1"}, ["validator:witness"], 1)
+    store.publish_validated_outputs(source, {"held": "apple_1"}, ["validator:witness"], 1,
+        certified_bindings=concrete_entities({'held': 'apple_1'}, ['validator:witness'], 1))
     store.resolve_occurrence_specs(target, 1)
     assert store.snapshot_for_node(target)["item"].value == "apple_1"
     assert store.snapshot_for_node(target)["item"].source is BindingSource.DATA_FLOW
@@ -661,6 +663,7 @@ def test_dynamic_tool_result_carries_the_new_action_catalog(tmp_path: Path) -> N
         }
         assert first_result["remaining_budget"] == {
             "remaining_global_actions": 9,
+            "node_actions_used": 0,
         }
         initial_prompt = next(
             message["content"] for message in session.snapshot["messages"]
@@ -925,7 +928,7 @@ def test_dynamic_provider_infrastructure_error_is_rethrown(tmp_path: Path) -> No
         scripted.enqueue("planner", planner_gap_replies())
 
         def factory(first, second):
-            if first == "runtime_dynamic":
+            if first == "runtime_step_dynamic":
                 return _InfrastructureSession()
             return scripted(first, second)
 
@@ -1027,6 +1030,7 @@ def test_tool_runner_does_not_relabel_harness_crash_as_tool_failure() -> None:
             return None
 
     context = SimpleNamespace(
+        execution_terminal=lambda: False,
         world_revision=0,
         harness=CrashingHarness(),
         evidence_store=SimpleNamespace(),

@@ -188,6 +188,8 @@ PROPOSED_EDGE_SCHEMA: dict[str, Any] = {
 ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": [
+        "boundary_schema_version", "input_specs", "output_specs",
+        "output_semantic_constraints", "local_value_authority_refs",
         "phase_id",
         "intent",
         "event_start",
@@ -206,6 +208,13 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
     "properties": {
+        "boundary_schema_version": {"type": "string", "enum": ["2"]},
+        "input_specs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
+        "output_specs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
+        "output_semantic_constraints": {"type": "object", "additionalProperties": {
+            "type": "object", "required": ["compatible_with_input"], "additionalProperties": False,
+            "properties": {"compatible_with_input": NONEMPTY_STRING_SCHEMA}}},
+        "local_value_authority_refs": {"type": "array", "uniqueItems": True, "items": NONEMPTY_STRING_SCHEMA},
         "guideline": {"type": "object", "required": ["steps", "notes"], "additionalProperties": False,
             "properties": {
                 "steps": {"type": "array", "minItems": 1, "maxItems": 6,
@@ -283,12 +292,14 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "type": "object",
             "minProperties": 1,
             "propertyNames": {"type": "string", "minLength": 1},
-            "additionalProperties": NONEMPTY_STRING_SCHEMA,
+            "additionalProperties": {"type": "object", "required": ["authority_ref", "source_role"],
+                "additionalProperties": False, "properties": {
+                    "authority_ref": NONEMPTY_STRING_SCHEMA, "source_role": NONEMPTY_STRING_SCHEMA}},
             "description": (
                 "One supplied code-authoritative boundary input reference for "
                 "every input_roles key. Key sets must match, and each referenced "
-                "boundary_authorities.inputs entry must have the same role as the "
-                "key and the same value as input_roles[key]."
+                "boundary_authorities.inputs entry must have the stated source_role "
+                "and same value; explicit formal-role renaming is allowed."
             ),
         },
         "output_derivations": {
@@ -336,9 +347,8 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "type": "object",
             "minProperties": 1,
             "description": (
-                "Non-empty role-to-concrete-value bindings. Every role and value "
-                "must exactly match one supplied boundary_authorities.inputs entry; "
-                "predicate argument names do not rename these input roles."
+                "Source-example values, semantic or concrete as declared. Each value "
+                "must match its explicitly mapped pre-entry boundary authority."
             ),
         },
         "output_roles": {

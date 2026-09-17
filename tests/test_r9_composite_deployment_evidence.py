@@ -19,8 +19,9 @@ def _trace(**overrides: object) -> dict[str, object]:
         "implementation_invocations": [],
         "tool_executions": [],
         "runtime_spans": [
-            {"occurrence_id": "occ-1", "action_start": 0, "action_end": 1}
+            {"span_id": "graph", "occurrence_id": "occ-1", "action_start": 0, "action_end": 1}
         ],
+        "environment_actions": [{'action_id': 'a1', 'span_id': 'graph', 'accepted': True, 'won': True}],
         "node_records": [
             {
                 "occurrence_id": "occ-1",
@@ -59,14 +60,14 @@ def test_r9_full_executed_graph_gets_one_deployment_success() -> None:
     assert events[0].metadata["intrinsic_failure"] is False
 
 
-def test_r9_terminal_tail_exhaustion_and_preterminal_are_unsuccessful() -> None:
+def test_r1021_terminal_tail_is_contribution_not_tool_completion() -> None:
     terminal_tail = _trace(
         graph_full_completion=False,
         node_records=[
             {
                 "occurrence_id": "occ-1",
                 "atomic_ref": "skill://r9-atomic@1.0.0",
-                "status": "skipped_goal_terminal",
+                "status": "terminal_partial",
             }
         ],
     )
@@ -77,11 +78,9 @@ def test_r9_terminal_tail_exhaustion_and_preterminal_are_unsuccessful() -> None:
         graph_full_completion=False,
     )
     preterminal = _trace(runtime_spans=[], node_records=[])
-    for trace in (terminal_tail, exhausted, preterminal):
-        events = _deployment_events(trace)
-        assert len(events) == 1
-        assert events[0].event is EvidenceEventType.DEPLOYMENT_UNSUCCESSFUL
-        assert events[0].metadata["intrinsic_failure"] is False
+    assert _deployment_events(terminal_tail)[0].event is EvidenceEventType.DEPLOYMENT_SUCCESS
+    assert _deployment_events(exhausted)[0].event is EvidenceEventType.DEPLOYMENT_UNSUCCESSFUL
+    assert _deployment_events(preterminal) == []
 
 
 def test_r9_rescue_retains_rescue_fact_and_terminal_deployment_outcome() -> None:

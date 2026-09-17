@@ -611,7 +611,6 @@ class AtomicSkillGraphSystem:
         )
         required_node_turns, required_task_turns = required_runtime_turn_caps(
             global_action_budget=int(runtime_config.get("global_action_budget", 100)),
-            node_action_budget=int(runtime_config.get("node_action_budget", 35)),
             learned_toolcall_repair_limit=int(
                 runtime_llm.get("learned_toolcall_repair_limit", 2)
             ),
@@ -619,14 +618,10 @@ class AtomicSkillGraphSystem:
         )
         self._runtime_turn_caps = validate_runtime_turn_caps(
             global_action_budget=int(runtime_config.get("global_action_budget", 100)),
-            node_action_budget=int(runtime_config.get("node_action_budget", 35)),
             learned_toolcall_repair_limit=int(
                 runtime_llm.get("learned_toolcall_repair_limit", 2)
             ),
             protocol_repair_limit=int(runtime_llm.get("protocol_repair_limit", 1)),
-            max_turns_per_node=int(
-                runtime_llm.get("max_turns_per_node", required_node_turns)
-            ),
             max_turns_per_task=int(
                 runtime_llm.get("max_turns_per_task", required_task_turns)
             ),
@@ -647,13 +642,12 @@ class AtomicSkillGraphSystem:
             for key, default in {
                 "extract_full_dynamic_success": True,
                 "extract_task_rescue_success": True,
-                "extract_novel_seeded_success": True,
                 "skip_stable_direct_success": True,
             }.items()
         })
         self.credit = CreditAssigner()
         self.normalizer = TraceNormalizer()
-        self.atomicizer = Atomicizer()
+        self.atomicizer = Atomicizer(semantic_value_compatible=getattr(self.harness, "semantic_value_compatible", None))
         self.tool_compiler = ToolCompiler()
         self.tool_static_validator = ToolStaticValidator()
         self.admission = Admission(self.validation.tool)
@@ -754,6 +748,12 @@ class AtomicSkillGraphSystem:
             semantic_max_turns=semantic_max_turns,
             budget_scope=budget_scope,
         )
+        if UsageBucket(bucket) in {
+            UsageBucket.RUNTIME_PREPARATION, UsageBucket.RUNTIME_SEEDED,
+            UsageBucket.RUNTIME_DYNAMIC, UsageBucket.RUNTIME_PROVISIONAL_SEEDED,
+            UsageBucket.RUNTIME_DYNAMIC_COLD_START_CONTINUATION, UsageBucket.TOOL_BUILDER_RUNTIME,
+        }:
+            session.shared_remaining_tokens = lambda: self._shared_tool_builder_tokens("runtime")
         observed = _ObservedSession(
             session, session_type, occurrence_id, task_id, time.time(), []
         )
@@ -780,7 +780,7 @@ class AtomicSkillGraphSystem:
             )
             cap = int(
                 self._stage_config("runtime").get(
-                    "max_total_tokens_per_task", 300000,
+                    "max_total_tokens_per_task", 600000,
                 )
             )
         else:
@@ -851,7 +851,6 @@ class AtomicSkillGraphSystem:
 
     def _runtime_remaining_tokens(self, occurrence_id: str) -> dict[str, int]:
         """Pure query shared by session admission and public execution frames."""
-        cfg = self._stage_config("runtime")
         session_ids = {
             item.session.session_id for item in self._observed_sessions
             if item.task_id == self._current_task_id and item.occurrence_id == occurrence_id
@@ -859,7 +858,7 @@ class AtomicSkillGraphSystem:
         }
         used = sum(event.usage.total_tokens for event in self.usage.events[self._current_task_usage_start:]
                    if event.session_id in session_ids)
-        return {"node_tokens": max(0, int(cfg.get("max_total_tokens_per_node", 80000)) - used),
+        return {"node_tokens_used": used,
                 "task_tokens": self._shared_tool_builder_tokens("runtime")}
 
     def _runtime_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:
@@ -871,18 +870,9 @@ class AtomicSkillGraphSystem:
         task_level = session_kind in {
             "runtime_dynamic", "runtime_dynamic_cold_start_continuation",
         }
-        token_name = "max_total_tokens_per_task" if task_level else "max_total_tokens_per_node"
-        token_cap = int(cfg.get(token_name, cfg.get("max_total_tokens_per_node", 80000)))
-        exhaustion_code = (
-            "runtime_task_token_budget_exhausted" if task_level
-            else "runtime_node_token_budget_exhausted"
-        )
-        # Fresh decisions share the authoritative occurrence/task allocation.
         resources = self._runtime_remaining_tokens(occurrence_id)
-        node_remaining, task_remaining = resources["node_tokens"], resources["task_tokens"]
-        token_cap = task_remaining if task_level else min(node_remaining, task_remaining)
-        if task_level or task_remaining <= node_remaining:
-            exhaustion_code = "runtime_task_token_budget_exhausted"
+        token_cap = resources["task_tokens"]
+        exhaustion_code = "runtime_task_token_budget_exhausted"
         return self._new_session(
             stage=(
                 "runtime_dynamic"
@@ -1273,8 +1263,8 @@ class AtomicSkillGraphSystem:
         mode: RuntimeMode | str | None = None,
         attempt_id: str = "",
     ) -> TraceRecord:
-        if self.config.get("repair_revision") != "R10.2":
-            raise ValueError("Runtime protocol migration required: use repair_revision=R10.2 and a fresh bank; historical runs require their original commit")
+        if self.config.get("repair_revision") != "R10.2.1":
+            raise ValueError("Runtime protocol migration required: use repair_revision=R10.2.1 and a fresh bank; historical runs require their original commit")
         run_mode = RuntimeMode(mode or self.mode)
         if self.readonly and run_mode is not RuntimeMode.FROZEN:
             raise RuntimeError("a read-only knowledge snapshot may run only in frozen mode")
@@ -1367,6 +1357,7 @@ class AtomicSkillGraphSystem:
         trace.extraction_policy = {
             "should_extract": bool(decision.should_extract and run_mode is RuntimeMode.ONLINE),
             "reasons": decision.reasons if run_mode is RuntimeMode.ONLINE else ["frozen_mode_disabled"],
+            "uncovered_event_ids": list(getattr(decision, "uncovered_event_ids", [])),
         }
         prepared: _PreparedEvolution | None = None
         if (
@@ -2134,6 +2125,7 @@ class AtomicSkillGraphSystem:
                     str(role): dict(derivation)
                     for role, derivation in derivations.items()
                 },
+                "output_semantic_constraints": copy.deepcopy(getattr(occurrence, "output_semantic_constraints", {})),
             },
             [],
             dict(occurrence.guideline),
@@ -2362,7 +2354,7 @@ class AtomicSkillGraphSystem:
         )
         ctx = TaskRuntimeContext.create(
             task, plan, self.harness, TraceBuilder(trace_record),
-            RuntimeBudget(global_action_budget=100, node_action_budget=35),
+            RuntimeBudget(global_action_budget=100),
         )
         stage = "prefix"
         try:
@@ -3432,6 +3424,9 @@ class AtomicSkillGraphSystem:
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
         self._initialize_r4_learning_diagnostics(trace)
         normalized = self.normalizer.build(trace)
+        normalized["uncovered_event_ids"] = list(getattr(trace, "extraction_policy", {}).get("uncovered_event_ids", []))
+        from .evolution.typed_boundary import public_value_authorities
+        normalized.setdefault("boundary_authorities", {}).setdefault("inputs", []).extend(public_value_authorities(trace))
         current_v32 = (
             str(normalized.get("semantic_authority_source", ""))
             == "validator_snapshot_v3_2"
@@ -3564,6 +3559,9 @@ class AtomicSkillGraphSystem:
                     "source_kind": source_kind,
                     "source_occurrence_id": str(authority.get("source_occurrence_id", "")),
                     "source_role": str(authority.get("source_role", "")),
+                    "semantic_type": authority.get("semantic_type", ""),
+                    "resolution": authority.get("resolution", ""),
+                    "available_revision": authority.get("available_revision"),
                 }
                 identity = (
                     projected_authority["authority_ref"],
@@ -3734,6 +3732,9 @@ class AtomicSkillGraphSystem:
                 trace.metadata.get("runtime_tool_trials", {}).values()
             ),
         )
+        if not proposals:
+            trace.metadata["extraction"].update({"e1_proposed": 0, "e1_validated": 0, "reviewed_no_proposal": True})
+            return _PreparedEvolution([], None, {}, str(trace.runtime_plan.get("source_composite_ref") or ""))
         try:
             canonical, raw_atomicizer_rejections = (
                 self.atomicizer.validate_proposed_subset(
@@ -4401,6 +4402,12 @@ class AtomicSkillGraphSystem:
             atomic_reuse_count += int(atomic_alignment.reused)
             atomic_new_count += int(not atomic_alignment.reused)
             atomic_ref = self.aligner.align_atomic(item.atomic)
+            # Record only validated, actually persisted Atomic source coverage.
+            # Multiple ToolBuilder/admission outcomes do not rerun E1 for it.
+            extracted = trace.metadata.setdefault("extracted_event_ids", [])
+            for event_id in item.occurrence.support_event_ids:
+                if event_id not in extracted:
+                    extracted.append(event_id)
             tool_build_record = self._r4_tool_build_record(
                 trace, item.occurrence.occurrence_id,
             )

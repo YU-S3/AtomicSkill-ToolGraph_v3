@@ -12,7 +12,7 @@ from ..agents.structured_submission import (
     COMPOSITE_EXTRACTION_SCHEMA,
     StructuredSubmissionClient,
 )
-from ..core.contracts import SemanticPredicate
+from ..core.contracts import SemanticPredicate, ParameterSpec
 from ..core.errors import AgentProtocolError
 from ..core.serialization import to_primitive
 from ..validation.contract_matcher import ContractMatcher, ExactContractMatcher
@@ -23,7 +23,7 @@ from .composite_edge_candidates import CompositeEdgeCandidateBuilder
 E1_SCHEMA = {
     "type": "object", "required": ["occurrences"], "additionalProperties": False,
     "properties": {"occurrences": {
-        "type": "array", "minItems": 1, "items": ATOMIC_EXTRACTION_SCHEMA,
+        "type": "array", "items": ATOMIC_EXTRACTION_SCHEMA,
     }},
 }
 
@@ -327,12 +327,17 @@ class ExtractorSession:
                 effect_witness_refs=[str(value) for value in item.get("effect_witness_refs", [])],
                 ordering_constraints=[dict(value) for value in item.get("ordering_constraints", [])],
                 input_provenance_refs={
-                    str(role): str(authority_ref)
+                    str(role): dict(authority_ref)
                     for role, authority_ref in dict(
                         item["input_provenance_refs"]
                     ).items()
                 },
                 input_provenance_contract="code_authority_v3_2",
+                boundary_schema_version=str(item["boundary_schema_version"]),
+                input_specs=[ParameterSpec(**spec) for spec in item["input_specs"]],
+                output_specs=[ParameterSpec(**spec) for spec in item["output_specs"]],
+                output_semantic_constraints=dict(item["output_semantic_constraints"]),
+                local_value_authority_refs=list(item["local_value_authority_refs"]),
                 guideline=dict(item["guideline"]),
                 # Every output derivation is an explicit E1 authority claim.
                 # Preserve it verbatim for deterministic code validation;

@@ -106,7 +106,7 @@ class ProvisionalNodeExecutor:
             requirement_instance_ids=list(step.requirement_instance_ids),
             repeat_role_bindings=dict(step.repeat_role_bindings),
         )
-        ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
+        ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision, input_specs=atomic.inputs)
         before = progress_tracker.record("cold_start_step_start")
         action_start = len(ctx.trace_builder.trace.environment_actions)
         failure_code = ""
@@ -156,6 +156,7 @@ class ProvisionalNodeExecutor:
                 effect.validated_outputs,
                 witness_refs,
                 ctx.world_revision,
+                certified_bindings=effect.validated_output_bindings,
             )
             ctx.validated_outputs[occurrence.occurrence_id] = dict(
                 effect.validated_outputs
@@ -165,6 +166,8 @@ class ProvisionalNodeExecutor:
                     role,
                     value,
                     witness_refs,
+                    certified_binding=effect.validated_output_bindings[role],
+                    occurrence_id=occurrence.occurrence_id,
                 )
         return resolved, witness_refs
 

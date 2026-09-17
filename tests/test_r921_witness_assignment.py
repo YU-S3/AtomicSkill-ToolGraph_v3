@@ -122,7 +122,7 @@ def test_public_relation_schema_describes_existing_projection_without_episode_st
 
 
 def test_explicit_fresh_output_is_checked_against_joint_fact_not_unused_input():
-    """R10.2 validates the submitted value; an unused input is not an implicit constraint."""
+    """R10.2.1 validates the submitted value; an unused input is not an implicit constraint."""
     class SharedLocationHarness(CandidateHarness):
         def _replace_catalog(self):
             catalog = super()._replace_catalog()

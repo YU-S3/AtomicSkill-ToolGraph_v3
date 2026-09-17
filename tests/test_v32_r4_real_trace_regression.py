@@ -12,7 +12,8 @@ import atomic_skillgraph.system as system_module
 from atomic_skillgraph.agents import UsageLedger as AgentUsageLedger
 from atomic_skillgraph.agents.protocol import validate_schema_instance, SchemaValidationError
 from atomic_skillgraph.agents.structured_submission import TOOL_PROPOSAL_SCHEMA
-from atomic_skillgraph.core.contracts import SemanticPredicate, TaskContract
+from atomic_skillgraph.core.contracts import ParameterSpec, SemanticPredicate, TaskContract
+from fixtures.typed_e1 import public_entities
 from atomic_skillgraph.evolution.admission import Admission
 from atomic_skillgraph.evolution.aligner import Aligner
 from atomic_skillgraph.evolution.atomicizer import (
@@ -113,7 +114,7 @@ def _replay_proposal(fixture: Mapping[str, Any]) -> AtomicOccurrenceProposal:
             list(original.get("ordering_constraints", []))
         ),
         input_provenance_refs={
-            str(role): str(authority)
+            str(role): {'authority_ref': f'fixture_public:{role}', 'source_role': str(role)}
             for role, authority in dict(
                 original["input_provenance_refs"]
             ).items()
@@ -125,6 +126,9 @@ def _replay_proposal(fixture: Mapping[str, Any]) -> AtomicOccurrenceProposal:
             ).items()
         },
         input_provenance_contract="code_authority_v3_2",
+        boundary_schema_version='2',
+        input_specs=[ParameterSpec(**item) for item in fixture['tool_builder_native_submission_original']['value']['inputs']],
+        output_specs=[ParameterSpec(**item) for item in fixture['tool_builder_native_submission_original']['value']['outputs']],
     )
 
 
@@ -190,6 +194,8 @@ def _canonical_occurrence_and_atomic(
     fixture: Mapping[str, Any],
 ) -> tuple[Any, Any]:
     normalized = copy.deepcopy(dict(fixture["normalized_trace_minimal"]))
+    # Explicit modern typed control; archived native submissions stay untouched.
+    public_entities(normalized, {'object': 'book_1', 'destination': 'bed_1'}, revision=12)
     canonical, rejections = Atomicizer().validate_proposed_subset(
         [_replay_proposal(fixture)], normalized,
     )
@@ -223,7 +229,7 @@ def _historical_r4_control(
             "value": "placed_object",
         },
     ]
-    # Explicit human-authored R10.2 control; the stored historical fixture is unchanged.
+    # Explicit human-authored R10.2.1 control; the stored historical fixture is unchanged.
     payload["proposal_version"] = "2"
     payload["entry_contract"] = {"conditions": [], "grounding_constraints": []}
     payload["atomic_ref"] = atomic_ref
@@ -271,6 +277,8 @@ def _system_for_replay(
     )
 
     normalized = copy.deepcopy(dict(fixture["normalized_trace_minimal"]))
+    # Explicit modern typed control; archived native submissions stay untouched.
+    public_entities(normalized, {'object': 'book_1', 'destination': 'bed_1'}, revision=12)
     system = object.__new__(system_module.AtomicSkillGraphSystem)
     system.config = {"method_patch": "3.2"}
     system.usage = AgentUsageLedger()

@@ -86,7 +86,7 @@ def action(request, action_type, **arguments):
     return "environment_action", {"action_id": spec["action_id"], "intent": "explore"}
 
 
-def test_steps_are_fresh_and_lazy_and_charge_shared_node_budget(tmp_path):
+def test_steps_are_fresh_and_lazy_and_charge_shared_task_budget(tmp_path):
     system, ctx, occurrence, invocations, provider = setup(
         tmp_path, lambda request, count: action(request, "GO_TO", destination="cabinet_1"))
     ex = system.orchestrator.node_executor
@@ -96,10 +96,10 @@ def test_steps_are_fresh_and_lazy_and_charge_shared_node_budget(tmp_path):
     assert all([m["role"] for m in request.messages] == ["system", "user"] for request in provider.requests)
     assert all("request_runtime_automation" in {t.name for t in request.tools} for request in provider.requests)
     assert all("propose_runtime_automation_atomic" not in {t.name for t in request.tools} for request in provider.requests)
-    system.config["llm"]["runtime"]["max_total_tokens_per_node"] = 40
+    system.config["llm"]["runtime"]["max_total_tokens_per_task"] = 40
     with pytest.raises(AtomicSkillGraphError) as error:
         run_runtime_step(ex, "seeded", occurrence, ctx, invocations, [])
-    assert error.value.code == "runtime_node_token_budget_exhausted"
+    assert error.value.code == "runtime_task_token_budget_exhausted"
     assert len(provider.requests) == 2
 
 
@@ -119,8 +119,7 @@ def test_checkpoint_restores_world_and_logic_not_usage_or_trace(tmp_path):
     assert len(system.usage.events) == 1
 
 
-@pytest.mark.parametrize("budget_kind", ["node", "global"])
-def test_automatic_partial_tool_budget_exhaustion_restores_checkpoint(tmp_path, monkeypatch, budget_kind):
+def test_automatic_partial_tool_budget_exhaustion_restores_checkpoint(tmp_path, monkeypatch):
     from experiments.r10_world_checks import install_fixture, bind
     from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
     from atomic_skillgraph.core.contracts import SemanticPredicate
@@ -140,9 +139,8 @@ def test_automatic_partial_tool_budget_exhaustion_restores_checkpoint(tmp_path, 
     bind(ctx, occurrence, "cabinet_1")
     invocations = system.invocation_compiler.compile_candidates(occurrence, ctx.binding_store,
                                                                task_id=ctx.task.task_id)
-    setattr(ctx.budget, "node_action_budget" if budget_kind == "node" else "global_action_budget", 1)
-    ctx.budget.used_tokens["runtime"] = 17
-    ctx.budget.used_turns["runtime"] = 1
+    ctx.budget.global_action_budget = 1
+    usage_before = tuple(system.usage.events)
     initial_digest = ctx.harness._runtime_state_digest()
     saved = []
     def record_capture(*args, **kwargs):
@@ -154,7 +152,7 @@ def test_automatic_partial_tool_budget_exhaustion_restores_checkpoint(tmp_path, 
     with pytest.raises(BudgetExhausted) as error:
         system.orchestrator.node_executor.try_autonomous(occurrence, invocations, ctx)
 
-    expected_code = "runtime_node_action_budget_exhausted" if budget_kind == "node" else "episode_action_budget_exhausted"
+    expected_code = "episode_action_budget_exhausted"
     assert error.value.code == expected_code
     assert len(saved) == 1
     assert ctx.harness._runtime_state_digest() == initial_digest
@@ -167,8 +165,7 @@ def test_automatic_partial_tool_budget_exhaustion_restores_checkpoint(tmp_path, 
     assert len(trace.environment_actions) == 1
     assert canonical_action_indices(trace) == []
     assert ctx.budget.used_global_actions == ctx.budget.used_node_actions == 1
-    assert ctx.budget.used_tokens == {"runtime": 17}
-    assert ctx.budget.used_turns == {"runtime": 1}
+    assert tuple(system.usage.events) == usage_before
     assert not provider.requests
     assert trace.metadata["r10_metrics"]["runtime_rollback_count"] == 1
     assert trace.metadata["r10_metrics"]["llm_free_environment_action_count"] == 1
@@ -319,17 +316,19 @@ def test_sparse_atomicizer_does_not_replay_rolled_back_prefix():
     from test_v32_r61_extractor_e2_repair import _normalized_trace, _atomic_proposal
     from atomic_skillgraph.evolution.atomicizer import Atomicizer
     normalized, proposal = _normalized_trace(), _atomic_proposal()
+    from fixtures.typed_e1 import declare_take_fixture
+    declare_take_fixture(proposal, normalized)
     normalized["raw_action_count"] = 2
     normalized["actions"][0]["event_index"] = 1
     normalized["actions"][0]["authoritative_positive_effects"][0]["event_index"] = 1
     normalized["runtime_spans"][0].update(action_start=1, action_end=2)
     proposal.event_start = proposal.event_end = 1
-    canonical = Atomicizer().validate_and_canonicalize([proposal], normalized)
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize([proposal], normalized)
     assert canonical[0].prefix_events == []
     assert canonical[0].event_start == 1
     proposal.event_start = 0
     with pytest.raises(ValueError, match="rolled-back"):
-        Atomicizer().validate_and_canonicalize([proposal], normalized)
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([proposal], normalized)
 
 
 def test_negative_replay_retains_failure_time_world_not_final_success_branch():
@@ -407,8 +406,9 @@ def test_graph_bootstrap_then_two_unassisted_nodes_same_executor(tmp_path, sourc
     assert trace.benchmark_success
     assert len(provider.requests) == 1
     assert [a.action_type for a in trace.environment_actions] == ["GO_TO", "OPEN", "TAKE"]
-    assert not trace.node_records[-1].direct_result["validated_outputs"]  # Terminal before Tool RETURN.
-    assert trace.metadata["r10_metrics"]["post_bootstrap_llm_free_node_count"] == 1, [(n.occurrence_id, str(n.status), n.direct_result.get("atomic_effect_passed"), n.direct_result.get("failure_code")) for n in trace.node_records]
+    assert trace.node_records[-1].direct_result["validated_outputs"] == {'object': 'egg_1'}
+    assert trace.node_records[-1].direct_result['completed']  # Original RETURN tail is executed.
+    assert trace.metadata["r10_metrics"]["post_bootstrap_llm_free_node_count"] == 2, [(n.occurrence_id, str(n.status), n.direct_result.get("atomic_effect_passed"), n.direct_result.get("failure_code")) for n in trace.node_records]
 
 
 def test_canonical_learning_keeps_original_event_coordinates(tmp_path):

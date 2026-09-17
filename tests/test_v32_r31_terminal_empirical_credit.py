@@ -166,6 +166,8 @@ def _terminal_runtime_trace(
         },
         "benchmark_success": True,
         "task_contract_success": True,
+        "environment_actions": [{'action_id': 'owned-terminal', 'accepted': True, 'won': True, 'span_id': 'owned'}] if candidate_executed else [],
+        "runtime_spans": [{'span_id': 'owned', 'occurrence_id': 'occ_terminal', 'action_start': 0, 'action_end': 1}] if candidate_executed else [],
         "graph_self_sufficient_success": True,
         "graph_full_completion": candidate_executed,
         "task_rescue_required": False,

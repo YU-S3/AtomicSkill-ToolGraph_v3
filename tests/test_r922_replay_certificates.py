@@ -120,9 +120,9 @@ def test_ten_cases_linear_certificates_resume_changed_program_and_direct(tmp_pat
             list(impls), atomic.effects)
         plan = RuntimeLinearPlan(task.task_id, "stored_composite", "", [occurrence], ["node"], [], [], system.harness.task_contract(task), {})
         ctx = TaskRuntimeContext.create(task, plan, system.harness,
-            system.orchestrator.create_trace_builder(task), RuntimeBudget(global_action_budget=100, node_action_budget=35))
+            system.orchestrator.create_trace_builder(task), RuntimeBudget(global_action_budget=100))
         ctx.budget.begin_node("node")
-        ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
+        ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision, input_specs=atomic.inputs)
         ctx.begin_occurrence(occurrence)
         invocations = system.invocation_compiler.compile_candidates(occurrence, ctx.binding_store, task_id=task.task_id)
         assert len(invocations) == 1

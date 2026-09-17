@@ -116,7 +116,7 @@ def _draft_payload(occurrence_id: str, *, draft_id: str = "r92-draft") -> dict:
 def _frozen_config(data_dir: Path, trace_dir: Path, *, frozen: bool) -> dict:
     return {
         "schema_version": 3,
-        "repair_revision": "R10.2",
+        "repair_revision": "R10.2.1",
         "method_patch": "3.2",
         "data_dir": str(data_dir),
         "trace_data_dir": str(trace_dir),
@@ -178,7 +178,7 @@ def _successful_trial_fixture(system: AtomicSkillGraphSystem, task_id: str):
         plan,
         system.harness,
         builder,
-        RuntimeBudget(global_action_budget=4, node_action_budget=4),
+        RuntimeBudget(global_action_budget=4),
     )
     ctx.budget.begin_node(occurrence.occurrence_id)
     ctx.binding_store.resolve_occurrence_specs(
@@ -504,7 +504,8 @@ def test_terminal_trial_finalizes_pending_call_without_parent_success() -> None:
     result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.atomic_effect_passed is False
-    assert result.failure_code == "runtime_automation_terminal_boundary"
+    assert result.failure_code == ""
+    assert result.node_status.value == "terminal_partial"
     session = next(
         item for item in ctx.trace_builder.trace.agent_sessions
         if item.session_type == "RuntimePreparationSession"
@@ -573,7 +574,8 @@ def test_real_runtime_trial_won_stops_program_and_provider(
 
     trial = ctx.runtime_tool_trials["r92-draft"]
     tool_result = trial["result"]["tool_results"][0]
-    assert result.failure_code == "runtime_automation_terminal_boundary"
+    assert result.failure_code == ""
+    assert result.node_status.value == "terminal_partial"
     assert result.started is False
     assert ctx.terminal_latched is True
     assert ctx.benchmark_terminal() is True
@@ -607,7 +609,6 @@ def test_real_runtime_trial_won_stops_program_and_provider(
     ("boundary", "failure_code"),
     [
         ("global", "episode_action_budget_exhausted"),
-        ("node", "runtime_node_action_budget_exhausted"),
     ],
 )
 def test_real_runtime_trial_budget_exhaustion_preserves_usage_without_retry(
@@ -646,10 +647,7 @@ def test_real_runtime_trial_budget_exhaustion_preserves_usage_without_retry(
             {"node_id": "unreached_return", "op": "RETURN", "output_sources": {}},
         ],
     )
-    if boundary == "global":
-        ctx.budget.used_global_actions = ctx.budget.global_action_budget - 1
-    else:
-        ctx.budget.used_node_actions = ctx.budget.node_action_budget - 1
+    ctx.budget.used_global_actions = ctx.budget.global_action_budget - 1
     execute_calls: list[str] = []
     execute_action = ctx.harness.execute_action
 
@@ -669,8 +667,8 @@ def test_real_runtime_trial_budget_exhaustion_preserves_usage_without_retry(
     assert trace.tool_executions[0].result["interrupted_by_budget"]
     assert trace.implementation_invocations[0].result["failure_code"] == failure_code
     assert calls == {"builder": 1, "compiler": 1}
-    assert ctx.budget.used_global_actions == (ctx.budget.global_action_budget if boundary == 'global' else 1)
-    assert ctx.budget.used_node_actions == (ctx.budget.node_action_budget if boundary == 'node' else 1)
+    assert ctx.budget.used_global_actions == ctx.budget.global_action_budget
+    assert ctx.budget.used_node_actions == 1
     assert len(factory.sessions_of("runtime_preparation")) == 2
     assert not ctx.runtime_tool_trials  # No full R1 report after the hard interruption.
     assert len(factory.usage_ledger.events) == 2
@@ -920,7 +918,7 @@ def test_runtime_trial_inputs_are_isolated_and_repeat_credit_is_excluded() -> No
     captured: dict = {}
 
     class AtomicValidation:
-        def validate(self, _atomic, _occurrence, bindings, *_args):
+        def validate_execution_result(self, _atomic, _occurrence, bindings, *_args, **_kwargs):
             captured["bindings"] = dict(bindings)
             return ValidationResult.ok("atomic", effect=True)
 
@@ -968,6 +966,7 @@ def test_runtime_trial_inputs_are_isolated_and_repeat_credit_is_excluded() -> No
     )
     ctx = SimpleNamespace(
         trace_builder=TraceBuilder(trace),
+        execution_terminal=lambda: False,
         binding_store=binding_store,
         harness=SimpleNamespace(
             validator_channel=lambda: SimpleNamespace(),

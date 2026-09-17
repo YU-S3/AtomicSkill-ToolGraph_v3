@@ -400,8 +400,8 @@ def run_node_case(system, case, *, live=False, task=None, audit=None, action_bud
             {occurrence.step_id: {"item_identity": case.parent_role},
              "next_parent": {"item_identity": case.parent_role}})]
     ctx = TaskRuntimeContext.create(task, plan, system.harness, system.orchestrator.create_trace_builder(task),
-        RuntimeBudget(global_action_budget=int(system.config.get("runtime", {}).get("global_action_budget", 100)),
-                      node_action_budget=action_budget or int(system.config.get("runtime", {}).get("node_action_budget", 35))))
+        RuntimeBudget(global_action_budget=(action_budget if action_budget is not None else
+            int(system.config.get("runtime", {}).get("global_action_budget", 100)))))
     ctx.budget.begin_node(occurrence.occurrence_id)
     ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
     ctx.begin_occurrence(occurrence)

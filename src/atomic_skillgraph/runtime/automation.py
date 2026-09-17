@@ -322,7 +322,7 @@ class RuntimeAutomationCoordinator:
                         "remaining_resources": {
                             **(self.runtime_resources(ctx.budget.current_occurrence_id)
                                if callable(getattr(self, "runtime_resources", None)) else {}),
-                            "node_actions": ctx.budget.remaining_node_actions,
+                            "node_actions_used": ctx.budget.used_node_actions,
                             "task_actions": ctx.budget.remaining_global_actions,
                         },
                         "consumer_obligation": {"atomic_ref": str(occurrence.node_ref),
@@ -573,6 +573,8 @@ class RuntimeAutomationCoordinator:
             ))
             trial = {
                 "draft_id": draft.draft_id,
+                "consumer_scope": getattr(occurrence, "consumer_scope", "node"),
+                "parent_atomic_ref": "" if getattr(occurrence, "consumer_scope", "node") == "task" else str(occurrence.node_ref),
                 "source_occurrence_id": str(occurrence.occurrence_id),
                 "atomic_ref": str(atomic.ref),
                 "tool_ref": str(compiled.tool.ref),
@@ -734,6 +736,9 @@ class RuntimeAutomationCoordinator:
             source_trace_id=str(ctx.trace_builder.trace.trace_id),
             proposed_ref=SkillRef("atomic_runtime_draft", "1.0.0"),
             guideline=dict(draft.guideline),
+            boundary_schema_version="2",
+            output_derivations=normalize_runtime_output_derivations(draft),
+            output_semantic_constraints=to_primitive(draft.output_semantic_constraints),
         )
 
     @staticmethod

@@ -101,7 +101,7 @@ def test_loop_restores_locals_on_every_nonlocal_exit(exit_kind, previous):
     else:
         assert _execute(program, state, runner, terminal) == {
             "return": "RETURN_PROGRAM", "failure": "FAIL_TOOL",
-            "terminal": "BENCHMARK_TERMINAL",
+            "terminal": "",  # Original local scopes may unwind; no further ACTION exists.
         }[exit_kind]
         assert state.loop_iteration_counts == {"inner": 1, "outer": 1}
     assert state.local == ({} if previous is None else {"cursor": previous})

@@ -156,10 +156,10 @@ def run(config_path, output, *, mode):
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
     config = isolated_config(load_config(config_path), output)
-    if config.get('repair_revision') != 'R10.2':
-        raise ValueError('R10.2 configuration required')
+    if config.get('repair_revision') != 'R10.2.1':
+        raise ValueError('R10.2.1 configuration required')
     validate_deepseek_formal_llm(config)
-    config['experiment'].update(task_manifest_path=None, phase='r102_diagnostic')
+    config['experiment'].update(task_manifest_path=None, phase='r1021_diagnostic')
     ids = DEV_IDS if mode == 'dev16' else CHAIN_IDS
     reference = json.loads((REPO / 'data/baseline_manifests/train_120.json').read_text())
     by_id = {int(item['task_id'].split('_')[2]): item for item in reference['tasks']}
@@ -239,7 +239,7 @@ def run(config_path, output, *, mode):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='configs/alfworld_train_full_120_r102_seed42.yaml')
+    parser.add_argument('--config', default='configs/alfworld_train_full_120_r1021_seed42.yaml')
     parser.add_argument('--output', required=True)
     parser.add_argument('--mode', choices=['dev16', 'chain'], required=True)
     args = parser.parse_args()

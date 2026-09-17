@@ -27,7 +27,9 @@ def collect_observations(system: Any, trace: Any) -> list[dict]:
         trials = trials.values()
     for trial in trials:
         if (not trial.get("r1", {}).get("admission_eligible")
-                or not trial.get("parent_completed_after_trial")
+                or (trial.get("consumer_scope", "node") == "node" and not trial.get("parent_completed_after_trial"))
+                or trial.get("consumer_scope", "node") not in {"node", "task"}
+                or (trial.get("consumer_scope") == "task" and trial.get("parent_atomic_ref"))
                 or trial.get("terminal_interrupted") or not trial.get("promotion_bundle")):
             continue
         bundle = trial["promotion_bundle"]

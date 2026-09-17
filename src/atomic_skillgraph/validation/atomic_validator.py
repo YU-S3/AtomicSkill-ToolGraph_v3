@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from ..core.bindings import BindingResolution, BindingStatus, RuntimeBinding
+from ..core.bindings import BindingResolution, BindingStatus, BindingSource, RuntimeBinding, resolution_satisfies
+from ..core.serialization import json_values_equal
+from ..core.semantic_types import semantic_types_compatible
+from dataclasses import replace
+import copy
 from ..core.contracts import AbstractAtomicSkill
 from ..core.results import AtomicEffectResolution, RuntimeOccurrence, ValidationResult
 from ..tooling.proposal import validate_output_semantic_constraints
@@ -51,6 +55,10 @@ class AtomicValidator:
         """Check submitted values against joint Harness witnesses; never choose outputs."""
 
         plain = self._plain(bindings)
+        for spec in atomic.inputs:
+            source = bindings.get(spec.name)
+            if isinstance(source, RuntimeBinding) and not semantic_types_compatible(source.semantic_type, spec.semantic_type):
+                return ValidationResult.fail('atomic', 'atomic_input_type_mismatch', spec.name)
         derivations = self._output_derivations(atomic)
         output_identity = [
             {
@@ -97,9 +105,7 @@ class AtomicValidator:
         for role, derivation in derivations.items():
             if derivation.get("kind") == "input_identity":
                 input_role = str(derivation.get("input_role", ""))
-                if role in candidate_outputs and repr(
-                    candidate_outputs[role]
-                ) != repr(plain.get(input_role)):
+                if role in candidate_outputs and not json_values_equal(candidate_outputs[role], plain.get(input_role)):
                     return ValidationResult(
                         "atomic", False,
                         {"output_derivation_consistent": False},
@@ -154,7 +160,7 @@ class AtomicValidator:
             return ValidationResult("atomic", False, {}, ["atomic_effect_output_role_invalid"],
                 [f"Undeclared output roles: {sorted(invalid_outputs)}"])
         if resolution.passed and any(
-            role in resolution.resolved_bindings and resolution.resolved_bindings[role] != value
+            role in resolution.resolved_bindings and not json_values_equal(resolution.resolved_bindings[role], value)
             for role, value in resolution.output_candidates.items()
         ):
             return ValidationResult("atomic", False, {}, ["atomic_output_effect_witness_mismatch"],
@@ -241,7 +247,7 @@ class AtomicValidator:
             atomic, occurrence, merged_bindings, validator_channel,
             merged_outputs,
         )
-        return ValidationResult(
+        result = ValidationResult(
             final.level,
             final.passed,
             {
@@ -258,6 +264,50 @@ class AtomicValidator:
             before_ref=final.before_ref,
             after_ref=final.after_ref,
         )
+        if not result.passed:
+            return result
+        # Certify each value from its own original input or joint effect
+        # assignment, not from the whole conjunction's passed flag.
+        certified = {}
+        for spec in atomic.inputs:
+            role = spec.name
+            if role not in plain:
+                continue
+            original = bindings.get(role)
+            if isinstance(original, RuntimeBinding) and original.status is BindingStatus.GROUNDED:
+                certified[role] = replace(copy.deepcopy(original), role=role, semantic_type=spec.semantic_type)
+            else:
+                witnessed = role in resolution.resolved_bindings and json_values_equal(resolution.resolved_bindings[role], plain[role])
+                certified[role] = RuntimeBinding(role, copy.deepcopy(plain[role]), spec.semantic_type,
+                    BindingSource.HARNESS_EVIDENCE, BindingStatus.GROUNDED,
+                    BindingResolution.CONCRETE if witnessed else BindingResolution.SEMANTIC,
+                    list(result.witness_refs) if witnessed else [], current_revision)
+        outputs = {}
+        for spec in atomic.outputs:
+            role = spec.name
+            if role not in merged_outputs:
+                continue
+            derivation = derivations.get(role, {})
+            if derivation.get('kind') == 'input_identity':
+                source = certified.get(str(derivation.get('input_role', '')))
+                if source is None or not json_values_equal(source.value, merged_outputs[role]):
+                    return ValidationResult.fail('atomic', 'atomic_output_identity_mismatch', role)
+                binding = replace(copy.deepcopy(source), role=role, semantic_type=spec.semantic_type,
+                    source=BindingSource.TOOL_OUTPUT)
+            else:
+                witnessed = role in authoritative_outputs and json_values_equal(authoritative_outputs[role], merged_outputs[role])
+                if not witnessed:
+                    return ValidationResult.fail('atomic', 'atomic_output_witness_missing', role)
+                binding = RuntimeBinding(role, copy.deepcopy(merged_outputs[role]), spec.semantic_type,
+                    BindingSource.TOOL_OUTPUT, BindingStatus.GROUNDED,
+                    BindingResolution.RELATION_VERIFIED if spec.required_resolution == 'relation_verified' else BindingResolution.CONCRETE,
+                    list(result.witness_refs), current_revision)
+            if not resolution_satisfies(binding.resolution, spec.required_resolution):
+                return ValidationResult.fail('atomic', 'atomic_output_resolution_insufficient', role)
+            outputs[role] = binding
+        result.validated_output_bindings = outputs
+        result.certified_input_bindings = certified
+        return result
 
     def validate(
         self, atomic: AbstractAtomicSkill, occurrence: RuntimeOccurrence,
@@ -329,8 +379,10 @@ class AtomicValidator:
             source = derivation.get("input_role")
             if derivation.get("kind") == "input_identity" and role not in outputs and source in plain:
                 outputs[role] = plain[source]
+        typed_inputs = {role: (bindings[role] if isinstance(bindings.get(role), RuntimeBinding)
+            and role not in claims else value) for role, value in plain.items()}
         result = self.validate_execution_result(
-            atomic, occurrence, plain, outputs, validator_channel,
+            atomic, occurrence, typed_inputs, outputs, validator_channel,
             current_revision=current_revision,
             authoritative_evidence_facts=authoritative_evidence_facts,
             semantic_compatible=semantic_compatible,
@@ -341,6 +393,8 @@ class AtomicValidator:
             witness_refs=list(result.witness_refs), checks=dict(result.checks),
             failure_code="" if result.passed else (result.failure_codes or ["atomic_effect_violation"])[0],
             message="" if result.passed else "; ".join(result.messages),
+            validated_output_bindings=result.validated_output_bindings if result.passed else {},
+            certified_input_bindings=result.certified_input_bindings if result.passed else {},
         )
 
     def already_satisfied(

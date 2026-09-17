@@ -13,6 +13,15 @@ from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 T = TypeVar("T")
 
 
+def json_value_key(value: Any) -> str:
+    """JSON identity without Python's bool/int coercion or unhashable values."""
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+
+
+def json_values_equal(left: Any, right: Any) -> bool:
+    return json_value_key(left) == json_value_key(right)
+
+
 def to_primitive(value: Any) -> Any:
     if is_dataclass(value):
         return {field.name: to_primitive(getattr(value, field.name)) for field in fields(value)}

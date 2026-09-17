@@ -62,7 +62,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
              "completed_step_ids": [node.step_id for node in ctx.trace_builder.trace.node_records
                  if node.status.value in {"direct_autonomous_success", "direct_agent_prepared_success", "seeded_success", "already_satisfied"}],
              "last_step": ctx.runtime_step_feedback.get(occurrence.occurrence_id, {}),
-             "remaining_resources": {**resources, "node_actions": ctx.budget.remaining_node_actions,
+             "remaining_resources": {**resources, "node_actions_used": ctx.budget.used_node_actions,
                                      "task_actions": ctx.budget.remaining_global_actions}}
     prompt = executor.context_builder.runtime_node(
         task_goal=ctx.task_goal, atomic_contract=atomic,

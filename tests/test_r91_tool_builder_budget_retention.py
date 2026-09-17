@@ -713,7 +713,7 @@ def _three_take_normalized() -> dict[str, Any]:
         "kind": "action_argument",
         "source_kind": "action_argument",
         "role": "item",
-        "value": "mug_1",
+        "value": "mug_1", 'semantic_type': 'entity', 'resolution': 'concrete', 'available_revision': 1,
     })
     normalized["boundary_authorities"]["effects"].append(second_effect)
     third = copy.deepcopy(second)
@@ -751,7 +751,7 @@ def _three_take_normalized() -> dict[str, Any]:
         "kind": "action_argument",
         "source_kind": "action_argument",
         "role": "item",
-        "value": "book_1",
+        "value": "book_1", 'semantic_type': 'entity', 'resolution': 'concrete', 'available_revision': 2,
     })
     normalized["boundary_authorities"]["effects"].append(third_effect)
     return normalized
@@ -759,11 +759,8 @@ def _three_take_normalized() -> dict[str, Any]:
 
 def _canonical_take_tool_payload() -> dict[str, Any]:
     payload = _create_take_tool_payload()
-    payload["inputs"][0].update({
-        "semantic_type": "string",
-        "required_resolution": "semantic",
-    })
-    payload["outputs"][0]["semantic_type"] = "string"
+    payload['inputs'][0]['runtime_resolvable'] = False
+    payload['outputs'][0]['required_resolution'] = 'concrete'
     payload["final_effects"][0]["args"]["object"]["source_role"] = "item"
     return payload
 
@@ -780,14 +777,14 @@ class _ThreeOccurrenceExtractor:
         second.event_end = 1
         second.support_event_ids = ["e1"]
         second.effect_witness_refs = ["action:e1:revision:2"]
-        second.input_provenance_refs = {"item": "action_arg:e1:item"}
+        second.input_provenance_refs = {"item": {'authority_ref': "action_arg:e1:item", 'source_role': 'item'}}
         third = _take_proposal("book_1")
         third.phase_id = "take_third"
         third.event_start = 2
         third.event_end = 2
         third.support_event_ids = ["e2"]
         third.effect_witness_refs = ["action:e2:revision:3"]
-        third.input_provenance_refs = {"item": "action_arg:e2:item"}
+        third.input_provenance_refs = {"item": {'authority_ref': "action_arg:e2:item", 'source_role': 'item'}}
         return [first, second, third]
 
     def propose_composite(self, *_args: Any, **_kwargs: Any):

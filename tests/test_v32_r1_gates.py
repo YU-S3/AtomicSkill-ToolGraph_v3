@@ -273,8 +273,13 @@ class _MiniContext:
         self.budget = _MiniBudget()
         self.used_actions = 0
         self._facts: list[dict[str, Any]] = []
+        self._terminal = False
+
+    def execution_terminal(self):
+        return self._terminal
 
     def update_after_action(self, result: Any, record: dict[str, Any]) -> None:
+        self._terminal = result.done or result.won
         self.world_revision = result.new_revision
         self.action_catalog = list(result.catalog)
         self.evidence_store.replace_action_catalog(self.action_catalog, self.world_revision)
@@ -612,7 +617,7 @@ def test_gate3_tool_ir_admission_and_gate4_replay_executes() -> None:
     assert admitted.metadata["admission"]["kind"] == "tool_ir_v1"
 
 
-def test_gate13_terminal_interrupted_replay_is_not_admission_evidence() -> None:
+def test_gate13_terminal_with_original_return_is_complete_replay_evidence() -> None:
     from atomic_skillgraph.system import AtomicSkillGraphSystem
 
     harness = FakeHarness()
@@ -657,7 +662,7 @@ def test_gate13_terminal_interrupted_replay_is_not_admission_evidence() -> None:
     )
 
     assert harness.validator_channel().won is True
-    assert admitted is False
+    assert admitted is True
 
 
 def test_gate5_no_tool_compiles_atomic_only() -> None:
@@ -909,7 +914,7 @@ def test_gate12_runtime_automation_input_binding_specs_resolve() -> None:
             return {}
 
     ctx = SimpleNamespace(
-        binding_store=Bindings(), validated_outputs={},
+        binding_store=Bindings(), validated_outputs={}, world_revision=0,
     )
     draft = RuntimeAutomationAtomicDraft(
         draft_id="d", intent="locate target",
@@ -1013,7 +1018,7 @@ def _atomicizer_proposal(
 def test_gate14_cross_nested_span_same_occurrence_passes() -> None:
     from atomic_skillgraph.evolution.atomicizer import Atomicizer
 
-    canonical = Atomicizer().validate_and_canonicalize(
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [_atomicizer_proposal("p", start=0, end=1, support=["e0", "e1"])],
         _atomicizer_trace(),
     )
@@ -1024,7 +1029,7 @@ def test_gate14_cross_occurrence_lineage_rejected() -> None:
     from atomic_skillgraph.evolution.atomicizer import Atomicizer
 
     with pytest.raises(ValueError, match="lineage|crosses incompatible"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [_atomicizer_proposal("p", start=0, end=1, support=["e0", "e1"])],
             _atomicizer_trace(child_occurrence="occ_2"),
         )
@@ -1033,12 +1038,12 @@ def test_gate14_cross_occurrence_lineage_rejected() -> None:
 def test_gate15_effect_witness_ref_must_exist_and_match() -> None:
     from atomic_skillgraph.evolution.atomicizer import Atomicizer
 
-    Atomicizer().validate_and_canonicalize(
+    Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [_atomicizer_proposal("p", start=0, end=1, support=["e1"], effect_refs=["effect:w1"])],
         _atomicizer_trace(),
     )
     with pytest.raises(ValueError, match="evidence_witness_ref_invalid"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [_atomicizer_proposal("p", start=0, end=1, support=["e1"], effect_refs=["effect:missing"])],
             _atomicizer_trace(),
         )
@@ -1078,7 +1083,7 @@ def test_gate16_envelope_overlap_allowed_when_support_events_disjoint() -> None:
             "revision": 3, "witness_ref": "effect:b",
         },
     ]
-    canonical = Atomicizer().validate_and_canonicalize(
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [
             _atomicizer_proposal("a", start=0, end=1, support=["e0"], obj="apple_1"),
             _atomicizer_proposal("b", start=1, end=2, support=["e2"], obj="mug_1"),
@@ -1087,7 +1092,7 @@ def test_gate16_envelope_overlap_allowed_when_support_events_disjoint() -> None:
     )
     assert len(canonical) == 2
     with pytest.raises(ValueError, match="already owned"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [
                 _atomicizer_proposal("a", start=0, end=1, support=["e1"], obj="mug_1"),
                 _atomicizer_proposal("b", start=1, end=2, support=["e1"], obj="mug_1"),
@@ -1190,8 +1195,7 @@ def test_gate24_and_gate25_terminal_candidate_separate_retrieval_channel() -> No
     import tempfile
     from pathlib import Path as _Path
 
-    with tempfile.TemporaryDirectory() as tmp:
-        database = StateDatabase(_Path(tmp) / "state.sqlite3")
+    with tempfile.TemporaryDirectory() as tmp, StateDatabase(_Path(tmp) / "state.sqlite3") as database:
         artifacts = ArtifactStore(_Path(tmp), database)
         skills = SkillRegistry(artifacts, database)
         canonical = [_terminal_canonical_occurrence()]
@@ -1327,7 +1331,7 @@ def test_gate31_fake_input_authority_rejected() -> None:
         "target": "runtime_input:fake:target"
     }
     with pytest.raises(ValueError, match="input authority ref not found"):
-        Atomicizer().validate_and_canonicalize([proposal], normalized)
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([proposal], normalized)
 
 
 def test_gate32_raw_observation_cannot_create_fresh_output() -> None:
@@ -1364,7 +1368,7 @@ def test_gate32_raw_observation_cannot_create_fresh_output() -> None:
         )
     ]
     with pytest.raises(ValueError):
-        Atomicizer().validate_and_canonicalize([proposal], normalized)
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([proposal], normalized)
 
 
 @pytest.mark.parametrize(
@@ -1558,8 +1562,7 @@ def test_gate36_terminal_empirical_current_contract_subset_gate() -> None:
     import tempfile
     from pathlib import Path as _Path
 
-    with tempfile.TemporaryDirectory() as tmp:
-        database = StateDatabase(_Path(tmp) / "state.sqlite3")
+    with tempfile.TemporaryDirectory() as tmp, StateDatabase(_Path(tmp) / "state.sqlite3") as database:
         artifacts = ArtifactStore(_Path(tmp), database)
         skills = SkillRegistry(artifacts, database)
         canonical = [_terminal_canonical_occurrence()]
@@ -1653,8 +1656,7 @@ def test_r2_3_terminal_empirical_all_signatures_subset() -> None:
     import tempfile
     from pathlib import Path as _Path
 
-    with tempfile.TemporaryDirectory() as tmp:
-        database = StateDatabase(_Path(tmp) / "state.sqlite3")
+    with tempfile.TemporaryDirectory() as tmp, StateDatabase(_Path(tmp) / "state.sqlite3") as database:
         artifacts = ArtifactStore(_Path(tmp), database)
         skills = SkillRegistry(artifacts, database)
         canonical = [_terminal_canonical_occurrence()]
@@ -1761,7 +1763,7 @@ def test_r21_e1_output_derivation_type_vocabulary_tolerated() -> None:
     proposal.output_derivations = {
         "result": {"type": "INPUT_IDENTITY", "input_role": "item"}
     }
-    canonical = Atomicizer().validate_and_canonicalize(
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [proposal], _atomicizer_trace(),
     )
     assert len(canonical) == 1
@@ -1974,13 +1976,13 @@ def _control_step_tool(
     )
 
 
-def _run_control_step_tool(tool: Any) -> ToolExecutionResult:
+def _run_control_step_tool(tool: Any, *, already_held: bool = False) -> ToolExecutionResult:
     from atomic_skillgraph.runtime.budget import RuntimeBudget
     from atomic_skillgraph.runtime.task_context import TaskRuntimeContext
     from atomic_skillgraph.traces.schema import TaskRecord, TraceBuilder, TraceRecord
 
     harness = FakeHarness()
-    task = fake_task("task-control-step", "apple_1")
+    task = fake_task("task-control-step", "apple_1", requires_rescue=already_held)
     harness.reset(task)
     plan = RuntimeLinearPlan.full_dynamic(
         task.task_id, harness.task_contract(task), reason="control_step",
@@ -1991,8 +1993,12 @@ def _run_control_step_tool(tool: Any) -> ToolExecutionResult:
     )
     ctx = TaskRuntimeContext.create(
         task, plan, harness, TraceBuilder(trace),
-        RuntimeBudget(global_action_budget=100, node_action_budget=35),
+        RuntimeBudget(global_action_budget=100),
     )
+    if already_held:
+        # Real non-terminal prefix establishes the read-only tool's promise.
+        result = harness.execute_action('r000_a001', ctx.world_revision)
+        ctx.update_after_action(result, {'action_id': 'r000_a001', 'action_type': 'TAKE', 'arguments': {'item': 'apple_1'}})
     return ToolRunner(ValidationEngine().tool).run(
         tool, {"target": "apple_1"}, ctx, occurrence_id="control_step",
     )
@@ -2066,7 +2072,9 @@ def test_r21_tool_ir_control_step_exhaustion_bound() -> None:
         ],
         max_actions=2,
     )
-    result = _run_control_step_tool(bounded)
+    # This is a pure local control-flow tool; it cannot promise possession
+    # without an action or an already-held input state.
+    result = _run_control_step_tool(bounded, already_held=True)
     assert result.completed is True
     assert result.failure_code == ""
 
@@ -2114,8 +2122,7 @@ def test_r21_terminal_empirical_support_effects_excluded_from_signatures() -> No
             proposed_ref=SkillRef(f"atomic_{occurrence_id}", "1.0.0"),
         )
 
-    with tempfile.TemporaryDirectory() as tmp:
-        database = StateDatabase(_Path(tmp) / "state.sqlite3")
+    with tempfile.TemporaryDirectory() as tmp, StateDatabase(_Path(tmp) / "state.sqlite3") as database:
         artifacts = ArtifactStore(_Path(tmp), database)
         skills = SkillRegistry(artifacts, database)
         cleaned = occurrence(
@@ -2267,8 +2274,7 @@ def test_gate26_terminal_empirical_promotion_requires_distinct_tasks() -> None:
     import tempfile
     from pathlib import Path as _Path
 
-    with tempfile.TemporaryDirectory() as tmp:
-        database = StateDatabase(_Path(tmp) / "state.sqlite3")
+    with tempfile.TemporaryDirectory() as tmp, StateDatabase(_Path(tmp) / "state.sqlite3") as database:
         artifacts = ArtifactStore(_Path(tmp), database)
         skills = SkillRegistry(artifacts, database)
         ledger = EvidenceLedger(database)
@@ -2398,8 +2404,7 @@ def test_gate28_shorter_candidate_cannot_suppress_old_composite_prematurely() ->
     import tempfile
     from pathlib import Path as _Path
 
-    with tempfile.TemporaryDirectory() as tmp:
-        database = StateDatabase(_Path(tmp) / "state.sqlite3")
+    with tempfile.TemporaryDirectory() as tmp, StateDatabase(_Path(tmp) / "state.sqlite3") as database:
         artifacts = ArtifactStore(_Path(tmp), database)
         skills = SkillRegistry(artifacts, database)
         ledger = EvidenceLedger(database)
@@ -2536,9 +2541,8 @@ def test_gate35_terminal_empirical_enters_planner_and_runtime() -> None:
                 validator_id="fake_v3_goal",
             )
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, StateDatabase(_Path(tmp) / "bank" / "state.sqlite3") as database:
         data_dir = _Path(tmp) / "bank"
-        database = StateDatabase(data_dir / "state.sqlite3")
         artifacts = ArtifactStore(data_dir, database)
         skills = SkillRegistry(artifacts, database)
         graph = GraphStore(database, skills)

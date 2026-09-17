@@ -12,7 +12,7 @@ from fixtures.r921_self_tooling_cases import (
 
 
 @pytest.mark.parametrize("route", ["runtime_preparation", "runtime_seeded"])
-def test_shared_node_budget_exhaustion_cannot_buy_parent_continuation(tmp_path, monkeypatch, route):
+def test_shared_task_budget_exhaustion_cannot_buy_parent_continuation(tmp_path, monkeypatch, route):
     from atomic_skillgraph.core.errors import BudgetExhausted
     original = RouteProvider.complete
     seen = []
@@ -21,16 +21,16 @@ def test_shared_node_budget_exhaustion_cannot_buy_parent_continuation(tmp_path, 
         if self.stage == route:
             seen.append(self)
             if len(self.requests) == 3:
-                turn.prompt_tokens = turn.total_tokens = 100001
+                turn.prompt_tokens = turn.total_tokens = 600001
         return turn
     monkeypatch.setattr(RouteProvider, "complete", exhaust_after_trial)
     case = RouteCase("continuation", route=route)
     with AtomicSkillGraphSystem(fixture_config(tmp_path), harness=CandidateHarness(case)) as system:
         with pytest.raises(BudgetExhausted) as raised:
             run_node_case(system, case)
-        assert raised.value.code == "runtime_node_token_budget_exhausted"
+        assert raised.value.code == "runtime_task_token_budget_exhausted"
         assert len(seen[-1].requests) == 3
-        assert sum(e.to_dict()["total_tokens"] for e in system.usage.events) == 100001
+        assert sum(e.to_dict()["total_tokens"] for e in system.usage.events) == 600001
         assert not system.harness.validator_channel().won
 
 
@@ -57,7 +57,7 @@ def test_final_effect_argument_alias_keeps_resolved_input(tmp_path, claimed_dest
         }, [], {"reviewed": True}, {}, {})
         bindings = {"destination": "cabinet_1", "claim": claimed_destination, "location": "egg"}
         result = ToolRunner(ToolValidator()).run(tool, bindings, outcome["ctx"], occurrence_id="parent")
-        assert result.completed, result
+        assert result.completed is passed, result
         assert result.atomic_effect_passed is passed
         assert bindings["location"] == "egg"
 
@@ -87,13 +87,13 @@ def test_multicandidate_native_route_reaches_real_r1(tmp_path, route, stop_when)
         actions = outcome["trace"].environment_actions
         assert [a.action_type for a in actions] == ["GO_TO", "GO_TO", "GO_TO", "OPEN", "TAKE"]
         assert [a.new_revision for a in actions] == list(range(1, 6))
-        assert ctx.budget.remaining_node_actions == 30
+        assert ctx.budget.used_node_actions == 5
+        assert ctx.budget.remaining_global_actions == 95
         builder_payload = json.loads(outcome["builder"].requests[0]["messages"][-1]["content"].split(
             "POLICY_CONTEXT_JSON\n", 1)[1])
         entry = builder_payload["harness_interface"]["runtime_entry"]
-        assert entry["remaining_resources"] == {"node_actions": 35, "task_actions": 100,
-            "node_tokens": system._stage_config('runtime').get('max_total_tokens_per_node', 80000),
-            "task_tokens": system._stage_config('runtime').get('max_total_tokens_per_task', 300000)}
+        assert entry["remaining_resources"] == {"node_actions_used": 0, "task_actions": 100,
+            "node_tokens_used": 0, "task_tokens": 600000}
         assert entry["consumer_obligation"] == {"atomic_ref": "skill://r921_parent_take@1.0.0", "step_id": "parent", "repeat": None}
         assert {key: entry[key] for key in ("revision", "input_values", "action_catalog")} == {"revision": 0, "input_values": {"target": "egg"}, "action_catalog": [
             {"action_type": "GO_TO", "arguments": {"destination": location}} for location in case.locations]}
@@ -144,7 +144,7 @@ def test_native_trial_keeps_original_action_budget(tmp_path):
         with pytest.raises(BudgetExhausted) as failure:
             run_node_case(system, case, action_budget=2,
                 audit=lambda stage, index, kind, payload: audits.update({kind: payload}))
-        assert failure.value.code == "runtime_node_action_budget_exhausted"
+        assert failure.value.code == "episode_action_budget_exhausted"
         trace = audits["trace"]
         assert len(trace["environment_actions"]) == 2
         assert not any(trial.get("r1", {}).get("admission_eligible")
@@ -225,5 +225,9 @@ def test_trial_terminal_stops_provider_and_environment_calls(tmp_path, won):
         if won:
             assert outcome["timeline"][-1]["kind"] == "action"
         trial = next(iter(outcome["ctx"].runtime_tool_trials.values()))
-        assert trial["r1"]["terminal_interrupted"] is won
-        assert not trial["r1"]["admission_eligible"]
+        assert not trial["r1"]["terminal_interrupted"]
+        # The done catalog contains no discovered target witness; pure tail
+        # may run but must not manufacture that promised output.
+        assert not trial['result']['completed']
+        assert not trial['r1']['admission_eligible']
+        assert not trial['parent_completed_after_trial']

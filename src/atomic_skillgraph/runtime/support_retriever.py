@@ -105,6 +105,22 @@ def _predicate_name(value: Any) -> str:
 class SupportAtomicRetriever:
     """Return formal-compatible support candidates, never workflow choices."""
 
+    def retrieve_for_task(self, *, query: str, atomics, execution_availability, top_k=5):
+        """Task consumers have no parent-role obligation; offer their own interfaces."""
+        from ..knowledge.query import lexical_similarity
+        from ..agents.portable_support_view import portable_support_view
+        candidates = []
+        for raw in atomics:
+            if not execution_availability.get(str(raw.ref), False):
+                continue
+            atomic = portable_support_view(raw)
+            candidates.append(SupportCandidate(
+                str(atomic.ref), lexical_similarity(query, atomic.summary), (),
+                tuple(p.name for p in atomic.outputs), tuple(e.predicate for e in atomic.effects),
+                ({"consumer_scope": "task"},), inputs=tuple(to_primitive(atomic.inputs)),
+                outputs=tuple(to_primitive(atomic.outputs)), execution_available=True))
+        return sorted(candidates, key=lambda c: (-c.score, c.atomic_ref))[:top_k]
+
     def retrieve(
         self,
         *,

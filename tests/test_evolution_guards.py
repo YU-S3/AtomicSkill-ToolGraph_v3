@@ -145,7 +145,7 @@ def test_atomicizer_rejects_false_validator_and_terminal_effect_leak() -> None:
         validations=[{"occurrence_id": "", "level": "atomic", "result": {"passed": False}, "revision": 1}],
     )
     with pytest.raises(ValueError, match="validator rejected"):
-        Atomicizer().validate_and_canonicalize([proposal], normalized)
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([proposal], normalized)
 
     # A terminal PUT may witness placement, but it cannot be used as a generic
     # witness for a different formal target effect achieved earlier.
@@ -156,7 +156,7 @@ def test_atomicizer_rejects_false_validator_and_terminal_effect_leak() -> None:
         {"heated_object": "apple_1"}, heat,
     )
     with pytest.raises(ValueError, match="state/validator witness"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [forged],
             _normalized(put, target_effects=[heat, SemanticPredicate(
                 "object.at_location", {"object": "apple_1", "location": "bowl_1"},
@@ -164,7 +164,7 @@ def test_atomicizer_rejects_false_validator_and_terminal_effect_leak() -> None:
         )
 
     with pytest.raises(ValueError, match="state/validator witness"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [replace(proposal, effects=[SemanticPredicate(
                 "object.heated", {"object": "apple_1"}, cardinality=2,
             )])],
@@ -189,7 +189,7 @@ def test_atomicizer_accepts_state_derived_observed_with_witness() -> None:
             SemanticPredicate("agent.holds", {"object": "alarmclock_1"}),
         ],
     )
-    result = Atomicizer().validate_and_canonicalize(
+    result = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [proposal], _normalized(actions, target_effects=[effect]),
     )
     assert result[0].effects[0].predicate == "object.observed_with"
@@ -216,7 +216,7 @@ def test_atomicizer_accepts_state_derived_observed_with_witness() -> None:
         _action(2, "EXAMINE", {"object": "alarmclock_1"}, won=True),
     ]
     with pytest.raises(ValueError, match="state/validator witness"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [replace(proposal, event_start=2, event_end=2)],
             _normalized(forged_actions, target_effects=[effect]),
         )
@@ -238,7 +238,7 @@ def test_atomicizer_action_state_reducer_invalidates_stale_witnesses() -> None:
         preconditions=[SemanticPredicate("agent.holds", {"object": "apple_1"})],
     )
     with pytest.raises(ValueError, match="before-state witness"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [examine],
             _normalized(
                 actions,
@@ -272,7 +272,7 @@ def test_atomicizer_action_state_reducer_invalidates_stale_witnesses() -> None:
         "learnable": True,
     }]
     with pytest.raises(ValueError, match="state/validator witness"):
-        Atomicizer().validate_and_canonicalize([forged_holds], forged_trace)
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([forged_holds], forged_trace)
 
     two_holds = replace(
         examine,
@@ -283,7 +283,7 @@ def test_atomicizer_action_state_reducer_invalidates_stale_witnesses() -> None:
         )],
     )
     with pytest.raises(ValueError, match="before-state witness"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [two_holds],
             _normalized(
                 [
@@ -325,7 +325,7 @@ def test_invalid_concrete_argument_rejects_only_its_e1_occurrence() -> None:
         ),
     ]
 
-    canonical, rejections = Atomicizer().validate_proposed_subset(
+    canonical, rejections = Atomicizer(legacy_source_replay=True).validate_proposed_subset(
         proposals,
         _normalized(
             actions,
@@ -343,7 +343,7 @@ def test_invalid_concrete_argument_rejects_only_its_e1_occurrence() -> None:
 
 def _take_canonical():
     effect = SemanticPredicate("agent.holds", {"object": "apple_1"})
-    return Atomicizer().validate_and_canonicalize(
+    return Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [_proposal(
             "take", "take item", 0,
             {"item": "apple_1"}, {"held_object": "apple_1"}, effect,
@@ -563,7 +563,7 @@ def test_composite_requires_reused_identity_dataflow_and_identity_consistency() 
             preconditions=[SemanticPredicate("agent.holds", {"object": "apple_1"})],
         ),
     ]
-    canonical = Atomicizer().validate_and_canonicalize(
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         proposals,
         _normalized(actions, target_effects=[SemanticPredicate(
             "object.observed", {"object": "apple_1"},
@@ -597,7 +597,7 @@ def test_composite_requires_reused_identity_dataflow_and_identity_consistency() 
         _action(0, "TAKE", {"item": "apple_1"}),
         _action(1, "EXAMINE", {"item": "banana_1"}, won=True),
     ]
-    mismatched = Atomicizer().validate_and_canonicalize(
+    mismatched = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [
             proposals[0],
             replace(
@@ -631,7 +631,7 @@ def test_composite_requires_reused_identity_dataflow_and_identity_consistency() 
         _action(0, "HEAT", {"object": "apple_1", "station": "microwave_1"}),
         _action(1, "PUT", {"object": "banana_1", "destination": "bowl_1"}, won=True),
     ]
-    mixed = Atomicizer().validate_and_canonicalize(
+    mixed = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [
             _proposal(
                 "heat", "heat object", 0,
@@ -745,7 +745,7 @@ def test_composite_rejects_cross_object_effect_coverage_with_alfworld_matcher() 
             won=True,
         ),
     ]
-    canonical = Atomicizer().validate_and_canonicalize(
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [
             _proposal(
                 "heat_mug", "heat mug", 0,
@@ -807,7 +807,7 @@ def _reversed_take_heat_canonical():
             won=True,
         ),
     ]
-    return Atomicizer().validate_and_canonicalize(
+    return Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [
             _proposal(
                 "heat", "heat held object", 1,
@@ -955,7 +955,7 @@ def test_frozen_trace_output_cannot_be_inside_snapshot(tmp_path) -> None:
     trace_dir = snapshot / "eval_output"
     config = {
         "schema_version": 3,
-        "repair_revision": "R10.2",
+        "repair_revision": "R10.2.1",
         "data_dir": str(snapshot),
         "trace_data_dir": str(trace_dir),
         "condition": "full",

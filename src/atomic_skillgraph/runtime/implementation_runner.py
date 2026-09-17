@@ -73,6 +73,8 @@ class ImplementationRunner:
         bindings_by_ref = {str(item.tool_ref): item for item in compiled.implementation.tool_bindings}
         tools_by_ref = {str(item.ref): item for item in compiled.tools}
         for binding in sorted(compiled.implementation.tool_bindings, key=lambda item: item.order):
+            if ctx.execution_terminal():
+                break
             tool = tools_by_ref[str(binding.tool_ref)]
             try:
                 arguments = self._tool_arguments(binding.parameter_mapping, atomic_values, tool_outputs)
@@ -104,7 +106,7 @@ class ImplementationRunner:
             for role, value in result.output_candidates.items():
                 tool_outputs[(binding.role, role)] = value
             if not result.completed:
-                if not result.terminal_interrupted:
+                if result.failure_code or not result.terminal_interrupted:
                     failure_layer = result.failure_layer or "tool"
                     failure_code = result.failure_code or "tool_execution_error"
                 break
@@ -132,32 +134,18 @@ class ImplementationRunner:
             else ctx.binding_store.snapshot_for_node(occurrence)
         )
         bindings.update({item.role: item for item in preflight.binding_updates})
-        if compiled.atomic.validator_spec.get("output_derivations"):
-            try:
-                authoritative_evidence_facts = (
-                    ctx.atomic_evidence_for(occurrence).authoritative_facts()
-                )
-            except (AttributeError, KeyError):
-                authoritative_evidence_facts = []
-            atomic_validation = self.validation.atomic.validate_execution_result(
-                compiled.atomic,
-                occurrence,
-                bindings,
-                output_candidates,
-                ctx.harness.validator_channel(),
-                current_revision=ctx.world_revision,
-                authoritative_evidence_facts=authoritative_evidence_facts,
-                semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None),
-            )
-        else:
-            atomic_validation = self.validation.atomic.validate(
-                compiled.atomic, occurrence, bindings,
-                ctx.harness.validator_channel(), output_candidates,
-            )
+        try:
+            authoritative_evidence_facts = ctx.atomic_evidence_for(occurrence).authoritative_facts()
+        except (AttributeError, KeyError):
+            authoritative_evidence_facts = []
+        atomic_validation = self.validation.atomic.validate_execution_result(
+            compiled.atomic, occurrence, bindings, output_candidates, ctx.harness.validator_channel(),
+            current_revision=ctx.world_revision, authoritative_evidence_facts=authoritative_evidence_facts,
+            semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None))
         ctx.trace_builder.trace.validations.append(ValidationRecord(
             occurrence.occurrence_id, "atomic", to_primitive(atomic_validation), ctx.world_revision,
         ))
-        atomic_passed = bool(started and atomic_validation.passed)
+        atomic_passed = bool(completed and not failure_code and atomic_validation.passed)
         if atomic_passed and execution_scope == "registered":
             repeat_values = {
                 **dict(atomic_values),
@@ -188,7 +176,7 @@ class ImplementationRunner:
                 )
         if completed and not atomic_passed and not failure_code:
             failure_layer, failure_code = "atomic", "atomic_effect_violation"
-        validated_outputs = output_candidates if atomic_passed else {}
+        validated_outputs = {role: item.value for role, item in atomic_validation.validated_output_bindings.items()} if atomic_passed else {}
         ctx.trace_builder.finish_span(span.span_id)
         result = ImplementationExecutionResult(
             str(compiled.implementation.ref), str(compiled.atomic.ref), True, started,
@@ -199,12 +187,17 @@ class ImplementationRunner:
             else NodeExecutionStatus.DIRECT_AUTONOMOUS_SUCCESS if atomic_passed
             else NodeExecutionStatus.DIRECT_FAILED if started else NodeExecutionStatus.FAILED_NOT_STARTED,
             terminal_interrupted=bool(
-                tool_results and any(item.terminal_interrupted for item in tool_results)
+                ctx.execution_terminal() and not completed
             ),
             atomic_witness_refs=list(dict.fromkeys(
                 str(ref) for ref in atomic_validation.witness_refs
             )),
+            official_terminal_observed=ctx.execution_terminal(),
+            validated_output_bindings=dict(atomic_validation.validated_output_bindings) if atomic_passed else {},
+            certified_input_bindings=dict(atomic_validation.certified_input_bindings) if atomic_passed else {},
         )
+        if result.terminal_interrupted and result.started and not result.failure_code:
+            result.node_status = NodeExecutionStatus.TERMINAL_PARTIAL
         invocation_record = ImplementationInvocationRecord(
             attempt_id, occurrence.occurrence_id, str(compiled.implementation.ref),
             dict(preflight.normalized_arguments), to_primitive(preflight), to_primitive(result), span.span_id,

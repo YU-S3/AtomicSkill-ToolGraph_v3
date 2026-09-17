@@ -154,6 +154,7 @@ class ContextBuilder:
         remaining_budget: Mapping[str, Any],
         task_progress: Mapping[str, Any] | None = None,
         rescue_method_guidance: Mapping[str, Any] | None = None,
+        task_runtime_frame: Mapping[str, Any] | None = None,
         exploration_memory: Mapping[str, Any] | None = None,
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
         projection_audit: dict[str, Any] | None = None,
@@ -180,6 +181,10 @@ class ContextBuilder:
             payload["rescue_method_guidance"] = _policy_value(
                 dict(rescue_method_guidance)
             )
+        if task_runtime_frame is not None:
+            payload["task_runtime_frame"] = _policy_value(dict(task_runtime_frame))
+            if task_runtime_frame.get("runtime_automation_interface"):
+                payload["runtime_automation_interface"] = _policy_value(task_runtime_frame["runtime_automation_interface"])
         projected, audit = project_runtime_payload(payload)
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
@@ -411,7 +416,6 @@ Do not extract:
 - pure observation with no authoritative transition;
 - repeated checks;
 - failed attempts;
-- loops;
 - recovery actions;
 - incidental search/exploration detours that have no reusable, validated
   evidence-domain Effect.
@@ -440,56 +444,48 @@ Do not include episode entity identifiers, hidden state, or task-specific answer
 If known_atomic_contracts contains an equivalent validated contract, reuse its
 canonical_intent. Otherwise propose a new portable intent.
 
-All episode-specific values belong only in input_roles/output_roles.
-Never copy a concrete value into intent, rationale intended as a long-term
-summary, or any reusable guideline.
+Declare boundary_schema_version="2", explicit input_specs/output_specs (ParameterSpec),
+output_semantic_constraints and local_value_authority_refs. Types and required_resolution
+are part of the capability contract, never inferred from the sample value or role name.
+Inputs can be semantic anchors known at entry; outputs can be newly discovered concrete
+values or typed boolean/list/map results. E1 declares capability/evidence, not Tool IR.
+
+Map each formal input to input_provenance_refs[formal_role] =
+{authority_ref, source_role}. The supplied authority's source_role, value, type,
+resolution, entry time and occurrence/task scope must match. Formal-role renaming is
+allowed only through that explicit mapping. Prefer public_binding/public_catalog
+authorities with available_revision at or before the occurrence entry. Action arguments
+and post-state facts alone cannot establish what was known at entry.
+Do not invent authority references, strip entity suffixes, derive values from prose,
+or turn a future discovered output into a supposedly pre-known input.
+
+Values discovered during the selected causal slice may remain internal. Cite their
+supplied public local_value_authority_refs; each must be available before the action
+using it. These refs are evidence, not variable definitions. The existing ToolBuilder
+authors bounded loops/selectors/locals and RETURN; do not externalize every local
+operand or embed episode identifiers into permanent contracts, intent or guideline.
 
 event_start is inclusive and event_end is exclusive in this submission. A single event at index i uses [i, i+1). Code performs the exclusive-to-inclusive conversion; do not subtract one yourself.
-The precondition boundary is exactly canonical_trace.actions[event_start].authoritative_before_state_facts. It is not the state before an arbitrary support event and not any historical state inside the envelope.
-Choose the smallest evidence envelope that contains the necessary support events without moving the entry boundary earlier than the stated preconditions. A fact created by a support/setup event inside the envelope is an intermediate fact, not an entry precondition. Either describe the occurrence from an earlier valid entry state with that setup included, or start the core occurrence after setup and cite its actual entry-state witnesses. Do not erase necessary preconditions merely to pass validation; do not attach later witnesses to an earlier start.
-An event at index i normally creates its after-state at that action's after_revision. The event index and world revision are different fields. Copy the supplied references; never build a witness string by arithmetic.
-Temporal envelopes may overlap, but support_event_ids determine event ownership. Preserve the existing shared-precondition and independent-Effect ownership rules below.
-Temporal evidence envelopes may overlap when Atomics share prerequisite context.
-support_event_ids, not envelope overlap, define effect-producing event ownership.
-Do not assign the same effect-producing support event to multiple independent
-Atomics. shared_precondition_event_ids is not a general list of prerequisite
-events: every listed event must also be selected in support_event_ids by this
-occurrence and by at least one other proposed occurrence. Use it only to mark
-that shared support event as precondition evidence in every owner. Ordinary
-prerequisites belong in the temporal envelope and precondition_witness_refs,
-not shared_precondition_event_ids. Code accepts shared support ownership only
-when the event is not claimed as an Effect witness by two independent Atomics.
-
-input_roles:
-- non-empty; every role has a concrete value supported by one supplied authority;
-- role keys are unique; if multiple input roles carry the same concrete identity,
-  keep each role's explicit supplied authority and never choose a role by value alone;
-- input_provenance_refs keys must exactly equal input_roles keys;
-- for every input role r, select exactly one supplied boundary_authorities.inputs entry a with a.role == r and a.value == input_roles[r]; then copy a.authority_ref exactly;
-- do not rename an input to a more descriptive alias while citing an authority for a different role. If a.role is object, using light or container as the input key with that same reference is invalid under this interface;
-- this equality applies to the Atomic input role and the input authority role, not to a predicate's argument name. A predicate argument such as location may legitimately refer to an input named destination;
-- do not invent a new input authority, derive one from prose, or borrow an authority outside the supplied event/lineage boundary;
-- if no permitted authority supplies a required input, revise the proposed occurrence using the actual evidence; do not fabricate a match.
-
-boundary_authorities.inputs may contain code-owned semantic_alias entries.
-A semantic_alias proves that one accepted primitive input identity may be
-referenced under the supplied semantic role because the same accepted action
-produced an authoritative semantic Effect using that exact identity.
-
-Use a semantic_alias only by copying its role, value, and authority_ref exactly.
-Never invent an alias, rename an action_argument authority yourself, or derive
-an alias from entity names / task wording / observation prose.
-
-When distinct concrete identities happen to use the same primitive argument
-role in different actions, do not force both identities into one Atomic input
-key. If the supplied boundary authorities contain distinct code-owned semantic
-aliases, use those exact aliases to preserve their reusable semantic roles.
+The precondition boundary is exactly canonical_trace.actions[event_start].authoritative_before_state_facts.
+Preconditions cite exactly the entry action's authoritative_before_state_facts,
+not a later fact established inside the slice. Support events must be accepted and
+within the envelope, with explicit support_event_ids. Preserve independent Effect
+ownership: shared_precondition_event_ids can overlap only for selected prerequisite
+events, never duplicate ownership of an Effect-producing event.
+Temporal evidence envelopes may overlap. Deduplicate support_event_ids, not envelope overlap.
+Two capabilities cannot own the same effect-producing support event.
+shared_precondition_event_ids is not a general list of prerequisite events: each shared
+event must also be selected in support_event_ids. Other prerequisites belong in the temporal envelope.
+Select the minimum coherent causal slice, including internal preparation when needed
+for the declared reusable capability. Bounded exploration with a genuinely validated
+evidence-domain transition is allowed. Repeated observation without a new validated
+effect is not by itself a capability.
 
 output_roles:
 - non-empty;
 - every required output must have exactly one code-verifiable derivation;
-- INPUT_IDENTITY: exactly the same concrete identity as one declared input; or
-- EFFECT_WITNESS: a concrete argument of one declared authoritative Effect witness.
+- INPUT_IDENTITY: exactly the same typed value as one declared input, retaining its actual resolution; or
+- EFFECT_WITNESS: a typed argument of one declared authoritative Effect witness.
 Do not invent an output value.
 Do not derive an output from observation prose.
 Use only supplied boundary_authorities / effect witness refs.
@@ -519,11 +515,9 @@ effects:
 Code will independently validate every proposal. Invalid proposals are
 discarded and cannot change the persistent graph.
 
-This is a strict-success learning trace. The code-authoritative target witness
+This is an official-success, learning-eligible trace. The code-authoritative target witness
 section identifies TaskContract effects already proven by accepted,
-state-derived facts. Your complete proposal must preserve enough valid causal
-transitions for the validated occurrences to collectively cover every supplied
-target witness. Do not invent an Effect merely because the TaskContract
+state-derived facts. Propose only independently justified capabilities; incomplete Composite coverage must not force invented capabilities. Do not invent an Effect merely because the TaskContract
 requires it; use only the supplied witness facts and their causal event slices.
 When a witness is state-derived from earlier accepted transitions, select a
 minimal occurrence slice whose declared Effect is exactly that authoritative
@@ -536,7 +530,7 @@ required inside that occurrence.
   the interval contiguous. Precondition and effect witnesses must be explicit.
   Only extract causal capabilities supported before benchmark terminal success.
 
-Before the one native submission, verify every proposed occurrence independently: [event_start,event_end) contains its support_event_ids; each input's authority has the same role and value; every precondition reference belongs to the exact entry snapshot; every Effect reference belongs to the selected support events and matches the declared predicate/domain; every output has one legal input_identity or effect_witness derivation, and every entity output equal to any declared input identity uses explicit input_identity rather than effect_witness. Do not change correct sibling occurrences to hide an invalid one. This self-check adds no tool call and no retry.
+Before the one native submission, verify every proposed occurrence independently: [event_start,event_end) contains its support_event_ids; each input explicitly maps to its authority's source_role and value; every precondition reference belongs to the exact entry snapshot; every Effect reference belongs to the selected support events and matches the declared predicate/domain; every output has one legal input_identity or effect_witness derivation, and every entity output equal to any declared input identity uses explicit input_identity rather than effect_witness. Do not change correct sibling occurrences to hide an invalid one. This self-check adds no tool call and no retry.
 For every proposed occurrence:
 
 1. every episode concrete identity referenced by a precondition must be
@@ -550,10 +544,9 @@ For every proposed occurrence:
    do not reclassify that existing identity as a fresh output merely to avoid
    a primitive-role collision;
 
-4. use only supplied semantic_alias entries to disambiguate semantic roles;
-   never create an alias yourself.
+4. use explicit formal-input/source-role mappings, with real authority refs.
 
-Call the offered native submission tool exactly once.""",
+Review canonical_trace.uncovered_event_ids within the full context. Return occurrences=[] if no new justified capability exists; do not manufacture a proposal or request another attempt. Call the offered native submission tool exactly once.""",
             {
                 "canonical_trace": _policy_value(canonical_trace),
                 "known_atomic_contracts": _policy_value(
@@ -802,10 +795,7 @@ def _compact_budget(value: Mapping[str, Any]) -> dict[str, int]:
             0, int(mapping.get("remaining_global_actions", 0))
         ),
     }
-    if bool(mapping.get("node_budget_active")):
-        result["remaining_node_actions"] = max(
-            0, int(mapping.get("remaining_node_actions", 0))
-        )
+    result["node_actions_used"] = int(mapping.get("used_node_actions", 0))
     return result
 
 

@@ -290,15 +290,19 @@ def transfer_inputs(request, consumer_atomic, result, ctx):
     report = validate_transfer(request, consumer_atomic, result.validated_outputs, ctx)
     if not report.passed:
         return report
-    from ..core.support_authority import output_resolution_authority
     specs = {p.name: p for p in consumer_atomic.inputs}
     values = {dest: result.validated_outputs[out] for out, dest in request.output_mapping.items()}
     bindings = {}
+    ctx.binding_store._check_certified_values(result.validated_outputs, result.validated_output_bindings)
     for out, dest in request.output_mapping.items():
-        resolution, _ = output_resolution_authority(request.producer, out)
-        bindings[dest] = RuntimeBinding(dest, values[dest], specs[dest].semantic_type,
-            BindingSource.HARNESS_EVIDENCE, BindingStatus.GROUNDED, BindingResolution(resolution),
-            list(result.atomic_witness_refs), ctx.world_revision)
+        actual = result.validated_output_bindings[out]
+        if not semantic_types_compatible(actual.semantic_type, specs[dest].semantic_type):
+            return _fail(ctx, 'support_input_transfer_rejects', 'support_output_type_mismatch', dest)
+        if actual.resolution is BindingResolution.RELATION_VERIFIED and actual.world_revision != ctx.world_revision:
+            actual = replace(actual, resolution=BindingResolution.CONCRETE)
+        if not resolution_satisfies(actual.resolution, specs[dest].required_resolution):
+            return _fail(ctx, 'support_input_transfer_rejects', 'support_output_resolution_insufficient', dest)
+        bindings[dest] = replace(actual, role=dest, source=BindingSource.DATA_FLOW)
     # No parent output publication or parent Repeat commit here.
     ctx.binding_store.commit_validated_support_inputs(request.consumer.occurrence_id, bindings)
     ctx.trace_builder.trace.metadata.setdefault('support_input_transfers', []).append({

@@ -14,7 +14,7 @@ from atomic_skillgraph.agents.structured_submission import (
     ATOMIC_EXTRACTION_SCHEMA,
 )
 from atomic_skillgraph.core.bindings import BindingExprKind, BindingExpression
-from atomic_skillgraph.core.contracts import EffectDomain, SemanticPredicate
+from atomic_skillgraph.core.contracts import EffectDomain, ParameterSpec, SemanticPredicate
 from atomic_skillgraph.evolution.atomicizer import (
     AtomicOccurrenceProposal,
     Atomicizer,
@@ -97,6 +97,7 @@ def _normalized() -> dict[str, object]:
                     "source_kind": "action_argument",
                     "role": "item",
                     "value": "apple_1",
+                    "semantic_type": "entity", "resolution": "concrete", "available_revision": 1,
                 },
                 {
                     "authority_ref": "action_arg:e0:destination",
@@ -106,6 +107,7 @@ def _normalized() -> dict[str, object]:
                     "source_kind": "action_argument",
                     "role": "destination",
                     "value": "desk_1",
+                    "semantic_type": "entity", "resolution": "concrete", "available_revision": 0,
                 },
             ],
             "effects": [{
@@ -140,8 +142,8 @@ def _proposal() -> AtomicOccurrenceProposal:
         precondition_witness_refs=["action:e0:revision:1"],
         effect_witness_refs=["action:e1:revision:2"],
         input_provenance_refs={
-            "item": "action_arg:e1:item",
-            "destination": "action_arg:e0:destination",
+            "item": {"authority_ref": "action_arg:e1:item", "source_role": "item"},
+            "destination": {"authority_ref": "action_arg:e0:destination", "source_role": "destination"},
         },
         output_derivations={
             "held_item": {
@@ -150,6 +152,9 @@ def _proposal() -> AtomicOccurrenceProposal:
             },
         },
         input_provenance_contract="code_authority_v3_2",
+        boundary_schema_version='2',
+        input_specs=[ParameterSpec(role, 'entity', required_resolution='concrete') for role in ('item', 'destination')],
+        output_specs=[ParameterSpec('held_item', 'entity', required_resolution='concrete')],
     )
 
 
@@ -161,7 +166,11 @@ def _schema_occurrence() -> dict[str, object]:
         "event_end": 2,
         "support_event_ids": ["e1"],
         "input_roles": {"item": "apple_1"},
-        "input_provenance_refs": {"item": "action_arg:e1:item"},
+        "input_provenance_refs": {"item": {"authority_ref": "action_arg:e1:item", "source_role": "item"}},
+        "boundary_schema_version": "2",
+        "input_specs": [{"name": "item", "semantic_type": "entity", "required_resolution": "concrete"}],
+        "output_specs": [{"name": "held_item", "semantic_type": "entity", "required_resolution": "concrete"}],
+        "output_semantic_constraints": {}, "local_value_authority_refs": [],
         "output_roles": {"held_item": "apple_1"},
         "output_derivations": {
             "held_item": {
@@ -236,42 +245,42 @@ def test_current_e1_requires_exact_output_derivation_key_set() -> None:
     missing = _proposal()
     missing.output_derivations = {}
     with pytest.raises(ValueError, match="exactly match output roles"):
-        Atomicizer().validate_and_canonicalize([missing], _normalized())
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([missing], _normalized())
 
     extra = _proposal()
     extra.output_derivations["invented"] = {
         "kind": "input_identity", "input_role": "item",
     }
     with pytest.raises(ValueError, match="exactly match output roles"):
-        Atomicizer().validate_and_canonicalize([extra], _normalized())
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([extra], _normalized())
 
 
 def test_current_e1_requires_explicit_support_and_witness_refs() -> None:
     no_support = _proposal()
     no_support.support_event_ids = []
     with pytest.raises(ValueError, match="support_event_ids must be explicit"):
-        Atomicizer().validate_and_canonicalize([no_support], _normalized())
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([no_support], _normalized())
 
     numeric_alias = _proposal()
     numeric_alias.support_event_ids = ["1"]
     with pytest.raises(ValueError, match="outside evidence envelope"):
-        Atomicizer().validate_and_canonicalize([numeric_alias], _normalized())
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([numeric_alias], _normalized())
 
     no_precondition_ref = _proposal()
     no_precondition_ref.precondition_witness_refs = []
     with pytest.raises(ValueError, match="precondition witnesses must be explicit"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [no_precondition_ref], _normalized(),
         )
 
     no_effect_ref = _proposal()
     no_effect_ref.effect_witness_refs = []
     with pytest.raises(ValueError, match="effect witnesses must be explicit"):
-        Atomicizer().validate_and_canonicalize([no_effect_ref], _normalized())
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([no_effect_ref], _normalized())
 
 
 def test_current_e1_effect_domain_is_part_of_witness_authority() -> None:
-    accepted = Atomicizer().validate_and_canonicalize(
+    accepted = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [_proposal()], _normalized(),
     )
     assert len(accepted) == 1
@@ -283,7 +292,7 @@ def test_current_e1_effect_domain_is_part_of_witness_authority() -> None:
         effect_domain=EffectDomain.EVIDENCE,
     )]
     with pytest.raises(ValueError, match="effect lacks"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [wrong_domain], _normalized(),
         )
 
@@ -311,7 +320,7 @@ def test_r6_precondition_rejects_output_only_role_even_with_witness() -> None:
             r"take\.held_item"
         ),
     ):
-        Atomicizer().validate_and_canonicalize([proposal], normalized)
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([proposal], normalized)
 
 
 def test_r6_effect_retains_fresh_output_role() -> None:
@@ -327,6 +336,7 @@ def test_r6_effect_retains_fresh_output_role() -> None:
     }]
     proposal = _proposal()
     proposal.output_roles = {"found_entity": "mug_2"}
+    proposal.output_specs = [ParameterSpec('found_entity', 'entity', required_resolution='concrete')]
     proposal.output_derivations = {
         "found_entity": {
             "kind": "effect_witness",
@@ -351,7 +361,7 @@ def test_r6_effect_retains_fresh_output_role() -> None:
     )]
     proposal.effect_witness_refs = ["action:e1:revision:2:fresh"]
 
-    canonical = Atomicizer().validate_and_canonicalize(
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [proposal], normalized,
     )
 
@@ -372,7 +382,7 @@ def test_r6_precondition_retains_input_role() -> None:
         },
     )]
 
-    canonical = Atomicizer().validate_and_canonicalize(
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [proposal], _normalized(),
     )
 
@@ -384,13 +394,16 @@ def test_r6_precondition_retains_input_role() -> None:
 def test_legacy_internal_proposal_keeps_isolated_migration_behavior() -> None:
     legacy = _proposal()
     legacy.input_provenance_contract = "legacy_action_argument_v1"
+    legacy.boundary_schema_version = ''
+    legacy.input_specs = []
+    legacy.output_specs = []
     legacy.support_event_ids = []
     legacy.precondition_witness_refs = []
     legacy.effect_witness_refs = []
     legacy.output_derivations = {}
     legacy.input_provenance_refs = {}
 
-    accepted = Atomicizer().validate_and_canonicalize(
+    accepted = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [legacy], _normalized(),
     )
 

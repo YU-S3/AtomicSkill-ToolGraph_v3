@@ -175,8 +175,6 @@ class RuntimeOrchestrator:
         config = self.runtime_config
         return RuntimeBudget(
             global_action_budget=int(config.get("global_action_budget", 100)),
-            node_action_budget=int(config.get("node_action_budget", 35)),
-            token_limits=dict(config.get("token_limits", {})), turn_limits=dict(config.get("turn_limits", {})),
         )
 
     def create_trace_builder(self, task: HarnessTask, *, attempt_id: str = "") -> TraceBuilder:
@@ -309,13 +307,13 @@ class RuntimeOrchestrator:
                 node = ctx.trace_builder.start_node(occurrence.occurrence_id, occurrence.step_id, str(occurrence.node_ref))
                 atomic = self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
                 ctx.binding_store.apply_data_flow(plan, step_id, ctx.validated_outputs, revision=ctx.world_revision)
-                ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
+                ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision, input_specs=atomic.inputs)
                 ctx.begin_occurrence(occurrence)
                 from .composite_executor import VerifiedCompositeExecutor
                 final = VerifiedCompositeExecutor(self.node_executor).run_occurrence(occurrence, ctx)
                 node.direct_result = to_primitive(final)
                 if _task_terminal(ctx) and not final.atomic_effect_passed:
-                    node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+                    node.status = NodeExecutionStatus.TERMINAL_PARTIAL
                     self._mark_remaining_terminal(ctx, index + 1)
                     break
                 if not final.atomic_effect_passed:
@@ -335,10 +333,12 @@ class RuntimeOrchestrator:
                     validation_refs = self._latest_atomic_witnesses(ctx, occurrence.occurrence_id)
                     ctx.binding_store.publish_validated_outputs(
                         occurrence, final.validated_outputs, validation_refs, ctx.world_revision,
+                        certified_bindings=final.validated_output_bindings,
                     )
                     ctx.validated_outputs[occurrence.occurrence_id] = dict(final.validated_outputs)
                     for role, value in final.validated_outputs.items():
-                        ctx.evidence_store.add_validated_tool_output(role, value, validation_refs)
+                        ctx.evidence_store.add_validated_tool_output(role, value, validation_refs,
+                            certified_binding=final.validated_output_bindings[role], occurrence_id=occurrence.occurrence_id)
 
                 terminal = self.validation.task.terminal(
                     ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
@@ -387,7 +387,8 @@ class RuntimeOrchestrator:
         trace = ctx.trace_builder.trace
         trace.node_contract_success = bool(trace.node_records) and all(
             node.status not in {NodeExecutionStatus.NOT_STARTED, NodeExecutionStatus.FAILED_NOT_STARTED,
-                                NodeExecutionStatus.DIRECT_FAILED, NodeExecutionStatus.SEEDED_FAILED}
+                                NodeExecutionStatus.DIRECT_FAILED, NodeExecutionStatus.SEEDED_FAILED,
+                                NodeExecutionStatus.TERMINAL_PARTIAL, NodeExecutionStatus.SKIPPED_GOAL_TERMINAL}
             for node in trace.node_records
         )
         trace.implementation_direct_success = any(
@@ -396,7 +397,7 @@ class RuntimeOrchestrator:
         )
         trace.graph_full_completion = (
             len(trace.node_records) == len(plan.occurrences)
-            and all(node.status is not NodeExecutionStatus.SKIPPED_GOAL_TERMINAL for node in trace.node_records)
+            and trace.node_contract_success
         )
         composite = self.validation.composite.validate_runtime(
             plan, trace.node_records, ctx.validated_outputs,
@@ -442,6 +443,10 @@ class RuntimeOrchestrator:
         apply_terminal_outcome(
             trace, terminal, ctx.harness.validator_channel(),
         )
+        from ..governance.credit import composite_deployment_evidence
+        contribution = composite_deployment_evidence(trace)
+        trace.metadata['composite_deployment_evidence'] = contribution
+        trace.graph_self_sufficient_success = contribution['success']
         if trace.benchmark_success and not trace.task_contract_success:
             trace.metadata["anomaly"] = "benchmark_goal_contract_mismatch"
         trace.metadata["invocation_compile_rejections"] = list(self.invocation_compiler.compile_rejections)
@@ -629,6 +634,7 @@ class RuntimeOrchestrator:
         ctx: TaskRuntimeContext,
         occurrence: RuntimeOccurrence,
         outputs: dict[str, Any],
+        certified_bindings: dict,
     ) -> None:
         if not outputs:
             return
@@ -641,6 +647,7 @@ class RuntimeOrchestrator:
             outputs,
             witness_refs,
             ctx.world_revision,
+            certified_bindings=certified_bindings,
         )
         ctx.validated_outputs[occurrence.occurrence_id] = dict(outputs)
         for role, value in outputs.items():
@@ -648,6 +655,8 @@ class RuntimeOrchestrator:
                 role,
                 value,
                 witness_refs,
+                certified_binding=certified_bindings[role],
+                occurrence_id=occurrence.occurrence_id,
             )
 
     def _run_verified_cold_step(
@@ -672,13 +681,14 @@ class RuntimeOrchestrator:
         ctx.binding_store.resolve_occurrence_specs(
             occurrence,
             ctx.world_revision,
+            input_specs=self.invocation_compiler.skills.get_atomic(occurrence.node_ref).inputs,
         )
         ctx.begin_occurrence(occurrence)
         from .composite_executor import VerifiedCompositeExecutor
         final = VerifiedCompositeExecutor(self.node_executor).run_occurrence(occurrence, ctx)
         node.direct_result = to_primitive(final)
         if _task_terminal(ctx) and not final.atomic_effect_passed:
-            node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+            node.status = NodeExecutionStatus.TERMINAL_PARTIAL
             return False, "benchmark_terminal", "goal_terminal"
         if not final.atomic_effect_passed:
             node.status = final.node_status
@@ -696,6 +706,7 @@ class RuntimeOrchestrator:
             ctx,
             occurrence,
             final.validated_outputs,
+            final.validated_output_bindings,
         )
         return True, "", "success"
 

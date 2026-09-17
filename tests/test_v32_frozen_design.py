@@ -235,11 +235,11 @@ def test_tool_ir_executes_zero_llm_and_stops_at_return() -> None:
         _ir_tool(), {"item": "apple_1"}, ctx, occurrence_id="occ",
     )
     assert result.started is True
-    assert result.completed is False
-    assert result.terminal_interrupted is True
+    assert result.completed is True
+    assert result.terminal_interrupted is False
     assert result.intrinsic_failure is False
-    assert result.output_candidates == {}  # terminal interruption is not a RETURN authority
-    assert result.executed_node_count == 1
+    assert result.output_candidates == {"held_object": "apple_1"}
+    assert result.executed_node_count == 2
     assert ctx.used_actions == 1
     assert ctx.benchmark_terminal() is True
 
@@ -411,7 +411,7 @@ def test_success_evolution_tool_builder_compiles_ir_tool(tmp_path: Any) -> None:
         "source_task": {"task_id": "task"},
         "trace_id": "trace_builder_test",
     }
-    proposal = Atomicizer().validate_and_canonicalize(
+    proposal = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [
             AtomicOccurrenceProposal(
                 phase_id="take",

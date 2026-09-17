@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 from fixtures.r102 import compile_fixture
+from fixtures.typed_e1 import entity_ports
+from atomic_skillgraph.evolution.typed_boundary import public_value_authorities
 
 import copy
 from pathlib import Path
@@ -64,7 +66,7 @@ def _look_task(
         context={
             "target_item": target,
             "light": light,
-            "binding_types": {"object": "string", "light": "string"},
+            "binding_types": {"object": "entity", "light": "entity"},
             "semantic_bindings": {"object": target, "light": light},
             "initial_observation": f"{target} and {light} are available.",
         },
@@ -229,6 +231,7 @@ def _proposal(
     target: str,
     light: str,
     actions: list[dict[str, Any]],
+    authorities: list[dict[str, Any]],
 ) -> dict[str, Any]:
     take_id = str(actions[0]["action_id"])
     use_id = str(actions[1]["action_id"])
@@ -237,17 +240,17 @@ def _proposal(
         for fact in actions[1]["authoritative_positive_effects"]
         if fact["predicate"] == "object.observed_with"
     )
-    return {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
+    ports = {'object': target, 'light': light}
+    sources = {role: next(a for a in authorities if a['value'] == value and a['available_revision'] == 0 and a['kind'] == 'public_catalog')
+               for role, value in ports.items()}
+    return {**entity_ports(ports, ['observed_object']), "guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": "observe_with_light",
         "intent": "observe target with illuminating device",
         "event_start": 0,
         "event_end": 2,
         "support_event_ids": [take_id, use_id],
         "input_roles": {"object": target, "light": light},
-        "input_provenance_refs": {
-            "object": f"action_arg:{take_id}:object",
-            "light": f"semantic_alias:{use_id}:object:light",
-        },
+        "input_provenance_refs": {role: {'authority_ref': a['authority_ref'], 'source_role': a['role']} for role, a in sources.items()},
         "output_roles": {"observed_object": target},
         "output_derivations": {
             "observed_object": {
@@ -305,6 +308,8 @@ def test_semantic_alias_full_chain_reaches_frozen_stored_composite(
     assert source_trace.benchmark_success is True
     source_trace.metadata["method_patch"] = "3.2"
     normalized = TraceNormalizer().build(source_trace)
+    authorities = public_value_authorities(source_trace)
+    normalized['boundary_authorities']['inputs'].extend(authorities)
     aliases = [
         item
         for item in normalized["boundary_authorities"]["inputs"]
@@ -325,7 +330,7 @@ def test_semantic_alias_full_chain_reaches_frozen_stored_composite(
     session = factory.new_session("extractor", [
         FakeReply.structured({
             "occurrences": [_proposal(
-                "key_1", "device_1", normalized["actions"],
+                "key_1", "device_1", normalized["actions"], authorities,
             )],
         }),
     ])
@@ -464,18 +469,12 @@ def test_semantic_alias_full_chain_reaches_frozen_stored_composite(
             "learned_toolcall_repair_limit": 2,
         },
     )
-    # Frozen mode cannot execute the still-candidate terminal Implementation;
-    # the active stored graph therefore exercises its normal Seeded fallback.
-    factory.enqueue("runtime_seeded", [
-        FakeReply.tool("environment_action", {
-            "action_id": "r000_a001",
-            "intent": "attempt_current_atomic",
-        }),
-        FakeReply.tool("environment_action", {
-            "action_id": "r001_a001",
-            "intent": "attempt_current_atomic",
-        }),
-    ])
+    # Original terminal RETURN now completes: two actual deployments promote
+    # the Implementation too. Frozen graph bootstrap still belongs to Agent.
+    assert skills.get_implementation(implementation_ref).status is SkillStatus.ACTIVE
+    factory.enqueue("runtime_preparation", [FakeReply.tool("$learned", {
+        "object": "key_6", "light": "device_6",
+    })])
     held_out = frozen_runtime.run_task(
         _look_task("look_held_out", "key_6", "device_6"),
         mode=RuntimeMode.FROZEN,

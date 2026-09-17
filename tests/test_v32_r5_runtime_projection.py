@@ -371,7 +371,7 @@ def test_runtime_budget_failure_before_dispatch_creates_no_request_audit() -> No
     with pytest.raises(BudgetExhausted) as exc_info:
         session.next_turn("start", tools=[_runtime_action_tool()])
 
-    assert getattr(exc_info.value, "code", "") == "runtime_node_token_budget_exhausted"
+    assert getattr(exc_info.value, "code", "") == "runtime_protocol_turn_exhausted"
     assert provider.requests == []
     assert session.snapshot()["runtime_request_context_audits"] == []
 

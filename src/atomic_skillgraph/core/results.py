@@ -22,6 +22,8 @@ class ValidationResult:
     witness_refs: list[str] = field(default_factory=list)
     before_ref: str = ""
     after_ref: str = ""
+    validated_output_bindings: dict[str, RuntimeBinding] = field(default_factory=dict)
+    certified_input_bindings: dict[str, RuntimeBinding] = field(default_factory=dict)
 
     @classmethod
     def ok(cls, level: str, **checks: bool) -> "ValidationResult":
@@ -43,6 +45,8 @@ class AtomicEffectResolution:
     checks: dict[str, bool] = field(default_factory=dict)
     failure_code: str = ""
     message: str = ""
+    validated_output_bindings: dict[str, RuntimeBinding] = field(default_factory=dict)
+    certified_input_bindings: dict[str, RuntimeBinding] = field(default_factory=dict)
 
 
 @dataclass
@@ -131,6 +135,7 @@ class NodeExecutionStatus(str, Enum):
     DIRECT_FAILED = "direct_failed"
     SEEDED_FAILED = "seeded_failed"
     SKIPPED_GOAL_TERMINAL = "skipped_goal_terminal"
+    TERMINAL_PARTIAL = "terminal_partial"
 
 
 @dataclass
@@ -188,6 +193,7 @@ class ToolExecutionResult:
     stop_condition_witnesses: list[str] = field(default_factory=list)
     atomic_effect_passed: bool = False
     tool_path_evidence: dict[str, Any] = field(default_factory=dict)
+    official_terminal_observed: bool = False
 
     @property
     def executed_action_count(self) -> int:
@@ -216,6 +222,9 @@ class ImplementationExecutionResult:
     atomic_witness_refs: list[str] = field(default_factory=list)
     terminal_effect_reconciled: bool = False
     cached_rejection: bool = False
+    validated_output_bindings: dict[str, RuntimeBinding] = field(default_factory=dict)
+    certified_input_bindings: dict[str, RuntimeBinding] = field(default_factory=dict)
+    official_terminal_observed: bool = False
 
 
 @dataclass(frozen=True)

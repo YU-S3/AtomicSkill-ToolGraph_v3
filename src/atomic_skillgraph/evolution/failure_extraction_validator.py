@@ -196,7 +196,12 @@ class FailureAtomicSourceReplay:
         self.trace = trace
         self.task = task
         self.normalized = normalizer.build(trace)
-        self.atomicizer = atomicizer
+        # Historical successful prefixes certify only the original source
+        # trajectory. Live promotion uses the typed v2 boundary separately.
+        self.atomicizer = type(atomicizer)(
+            semantic_value_compatible=atomicizer.semantic_value_compatible,
+            legacy_source_replay=True,
+        )
         self.tool_compiler = tool_compiler
         self.admission = admission
         self.harness = harness

@@ -11,6 +11,7 @@ from ..core.bindings import BindingExpression, BindingExprKind
 from ..core.contracts import ParameterSpec, SemanticPredicate
 from ..core.refs import SkillRef, content_hash
 from ..core.semantic_types import semantic_types_compatible
+from ..core.serialization import json_values_equal
 
 
 class AtomicProposalRejection(ValueError):
@@ -62,6 +63,11 @@ class AtomicOccurrenceProposal:
     # current E1 schema may claim the v3.2 authority contract.  Older internal
     # replay/promotion fixtures remain isolated on the legacy path.
     input_provenance_contract: str = "legacy_action_argument_v1"
+    boundary_schema_version: str = ""
+    input_specs: list[ParameterSpec] = field(default_factory=list)
+    output_specs: list[ParameterSpec] = field(default_factory=list)
+    output_semantic_constraints: dict[str, Any] = field(default_factory=dict)
+    local_value_authority_refs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -92,6 +98,9 @@ class CanonicalAtomicOccurrence:
     input_provenance_refs: dict[str, Any] = field(default_factory=dict)
     output_derivations: dict[str, Any] = field(default_factory=dict)
     guideline: dict[str, Any] = field(default_factory=dict)
+    boundary_schema_version: str = ""
+    output_semantic_constraints: dict[str, Any] = field(default_factory=dict)
+    local_value_authority_refs: list[str] = field(default_factory=list)
 
 
 _ACTION_EFFECTS: dict[str, tuple[tuple[str, dict[str, tuple[str, ...]]], ...]] = {
@@ -203,7 +212,7 @@ def _fact_matches(
         return False
     expected = {name: _resolve(value, bindings) for name, value in predicate.args.items()}
     observed = dict(fact.get("args") or {})
-    semantic_family = bool(fact.get("semantic_family"))
+    semantic_family = bool(fact.get("semantic_family")) and not require_domain
     return bool(expected) and set(expected) == set(observed) and all(
         _witness_value_equal(value, observed.get(name), semantic_family=semantic_family)
         for name, value in expected.items()
@@ -545,7 +554,13 @@ def _input_authorities(
         authority_kind = str(
             authority.get("kind", authority.get("source_kind", ""))
         ).casefold()
-        if authority_kind == "action_argument":
+        if authority_kind in {"public_binding", "public_catalog"}:
+            if authority.get("trace_id") != normalized_trace.get("trace_id"):
+                continue
+            owner = str(authority.get("source_occurrence_id", ""))
+            if owner and owner != "__task__" and owner not in selected_lineage:
+                continue
+        elif authority_kind == "action_argument":
             event_id = str(authority.get("event_id", ""))
             if (
                 event_id not in event_indexes
@@ -753,7 +768,7 @@ def _resolve_input_authority(
         raise ValueError(
             f"input authority role mismatch for {role}: {ref}"
         )
-    if repr(authority.get("value")) != repr(value):
+    if not json_values_equal(authority.get("value"), value):
         raise ValueError(
             f"input authority value mismatch for {role}: {ref}"
         )
@@ -799,13 +814,17 @@ def _normalize_output_derivations(
                 "" if require_explicit else derivation.get("type", "")
             )
         ).casefold()
-        output_semantic_type = _semantic_type(output_role, value)
+        declared_inputs = {p.name: p for p in proposal.input_specs}
+        declared_outputs = {p.name: p for p in proposal.output_specs}
+        typed = proposal.boundary_schema_version == "2"
+        output_semantic_type = (declared_outputs[output_role].semantic_type if typed
+                                else _semantic_type(output_role, value))
         matching_input_roles = sorted(
             role
             for role, input_value in inputs.items()
             if output_semantic_type == "entity"
             and semantic_types_compatible(
-                _semantic_type(role, input_value), output_semantic_type,
+                declared_inputs[role].semantic_type if typed else _semantic_type(role, input_value), output_semantic_type,
             )
             and _exact_identity_equal(input_value, value)
         )
@@ -835,7 +854,7 @@ def _normalize_output_derivations(
                     f"{phase_id}.{output_role}"
                 )
             input_role = str(derivation.get("input_role", ""))
-            if input_role not in inputs or inputs[input_role] != value:
+            if input_role not in inputs or not json_values_equal(inputs[input_role], value):
                 raise ValueError(
                     f"Atomic input_identity derivation invalid: {phase_id}.{output_role}"
                 )
@@ -932,6 +951,10 @@ def _validate_effect_witness_derivations(
 
 
 class Atomicizer:
+    def __init__(self, *, semantic_value_compatible=None, legacy_source_replay=False):
+        self.semantic_value_compatible = semantic_value_compatible
+        self.legacy_source_replay = bool(legacy_source_replay)
+
     def validate_proposed_subset(
         self,
         proposals: list[AtomicOccurrenceProposal],
@@ -970,7 +993,7 @@ class Atomicizer:
                 continue
             accepted.append(proposal)
             canonical = candidate
-        if not canonical:
+        if not canonical and proposals:
             detail = rejections[0]["error"] if rejections else "no proposals"
             raise AtomicProposalBatchRejected(
                 f"Extractor E1 produced no valid Atomic occurrences: {detail}",
@@ -1025,6 +1048,11 @@ class Atomicizer:
                 proposal.input_provenance_contract
                 == "code_authority_v3_2"
             )
+            typed_boundary = proposal.boundary_schema_version == "2"
+            if not current_e1_authority and not self.legacy_source_replay:
+                raise ValueError("legacy Atomic boundary is restricted to explicit source replay")
+            if current_e1_authority and not typed_boundary:
+                raise ValueError("current E1 requires boundary_schema_version=2")
             if not proposal.phase_id or any(item.phase_id == proposal.phase_id for item in result):
                 raise ValueError(f"duplicate/empty Atomic phase id: {proposal.phase_id!r}")
             if not (0 <= proposal.event_start <= proposal.event_end < len(events)):
@@ -1161,7 +1189,14 @@ class Atomicizer:
                 ))
             input_provenance: dict[str, Any] = {}
             for role, value in inputs.items():
-                ref = str(supplied_input_refs.get(role, ""))
+                supplied_ref = supplied_input_refs.get(role, "")
+                if typed_boundary:
+                    if not isinstance(supplied_ref, dict) or set(supplied_ref) != {"authority_ref", "source_role"}:
+                        raise ValueError(f"input provenance mapping malformed: {role}")
+                    ref = str(supplied_ref["authority_ref"])
+                    source_role = str(supplied_ref["source_role"])
+                else:
+                    ref, source_role = str(supplied_ref), role
                 if not ref:
                     if current_e1_authority:
                         raise ValueError(
@@ -1180,10 +1215,21 @@ class Atomicizer:
                     authority = dict(matches[0])
                 else:
                     authority = _resolve_input_authority(
-                        role, value, ref, authorities,
+                        source_role, value, ref, authorities,
                         phase_id=proposal.phase_id,
                     )
                 input_provenance[role] = authority
+            if typed_boundary:
+                from .typed_boundary import validate_input_specs, validate_local_authorities
+                input_specs, output_specs = validate_input_specs(proposal, input_provenance, selected[0])
+                local_authorities = validate_local_authorities(proposal, authorities, normalized_trace)
+                for role, constraint in proposal.output_semantic_constraints.items():
+                    if self.semantic_value_compatible is None or not self.semantic_value_compatible(
+                        role=role, concrete_value=outputs[role],
+                        semantic_anchor=inputs[constraint["compatible_with_input"]],
+                        semantic_type=next(p.semantic_type for p in output_specs if p.name == role),
+                    ):
+                        raise ValueError(f"output semantic compatibility not certified: {role}")
             output_derivations = _normalize_output_derivations(
                 proposal, inputs, outputs, phase_id=proposal.phase_id,
                 require_explicit=current_e1_authority,
@@ -1485,6 +1531,11 @@ class Atomicizer:
             output_values = list(outputs.values())
             for event in selected:
                 for argument, value in dict(event.get("arguments") or {}).items():
+                    if typed_boundary:
+                        from .typed_boundary import validate_operand_authority
+                        validate_operand_authority(value, event, input_provenance, local_authorities,
+                                                   normalized_trace)
+                        continue
                     if not (
                         isinstance(value, str)
                         and re.search(r"(?:_|\s)\d+$", value)
@@ -1537,16 +1588,19 @@ class Atomicizer:
                 )
                 for item in proposal.effects
             ]
-            input_specs = [
-                ParameterSpec(role, _semantic_type(role, value), True, True, "concrete" if _semantic_type(role, value) == "entity" else "semantic")
-                for role, value in sorted(inputs.items())
-            ]
-            output_specs = [ParameterSpec(role, _semantic_type(role, value), True, False, "semantic") for role, value in sorted(outputs.items())]
+            if not typed_boundary:
+                input_specs = [
+                    ParameterSpec(role, _semantic_type(role, value), True, True, "concrete" if _semantic_type(role, value) == "entity" else "semantic")
+                    for role, value in sorted(inputs.items())
+                ]
+                output_specs = [ParameterSpec(role, _semantic_type(role, value), True, False, "semantic") for role, value in sorted(outputs.items())]
             logical_id = "atomic_" + re.sub(r"[^a-z0-9]+", "_", proposal.intent.casefold()).strip("_")[:40]
             signature = content_hash({
                 "intent": proposal.intent, "inputs": input_specs,
                 "outputs": output_specs, "preconditions": preconditions,
                 "effects": effects,
+                "output_semantic_constraints": proposal.output_semantic_constraints,
+                "output_derivations": output_derivations,
             })[:12]
             from ..agents.skill_guidance import normalize_guideline
             from .portability import episode_specific_terms
@@ -1573,6 +1627,9 @@ class Atomicizer:
                 input_provenance_refs=dict(input_provenance),
                 output_derivations=dict(output_derivations),
                 guideline=guidance,
+                boundary_schema_version=proposal.boundary_schema_version,
+                output_semantic_constraints=copy.deepcopy(proposal.output_semantic_constraints),
+                local_value_authority_refs=list(proposal.local_value_authority_refs),
             ))
             used_support_events.update(owned_support_events)
             used_effect_events.update(effect_event_ids)
@@ -1580,8 +1637,6 @@ class Atomicizer:
             used_shared_precondition_events.update(
                 shared_precondition_events
             )
-        if not result:
-            raise ValueError("Extractor E1 produced no canonical Atomic occurrence")
         result.sort(key=lambda item: (
             item.event_start, item.event_end, item.phase_id,
         ))

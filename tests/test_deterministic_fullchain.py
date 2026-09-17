@@ -182,8 +182,12 @@ def _e1_take(item: str, *, start: int = 0) -> dict:
         "support_event_ids": [event_id],
         "input_roles": {"item": item},
         "input_provenance_refs": {
-            "item": f"action_arg:{event_id}:item",
+            "item": {"authority_ref": f"action_arg:{event_id}:item", "source_role": "item"},
         },
+        "boundary_schema_version": "2",
+        "input_specs": [{"name": "item", "semantic_type": "entity", "required_resolution": "concrete"}],
+        "output_specs": [{"name": "held_object", "semantic_type": "entity", "required_resolution": "concrete"}],
+        "output_semantic_constraints": {}, "local_value_authority_refs": [],
         "output_roles": {"held_object": item},
         "output_derivations": {
             "held_object": {
@@ -215,10 +219,12 @@ def _e1_examine(item: str, *, start: int) -> dict:
         # compatibility heuristic when constructing the DataFlow candidate.
         "input_roles": {"target_object": item},
         "input_provenance_refs": {
-            "target_object": (
-                f"fixture_input:{event_id}:target_object"
-            ),
+            "target_object": {"authority_ref": f"fixture_input:{event_id}:target_object", "source_role": "target_object"},
         },
+        "boundary_schema_version": "2",
+        "input_specs": [{"name": "target_object", "semantic_type": "entity", "required_resolution": "concrete"}],
+        "output_specs": [{"name": "observed_object", "semantic_type": "entity", "required_resolution": "concrete"}],
+        "output_semantic_constraints": {}, "local_value_authority_refs": [],
         "output_roles": {"observed_object": item},
         "output_derivations": {
             "observed_object": {
@@ -269,9 +275,10 @@ def _extract_and_register(
     # project any equivalent alias themselves; the Atomicizer never invents it.
     boundary_inputs = normalized["boundary_authorities"]["inputs"]
     for occurrence in e1_occurrences:
-        for role, authority_ref in dict(
+        for role, provenance in dict(
             occurrence.get("input_provenance_refs") or {}
         ).items():
+            authority_ref = provenance['authority_ref']
             if not str(authority_ref).startswith("fixture_input:"):
                 continue
             boundary_inputs.append({
@@ -281,13 +288,15 @@ def _extract_and_register(
                 "kind": "fixture_boundary_input",
                 "source_kind": "fixture_boundary_input",
             })
+    for authority in boundary_inputs:
+        authority.update(semantic_type='entity', resolution='concrete', available_revision=0)
     session = factory.new_session(
         "extractor",
         [FakeReply.structured({"occurrences": e1_occurrences})],
     )
     extractor = ExtractorSession(session)
     proposals = extractor.propose_atomics(normalized)
-    canonical = Atomicizer().validate_and_canonicalize(proposals, normalized)
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(proposals, normalized)
 
     aligner = Aligner(skills, tools)
     compiled: list[CompiledKnowledge] = []
@@ -506,9 +515,9 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
         ledger,
         projection,
     )
-    assert not any(
+    assert any(
         item.artifact_ref == str(tool_ref)
-        and item.event in {EvidenceEventType.DIRECT_SUCCESS, EvidenceEventType.DIRECT_FAILURE}
+        and item.event is EvidenceEventType.DIRECT_SUCCESS
         for item in direct_events
     )
 

@@ -21,6 +21,8 @@ COUNTERS = (
 
 
 def finalize(trace, config):
+    from .r1021_metrics import retired_limit_observations
+    trace.metadata['r1021_retired_limits'] = retired_limit_observations(trace)
     from .r101_metrics import finalize as finalize_r101
     finalize_r101(trace)
     values = trace.metadata.setdefault("r10_metrics", {})
@@ -67,10 +69,10 @@ def finalize(trace, config):
     values["runtime_graph_bootstrap_tokens"] = sum(tokens(item, "total_tokens") for item in usages if item.get("session_id") in bootstrap)
     values["runtime_step_max_semantic_turns"] = max([item["accepted_semantic_turn_count"] for item in steps] or [0])
     limits = config.get("llm", {}).get("runtime", {})
-    values.update(configured_max_total_tokens_per_node=limits.get("max_total_tokens_per_node"),
+    values.update(configured_max_total_tokens_per_node=None,
                   configured_max_total_tokens_per_task=limits.get("max_total_tokens_per_task"),
-                  actual_node_budget_scope="shared_occurrence",
-                  actual_task_budget_scope="shared_task_runtime")
+                  actual_node_budget_scope="attribution_only",
+                  actual_task_budget_scope="shared_task_runtime_and_online_builder")
     values["runtime_automation_proposal_count"] = trace.metadata.get("v32_metrics", {}).get("runtime_automation_atomic_proposal_count", 0)
     values["runtime_tool_trial_r1_pass_count"] = trace.metadata.get("v32_metrics", {}).get("runtime_tool_trial_r1_pass_count", 0)
 

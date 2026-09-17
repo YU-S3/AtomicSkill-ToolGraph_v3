@@ -54,9 +54,9 @@ def test_F04_r101_is_explicitly_registered_and_budget_guarded(phase):
     from experiments.run_v3_frozen_eval import _frozen_protocol, _validate_formal_config as frozen_guard
     root = Path(__file__).resolve().parents[1]
     name, protocol, guard, expected = (
-        ('alfworld_train_full_120_r102_seed42', _train_protocol, train_guard, ('r102_full120', 42, 20, 120))
+        ('alfworld_train_full_120_r1021_seed42', _train_protocol, train_guard, ('r1021_full120', 42, 20, 120))
         if phase == 'train' else
-        ('alfworld_frozen_eval_134_r102_seed42', _frozen_protocol, frozen_guard, ('r102_frozen134', 42, 0, 134)))
+        ('alfworld_frozen_eval_134_r1021_seed42', _frozen_protocol, frozen_guard, ('r1021_frozen134', 42, 0, 134)))
     config = load_config(root / 'configs' / (name + '.yaml'))
     assert protocol(config) == expected
     guard(config, root / config['experiment']['output_dir'])

@@ -14,6 +14,15 @@ from atomic_skillgraph.runtime.support_request import SupportRequest, prove_requ
 from test_r92_support_and_public_memory import _atomic
 
 
+def certified_result(*, atomic_effect_passed, validated_outputs, atomic_witness_refs):
+    """Fixture for an already certified, joint concrete producer result."""
+    return SimpleNamespace(atomic_effect_passed=atomic_effect_passed, validated_outputs=validated_outputs,
+        atomic_witness_refs=atomic_witness_refs,
+        validated_output_bindings={role: RuntimeBinding(role, value, 'entity', BindingSource.TOOL_OUTPUT,
+            BindingStatus.GROUNDED, BindingResolution.CONCRETE, evidence_refs=list(atomic_witness_refs))
+            for role, value in validated_outputs.items()})
+
+
 def boundary(*, relation=True):
     parent = _atomic('parent', inputs=[ParameterSpec('object', 'entity'), ParameterSpec('station', 'entity')],
         preconditions=[SemanticPredicate('entity.discovered_at', {'entity': '$object', 'location': '$station'},
@@ -55,7 +64,7 @@ def test_B03_B08_B11_complete_relation_transfers_inputs_only(selected):
     request, parent, ctx = boundary()
     assert prove_request(request, parent, ctx, agent_selected=selected).passed
     assert request.output_mapping == {'location': 'station', 'entity': 'object'}
-    result = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_2'}, atomic_witness_refs=['joint_witness'])
+    result = certified_result(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_2'}, atomic_witness_refs=['joint_witness'])
     before = copy.deepcopy(ctx.binding_store.repeat_state)
     assert transfer_inputs(request, parent, result, ctx).passed
     assert ctx.binding_store.snapshot_for_node(request.consumer)['station'].value == 'place_2'
@@ -68,7 +77,7 @@ def test_B04_missing_correlated_output_never_partially_commits():
     request, parent, ctx = boundary()
     assert prove_request(request, parent, ctx).passed
     before = copy.deepcopy(vars(ctx.binding_store))
-    result = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'location': 'place_2'}, atomic_witness_refs=['partial'])
+    result = certified_result(atomic_effect_passed=True, validated_outputs={'location': 'place_2'}, atomic_witness_refs=['partial'])
     assert not transfer_inputs(request, parent, result, ctx).passed
     assert vars(ctx.binding_store) == before
 
@@ -76,7 +85,7 @@ def test_B04_missing_correlated_output_never_partially_commits():
 def test_B08_support_input_identity_survives_later_child_revision_without_stale_authority():
     request, parent, ctx = boundary()
     assert prove_request(request, parent, ctx, agent_selected=True).passed
-    result = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_2'},
+    result = certified_result(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_2'},
                              atomic_witness_refs=['joint_witness'])
     assert transfer_inputs(request, parent, result, ctx).passed
     ctx.world_revision += 1  # A later navigation/helper changes the world.
@@ -114,10 +123,10 @@ def test_B04_crossed_relation_values_cannot_borrow_separate_witnesses():
         for obj, loc in [('object_1', 'place_1'), ('object_2', 'place_2')]]
     ctx.evidence_store = SimpleNamespace(match_constraint=lambda *args: ['complete_action_witness'])
     before = copy.deepcopy(vars(ctx.binding_store))
-    crossed = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_1'}, atomic_witness_refs=['different_facts'])
+    crossed = certified_result(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_1'}, atomic_witness_refs=['different_facts'])
     assert not transfer_inputs(request, parent, crossed, ctx).passed
     assert vars(ctx.binding_store) == before
-    matching = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_2'}, atomic_witness_refs=['same_fact'])
+    matching = certified_result(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_2'}, atomic_witness_refs=['same_fact'])
     assert transfer_inputs(request, parent, matching, ctx).passed
 
 
@@ -247,8 +256,7 @@ def test_D07_cache_hit_has_no_second_action_or_second_negative_attempt(tmp_path)
 
 
 @pytest.mark.parametrize('origin', ['agent_selected_registered', 'runtime_trial'])
-@pytest.mark.parametrize('budget_kind', ['node', 'global'])
-def test_D02_D04_budget_interrupt_is_audited_restored_not_refunded(tmp_path, origin, budget_kind):
+def test_D02_D04_budget_interrupt_is_audited_restored_not_refunded(tmp_path, origin):
     from test_r10_runtime import setup
     from experiments.r10_world_checks import install_fixture, bind
     from atomic_skillgraph.core.errors import BudgetExhausted
@@ -268,7 +276,7 @@ def test_D02_D04_budget_interrupt_is_audited_restored_not_refunded(tmp_path, ori
             evidence_store=ctx.evidence_store, revision=ctx.world_revision, arguments_are_agent_proposals=False,
             task_contract=ctx.task_contract)
         assert preflight.passed
-        setattr(ctx.budget, 'node_action_budget' if budget_kind == 'node' else 'global_action_budget', 1)
+        ctx.budget.global_action_budget = 1
         digest = ctx.harness._runtime_state_digest()
         with pytest.raises(BudgetExhausted):
             execute_invocation(system.orchestrator.node_executor.implementation_runner, compiled, preflight, occurrence, ctx,

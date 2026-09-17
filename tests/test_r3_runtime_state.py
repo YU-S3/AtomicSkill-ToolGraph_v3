@@ -492,7 +492,7 @@ def test_long_history_keeps_full_trace_but_projects_memory_and_five_recent_actio
         plan,
         harness,
         trace_builder,
-        RuntimeBudget(global_action_budget=30, node_action_budget=25),
+        RuntimeBudget(global_action_budget=30),
     )
     executor = NodeExecutor(
         SimpleNamespace(),

@@ -170,6 +170,7 @@ def test_implementation_result_carries_atomic_validator_witnesses() -> None:
     )
     ctx = SimpleNamespace(
         world_revision=7,
+        execution_terminal=lambda: False,
         trace_builder=_TraceBuilder(),
         binding_store=_BindingStore(),
         atomic_evidence_for=lambda _occurrence: SimpleNamespace(

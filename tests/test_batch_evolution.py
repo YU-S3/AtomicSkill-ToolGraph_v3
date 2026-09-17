@@ -82,7 +82,7 @@ def _replay_case(trace_id: str, effect: str = "agent.holds") -> dict:
 def _system_config(data_dir) -> dict:
     return {
         "schema_version": 3,
-        "repair_revision": "R10.2",
+        "repair_revision": "R10.2.1",
         "data_dir": str(data_dir),
         "llm": {
             "provider": "openai_compatible",

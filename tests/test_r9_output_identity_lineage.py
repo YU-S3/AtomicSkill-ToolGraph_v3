@@ -72,6 +72,8 @@ def _trace(
                 "source_kind": "action_argument",
                 "role": role,
                 "value": value,
+                "semantic_type": 'integer' if type(value) is int else 'entity',
+                "resolution": 'semantic' if type(value) is int else 'concrete', "available_revision": 0,
             } for role, value in inputs.items()],
             "effects": [effect],
         },
@@ -99,10 +101,15 @@ def _proposal(
         precondition_witness_refs=[],
         effect_witness_refs=[f"semantic:r1:{predicate}"],
         input_provenance_refs={
-            role: f"action_arg:e0:{role}" for role in inputs
+            role: {'authority_ref': f"action_arg:e0:{role}", 'source_role': role} for role in inputs
         },
         output_derivations=deepcopy(derivations),
         input_provenance_contract="code_authority_v3_2",
+        boundary_schema_version='2',
+        input_specs=[ParameterSpec(role, 'integer' if type(value) is int else 'entity',
+            required_resolution='semantic' if type(value) is int else 'concrete') for role, value in inputs.items()],
+        output_specs=[ParameterSpec(role, 'integer' if type(value) is int else 'entity',
+            required_resolution='semantic' if type(value) is int else 'concrete') for role, value in outputs.items()],
     )
 
 

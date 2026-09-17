@@ -6,9 +6,10 @@ import copy
 from typing import Any
 
 import pytest
+from fixtures.typed_e1 import public_entities
 
 from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
-from atomic_skillgraph.core.contracts import SemanticPredicate
+from atomic_skillgraph.core.contracts import ParameterSpec, SemanticPredicate
 from atomic_skillgraph.evolution.atomicizer import (
     AtomicOccurrenceProposal,
     Atomicizer,
@@ -153,7 +154,7 @@ def _single_event_proposal(
         support_event_ids=["e0"],
         precondition_witness_refs=[],
         effect_witness_refs=[witness_ref],
-        input_provenance_refs={role: authority_ref},
+        input_provenance_refs={role: {"authority_ref": authority_ref, "source_role": role}},
         output_derivations={
             "enabled_device": {
                 "kind": "input_identity",
@@ -161,6 +162,9 @@ def _single_event_proposal(
             },
         },
         input_provenance_contract="code_authority_v3_2",
+        boundary_schema_version="2",
+        input_specs=[ParameterSpec(role, 'entity', required_resolution='concrete')],
+        output_specs=[ParameterSpec('enabled_device', 'entity', required_resolution='concrete')],
     )
 
 
@@ -426,6 +430,13 @@ def test_r7_a9_primitive_role_collision_canonicalizes_via_alias() -> None:
         input_provenance_contract="code_authority_v3_2",
     )
 
+    proposal.boundary_schema_version = '2'
+    proposal.input_specs = [ParameterSpec(role, 'entity', required_resolution='concrete') for role in proposal.input_roles]
+    proposal.output_specs = [ParameterSpec(role, 'entity', required_resolution='concrete') for role in proposal.output_roles]
+    # Current E1 uses pre-existing public values with explicit formal/source
+    # renaming. Post-action semantic aliases remain historical audit evidence.
+    proposal.input_provenance_refs = public_entities(normalized, {'object': 'item_1', 'raw_device': 'device_1'})
+    proposal.input_provenance_refs['device'] = proposal.input_provenance_refs.pop('raw_device')
     canonical = Atomicizer().validate_and_canonicalize(
         [proposal], normalized,
     )[0]
@@ -485,6 +496,10 @@ def test_r7_a10_alias_does_not_bypass_fresh_output_temporal_closure() -> None:
         input_provenance_contract="code_authority_v3_2",
     )
 
+    proposal.boundary_schema_version = '2'
+    proposal.input_specs = [ParameterSpec('source', 'entity', required_resolution='concrete')]
+    proposal.output_specs = [ParameterSpec('result', 'entity', required_resolution='concrete')]
+    proposal.input_provenance_refs = public_entities(normalized, {'source': 'seed_1'})
     with pytest.raises(
         ValueError,
         match=r"Atomic precondition references unavailable input role: create\.result",

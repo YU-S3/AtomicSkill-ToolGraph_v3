@@ -14,7 +14,7 @@ from atomic_skillgraph.agents import (
 from atomic_skillgraph.agents.structured_submission import (
     ATOMIC_EXTRACTION_SCHEMA,
 )
-from atomic_skillgraph.core.contracts import SemanticPredicate, TaskContract
+from atomic_skillgraph.core.contracts import ParameterSpec, SemanticPredicate, TaskContract
 from atomic_skillgraph.evolution.atomicizer import (
     AtomicOccurrenceProposal,
     Atomicizer,
@@ -25,6 +25,10 @@ from experiments.fakes import FakeReply, ScriptedAgentProvider
 
 
 def _normalized(authority: dict[str, object] | None) -> dict[str, object]:
+    if authority is not None:
+        # This fixture supplies an entry-visible concrete entity certificate.
+        # Invalid ref/value/role/lineage mutations below remain unchanged.
+        authority.update(semantic_type='entity', resolution='concrete', available_revision=0)
     inputs = [] if authority is None else [authority]
     return {
         "trace_id": "trace_input_authority",
@@ -89,11 +93,14 @@ def _current_proposal(refs: dict[str, str]) -> AtomicOccurrenceProposal:
         support_event_ids=["e0"],
         precondition_witness_refs=[],
         effect_witness_refs=["action:e0:revision:1"],
-        input_provenance_refs=refs,
+        input_provenance_refs={role: {'authority_ref': ref, 'source_role': role} for role, ref in refs.items()},
         output_derivations={
             "result": {"kind": "input_identity", "input_role": "item"},
         },
         input_provenance_contract="code_authority_v3_2",
+        boundary_schema_version='2',
+        input_specs=[ParameterSpec('item', 'entity', required_resolution='concrete')],
+        output_specs=[ParameterSpec('result', 'entity', required_resolution='concrete')],
     )
 
 
@@ -268,7 +275,11 @@ def test_e1_schema_and_transport_require_and_preserve_input_refs() -> None:
         "event_end": 1,
         "support_event_ids": ["e0"],
         "input_roles": {"item": "apple_1"},
-        "input_provenance_refs": {"item": "action_arg:e0:item"},
+        "input_provenance_refs": {"item": {"authority_ref": "action_arg:e0:item", "source_role": "item"}},
+        "boundary_schema_version": "2",
+        "input_specs": [{"name": "item", "semantic_type": "entity", "required_resolution": "concrete"}],
+        "output_specs": [{"name": "result", "semantic_type": "entity", "required_resolution": "concrete"}],
+        "output_semantic_constraints": {}, "local_value_authority_refs": [],
         "output_roles": {"result": "apple_1"},
         "output_derivations": {
             "result": {"kind": "input_identity", "input_role": "item"},
@@ -301,7 +312,7 @@ def test_e1_schema_and_transport_require_and_preserve_input_refs() -> None:
         "boundary_authorities": {"inputs": [], "effects": []},
     })[0]
     assert proposal.input_provenance_refs == {
-        "item": "action_arg:e0:item"
+        "item": {"authority_ref": "action_arg:e0:item", "source_role": "item"}
     }
     assert proposal.input_provenance_contract == "code_authority_v3_2"
 

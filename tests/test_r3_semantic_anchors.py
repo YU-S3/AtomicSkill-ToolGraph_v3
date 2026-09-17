@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.certified_values import concrete_entities
 
 from atomic_skillgraph.core.bindings import (
     BindingExpression,
@@ -172,6 +173,7 @@ def test_validated_dataflow_is_anchor_but_tool_output_alone_is_not() -> None:
         {"held_object": "pen_1"},
         ["validator:take-effect"],
         1,
+        certified_bindings=concrete_entities({'held_object': 'pen_1'}, ['validator:take-effect'], 1),
     )
     assert store.semantic_anchor_for(source, "held_object") is None
 
@@ -225,6 +227,7 @@ def test_harness_and_incidental_tool_bindings_never_become_plan_anchors() -> Non
         {"destination": "drawer_1"},
         ["validator:output"],
         0,
+        certified_bindings=concrete_entities({'destination': 'drawer_1'}, ['validator:output'], 0),
     )
 
     assert store.semantic_anchor_for(occurrence, "object") is None

@@ -1,5 +1,6 @@
-"""R10.2 release invariants exercised through the production node engine."""
+"""R10.2.1 release invariants exercised through the production node engine."""
 from test_r10_runtime import setup, action
+from fixtures.certified_values import concrete_entities
 from atomic_skillgraph.runtime.composite_executor import VerifiedCompositeExecutor
 from atomic_skillgraph.runtime.runtime_step import run_runtime_step
 from atomic_skillgraph.core.serialization import to_primitive
@@ -119,8 +120,11 @@ def test_C07_explore_terminal_never_fabricates_node_outputs(tmp_path):
 def test_D01_D02_identity_persists_but_current_existence_does_not(tmp_path):
     system, ctx, occurrence, _, _ = setup(tmp_path, lambda *_: pytest.fail("no Agent"))
     try:
-        ctx.binding_store.publish_validated_outputs(occurrence, {"object": "certified_identity"}, ["validator:source"], 0)
-        ctx.evidence_store.add_validated_tool_output("object", "certified_identity", ["validator:source"])
+        certified = concrete_entities({'object': 'certified_identity'}, ['validator:source'], 0)
+        ctx.binding_store.publish_validated_outputs(occurrence, {"object": "certified_identity"}, ["validator:source"], 0,
+            certified_bindings=certified)
+        ctx.evidence_store.add_validated_tool_output("object", "certified_identity", ["validator:source"],
+            certified_binding=certified['object'], occurrence_id=occurrence.occurrence_id)
         ctx.binding_store.invalidate_revision(1)
         ctx.evidence_store.replace_action_catalog([], 1)
         current = ctx.binding_store.snapshot_for_node(occurrence)["object"]

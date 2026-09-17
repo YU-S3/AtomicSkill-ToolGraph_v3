@@ -1738,7 +1738,6 @@ def run_r7_look_targeted(config_path: str | Path) -> int:
             **dict(eval_config.get("extraction") or {}),
             "extract_full_dynamic_success": False,
             "extract_task_rescue_success": False,
-            "extract_novel_seeded_success": False,
         }
         eval_config["harness"] = {
             **dict(eval_config.get("harness") or {}),

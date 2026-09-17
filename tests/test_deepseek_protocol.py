@@ -329,7 +329,7 @@ def test_failed_task_preserves_http200_failure_extractor_overcap_audit(
     task = fake_task("failed-over-cap", "apple_1")
     config = {
         "schema_version": 3,
-        "repair_revision": "R10.2",
+        "repair_revision": "R10.2.1",
         "data_dir": str(tmp_path / "data_v3"),
         "llm": {
             "provider": "openai_compatible",

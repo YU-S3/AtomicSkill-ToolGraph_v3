@@ -110,7 +110,7 @@ def test_atomicizer_rejects_a_single_orphan_runtime_span() -> None:
     )
 
     with pytest.raises(ValueError, match="orphan RuntimeSpan"):
-        Atomicizer().validate_and_canonicalize([proposal], normalized)
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([proposal], normalized)
 
 
 def test_atomicizer_allows_only_non_effect_shared_precondition_overlap() -> None:
@@ -146,7 +146,7 @@ def test_atomicizer_allows_only_non_effect_shared_precondition_overlap() -> None
         ),
     )
 
-    canonical = Atomicizer().validate_and_canonicalize(
+    canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
         [observe, heat], normalized,
     )
     assert len(canonical) == 2
@@ -159,7 +159,7 @@ def test_atomicizer_allows_only_non_effect_shared_precondition_overlap() -> None
         )],
     )
     with pytest.raises(ValueError, match="duplicate Effect ownership"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [observe, duplicate_effect], normalized,
         )
 
@@ -220,7 +220,7 @@ def test_runtime_r1_effect_witness_has_single_atomic_owner() -> None:
     second.effect_witness_refs = [runtime_ref]
 
     with pytest.raises(ValueError, match="Effect witness ownership"):
-        Atomicizer().validate_and_canonicalize(
+        Atomicizer(legacy_source_replay=True).validate_and_canonicalize(
             [first, second], normalized,
         )
 
@@ -266,6 +266,8 @@ def test_terminal_empirical_credit_requires_candidate_execution() -> None:
 
     executed = CreditAssigner().assign({
         **base,
+        "environment_actions": [{'action_id': 'owned-terminal', 'accepted': True, 'won': True, 'span_id': 'owned'}],
+        "runtime_spans": [{'span_id': 'owned', 'occurrence_id': 'occ-1', 'action_start': 0, 'action_end': 1}],
         "metadata": {
             "terminal_empirical_execution": {
                 "candidate_executed": True,
@@ -341,7 +343,7 @@ def _run_tool(tool: ToolAsset):
         plan,
         harness,
         TraceBuilder(trace),
-        RuntimeBudget(global_action_budget=10, node_action_budget=5),
+        RuntimeBudget(global_action_budget=10),
     )
     return ToolRunner(ValidationEngine().tool).run(
         tool,

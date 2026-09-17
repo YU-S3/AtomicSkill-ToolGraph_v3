@@ -86,7 +86,7 @@ def _trace(*, strict_success: bool = True) -> TraceRecord:
 
 def _provisional_and_trial(trace: TraceRecord):
     normalized = TraceNormalizer().build(trace)
-    occurrence = Atomicizer().validate_and_canonicalize([
+    occurrence = Atomicizer(legacy_source_replay=True).validate_and_canonicalize([
         AtomicOccurrenceProposal(
             "source", "acquire_target_object", 0, 0,
             {"object": "apple_1", "source": "table_1"},
@@ -131,6 +131,12 @@ def _provisional_and_trial(trace: TraceRecord):
         bundle.input_role_map["source"]: "table_1",
         bundle.output_role_map["held_object"]: "apple_1",
     }
+    from atomic_skillgraph.core.bindings import RuntimeBinding, BindingSource, BindingStatus, BindingResolution
+    for spec in bundle.atomic.inputs:
+        trace.binding_changes.append({'occurrence_id': 'cold::acquire', 'role': spec.name,
+            'previous': None, 'current': to_primitive(RuntimeBinding(spec.name, bindings[spec.name], spec.semantic_type,
+                BindingSource.HARNESS_EVIDENCE, BindingStatus.GROUNDED, BindingResolution.CONCRETE,
+                ['public_entry_fixture'], 0)), 'reason': 'fixture_entry', 'revision': 0})
     trial = ProvisionalTrialResult(
         provisional_ref=provisional.provisional_ref,
         step_id="acquire",
@@ -148,7 +154,7 @@ def _provisional_and_trial(trace: TraceRecord):
 def _compiler(harness: _Harness) -> ProvisionalPromotionCompiler:
     compiler = ProvisionalPromotionCompiler(
         normalizer=TraceNormalizer(),
-        atomicizer=Atomicizer(),
+        atomicizer=Atomicizer(legacy_source_replay=True),
         tool_compiler=ToolCompiler(),
         admission=Admission(ToolValidator()),
         harness=harness,

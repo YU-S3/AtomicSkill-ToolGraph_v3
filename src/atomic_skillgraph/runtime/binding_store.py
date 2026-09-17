@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from ..core.serialization import json_values_equal
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
@@ -468,15 +469,6 @@ class RuntimeBindingStore:
                 continue
             source_occurrence = plan.occurrence(edge.source_step)
             source = self._outputs.get((source_occurrence.occurrence_id, edge.source_role))
-            if source is None and validated_outputs:
-                raw = validated_outputs.get(source_occurrence.occurrence_id, {}).get(edge.source_role)
-                if raw is not None:
-                    source = RuntimeBinding(
-                        edge.source_role, raw, "entity", BindingSource.TOOL_OUTPUT,
-                        BindingStatus.GROUNDED,
-                        BindingResolution.CONCRETE,
-                        [edge.edge_id], revision,
-                    )
             if source is None:
                 continue
             current_resolution = (
@@ -511,11 +503,9 @@ class RuntimeBindingStore:
             binding = self._outputs.get((source_owner, expression.source_role))
         elif expression.kind is BindingExprKind.TOOL_OUTPUT:
             value = (tool_outputs or {}).get((expression.source_step, expression.source_role))
-            binding = None if value is None else RuntimeBinding(
-                expression.source_role, value, "entity", BindingSource.TOOL_OUTPUT,
-                BindingStatus.GROUNDED, BindingResolution.CONCRETE,
-                [f"tool_output:{expression.source_step}:{expression.source_role}"], 0,
-            )
+            if value is not None and not isinstance(value, RuntimeBinding):
+                raise ValueError('Tool output expression requires certified binding metadata')
+            binding = copy.deepcopy(value)
         elif expression.kind is BindingExprKind.ADAPTER_TRANSFORM:
             source = self.semantic_anchor_for(occurrence_id, expression.source_role) or self.semantic_anchor_for(
                 "__task__", expression.source_role)
@@ -530,7 +520,8 @@ class RuntimeBindingStore:
             return None
         return binding
 
-    def resolve_occurrence_specs(self, occurrence: RuntimeOccurrence, revision: int) -> None:
+    def resolve_occurrence_specs(self, occurrence: RuntimeOccurrence, revision: int, *, input_specs: list[ParameterSpec] | None = None) -> None:
+        declared = {spec.name: spec for spec in input_specs or []}
         repeat_owner = self._repeat_step_owner.get(occurrence.step_id)
         repeat_roles = set(
             repeat_owner[0].step_role_bindings.get(
@@ -542,6 +533,15 @@ class RuntimeBindingStore:
             binding = self.resolve_expression(occurrence.occurrence_id, expression)
             if binding is None:
                 continue
+            if expression.kind is BindingExprKind.CONSTANT and role in declared:
+                # A literal has a JSON type, not a separately certified semantic
+                # type. Check it against its authored port without strengthening
+                # resolution. Typed upstream values never take this path.
+                from ..agents.protocol import validate_schema_instance
+                from ..tooling.entry_contract import parameter_schema
+                validate_schema_instance({role: binding.value}, parameter_schema([declared[role]]))
+                binding = copy.deepcopy(binding)
+                binding.semantic_type = declared[role].semantic_type
             if role in repeat_roles:
                 source = BindingSource.REPEAT
             elif expression.kind is BindingExprKind.DATA_FLOW:
@@ -633,8 +633,9 @@ class RuntimeBindingStore:
         input_specs: list[ParameterSpec],
         witness_refs: list[str],
         revision: int,
+        *, certified_bindings: dict[str, RuntimeBinding],
     ) -> dict[str, RuntimeBinding]:
-        """Commit validator-resolved concrete inputs after full effect proof."""
+        """Transport the per-input certification without increasing authority."""
 
         if not witness_refs:
             raise ValueError("Atomic effect witness bindings require validator refs")
@@ -644,21 +645,10 @@ class RuntimeBindingStore:
             raise ValueError(
                 f"Atomic effect witnesses reference unknown input roles: {sorted(unknown)}"
             )
-        if any(value in (None, "") for value in values.values()):
-            raise ValueError("Atomic effect witness bindings must be concrete")
-        pending = {
-            role: RuntimeBinding(
-                role=role,
-                value=value,
-                semantic_type=by_role[role].semantic_type,
-                source=BindingSource.HARNESS_EVIDENCE,
-                status=BindingStatus.GROUNDED,
-                resolution=BindingResolution.CONCRETE,
-                evidence_refs=list(dict.fromkeys(witness_refs)),
-                world_revision=revision,
-            )
-            for role, value in values.items()
-        }
+        self._check_certified_values(values, certified_bindings)
+        pending = copy.deepcopy(certified_bindings)
+        if any(binding.semantic_type != by_role[role].semantic_type for role, binding in pending.items()):
+            raise ValueError('Certified input type disagrees with declaration')
         committed: dict[str, RuntimeBinding] = {}
         for role, binding in pending.items():
             self._set(
@@ -690,18 +680,29 @@ class RuntimeBindingStore:
     def publish_validated_outputs(
         self, occurrence: RuntimeOccurrence | str, outputs: dict[str, Any],
         validation_refs: list[str], revision: int = 0,
+        *, certified_bindings: dict[str, RuntimeBinding],
     ) -> None:
         if not validation_refs:
             raise ValueError("validated outputs require validator witness refs")
         occurrence_id = occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
-        for role, value in outputs.items():
-            binding = RuntimeBinding(
-                role, value, "entity", BindingSource.TOOL_OUTPUT, BindingStatus.GROUNDED,
-                BindingResolution.CONCRETE,
-                list(validation_refs), revision,
-            )
+        self._check_certified_values(outputs, certified_bindings)
+        for role, binding in copy.deepcopy(certified_bindings).items():
             self._outputs[(occurrence_id, role)] = binding
             self._set(occurrence_id, binding, "validated_output_published")
+
+    @staticmethod
+    def _check_certified_values(values, bindings):
+        from ..agents.protocol import validate_schema_instance
+        from ..tooling.entry_contract import parameter_schema
+        if set(values) != set(bindings):
+            raise ValueError('Certified/raw boundary keys disagree')
+        for role, value in values.items():
+            binding = bindings[role]
+            if (not isinstance(binding, RuntimeBinding) or binding.role != role
+                or binding.status is not BindingStatus.GROUNDED
+                or not json_values_equal(value, binding.value)):
+                raise ValueError('Certified/raw boundary value mismatch')
+            validate_schema_instance({role: value}, parameter_schema([ParameterSpec(role, binding.semantic_type)]))
 
     def snapshot_for_node(self, occurrence: RuntimeOccurrence | str) -> dict[str, RuntimeBinding]:
         occurrence_id = occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
