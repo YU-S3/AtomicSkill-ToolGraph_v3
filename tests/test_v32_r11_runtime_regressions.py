@@ -93,7 +93,10 @@ class _TraceBuilder:
         pass
 
 
-class _BindingStore:
+from atomic_skillgraph.runtime.binding_store import RuntimeBindingStore
+
+
+class _BindingStore(RuntimeBindingStore):
     def repeat_execution_frame(self, _step_id):
         return None
     def snapshot_for_node(self, _occurrence: object) -> dict[str, object]:
@@ -213,9 +216,9 @@ class _Compiler:
     ) -> SimpleNamespace:
         return SimpleNamespace(
             atomic=atomic,
-            tool=SimpleNamespace(ref="tool://locate@1.0.0", status="draft"),
+            tool=SimpleNamespace(ref="tool://locate@1.0.0", status="draft", signature={}, interface={}, artifact_kind="fixture", artifact={}, safety={}),
             implementation=SimpleNamespace(
-                ref="implementation://locate@1.0.0", status="draft"
+                ref="implementation://locate@1.0.0", status="draft", tool_bindings=[], execution_policy={}, grounding_constraints=[]
             ),
         )
 
@@ -262,7 +265,7 @@ def test_runtime_trial_separates_atomic_authority_from_tool_path_refs(monkeypatc
         },
     )
     proposal = ToolProposal(
-        proposal_version="1",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []},
         decision="create",
         summary="locate target",
         atomic_ref="atomic://locate@1.0.0",
@@ -294,6 +297,7 @@ def test_runtime_trial_separates_atomic_authority_from_tool_path_refs(monkeypatc
         world_revision=0, action_catalog=[], budget=__import__('atomic_skillgraph.runtime.budget', fromlist=['RuntimeBudget']).RuntimeBudget(),
         harness=SimpleNamespace(
             profile_name="alfworld",
+            validator_channel=lambda: SimpleNamespace(snapshot=lambda: {}),
             semantic_predicate_schema=lambda: [],
             primitive_action_schema=lambda: [],
         ),
@@ -301,6 +305,8 @@ def test_runtime_trial_separates_atomic_authority_from_tool_path_refs(monkeypatc
         trace_builder=_TraceBuilder(),
         binding_store=_BindingStore(),
         validated_outputs={},
+        rejected_runtime_candidates={},
+        execution_terminal=lambda: False,
         runtime_tool_trials={},
         action_history=[],
         task_id="task_locate",
@@ -364,7 +370,7 @@ def test_terminal_runtime_prefix_is_e1_evidence_but_not_tool_admission(
         },
     )
     proposal = ToolProposal(
-        proposal_version="1",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []},
         decision="create",
         summary="locate target",
         atomic_ref="atomic://locate@1.0.0",
@@ -418,6 +424,7 @@ def test_terminal_runtime_prefix_is_e1_evidence_but_not_tool_admission(
         world_revision=0, action_catalog=[], budget=__import__('atomic_skillgraph.runtime.budget', fromlist=['RuntimeBudget']).RuntimeBudget(),
         harness=SimpleNamespace(
             profile_name="alfworld",
+            validator_channel=lambda: SimpleNamespace(snapshot=lambda: {}),
             semantic_predicate_schema=lambda: [],
             primitive_action_schema=lambda: [],
         ),
@@ -425,6 +432,8 @@ def test_terminal_runtime_prefix_is_e1_evidence_but_not_tool_admission(
         trace_builder=_TraceBuilder(),
         binding_store=_BindingStore(),
         validated_outputs={},
+        rejected_runtime_candidates={},
+        execution_terminal=lambda: False,
         runtime_tool_trials={},
         action_history=[],
         task_id="task_locate",
@@ -536,7 +545,7 @@ def test_tool_builder_context_exposes_only_bounded_occurrence_authority() -> Non
 def _loop_proposal() -> ToolProposal:
     atomic = _builder_atomic()
     return ToolProposal(
-        proposal_version="1",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []},
         decision="create",
         summary="navigate over destinations",
         atomic_ref=str(atomic.ref),

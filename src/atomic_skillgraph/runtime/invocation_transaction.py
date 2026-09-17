@@ -46,8 +46,6 @@ def execution_cache_key(compiled, arguments, consumer, ctx):
     from ..evolution.aligner import _tool_signature
     from ..evolution.contract_canonicalizer import canonical_atomic_contract
     from .negative_memory import state_signature, consumer_step_identity
-    if not getattr(ctx, 'runtime_config', {}).get('short_runtime_steps'):
-        return None
     implementation = compiled.implementation
     # Ephemeral draft/Tool/Implementation IDs and source descriptions are not
     # executable identity. Preserve the actual program, parameter wiring,
@@ -84,6 +82,8 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
             node_status=NodeExecutionStatus.FAILED_NOT_STARTED, cached_rejection=True)
     origin = origin or ('agent_selected_registered' if agent_prepared else 'automatic_registered')
     with InvocationTransaction(ctx, occurrence, origin=origin) as transaction:
+        ctx.binding_store.commit_grounded(occurrence.occurrence_id,
+            {binding.role: binding for binding in preflight.binding_updates})
         result = runner.run(compiled, preflight, occurrence, ctx,
                             agent_prepared=agent_prepared, execution_scope=execution_scope)
         transaction.accepted = bool(result.atomic_effect_passed)

@@ -27,6 +27,14 @@ class Admission:
         atomic: AbstractAtomicSkill | None = None,
         harness: Any | None = None,
     ) -> ToolAsset:
+        from ..tooling.entry_contract import normalize_entry_contract
+        try:
+            normalize_entry_contract(tool.interface.get("entry_contract"), tool.signature.get("properties", {}))
+            if tool.metadata.get("source_replay_only"):
+                raise ValueError("Source replay is not a deployment declaration")
+        except (ValueError, TypeError):
+            return replace(tool, status=ToolStatus.SHADOW, metadata={
+                **tool.metadata, "admission_failure": ["tool_entry_contract_missing"]})
         if tool.artifact_kind == "tool_ir_v1":
             return self._admit_tool_ir_v1(
                 tool, replay=replay, atomic=atomic, harness=harness,

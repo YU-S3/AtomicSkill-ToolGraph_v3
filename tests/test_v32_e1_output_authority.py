@@ -154,7 +154,7 @@ def _proposal() -> AtomicOccurrenceProposal:
 
 
 def _schema_occurrence() -> dict[str, object]:
-    return {
+    return {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": "take",
         "intent": "take_item",
         "event_start": 1,

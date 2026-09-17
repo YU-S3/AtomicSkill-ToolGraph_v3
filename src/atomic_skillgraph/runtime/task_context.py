@@ -46,7 +46,6 @@ class TaskRuntimeContext:
     runtime_config: dict[str, Any] = field(default_factory=dict)
     graph_bootstrap_completed: bool = False
     runtime_step_modes: dict[str, str] = field(default_factory=dict)
-    rejected_runtime_implementations: dict[str, set[str]] = field(default_factory=dict)
     rejected_runtime_candidates: dict[str, dict[str, Any]] = field(default_factory=dict)
     runtime_step_feedback: dict[str, dict[str, Any]] = field(default_factory=dict)
     occurrence_evidence: dict[str, OccurrenceAtomicEvidenceState] = field(
@@ -463,3 +462,10 @@ class TaskRuntimeContext:
 
     def task_complete(self) -> bool:
         return self.benchmark_terminal()
+
+    def execution_terminal(self) -> bool:
+        """Official done stops work even when the episode was not won."""
+        if self.benchmark_terminal():
+            return True
+        snapshot = self.harness.validator_channel().snapshot()
+        return bool(snapshot.get("done", False))

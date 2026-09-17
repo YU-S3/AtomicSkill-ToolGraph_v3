@@ -428,7 +428,7 @@ def _runtime_assets():
                 "properties": {role: {"type": "string"} for role in inputs},
                 "required": inputs,
             },
-            {
+            {"entry_contract": {"conditions": [], "grounding_constraints": []},
                 "output_schema": {
                     "type": "object",
                     "properties": {output_role: {"type": "string"}},
@@ -607,15 +607,14 @@ def test_navigation_effect_satisfied_after_environment_action_skips_entry_afford
         FakeReply.tool("environment_action", {
             "action_id": "r000_a001",
             "intent": "attempt_current_atomic",
+            "candidate_bindings": {"destination": "drawer_2"},
         }),
     ])
     runtime, ctx, occurrence, invocations = _single_nav_context(
         harness, factory,
     )
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert (
         result.node_status
@@ -659,9 +658,7 @@ def test_prepared_arguments_effect_passes_before_affordance_check() -> None:
         _AlreadyAtSourceHarness(), factory,
     )
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.atomic_effect_passed is True
     assert result.started is False
@@ -669,14 +666,11 @@ def test_prepared_arguments_effect_passes_before_affordance_check() -> None:
         result.node_status
         is NodeExecutionStatus.AGENT_COMPLETED_BEFORE_INVOCATION
     )
-    audit = next(
-        item for item in ctx.trace_builder.trace.native_tool_calls
-        if item.preflight_result.get("route")
-        == "implementation_skipped_effect_satisfied"
-    )
-    assert audit.preflight_result["executed"] is False
+    audit = next(item for item in ctx.trace_builder.trace.native_tool_calls
+        if item.call_kind == "implementation_invocation")
+    assert audit.preflight_result["started"] is False
     assert audit.preflight_result["atomic_effect_passed"] is True
-    assert audit.preflight_result["witness_refs"]
+    assert audit.preflight_result["atomic_witness_refs"]
     assert not ctx.trace_builder.trace.implementation_invocations
     assert not ctx.trace_builder.trace.tool_executions
     factory.assert_exhausted()
@@ -915,6 +909,7 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
         FakeReply.tool("environment_action", {
             "action_id": "r000_a001",
             "intent": "attempt_current_atomic",
+            "candidate_bindings": {"destination": "drawer_2"},
         }),
     ])
     factory.enqueue("runtime_preparation", [
@@ -923,6 +918,7 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
     factory.enqueue("runtime_preparation", [
         FakeReply.tool("$learned", {"destination": "desk_1"}),
     ])
+    factory.enqueue("runtime_preparation", [FakeReply.tool("$learned", {"object": "apple_2", "destination": "desk_1"})])
     runtime = RuntimeOrchestrator(
         Planner(),
         harness,
@@ -956,7 +952,7 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
     trace = runtime.run_task(task)
 
     assert trace.benchmark_success is True
-    assert trace.graph_self_sufficient_success is True
+    assert trace.graph_self_sufficient_success is True  # Official win needs no extra task rescue.
     assert trace.task_rescue_required is False
     assert len(trace.node_records) == 4
     by_node = {item.occurrence_id: item for item in trace.node_records}
@@ -972,8 +968,10 @@ def test_four_node_new_scene_reuse_closes_binding_and_dataflow() -> None:
             NodeExecutionStatus.DIRECT_AGENT_PREPARED_SUCCESS,
             NodeExecutionStatus.DIRECT_AUTONOMOUS_SUCCESS,
         }
-        for occurrence_id in ("take", "target_nav", "put")
+        for occurrence_id in ("take", "target_nav")
     )
+    assert by_node["put"].status is NodeExecutionStatus.DIRECT_AGENT_PREPARED_SUCCESS
+    assert by_node["put"].validated_outputs == {"placed_object": "apple_2"}
     assert len(trace.implementation_invocations) == 3
     assert all(
         item.occurrence_id != "source_nav"

@@ -35,6 +35,7 @@ from .ir import (
     validate_match_condition_shape,
 )
 from .proposal import RuntimeAutomationAtomicDraft, ToolProposal, validate_output_semantic_constraints
+from .entry_contract import normalize_entry_contract
 from .runtime_interface import (
     RuntimeAutomationInputResolution,
     public_predicate_schema,
@@ -1210,6 +1211,24 @@ def _proposal_episode_literal_hits(
         known_instances=known_instances,
         boundary_roles=boundary_roles,
     )
+    def scan_entry(value, path):
+        if isinstance(value, Mapping) and "kind" in value:
+            # Symbols are not episode constants, including role names with digits.
+            if value.get("kind") == "constant":
+                _append_literal_hits(hits, value.get("constant"), path + ".constant", known_instances)
+            return
+        if isinstance(value, str) and value.startswith("$") and value[1:] in boundary_roles:
+            return
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if key not in {"constraint_id", "predicate", "action_type", "verifier_id", "effect_domain", "kind"}:
+                    scan_entry(item, path + "." + str(key))
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                scan_entry(item, path + f"[{index}]")
+        else:
+            _append_literal_hits(hits, value, path, known_instances)
+    scan_entry(proposal.entry_contract, "entry_contract")
     path_data = program_paths(program)
     known_path_refs = set(node_scopes) | set(path_data.get("path_ids", ()))
     for index, raw in enumerate(proposal.path_expectations):
@@ -1496,6 +1515,16 @@ class ToolStaticValidator:
             codes.append(code)
             messages.append(message)
 
+        try:
+            if proposal.proposal_version != "2":
+                raise ValueError("R10.2 execution requires ToolProposal version 2")
+            entry = normalize_entry_contract(proposal.entry_contract, (p.name for p in proposal.inputs))
+            if proposal.decision == "no_tool" and any(entry.values()):
+                raise ValueError("no_tool requires empty entry arrays")
+        except (KeyError, TypeError, ValueError) as exc:
+            return ToolStaticReport(False, {"tool_entry_contract": False},
+                                    ["tool_entry_contract_invalid"], [str(exc)], {})
+        checks["tool_entry_contract"] = True
         if proposal.decision == "no_tool":
             checks["no_tool"] = True
             return ToolStaticReport(True, checks, [], ["NO_TOOL"], {})
@@ -1806,6 +1835,10 @@ class ToolStaticValidator:
                 code="tool_ir_predicate_vocabulary",
             )
         validate_predicates(proposal.final_effects, code="tool_ir_predicate_vocabulary")
+        validate_predicates(entry['conditions'], code="tool_entry_predicate_invalid")
+        for constraint in entry['grounding_constraints']:
+            if not harness.supports_constraint(constraint['kind'], constraint.get('verifier_id', '')):
+                fail('tool_entry_constraint_unsupported', constraint['constraint_id'])
         checks["tool_ir_predicate_vocabulary"] = "tool_ir_predicate_vocabulary" not in codes
         checks["tool_ir_effect_domain"] = "tool_ir_effect_domain_invalid" not in codes
 
@@ -1949,7 +1982,7 @@ class ToolStaticValidator:
                 {},
             )
         proposal = ToolProposal(
-            proposal_version="1",
+            proposal_version="2",
             decision="create",
             summary=str(tool.summary),
             atomic_ref=str(atomic.ref),
@@ -1964,6 +1997,7 @@ class ToolStaticValidator:
             evidence_outputs=[dict(item) for item in artifact.get("evidence_outputs", [])],
             path_expectations=[dict(item) for item in artifact.get("path_expectations", [])],
             rationale=str(tool.metadata.get("tool_builder_rationale", "")),
+            entry_contract=tool.interface.get("entry_contract"),
         )
         return self.validate_proposal(proposal, atomic, harness)
 
@@ -1987,6 +2021,13 @@ class ToolStaticValidator:
             messages.append(message)
 
         checks["draft_schema"] = bool(draft.draft_id and draft.intent and draft.effects)
+        from ..agents.skill_guidance import normalize_guideline
+        try:
+            normalize_guideline(draft.guideline, formal_roles=[p.name for p in [*draft.inputs, *draft.outputs]])
+            checks["draft_guidance_portable"] = True
+        except ValueError as exc:
+            checks["draft_guidance_portable"] = False
+            fail("runtime_automation_guidance_invalid", str(exc))
         checks["draft_roles"] = bool(draft.inputs and draft.outputs)
         if not checks["draft_roles"]:
             fail("runtime_automation_r0_role_closure", "draft must declare inputs and outputs")

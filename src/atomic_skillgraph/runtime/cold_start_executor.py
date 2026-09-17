@@ -109,262 +109,18 @@ class ProvisionalNodeExecutor:
         ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
         before = progress_tracker.record("cold_start_step_start")
         action_start = len(ctx.trace_builder.trace.environment_actions)
-        session = self.node_executor.session_factory(
-            "runtime_provisional_seeded", occurrence.occurrence_id,
-        )
-        session_record = self.node_executor._record_session_start(
-            session, "ProvisionalSeededSession", occurrence.occurrence_id, ctx,
-        )
-        span = ctx.trace_builder.start_span(
-            "runtime_provisional_seeded", occurrence.occurrence_id,
-        )
-        prompt_bindings = ctx.binding_store.runtime_prompt_projection(
-            occurrence, atomic.inputs,
-        )
-        runtime_automation_interface = build_runtime_automation_interface(
-            ctx.harness, occurrence, ctx.binding_store,
-        )
-        projection_audit: dict[str, Any] = {}
-        prompt = self.node_executor.context_builder.seeded_node(
-            task_goal=ctx.task_goal,
-            atomic_contract=atomic,
-            task_semantic_context=prompt_bindings["task_semantic_context"],
-            current_occurrence_semantic_anchors=prompt_bindings[
-                "occurrence_semantic_anchors"
-            ],
-            execution_ready_bindings=prompt_bindings["execution_ready_bindings"],
-            missing_or_insufficient_bindings=prompt_bindings[
-                "missing_or_insufficient_bindings"
-            ],
-            observation=ctx.observation,
-            action_catalog=ctx.action_catalog,
-            relevant_action_history=ctx.relevant_history(occurrence.occurrence_id),
-            remaining_budget=ctx.budget.snapshot(),
-            runtime_automation_interface=runtime_automation_interface,
-            projection_audit=projection_audit,
-        )
-        tools = self.node_executor._node_tools(ctx, atomic)
-        loop_guard = ActionLoopGuard()
-        failure_code = "provisional_atomic_effect_failed"
-        resolved: dict[str, Any] = {}
-        witness_refs: list[str] = []
+        failure_code = ""
+        resolved, witness_refs = {}, []
         try:
-            self.node_executor._record_runtime_context_projection(
-                ctx,
-                projection_audit,
-                session_id=session.session_id,
-                occurrence_id=occurrence.occurrence_id,
-                origin="initial",
-            )
-            turn = session.next_turn(prompt, tools=tools)
-            while True:
-                self.node_executor._record_turn(session, turn, ctx)
-                call = turn.tool_calls[0]
-                if call.name == "report_runtime_status":
-                    self.node_executor._finalize_tool_result(
-                        session, call.call_id, {"accepted": True}, tools,
-                    )
-                    break
-                if call.name == "propose_runtime_automation_atomic":
-                    action_count_before = len(
-                        ctx.trace_builder.trace.environment_actions
-                    )
-                    payload = self.node_executor._process_runtime_automation_call(
-                        call,
-                        ctx,
-                        occurrence,
-                    )
-                    self.node_executor._augment_runtime_payload(
-                        payload,
-                        ctx,
-                        occurrence=occurrence,
-                        atomic=atomic,
-                        session_id=session.session_id,
-                        tool_call_id=call.call_id,
-                    )
-                    tools = self.node_executor._node_tools(ctx, atomic)
-                    if self.node_executor._runtime_automation_reached_terminal(
-                        ctx, payload,
-                    ):
-                        self.node_executor._finalize_tool_result(
-                            session, call.call_id, payload, tools,
-                        )
-                        failure_code = "provisional_terminal_interrupted"
-                        break
-                    turn = session.submit_tool_result(
-                        call.call_id,
-                        payload,
-                        tools=tools,
-                        returned_action_executed=(
-                            len(ctx.trace_builder.trace.environment_actions)
-                            > action_count_before
-                        ),
-                    )
-                    self.node_executor._mark_runtime_trial_parent_resumed(
-                        ctx, payload,
-                    )
-                    continue
-                if call.name == "validate_current_atomic":
-                    effect, payload = (
-                        self.node_executor._validate_current_atomic_call(
-                            call,
-                            session,
-                            occurrence,
-                            ctx,
-                            mode="seeded",
-                            atomic=atomic,
-                        )
-                    )
-                    tools = self.node_executor._node_tools(ctx, atomic)
-                    if effect is not None:
-                        self.node_executor._finalize_tool_result(
-                            session, call.call_id, payload, tools,
-                        )
-                        resolved, witness_refs = self._record_success(
-                            effect, occurrence, ctx,
-                        )
-                        self.node_executor._mark_runtime_trial_parent_completed(
-                            ctx, occurrence,
-                        )
-                        failure_code = ""
-                        break
-                    turn = session.submit_tool_result(
-                        call.call_id,
-                        payload,
-                        tools=tools,
-                        returned_action_executed=False,
-                    )
-                    continue
-                action_count_before = len(
-                    ctx.trace_builder.trace.environment_actions
-                )
-                payload, action_spec = self.node_executor._execute_environment_call(
-                    call, session, occurrence, ctx,
-                    span_id=span.span_id,
-                    origin="runtime_provisional_seeded",
-                    loop_guard=loop_guard,
-                    atomic=atomic,
-                )
-                progress_tracker.record("environment_action")
-                tools = self.node_executor._node_tools(ctx, atomic)
-                if payload.get("loop_blocked"):
-                    if payload.get("fallback_required"):
-                        failure_code = str(
-                            payload.get("error")
-                            or "provisional_atomic_effect_failed"
-                        )
-                        if failure_code.startswith("runtime_repetition_"):
-                            failure_code = failure_code.replace(
-                                "runtime_repetition_", "provisional_repetition_",
-                                1,
-                            )
-                        elif "budget_exhausted" in failure_code:
-                            failure_code = "provisional_seeded_budget_exhausted"
-                        else:
-                            failure_code = "provisional_atomic_effect_failed"
-                        self.node_executor._finalize_tool_result(
-                            session, call.call_id, payload, tools,
-                        )
-                        break
-                    turn = session.submit_tool_result(
-                        call.call_id,
-                        payload,
-                        tools=tools,
-                        returned_action_executed=(
-                            len(ctx.trace_builder.trace.environment_actions)
-                            > action_count_before
-                        ),
-                    )
-                    continue
-                effect = None
-                if (
-                    call.arguments["intent"] == "attempt_current_atomic"
-                    and payload.get("accepted")
-                ):
-                    resolutions = []
-                    effect = self.node_executor._complete_from_current_effect(
-                        occurrence,
-                        ctx,
-                        mode="seeded",
-                        preferred_values=list(action_spec.arguments.values()),
-                        atomic_override=atomic,
-                        resolution_out=resolutions,
-                    )
-                    payload["atomic_validation"] = to_primitive(
-                        resolutions[-1]
-                    )
-                elif call.arguments["intent"] == "attempt_current_atomic":
-                    payload["atomic_validation"] = {
-                        "passed": False,
-                        "failure_code": "environment_action_rejected",
-                        "message": (
-                            "Rejected environment action cannot commit the "
-                            "provisional Atomic"
-                        ),
-                    }
-                if call.arguments["intent"] == "attempt_current_atomic":
-                    # ``_execute_environment_call`` projected the harness
-                    # result before provisional Atomic validation existed.
-                    # Re-project the complete result that can actually be
-                    # returned to this live Seeded session.  The projection
-                    # audit helper replaces the intermediate record for the
-                    # same ToolCall with this final view.
-                    self.node_executor._augment_runtime_payload(
-                        payload,
-                        ctx,
-                        occurrence=occurrence,
-                        atomic=atomic,
-                        session_id=session.session_id,
-                        tool_call_id=call.call_id,
-                    )
-                if effect is not None:
-                    self.node_executor._finalize_tool_result(
-                        session, call.call_id, payload, tools,
-                    )
-                    resolved, witness_refs = self._record_success(
-                        effect, occurrence, ctx,
-                    )
-                    self.node_executor._mark_runtime_trial_parent_completed(
-                        ctx, occurrence,
-                    )
-                    failure_code = ""
-                    break
-                if payload.get("done"):
-                    self.node_executor._finalize_tool_result(
-                        session, call.call_id, payload, tools,
-                    )
-                    break
-                turn = session.submit_tool_result(
-                    call.call_id,
-                    payload,
-                    tools=tools,
-                    returned_action_executed=(
-                        len(ctx.trace_builder.trace.environment_actions)
-                        > action_count_before
-                    ),
-                )
+            effect = self.node_executor.run_agent_node(occurrence, ctx, mode="seeded", atomic_override=atomic)
+            if effect.atomic_effect_passed:
+                resolved, witness_refs = self._record_success(effect, occurrence, ctx)
+            else:
+                failure_code = effect.failure_code or "provisional_atomic_effect_failed"
         except AtomicSkillGraphError as exc:
             if exc.layer is FailureLayer.INFRASTRUCTURE:
                 raise
-            if isinstance(exc, AgentProtocolError):
-                # Protocol failures are neutral lifecycle evidence.  Preserve
-                # that classification for the post-task failure-side commit;
-                # do not count it toward consecutive local-effect failures.
-                failure_code = "provisional_provider_or_protocol_failure"
-            elif "budget_exhausted" in exc.code:
-                failure_code = "provisional_seeded_budget_exhausted"
-            elif exc.code.startswith("runtime_repetition_"):
-                failure_code = exc.code.replace(
-                    "runtime_repetition_",
-                    "provisional_repetition_",
-                    1,
-                )
-            else:
-                failure_code = "provisional_atomic_effect_failed"
-        finally:
-            ctx.trace_builder.finish_span(span.span_id)
-            self.node_executor._finish_session(session_record, session, ctx)
-
+            failure_code = exc.code
         after = progress_tracker.record("cold_start_step_complete")
         action_end = len(ctx.trace_builder.trace.environment_actions)
         return ProvisionalTrialResult(
@@ -391,18 +147,10 @@ class ProvisionalNodeExecutor:
                 occurrence,
             ).items()
         }
-        witness_refs = next((
-            list(item.result.get("witness_refs", ()))
-            for item in reversed(ctx.trace_builder.trace.validations)
-            if item.occurrence_id == occurrence.occurrence_id
-            and item.level == "atomic"
-        ), [])
+        witness_refs = list(effect.atomic_witness_refs)
         if effect.validated_outputs:
             if not witness_refs:
-                witness_refs = [
-                    f"validator:occurrence:{occurrence.occurrence_id}:"
-                    f"revision:{ctx.world_revision}"
-                ]
+                raise ValueError("validated provisional outputs require actual witnesses")
             ctx.binding_store.publish_validated_outputs(
                 occurrence,
                 effect.validated_outputs,

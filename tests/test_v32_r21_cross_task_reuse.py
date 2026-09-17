@@ -10,6 +10,7 @@ are allowed; Extractor, Admission, Registry, and Lifecycle are never bypassed.
 """
 
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 import copy
 from pathlib import Path
@@ -490,7 +491,7 @@ _MULTI_ACTION_LOCATE_PROGRAM = [
 
 def _locate_proposal(atomic: AbstractAtomicSkill) -> dict[str, Any]:
     return {
-        "proposal_version": "1",
+        "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
         "summary": "locate target entity",
         "atomic_ref": str(atomic.ref),
@@ -562,7 +563,7 @@ def _locate_e1(
     event_id: str,
     witness_ref: str = "effect:w_locate",
 ) -> dict[str, Any]:
-    return {
+    return {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": "locate_p1",
         "intent": "locate target entity",
         "event_start": 0,
@@ -635,7 +636,7 @@ _TASK_LOCAL_ATOMIC_REF = "skill://atomic_locate_target_task_local@1.0.0"
 
 def _task_local_locate_proposal() -> dict[str, Any]:
     return {
-        "proposal_version": "1",
+        "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
         "summary": "locate target entity",
         "atomic_ref": _TASK_LOCAL_ATOMIC_REF,
@@ -673,7 +674,7 @@ def _take_e1(
     event_id: str,
     witness_ref: str,
 ) -> dict[str, Any]:
-    return {
+    return {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": "take_p1",
         "intent": "take target object",
         "event_start": 0,
@@ -739,7 +740,12 @@ def _register_take_graph(
     canonical = Atomicizer().validate_and_canonicalize(proposals, normalized)
 
     aligner = Aligner(skills, tools)
-    compiled = list(ToolCompiler().compile(canonical))
+    # Fixture-author declares the entry relation; never infer it from ACTION.
+    compiled = ToolCompiler().compile(canonical, entry_contracts={item.phase_id: {
+        "conditions": [], "grounding_constraints": [{
+            "constraint_id": "take_entry", "kind": "harness_affordance", "action_type": "TAKE",
+            "argument_mapping": {role: {"kind": "skill_input", "source_role": role} for role in ("object", "location")},
+            "required_resolution": "relation_verified"}]} for item in canonical})
     assert len(compiled) == 1
     item = compiled[0]
     assert item.tool is not None and item.implementation is not None
@@ -1016,6 +1022,7 @@ def test_gate29_cross_task_runtime_tool_reuse(tmp_path: Path) -> None:
     factory.enqueue(
         "runtime_preparation",
         [
+            FakeReply.tool('request_runtime_automation', {'reason': 'systematic search', 'intended_capability': 'locate target'}),
             _RuntimeLocateDraftReply(),
             FakeReply.tool("environment_action", {
                 "action_id": "r002_a002", "intent": "attempt_current_atomic",
@@ -1181,6 +1188,7 @@ def test_r4_system_retained_atomic_is_retrieved_and_runs_seeded_for_new_entity(
     factory.enqueue(
         "runtime_preparation",
         [
+            FakeReply.tool('request_runtime_automation', {'reason': 'systematic search', 'intended_capability': 'locate target'}),
             _RuntimeLocateDraftReply(),
             FakeReply.tool("environment_action", {
                 "action_id": "r002_a002",
@@ -1409,9 +1417,11 @@ def test_r4_system_retained_atomic_is_retrieved_and_runs_seeded_for_new_entity(
         [FakeReply.tool("environment_action", {
             "action_id": "r000_a001",
             "intent": "attempt_current_atomic",
+            "candidate_bindings": {"target": "mug_1"},
+            "candidate_outputs": {"entity": "mug_1", "location": _room_for("mug_1")},
         })],
     )
-    seeded = runtime.node_executor.run_seeded_fresh(occurrence, ctx)
+    seeded = runtime.node_executor.run_agent_node(occurrence, ctx, mode='seeded')
 
     # ``started`` is reserved for a Learned Implementation invocation.  The
     # Seeded Agent succeeded without one, so the immutable attempt flag stays

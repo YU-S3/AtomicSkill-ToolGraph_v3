@@ -85,6 +85,9 @@ def _system(tmp_path, extractor_type, composite_builder):
     system.graph = GraphStore(database, system.skills)
     system.aligner = Aligner(system.skills, system.tools)
     system.tool_compiler = ToolCompiler()
+    from fixtures.r102 import compile_fixture
+    # E1/E2 unit scope: an explicitly authored fixture executable, not legacy production fallback.
+    system._build_tool_for_occurrence = lambda occurrence, *a, **kw: (compile_fixture([occurrence])[0], {})
     system.composite_builder = composite_builder
     system._extractor_session = lambda _task_id: object()
     system.harness = SimpleNamespace(

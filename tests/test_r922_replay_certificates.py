@@ -1,3 +1,4 @@
+from fixtures.r102 import compile_fixture
 """Linear admission, immutable executable identity and actual Direct execution."""
 import copy
 from dataclasses import replace
@@ -23,7 +24,7 @@ def test_original_discovery_reprocessing_is_idempotent(tmp_path):
     config = _system_config(tmp_path / "bank")
     with AtomicSkillGraphSystem(config, harness=FakeHarness()) as system:
         task = fake_task("original", "apple_1")
-        compiled = ToolCompiler().compile([_source("original", "source_original", "object", "apple_1")])[0]
+        compiled = compile_fixture([_source("original", "source_original", "object", "apple_1")])[0]
         system._replay_source_authority = lambda: SimpleNamespace(resolve=lambda *args, **kwargs: task)
         physical = []
         def execute(task, tool, case, *, requested_task_id):
@@ -60,7 +61,7 @@ def test_ten_cases_linear_certificates_resume_changed_program_and_direct(tmp_pat
                 requested_task_id, task.task_id, "final_validation", True, started=True,
                 executed_action_count=1, completed=True, atomic_effect_passed=True, output_validation_passed=True)
         system._replay_tool_candidate_result = execute
-        original = ToolCompiler().compile([_source("case0", "source0", "object", "apple_1")])[0]
+        original = compile_fixture([_source("case0", "source0", "object", "apple_1")])[0]
         atomic_ref = system.aligner.align_atomic(original.atomic)
         refs, impls, cases = set(), set(), []
 
@@ -82,7 +83,7 @@ def test_ten_cases_linear_certificates_resume_changed_program_and_direct(tmp_pat
 
         for number in range(10):
             occurrence = _source(f"case{number}", f"source{number}", "object", f"apple_{number+1}")
-            case = ToolCompiler().compile([occurrence])[0].tool.tests[0]
+            case = compile_fixture([occurrence])[0].tool.tests[0]
             cases.append(case)
             ref, _ = admit(case)
             refs.add(ref)
@@ -112,7 +113,7 @@ def test_ten_cases_linear_certificates_resume_changed_program_and_direct(tmp_pat
         assert certificates.lookup(signature, tampered) is None
 
         # Two or more independent cases still expose one actual invocation.
-        task = fake_task("direct", "apple_99")
+        task = fake_task("direct", "apple_99", requires_rescue=True)
         atomic = system.skills.get_atomic(atomic_ref)
         occurrence = RuntimeOccurrence("node", "node", atomic_ref, [],
             {"object": BindingExpression(BindingExprKind.CONSTANT, constant="apple_99")},
@@ -126,8 +127,21 @@ def test_ten_cases_linear_certificates_resume_changed_program_and_direct(tmp_pat
         invocations = system.invocation_compiler.compile_candidates(occurrence, ctx.binding_store, task_id=task.task_id)
         assert len(invocations) == 1
         direct = system.orchestrator.node_executor.try_autonomous(occurrence, invocations, ctx)
-        assert direct is not None and direct.atomic_effect_passed, direct
-        assert direct.node_status.value == "direct_autonomous_success"
+        assert direct is None  # Replay certificates do not promote Candidate deployment.
+        selected = invocations[0]
+        prepared = system.invocation_compiler.prepare_arguments(selected,
+            call_name=selected.spec.name, call_id="agent_selected", arguments={"object": "apple_99"},
+            occurrence=occurrence, binding_store=ctx.binding_store,
+            evidence_store=ctx.evidence_store, revision=ctx.world_revision, task_contract=ctx.task_contract)
+        preflight = system.invocation_compiler.validate_execution_context(selected, prepared,
+            occurrence=occurrence, binding_store=ctx.binding_store,
+            evidence_store=ctx.evidence_store, revision=ctx.world_revision)
+        assert preflight.passed, preflight
+        from atomic_skillgraph.runtime.invocation_transaction import execute_invocation
+        direct = execute_invocation(system.orchestrator.node_executor.implementation_runner,
+            selected, preflight, occurrence, ctx, agent_prepared=True)
+        assert direct.atomic_effect_passed, direct
+        assert direct.node_status.value == "direct_agent_prepared_success"
         assert not ctx.trace_builder.trace.agent_sessions
 
         changed = copy.deepcopy(original.tool)

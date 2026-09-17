@@ -126,9 +126,6 @@ class ImplementationRunner:
                 output_candidates[role] = atomic_values.get(expression, expression)
             else:
                 output_candidates[role] = expression
-        for output in compiled.atomic.outputs:
-            if output.name not in output_candidates and output.name in atomic_values:
-                output_candidates[output.name] = atomic_values[output.name]
         bindings = (
             {}
             if execution_scope == "runtime_trial"

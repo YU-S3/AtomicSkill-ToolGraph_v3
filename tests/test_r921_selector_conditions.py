@@ -126,10 +126,7 @@ def test_nested_static_scope_roles_and_literals(mutation):
 
 def test_output_derivation_explanation_is_shared_without_changing_r0():
     from atomic_skillgraph.agents.structured_submission import RUNTIME_AUTOMATION_ATOMIC_SCHEMA
-    from atomic_skillgraph.agents.runtime_prompt_texts import PREPARATION_ONLY, SEEDED_ONLY
     from atomic_skillgraph.tooling.runtime_interface import RUNTIME_OUTPUT_DERIVATION_RULES
-    assert RUNTIME_OUTPUT_DERIVATION_RULES in PREPARATION_ONLY
-    assert RUNTIME_OUTPUT_DERIVATION_RULES in SEEDED_ONLY
     assert RUNTIME_OUTPUT_DERIVATION_RULES in RUNTIME_AUTOMATION_ATOMIC_SCHEMA["properties"]["effects"]["description"]
     assert "output_semantic_constraints" in RUNTIME_OUTPUT_DERIVATION_RULES
     assert "Candidates and prose never create witnesses" in RUNTIME_OUTPUT_DERIVATION_RULES

@@ -6,7 +6,7 @@ from .budget import (
 )
 from .loop_guard import ActionLoopGuard
 from .evidence_store import GroundingEvidenceStore
-from .grounding_state import IncrementalGroundingAuthority
+from .grounding_state import GivenInputReader
 from .plan_context import (
     RuntimeConsumerObligation, RuntimePlanContextBuilder,
     RuntimePlanPolicyContext,
@@ -17,7 +17,7 @@ from .state import ExplorationMemory, OccurrenceAtomicEvidenceState
 
 __all__ = [
     "ActionLoopGuard", "ExplorationMemory", "GroundingEvidenceStore",
-    "IncrementalGroundingAuthority", "OccurrenceAtomicEvidenceState",
+    "GivenInputReader", "OccurrenceAtomicEvidenceState",
     "OutputObligationAssessment",
     "RuntimeBindingStore",
     "RuntimeBudget", "RuntimeConsumerObligation", "RuntimePlanContextBuilder",

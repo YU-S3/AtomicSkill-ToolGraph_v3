@@ -10,7 +10,7 @@ import pytest
 
 import atomic_skillgraph.system as system_module
 from atomic_skillgraph.agents import UsageLedger as AgentUsageLedger
-from atomic_skillgraph.agents.protocol import validate_schema_instance
+from atomic_skillgraph.agents.protocol import validate_schema_instance, SchemaValidationError
 from atomic_skillgraph.agents.structured_submission import TOOL_PROPOSAL_SCHEMA
 from atomic_skillgraph.core.contracts import SemanticPredicate, TaskContract
 from atomic_skillgraph.evolution.admission import Admission
@@ -223,6 +223,9 @@ def _historical_r4_control(
             "value": "placed_object",
         },
     ]
+    # Explicit human-authored R10.2 control; the stored historical fixture is unchanged.
+    payload["proposal_version"] = "2"
+    payload["entry_contract"] = {"conditions": [], "grounding_constraints": []}
     payload["atomic_ref"] = atomic_ref
     payload["final_effects"][0]["args"]["object"]["source_role"] = (
         "placed_object"
@@ -236,6 +239,8 @@ def _r9_legal_control(
     payload = copy.deepcopy(dict(
         fixture["tool_builder_native_submission_original"]["value"]
     ))
+    payload["proposal_version"] = "2"
+    payload["entry_contract"] = {"conditions": [], "grounding_constraints": []}
     payload["atomic_ref"] = atomic_ref
     return payload
 
@@ -324,7 +329,8 @@ def test_real_trace_historical_tool_payload_passes_after_r9_lineage_fix() -> Non
     assert source["classification"] == (
         "verbatim_native_submissions_from_historical_trace"
     )
-    validate_schema_instance(fixture["e1_native_submission_original"], E1_SCHEMA)
+    with pytest.raises(SchemaValidationError, match="guideline"):
+        validate_schema_instance(fixture["e1_native_submission_original"], E1_SCHEMA)
 
     _occurrence, atomic = _canonical_occurrence_and_atomic(fixture)
     original = dict(fixture["tool_builder_native_submission_original"])
@@ -332,13 +338,13 @@ def test_real_trace_historical_tool_payload_passes_after_r9_lineage_fix() -> Non
         "verbatim_historical_model_output_invalid"
     )
     payload = copy.deepcopy(dict(original["value"]))
-    validate_schema_instance(payload, TOOL_PROPOSAL_SCHEMA)
+    with pytest.raises(SchemaValidationError, match="entry_contract"):
+        validate_schema_instance(payload, TOOL_PROPOSAL_SCHEMA)
     report = ToolStaticValidator().validate_proposal(
         tool_proposal_from_dict(payload), atomic, _FixtureHarness(),
     )
-
-    assert report.passed is True
-    assert report.failure_codes == []
+    assert not report.passed
+    assert "tool_entry_contract_invalid" in report.failure_codes
     assert payload == original["value"]
 
 

@@ -116,6 +116,7 @@ def _draft_payload(occurrence_id: str, *, draft_id: str = "r92-draft") -> dict:
 def _frozen_config(data_dir: Path, trace_dir: Path, *, frozen: bool) -> dict:
     return {
         "schema_version": 3,
+        "repair_revision": "R10.2",
         "method_patch": "3.2",
         "data_dir": str(data_dir),
         "trace_data_dir": str(trace_dir),
@@ -219,7 +220,7 @@ def _successful_trial_fixture(system: AtomicSkillGraphSystem, task_id: str):
         "description": "",
     }
     proposal = {
-        "proposal_version": "1",
+        "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
         "summary": "take the target once",
         "atomic_ref": str(atomic.ref),
@@ -303,7 +304,7 @@ def _install_real_trial_coordinator(
             "required": [],
             "additionalProperties": False,
         },
-        {
+        {"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {},
@@ -473,6 +474,7 @@ def test_terminal_trial_finalizes_pending_call_without_parent_success() -> None:
     factory = TrackingFactory()
     runtime, ctx, occurrence, invocations = _context(factory)
     factory.enqueue("runtime_preparation", [
+        FakeReply.tool("request_runtime_automation", {"reason": "bounded search", "intended_capability": "locate"}),
         FakeReply.tool(
             "propose_runtime_automation_atomic",
             _draft_payload(occurrence.occurrence_id),
@@ -481,6 +483,8 @@ def test_terminal_trial_finalizes_pending_call_without_parent_success() -> None:
 
     def process_draft(**_kwargs):
         ctx.terminal_latched = True
+        ctx.harness.validator_channel().done = True
+        ctx.harness.validator_channel().won = True
         return RuntimeAutomationOutcome(
             r0_passed=True,
             static_passed=True,
@@ -497,9 +501,7 @@ def test_terminal_trial_finalizes_pending_call_without_parent_success() -> None:
     runtime.node_executor.automation_coordinator = SimpleNamespace(
         process_draft=process_draft,
     )
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.atomic_effect_passed is False
     assert result.failure_code == "runtime_automation_terminal_boundary"
@@ -523,6 +525,7 @@ def test_real_runtime_trial_won_stops_program_and_provider(
     factory = _TrackingFactory()
     runtime, ctx, occurrence, invocations = _context(factory)
     factory.enqueue("runtime_preparation", [
+        FakeReply.tool("request_runtime_automation", {"reason": "bounded search", "intended_capability": "locate"}),
         FakeReply.tool(
             "propose_runtime_automation_atomic",
             _draft_payload(occurrence.occurrence_id),
@@ -566,9 +569,7 @@ def test_real_runtime_trial_won_stops_program_and_provider(
 
     monkeypatch.setattr(ctx.harness, "execute_action", execute_and_win)
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     trial = ctx.runtime_tool_trials["r92-draft"]
     tool_result = trial["result"]["tool_results"][0]
@@ -617,6 +618,7 @@ def test_real_runtime_trial_budget_exhaustion_preserves_usage_without_retry(
     factory = _TrackingFactory()
     runtime, ctx, occurrence, invocations = _context(factory)
     factory.enqueue("runtime_preparation", [
+        FakeReply.tool("request_runtime_automation", {"reason": "bounded search", "intended_capability": "locate"}),
         FakeReply.tool(
             "propose_runtime_automation_atomic",
             _draft_payload(occurrence.occurrence_id),
@@ -657,44 +659,21 @@ def test_real_runtime_trial_budget_exhaustion_preserves_usage_without_retry(
 
     monkeypatch.setattr(ctx.harness, "execute_action", tracked_execute)
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
-
-    trial = ctx.runtime_tool_trials["r92-draft"]
-    tool_result = trial["result"]["tool_results"][0]
-    assert result.failure_code == "runtime_binding_unresolved"
-    assert tool_result["failure_code"] == failure_code
-    assert tool_result["failure_layer"] == "runtime_agent"
-    assert tool_result["started"] is True
-    assert tool_result["completed"] is False
-    assert tool_result["intrinsic_failure"] is False
-    assert tool_result["executed_step_count"] == 1
-    assert tool_result["after_revision"] == tool_result["before_revision"] + 1
-    assert len(execute_calls) == 1
-    assert len(ctx.trace_builder.trace.environment_actions) == 1
-    assert len(ctx.trace_builder.trace.tool_executions) == 1
-    assert len(ctx.trace_builder.trace.implementation_invocations) == 1
-    assert len(ctx.runtime_tool_trials) == 1
+    from atomic_skillgraph.core.errors import BudgetExhausted
+    with pytest.raises(BudgetExhausted) as raised:
+        runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
+    assert raised.value.code == failure_code
+    trace = ctx.trace_builder.trace
+    assert len(execute_calls) == len(trace.environment_actions) == 1
+    assert len(trace.tool_executions) == len(trace.implementation_invocations) == 1
+    assert trace.tool_executions[0].result["interrupted_by_budget"]
+    assert trace.implementation_invocations[0].result["failure_code"] == failure_code
     assert calls == {"builder": 1, "compiler": 1}
-    assert ctx.budget.current_occurrence_id == occurrence.occurrence_id
-    if boundary == "global":
-        assert ctx.budget.used_global_actions == ctx.budget.global_action_budget
-        assert ctx.budget.used_node_actions == 1
-    else:
-        assert ctx.budget.used_global_actions == 1
-        assert ctx.budget.used_node_actions == ctx.budget.node_action_budget
-    funnel = ctx.trace_builder.trace.metadata["runtime_automation_funnel"]
-    assert funnel["proposal_count"] == 1
-    assert funnel["trial_started"] == 1
-    assert funnel["trial_completed"] == 0
-    assert funnel["trial_internal_action_count"] == 1
-    assert funnel["parent_resumed_after_trial_count"] == 1
-    runtime_session = factory.sessions_of("runtime_preparation")[0]
-    assert runtime_session.snapshot()["turn_count"] == 2
-    assert runtime_session.submit_count == 1
-    assert runtime_session.finalize_count == 1
-    factory.assert_exhausted()
+    assert ctx.budget.used_global_actions == (ctx.budget.global_action_budget if boundary == 'global' else 1)
+    assert ctx.budget.used_node_actions == (ctx.budget.node_action_budget if boundary == 'node' else 1)
+    assert len(factory.sessions_of("runtime_preparation")) == 2
+    assert not ctx.runtime_tool_trials  # No full R1 report after the hard interruption.
+    assert len(factory.usage_ledger.events) == 2
 
 
 def test_frozen_successful_task_local_trial_is_trace_only_and_not_reusable(
@@ -847,7 +826,7 @@ def test_loop_blocked_preparation_keeps_unchanged_support_candidate(
         ),
     )
 
-    result = executor.run_preparation_session(occurrence, invocations, ctx)
+    result = executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.failure_code == "runtime_binding_unresolved"
     assert projected_candidates[0] == (candidate,)

@@ -1,6 +1,6 @@
 """R10.1 boundary diagnostics, separate from official benchmark success."""
 COUNTERS = ('support_mapping_authority_rejects', 'support_parent_identity_rejects',
-    'support_input_transfer_rejects', 'atomic_satisfied_after_support',
+    'support_input_transfer_rejects',
     'exact_failure_cache_hits', 'replay_trace_only_candidate_events',
     'replay_registered_events', 'physical_restore_replay_actions', 'orphan_lifecycle_rows')
 

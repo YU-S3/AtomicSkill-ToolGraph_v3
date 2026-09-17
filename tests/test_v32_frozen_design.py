@@ -152,7 +152,7 @@ def _ir_tool() -> ToolAsset:
             "properties": {"item": {"type": "string"}},
             "required": ["item"],
         },
-        interface={
+        interface={"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {"held_object": {"type": "string"}},
@@ -259,7 +259,7 @@ def test_tool_static_validator_rejects_unknown_opcode_and_code() -> None:
         status=SkillStatus.DRAFT,
     )
     proposal = ToolProposal(
-        proposal_version="1",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []},
         decision="create",
         summary="bad",
         atomic_ref="skill://atomic_take@1.0.0",
@@ -440,7 +440,7 @@ def test_success_evolution_tool_builder_compiles_ir_tool(tmp_path: Any) -> None:
         "tool_builder",
         [
             FakeReply.tool("create_tool", {
-                "proposal_version": "1",
+                "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
                 "decision": "create",
                 "summary": "take item",
                 "atomic_ref": str(proposal.proposed_ref),

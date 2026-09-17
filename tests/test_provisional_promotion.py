@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 from dataclasses import replace
 from types import SimpleNamespace
@@ -95,7 +96,7 @@ def _provisional_and_trial(trace: TraceRecord):
             "accepted TAKE",
         ),
     ], normalized)[0]
-    compiled = ToolCompiler().compile([occurrence])[0]
+    compiled = compile_fixture([occurrence])[0]
     canonicalizer = AtomicContractCanonicalizer()
     bundle = canonicalizer.canonicalize(
         compiled.atomic, compiled.tool, compiled.implementation,
@@ -145,13 +146,20 @@ def _provisional_and_trial(trace: TraceRecord):
 
 
 def _compiler(harness: _Harness) -> ProvisionalPromotionCompiler:
-    return ProvisionalPromotionCompiler(
+    compiler = ProvisionalPromotionCompiler(
         normalizer=TraceNormalizer(),
         atomicizer=Atomicizer(),
         tool_compiler=ToolCompiler(),
         admission=Admission(ToolValidator()),
         harness=harness,
     )
+    from functools import partial
+    # This isolated promotion fixture authors an explicit empty entry contract;
+    # source compilation alone is deliberately not deployable in production.
+    compiler.prepare = partial(compiler.prepare,
+        build_tool=lambda occurrence, atomic: compile_fixture([occurrence])[0],
+        replay_tool=lambda compiled, tool, case: harness.replay_tool(None, tool, case))
+    return compiler
 
 
 def test_task_failure_keeps_local_success_isolated_from_verified_bank() -> None:

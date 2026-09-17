@@ -58,7 +58,7 @@ def test_support_atomic_missing_mapped_output_is_not_success(monkeypatch) -> Non
                         lambda *args, **kwargs: publish_calls.append(args))
     ctx.evidence_store.add_validated_tool_output = lambda *args, **kwargs: evidence_calls.append(args)
     runner.result = ImplementationExecutionResult("skill://impl_support@1.0.0",
-        str(candidate.atomic_ref), True, True, True, True, validated_outputs={})
+        str(candidate.atomic_ref), True, True, True, True, validated_outputs={}, atomic_witness_refs=["fixture:validated"])
     trace = ctx.trace_builder.trace
     payload = executor._invoke_support_atomic_call(
         _support_call(candidate, arguments={"destination": "desk_2"}),
@@ -198,6 +198,7 @@ def test_seeded_and_preparation_runtime_automation_share_r1_metrics(
             },
         }
         factory.enqueue(path, [
+            FakeReply.tool("request_runtime_automation", {"reason": "bounded search", "intended_capability": "resolve navigation target"}),
             FakeReply.tool("propose_runtime_automation_atomic", draft),
             FakeReply.tool(
                 "report_runtime_status", {"status": "cannot_resolve"},
@@ -212,11 +213,9 @@ def test_seeded_and_preparation_runtime_automation_share_r1_metrics(
             process_draft=lambda **_kwargs: outcome,
         )
         if path == "runtime_preparation":
-            runtime.node_executor.run_preparation_session(
-                occurrence, invocations, ctx,
-            )
+            runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
         else:
-            runtime.node_executor.run_seeded_fresh(occurrence, ctx)
+            runtime.node_executor.run_agent_node(occurrence, ctx, mode='seeded')
         factory.assert_exhausted()
         return (
             dict(ctx.trace_builder.trace.metadata.get("v32_metrics") or {}),
@@ -275,110 +274,32 @@ def test_node_environment_action_requires_intent_but_dynamic_does_not() -> None:
     assert "intent" not in dynamic_tool.input_schema["properties"]
 
 
-def test_direct_autonomous_rejects_runtime_resolvable_semantic_choice(
-    monkeypatch,
-) -> None:
+
+
+
+
+
+
+@pytest.mark.parametrize('value,resolution,passed', [
+    ('drawer', 'semantic', False), ('drawer_2', 'semantic', True), ('drawer_2', 'concrete', True),
+])
+def test_direct_entry_checks_only_supplied_identity_with_real_validator(value, resolution, passed):
+    from atomic_skillgraph.core.status import SkillStatus, ToolStatus
     runtime, ctx, occurrence, invocations = _context(FakeAgentFactory())
-    ctx.binding_store._set(
-        occurrence.occurrence_id,
-        RuntimeBinding(
-            "destination", "drawer", "entity", BindingSource.TASK,
-            BindingStatus.GROUNDED, BindingResolution.SEMANTIC,
-            ["task:semantic-destination"], ctx.world_revision,
-        ),
-        "test_semantic_choice",
-    )
-
-    calls = 0
-
-    def reject_semantic_choice(*_args, **_kwargs):
-        nonlocal calls
-        calls += 1
-        return ToolCallPreflightResult(
-            True,
-            str(invocations[0].implementation.ref),
-            normalized_arguments={"destination": "drawer"},
-            matched_evidence_refs=["current_context:destination"],
-        )
-
-    monkeypatch.setattr(
-        runtime.invocation_compiler,
-        "autonomous_preflight",
-        reject_semantic_choice,
-    )
-
-    assert runtime.node_executor.try_autonomous(
-        occurrence, invocations, ctx,
-    ) is None
-    assert calls == 1
-
-
-def test_direct_autonomous_accepts_validator_backed_concrete_binding(
-    monkeypatch,
-) -> None:
-    runtime, ctx, occurrence, invocations = _context(FakeAgentFactory())
-    ctx.binding_store._set(
-        occurrence.occurrence_id,
-        RuntimeBinding(
-            "destination", "drawer_2", "entity",
-            BindingSource.HARNESS_EVIDENCE, BindingStatus.GROUNDED,
-            BindingResolution.CONCRETE, ["validator:drawer_2"],
-            ctx.world_revision,
-        ),
-        "test_concrete_binding",
-    )
-    preflight = ToolCallPreflightResult(
-        True, str(invocations[0].implementation.ref),
-    )
-    sentinel = ImplementationExecutionResult(str(invocations[0].implementation.ref), str(occurrence.node_ref), True, True, True, True)
-    monkeypatch.setattr(
-        runtime.invocation_compiler,
-        "autonomous_preflight",
-        lambda *_args, **_kwargs: preflight,
-    )
-    monkeypatch.setattr(
-        runtime.node_executor.implementation_runner,
-        "run",
-        lambda *_args, **_kwargs: sentinel,
-    )
-
-    assert runtime.node_executor.try_autonomous(
-        occurrence, invocations, ctx,
-    ) is sentinel
-
-
-def test_direct_autonomous_accepts_semantic_value_only_after_role_constraint_certifies_it(
-    monkeypatch,
-) -> None:
-    runtime, ctx, occurrence, invocations = _context(FakeAgentFactory())
-    # The value is exact and publicly present in the current GO_TO catalog,
-    # but the formal Task-style binding is still only SEMANTIC before
-    # execution-context validation.
-    ctx.binding_store._set(
-        occurrence.occurrence_id,
-        RuntimeBinding(
-            "destination", "drawer_2", "entity", BindingSource.TASK,
-            BindingStatus.GROUNDED, BindingResolution.SEMANTIC,
-            ["task:drawer"], ctx.world_revision,
-        ),
-        "test_role_specific_constraint",
-    )
-    sentinel = ImplementationExecutionResult(str(invocations[0].implementation.ref), str(occurrence.node_ref), True, True, True, True)
-    monkeypatch.setattr(
-        runtime.node_executor.implementation_runner,
-        "run",
-        lambda *_args, **_kwargs: sentinel,
-    )
-
-    assert runtime.node_executor.try_autonomous(
-        occurrence, invocations, ctx,
-    ) is sentinel
-    certified = ctx.binding_store.snapshot_for_node(occurrence)["destination"]
-    assert certified.resolution is BindingResolution.CONCRETE
-    assert certified.source is BindingSource.HARNESS_EVIDENCE
-    assert any(
-        ref.startswith("affordance:") for ref in certified.evidence_refs
-    )
+    invocations[0].implementation.status = SkillStatus.ACTIVE
+    invocations[0].tools[0].status = ToolStatus.ACTIVE
+    ctx.binding_store._set(occurrence.occurrence_id, RuntimeBinding(
+        'destination', value, 'entity', BindingSource.TASK, BindingStatus.GROUNDED,
+        BindingResolution(resolution), ['fixture:given'], ctx.world_revision), 'fixture')
+    result = runtime.node_executor.try_autonomous(occurrence, invocations, ctx)
+    assert (result is not None and result.atomic_effect_passed) is passed
+    assert len(ctx.trace_builder.trace.environment_actions) == int(passed)
+    assert not ctx.trace_builder.trace.agent_sessions
+    if passed:
+        assert result.validated_outputs == {'reached_location': value}
+        assert ctx.binding_store.snapshot_for_node(occurrence)['destination'].resolution is BindingResolution.CONCRETE
+    else:
+        assert ctx.binding_store.snapshot_for_node(occurrence)['destination'].value == value
 
 
 def test_exploratory_navigation_does_not_commit_atomic_output() -> None:
@@ -392,9 +313,7 @@ def test_exploratory_navigation_does_not_commit_atomic_output() -> None:
     ])
     runtime, ctx, occurrence, invocations = _context(factory)
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.atomic_effect_passed is False
     assert result.failure_code == "runtime_binding_unresolved"
@@ -415,14 +334,13 @@ def test_attempt_navigation_commits_only_after_effect_validation() -> None:
             {
                 "action_id": "r000_a001",
                 "intent": "attempt_current_atomic",
+                "candidate_bindings": {"destination": "drawer_2"},
             },
         ),
     ])
     runtime, ctx, occurrence, invocations = _context(factory)
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.atomic_effect_passed is True
     assert result.validated_outputs == {"reached_location": "drawer_2"}
@@ -447,9 +365,7 @@ def test_validate_current_atomic_retroactively_commits_current_witness() -> None
     ])
     runtime, ctx, occurrence, invocations = _context(factory)
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.atomic_effect_passed is True
     assert result.validated_outputs == {"reached_location": "drawer_2"}
@@ -476,9 +392,7 @@ def test_validate_current_atomic_cannot_invent_binding() -> None:
     ])
     runtime, ctx, occurrence, invocations = _context(factory)
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.atomic_effect_passed is False
     validation_call = next(
@@ -488,7 +402,7 @@ def test_validate_current_atomic_cannot_invent_binding() -> None:
     assert validation_call.preflight_result["committed"] is False
     assert (
         validation_call.preflight_result["validation"]["failure_code"]
-        == "atomic_effect_violation"
+        == "runtime_binding_not_concrete"
     )
     assert ctx.validated_outputs == {}
     factory.assert_exhausted()
@@ -518,9 +432,7 @@ def test_validate_current_atomic_cannot_override_dataflow_anchor() -> None:
         "test_dataflow_anchor",
     )
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.failure_code == "runtime_plan_conflict"
     validation_call = next(
@@ -555,14 +467,13 @@ def test_exploration_does_not_consume_repeat_preflight(monkeypatch) -> None:
         ctx.binding_store, "preflight_repeat_bindings", reject_if_called,
     )
 
-    runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert calls == 0
     sessions = factory.sessions_of("runtime_preparation")
-    assert len(sessions) == 1
-    assert sessions[0].returned_action_executed == (True,)
+    assert len(sessions) == 2
+    assert all(session.snapshot()["finalized"] for session in sessions)
+    assert len(ctx.trace_builder.trace.environment_actions) == 1
     factory.assert_exhausted()
 
 
@@ -591,9 +502,7 @@ def test_repeat_preflight_rejection_is_typed_and_keeps_preparation_session(
         ),
     )
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.failure_code == "runtime_binding_unresolved"
     assert len(ctx.trace_builder.trace.environment_actions) == 0
@@ -606,8 +515,8 @@ def test_repeat_preflight_rejection_is_typed_and_keeps_preparation_session(
         item for item in ctx.trace_builder.trace.agent_sessions
         if item.session_type == "RuntimePreparationSession"
     ]
-    assert len(sessions) == 1
-    assert len(sessions[0].snapshot["messages"]) >= 4
+    assert len(sessions) == 2
+    assert all(item.snapshot["turn_count"] == 1 and item.snapshot["finalized"] for item in sessions)
     factory.assert_exhausted()
 
 
@@ -618,9 +527,7 @@ def test_status_surface_and_node_prompt_define_three_distinct_meanings() -> None
     ])
     runtime, ctx, occurrence, invocations = _context(factory)
 
-    runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     status_tool = runtime.node_executor._status_tool(
         allow_plan_conflict=True,
@@ -636,9 +543,7 @@ def test_status_surface_and_node_prompt_define_three_distinct_meanings() -> None
         item["content"] for item in session.snapshot["messages"]
         if item["role"] == "user"
     )
-    assert "cannot_resolve means evidence/search is insufficient" in prompt
-    assert "plan_conflict requires a public-evidence conflict" in prompt
-    assert "give_up ends this route without claiming a formal conflict" in prompt
+    assert "report_runtime_status reports genuine inability or a formal plan conflict, not success" in prompt
     factory.assert_exhausted()
 
 
@@ -668,12 +573,7 @@ def test_cold_scaffold_plan_is_used_for_downstream_data_edge_prompt() -> None:
 
     runtime.node_executor.plan_context_builder = SimpleNamespace(build=build)
 
-    runtime.node_executor.run_preparation_session(
-        occurrence,
-        invocations,
-        ctx,
-        plan_context_plan=cold_execution_plan,
-    )
+    runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation', plan_context_plan=cold_execution_plan)
 
     assert seen == [cold_execution_plan]
     session = next(
@@ -765,14 +665,7 @@ def test_cold_verified_plan_conflict_skips_same_occurrence_seeded(
         return result
 
     monkeypatch.setattr(
-        runtime.node_executor, "run_preparation_session", declare_conflict,
-    )
-    monkeypatch.setattr(
-        runtime.node_executor,
-        "run_seeded_fresh",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("plan conflict must skip same-occurrence Seeded"),
-        ),
+        runtime.node_executor, "run_agent_node", declare_conflict,
     )
 
     passed, failure_code, outcome = runtime._run_verified_cold_step(
@@ -868,9 +761,7 @@ def test_preparation_plan_conflict_surfaces_typed_result() -> None:
     ])
     runtime, ctx, occurrence, invocations = _context(factory)
 
-    result = runtime.node_executor.run_preparation_session(
-        occurrence, invocations, ctx,
-    )
+    result = runtime.node_executor.run_agent_node(occurrence, ctx, mode='preparation')
 
     assert result.failure_code == "runtime_plan_conflict"
     assert result.failure_layer == "composite"

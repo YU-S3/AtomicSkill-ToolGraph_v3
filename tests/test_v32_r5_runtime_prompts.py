@@ -8,14 +8,10 @@ from atomic_skillgraph.agents.runtime_policy_projection import (
     unpack_downstream_context,
 )
 from atomic_skillgraph.agents.runtime_prompt_texts import (
-    ATOMIC_AUTHORITY,
     DYNAMIC_ONLY,
     DYNAMIC_PROMPT,
-    PREPARATION_ONLY,
-    PREPARATION_PROMPT,
+    R10_STEP_PROMPT,
     SEARCH_POLICY,
-    SEEDED_ONLY,
-    SEEDED_PROMPT,
 )
 
 
@@ -83,44 +79,13 @@ def _downstream() -> dict:
     }
 
 
-def test_prompt_constants_are_single_source_compositions_with_shared_search_policy() -> None:
-    assert PREPARATION_PROMPT == "\n\n".join(
-        (ATOMIC_AUTHORITY, PREPARATION_ONLY, SEARCH_POLICY)
-    )
-    assert SEEDED_PROMPT == "\n\n".join(
-        (ATOMIC_AUTHORITY, SEEDED_ONLY, SEARCH_POLICY)
-    )
+def test_node_prompt_is_shared_and_guidance_is_soft():
+    assert R10_STEP_PROMPT.endswith(SEARCH_POLICY)
     assert DYNAMIC_PROMPT == "\n\n".join((DYNAMIC_ONLY, SEARCH_POLICY))
-    for prompt in (PREPARATION_PROMPT, SEEDED_PROMPT, DYNAMIC_PROMPT):
-        assert prompt.count(SEARCH_POLICY) == 1
-        assert "Never invent or reuse a superseded action_id." in prompt
-        assert "not an automatic action policy or a new stopping rule" in prompt
-        assert "Never invent an absence fact" in prompt
-
-
-def test_prompt_permissions_and_soft_priorities_remain_entry_specific() -> None:
-    assert "prefer validate_current_atomic over redoing" in PREPARATION_PROMPT
-    assert "learned_invocation_ready is true" in PREPARATION_PROMPT
-    assert "Use invoke_support_atomic only if offered" in PREPARATION_PROMPT
-    assert "propose_runtime_automation_atomic only if offered" in PREPARATION_PROMPT
-    assert "This preference never bypasses preflight or validation" in (
-        PREPARATION_PROMPT
-    )
-
-    assert "fresh Seeded session without a failed Tool body" in SEEDED_PROMPT
-    assert "absence of an implementation is not task failure" in SEEDED_PROMPT
-    assert "Do not invent a learned-tool name" in SEEDED_PROMPT
-    assert "invoke_support_atomic" not in SEEDED_PROMPT
-
-    assert "Solve the whole task using the native tools actually offered" in (
-        DYNAMIC_PROMPT
-    )
-    assert "Do not invent validate_current_atomic or learned invocations" in (
-        DYNAMIC_PROMPT
-    )
-    assert "ColdStart continuation context" in DYNAMIC_PROMPT
-    assert "invoke_support_atomic" not in DYNAMIC_PROMPT
-    assert ATOMIC_AUTHORITY not in DYNAMIC_PROMPT
+    assert "soft experience reference" in R10_STEP_PROMPT
+    assert "retain this node" in R10_STEP_PROMPT
+    assert "Missing fresh outputs" in R10_STEP_PROMPT
+    assert "support closure" not in R10_STEP_PROMPT
 
 
 def test_preparation_prompt_projects_initial_payload_and_returns_full_audit() -> None:
@@ -190,7 +155,7 @@ def test_preparation_prompt_projects_initial_payload_and_returns_full_audit() ->
     )
     instruction, payload = _split(rendered)
 
-    assert instruction == PREPARATION_PROMPT
+    assert instruction == R10_STEP_PROMPT
     assert state == original_state
     assert support == original_support
     assert "diagnostics" not in payload["support_atomic_candidates"][0]
@@ -221,7 +186,8 @@ def test_preparation_prompt_projects_initial_payload_and_returns_full_audit() ->
 
 def test_seeded_and_dynamic_use_exact_replacement_prefixes_and_emit_audits() -> None:
     seeded_audit: dict = {}
-    seeded = ContextBuilder().seeded_node(
+    seeded = ContextBuilder().runtime_node(
+        implementation_invocations=[], runtime_step_mode="seeded",
         task_goal="place apple",
         atomic_contract=_atomic(),
         observation="apple is visible",
@@ -231,10 +197,10 @@ def test_seeded_and_dynamic_use_exact_replacement_prefixes_and_emit_audits() -> 
         projection_audit=seeded_audit,
     )
     seeded_instruction, seeded_payload = _split(seeded)
-    assert seeded_instruction == SEEDED_PROMPT
+    assert seeded_instruction == R10_STEP_PROMPT
     assert seeded_payload["current_state_snapshot"]["current_atomic"][
-        "guideline"
-    ] == {"ordering": ["take", "move"]}
+        "skill_guidance"
+    ] == {"soft_reference": True, "guidance_absent": True, "rejection_reason": "guideline requires only steps and notes"}
     assert seeded_audit["projection_version"] == "v3.2-r5"
 
     dynamic_audit: dict = {}

@@ -64,7 +64,9 @@ def query_key(occurrence, call, ctx=None):
                      if item.action_id == arguments['action_id'] and item.revision == ctx.world_revision), None)
         if spec is None:
             raise KeyError(arguments['action_id'])
-        arguments = {'action_type': spec.action_type, 'arguments': spec.arguments, 'intent': arguments['intent']}
+        arguments = {'action_type': spec.action_type, 'arguments': spec.arguments, 'intent': arguments['intent'],
+                     'candidate_bindings': arguments.get('candidate_bindings', {}),
+                     'candidate_outputs': arguments.get('candidate_outputs', {})}
     return content_hash({"occurrence": occurrence.occurrence_id,
                          "tool": call.name, "arguments": arguments})
 

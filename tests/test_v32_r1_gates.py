@@ -266,6 +266,9 @@ class _MiniContext:
         self.harness = harness
         self.world_revision = 0
         self.action_catalog = harness.action_catalog()
+        from atomic_skillgraph.runtime.evidence_store import GroundingEvidenceStore
+        self.evidence_store = GroundingEvidenceStore()
+        self.evidence_store.replace_action_catalog(self.action_catalog, self.world_revision)
         self.trace_builder = _MiniBuilder()
         self.budget = _MiniBudget()
         self.used_actions = 0
@@ -274,6 +277,7 @@ class _MiniContext:
     def update_after_action(self, result: Any, record: dict[str, Any]) -> None:
         self.world_revision = result.new_revision
         self.action_catalog = list(result.catalog)
+        self.evidence_store.replace_action_catalog(self.action_catalog, self.world_revision)
         self.used_actions = self.budget.used
         self._facts.append({
             "predicate": "agent.at_location",
@@ -318,7 +322,7 @@ def _ir_tool(
             "properties": {"loc": {"type": "string"}},
             "required": ["loc"],
         },
-        interface={
+        interface={"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {"found": {"type": "string"}},
@@ -513,7 +517,7 @@ def test_gate3_tool_ir_admission_and_gate4_replay_executes() -> None:
             "properties": {"item": {"type": "string"}},
             "required": ["item"],
         },
-        interface={
+        interface={"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {"held_object": {"type": "string"}},
@@ -1298,7 +1302,7 @@ def test_gate30_fresh_output_effect_witness_mismatch_fail_closed() -> None:
         authoritative_evidence_facts=authority_facts,
     )
     assert wrong.passed is False
-    assert "atomic_output_effect_witness_mismatch" in wrong.failure_codes
+    assert wrong.failure_codes == ["atomic_effect_violation"]
     right = AtomicValidator().validate_execution_result(
         atomic, occurrence, {"target": "cup"},
         {"entity": "cup_3", "location": "countertop_2"},
@@ -1390,7 +1394,7 @@ def test_tool_ir_action_argument_roles_match_harness_schema(
 ) -> None:
     atomic = _atomic("atomic_action_signature")
     proposal = ToolProposal(
-        proposal_version="1",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []},
         decision="create",
         summary="invalid action signature",
         atomic_ref=str(atomic.ref),
@@ -1429,7 +1433,7 @@ def test_tool_ir_action_argument_roles_match_harness_schema(
 def test_gate33_recursive_concrete_id_leakage_rejected() -> None:
     atomic = _atomic("atomic_nested_leak")
     proposal = ToolProposal(
-        proposal_version="1", decision="create", summary="nested leak",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []}, decision="create", summary="nested leak",
         atomic_ref=str(atomic.ref), inputs=atomic.inputs, outputs=atomic.outputs,
         program=[
             {
@@ -1485,7 +1489,7 @@ def test_gate34_recursive_safety_action_collection() -> None:
         proposed_ref=SkillRef("atomic_nested_safety", "1.0.0"),
     )
     proposal = ToolProposal(
-        proposal_version="1", decision="create", summary="nested search",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []}, decision="create", summary="nested search",
         atomic_ref=str(atomic.ref), inputs=atomic.inputs, outputs=atomic.outputs,
         program=[
             {
@@ -1718,7 +1722,7 @@ def test_r2_4_tool_builder_boundary_exactness() -> None:
         effect_domain="evidence",
     )]
     base = ToolProposal(
-        proposal_version="1", decision="create", summary="locate",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []}, decision="create", summary="locate",
         atomic_ref=str(atomic.ref),
         inputs=list(atomic.inputs),
         outputs=list(atomic.outputs),
@@ -1941,7 +1945,7 @@ def _control_step_tool(
             "properties": {"target": {"type": "string"}},
             "required": ["target"],
         },
-        interface={
+        interface={"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {"x": {"type": "string"}},

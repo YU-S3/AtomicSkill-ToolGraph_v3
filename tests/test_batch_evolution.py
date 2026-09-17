@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 from dataclasses import replace
 from types import SimpleNamespace
@@ -81,6 +82,7 @@ def _replay_case(trace_id: str, effect: str = "agent.holds") -> dict:
 def _system_config(data_dir) -> dict:
     return {
         "schema_version": 3,
+        "repair_revision": "R10.2",
         "data_dir": str(data_dir),
         "llm": {
             "provider": "openai_compatible",
@@ -262,7 +264,7 @@ def test_tool_specialization_requires_independent_homogeneous_intrinsic_cluster(
     artifacts = ArtifactStore(tmp_path, database)
     tools = ToolRegistry(artifacts, database)
     tool = replace(
-        ToolCompiler().compile([_take_canonical()])[0].tool,
+        compile_fixture([_take_canonical()])[0].tool,
         status=ToolStatus.CANDIDATE,
     )
     tools.register(tool)
@@ -320,7 +322,7 @@ def test_batch_duplicate_detection_replays_admits_new_version_and_empties_queue(
     skills = SkillRegistry(artifacts, database)
     tools = ToolRegistry(artifacts, database)
     primary = replace(
-        ToolCompiler().compile([_take_canonical()])[0].tool,
+        compile_fixture([_take_canonical()])[0].tool,
         status=ToolStatus.CANDIDATE,
     )
     alias = replace(
@@ -367,7 +369,7 @@ def test_tool_add_replay_keeps_executable_and_admits_only_incoming_case(
     skills = SkillRegistry(artifacts, database)
     tools = ToolRegistry(artifacts, database)
     base = replace(
-        ToolCompiler().compile([_take_canonical()])[0].tool,
+        compile_fixture([_take_canonical()])[0].tool,
         tests=[_replay_case("old")],
         status=ToolStatus.CANDIDATE,
     )
@@ -410,7 +412,7 @@ def test_shadow_tool_discovery_is_not_reported_or_credited_as_admitted(
     skills = SkillRegistry(artifacts, database)
     tools = ToolRegistry(artifacts, database)
     rejected = replace(
-        ToolCompiler().compile([_take_canonical()])[0].tool,
+        compile_fixture([_take_canonical()])[0].tool,
         status=ToolStatus.SHADOW,
         metadata={"admission_failure": ["source_replay_failed"]},
     )
@@ -881,7 +883,7 @@ def test_stable_replacement_emits_superseded_credit_and_suppresses_old_version(
 ) -> None:
     with AtomicSkillGraphSystem(_system_config(tmp_path / "data_v3")) as system:
         old = replace(
-            ToolCompiler().compile([_take_canonical()])[0].tool,
+            compile_fixture([_take_canonical()])[0].tool,
             status=ToolStatus.ACTIVE,
         )
         new = replace(
@@ -1071,7 +1073,7 @@ def test_implementation_preflight_failure_builds_replay_but_agent_error_does_not
     database = StateDatabase(tmp_path / "state.sqlite3")
     artifacts = ArtifactStore(tmp_path, database)
     skills = SkillRegistry(artifacts, database)
-    compiled = ToolCompiler().compile([_take_canonical()])[0]
+    compiled = compile_fixture([_take_canonical()])[0]
     skills.register_atomic(replace(compiled.atomic, status=SkillStatus.CANDIDATE))
     skills.register_implementation(replace(
         compiled.implementation, status=SkillStatus.CANDIDATE,
@@ -1138,7 +1140,7 @@ def test_typed_implementation_replay_checks_live_constraints_and_propagates_infr
     artifacts = ArtifactStore(tmp_path, database)
     skills = SkillRegistry(artifacts, database)
     tools = ToolRegistry(artifacts, database)
-    compiled = ToolCompiler().compile([_take_canonical()])[0]
+    compiled = compile_fixture([_take_canonical()])[0]
     atomic = replace(compiled.atomic, status=SkillStatus.CANDIDATE)
     tool = replace(compiled.tool, status=ToolStatus.CANDIDATE)
     implementation = replace(compiled.implementation, status=SkillStatus.CANDIDATE)
@@ -1174,7 +1176,7 @@ def test_typed_implementation_replay_checks_live_constraints_and_propagates_infr
             "bad_relation",
             GroundingConstraintKind.HARNESS_AFFORDANCE,
             action_type="EXAMINE",
-            argument_mapping=implementation.grounding_constraints[0].argument_mapping,
+            argument_mapping=implementation.tool_bindings[0].parameter_mapping,
             required_resolution="relation_verified",
         )],
     )
@@ -1239,7 +1241,7 @@ def test_atomic_merge_review_requires_equivalence_and_support_for_every_source(
     artifacts = ArtifactStore(tmp_path, database)
     skills = SkillRegistry(artifacts, database)
     tools = ToolRegistry(artifacts, database)
-    compiled = ToolCompiler().compile([_take_canonical()])[0]
+    compiled = compile_fixture([_take_canonical()])[0]
     first, payload1 = _register_atomic_merge_source(
         skills, tools, compiled, logical_id="take_a", trace_id="trace_a",
     )
@@ -1282,7 +1284,7 @@ def test_atomic_merge_review_ignores_guideline_wording_for_same_contract(tmp_pat
     artifacts = ArtifactStore(tmp_path, database)
     skills = SkillRegistry(artifacts, database)
     tools = ToolRegistry(artifacts, database)
-    compiled = ToolCompiler().compile([_take_canonical()])[0]
+    compiled = compile_fixture([_take_canonical()])[0]
     first, payload1 = _register_atomic_merge_source(
         skills, tools, compiled, logical_id="take_a", trace_id="trace_a",
     )
@@ -1419,7 +1421,7 @@ def test_maintenance_persists_typed_replay_result_in_final_trace(tmp_path) -> No
             "source_task": {"task_id": source_task.task_id},
         }
         tool = replace(
-            ToolCompiler().compile([_take_canonical()])[0].tool,
+            compile_fixture([_take_canonical()])[0].tool,
             status=ToolStatus.CANDIDATE,
         )
         system.tools.register(tool)
@@ -1600,7 +1602,7 @@ def test_system_maintenance_revises_composite_sequence_through_fresh_replay(
     harness = FakeHarness()
     task1 = fake_task("sequence_1", "apple_1", requires_rescue=True)
     task2 = fake_task("sequence_2", "apple_1", requires_rescue=True)
-    compiled = ToolCompiler().compile([_take_canonical()])[0]
+    compiled = compile_fixture([_take_canonical()])[0]
 
     def proposal_reply(request):
         review = request.policy_context["reviews"][0]

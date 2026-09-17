@@ -738,7 +738,8 @@ class _SupportCallCompiler:
     mode = RuntimeMode.ONLINE
 
     def __init__(self, support_atomic, *, executable: bool, preflight_passed: bool):
-        implementation = SimpleNamespace(ref=SkillRef("impl_support", "1.0.0"))
+        implementation = SimpleNamespace(ref=SkillRef("impl_support", "1.0.0"),
+            tool_bindings=[], execution_policy={"mode": "serial"}, grounding_constraints=[])
         self.skills = SimpleNamespace(
             get_atomic=lambda _ref: support_atomic,
             implementations_for=lambda _ref, *, mode: [implementation],
@@ -853,6 +854,8 @@ def _support_call_fixture(*, executable: bool, preflight_passed: bool):
     )
     ctx = _SupportCallContext(
         task_id="support_task",
+        rejected_runtime_candidates={},
+        harness=SimpleNamespace(validator_channel=lambda: SimpleNamespace(snapshot=lambda: {})),
         task_contract=TaskContract(),
         world_revision=0,
         binding_store=RuntimeBindingStore(),
@@ -1030,6 +1033,7 @@ def test_support_success_publishes_to_parent_and_refreshes_after_revision() -> N
         True,
         True,
         validated_outputs={"location": "desk_2"},
+        atomic_witness_refs=["fixture:validated_support"],
     )
 
     payload = executor._invoke_support_atomic_call(
@@ -1041,7 +1045,7 @@ def test_support_success_publishes_to_parent_and_refreshes_after_revision() -> N
         [candidate],
     )
 
-    assert payload["passed"] is True
+    assert payload["passed"] is True, payload
     assert payload["new_revision"] == 1
     assert runner.calls == 1
     assert ctx.active_occurrence_id == parent.occurrence_id
@@ -1055,17 +1059,3 @@ def test_support_success_publishes_to_parent_and_refreshes_after_revision() -> N
     assert ctx.trace_builder.trace.metadata["runtime_support_funnel"][
         "validated_output_published_count"
     ] == 1
-
-    executor._retrieve_runtime_support_candidates = lambda **kwargs: (
-        retrievals.append(kwargs) or []
-    )
-    refreshed, state = executor._refresh_runtime_support_candidates(
-        blocked_atomic=blocked,
-        occurrence=parent,
-        ctx=ctx,
-        previous_state=(0, ("source",)),
-        current_candidates=[candidate],
-    )
-    assert refreshed == []
-    assert state == (1, ())
-    assert retrievals[0]["missing_roles"] == []

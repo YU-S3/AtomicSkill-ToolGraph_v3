@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 import copy
 import json
@@ -231,7 +232,7 @@ def _wire_parameter(name: str) -> dict[str, Any]:
 
 def _create_take_tool_payload(atomic_ref: str = "skill://placeholder@1.0.0") -> dict[str, Any]:
     return {
-        "proposal_version": "1",
+        "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
         "summary": "take the supplied item",
         "atomic_ref": atomic_ref,
@@ -490,7 +491,7 @@ def test_existing_atomic_and_tools_are_unchanged(
     )[0]
     atomic = system._canonical_atomic_for_occurrence(occurrence)
     assert atomic is not None
-    legacy = ToolCompiler().compile([occurrence])[0]
+    legacy = compile_fixture([occurrence])[0]
     assert legacy.tool is not None
     assert legacy.implementation is not None
     staged = system.aligner.stage_atomic(
@@ -839,7 +840,7 @@ def _navigation_atomic() -> AbstractAtomicSkill:
 
 def _navigation_payload() -> dict[str, Any]:
     return {
-        "proposal_version": "1",
+        "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
         "summary": "navigate to supplied destination",
         "atomic_ref": "skill://example_navigation@1.0.0",

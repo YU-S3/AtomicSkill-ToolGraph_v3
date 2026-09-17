@@ -9,7 +9,8 @@ from fixtures.r921_self_tooling_cases import fixture_config
 def test_r0_correction_accounts_for_both_native_submissions(tmp_path, monkeypatch):
     class CorrectingProvider(route.RouteProvider):
         def complete(self, messages, *, tools=None):
-            if self.stage != "tool_builder" and not self.requests:
+            if self.stage != "tool_builder" and not getattr(self, "injected", False) and any(t.name == "propose_runtime_automation_atomic" for t in tools):
+                self.injected = True
                 draft = route.fixed_draft(FakeProviderRequest(tuple(messages), tuple(tools)), self.case)
                 draft["draft_id"] += "_invalid"
                 draft["preconditions"] = [{"predicate": "nonexistent", "args": {}}]
@@ -17,6 +18,9 @@ def test_r0_correction_accounts_for_both_native_submissions(tmp_path, monkeypatc
                 reply = FakeReply.tool("propose_runtime_automation_atomic", draft,
                     prompt_tokens=0, completion_tokens=0, reasoning_tokens=0)
                 return reply.materialize(call_id="initial_rejection", tools=tools)
+            if getattr(self, "injected", False) and not self.forced and any(t.name == "request_runtime_automation" for t in tools):
+                return FakeReply.tool("request_runtime_automation", {"reason": "correct rejected draft", "intended_capability": "locate"},
+                    prompt_tokens=0, completion_tokens=0, reasoning_tokens=0).materialize(call_id="retry_request", tools=tools)
             return super().complete(messages, tools=tools)
     monkeypatch.setattr(route, "RouteProvider", CorrectingProvider)
     case = route.RouteCase("corrected", route="runtime_seeded", openable=False)

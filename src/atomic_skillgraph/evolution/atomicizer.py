@@ -57,6 +57,7 @@ class AtomicOccurrenceProposal:
     ordering_constraints: list[dict[str, Any]] = field(default_factory=list)
     input_provenance_refs: dict[str, Any] = field(default_factory=dict)
     output_derivations: dict[str, Any] = field(default_factory=dict)
+    guideline: dict[str, Any] = field(default_factory=dict)
     # Explicit migration boundary: only proposals transported through the
     # current E1 schema may claim the v3.2 authority contract.  Older internal
     # replay/promotion fixtures remain isolated on the legacy path.
@@ -90,6 +91,7 @@ class CanonicalAtomicOccurrence:
     envelope_events: list[dict[str, Any]] = field(default_factory=list)
     input_provenance_refs: dict[str, Any] = field(default_factory=dict)
     output_derivations: dict[str, Any] = field(default_factory=dict)
+    guideline: dict[str, Any] = field(default_factory=dict)
 
 
 _ACTION_EFFECTS: dict[str, tuple[tuple[str, dict[str, tuple[str, ...]]], ...]] = {
@@ -1546,6 +1548,11 @@ class Atomicizer:
                 "outputs": output_specs, "preconditions": preconditions,
                 "effects": effects,
             })[:12]
+            from ..agents.skill_guidance import normalize_guideline
+            from .portability import episode_specific_terms
+            guidance = normalize_guideline(proposal.guideline, formal_roles=[p.name for p in [*input_specs, *output_specs]], forbidden_terms=episode_specific_terms(
+                inputs, outputs, [p.name for p in [*input_specs, *output_specs]],
+                [p.semantic_type for p in [*input_specs, *output_specs]]))
             result.append(CanonicalAtomicOccurrence(
                 "", proposal.phase_id, proposal.intent, proposal.event_start, proposal.event_end,
                 inputs, outputs, input_specs, output_specs, preconditions, effects, selected,
@@ -1565,6 +1572,7 @@ class Atomicizer:
                 envelope_events=envelope_events,
                 input_provenance_refs=dict(input_provenance),
                 output_derivations=dict(output_derivations),
+                guideline=guidance,
             ))
             used_support_events.update(owned_support_events)
             used_effect_events.update(effect_event_ids)

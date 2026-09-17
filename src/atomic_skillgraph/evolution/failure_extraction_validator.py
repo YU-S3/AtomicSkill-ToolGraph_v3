@@ -235,13 +235,12 @@ class FailureAtomicSourceReplay:
             self._replays[phase_id] = result
             return copy.deepcopy(result)
 
-        admitted = self.admission.admit_tool(
-            compiled.tool,
-            replay=lambda tool, case: bool(
-                self.harness.replay_tool(self.task, tool, case)
-            ),
-        )
-        passed = admitted.status is ToolStatus.CANDIDATE
+        # This artifact certifies the source trajectory only. It is never
+        # admitted as an executable Candidate without a Builder entry contract.
+        local = self.admission.tool_validator.validate_asset(compiled.tool)
+        passed = local.passed and bool(self.harness.replay_tool(
+            self.task, compiled.tool, compiled.tool.tests[0]))
+        admitted = compiled.tool
         result = {
             "passed": passed,
             "failure_code": "" if passed else "provisional_source_replay_failed",

@@ -288,7 +288,7 @@ def _tool(program: list[dict[str, object]]) -> ToolAsset:
             "properties": {"target": {"type": "string"}},
             "required": ["target"],
         },
-        interface={
+        interface={"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {"result": {"type": "string"}},

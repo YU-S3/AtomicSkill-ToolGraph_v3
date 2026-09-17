@@ -116,7 +116,7 @@ def _atomic_and_proposal() -> tuple[AbstractAtomicSkill, ToolProposal]:
         {},
     )
     proposal = ToolProposal(
-        "1",
+        "2",
         "create",
         "take item",
         str(atomic.ref),
@@ -146,6 +146,7 @@ def _atomic_and_proposal() -> tuple[AbstractAtomicSkill, ToolProposal]:
         [],
         [],
         "bounded",
+        entry_contract={"conditions": [], "grounding_constraints": []},
     )
     return atomic, proposal
 

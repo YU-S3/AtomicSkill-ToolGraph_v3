@@ -175,11 +175,9 @@ def audit_failed_attempt(
 def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
     """Fail closed unless a formal run uses the probed DeepSeek V4 dialect."""
 
-    if str(config.get("repair_revision", "")) in {"R10", "R10.1"}:
+    if str(config.get("repair_revision", "")) == "R10.2":
         runtime = dict(config.get("runtime") or {})
-        flags = ("graph_bootstrap_agent_step", "verified_composite_executor", "short_runtime_steps",
-                 "support_closure", "rollback_automatic_execution_failure", "lazy_runtime_automation_interface",
-                 "persistent_runtime_support_promotion")
+        flags = ("rollback_automatic_execution_failure", "persistent_runtime_support_promotion")
         wrong = [name for name in flags if runtime.get(name) is not True]
         limits = dict(dict(config.get("llm") or {}).get("runtime") or {})
         wrong += [name for name, value in {"max_total_tokens_per_node": 100000,

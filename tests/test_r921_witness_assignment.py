@@ -97,7 +97,7 @@ def test_semantic_assignment_without_witness_is_rejected():
     result = AtomicValidator().validate_execution_result(atomic, occurrence, {"query": "apple"},
         {"place": "cabinet_1"}, MissingWitnessChannel(), current_revision=2)
     assert not result.passed
-    assert result.failure_codes == ["atomic_effect_input_witness_missing"]
+    assert result.failure_codes == ["atomic_effect_witness_missing"]
 
 
 def test_public_relation_schema_describes_existing_projection_without_episode_state():
@@ -121,8 +121,8 @@ def test_public_relation_schema_describes_existing_projection_without_episode_st
     assert harness.public_catalog_relation_schema() == before
 
 
-def test_unused_semantic_input_cannot_disambiguate_fresh_output_by_return_claim():
-    """Reproduce the autonomous draft's missing formal target constraint."""
+def test_explicit_fresh_output_is_checked_against_joint_fact_not_unused_input():
+    """R10.2 validates the submitted value; an unused input is not an implicit constraint."""
     class SharedLocationHarness(CandidateHarness):
         def _replace_catalog(self):
             catalog = super()._replace_catalog()
@@ -151,8 +151,11 @@ def test_unused_semantic_input_cannot_disambiguate_fresh_output_by_return_claim(
     facts = harness.public_runtime_relation_facts()
     result = AtomicValidator().validate_execution_result(ambiguous, occurrence, inputs, candidates,
         harness.validator_channel(), current_revision=2, authoritative_evidence_facts=facts)
-    assert not result.passed
-    assert "Multiple concrete Atomic effect witness assignments remain" in result.messages
+    assert result.passed
+    forged = AtomicValidator().validate_execution_result(ambiguous, occurrence, inputs,
+        {"found": "apple_99", "place": "cabinet_1"}, harness.validator_channel(),
+        current_revision=2, authoritative_evidence_facts=facts)
+    assert not forged.passed
     # Referencing the semantic input in the Effect gives the Harness the
     # intended constraint. No RETURN claim is promoted into witness authority.
     anchored = AtomicValidator().validate_execution_result(atomic, occurrence, inputs,

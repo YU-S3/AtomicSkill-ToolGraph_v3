@@ -51,6 +51,7 @@ from experiments.run_v3_smoke import _validated_dataflow
 def _config() -> dict:
     return {
         "schema_version": 3,
+        "repair_revision": "R10.2",
         "llm": {
             "provider": "openai_compatible",
             "base_url": "https://example.test/v1",
@@ -260,7 +261,7 @@ def test_tool_body_is_covered_by_immutable_artifact_verification(tmp_path: Path)
     data_dir = tmp_path / "data_v3"
     with AtomicSkillGraphSystem(_system_config(data_dir)) as system:
         tool = ToolAsset(
-            ToolRef("body_probe", "1.0.0"), "probe", {}, {}, "python",
+            ToolRef("body_probe", "1.0.0"), "probe", {}, {"entry_contract": {"conditions": [], "grounding_constraints": []}, }, "python",
             {"filename": "tool.py"}, [], {}, {}, {}, ToolStatus.DRAFT,
         )
         system.tools.register(tool, body="VALUE = 1\n")

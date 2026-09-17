@@ -11,57 +11,27 @@ from fixtures.r921_self_tooling_cases import (
 )
 
 
-@pytest.mark.parametrize("seeded_exhausted", [False, True])
-def test_preparation_budget_failure_then_real_seeded_turn_records_parent_continuation(tmp_path, monkeypatch, seeded_exhausted):
+@pytest.mark.parametrize("route", ["runtime_preparation", "runtime_seeded"])
+def test_shared_node_budget_exhaustion_cannot_buy_parent_continuation(tmp_path, monkeypatch, route):
+    from atomic_skillgraph.core.errors import BudgetExhausted
     original = RouteProvider.complete
-
+    seen = []
     def exhaust_after_trial(self, messages, *, tools=None):
-        if self.stage == "runtime_seeded":
-            from experiments.fakes import FakeProviderRequest, FakeReply
-            action = next(a for a in system.harness.action_catalog() if a.action_type == "TAKE"
-                          and a.arguments["object"] == case.target + "_1")
-            return FakeReply.tool("environment_action", {"action_id": action.action_id,
-                "intent": "attempt_current_atomic"}, prompt_tokens=0, completion_tokens=0,
-                reasoning_tokens=0).materialize(call_id="seeded_take", tools=tools,
-                    request=FakeProviderRequest(tuple(messages), tuple(tools)))
         turn = original(self, messages, tools=tools)
-        if self.stage == "runtime_preparation" and len(self.requests) == 2:
-            turn.prompt_tokens = turn.total_tokens = 100001
-        return turn
-
-    monkeypatch.setattr(RouteProvider, "complete", exhaust_after_trial)
-    case = RouteCase("continuation", route="runtime_preparation")
-    with AtomicSkillGraphSystem(fixture_config(tmp_path), harness=CandidateHarness(case)) as system:
-        outcome = run_node_case(system, case)
-        ctx = outcome["ctx"]
-        trial = next(iter(ctx.runtime_tool_trials.values()))
-        assert trial["r1"]["admission_eligible"]
-        assert not outcome["result"].atomic_effect_passed
-        assert not trial["parent_resumed_after_trial"]
-        assert not trial["parent_completed_after_trial"]
-        seeded = RouteProvider(replace(case, route="runtime_seeded"), "runtime_seeded", outcome["timeline"])
-        seeded.forced = True  # Subsequent parent Runtime chooses the actual TAKE.
-        system._provider_override = {"runtime_seeded": seeded}
-        occurrence = ctx.plan.occurrences[0]
-        if seeded_exhausted:
-            def failed_seeded(self, messages, *, tools=None):
-                turn = exhaust_after_trial(self, messages, tools=tools)
+        if self.stage == route:
+            seen.append(self)
+            if len(self.requests) == 3:
                 turn.prompt_tokens = turn.total_tokens = 100001
-                return turn
-            monkeypatch.setattr(RouteProvider, "complete", failed_seeded)
-        result = system.orchestrator.node_executor.run_seeded_fresh(occurrence, ctx)
-        if seeded_exhausted:
-            assert not result.atomic_effect_passed
-            assert not trial["parent_resumed_after_trial"]
-            assert not trial["parent_completed_after_trial"]
-            assert len(ctx.trace_builder.trace.environment_actions) == 4
-            return
-        assert result.atomic_effect_passed, result
-        assert trial["parent_resumed_after_trial"]
-        assert trial["parent_completed_after_trial"]
-        assert trial["parent_continuation_session_id"]
-        assert len(ctx.trace_builder.trace.environment_actions) == 5
-        assert ctx.trace_builder.trace.environment_actions[-1].action_type == "TAKE"
+        return turn
+    monkeypatch.setattr(RouteProvider, "complete", exhaust_after_trial)
+    case = RouteCase("continuation", route=route)
+    with AtomicSkillGraphSystem(fixture_config(tmp_path), harness=CandidateHarness(case)) as system:
+        with pytest.raises(BudgetExhausted) as raised:
+            run_node_case(system, case)
+        assert raised.value.code == "runtime_node_token_budget_exhausted"
+        assert len(seen[-1].requests) == 3
+        assert sum(e.to_dict()["total_tokens"] for e in system.usage.events) == 100001
+        assert not system.harness.validator_channel().won
 
 
 @pytest.mark.parametrize("claimed_destination,passed", [("cabinet_1", True), ("countertop_1", False)])
@@ -77,7 +47,7 @@ def test_final_effect_argument_alias_keeps_resolved_input(tmp_path, claimed_dest
             "type": "object", "properties": {"destination": {"type": "string"},
                 "claim": {"type": "string"}, "location": {"type": "string"}},
             "required": ["destination", "claim", "location"],
-        }, {"output_schema": {"type": "object", "properties": {}}}, "tool_ir_v1", {
+        }, {"entry_contract": {"conditions": [], "grounding_constraints": []}, "output_schema": {"type": "object", "properties": {}}}, "tool_ir_v1", {
             "max_actions": 1, "program": [
                 {"node_id": "move", "op": "ACTION", "action_type": "GO_TO",
                  "argument_mapping": {"destination": {"kind": "skill_input", "source_role": "destination"}}},
@@ -135,11 +105,11 @@ def test_multicandidate_native_route_reaches_real_r1(tmp_path, route, stop_when)
         action_positions = [i for i, item in enumerate(timeline) if item["kind"] == "action"]
         assert all(item["kind"] == "action" for item in timeline[action_positions[0]:action_positions[3] + 1])
         assert trial["result"]["tool_results"][0]["tool_path_evidence"]["final_effect_result"]["passed"]
-        public_reply = outcome["runtime"].requests[1]["messages"][-1]
-        payload = json.loads(public_reply["content"])
-        assert payload["action_catalog"]["revision"] == 4
+        public_reply = outcome["runtime"].requests[2]["messages"][-1]
+        payload = json.loads(public_reply["content"].split("POLICY_CONTEXT_JSON\n", 1)[1])
+        assert payload["current_action_catalog"]["revision"] == 4
         assert any(a["action_type"] == "TAKE" and a["arguments"]["object"] == "egg_1"
-                   for a in payload["action_catalog"]["actions"])
+                   for a in payload["current_action_catalog"]["actions"])
 
 
 @pytest.mark.parametrize("variant,stage,actions,builders", [
@@ -161,7 +131,7 @@ def test_native_negative_route_reports_actual_rejection(tmp_path, variant, stage
         assert len(outcome["trace"].environment_actions) == actions
         assert len(outcome["builder"].requests) == builders
         assert outcome["long_term_unchanged"]
-        assert len(outcome["runtime"].requests) == 2
+        assert len(outcome["runtime"].requests) == 3
         assert all(event["total_tokens"] == 0 and event["provider_metadata"]["fixture_generated"]
                    for event in outcome["usage"])
 
@@ -169,12 +139,17 @@ def test_native_negative_route_reports_actual_rejection(tmp_path, variant, stage
 def test_native_trial_keeps_original_action_budget(tmp_path):
     case = RouteCase("budget", route="runtime_seeded")
     with AtomicSkillGraphSystem(fixture_config(tmp_path), harness=CandidateHarness(case)) as system:
-        outcome = run_node_case(system, case, action_budget=2)
-        assert len(outcome["trace"].environment_actions) == 2
-        trial = next(iter(outcome["ctx"].runtime_tool_trials.values()))
-        assert not trial["r1"]["admission_eligible"]
-        assert not outcome["result"].atomic_effect_passed
-        assert outcome["ctx"].budget.remaining_node_actions == 0
+        from atomic_skillgraph.core.errors import BudgetExhausted
+        audits = {}
+        with pytest.raises(BudgetExhausted) as failure:
+            run_node_case(system, case, action_budget=2,
+                audit=lambda stage, index, kind, payload: audits.update({kind: payload}))
+        assert failure.value.code == "runtime_node_action_budget_exhausted"
+        trace = audits["trace"]
+        assert len(trace["environment_actions"]) == 2
+        assert not any(trial.get("r1", {}).get("admission_eligible")
+                       for trial in trace["metadata"].get("runtime_tool_trials", {}).values())
+        assert len(audits["usage"]) == 3  # request + draft + Builder; no extra parent turn
 
 
 def test_nested_loop_restores_local_before_outer_query(tmp_path):
@@ -244,7 +219,7 @@ def test_trial_terminal_stops_provider_and_environment_calls(tmp_path, won):
         assert outcome["ctx"].terminal_latched is won
         # Won finalizes without another request. Done-without-won retains the
         # existing failure-return policy, with no additional environment step.
-        assert len(outcome["runtime"].requests) == (1 if won else 2)
+        assert len(outcome["runtime"].requests) == 2
         assert len(outcome["builder"].requests) == 1
         assert len(outcome["trace"].environment_actions) == 4
         if won:

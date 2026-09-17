@@ -877,16 +877,12 @@ class AtomicSkillGraphSystem:
             "runtime_task_token_budget_exhausted" if task_level
             else "runtime_node_token_budget_exhausted"
         )
-        short_steps = bool(self.config.get("runtime", {}).get("short_runtime_steps", False))
-        if short_steps:
-            # Reconstruct the allocation from the authoritative usage ledger,
-            # not from session lifetime. Preparation/Seeded/Draft share one
-            # occurrence allocation; Builder is charged only to the task cap.
-            resources = self._runtime_remaining_tokens(occurrence_id)
-            node_remaining, task_remaining = resources["node_tokens"], resources["task_tokens"]
-            token_cap = task_remaining if task_level else min(node_remaining, task_remaining)
-            if task_level or task_remaining <= node_remaining:
-                exhaustion_code = "runtime_task_token_budget_exhausted"
+        # Fresh decisions share the authoritative occurrence/task allocation.
+        resources = self._runtime_remaining_tokens(occurrence_id)
+        node_remaining, task_remaining = resources["node_tokens"], resources["task_tokens"]
+        token_cap = task_remaining if task_level else min(node_remaining, task_remaining)
+        if task_level or task_remaining <= node_remaining:
+            exhaustion_code = "runtime_task_token_budget_exhausted"
         return self._new_session(
             stage=(
                 "runtime_dynamic"
@@ -1257,6 +1253,10 @@ class AtomicSkillGraphSystem:
             [item for item in trials if item.local_effect_passed],
             provisional_lookup=self.failure_knowledge.get_provisional,
             task=task,
+            build_tool=lambda occurrence, atomic: self._build_tool_for_occurrence(
+                occurrence, atomic, self.normalizer.build(trace), trace, source_task=task,
+            )[0],
+            replay_tool=lambda compiled, tool, case: self._replay_tool_candidate(task, tool, case),
         )
         trace.provisional_promotions.extend({
             "provisional_ref": item.provisional_ref,
@@ -1273,6 +1273,8 @@ class AtomicSkillGraphSystem:
         mode: RuntimeMode | str | None = None,
         attempt_id: str = "",
     ) -> TraceRecord:
+        if self.config.get("repair_revision") != "R10.2":
+            raise ValueError("Runtime protocol migration required: use repair_revision=R10.2 and a fresh bank; historical runs require their original commit")
         run_mode = RuntimeMode(mode or self.mode)
         if self.readonly and run_mode is not RuntimeMode.FROZEN:
             raise RuntimeError("a read-only knowledge snapshot may run only in frozen mode")
@@ -2134,16 +2136,7 @@ class AtomicSkillGraphSystem:
                 },
             },
             [],
-            {
-                "support_event_ids": [
-                    str(item.get("event_id", item.get("action_id", index)))
-                    for index, item in enumerate(occurrence.action_events)
-                ],
-                "envelope_event_range": [
-                    int(occurrence.event_start),
-                    int(occurrence.event_end),
-                ],
-            },
+            dict(occurrence.guideline),
             {"source_trace_ids": [occurrence.source_trace_id]},
             SkillStatus.DRAFT,
         )
@@ -2862,19 +2855,8 @@ class AtomicSkillGraphSystem:
         """Success Evolution Tool path: exact reuse else ToolBuilder + static gate."""
 
         record = self._new_r4_tool_build_record(trace, occurrence, atomic_view)
-        stage = "legacy_compile"
+        stage = "exact_reuse"
         try:
-            if (
-                getattr(self, "config", None) is None
-                or getattr(self, "usage", None) is None
-                or not hasattr(self, "_tool_builder_session")
-            ):
-                # Legacy deterministic unit fixtures construct System objects
-                # without v3.2 tooling configuration.  Formal runs never do.
-                compiled = self.tool_compiler.compile([occurrence])
-                record["outcome"] = "legacy_compiled"
-                return compiled[0], self._r4_builder_return_metrics(record)
-
             stage = "exact_reuse"
             exact = self._existing_executable_reuse(
                 occurrence,

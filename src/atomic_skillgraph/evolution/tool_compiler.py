@@ -21,6 +21,7 @@ from ..tooling.ir import (
     normalize_tool_program,
     walk_program_nodes,
 )
+from ..tooling.entry_contract import normalize_entry_contract, parameter_schema
 from ..tooling.proposal import ToolProposal, ToolProvenance
 from .atomicizer import CanonicalAtomicOccurrence
 from .portability import CanonicalCapabilityLabel
@@ -43,10 +44,7 @@ def rewrite_capability_labels(
     atomic = replace(
         compiled.atomic,
         summary=label.display_summary,
-        guideline={
-            **dict(compiled.atomic.guideline or {}),
-            "canonical_intent": label.canonical_intent,
-        },
+        guideline=dict(compiled.atomic.guideline or {}),
         metadata={
             **dict(compiled.atomic.metadata or {}),
             "canonical_intent": label.canonical_intent,
@@ -186,7 +184,8 @@ def build_occurrence_replay_case(
 
 
 class ToolCompiler:
-    def compile(self, occurrences: list[CanonicalAtomicOccurrence]) -> list[CompiledKnowledge]:
+    def compile(self, occurrences: list[CanonicalAtomicOccurrence], *, entry_contracts=None) -> list[CompiledKnowledge]:
+        """Compile source-replay artifacts; deployment requires an authored entry contract."""
         result: list[CompiledKnowledge] = []
         for occurrence in occurrences:
             output_identity: list[dict[str, str]] = []
@@ -208,7 +207,7 @@ class ToolCompiler:
                     "identity_strict": True,
                     "output_identity": output_identity,
                 }, [],
-                {"steps": [item["action_type"] for item in occurrence.action_events]},
+                dict(occurrence.guideline),
                 {"source_trace_ids": [occurrence.source_trace_id]}, SkillStatus.DRAFT,
             )
             primitive_steps = []
@@ -216,10 +215,8 @@ class ToolCompiler:
             # only values syntactically present in the terminal primitive.
             # ALFWorld USE-lamp, for example, also requires the held target
             # object to publish/validate ``object.observed_with``.
-            tool_properties: dict[str, Any] = {
-                role: {"type": "string"}
-                for role in occurrence.input_bindings
-            }
+            input_schema = parameter_schema(occurrence.input_specs)
+            tool_properties = input_schema["properties"]
             for event in occurrence.action_events:
                 mapping: dict[str, BindingExpression] = {}
                 for argument, value in event.get("arguments", {}).items():
@@ -232,7 +229,6 @@ class ToolCompiler:
                         mapping[argument] = BindingExpression(BindingExprKind.CONSTANT, constant=value)
                     else:
                         mapping[argument] = BindingExpression(BindingExprKind.SKILL_INPUT, source_role=role)
-                        tool_properties[role] = {"type": "string"}
                 primitive_steps.append({"action_type": event["action_type"], "argument_mapping": mapping})
             tool_id = f"tool_{occurrence.proposed_ref.logical_id.removeprefix('atomic_')}"
             tool_ref = ToolRef(tool_id, "1.0.0")
@@ -249,11 +245,8 @@ class ToolCompiler:
                 )
             tool = ToolAsset(
                 tool_ref, f"Primitive implementation of {occurrence.intent}",
-                {"type": "object", "properties": tool_properties, "required": sorted(tool_properties)},
-                {"output_schema": {
-                    "type": "object", "properties": {role: {"type": "string"} for role in tool_output_mapping},
-                    "required": sorted(tool_output_mapping), "additionalProperties": False,
-                }},
+                input_schema,
+                {"output_schema": parameter_schema(occurrence.output_specs)},
                 "primitive_ir", {"steps": primitive_steps, "output_mapping": tool_output_mapping},
                 [build_occurrence_replay_case(
                     occurrence,
@@ -262,21 +255,18 @@ class ToolCompiler:
                     kind="source_replay",
                 )],
                 {"reviewed": True, "allowed_action_types": [item["action_type"] for item in primitive_steps]},
-                {"source_trace_id": occurrence.source_trace_id, "occurrence_id": occurrence.occurrence_id},
+                {"source_trace_id": occurrence.source_trace_id, "occurrence_id": occurrence.occurrence_id,
+                 "source_replay_only": occurrence.phase_id not in (entry_contracts or {})},
                 {}, ToolStatus.ADMISSION_PENDING,
             )
             tool_binding_mapping = {
                 role: BindingExpression(BindingExprKind.SKILL_INPUT, source_role=role)
                 for role in tool_properties
             }
-            first = primitive_steps[0]
             constraints = []
-            if first["argument_mapping"]:
-                constraints.append(GroundingConstraint(
-                    "entry_affordance", GroundingConstraintKind.HARNESS_AFFORDANCE,
-                    action_type=first["action_type"], argument_mapping=dict(first["argument_mapping"]),
-                    required_resolution="relation_verified" if len(first["argument_mapping"]) > 1 else "concrete",
-                ))
+            if occurrence.phase_id in (entry_contracts or {}):
+                tool.interface["entry_contract"] = normalize_entry_contract(
+                    entry_contracts[occurrence.phase_id], (p.name for p in occurrence.input_specs))
             implementation = ImplementationAtom(
                 SkillRef(f"impl_{occurrence.proposed_ref.logical_id.removeprefix('atomic_')}", "1.0.0"),
                 atomic.ref, [ToolBinding(tool.ref, "primary", tool_binding_mapping, 0)], constraints,
@@ -321,14 +311,9 @@ class ToolCompiler:
             node for node in walk_program_nodes(program)
             if str(node.get("op", "")) == "ACTION"
         ]
-        tool_properties = {
-            str(item.name): {"type": "string"}
-            for item in atomic.inputs
-        }
-        output_properties = {
-            str(item.name): {"type": "string"}
-            for item in atomic.outputs
-        }
+        if proposal.proposal_version != "2":
+            raise ValueError("R10.2 requires ToolProposal version 2")
+        entry = normalize_entry_contract(proposal.entry_contract, (p.name for p in atomic.inputs))
         output_mapping: dict[str, Any] = {}
         implementation_output_mapping: dict[str, Any] = {}
         for output in atomic.outputs:
@@ -357,13 +342,8 @@ class ToolCompiler:
         tool = ToolAsset(
             tool_ref,
             f"IR implementation of {atomic.summary}",
-            {"type": "object", "properties": tool_properties, "required": sorted(tool_properties)},
-            {"output_schema": {
-                "type": "object",
-                "properties": output_properties,
-                "required": sorted(output_properties),
-                "additionalProperties": False,
-            }},
+            parameter_schema(atomic.inputs),
+            {"output_schema": parameter_schema(atomic.outputs), "entry_contract": entry},
             "tool_ir_v1",
             {
                 "schema_version": 1,
@@ -413,39 +393,11 @@ class ToolCompiler:
             )
             for item in atomic.inputs
         }
-        constraints = []
-        if action_nodes:
-            first = action_nodes[0]
-            first_mapping: dict[str, BindingExpression] = {}
-            mapping_supported = True
-            for role, raw in dict(first.get("argument_mapping") or {}).items():
-                expression = dict(raw) if isinstance(raw, dict) else {}
-                kind = str(expression.get("kind", ""))
-                if kind == "skill_input":
-                    first_mapping[role] = BindingExpression(
-                        BindingExprKind.SKILL_INPUT,
-                        source_role=str(expression.get("source_role", "")),
-                    )
-                elif kind == "constant":
-                    first_mapping[role] = BindingExpression(
-                        BindingExprKind.CONSTANT,
-                        constant=expression.get("constant"),
-                    )
-                else:
-                    mapping_supported = False
-                    break
-            if first_mapping and mapping_supported:
-                constraints.append(GroundingConstraint(
-                    "entry_affordance", GroundingConstraintKind.HARNESS_AFFORDANCE,
-                    action_type=str(first.get("action_type", "")),
-                    argument_mapping=first_mapping,
-                    required_resolution="concrete",
-                ))
         implementation = ImplementationAtom(
             SkillRef(f"impl_{atomic.ref.logical_id.removeprefix('atomic_')}", "1.0.0"),
             atomic.ref,
             [ToolBinding(tool.ref, "primary", tool_binding_mapping, 0)],
-            constraints,
+            [],  # Tool entry requirements stay in its authored interface.
             {"mode": "serial", "output_mapping": implementation_output_mapping},
             {"harness_profiles": ["alfworld_v3", "fake_v3"]},
             {},

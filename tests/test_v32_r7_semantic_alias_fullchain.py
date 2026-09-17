@@ -1,6 +1,7 @@
 """R7 synthetic full-chain gate for semantic aliases and frozen reuse."""
 
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 import copy
 from pathlib import Path
@@ -236,7 +237,7 @@ def _proposal(
         for fact in actions[1]["authoritative_positive_effects"]
         if fact["predicate"] == "object.observed_with"
     )
-    return {
+    return {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": "observe_with_light",
         "intent": "observe target with illuminating device",
         "event_start": 0,
@@ -336,7 +337,7 @@ def test_semantic_alias_full_chain_reaches_frozen_stored_composite(
     assert canonical[0].effects[0].predicate == "object.observed_with"
 
     aligner = Aligner(skills, tools)
-    compiled = list(ToolCompiler().compile(canonical))
+    compiled = list(compile_fixture(canonical))
     assert len(compiled) == 1
     item = compiled[0]
     assert item.tool is not None and item.implementation is not None

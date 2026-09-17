@@ -222,7 +222,7 @@ def scripted_proposal(atomic, case: RouteCase):
     if case.variant == "wrong_output":
         for node in (ret, program[-1]):
             node["output_sources"][output] = {"source": "tool_input", "field": target}
-    return {"proposal_version": "1", "decision": "no_tool" if case.variant == "no_tool" else "create",
+    return {"proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []}, "decision": "no_tool" if case.variant == "no_tool" else "create",
         "summary": "locate matching target", "atomic_ref": str(atomic["ref"]),
         "inputs": atomic["inputs"], "outputs": atomic["outputs"],
         "program": [] if case.variant == "no_tool" else program, "max_actions": 32,
@@ -279,11 +279,17 @@ class RouteProvider:
             reply = FakeReply.tool("create_tool", scripted_proposal(atomic, self.case),
                                    prompt_tokens=0, completion_tokens=0, reasoning_tokens=0)
         elif self.stage != "tool_builder" and not self.forced:
-            if "propose_runtime_automation_atomic" not in names:
-                raise FixtureSetupError("automation not offered on the required first route request")
-            self.forced = True
-            reply = FakeReply.tool("propose_runtime_automation_atomic", fixed_draft(request, self.case),
-                                   prompt_tokens=0, completion_tokens=0, reasoning_tokens=0)
+            if "request_runtime_automation" in names:
+                reply = FakeReply.tool("request_runtime_automation", {
+                    "reason": "Explicit targeted self-tooling route fixture",
+                    "intended_capability": "Find the supplied target using public observations"},
+                    prompt_tokens=0, completion_tokens=0, reasoning_tokens=0)
+            elif "propose_runtime_automation_atomic" in names:
+                self.forced = True
+                reply = FakeReply.tool("propose_runtime_automation_atomic", fixed_draft(request, self.case),
+                                       prompt_tokens=0, completion_tokens=0, reasoning_tokens=0)
+            else:
+                raise FixtureSetupError("runtime automation request/draft interface unavailable")
         elif self.delegate is None:
             catalog = newest_catalog(request)
             target_actions = [a for a in catalog if a.get("action_type") == "TAKE"
@@ -294,7 +300,11 @@ class RouteProvider:
                     prompt_tokens=0, completion_tokens=0, reasoning_tokens=0)
             else:
                 reply = FakeReply.tool("environment_action", {"action_id": target_actions[0]["action_id"],
-                    "intent": "attempt_current_atomic"}, prompt_tokens=0, completion_tokens=0, reasoning_tokens=0)
+                    "intent": "attempt_current_atomic", "candidate_bindings": {
+                        self.case.parent_role: target_actions[0]["arguments"]["object"],
+                        "source": target_actions[0]["arguments"]["source"]},
+                    "candidate_outputs": {self.case.parent_role: target_actions[0]["arguments"]["object"]}},
+                    prompt_tokens=0, completion_tokens=0, reasoning_tokens=0)
         else:
             reply = None
         if reply is not None:
@@ -327,7 +337,8 @@ def newest_catalog(request):
         if catalog is not None:
             return catalog.get("actions", []) if isinstance(catalog, dict) else catalog
     context = request.policy_context
-    catalog = context.get("current_state_snapshot", {}).get("action_catalog") or context.get("action_catalog", [])
+    catalog = (context.get("current_action_catalog")
+        or context.get("current_state_snapshot", {}).get("action_catalog") or context.get("action_catalog", []))
     return catalog.get("actions", []) if isinstance(catalog, dict) else catalog
 
 
@@ -343,7 +354,7 @@ def install_parent(system, case):
     if case.route != "runtime_preparation":
         return atomic, []
     role = case.parent_role
-    raw = {"proposal_version": "1", "decision": "create", "summary": "take object from source",
+    raw = {"proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []}, "decision": "create", "summary": "take object from source",
         "atomic_ref": str(atomic.ref), "inputs": to_primitive(atomic.inputs), "outputs": to_primitive(atomic.outputs),
         "program": [{"node_id": "take", "op": "ACTION", "action_type": "TAKE", "argument_mapping": {
             "object": {"kind": "skill_input", "source_role": role},
@@ -409,12 +420,11 @@ def run_node_case(system, case, *, live=False, task=None, audit=None, action_bud
         if case.route == "runtime_preparation":
             if not invocations or executor.try_autonomous(occurrence, invocations, ctx) is not None:
                 raise FixtureSetupError("Preparation requires an implementation with genuinely unresolved input")
-            result = executor.run_preparation_session(occurrence, invocations, ctx,
-                learned_call_repair_limit=int(system.config.get("llm", {}).get("runtime", {}).get("learned_toolcall_repair_limit", 2)))
+            result = executor.run_agent_node(occurrence, ctx, mode="preparation")
         else:
             if invocations:
                 raise FixtureSetupError("Seeded fixture unexpectedly has a compatible implementation")
-            result = executor.run_seeded_fresh(occurrence, ctx)
+            result = executor.run_agent_node(occurrence, ctx, mode="seeded")
     finally:
         system._provider_override = original
         system.orchestrator._persist_v32_task_local_assets(ctx)

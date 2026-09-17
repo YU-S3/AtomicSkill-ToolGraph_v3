@@ -98,6 +98,7 @@ def test_r61_runtime_session_trace_snapshots_are_explicit_high() -> None:
     system._current_task_id = "r61-runtime-snapshot"
     system._runtime_turn_caps = (35, 100)
     system.usage = UsageLedger()
+    system._current_task_usage_start = 0
 
     for index, stage in enumerate(
         ("runtime_preparation", "runtime_seeded", "runtime_dynamic")

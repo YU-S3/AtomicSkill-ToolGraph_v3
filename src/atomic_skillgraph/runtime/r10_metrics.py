@@ -8,8 +8,6 @@ COUNTERS = (
     "runtime_step_prompt_tokens", "runtime_step_reasoning_tokens",
     "composite_auto_gate_attempt_count", "composite_auto_node_success_count",
     "post_bootstrap_llm_free_node_count", "llm_breakpoint_count", "llm_free_environment_action_count",
-    "support_obligation_count", "support_closure_attempt_count", "support_closure_success_count",
-    "support_closure_ambiguous_count", "support_closure_cycle_count", "support_auto_execution_count",
     "support_agent_selected_count", "runtime_automation_request_count", "runtime_automation_interface_load_count",
     "runtime_automation_proposal_count", "runtime_tool_trial_r1_pass_count",
     "runtime_support_observation_count", "runtime_support_promotion_attempt_count",
@@ -23,8 +21,6 @@ COUNTERS = (
 
 
 def finalize(trace, config):
-    if not config.get("runtime", {}).get("short_runtime_steps"):
-        return
     from .r101_metrics import finalize as finalize_r101
     finalize_r101(trace)
     values = trace.metadata.setdefault("r10_metrics", {})
@@ -34,8 +30,7 @@ def finalize(trace, config):
                "runtime_preparation_step_count": "runtime_step_preparation_count",
                "runtime_seeded_step_count": "runtime_step_seeded_count",
                "composite_auto_node_success_count": "composite_auto_node_count",
-               "llm_breakpoint_count": "composite_breakpoint_count",
-               "support_closure_ambiguous_count": "support_closure_ambiguity_count"}
+               "llm_breakpoint_count": "composite_breakpoint_count"}
     for name, source in aliases.items():
         values[name] = values.get(source, 0)
     source = trace.runtime_plan.get("source")
@@ -46,7 +41,7 @@ def finalize(trace, config):
     steps = trace.metadata.get("runtime_steps", [])
     bootstrap_occurrences = {item["occurrence_id"] for item in steps if item["bootstrap"]}
     assisted_occurrences = {item["occurrence_id"] for item in steps}
-    automatic_ids = {item["attempt_id"] for item in canonical_metadata_items(trace, "r10_automatic_invocations")}
+    automatic_ids = {item["attempt_id"] for item in canonical_metadata_items(trace, "graph_entry_invocations")}
     last_invocations = {item.occurrence_id: item for item in trace.implementation_invocations}
     bootstrap_seen = False
     unassisted, terminal_auto = 0, 0

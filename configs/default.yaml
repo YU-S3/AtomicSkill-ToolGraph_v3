@@ -2,6 +2,7 @@
 # API secrets are never valid configuration values: only api_key_env is read.
 schema_version: 3
 method_patch: "3.2"
+repair_revision: "R10.2"
 
 data_dir: data_v3
 

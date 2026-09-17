@@ -333,6 +333,7 @@ class ExtractorSession:
                     ).items()
                 },
                 input_provenance_contract="code_authority_v3_2",
+                guideline=dict(item["guideline"]),
                 # Every output derivation is an explicit E1 authority claim.
                 # Preserve it verbatim for deterministic code validation;
                 # neither INPUT_IDENTITY nor EFFECT_WITNESS may be inferred

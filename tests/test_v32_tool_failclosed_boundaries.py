@@ -51,7 +51,7 @@ def _atomic_and_proposal() -> tuple[AbstractAtomicSkill, ToolProposal]:
         {},
     )
     proposal = ToolProposal(
-        "1",
+        "2",
         "create",
         "take item",
         str(atomic.ref),
@@ -81,6 +81,7 @@ def _atomic_and_proposal() -> tuple[AbstractAtomicSkill, ToolProposal]:
         [],
         [],
         "bounded",
+        entry_contract={"conditions": [], "grounding_constraints": []},
     )
     return atomic, proposal
 
@@ -316,7 +317,7 @@ def _effect_tool() -> ToolAsset:
             "properties": {"target": {"type": "string"}},
             "required": ["target"],
         },
-        {"output_schema": {
+        {"entry_contract": {"conditions": [], "grounding_constraints": []}, "output_schema": {
             "type": "object",
             "properties": {"found": {"type": "string"}},
             "required": ["found"],
@@ -441,9 +442,9 @@ def test_runtime_automation_admission_requires_executed_path_effects(
         def compile_proposal(self, _occ, atomic, _proposal, _provenance):
             return SimpleNamespace(
                 atomic=atomic,
-                tool=SimpleNamespace(ref="tool://draft@1.0.0", status="draft"),
+                tool=SimpleNamespace(ref="tool://draft@1.0.0", status="draft", signature={}, interface={}, artifact_kind="fixture", artifact={}, safety={}),
                 implementation=SimpleNamespace(
-                    ref="implementation://draft@1.0.0", status="draft",
+                    ref="implementation://draft@1.0.0", status="draft", tool_bindings=[], execution_policy={}, grounding_constraints=[],
                 ),
             )
 
@@ -485,12 +486,15 @@ def test_runtime_automation_admission_requires_executed_path_effects(
         world_revision=0, action_catalog=[], budget=__import__('atomic_skillgraph.runtime.budget', fromlist=['RuntimeBudget']).RuntimeBudget(),
         harness=SimpleNamespace(
             profile_name="alfworld",
+            validator_channel=lambda: SimpleNamespace(snapshot=lambda: {}),
             semantic_predicate_schema=lambda: [],
             primitive_action_schema=lambda: [],
         ),
         tool_evidence_snapshot=lambda: {},
         trace_builder=SimpleNamespace(trace=SimpleNamespace(trace_id="trace")),
-        binding_store=SimpleNamespace(snapshot_for_node=lambda _occ: {}, repeat_execution_frame=lambda _step: None),
+        binding_store=__import__("atomic_skillgraph.runtime.binding_store", fromlist=["RuntimeBindingStore"]).RuntimeBindingStore(),
+        rejected_runtime_candidates={},
+        execution_terminal=lambda: False,
         validated_outputs={},
         runtime_tool_trials={},
         action_history=[],

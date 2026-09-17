@@ -202,9 +202,17 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         "effects",
         "effect_witness_refs",
         "rationale",
+        "guideline",
     ],
     "additionalProperties": False,
     "properties": {
+        "guideline": {"type": "object", "required": ["steps", "notes"], "additionalProperties": False,
+            "properties": {
+                "steps": {"type": "array", "minItems": 1, "maxItems": 6,
+                          "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+                "notes": {"type": "array", "maxItems": 2,
+                          "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+            }},
         "phase_id": NONEMPTY_STRING_SCHEMA,
         "intent": NONEMPTY_STRING_SCHEMA,
         "event_start": {
@@ -677,11 +685,30 @@ TOOL_PROPOSAL_SCHEMA: dict[str, Any] = {
     "required": [
         "proposal_version", "decision", "summary", "atomic_ref", "inputs",
         "outputs", "program", "max_actions", "final_effects",
-        "evidence_outputs", "path_expectations", "rationale",
+        "evidence_outputs", "path_expectations", "rationale", "entry_contract",
     ],
     "additionalProperties": False,
     "properties": {
-        "proposal_version": NONEMPTY_STRING_SCHEMA,
+        "proposal_version": {"type": "string", "enum": ["2"]},
+        "entry_contract": {
+            "type": "object", "required": ["conditions", "grounding_constraints"],
+            "additionalProperties": False,
+            "properties": {
+                "conditions": {"type": "array", "items": PREDICATE_SCHEMA},
+                "grounding_constraints": {"type": "array", "items": {
+                    "type": "object", "required": ["constraint_id", "kind"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "constraint_id": NONEMPTY_STRING_SCHEMA,
+                        "kind": {"type": "string", "enum": ["argument_exists", "argument_concrete", "harness_affordance", "current_context", "custom_adapter"]},
+                        "action_type": {"type": "string"},
+                        "argument_mapping": {"type": "object", "additionalProperties": BINDING_EXPRESSION_SCHEMA},
+                        "required_resolution": {"type": "string", "enum": ["semantic", "concrete", "relation_verified"]},
+                        "verifier_id": {"type": "string"},
+                    },
+                }},
+            },
+        },
         "decision": {"type": "string", "enum": ["create", "no_tool"]},
         "summary": NONEMPTY_STRING_SCHEMA,
         "atomic_ref": {
@@ -724,6 +751,7 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
     "properties": {
+        "guideline": ATOMIC_EXTRACTION_SCHEMA["properties"]["guideline"],
         "output_semantic_constraints": {
             "type": "object",
             "additionalProperties": {

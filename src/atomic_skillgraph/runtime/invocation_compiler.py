@@ -23,6 +23,7 @@ from ..core.status import RuntimeMode, skill_status_usable, tool_status_usable
 from ..knowledge.skill_registry import SkillRegistry
 from ..knowledge.tool_registry import ToolRegistry
 from ..evolution.portability import contract_label, validate_portability
+from ..tooling.entry_contract import normalize_entry_contract, check_tool_entry
 from .binding_store import RuntimeBindingStore
 from .evidence_store import GroundingEvidenceStore
 
@@ -76,6 +77,7 @@ class InvocationCompiler:
             tool = by_ref.get(str(binding.tool_ref))
             if tool is None or not tool_status_usable(tool.status, self.mode):
                 raise ValueError(f"Tool ref unavailable or unusable: {binding.tool_ref}")
+            normalize_entry_contract(tool.interface.get('entry_contract'), tool.signature.get('properties', {}))
             required = set(tool.signature.get("required", []))
             properties = tool.signature.get("properties", {})
             if not required and isinstance(properties, dict):
@@ -149,7 +151,9 @@ class InvocationCompiler:
         return ImplementationInvocationSpec(
             name=f"invoke_impl_{name_id}_{name_digest}", implementation_ref=implementation.ref,
             atomic_ref=atomic.ref,
-            description=f"Execute learned implementation for: {description}",
+            description=f"Execute learned implementation for: {description}. "
+                f"Entry: {[(str(t.ref), t.interface['entry_contract']) for t in tools]}. "
+                f"Outputs: {[(p.name, p.semantic_type, p.required) for p in atomic.outputs]}",
             input_schema={"type": "object", "properties": properties, "required": required, "additionalProperties": False},
             grounding_constraints=list(implementation.grounding_constraints),
             tool_refs=[item.tool_ref for item in sorted(implementation.tool_bindings, key=lambda item: item.order)],
@@ -158,7 +162,7 @@ class InvocationCompiler:
 
     def compile_candidates(
         self, occurrence: Any, binding_store: RuntimeBindingStore,
-        *, max_candidates: int = 3, task_id: str = "",
+        *, max_candidates: int | None = None, task_id: str = "",
     ) -> list[CompiledInvocation]:
         atomic = self.skills.get_atomic(occurrence.node_ref)
         current = binding_store.snapshot_for_node(occurrence)
@@ -225,7 +229,7 @@ class InvocationCompiler:
                     "implementation_ref": str(implementation.ref), "code": "implementation_compile_rejected",
                     "reason": str(exc),
                 })
-            if len(result) >= max_candidates:
+            if max_candidates is not None and len(result) >= max_candidates:
                 break
         return result
 
@@ -421,6 +425,20 @@ class InvocationCompiler:
             if binding is None or binding.status is not BindingStatus.GROUNDED:
                 return fail("runtime_binding", "runtime_binding_unresolved", f"required binding unresolved: {parameter.name}")
             if not resolution_satisfies(binding.resolution, parameter.required_resolution):
+                # Authenticate this exact supplied value, never search for a
+                # replacement. Upgrades remain provisional until transaction.
+                concrete = GroundingConstraint(
+                    "given_" + parameter.name, GroundingConstraintKind.ARGUMENT_CONCRETE,
+                    argument_mapping={parameter.name: BindingExpression(
+                        BindingExprKind.SKILL_INPUT, source_role=parameter.name)})
+                local, refs = binding_store.ground_from_evidence(
+                    occurrence.occurrence_id, {parameter.name: binding}, [concrete], evidence_store)
+                if local:
+                    grounded.update(local)
+                    merged.update(local)
+                    matched.extend(refs)
+                    if resolution_satisfies(local[parameter.name].resolution, parameter.required_resolution):
+                        continue
                 # A role-specific execution-context constraint may provide the
                 # missing concrete/relation authority immediately before the
                 # implementation starts.  Defer only to such a declared
@@ -466,7 +484,7 @@ class InvocationCompiler:
         evidence_store: GroundingEvidenceStore,
         revision: int,
     ) -> ToolCallPreflightResult:
-        """Validate current affordances/lifecycle and commit only on success."""
+        """Pure entry check. Only the selected invocation transaction commits."""
 
         ref = str(compiled.implementation.ref)
 
@@ -570,7 +588,28 @@ class InvocationCompiler:
         for tool in compiled.tools:
             if not tool_status_usable(tool.status, self.mode) or tool.safety.get("blocked"):
                 return fail("implementation", "implementation_compatibility_error", f"Tool unavailable or unsafe: {tool.ref}")
-        binding_store.commit_grounded(occurrence.occurrence_id, grounded)
+        if compiled.atomic.preconditions:
+            report = self.harness.validator_channel().validate_atomic_effect({
+                'effects': compiled.atomic.preconditions, 'bindings': values, 'output_candidates': {}})
+            if not report.passed:
+                return fail('runtime_binding', 'runtime_preconditions_unsatisfied', '; '.join(report.messages))
+        if not compiled.implementation.tool_bindings:
+            return fail("implementation", "implementation_mapping_error", "implementation has no Tool bindings")
+        first = min(compiled.implementation.tool_bindings, key=lambda item: item.order)
+        tool = next((t for t in compiled.tools if t.ref == first.tool_ref), None)
+        if tool is None:
+            return fail('implementation', 'implementation_mapping_error', 'First Tool binding has no resolved Tool')
+        arguments = {}
+        for role, expression in first.parameter_mapping.items():
+            if expression.kind is BindingExprKind.CONSTANT:
+                arguments[role] = expression.constant
+            elif expression.kind is BindingExprKind.SKILL_INPUT and expression.source_role in values:
+                arguments[role] = values[expression.source_role]
+            else:
+                return fail('implementation', 'implementation_mapping_error', f'Unresolved first Tool parameter: {role}')
+        entry = check_tool_entry(tool, arguments, self.harness, evidence_store, revision)
+        if not entry.passed:
+            return fail('tool', entry.failure_codes[0], '; '.join(entry.messages))
         return ToolCallPreflightResult(
             True,
             ref,

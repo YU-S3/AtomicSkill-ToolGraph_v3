@@ -139,7 +139,7 @@ def _project_normal_effect_boundary(normalized: dict) -> None:
 
 def _e1_occurrences() -> list[dict]:
     return [
-        {
+        {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
             "phase_id": "take_target",
             "intent": "take target object",
             "event_start": 1,
@@ -172,7 +172,7 @@ def _e1_occurrences() -> list[dict]:
             ],
             "rationale": "Accepted TAKE establishes the held object.",
         },
-        {
+        {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
             "phase_id": "observe_under_light",
             "intent": "observe held object under the light",
             "event_start": 2,

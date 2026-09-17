@@ -156,7 +156,8 @@ def test_effect_resolution_is_assessed_before_output_publication():
         "public_evidence_ref": "action_catalog:take:revision:1",
     }]
     ctx.binding_store.commit_grounded(nav.occurrence_id, {"destination": _grounded("destination", "cabinet_3")})
-    result = executor._complete_from_current_effect(nav, ctx, mode="preparation", preferred_values=["cabinet_3"])
+    result = executor._complete_from_current_effect(nav, ctx, mode="preparation", preferred_values=["cabinet_3"],
+        candidate_outputs={"arrived_location": "cabinet_3"})
     assert result.atomic_effect_passed
     assert result.validated_outputs == {"arrived_location": "cabinet_3"}
     assert ctx.binding_store.validated_outputs(nav.occurrence_id) == {}

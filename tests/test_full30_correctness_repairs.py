@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 import json
 from dataclasses import replace
@@ -124,7 +125,7 @@ def _stage_with_label(
     tools: ToolRegistry,
 ):
     aligner = Aligner(skills, tools)
-    compiled = ToolCompiler().compile([occurrence])[0]
+    compiled = compile_fixture([occurrence])[0]
     bundle = aligner.stage_atomic(
         compiled.atomic,
         compiled.tool,
@@ -188,7 +189,7 @@ def test_portability_rejects_episode_terms_but_keeps_contract_transition() -> No
         "bed_1",
         "take_the_cellphone_from_the_bed",
     )
-    compiled = ToolCompiler().compile([occurrence])[0]
+    compiled = compile_fixture([occurrence])[0]
     label = resolve_capability_label(occurrence, compiled.atomic)
     assert label.canonical_intent == "establish_agent_holds"
     assert label.source == "contract_fallback"
@@ -253,8 +254,8 @@ def test_aligned_batch_prefers_portable_intent_independent_of_order() -> None:
     portable = _take_occurrence(
         "ladle_2", "cabinet_3", "acquire_target_object",
     )
-    concrete_atomic = ToolCompiler().compile([concrete])[0].atomic
-    portable_atomic = ToolCompiler().compile([portable])[0].atomic
+    concrete_atomic = compile_fixture([concrete])[0].atomic
+    portable_atomic = compile_fixture([portable])[0].atomic
     forward = resolve_capability_label_group([
         (concrete, concrete_atomic),
         (portable, portable_atomic),
@@ -275,8 +276,8 @@ def test_aligned_batch_rejects_other_occurrence_entity_family() -> None:
     ladle = _take_occurrence(
         "ladle_2", "cabinet_3", "take_ladle_2",
     )
-    cellphone_atomic = ToolCompiler().compile([cellphone])[0].atomic
-    ladle_atomic = ToolCompiler().compile([ladle])[0].atomic
+    cellphone_atomic = compile_fixture([cellphone])[0].atomic
+    ladle_atomic = compile_fixture([ladle])[0].atomic
     forward = resolve_capability_label_group([
         (cellphone, cellphone_atomic),
         (ladle, ladle_atomic),
@@ -392,7 +393,7 @@ def test_composite_unsafe_text_falls_back_without_rejecting_graph() -> None:
     occurrence = _take_occurrence(
         "cellphone_1", "bed_1", "take_the_cellphone_from_the_bed",
     )
-    compiled = ToolCompiler().compile([occurrence])[0]
+    compiled = compile_fixture([occurrence])[0]
     label = resolve_capability_label(occurrence, compiled.atomic)
     rewritten = rewrite_capability_labels(compiled, label)
     proposal = CompositeExtractionProposal(

@@ -55,7 +55,7 @@ def test_B03_B08_B11_complete_relation_transfers_inputs_only(selected):
     request, parent, ctx = boundary()
     assert prove_request(request, parent, ctx, agent_selected=selected).passed
     assert request.output_mapping == {'location': 'station', 'entity': 'object'}
-    result = SimpleNamespace(validated_outputs={'entity': 'object_2', 'location': 'place_2'}, atomic_witness_refs=['joint_witness'])
+    result = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_2'}, atomic_witness_refs=['joint_witness'])
     before = copy.deepcopy(ctx.binding_store.repeat_state)
     assert transfer_inputs(request, parent, result, ctx).passed
     assert ctx.binding_store.snapshot_for_node(request.consumer)['station'].value == 'place_2'
@@ -68,7 +68,7 @@ def test_B04_missing_correlated_output_never_partially_commits():
     request, parent, ctx = boundary()
     assert prove_request(request, parent, ctx).passed
     before = copy.deepcopy(vars(ctx.binding_store))
-    result = SimpleNamespace(validated_outputs={'location': 'place_2'}, atomic_witness_refs=['partial'])
+    result = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'location': 'place_2'}, atomic_witness_refs=['partial'])
     assert not transfer_inputs(request, parent, result, ctx).passed
     assert vars(ctx.binding_store) == before
 
@@ -76,7 +76,7 @@ def test_B04_missing_correlated_output_never_partially_commits():
 def test_B08_support_input_identity_survives_later_child_revision_without_stale_authority():
     request, parent, ctx = boundary()
     assert prove_request(request, parent, ctx, agent_selected=True).passed
-    result = SimpleNamespace(validated_outputs={'entity': 'object_2', 'location': 'place_2'},
+    result = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_2'},
                              atomic_witness_refs=['joint_witness'])
     assert transfer_inputs(request, parent, result, ctx).passed
     ctx.world_revision += 1  # A later navigation/helper changes the world.
@@ -84,7 +84,7 @@ def test_B08_support_input_identity_survives_later_child_revision_without_stale_
     invalidated = ctx.binding_store.snapshot_for_node(request.consumer)['object']
     assert invalidated.value == 'object_2'
     assert invalidated.status is BindingStatus.GROUNDED
-    assert invalidated.resolution is BindingResolution.SEMANTIC
+    assert invalidated.resolution is BindingResolution.CONCRETE
     # Expiring state proof must not erase the validated consumer identity.
     assert not consumer_guard(request, parent, {'object': 'object_1'}, ctx).passed
     assert consumer_guard(request, parent, {'object': 'object_2'}, ctx).passed
@@ -94,7 +94,7 @@ def test_B08_support_input_identity_survives_later_child_revision_without_stale_
     current = ctx.binding_store.snapshot_for_node(request.consumer)
     assert current['object'].value == 'object_2'
     # Known identity alone does not claim a fresh environment relation.
-    assert current['object'].resolution is BindingResolution.SEMANTIC
+    assert current['object'].resolution is BindingResolution.CONCRETE
     assert current['object'].status is BindingStatus.GROUNDED
 
 
@@ -114,10 +114,10 @@ def test_B04_crossed_relation_values_cannot_borrow_separate_witnesses():
         for obj, loc in [('object_1', 'place_1'), ('object_2', 'place_2')]]
     ctx.evidence_store = SimpleNamespace(match_constraint=lambda *args: ['complete_action_witness'])
     before = copy.deepcopy(vars(ctx.binding_store))
-    crossed = SimpleNamespace(validated_outputs={'entity': 'object_2', 'location': 'place_1'}, atomic_witness_refs=['different_facts'])
+    crossed = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_1'}, atomic_witness_refs=['different_facts'])
     assert not transfer_inputs(request, parent, crossed, ctx).passed
     assert vars(ctx.binding_store) == before
-    matching = SimpleNamespace(validated_outputs={'entity': 'object_2', 'location': 'place_2'}, atomic_witness_refs=['same_fact'])
+    matching = SimpleNamespace(atomic_effect_passed=True, validated_outputs={'entity': 'object_2', 'location': 'place_2'}, atomic_witness_refs=['same_fact'])
     assert transfer_inputs(request, parent, matching, ctx).passed
 
 
@@ -295,7 +295,7 @@ def test_C01_satisfied_navigation_precedes_entry_affordance_and_has_no_tool_cred
     from test_r10_runtime import setup, action
     from experiments.r10_world_checks import install_fixture, bind
     from atomic_skillgraph.runtime.runtime_step import run_runtime_step
-    from atomic_skillgraph.runtime.support_closure import SupportClosure
+    from atomic_skillgraph.runtime.composite_executor import VerifiedCompositeExecutor
     system, ctx, original, invocations, _ = setup(tmp_path,
         lambda request, count: action(request, 'GO_TO', destination='cabinet_1'))
     try:
@@ -308,7 +308,7 @@ def test_C01_satisfied_navigation_precedes_entry_affordance_and_has_no_tool_cred
         compiled = system.invocation_compiler.compile_candidates(occurrence, ctx.binding_store, task_id=ctx.task_id)
         before = len(ctx.trace_builder.trace.environment_actions)
         monkeypatch.setattr(system.invocation_compiler, 'autonomous_preflight', lambda *a, **kw: pytest.fail('effect must precede action preflight'))
-        assert SupportClosure(ex).close(occurrence, ctx, compiled)
+        assert VerifiedCompositeExecutor(ex).run_occurrence(occurrence, ctx).atomic_effect_passed
         assert len(ctx.trace_builder.trace.environment_actions) == before
         assert not ctx.trace_builder.trace.tool_executions
         assert not ctx.trace_builder.trace.implementation_invocations
@@ -319,7 +319,6 @@ def test_C01_satisfied_navigation_precedes_entry_affordance_and_has_no_tool_cred
 def test_C02_child_holds_allows_parent_completion_without_second_take(tmp_path):
     from test_r10_runtime import setup, action
     from atomic_skillgraph.runtime.runtime_step import run_runtime_step
-    from atomic_skillgraph.runtime.support_closure import SupportClosure
     def choose(request, count):
         return action(request, 'GO_TO', destination='cabinet_1') if count == 1 else action(request, 'OPEN') if count == 2 else action(request, 'TAKE', object='egg_1')
     system, ctx, occurrence, invocations, _ = setup(tmp_path, choose)
@@ -328,7 +327,9 @@ def test_C02_child_holds_allows_parent_completion_without_second_take(tmp_path):
         for _ in range(3):
             run_runtime_step(ex, 'preparation', occurrence, ctx, invocations, [])
         assert [a.action_type for a in ctx.trace_builder.trace.environment_actions] == ['GO_TO', 'OPEN', 'TAKE']
-        assert SupportClosure(ex).close(occurrence, ctx, invocations)
+        assert ex._complete_from_current_effect(occurrence, ctx, mode='preparation', preferred_values=[],
+            preferred_bindings={'object': 'egg_1', 'source': 'cabinet_1'},
+            candidate_outputs={}).atomic_effect_passed
         assert len(ctx.trace_builder.trace.environment_actions) == 3
         assert not ctx.trace_builder.trace.tool_executions
     finally:
@@ -421,6 +422,8 @@ def test_C04_C05_repeat_refusal_carries_completed_identity_and_actual_action(tmp
             return action(request, 'GO_TO', destination='cabinet_1') if count == 1 else action(request, 'OPEN')
         name, arguments = action(request, 'TAKE', object='egg_1')
         arguments['intent'] = 'attempt_current_atomic'
+        arguments['candidate_bindings'] = {'object': 'egg_1', 'source': 'cabinet_1'}
+        arguments['candidate_outputs'] = {}
         return name, arguments
     system, ctx, occurrence, invocations, provider = setup(tmp_path, choose)
     try:

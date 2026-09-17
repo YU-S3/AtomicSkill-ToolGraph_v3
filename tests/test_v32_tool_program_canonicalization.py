@@ -36,7 +36,7 @@ def test_single_output_return_is_canonical_from_static_through_admission() -> No
         "field": "item",
     }
     proposal = ToolProposal(
-        proposal_version="1",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []},
         decision="create",
         summary="take item",
         atomic_ref=str(atomic.ref),

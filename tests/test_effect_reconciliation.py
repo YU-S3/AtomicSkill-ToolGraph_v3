@@ -116,7 +116,7 @@ def test_effect_resolution_fails_closed_for_empty_effects_and_revision(
     facade_result = AtomicValidator().resolve_current_effect(
         atomic,
         occurrence,
-        {},
+        {"destination": _grounded("destination", "cabinet_3")},
         channel,
         semantic_anchors={},
         preferred_values=["cabinet_3"],
@@ -330,7 +330,7 @@ def test_contextual_output_uses_exact_witness_argument_without_name_heuristic(
         [ParameterSpec("location", "entity")],
         [],
         [effect],
-        {"validator_id": "harness_atomic_effect", "output_identity": []},
+        {"validator_id": "harness_atomic_effect", "output_identity": [{"output_role": "location", "input_role": "destination"}]},
         [],
         {},
         {},
@@ -411,7 +411,7 @@ def test_passed_resolution_without_witnesses_fails_closed() -> None:
     result = AtomicValidator().resolve_current_effect(
         atomic,
         occurrence,
-        {},
+        {"destination": _grounded("destination", "cabinet_3")},
         MissingWitnessChannel(),
         semantic_anchors={},
         preferred_values=["cabinet_3"],
@@ -493,11 +493,12 @@ def test_gate46_different_name_effect_witness_output_is_partitioned(
         factory(),
         semantic_anchors={},
         preferred_values=["cabinet_3"],
+        candidate_outputs={"arrived_location": "cabinet_3"},
         current_revision=1,
     )
 
     assert resolution.passed is True
-    assert resolution.resolved_bindings == {}
+    assert resolution.resolved_bindings == {"destination": "cabinet_3"}
     assert resolution.output_candidates == {
         "arrived_location": "cabinet_3",
     }
@@ -541,6 +542,7 @@ def test_gate47_node_executor_keeps_fresh_output_out_of_input_store() -> None:
         ctx,
         mode="preparation",
         preferred_values=["cabinet_3"],
+        candidate_outputs={"arrived_location": "cabinet_3"},
     )
 
     assert result is not None
@@ -614,6 +616,7 @@ def test_gate48_multiple_fresh_outputs_are_partitioned() -> None:
         {},
         channel,
         semantic_anchors={},
+        candidate_outputs={"found_entity": "cup_3", "found_location": "countertop_2"},
         preferred_values=["cup_3", "countertop_2"],
         current_revision=1,
     )
@@ -684,6 +687,7 @@ def test_gate49_mixed_input_and_fresh_output_are_partitioned() -> None:
         {"target": _grounded("target", "cup")},
         channel,
         semantic_anchors={},
+        candidate_outputs={"found_entity": "cup_3"},
         preferred_values=["cup_3"],
         current_revision=1,
     )
@@ -755,10 +759,11 @@ def test_gate50_unknown_resolver_roles_fail_closed(
     resolution = AtomicValidator().resolve_current_effect(
         atomic,
         _effect_output_occurrence(atomic),
-        {},
+        {"destination": _grounded("destination", "cabinet_3")},
         channel,
         semantic_anchors={},
         preferred_values=[],
+        candidate_outputs={"arrived_location": "cabinet_3"},
         current_revision=1,
     )
 
@@ -778,10 +783,11 @@ def test_gate51_conflicting_effect_witness_output_sources_fail_closed() -> None:
     resolution = AtomicValidator().resolve_current_effect(
         atomic,
         _effect_output_occurrence(atomic),
-        {},
+        {"destination": _grounded("destination", "cabinet_3")},
         channel,
         semantic_anchors={},
         preferred_values=[],
+        candidate_outputs={"arrived_location": "cabinet_3"},
         current_revision=1,
     )
 

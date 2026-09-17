@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 import copy
 import json
@@ -246,7 +247,7 @@ def test_c02_exact_reuse_precedes_zero_balance_preflight(
     )
     _install_real_usage(system, cap=0)
     occurrence, atomic = _canonical_take(system)
-    legacy = ToolCompiler().compile([occurrence])[0]
+    legacy = compile_fixture([occurrence])[0]
     assert legacy.tool is not None and legacy.implementation is not None
     staged = system.aligner.stage_atomic(
         atomic, legacy.tool, legacy.implementation,

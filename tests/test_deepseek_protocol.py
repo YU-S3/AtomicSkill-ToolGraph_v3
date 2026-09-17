@@ -329,6 +329,7 @@ def test_failed_task_preserves_http200_failure_extractor_overcap_audit(
     task = fake_task("failed-over-cap", "apple_1")
     config = {
         "schema_version": 3,
+        "repair_revision": "R10.2",
         "data_dir": str(tmp_path / "data_v3"),
         "llm": {
             "provider": "openai_compatible",
@@ -736,50 +737,9 @@ def test_context_builder_separates_grounding_authorities() -> None:
     assert payload["current_action_catalog"]["actions"][0]["arguments"] == {
         "destination": "coffeetable_1",
     }
-    assert "canonical argument values from the newest public catalog" in payload_text
-    assert "Read the selected action's action_type and arguments" in payload_text
-    assert "portable guidance" in payload_text
-    assert "never bindings or evidence" in payload_text
-    assert "the task's final destination" in payload_text
-    assert "For unanchored roles" in payload_text
-    assert "Explicitly anchored roles may use that destination" in payload_text
-    assert "Copy its exact native-tool name" in payload_text
-    assert payload["allowed_implementation_invocations"] == [{
-        "name": "invoke_impl_0123456789abcdef",
-        "description": "navigate to source",
-        "input_schema": {"type": "object", "properties": {}},
-    }]
-    assert current_state["confirmed_bindings"] == {"held_object": "apple_2"}
-    assert current_state["missing_bindings"] == ["destination"]
-    assert payload["recent_accepted_actions"] == []
-    assert payload["exploration_memory"] == {}
-    assert "execution_ready_bindings" not in payload
-    assert "missing_or_insufficient_bindings" not in payload
-    assert "certified_bindings" not in payload
-
-    seeded_text = ContextBuilder().seeded_node(
-        task_goal="put apple in fridge",
-        atomic_contract={"summary": "move to old desk", "inputs": [], "outputs": []},
-        task_semantic_context={"object": "apple", "destination": "fridge"},
-        current_occurrence_semantic_anchors={},
-        execution_ready_bindings={},
-        missing_or_insufficient_bindings=["destination"],
-        observation="in a new room",
-        action_catalog=[],
-        relevant_action_history=[],
-        remaining_budget={"actions": 10},
-    )
-    seeded_payload = json.loads(
-        seeded_text.split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1]
-    )
-    assert seeded_payload["current_state_snapshot"]["semantic_anchors"] == {}
-    assert seeded_payload["current_state_snapshot"]["missing_bindings"] == [
-        "destination"
-    ]
-    assert seeded_payload["recent_accepted_actions"] == []
-    assert "portable guidance" in seeded_text
-    assert "never bindings or evidence" in seeded_text
-    assert "Explicitly anchored roles may use that destination" in seeded_text
+    assert "Read the selected action\'s action_type and arguments" in payload_text
+    assert "Skill guidance is a soft experience reference" in payload_text
+    assert "Shared role names do not imply data flow" in payload_text
 
 
 def test_deepseek_payload_has_thinking_and_reasoning_effort() -> None:

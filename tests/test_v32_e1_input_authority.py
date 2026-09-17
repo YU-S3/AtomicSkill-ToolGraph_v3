@@ -261,7 +261,7 @@ def test_current_e1_rejects_runtime_input_from_future_trial() -> None:
 
 
 def test_e1_schema_and_transport_require_and_preserve_input_refs() -> None:
-    occurrence = {
+    occurrence = {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": "take",
         "intent": "take_item",
         "event_start": 0,

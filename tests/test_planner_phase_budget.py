@@ -128,6 +128,7 @@ def test_p1_p1r_p2_p2r_can_exceed_120k_in_total_without_starving_p2r(
 
     config = {
         "schema_version": 3,
+        "repair_revision": "R10.2",
         "method_patch": "3.2",
         "data_dir": str(tmp_path / "data_v3"),
         "trace_data_dir": str(tmp_path / "trace_data"),

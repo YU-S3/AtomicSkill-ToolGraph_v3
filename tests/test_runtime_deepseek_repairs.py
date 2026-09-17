@@ -199,7 +199,15 @@ def _compiled_invocation() -> tuple[CompiledInvocation, RuntimeOccurrence]:
             ),
         }, [implementation_ref], atomic.effects,
     )
-    return CompiledInvocation(spec, atomic, implementation, []), occurrence
+    from atomic_skillgraph.core.bindings import ToolBinding
+    from atomic_skillgraph.core.contracts import ToolAsset
+    from atomic_skillgraph.core.refs import ToolRef
+    tool = ToolAsset(ToolRef("entry_fixture", "1.0.0"), "entry fixture",
+        {"type": "object", "properties": {}, "additionalProperties": False},
+        {"entry_contract": {"conditions": [], "grounding_constraints": []}},
+        "primitive_ir", {"steps": []}, [], {}, {}, {}, "active")
+    implementation.tool_bindings = [ToolBinding(tool.ref, "primary", {})]
+    return CompiledInvocation(spec, atomic, implementation, [tool]), occurrence
 
 
 def test_compiled_invocation_uses_short_opaque_native_name() -> None:

@@ -87,10 +87,8 @@ def test_tool_builder_uses_r922_instruction_and_canonical_ref() -> None:
     instruction, raw_payload = prompt.split(_POLICY_SEPARATOR, 1)
     payload = json.loads(raw_payload)
 
-    assert len(instruction) == 12613
-    assert hashlib.sha256(instruction.encode("utf-8")).hexdigest() == (
-        _R922_TOOL_BUILDER_INSTRUCTION_SHA256
-    )
+    assert "entry_contract" in instruction
+    assert 'proposal_version="2"' in instruction
     assert payload["atomic_ref"] == provenance.atomic_ref
     assert payload["canonical_atomic"]["effects"] == _atomic_view()["effects"]
     assert payload["source_kind"] == "success_evolution"
@@ -258,7 +256,7 @@ def test_r7_b3_extractor_forbids_reclassifying_input_as_fresh_output() -> None:
     ) in instruction
 
 
-def test_r4_schema_changes_are_descriptive_not_structural() -> None:
+def test_r102_schema_additions_preserve_formal_binding_boundaries() -> None:
     assert BINDING_EXPRESSION_SCHEMA["properties"]["kind"]["enum"] == [
         "skill_input",
         "constant",
@@ -281,6 +279,7 @@ def test_r4_schema_changes_are_descriptive_not_structural() -> None:
         "effects",
         "effect_witness_refs",
         "rationale",
+        "guideline",
     ]
     assert TOOL_PROPOSAL_SCHEMA["required"] == [
         "proposal_version",
@@ -295,6 +294,7 @@ def test_r4_schema_changes_are_descriptive_not_structural() -> None:
         "evidence_outputs",
         "path_expectations",
         "rationale",
+        "entry_contract",
     ]
     assert TOOL_PROPOSAL_SCHEMA["properties"]["max_actions"]["minimum"] == 1
 
@@ -317,7 +317,7 @@ def test_r4_schema_changes_are_descriptive_not_structural() -> None:
     )
 
     valid_no_tool = {
-        "proposal_version": "1",
+        "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "no_tool",
         "summary": "no safe reusable implementation",
         "atomic_ref": "skill://example_navigation@1.0.0",

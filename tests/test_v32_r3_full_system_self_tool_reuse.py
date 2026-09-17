@@ -113,6 +113,7 @@ class Gate36Harness(LocatingHarness):
 def _config(tmp_path: Path) -> dict[str, Any]:
     return {
         "schema_version": 3,
+        "repair_revision": "R10.2",
         "method_patch": "3.2",
         "data_dir": str(tmp_path / "bank"),
         "trace_data_dir": str(tmp_path / "traces"),
@@ -257,7 +258,7 @@ def _tool_builder_reply(request: FakeProviderRequest) -> dict[str, Any]:
     effects = copy.deepcopy(list(atomic["effects"]))
     predicate = str(effects[0]["predicate"])
     common = {
-        "proposal_version": "1",
+        "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
         "atomic_ref": "skill://gate36_builder_boundary@1.0.0",
         "inputs": _input_specs(atomic),
@@ -279,6 +280,10 @@ def _tool_builder_reply(request: FakeProviderRequest) -> dict[str, Any]:
     return {
         **common,
         "summary": "take target object",
+        "entry_contract": {"conditions": [], "grounding_constraints": [{
+            "constraint_id": "take_entry", "kind": "harness_affordance", "action_type": "TAKE",
+            "argument_mapping": {role: {"kind": "skill_input", "source_role": role} for role in ("object", "location")},
+            "required_resolution": "relation_verified"}]},
         "program": [
             {
                 "node_id": "take",
@@ -361,7 +366,7 @@ def _e1_reply(request: FakeProviderRequest) -> dict[str, Any]:
             )
             target = str(arguments["target"])
             concrete_args = dict(fact["args"])
-            occurrences.append({
+            occurrences.append({"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
                 "phase_id": f"locate_{index}",
                 "intent": "locate target entity",
                 "event_start": index,
@@ -403,7 +408,7 @@ def _e1_reply(request: FakeProviderRequest) -> dict[str, Any]:
             )
             target = str(arguments["object"])
             location = str(arguments["location"])
-            occurrences.append({
+            occurrences.append({"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
                 "phase_id": f"take_{index}",
                 "intent": "take target object",
                 "event_start": index,
@@ -468,9 +473,11 @@ def _providers() -> tuple[dict[str, ScriptedAgentProvider], dict[str, ScriptedAg
         FakeReply.tool("environment_action", {"action_id": "r002_a001"}),
     )
     providers["runtime_preparation"].enqueue(
+        FakeReply.tool('request_runtime_automation', {'reason': 'systematic search', 'intended_capability': 'locate target'}),
         _RuntimeLocateDraftReply(),
         FakeReply.tool("environment_action", {
             "action_id": "r001_a002", "intent": "attempt_current_atomic",
+            "candidate_bindings": {"object": "apple_1", "location": _room_for("apple_1")},
         }),
         # Task B's support ref is not known until Task A is persisted; this
         # provider is extended at that explicit phase boundary below.
@@ -565,6 +572,7 @@ def test_gate36_full_system_runtime_self_tool_persists_and_reuses(tmp_path: Path
             }),
             FakeReply.tool("environment_action", {
                 "action_id": "r001_a002", "intent": "attempt_current_atomic",
+                "candidate_bindings": {"object": "mug_1", "location": _room_for("mug_1")},
             }),
         )
         builder_request_start = len(providers["tool_builder"].requests)
@@ -606,16 +614,16 @@ def test_gate36_full_system_runtime_self_tool_persists_and_reuses(tmp_path: Path
             for change in trace_b.binding_changes
         )
         current_occurrence_id = str(trace_b.node_records[0].occurrence_id)
-        downstream_span = next(
-            span for span in trace_b.runtime_spans
+        downstream_spans = {
+            span.span_id for span in trace_b.runtime_spans
             if span.kind == "runtime_preparation"
             and span.occurrence_id == current_occurrence_id
-        )
+        }
         downstream_take = next(
             action for action in trace_b.environment_actions
             if action.action_type == "TAKE"
         )
-        assert downstream_take.span_id == downstream_span.span_id
+        assert downstream_take.span_id in downstream_spans
         assert downstream_take.arguments == {
             "object": "mug_1",
             "location": _room_for("mug_1"),

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 from dataclasses import replace
 from types import SimpleNamespace
@@ -193,7 +194,7 @@ def test_atomicizer_accepts_state_derived_observed_with_witness() -> None:
     )
     assert result[0].effects[0].predicate == "object.observed_with"
     assert any(ref.startswith("action:a2:") for ref in result[0].validation_refs)
-    compiled = ToolCompiler().compile(result)[0]
+    compiled = compile_fixture(result)[0]
     assert set(compiled.tool.signature["required"]) == {"object", "light"}
     admitted_tool = Admission(ValidationEngine().tool).admit_tool(
         compiled.tool, replay=lambda _tool, _case: True,
@@ -337,7 +338,7 @@ def test_invalid_concrete_argument_rejects_only_its_e1_occurrence() -> None:
     assert [item.phase_id for item in canonical] == ["valid_take"]
     assert [item["phase_id"] for item in rejections] == ["invalid_take"]
     assert "lacks one reusable input/output derivation" in rejections[0]["error"]
-    assert len(ToolCompiler().compile(canonical)) == 1
+    assert len(compile_fixture(canonical)) == 1
 
 
 def _take_canonical():
@@ -354,7 +355,7 @@ def _take_canonical():
 def test_implementation_admission_is_fail_closed_on_mapping_and_output(
     tmp_path,
 ) -> None:
-    compiled = ToolCompiler().compile([_take_canonical()])[0]
+    compiled = compile_fixture([_take_canonical()])[0]
     assert compiled.atomic.validator_spec["output_identity"] == [{
         "output_role": "held_object",
         "input_role": "item",
@@ -498,7 +499,7 @@ def test_same_atomic_contract_different_tools_align_same_atomic(tmp_path) -> Non
             ToolRef(tool_id, "1.0.0"),
             command,
             {"arguments": ["object"]},
-            {"input_roles": ["object"], "output_roles": ["held_object"]},
+            {"entry_contract": {"conditions": [], "grounding_constraints": []}, "input_roles": ["object"], "output_roles": ["held_object"]},
             "harness_action",
             {"action_type": command},
             [],
@@ -954,6 +955,7 @@ def test_frozen_trace_output_cannot_be_inside_snapshot(tmp_path) -> None:
     trace_dir = snapshot / "eval_output"
     config = {
         "schema_version": 3,
+        "repair_revision": "R10.2",
         "data_dir": str(snapshot),
         "trace_data_dir": str(trace_dir),
         "condition": "full",

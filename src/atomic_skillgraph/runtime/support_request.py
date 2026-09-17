@@ -1,7 +1,8 @@
-"""Task-local proof and consumer-input handoff shared by both Support routes."""
+"""Task-local proof and consumer-input handoff for Agent-selected Support."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import copy
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..core.bindings import BindingResolution, BindingSource, BindingStatus, RuntimeBinding, resolution_satisfies
@@ -28,8 +29,39 @@ class SupportRequest:
 
 
 def consumer_constraints(compiler, atomic):
-    return [constraint for implementation in compiler.skills.implementations_for(atomic.ref, mode=compiler.mode)
-            for constraint in getattr(implementation, 'grounding_constraints', ())]
+    """Read formal entry constraints, translating the declared Tool input map.
+
+    Later serial Tools may consume future outputs: they cannot authorize a
+    parent-input handoff now. No ACTION body is inspected or inferred here.
+    """
+    from ..core.bindings import BindingExprKind, BindingExpression, GroundingConstraint
+    from ..tooling.entry_contract import normalize_entry_contract
+    result = []
+    for implementation in compiler.skills.implementations_for(atomic.ref, mode=compiler.mode):
+        result.extend(implementation.grounding_constraints)
+        bindings = implementation.tool_bindings
+        if not bindings:
+            continue
+        first = min(bindings, key=lambda binding: binding.order)
+        tool = compiler.tools.get(first.tool_ref)
+        try:
+            entry = normalize_entry_contract(tool.interface.get('entry_contract'), tool.signature.get('properties', {}))
+        except (ValueError, TypeError):
+            continue  # Historical tools without an entry declaration confer no authority.
+        for raw in entry['grounding_constraints']:
+            constraint = GroundingConstraint(**raw)
+            mapping = {}
+            for role, expression in constraint.argument_mapping.items():
+                if expression.kind is BindingExprKind.CONSTANT:
+                    mapping[role] = expression
+                else:
+                    source = first.parameter_mapping.get(expression.source_role)
+                    if source is None or source.kind not in {BindingExprKind.SKILL_INPUT, BindingExprKind.CONSTANT}:
+                        break
+                    mapping[role] = copy.deepcopy(source)
+            else:
+                result.append(replace(constraint, argument_mapping=mapping))
+    return result
 
 
 def consumer_relations(request, consumer_atomic, ctx):
@@ -252,6 +284,9 @@ def validate_transfer(request, consumer_atomic, outputs, ctx):
 
 
 def transfer_inputs(request, consumer_atomic, result, ctx):
+    if not result.atomic_effect_passed or not result.atomic_witness_refs:
+        return _fail(ctx, 'support_input_transfer_rejects', 'atomic_effect_witness_missing',
+                     'validated support inputs require actual Atomic witnesses')
     report = validate_transfer(request, consumer_atomic, result.validated_outputs, ctx)
     if not report.passed:
         return report
@@ -273,3 +308,37 @@ def transfer_inputs(request, consumer_atomic, result, ctx):
         'mapping_evidence': to_primitive(request.mapping_evidence), 'witness_refs': list(result.atomic_witness_refs),
         'revision': ctx.world_revision})
     return report
+
+
+
+def mapped_support_bindings(producer, input_mapping, anchor_inputs, occurrence, store):
+    """Read the explicit helper input mapping without selecting new values.
+
+    An identity output cannot discover an unknown consumer entity by choosing
+    an unrelated helper affordance. A declared semantic-output constraint may
+    instead pass the consumer's stable semantic intent to a discovery input.
+    Unmapped/insufficient required inputs remain an Agent breakpoint.
+    """
+    parent = store.snapshot_for_node(occurrence)
+    result = {}
+    for spec in producer.inputs:
+        source = input_mapping.get(spec.name)
+        anchor = store.semantic_anchor_for(occurrence, source) if source else None
+        binding = (anchor if spec.name in anchor_inputs else parent.get(source)) if source else None
+        if (binding is None or binding.status is not BindingStatus.GROUNDED) and anchor is not None:
+            binding = anchor
+        if binding is None or binding.status is not BindingStatus.GROUNDED:
+            if source:
+                return None
+            continue
+        if not semantic_types_compatible(binding.semantic_type, spec.semantic_type):
+            return None
+        if not resolution_satisfies(binding.resolution, spec.required_resolution):
+            if anchor is None or spec.name in anchor_inputs:
+                return None
+            # A stable task/graph semantic intent is safe to carry to the
+            # ordinary resolver, but is NOT promoted to concrete authority.
+            # A missing intent (e.g. unknown station) cannot take this path.
+            binding = anchor
+        result[spec.name] = replace(copy.deepcopy(binding), role=spec.name)
+    return result

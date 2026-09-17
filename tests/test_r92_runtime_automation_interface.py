@@ -11,8 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from atomic_skillgraph.agents.runtime_prompt_texts import (
-    PREPARATION_PROMPT,
-    SEEDED_PROMPT,
+    R10_STEP_PROMPT,
 )
 from atomic_skillgraph.agents.session import ReplayAgentSession
 from atomic_skillgraph.agents.structured_submission import (
@@ -81,18 +80,6 @@ def _first_user_payload(ctx, session_type: str) -> dict:
     return json.loads(encoded)
 
 
-def test_runtime_prompts_do_not_misclassify_bounded_semantic_search() -> None:
-    clarification = (
-        "A bounded systematic check of public candidate sources for a missing "
-        "required binding can be mechanical even though the target is semantic."
-    )
-    for prompt in (PREPARATION_PROMPT, SEEDED_PROMPT):
-        assert clarification in prompt
-        assert "preconditions may reference declared inputs only" in prompt
-        assert "effects may reference declared inputs and outputs" in prompt
-        assert "Use $role references" in prompt
-        assert "never copied runtime values" in prompt
-        assert "do not automate merely to use automation" in prompt
 
 
 def test_runtime_draft_schema_explains_role_reference_derivation() -> None:
@@ -107,51 +94,6 @@ def test_runtime_draft_schema_explains_role_reference_derivation() -> None:
     assert "angle-bracket placeholder" in effect_help
 
 
-@pytest.mark.parametrize(
-    ("session_kind", "session_type"),
-    [
-        ("runtime_preparation", "RuntimePreparationSession"),
-        ("runtime_seeded", "SeededSession"),
-    ],
-)
-def test_first_runtime_request_projects_complete_public_interface(
-    session_kind: str,
-    session_type: str,
-) -> None:
-    factory = FakeAgentFactory()
-    factory.enqueue(session_kind, [
-        FakeReply.tool(
-            "report_runtime_status", {"status": "cannot_resolve"},
-        ),
-    ])
-    runtime, ctx, occurrence, invocations = _context(factory)
-
-    if session_kind == "runtime_preparation":
-        runtime.node_executor.run_preparation_session(
-            occurrence, invocations, ctx,
-        )
-    else:
-        runtime.node_executor.run_seeded_fresh(occurrence, ctx)
-
-    payload = _first_user_payload(ctx, session_type)
-    interface = payload["runtime_automation_interface"]
-    assert interface["schema_version"] == "runtime_automation_interface_v1"
-    assert interface["source_occurrence_id"] == occurrence.occurrence_id
-    assert interface["primitive_actions"]
-    assert interface["predicate_vocabulary"]
-    assert {
-        item["kind"] for item in interface["input_binding_kinds"]
-    } == set(RUNTIME_INPUT_BINDING_KINDS)
-    from atomic_skillgraph.tooling.runtime_interface import RUNTIME_OUTPUT_DERIVATION_RULES
-    assert interface["fresh_output_rules"] == {
-        "derivation_contract": RUNTIME_OUTPUT_DERIVATION_RULES,
-        "future_effect_witness_allowed": True,
-        "existing_output_witness_required_at_r0": False,
-        "outputs_must_be_validated_after_trial": True,
-    }
-    assert interface["trial_scope"] == "task_local"
-    assert len(ctx.trace_builder.trace.environment_actions) == 0
-    factory.assert_exhausted()
 
 
 def _future_output_draft(occurrence_id: str) -> RuntimeAutomationAtomicDraft:
@@ -492,60 +434,6 @@ def test_lightweight_store_projects_empty_sources_without_weakening_r0() -> None
     ]
 
 
-def test_a07_multiturn_runtime_uses_one_static_interface_and_latest_sources() -> None:
-    factory = FakeAgentFactory()
-    runtime, ctx, occurrence, invocations = _context(factory)
-    action_id = ctx.action_catalog[0].action_id
-    factory.enqueue("runtime_preparation", [
-        FakeReply.tool("environment_action", {
-            "action_id": action_id,
-            "intent": "explore",
-        }),
-        FakeReply.tool(
-            "report_runtime_status", {"status": "cannot_resolve"},
-        ),
-    ])
-
-    runtime.node_executor.run_preparation_session(occurrence, invocations, ctx)
-
-    record = next(
-        item for item in ctx.trace_builder.trace.agent_sessions
-        if item.session_type == "RuntimePreparationSession"
-    )
-    messages = record.snapshot["messages"]
-    user_payload = json.loads(
-        next(item["content"] for item in messages if item["role"] == "user")
-        .split("\n\nPOLICY_CONTEXT_JSON\n", 1)[1]
-    )
-    tool_payloads = [
-        json.loads(item["content"])
-        for item in messages
-        if item["role"] == "tool"
-    ]
-    dynamic = next(
-        item for item in tool_payloads
-        if "runtime_automation_interface_update" in item
-    )
-
-    assert user_payload["runtime_automation_interface"]["predicate_vocabulary"]
-    assert "runtime_automation_interface" not in dynamic
-    assert dynamic["runtime_automation_interface_update"] == (
-        build_runtime_automation_interface_update(
-            occurrence, ctx.binding_store,
-        )
-    )
-    assert dynamic["action_catalog"]
-    assert dynamic["action_catalog"]["revision"] == dynamic["new_revision"]
-    assert dynamic["action_catalog"]["actions"]
-    assert sum(
-        "predicate_vocabulary" in str(item.get("content", ""))
-        for item in messages
-    ) == 1
-    encoded_payloads = json.dumps(
-        [user_payload, *tool_payloads], sort_keys=True,
-    ).casefold()
-    assert '"program"' not in encoded_payloads
-    factory.assert_exhausted()
 
 
 def test_a07_request_audit_combines_static_interface_with_latest_update() -> None:

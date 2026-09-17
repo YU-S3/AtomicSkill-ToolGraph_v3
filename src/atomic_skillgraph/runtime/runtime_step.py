@@ -21,7 +21,6 @@ class RuntimeStepResult:
     result: Any = None
     failure_code: str = ""
     automation_request: dict[str, Any] | None = None
-    control_owner: str = "executor"
 
 
 def automation_request_tool() -> NativeToolSpec:
@@ -38,17 +37,20 @@ def automation_request_tool() -> NativeToolSpec:
 
 def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                      invocations: list[Any], support_candidates: list[Any],
-                     *, bootstrap: bool = False, draft_request: dict | None = None) -> RuntimeStepResult:
+                     *, bootstrap: bool = False, draft_request: dict | None = None,
+                     atomic_override: Any = None, plan_context_plan: Any = None) -> RuntimeStepResult:
     if mode not in {"preparation", "seeded"}:
         raise ValueError(f"unsupported RuntimeStep mode: {mode}")
-    session = executor.session_factory(f"runtime_step_{mode}", occurrence.occurrence_id)
+    session_kind = "provisional_seeded" if atomic_override is not None else mode
+    session = executor.session_factory(f"runtime_step_{session_kind}", occurrence.occurrence_id)
     record = executor._record_session_start(
         session, "RuntimePreparationSession" if mode == "preparation" else "SeededSession",
         occurrence.occurrence_id, ctx,
     )
     span = ctx.trace_builder.start_span(f"runtime_{mode}", occurrence.occurrence_id)
-    atomic = executor.invocation_compiler.skills.get_atomic(occurrence.node_ref)
-    state = executor._activate_occurrence_state(occurrence, atomic, invocations, ctx)
+    atomic = atomic_override or executor.invocation_compiler.skills.get_atomic(occurrence.node_ref)
+    state = executor._activate_occurrence_state(occurrence, atomic, invocations, ctx,
+        plan_context_plan=plan_context_plan)
     state = {**state, "last_step_feedback": ctx.runtime_step_feedback.get(occurrence.occurrence_id, {})}
     bindings = ctx.binding_store.runtime_prompt_projection(occurrence, atomic.inputs)
     audit: dict[str, Any] = {}
@@ -82,13 +84,12 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         recent_failed_learned_invocation=ctx.last_failed_invocation,
         projection_audit=audit,
         runtime_step_mode=mode,
-        rejected_candidates=[*sorted(ctx.rejected_runtime_implementations.get(occurrence.occurrence_id, set())),
-                             *current_rejections(ctx, occurrence)],
+        rejected_candidates=current_rejections(ctx, occurrence),
         execution_frame=frame,
     )
     instruction = (
-        "\nR10: This is a fresh one-decision RuntimeStep. Return exactly one native call. "
-        "The graph executor will inspect authoritative state after this step. "
+        "\nR10.2: This is a fresh one-decision RuntimeStep. Return exactly one native call. "
+        "You retain this node until explicit completion or termination; exploration does not authorize automatic invocation. "
         "Use request_runtime_automation to request the separately loaded automation DSL."
     )
     if draft_request:
@@ -117,11 +118,9 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         )
         turn = session.next_turn(prompt, tools=tools)
         executor._record_turn(session, turn, ctx)
+        if not draft_request:
+            executor._mark_prior_trials_parent_continuation(ctx, occurrence, session.session_id)
         call = turn.tool_calls[0]
-        # A fresh provider session is not a policy handoff. This applies even
-        # to cached/ordinary rejected exploration, before dispatching the call.
-        if call.name == "environment_action" and call.arguments.get("intent") == "explore":
-            outcome.control_owner = "agent"
         selected_action = next((item for item in ctx.action_catalog
             if call.name == 'environment_action' and item.action_id == call.arguments.get('action_id')
             and item.revision == ctx.world_revision), None)
@@ -157,12 +156,20 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
             payload, spec = executor._execute_environment_call(
                 call, session, occurrence, ctx, span_id=span.span_id,
                 origin=f"runtime_{mode}", loop_guard=guard, atomic=atomic,
+                plan_context_plan=plan_context_plan,
             )
             if call.arguments["intent"] == "attempt_current_atomic" and payload.get("accepted"):
+                resolutions = []
                 outcome.result = executor._complete_from_current_effect(
                     occurrence, ctx, mode=mode,
-                    preferred_values=executor._environment_effect_preferences(occurrence, ctx, spec),
+                    preferred_values=[],
+                    preferred_bindings=dict(call.arguments.get("candidate_bindings") or {}),
+                    candidate_outputs=dict(call.arguments.get("candidate_outputs") or {}),
+                    atomic_override=atomic, resolution_out=resolutions,
                 )
+                if resolutions:
+                    payload["validation"] = to_primitive(resolutions[-1])
+                    payload["atomic_effect_passed"] = outcome.result is not None
             if payload.get("fallback_required"):
                 outcome.failure_code = "runtime_action_loop_blocked"
         elif call.name == "invoke_support_atomic":
@@ -192,14 +199,6 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
             else:
                 preflight = prepared
             if outcome.result is None and preflight.passed:
-                from .node_gate import precondition_gate
-                gate = precondition_gate(executor, occurrence, compiled, ctx)
-                if not gate.ready:
-                    from ..core.results import ToolCallPreflightResult
-                    preflight = ToolCallPreflightResult(False, str(compiled.implementation.ref),
-                        failure_layer="runtime_binding", failure_code=gate.reason,
-                        message="Atomic preconditions lack current authoritative evidence")
-            if outcome.result is None and preflight.passed:
                 from .invocation_transaction import execute_invocation
                 outcome.result = execute_invocation(executor.implementation_runner,
                     compiled, preflight, occurrence, ctx, agent_prepared=True,
@@ -211,6 +210,16 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
             executor._record_control_call(call, session, occurrence, ctx,
                                          call_kind="implementation_invocation", result=payload)
             if not preflight.passed:
+                from ..traces.schema import ImplementationInvocationRecord
+                rejected = executor.not_started(occurrence,
+                    failure_code=preflight.failure_code, failure_layer=preflight.failure_layer)
+                rejected.implementation_ref = str(compiled.implementation.ref)
+                ctx.trace_builder.trace.implementation_invocations.append(
+                    ImplementationInvocationRecord(
+                        f"preflight_{call.call_id}", occurrence.occurrence_id,
+                        str(compiled.implementation.ref), dict(call.arguments),
+                        to_primitive(preflight), to_primitive(rejected), span.span_id,
+                    ))
                 ctx.record_failed_invocation(
                     occurrence_id=occurrence.occurrence_id,
                     implementation_ref=str(compiled.implementation.ref),
@@ -228,8 +237,26 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                 "accepted", "passed", "error", "message", "failure_code", "stage",
                 "r0_passed", "static_passed", "r1_passed", "preflight_failure_code",
                 "started", "failure_layer", "cached_rejection", "rollback", "trial_failure",
+                "draft_id", "r1_outputs", "r1_witness_refs", "support_occurrence_id",
+                "atomic_effect_passed",
             ) if isinstance(payload, dict) and key in payload},
         }
+        # Carry actual validated helper returns, not a full nested execution
+        # record (which can contain Tool bodies and unbounded trace details).
+        helper_result = payload.get("result") if isinstance(payload, dict) else None
+        if isinstance(helper_result, dict):
+            ctx.runtime_step_feedback[occurrence.occurrence_id]["helper_result"] = {
+                key: helper_result[key] for key in (
+                    "atomic_effect_passed", "validated_outputs", "atomic_witness_refs",
+                    "failure_code", "message", "started",
+                ) if key in helper_result
+            }
+        trial = payload.get("trial") if isinstance(payload, dict) else None
+        if isinstance(trial, dict):
+            ctx.runtime_step_feedback[occurrence.occurrence_id]["trial"] = {
+                key: trial[key] for key in ("draft_id", "r1_outputs", "terminal_interrupted", "failure_feedback")
+                if key in trial
+            }
         if isinstance(payload, dict) and isinstance(payload.get("validation"), dict):
             ctx.runtime_step_feedback[occurrence.occurrence_id].update({
                 key: payload["validation"][key] for key in ("failure_code", "message")
@@ -245,7 +272,6 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
             "session_id": session.session_id, "occurrence_id": occurrence.occurrence_id,
             "mode": mode, "bootstrap": bootstrap, "draft": draft_request is not None,
             "accepted_semantic_turn_count": len(turns),
-            "control_owner_after": outcome.control_owner,
         })
         values = metrics(ctx)
         values["runtime_step_max_semantic_turns"] = max(

@@ -50,6 +50,14 @@ class ToolRunner:
     ) -> ToolExecutionResult:
         before_revision = ctx.world_revision
         attempt_id = f"tool_attempt_{uuid.uuid4().hex}"
+        from ..tooling.entry_contract import check_tool_entry
+        entry = check_tool_entry(tool, bindings, ctx.harness, ctx.evidence_store, ctx.world_revision)
+        if not entry.passed:
+            return ToolExecutionResult(
+                str(tool.ref), False, False, False, False, 0, None, [], {},
+                before_revision, before_revision, "tool", entry.failure_codes[0],
+                "; ".join(entry.messages),
+            )
         local = self.validator.validate_asset(tool)
         if not local.passed:
             return ToolExecutionResult(
@@ -962,9 +970,7 @@ class ToolRunner:
                 str(tool.ref), to_primitive(result), span_id,
             ))
             ctx.trace_builder.trace.tool_executions[-1].result["interrupted_by_budget"] = True
-            if execution_scope != "runtime_trial" or getattr(ctx, 'runtime_config', {}).get('rollback_automatic_execution_failure'):
-                raise
-            return result
+            raise
         except ValueError as exc:
             raw_code = str(exc).split(":", 1)[0]
             if not (

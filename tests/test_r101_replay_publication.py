@@ -1,3 +1,4 @@
+from fixtures.r102 import compile_fixture
 """R10.1 A: rejected proposal audit is not registered lifecycle evidence."""
 import copy
 from dataclasses import replace
@@ -37,7 +38,7 @@ def observation(system, trace, tool, case_number, passed):
 def test_A01_A02_A03_mixed_replay_registration(tmp_path, registered):
     with AtomicSkillGraphSystem(_system_config(tmp_path), harness=FakeHarness()) as system:
         trace = system.orchestrator.create_trace_builder(fake_task('mixed', 'apple_1')).trace
-        tool = ToolCompiler().compile([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
+        tool = compile_fixture([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
         a = replace(tool, ref=ToolRef('rejected', '1.0.0'))
         observation(system, trace, a, 1, True)
         observation(system, trace, a, 2, False)
@@ -65,7 +66,7 @@ def test_A01_A02_A03_mixed_replay_registration(tmp_path, registered):
 def test_A04_canonical_identity_is_regenerated(tmp_path):
     with AtomicSkillGraphSystem(_system_config(tmp_path), harness=FakeHarness()) as system:
         trace = system.orchestrator.create_trace_builder(fake_task('alias', 'apple_1')).trace
-        tool = ToolCompiler().compile([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
+        tool = compile_fixture([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
         system.tools.register(tool)
         event = observation(system, trace, replace(tool, ref=ToolRef('temporary', '1.0.0')), 1, False)
         resolve(system, trace)
@@ -80,7 +81,7 @@ def test_A04_canonical_identity_is_regenerated(tmp_path):
 def test_A02_all_unregistered_failures_remain_trace_only(tmp_path):
     with AtomicSkillGraphSystem(_system_config(tmp_path), harness=FakeHarness()) as system:
         trace = system.orchestrator.create_trace_builder(fake_task('all_failed', 'apple_1')).trace
-        tool = ToolCompiler().compile([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
+        tool = compile_fixture([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
         observation(system, trace, tool, 1, False)
         before = artifact_audit_snapshot(system.database)
         resolve(system, trace)
@@ -97,7 +98,7 @@ def test_A02_all_unregistered_failures_remain_trace_only(tmp_path):
 def test_A06_batch_precheck_is_atomic(tmp_path):
     with AtomicSkillGraphSystem(_system_config(tmp_path), harness=FakeHarness()) as system:
         trace = system.orchestrator.create_trace_builder(fake_task('batch', 'apple_1')).trace
-        tool = ToolCompiler().compile([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
+        tool = compile_fixture([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
         system.tools.register(tool)
         observation(system, trace, tool, 1, True)
         observation(system, trace, replace(tool, ref=ToolRef('unresolved', '1.0.0')), 2, False)
@@ -109,7 +110,7 @@ def test_A06_batch_precheck_is_atomic(tmp_path):
 def test_A06_existing_identity_with_wrong_signature_is_not_rebound(tmp_path):
     with AtomicSkillGraphSystem(_system_config(tmp_path), harness=FakeHarness()) as system:
         trace = system.orchestrator.create_trace_builder(fake_task('conflict', 'apple_1')).trace
-        tool = ToolCompiler().compile([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
+        tool = compile_fixture([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
         system.tools.register(tool)
         altered = copy.deepcopy(tool)
         altered.artifact['steps'] *= 2
@@ -136,7 +137,7 @@ def test_A08_mixed_candidates_close_through_full_run_task(tmp_path, monkeypatch)
         def mixed_candidates(owner, trace, task, observations):
             # Fixed replay outcomes at the promotion seam; all task execution,
             # immutable persistence, publication and projection are production.
-            a = ToolCompiler().compile([_source('mixed', 'mixed_trace', 'object', 'apple_1')])[0].tool
+            a = compile_fixture([_source('mixed', 'mixed_trace', 'object', 'apple_1')])[0].tool
             a = replace(a, ref=rejected_ref)
             b = copy.deepcopy(a)
             b.ref = accepted_ref

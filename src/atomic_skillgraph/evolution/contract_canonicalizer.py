@@ -657,6 +657,8 @@ class AtomicContractCanonicalizer:
             interface["output_schema"] = _rewrite_schema_roles(
                 interface["output_schema"], output_roles,
             )
+        if "entry_contract" in interface:
+            interface["entry_contract"] = _rewrite_nested(interface["entry_contract"], input_roles)
         artifact = copy.deepcopy(tool.artifact)
         if tool.artifact_kind == "tool_ir_v1":
             artifact = _rewrite_tool_ir(artifact, input_roles, output_roles)

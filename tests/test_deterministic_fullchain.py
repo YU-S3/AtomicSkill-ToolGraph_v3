@@ -6,6 +6,7 @@ must consume knowledge produced by earlier episodes.
 """
 
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 import json
 from collections.abc import Mapping
@@ -173,7 +174,7 @@ def test_scripted_provider_matches_replay_session_protocol() -> None:
 
 def _e1_take(item: str, *, start: int = 0) -> dict:
     event_id = f"r{start:03d}_a001"
-    return {
+    return {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": f"take_{start}",
         "intent": "take target item",
         "event_start": start,
@@ -203,7 +204,7 @@ def _e1_take(item: str, *, start: int = 0) -> dict:
 
 def _e1_examine(item: str, *, start: int) -> dict:
     event_id = f"r{start:03d}_a001"
-    return {
+    return {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
         "phase_id": f"examine_{start}",
         "intent": "observe held item",
         "event_start": start,
@@ -291,7 +292,7 @@ def _extract_and_register(
     aligner = Aligner(skills, tools)
     compiled: list[CompiledKnowledge] = []
     staged_occurrences = []
-    for item in ToolCompiler().compile(canonical):
+    for item in compile_fixture(canonical):
         bundle = aligner.stage_atomic(
             item.atomic, item.tool, item.implementation,
         )
@@ -477,23 +478,27 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     assert tools.get(tool_ref).status is ToolStatus.CANDIDATE
     assert skills.get_composite(composite_ref).status is SkillStatus.CANDIDATE
 
-    # Episode 2: a new concrete instance uses that Candidate through P0 and an
-    # autonomous Direct.  No Planner or Runtime Agent turn is allowed here.
-    usage_before_direct = factory.usage_ledger.total().total_tokens
-    episode2 = runtime.run_task(fake_task("episode-2", "apple_2"))
-    usage_after_direct = factory.usage_ledger.total().total_tokens
-    assert episode2.runtime_plan["source"] == "stored_composite"
-    assert episode2.runtime_plan["source_composite_ref"] == str(composite_ref)
-    assert episode2.node_records[0].status is NodeExecutionStatus.DIRECT_AUTONOMOUS_SUCCESS
+    # Episode 2: Candidate deployment requires an explicit Agent choice.
+    # Source-replay Tool returns its declared input identity; validate it normally.
     learned_input_role = skills.get_atomic(atomic_ref).inputs[0].name
     learned_output_role = skills.get_atomic(atomic_ref).outputs[0].name
-    assert episode2.node_records[0].validated_outputs == {
-        learned_output_role: "apple_2",
-    }
-    assert episode2.graph_self_sufficient_success is True
-    assert episode2.implementation_direct_success is True
-    assert episode2.agent_turns == []
-    assert usage_after_direct == usage_before_direct
+    factory.enqueue("runtime_preparation",
+        [FakeReply.tool("$learned", {learned_input_role: "apple_2"})])
+    usage_before_direct = factory.usage_ledger.total().total_tokens
+    episode2 = runtime.run_task(fake_task("episode-2", "apple_2"))
+    assert episode2.runtime_plan["source"] == "stored_composite"
+    assert episode2.runtime_plan["source_composite_ref"] == str(composite_ref)
+    assert episode2.benchmark_success
+    guidance = skills.get_atomic(atomic_ref).guideline
+    assert guidance == _e1_take("unused")["guideline"]  # E1 -> persisted Atomic.
+    actual_prompt = json.dumps(episode2.agent_sessions[0].snapshot["messages"])
+    assert guidance["steps"][0] in actual_prompt
+    actual_context = json.loads(episode2.agent_sessions[0].snapshot["messages"][0]["content"].split("POLICY_CONTEXT_JSON\\n".replace("\\n", "\n"), 1)[1])
+    assert actual_context["current_state_snapshot"]["current_atomic"]["skill_guidance"]["soft_reference"] is True
+    assert episode2.node_records[0].status is NodeExecutionStatus.DIRECT_AGENT_PREPARED_SUCCESS
+    assert episode2.node_records[0].validated_outputs == {learned_output_role: 'apple_2'}
+    assert len(episode2.tool_executions) == 1
+    assert factory.usage_ledger.total().total_tokens > usage_before_direct
     direct_events = _persist_and_credit(
         episode2,
         trace_store,
@@ -515,23 +520,16 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     assert replay.duplicate_count == len(direct_events)
     assert ledger.count() == count_before_replay
 
-    # Episode 3: the task declares the role but withholds its episode identity.
-    # Preparation proposes a schema-valid but ungrounded instance, explicitly
-    # stops, and a fresh Seeded session solves via environment_action.
-    factory.enqueue(
-            "runtime_preparation",
-            [
-                FakeReply.tool("$learned", {learned_input_role: "ghost_9"}),
-            FakeReply.tool("report_runtime_status", {"status": "cannot_resolve"}),
-        ],
-    )
-    factory.enqueue(
-        "runtime_seeded",
-        [FakeReply.tool("environment_action", {
-            "action_id": "r000_a001",
-            "intent": "attempt_current_atomic",
-        })],
-    )
+    # Episode 3: a rejected explicit invocation returns to the same node
+    # Agent; it can finish natively without a second legacy controller.
+    factory.enqueue("runtime_preparation", [
+        FakeReply.tool("$learned", {learned_input_role: "ghost_9"}),
+        FakeReply.tool("environment_action", {
+            "action_id": "r000_a001", "intent": "attempt_current_atomic",
+            "candidate_bindings": {learned_input_role: "banana_1"},
+            "candidate_outputs": {learned_output_role: "banana_1"},
+        }),
+    ])
     tool_started_before = projection.stats(str(tool_ref), "tool").started_count
     implementation_failures_before = projection.stats(
         str(implementation_ref), "implementation"
@@ -541,10 +539,9 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     # episode identity. Runtime Preparation must still ground banana_1.
     task3.context["semantic_bindings"] = {"item": None}
     episode3 = runtime.run_task(task3)
-    assert episode3.node_records[0].status is NodeExecutionStatus.SEEDED_SUCCESS
+    assert episode3.node_records[0].status is NodeExecutionStatus.AGENT_COMPLETED_BEFORE_INVOCATION
     assert episode3.node_records[0].direct_result["started"] is False
-    assert episode3.node_records[0].seeded_result["started"] is False
-    assert episode3.node_records[0].seeded_result["atomic_effect_passed"] is True
+    assert episode3.node_records[0].direct_result["atomic_effect_passed"] is True
     assert episode3.tool_executions == []
     rejected_calls = [
         call
@@ -554,15 +551,13 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     ]
     assert len(rejected_calls) == 1
     assert rejected_calls[0].preflight_result["failure_code"] == (
-        "runtime_semantic_anchor_mismatch"
+        "runtime_binding_not_concrete"
     )
     preparation = [item for item in episode3.agent_sessions if item.session_type == "RuntimePreparationSession"]
-    seeded = [item for item in episode3.agent_sessions if item.session_type == "SeededSession"]
-    assert len(preparation) == len(seeded) == 1
-    assert preparation[0].session_id != seeded[0].session_id
-    assert preparation[0].snapshot["session_kind"] == "runtime_preparation"
-    assert seeded[0].snapshot["session_kind"] == "runtime_seeded"
-    assert all("ToolAsset" not in str(message) for message in seeded[0].snapshot["messages"])
+    assert len(preparation) == 2
+    assert preparation[0].session_id != preparation[1].session_id
+    assert not any(item.session_type == "SeededSession" for item in episode3.agent_sessions)
+    assert all("ToolAsset" not in str(item.snapshot["messages"]) for item in preparation)
 
     episode3_events = _persist_and_credit(
         episode3,
@@ -584,7 +579,7 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
     assert projection.stats(str(tool_ref), "tool").started_count == tool_started_before
     assert any(
         item.artifact_ref == str(atomic_ref)
-        and item.event is EvidenceEventType.SEEDED_SUCCESS
+        and item.event is EvidenceEventType.AGENT_NODE_SUCCESS
         for item in episode3_events
     )
 
@@ -595,9 +590,11 @@ def test_deterministic_no_api_fullchain_four_episode_smoke(tmp_path: Path) -> No
         "runtime_dynamic",
         [FakeReply.tool("environment_action", {"action_id": "r001_a001"})],
     )
+    factory.enqueue("runtime_preparation",
+        [FakeReply.tool("$learned", {learned_input_role: "mug_1"})])
     task4 = fake_task("episode-4", "mug_1", requires_rescue=True)
     episode4 = runtime.run_task(task4)
-    assert episode4.node_records[0].status is NodeExecutionStatus.DIRECT_AUTONOMOUS_SUCCESS
+    assert episode4.node_records[0].status is NodeExecutionStatus.DIRECT_AGENT_PREPARED_SUCCESS
     assert episode4.node_contract_success is True
     assert episode4.graph_full_completion is True
     assert episode4.task_rescue_required is True

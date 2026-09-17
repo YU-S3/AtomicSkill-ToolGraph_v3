@@ -137,7 +137,7 @@ def test_mapping_parsers_preserve_explicit_domain_and_default_to_world(
     assert cold_view.effects[0].effect_domain is EffectDomain.EVIDENCE
 
     failure_proposal = _atomic_occurrence_proposal(FailureAtomicProposal(
-        atomic_proposal={
+        atomic_proposal={"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
             "phase_id": "locate",
             "intent": "locate entity",
             "event_start": 0,

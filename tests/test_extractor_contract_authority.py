@@ -269,6 +269,9 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
         supports_constraint=lambda *_args, **_kwargs: True,
     )
     system.tool_compiler = ToolCompiler()
+    from fixtures.r102 import compile_fixture
+    # E1/E2 unit scope: an explicitly authored fixture executable, not legacy production fallback.
+    system._build_tool_for_occurrence = lambda occurrence, *a, **kw: (compile_fixture([occurrence])[0], {})
     system.admission = Admission(ValidationEngine().tool)
     system.credit = CreditAssigner()
     system.ledger = EvidenceLedger(database)
@@ -474,6 +477,8 @@ def test_e2_rejection_does_not_discard_prepared_atomic(
     system.aligner = Aligner(system.skills, system.tools)
     system.tool_compiler = ToolCompiler()
     system._extractor_session = lambda _task_id: object()
+    from fixtures.r102 import compile_fixture
+    system._build_tool_for_occurrence = lambda occurrence, *a, **kw: (compile_fixture([occurrence])[0], {})
     system.harness = SimpleNamespace(
         task_contract=lambda _task: TaskContract(target_effects=[
             SemanticPredicate("agent.holds", {"object": "item_1"}),

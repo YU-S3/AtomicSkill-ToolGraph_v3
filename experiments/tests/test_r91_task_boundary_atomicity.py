@@ -47,6 +47,7 @@ def _config(
 ) -> dict[str, object]:
     return {
         "schema_version": 3,
+        "repair_revision": "R10.2",
         "data_dir": str(data_dir),
         "trace_data_dir": str(trace_dir),
         "llm": {

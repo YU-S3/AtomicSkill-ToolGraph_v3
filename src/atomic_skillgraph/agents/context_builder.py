@@ -17,14 +17,11 @@ from ..tooling.runtime_interface import public_tool_ir_condition_contract
 from .runtime_policy_projection import project_runtime_payload
 from .runtime_prompt_texts import (
     DYNAMIC_PROMPT,
-    PREPARATION_PROMPT,
-    SEEDED_PROMPT,
     R10_STEP_PROMPT,
 )
 
 
 _ATOMIC_RUNTIME_FIELDS = ("summary", "inputs", "outputs", "preconditions", "effects")
-_ATOMIC_SEEDED_FIELDS = (*_ATOMIC_RUNTIME_FIELDS, "guideline")
 _INVOCATION_FIELDS = ("name", "description", "input_schema")
 _FORBIDDEN_POLICY_KEYS = {
     "validator_only",
@@ -72,8 +69,6 @@ class ContextBuilder:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
         ]
-        if len(invocations) > 3:
-            raise ValueError("RuntimePreparationSession may expose at most 3 implementations")
         ready = (
             dict(execution_ready_bindings)
             if execution_ready_bindings is not None
@@ -84,7 +79,7 @@ class ContextBuilder:
             if missing_or_insufficient_bindings is not None
             else list(missing_required_arguments or ())
         )
-        state = dict(current_state_snapshot or {
+        state = copy.deepcopy(current_state_snapshot or {
             "current_atomic": _project(
                 atomic_contract, _ATOMIC_RUNTIME_FIELDS,
             ),
@@ -102,6 +97,12 @@ class ContextBuilder:
             "downstream_obligations": dict(downstream_plan_context or {}),
             "remaining_budget": _compact_budget(remaining_budget),
         })
+        from .skill_guidance import guidance_view
+        state["current_atomic"]["skill_guidance"] = guidance_view(atomic_contract)
+        # Progress/resources are represented once, in the execution frame.
+        if execution_frame is not None:
+            state.pop("remaining_budget", None)
+            state.pop("last_step_feedback", None)
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
             "task_semantic_context": _policy_value(
@@ -138,81 +139,7 @@ class ContextBuilder:
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         return _render(
-            R10_STEP_PROMPT if runtime_step_mode is not None else PREPARATION_PROMPT,
-            projected,
-            sort_keys=False,
-        )
-
-    def seeded_node(
-        self,
-        *,
-        task_goal: str,
-        atomic_contract: Any,
-        certified_bindings: Mapping[str, Any] | None = None,
-        task_semantic_context: Mapping[str, Any] | None = None,
-        current_occurrence_semantic_anchors: Mapping[str, Any] | None = None,
-        execution_ready_bindings: Mapping[str, Any] | None = None,
-        missing_or_insufficient_bindings: Iterable[str] = (),
-        observation: str,
-        action_catalog: Iterable[Any],
-        relevant_action_history: Iterable[Any],
-        remaining_budget: Mapping[str, Any],
-        downstream_plan_context: Mapping[str, Any] | None = None,
-        current_state_snapshot: Mapping[str, Any] | None = None,
-        exploration_memory: Mapping[str, Any] | None = None,
-        recent_failed_learned_invocation: Mapping[str, Any] | None = None,
-        runtime_automation_interface: Mapping[str, Any] | None = None,
-        projection_audit: dict[str, Any] | None = None,
-    ) -> str:
-        ready = (
-            dict(execution_ready_bindings)
-            if execution_ready_bindings is not None
-            else dict(certified_bindings or {})
-        )
-        state = dict(current_state_snapshot or {
-            "current_atomic": _project(
-                atomic_contract, _ATOMIC_SEEDED_FIELDS,
-            ),
-            "semantic_anchors": dict(
-                current_occurrence_semantic_anchors or {}
-            ),
-            "confirmed_bindings": ready,
-            "candidate_bindings": {},
-            "missing_bindings": [
-                str(value) for value in missing_or_insufficient_bindings
-            ],
-            "invalidated_bindings": {},
-            "preconditions": [],
-            "effect_witness_status": {},
-            "learned_invocation_ready": False,
-            "blocking_reasons": [],
-            "downstream_obligations": dict(downstream_plan_context or {}),
-            "remaining_budget": _compact_budget(remaining_budget),
-        })
-        payload = {
-            "task_goal": _text(task_goal, "task_goal"),
-            "task_semantic_context": _policy_value(dict(task_semantic_context or {})),
-            "current_state_snapshot": _policy_value(state),
-            "current_observation": _text(observation, "observation"),
-            "current_action_catalog": _compact_catalog(action_catalog),
-            "exploration_memory": _policy_value(dict(exploration_memory or {})),
-            "recent_accepted_actions": _compact_history(
-                relevant_action_history,
-            ),
-            "recent_failed_learned_invocation": _policy_value(
-                dict(recent_failed_learned_invocation)
-                if recent_failed_learned_invocation is not None
-                else None
-            ),
-            "runtime_automation_interface": _policy_value(
-                dict(runtime_automation_interface or {})
-            ),
-        }
-        projected, audit = project_runtime_payload(payload)
-        if projection_audit is not None:
-            projection_audit.update(copy.deepcopy(audit))
-        return _render(
-            SEEDED_PROMPT,
+            R10_STEP_PROMPT,
             projected,
             sort_keys=False,
         )
@@ -361,6 +288,7 @@ class ContextBuilder:
             """You are the ToolBuilder. Submit exactly one native create_tool call for the supplied Atomic, or submit decision=no_tool. Do not execute environment actions. Do not return a program as prose, Markdown, or standalone JSON.
 
 AUTHORITY AND IMMUTABLE FIELDS
+Submit proposal_version="2" and an explicit entry_contract with conditions and grounding_constraints arrays (including when empty). Declare only external requirements that must already hold before this Tool starts; do not elevate requirements of a conditional internal ACTION or a later serial step to the whole Tool entrance. Entry references use declared inputs or portable constants only, never future outputs or loop locals. Atomic preconditions remain binding; entry_contract cannot override them.
 The supplied canonical_atomic defines the capability. The supplied atomic_ref is its identity. Echo atomic_ref exactly. Echo canonical_atomic.inputs and canonical_atomic.outputs exactly, including each role name, semantic_type, required, runtime_resolvable, and required_resolution. Do not add, delete, rename, or reinterpret a boundary role.
 Only the supplied Harness action/predicate interfaces and structured evidence may justify the implementation. Do not invent an action, predicate, argument role, current fact, or output. Do not copy an episode entity identifier into a reusable program constant.
 
@@ -405,7 +333,7 @@ For a filtered/projected FOR_EACH, ZERO selected entries abort the entire Tool w
 Evidence_outputs are optional: use [] when unnecessary, including when RETURN already carries the required evidence selector. When supplied, each entry must use role=<actual output role> plus the supported source/where/project selector shape; never substitute output_role or bare predicate/argument_role fields. Path expectations describe what must be verified; never claim that an unexecuted path has already passed.
 
 NO_TOOL IS A VALID DECISION, NOT A FAKE EXECUTABLE
-If no safe, reusable, bounded implementation can satisfy the supplied contract, submit decision=no_tool with a specific rationale. Still include every field required by the offered native-tool schema: proposal_version="1", a non-empty summary, the supplied atomic_ref, the supplied input/output lists, program=[], max_actions=1, final_effects=[], evidence_outputs=[], path_expectations=[], and rationale. The value 1 is a schema-compatible placeholder, not permission to execute an action. Code does not compile or run a no_tool proposal.
+If no safe, reusable, bounded implementation can satisfy the supplied contract, submit decision=no_tool with a specific rationale. Still include every field required by the offered native-tool schema: proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []}, a non-empty summary, the supplied atomic_ref, the supplied input/output lists, program=[], max_actions=1, final_effects=[], evidence_outputs=[], path_expectations=[], and rationale. The value 1 is a schema-compatible placeholder, not permission to execute an action. Code does not compile or run a no_tool proposal.
 
 FINAL CHECK BEFORE THE SINGLE SUBMISSION
 Check the immutable boundary, exact final_effects copy, each ACTION's argument/step-effect rules, required RETURN output keys, local scopes, bounds, and portability. If any required value or effect cannot be justified, choose no_tool rather than inventing it. Do this within the existing call and token budget; do not request an additional repair turn.""",
@@ -505,6 +433,9 @@ intent requirements:
   wording;
 - contains no sequence of multiple intents.
 
+For each occurrence, supply portable guideline steps (1-6) and notes (0-2), each at most
+200 characters. These are soft experience suggestions, not mandatory action programs.
+Do not include episode entity identifiers, hidden state, or task-specific answers.
 If known_atomic_contracts contains an equivalent validated contract, reuse its
 canonical_intent. Otherwise propose a new portable intent.
 

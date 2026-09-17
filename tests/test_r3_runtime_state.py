@@ -35,7 +35,7 @@ from atomic_skillgraph.harness.protocol import (
 from atomic_skillgraph.runtime.binding_store import RuntimeBindingStore
 from atomic_skillgraph.runtime.budget import RuntimeBudget
 from atomic_skillgraph.runtime.evidence_store import GroundingEvidenceStore
-from atomic_skillgraph.runtime.grounding_state import IncrementalGroundingAuthority
+from atomic_skillgraph.runtime.grounding_state import GivenInputReader
 from atomic_skillgraph.runtime.loop_guard import ActionLoopGuard
 from atomic_skillgraph.runtime.node_executor import NodeExecutor
 from atomic_skillgraph.runtime.state import OccurrenceAtomicEvidenceState
@@ -162,7 +162,7 @@ def _run_two_effect_actions(
     resolution = ValidationEngine().atomic.resolve_current_effect(
         _atomic((_effect("agent.holds"), _effect("object.heated"))),
         _occurrence(),
-        {},
+        {"object": "pen_1"},
         channel,
         semantic_anchors={"object": "pen"},
         preferred_values=[],
@@ -264,7 +264,7 @@ def _candidate_catalog(
 def _grounding_fixture(
     values: Iterable[str],
 ) -> tuple[
-    IncrementalGroundingAuthority,
+    GivenInputReader,
     AbstractAtomicSkill,
     RuntimeOccurrence,
     Any,
@@ -300,7 +300,7 @@ def _grounding_fixture(
             copy.deepcopy(state)
         ),
     )
-    authority = IncrementalGroundingAuthority(
+    authority = GivenInputReader(
         SimpleNamespace(), ValidationEngine(),
     )
     return (
@@ -312,55 +312,17 @@ def _grounding_fixture(
     )
 
 
-def test_grounding_refresh_records_every_field_and_confirms_only_unique_candidate() -> None:
-    authority, atomic, occurrence, ctx, snapshots = _grounding_fixture(
-        ("pen_1", "mug_1"),
-    )
-
-    first = authority.refresh(occurrence, atomic, [], ctx)
-    assert _GROUNDING_FIELDS.issubset(first)
-    assert first["semantic_anchors"] == {"object": "pen"}
-    assert first["confirmed_bindings"] == {"object": "pen_1"}
-    assert first["candidate_bindings"] == {}
-    assert first["missing_bindings"] == []
-    committed = ctx.binding_store.snapshot_for_node(occurrence)["object"]
-    assert committed.source is BindingSource.HARNESS_EVIDENCE
-    assert committed.status is BindingStatus.GROUNDED
-    assert committed.resolution is BindingResolution.CONCRETE
-
-    # A later world step invalidates concrete proof.  The next refresh must
-    # write another complete snapshot and re-confirm only from that revision's
-    # authoritative catalog.
-    ctx.world_revision = 1
-    ctx.binding_store.invalidate_revision(1)
-    ctx.action_catalog = _candidate_catalog(1, ("pen_2",))
-    ctx.evidence_store.replace_action_catalog(ctx.action_catalog, 1)
-    ctx.harness.validator_channel().revision = 1
-    second = authority.refresh(occurrence, atomic, [], ctx)
-
-    assert len(snapshots) == 2
-    assert [item["revision"] for item in snapshots] == [0, 1]
-    assert all(_GROUNDING_FIELDS.issubset(item) for item in snapshots)
-    assert second["confirmed_bindings"] == {"object": "pen_2"}
-    assert second["invalidated_bindings"]["object"]["value"] == "pen_1"
-
-
-def test_grounding_refresh_projects_two_valid_candidates_without_selecting() -> None:
-    authority, atomic, occurrence, ctx, snapshots = _grounding_fixture(
-        ("pen_1", "pen_2"),
-    )
-
-    state = authority.refresh(occurrence, atomic, [], ctx)
-
-    assert len(snapshots) == 1
-    assert _GROUNDING_FIELDS.issubset(snapshots[0])
-    assert state["confirmed_bindings"] == {}
-    assert state["candidate_bindings"] == {"object": ["pen_1", "pen_2"]}
-    assert state["missing_bindings"] == ["object"]
-    assert "multiple_valid_object_candidates" in state["blocking_reasons"]
-    current = ctx.binding_store.snapshot_for_node(occurrence)["object"]
-    assert current.source is BindingSource.TASK
-    assert current.resolution is BindingResolution.SEMANTIC
+def test_D03_reader_does_not_solve_unique_or_multiple_catalog_candidates():
+    for catalog in (("pen_1",), ("pen_1", "pen_2")):
+        reader, atomic, occurrence, ctx, snapshots = _grounding_fixture(catalog)
+        before = copy.deepcopy(ctx.binding_store.snapshot_for_node(occurrence))
+        state = reader.refresh(occurrence, atomic, [], ctx)
+        assert _GROUNDING_FIELDS.issubset(state)
+        assert state["confirmed_bindings"] == {}
+        assert state["candidate_bindings"] == {}
+        assert state["missing_bindings"] == ["object"]
+        assert ctx.binding_store.snapshot_for_node(occurrence) == before
+        assert len(snapshots) == 1
 
 
 def test_grounding_does_not_confirm_below_required_resolution_without_invocation() -> None:
@@ -405,7 +367,7 @@ def test_learned_invocation_ready_includes_current_preconditions() -> None:
         spec=SimpleNamespace(grounding_constraints=[]),
     )
 
-    state = authority.refresh(occurrence, atomic, [invocation], ctx)
+    state = authority.refresh(occurrence, atomic, [], ctx)
 
     assert state["confirmed_bindings"] == {"object": "pen_1"}
     assert state["precondition_status"] == [{
@@ -413,7 +375,7 @@ def test_learned_invocation_ready_includes_current_preconditions() -> None:
         "status": "missing",
     }]
     assert state["learned_invocation_ready"] is False
-    assert "preconditions_not_satisfied" in state["blocking_reasons"]
+    assert state["precondition_status"][0]["status"] == "missing"
 
 
 class _LongHistoryHarness:

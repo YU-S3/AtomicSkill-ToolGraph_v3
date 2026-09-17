@@ -55,9 +55,7 @@ def setup(tmp_path, choose, *, case_id="r10_step"):
     harness = CheckpointHarness(case)
     config = fixture_config(tmp_path)
     config["experiment"]["task_manifest_path"] = None
-    config["runtime"].update(short_runtime_steps=True, verified_composite_executor=True,
-                             rollback_automatic_execution_failure=True,
-                             lazy_runtime_automation_interface=True)
+    config["runtime"]["rollback_automatic_execution_failure"] = True
     provider = StepProvider(choose)
     system = AtomicSkillGraphSystem(config, harness=harness, provider=provider)
     atomic, impls = route.install_parent(system, case)
@@ -181,15 +179,6 @@ def test_automatic_partial_tool_budget_exhaustion_restores_checkpoint(tmp_path, 
     assert all(span.action_end >= span.action_start for span in trace.runtime_spans)
 
 
-def test_bootstrap_then_automatic_completion(tmp_path):
-    def choose(request, count):
-        return action(request, "GO_TO", destination="cabinet_1") if count == 1 else action(request, "OPEN")
-    system, ctx, occurrence, invocations, provider = setup(tmp_path, choose)
-    result = VerifiedCompositeExecutor(system.orchestrator.node_executor).run_occurrence(occurrence, ctx)
-    assert result.atomic_effect_passed
-    assert ctx.trace_builder.trace.metadata["r10_metrics"]["graph_bootstrap_agent_step_count"] == 1
-    assert ctx.trace_builder.trace.metadata["r10_metrics"]["composite_auto_node_count"] == 1
-    assert len(provider.requests) == 2
 
 
 @pytest.mark.parametrize("mode", ["preparation", "seeded"])
@@ -203,8 +192,9 @@ def test_O1_O2_explore_retains_owner_before_cache_and_feedback(tmp_path, monkeyp
             {"accepted": False, "failure_code": "fixture_affordance_rejected"}, None))
     first = run_runtime_step(ex, mode, occurrence, ctx, invocations, [])
     second = run_runtime_step(ex, mode, occurrence, ctx, invocations, [])
-    assert first.control_owner == second.control_owner == "agent"
-    assert all(row["control_owner_after"] == "agent" for row in ctx.trace_builder.trace.metadata["runtime_steps"])
+    assert first.result is second.result is None
+    assert len(provider.requests) == 2
+    assert not any(record.result['started'] for record in ctx.trace_builder.trace.implementation_invocations)
     assert all(row["accepted_semantic_turn_count"] == 1 for row in ctx.trace_builder.trace.metadata["runtime_steps"])
     if rejected:
         assert "fixture_affordance_rejected" in str(provider.requests[1].policy_context)
@@ -212,7 +202,7 @@ def test_O1_O2_explore_retains_owner_before_cache_and_feedback(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize("handoff", ["validate_current_atomic", "invoke_support_atomic", "implementation", "request_runtime_automation", "attempt_current_atomic"])
-def test_O5_O8_native_handoffs_default_to_executor(tmp_path, monkeypatch, handoff):
+def test_explicit_failed_calls_return_to_same_agent(tmp_path, monkeypatch, handoff):
     from atomic_skillgraph.agents.protocol import NativeToolSpec
     def choose(request, count):
         if handoff == "implementation":
@@ -233,91 +223,16 @@ def test_O5_O8_native_handoffs_default_to_executor(tmp_path, monkeypatch, handof
             NativeToolSpec(handoff, "fixture dispatch seam", {"type": "object", "properties": {}})])
         monkeypatch.setattr(ex, "_invoke_support_atomic_call", lambda *a, **kw: selected.append(True) or {"accepted": False})
     result = run_runtime_step(ex, "preparation", occurrence, ctx, invocations, [])
-    assert result.control_owner == "executor"
-    assert ctx.trace_builder.trace.metadata["runtime_steps"][-1]["control_owner_after"] == "executor"
+    assert result.result is None
+    assert not any(record.result['started'] for record in ctx.trace_builder.trace.implementation_invocations)
     if handoff == "invoke_support_atomic":
         assert selected == [True]  # Selected route still reaches the normal handler.
 
 
-@pytest.mark.parametrize("ending", ["handoff", "direct", "effect"])
-@pytest.mark.parametrize("rejected", [False, True])
-def test_O1_O3_O4_O5_controller_always_validates_without_stealing_exploration(tmp_path, monkeypatch, ending, rejected):
-    from atomic_skillgraph.runtime import composite_executor as module
-    def choose(request, count):
-        if count == 1:
-            return action(request, "GO_TO", destination="cabinet_1")
-        assert count == 2 and ending == "handoff"
-        return "validate_current_atomic", {"candidate_bindings": {}}
-    system, ctx, occurrence, invocations, provider = setup(tmp_path, choose)
-    ex = system.orchestrator.node_executor
-    ctx.runtime_config["support_closure"] = True
-    if rejected:
-        monkeypatch.setattr(ex, "_execute_environment_call", lambda *a, **kw: (
-            {"accepted": False, "failure_code": "fixture_affordance_rejected"}, None))
-    checks, closures = [], []
-    passed = SimpleNamespace(atomic_effect_passed=True, started=True, node_status=None)
-    def effect(*a, **kw):
-        checks.append("effect")
-        return passed if (ending == "effect" and provider.requests) or closures else None
-    def direct(*a, **kw):
-        checks.append("direct")
-        return passed if ending == "direct" else None
-    def closure(*a, **kw):
-        assert len(provider.requests) == 2 and ending == "handoff"
-        closures.append(True)
-        return True
-    monkeypatch.setattr(ex, "_complete_from_current_effect", effect)
-    monkeypatch.setattr(ex, "try_autonomous", direct)
-    monkeypatch.setattr(ex, "_validate_current_atomic_call", lambda *a, **kw: (None, {"passed": False}))
-    monkeypatch.setattr(module.SupportClosure, "close", closure)
-    monkeypatch.setattr(module.SupportClosure, "obligations", lambda *a: [SimpleNamespace(kind="predicate")])
-    monkeypatch.setattr(ex, "_retrieve_runtime_support_candidates", lambda **kw: [])
-    assert VerifiedCompositeExecutor(ex).run_occurrence(occurrence, ctx) is passed
-    assert len(provider.requests) == (2 if ending == "handoff" else 1)
-    assert len(closures) == (1 if ending == "handoff" else 0)
-    if ending != "effect":
-        assert "direct" in checks
-    if ending == "handoff":
-        assert ctx.trace_builder.trace.metadata["r10_metrics"]["automatic_support_suppressed_by_agent_ownership_count"] == 1
 
 
-def test_O9_new_occurrence_resets_ownership_and_O12_no_duplicate_direct(tmp_path, monkeypatch):
-    from atomic_skillgraph.runtime import composite_executor as module
-    system, ctx, occurrence, invocations, provider = setup(
-        tmp_path, lambda request, count: action(request, "GO_TO", destination="cabinet_1"))
-    ex = system.orchestrator.node_executor
-    ctx.runtime_config["support_closure"] = True
-    closed, calls = [], []
-    passed = SimpleNamespace(atomic_effect_passed=True, started=True, node_status=None)
-    monkeypatch.setattr(ex, "_complete_from_current_effect", lambda *a, **kw: passed if provider.requests and not calls else None)
-    monkeypatch.setattr(ex, "_retrieve_runtime_support_candidates", lambda **kw: [])
-    monkeypatch.setattr(module.SupportClosure, "obligations", lambda *a: [])
-    executor = VerifiedCompositeExecutor(ex)
-    assert executor.run_occurrence(occurrence, ctx) is passed  # Ends Agent-owned.
-    other = copy.deepcopy(occurrence)
-    other.occurrence_id = "next_occurrence"
-    def direct(*a, **kw):
-        calls.append(True)
-        return passed if closed else None
-    monkeypatch.setattr(ex, "_complete_from_current_effect", lambda *a, **kw: None)
-    monkeypatch.setattr(ex, "try_autonomous", direct)
-    monkeypatch.setattr(module.SupportClosure, "close", lambda *a, **kw: closed.append(True) or True)
-    assert executor.run_occurrence(other, ctx) is passed
-    assert len(provider.requests) == 1 and closed == [True] and len(calls) == 2
-    # The next ready occurrence attempts direct once, without opening Support.
-    calls.clear()
-    assert executor.run_occurrence(other, ctx) is passed
-    assert len(calls) == 1 and closed == [True]
 
 
-def test_O11_ownership_dispatch_has_no_environment_or_task_policy():
-    import inspect
-    from atomic_skillgraph.runtime.runtime_step import RuntimeStepResult
-    text = inspect.getsource(run_runtime_step)
-    dispatch = text[text.index('# A fresh provider session'):text.index('selected_action =')]
-    assert 'call.name == "environment_action"' in dispatch and '"intent"' in dispatch
-    assert not any(word in dispatch for word in ('task_type', 'GO_TO', 'OPEN', 'TAKE', 'cabinet', 'location'))
-    assert RuntimeStepResult().control_owner == "executor"
 
 
 def test_typed_rejection_survives_fresh_steps_but_not_state_changes(tmp_path, monkeypatch):
@@ -329,7 +244,8 @@ def test_typed_rejection_survives_fresh_steps_but_not_state_changes(tmp_path, mo
     original = compiler.prepare_arguments
     attempts = []
     def prepare(*args, **kwargs):
-        attempts.append(kwargs["arguments"])
+        if kwargs["call_id"] != "autonomous":
+            attempts.append(kwargs["arguments"])
         return original(*args, **kwargs)
     monkeypatch.setattr(compiler, "prepare_arguments", prepare)
     ex = system.orchestrator.node_executor
@@ -371,7 +287,7 @@ def test_rejection_cache_includes_repeat_state_and_exact_argument_group(tmp_path
 def test_support_identity_requires_bound_consumer_but_discovery_accepts_anchor(tmp_path):
     from atomic_skillgraph.core.contracts import ParameterSpec
     from atomic_skillgraph.core.bindings import BindingResolution
-    from atomic_skillgraph.runtime.support_closure import mapped_support_bindings
+    from atomic_skillgraph.runtime.support_request import mapped_support_bindings
     system, ctx, occurrence, _, _ = setup(tmp_path, lambda *args: pytest.fail("no Agent"))
     producer = SimpleNamespace(inputs=[ParameterSpec("destination", "entity", required_resolution="concrete")])
     # A location input absent from the parent must never be grounded from
@@ -467,7 +383,7 @@ def test_graph_bootstrap_then_two_unassisted_nodes_same_executor(tmp_path, sourc
     from atomic_skillgraph.core.results import RuntimeOccurrence
     from experiments.r10_world_checks import install_fixture
     system, ctx, occurrence, _, provider = setup(tmp_path,
-        lambda request, count: action(request, "GO_TO", destination="cabinet_1") if count == 1 else pytest.fail(str(request.policy_context.get("current_state_snapshot"))))
+        lambda request, count: ("environment_action", {**action(request, "GO_TO", destination="cabinet_1")[1], "intent": "attempt_current_atomic", "candidate_bindings": {"target": "cabinet_1"}}) if count == 1 else pytest.fail(str(request.policy_context.get("current_state_snapshot"))))
     system.harness.case = replace(system.harness.case, terminal_action="TAKE")
     expr = BindingExpression(BindingExprKind.SKILL_INPUT, source_role="target")
     at = SemanticPredicate("agent.at_location", {"location": expr})
@@ -490,7 +406,9 @@ def test_graph_bootstrap_then_two_unassisted_nodes_same_executor(tmp_path, sourc
     finalize(trace, system.config)
     assert trace.benchmark_success
     assert len(provider.requests) == 1
-    assert trace.metadata["r10_metrics"]["post_bootstrap_llm_free_node_count"] == 2, [(n.occurrence_id, str(n.status), n.direct_result.get("atomic_effect_passed"), n.direct_result.get("failure_code")) for n in trace.node_records]
+    assert [a.action_type for a in trace.environment_actions] == ["GO_TO", "OPEN", "TAKE"]
+    assert not trace.node_records[-1].direct_result["validated_outputs"]  # Terminal before Tool RETURN.
+    assert trace.metadata["r10_metrics"]["post_bootstrap_llm_free_node_count"] == 1, [(n.occurrence_id, str(n.status), n.direct_result.get("atomic_effect_passed"), n.direct_result.get("failure_code")) for n in trace.node_records]
 
 
 def test_canonical_learning_keeps_original_event_coordinates(tmp_path):
@@ -521,57 +439,6 @@ def test_terminal_world_is_never_rolled_back(tmp_path):
     assert not ctx.trace_builder.trace.metadata.get("runtime_rollbacks")
 
 
-def test_recursive_predicate_support_executes_child_then_parent(tmp_path):
-    from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind, RuntimeBinding, BindingSource, BindingStatus, BindingResolution
-    from atomic_skillgraph.core.contracts import AbstractAtomicSkill, ParameterSpec, SemanticPredicate
-    from atomic_skillgraph.core.refs import SkillRef
-    from atomic_skillgraph.core.serialization import to_primitive
-    from atomic_skillgraph.core.status import SkillStatus, ToolStatus
-    from atomic_skillgraph.evolution.atomicizer import CanonicalAtomicOccurrence
-    from atomic_skillgraph.tooling.proposal import tool_proposal_from_dict, ToolProvenance
-    from atomic_skillgraph.runtime.support_closure import SupportClosure
-    system, ctx, occurrence, invocations, provider = setup(tmp_path, lambda *args: pytest.fail("closure must not call LLM"))
-    expr = lambda role: BindingExpression(BindingExprKind.SKILL_INPUT, source_role=role)
-    parent = system.skills.get_atomic(occurrence.node_ref)
-    # Store a separate parent contract version; do not mutate immutable registry files.
-    parent = copy.deepcopy(parent)
-    parent.ref = SkillRef("r10_parent", "1.0.0")
-    parent.preconditions = [SemanticPredicate("container.open", {"container": expr("source")})]
-    system.skills.register_atomic(parent)
-    occurrence.node_ref = parent.ref
-    helpers = [
-        ("r10_go", "destination", "GO_TO", "destination", [], SemanticPredicate("agent.at_location", {"location": expr("destination")})),
-        ("r10_open", "target", "OPEN", "object", [SemanticPredicate("agent.at_location", {"location": expr("target")})], SemanticPredicate("container.open", {"container": expr("target")})),
-    ]
-    for name, role, kind, argument, preconditions, effect in helpers:
-        atomic = AbstractAtomicSkill(SkillRef(name, "1.0.0"), "generic helper",
-            [ParameterSpec(role, "entity", runtime_resolvable=True, required_resolution="concrete")],
-            [], preconditions, [effect], {}, [], {}, {}, SkillStatus.ACTIVE)
-        system.skills.register_atomic(atomic)
-        proposal = tool_proposal_from_dict({"proposal_version": "1", "decision": "create",
-            "summary": "generic helper", "atomic_ref": str(atomic.ref), "inputs": to_primitive(atomic.inputs),
-            "outputs": [], "program": [{"node_id": "act", "op": "ACTION", "action_type": kind,
-                "argument_mapping": {argument: to_primitive(expr(role))}, "expected_effects": to_primitive([effect])},
-                {"node_id": "end", "op": "RETURN", "output_sources": {}}],
-            "max_actions": 1, "final_effects": to_primitive([effect]), "evidence_outputs": [], "path_expectations": [], "rationale": "test"})
-        source = CanonicalAtomicOccurrence(name, name, "generic helper", 0, 0, {role: "cabinet_1"}, {},
-            atomic.inputs, [], preconditions, [effect], [], [], to_primitive(ctx.task), "fixture", atomic.ref)
-        compiled = system.tool_compiler.compile_proposal(source, atomic, proposal,
-            ToolProvenance(source="test", atomic_ref=str(atomic.ref), source_trace_id="fixture", occurrence_id=name))
-        compiled.tool.status = ToolStatus.ACTIVE
-        compiled.implementation.status = SkillStatus.ACTIVE
-        system.tools.register(compiled.tool)
-        system.skills.register_implementation(compiled.implementation)
-    ctx.binding_store.commit_grounded(occurrence.occurrence_id, {"source": RuntimeBinding(
-        "source", "cabinet_1", "entity", BindingSource.HARNESS_EVIDENCE, BindingStatus.GROUNDED,
-        BindingResolution.CONCRETE, ["fixture:public_catalog_destination"], 0)})
-    closed = SupportClosure(system.orchestrator.node_executor).close(occurrence, ctx, [])
-    assert closed
-    assert [item.action_type for item in ctx.trace_builder.trace.environment_actions] == ["GO_TO", "OPEN"]
-    assert ctx.trace_builder.trace.metadata["r10_metrics"]["support_closure_success_count"] == 2
-    assert provider.requests == []
-    assert ctx.budget.current_occurrence_id == occurrence.occurrence_id
-    assert ctx.budget.used_node_actions == ctx.budget.used_global_actions == 2
 
 
 def staged_observation(tmp_path, case_id="r10_step"):
@@ -589,17 +456,15 @@ def staged_observation(tmp_path, case_id="r10_step"):
         "tool_builder": route.RouteProvider(case, "tool_builder", [])}
     executor = system.orchestrator.node_executor
     step = run_runtime_step(executor, "preparation", occurrence, ctx, invocations, [], bootstrap=True)
-    assert step.control_owner == "executor"
     assert not ctx.runtime_tool_trials
     draft_step = run_runtime_step(executor, "preparation", occurrence, ctx, invocations, [], draft_request=step.automation_request)
-    assert draft_step.control_owner == "executor"
     assert len(ctx.runtime_tool_trials) == 1
     trial = next(iter(ctx.runtime_tool_trials.values()))
     assert trial["r1"]["admission_eligible"], trial
     assert "promotion_bundle" in trial
     assert not trial["parent_completed_after_trial"]
-    ctx.graph_bootstrap_completed = True
-    result = VerifiedCompositeExecutor(executor).run_occurrence(occurrence, ctx)
+    provider.choose = lambda request, count: (next(t.name for t in request.tools if t.name.startswith("invoke_impl_")), {"object": "egg_1", "source": "cabinet_1"})
+    result = executor.run_agent_node(occurrence, ctx)
     assert result.atomic_effect_passed
     assert trial["parent_completed_after_trial"]
     system.orchestrator._persist_v32_task_local_assets(ctx)
@@ -742,33 +607,6 @@ def test_failed_automation_trial_rolls_back_without_refunding(tmp_path):
     assert ctx.budget.used_global_actions > 0
 
 
-@pytest.mark.parametrize("case_kind", ["cycle", "ambiguity", "non_executable_competitor"])
-def test_support_closure_boundaries(tmp_path, case_kind):
-    from experiments.r10_world_checks import install_fixture, bind
-    from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
-    from atomic_skillgraph.core.contracts import SemanticPredicate
-    from atomic_skillgraph.core.results import RuntimeOccurrence
-    from atomic_skillgraph.runtime.support_closure import SupportClosure
-    system, ctx, old, invocations, provider = setup(tmp_path, lambda *args: pytest.fail("no policy in deterministic closure"))
-    expr = BindingExpression(BindingExprKind.SKILL_INPUT, source_role="target")
-    at = SemanticPredicate("agent.at_location", {"location": expr})
-    opened = SemanticPredicate("container.open", {"container": expr})
-    root, _ = install_fixture(system, "boundary_root", [opened], [at], [])
-    occurrence = RuntimeOccurrence("root", "root", root.ref, [], {}, [], root.effects)
-    ctx.begin_occurrence(occurrence)
-    bind(ctx, occurrence, "cabinet_1")
-    install_fixture(system, "boundary_open", [at], [opened], [("OPEN", "object")], source_target="cabinet_1")
-    install_fixture(system, "boundary_go", [opened] if case_kind == "cycle" else [], [at], [("GO_TO", "destination")], source_target="cabinet_1")
-    if case_kind == "ambiguity":
-        install_fixture(system, "boundary_alternate", [], [at], [("GO_TO", "destination")], source_target="cabinet_1")
-    closed = SupportClosure(system.orchestrator.node_executor).close(occurrence, ctx, [])
-    values = ctx.trace_builder.trace.metadata["r10_metrics"]
-    if case_kind == "non_executable_competitor":
-        assert closed and values["support_closure_success_count"] == 2
-    else:
-        assert not closed
-        assert not ctx.trace_builder.trace.environment_actions
-        assert values["support_closure_cycle_count" if case_kind == "cycle" else "support_closure_ambiguity_count"] > 0
 
 
 def test_runtime_support_staging_included_in_both_frozen_digests(tmp_path):

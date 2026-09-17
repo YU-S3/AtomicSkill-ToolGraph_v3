@@ -244,7 +244,7 @@ class RuntimeAutomationCoordinator:
                 "output_semantic_constraints": to_primitive(draft.output_semantic_constraints),
             },
             [],
-            {"steps": [], "runtime_automation": True},
+            dict(draft.guideline),
             {
                 "task_local": True,
                 "draft_id": draft.draft_id,
@@ -639,7 +639,7 @@ class RuntimeAutomationCoordinator:
                     summary=contract_label(compiled.atomic.effects, compiled.atomic.outputs),
                     inputs=[replace(p, description="") for p in compiled.atomic.inputs],
                     outputs=[replace(p, description="") for p in compiled.atomic.outputs],
-                    guideline={"runtime_automation": True, "steps": []},
+                    guideline=dict(compiled.atomic.guideline),
                     metadata={"runtime_support_promotion": True,
                               "source_runtime_trace_id": ctx.trace_builder.trace.trace_id})
                 bundle = canonicalizer.canonicalize(persistent_atomic, compiled.tool, compiled.implementation)
@@ -660,7 +660,7 @@ class RuntimeAutomationCoordinator:
             "failure_layer": result.failure_layer,
             "message": next((r.failure_message for r in result.tool_results if r.failure_code), ""),
             "started": result.started, "not_committed": not r1_passed,
-            "rollback": bool(transaction.checkpoint and not r1_passed and not ctx.benchmark_terminal()),
+            "rollback": bool(transaction.checkpoint and not r1_passed and not ctx.execution_terminal()),
             "restored_revision": ctx.world_revision,
             "failing_action": next((r.tool_path_evidence.get('attempted_action', {})
                 for r in result.tool_results if r.failure_code), {}),
@@ -733,6 +733,7 @@ class RuntimeAutomationCoordinator:
             },
             source_trace_id=str(ctx.trace_builder.trace.trace_id),
             proposed_ref=SkillRef("atomic_runtime_draft", "1.0.0"),
+            guideline=dict(draft.guideline),
         )
 
     @staticmethod

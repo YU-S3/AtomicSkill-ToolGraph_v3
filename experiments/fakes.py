@@ -661,6 +661,15 @@ class FakeAgentFactory:
         return session
 
     def __call__(self, first: Any, second: Any) -> ScriptedAgentSession:
+        if isinstance(first, str) and first.startswith("runtime_step_"):
+            kind = "runtime_" + first.removeprefix("runtime_step_")
+            if not self._scripts[kind]:
+                raise AssertionError(f"no queued fake decision for {kind}")
+            replies = self._scripts[kind][0]
+            reply = replies.pop(0)
+            if not replies:
+                self._scripts[kind].popleft()
+            return self.new_session(kind, [reply])
         session_kind = (
             first
             if isinstance(first, str) and first in _INITIAL_BUCKET
@@ -777,6 +786,7 @@ class FakeValidatorChannel:
             value for value in list(request.get("preferred_values") or [])
             if value not in (None, "")
         ]
+        preferred_bindings = dict(request.get("preferred_bindings") or {})
         per_effect: list[list[tuple[dict[str, Any], list[str]]]] = []
         checks: dict[str, bool] = {}
         for index, raw_effect in enumerate(effects):
@@ -872,6 +882,8 @@ class FakeValidatorChannel:
                         compatible = False
                     if role in anchors and anchors[role] != actual:
                         compatible = False
+                    if role in preferred_bindings and preferred_bindings[role] != actual:
+                        compatible = False
                     resolved[role] = actual
                 if compatible:
                     candidates.append((
@@ -896,7 +908,7 @@ class FakeValidatorChannel:
                 for role, value in assignment.items():
                     if role in known or role in anchors:
                         continue
-                    preferred_match = value in preferred
+                    preferred_match = value in preferred or preferred_bindings.get(role) == value
                     other_arguments = [
                         (kind, expected)
                         for kind, expected in parsed_args.values()
@@ -984,6 +996,8 @@ class FakeValidatorChannel:
                         list(dict.fromkeys([*refs, *witness_refs])),
                     ))
             assignments = next_assignments
+        assignments = [(assignment, refs) for assignment, refs in assignments
+            if all({**known, **assignment}.get(role) == value for role, value in preferred_bindings.items())]
         checks["joint_effect_assignment_exists"] = bool(assignments)
         if not assignments:
             return AtomicEffectResolution(

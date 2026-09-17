@@ -64,7 +64,7 @@ def _task4_payload() -> dict[str, Any]:
     # Exact original task-4 place proposal, including its untouched
     # path_expectations and source-instance rationale.
     return {
-        "proposal_version": "1",
+        "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
         "summary": "place_object_at_location",
         "atomic_ref": "skill://atomic_place_object_at_location_238d043f8003@1.0.0",
@@ -408,7 +408,7 @@ def _numbered_role_payload() -> tuple[dict[str, Any], AbstractAtomicSkill]:
         {},
     )
     payload = {
-        "proposal_version": "1",
+        "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
         "summary": "take item",
         "atomic_ref": str(atomic.ref),
@@ -776,7 +776,7 @@ def test_persisted_tool_reuses_the_same_episode_literal_scanner() -> None:
             },
             "required": [item["name"] for item in payload["inputs"]],
         },
-        {
+        {"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {

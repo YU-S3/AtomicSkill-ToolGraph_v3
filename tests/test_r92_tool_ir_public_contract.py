@@ -218,7 +218,7 @@ def _catalog_atomic_and_proposal() -> tuple[
         },
     }]
     proposal = ToolProposal(
-        proposal_version="1",
+        proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []},
         decision="create",
         summary="bounded current-catalog navigation",
         atomic_ref=str(atomic.ref),
@@ -355,7 +355,7 @@ def test_action_catalog_projection_static_validation_and_real_execution() -> Non
             "required": ["destination"],
             "additionalProperties": False,
         },
-        interface={
+        interface={"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {"destination": {"type": "string"}},

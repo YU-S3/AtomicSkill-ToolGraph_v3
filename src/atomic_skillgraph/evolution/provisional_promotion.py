@@ -122,6 +122,8 @@ class ProvisionalPromotionCompiler:
         *,
         provisional_lookup: Callable[[str], Any],
         task: Any,
+        build_tool: Callable | None = None,
+        replay_tool: Callable | None = None,
     ) -> list[PreparedPromotion]:
         self.last_rejections = []
         if not bool(getattr(trace, "strict_task_success", False)):
@@ -208,11 +210,19 @@ class ProvisionalPromotionCompiler:
                 )
                 continue
 
+            if build_tool is None:
+                self._reject(trial.provisional_ref, "provisional_promotion_entry_contract_missing",
+                             "Source replay alone cannot declare a deployable Tool")
+                continue
+            built = build_tool(compiled.occurrence, compiled.atomic)
+            if built is None or built.tool is None or built.implementation is None:
+                self._reject(trial.provisional_ref, "provisional_promotion_no_tool",
+                             "ToolBuilder did not provide an executable entry contract")
+                continue
+            compiled = built
             admitted_tool = self.admission.admit_tool(
-                compiled.tool,
-                replay=lambda tool, case: bool(
-                    self.harness.replay_tool(task, tool, case)
-                ),
+                compiled.tool, atomic=compiled.atomic, harness=self.harness,
+                replay=(lambda tool, case: replay_tool(compiled, tool, case)) if replay_tool else None,
             )
             if admitted_tool.status is not ToolStatus.CANDIDATE:
                 failures = list(

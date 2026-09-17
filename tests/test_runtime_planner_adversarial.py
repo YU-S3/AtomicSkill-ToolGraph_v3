@@ -997,7 +997,7 @@ def test_tool_runner_does_not_relabel_harness_crash_as_tool_failure() -> None:
         ToolRef("probe", "1.0.0"),
         "probe",
         {"type": "object", "properties": {}},
-        {"output_schema": {"type": "object", "properties": {}}},
+        {"entry_contract": {"conditions": [], "grounding_constraints": []}, "output_schema": {"type": "object", "properties": {}}},
         "primitive_ir",
         {"steps": [{"action_type": "TAKE", "argument_mapping": {}}]},
         [],
@@ -1029,6 +1029,7 @@ def test_tool_runner_does_not_relabel_harness_crash_as_tool_failure() -> None:
     context = SimpleNamespace(
         world_revision=0,
         harness=CrashingHarness(),
+        evidence_store=SimpleNamespace(),
         budget=SimpleNamespace(consume_action=lambda: None),
         trace_builder=TraceBuilder(),
         update_after_action=lambda *_args: None,

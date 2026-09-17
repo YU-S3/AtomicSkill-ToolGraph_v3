@@ -25,6 +25,7 @@ COMPOSITE_REF = "skill://r91-task-review@1.0.0"
 def _config(data_dir: Path) -> dict[str, object]:
     return {
         "schema_version": 3,
+        "repair_revision": "R10.2",
         "data_dir": str(data_dir),
         "trace_data_dir": str(data_dir.parent / "traces"),
         "llm": {

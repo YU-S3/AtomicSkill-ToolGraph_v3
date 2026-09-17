@@ -51,6 +51,7 @@ class RuntimeAutomationAtomicDraft:
     metadata: dict[str, Any] = field(default_factory=dict)
     input_binding_specs: dict[str, Any] = field(default_factory=dict)
     output_semantic_constraints: dict[str, Any] = field(default_factory=dict)
+    guideline: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -67,6 +68,7 @@ class ToolProposal:
     evidence_outputs: list[dict[str, Any]]
     path_expectations: list[dict[str, Any]]
     rationale: str
+    entry_contract: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -82,7 +84,7 @@ class ToolProposal:
         summary: str = "NO_TOOL",
     ) -> "ToolProposal":
         return cls(
-            proposal_version="1",
+            proposal_version="2",
             decision="no_tool",
             summary=summary,
             atomic_ref=str(atomic_ref),
@@ -94,6 +96,7 @@ class ToolProposal:
             evidence_outputs=[],
             path_expectations=[],
             rationale=reason_code,
+            entry_contract={"conditions": [], "grounding_constraints": []},
             metadata={"reason_code": reason_code},
         )
 
@@ -157,12 +160,13 @@ def runtime_automation_draft_from_dict(value: Mapping[str, Any]) -> RuntimeAutom
         metadata=dict(value.get("metadata", {})),
         input_binding_specs=dict(value.get("input_binding_specs", {})),
         output_semantic_constraints=dict(value.get("output_semantic_constraints", {})),
+        guideline=dict(value.get("guideline", {})),
     )
 
 
 def tool_proposal_from_dict(value: Mapping[str, Any]) -> ToolProposal:
     return ToolProposal(
-        proposal_version=str(value.get("proposal_version", "1")),
+        proposal_version=str(value.get("proposal_version", "")),
         decision=str(value.get("decision", "create")),
         summary=str(value.get("summary", "")),
         atomic_ref=str(value.get("atomic_ref", "")),
@@ -174,6 +178,7 @@ def tool_proposal_from_dict(value: Mapping[str, Any]) -> ToolProposal:
         evidence_outputs=[dict(item) for item in value.get("evidence_outputs", [])],
         path_expectations=[dict(item) for item in value.get("path_expectations", [])],
         rationale=str(value.get("rationale", "")),
+        entry_contract=value.get("entry_contract"),
         metadata=dict(value.get("metadata", {})),
     )
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
@@ -21,15 +20,9 @@ from ..core.results import (
 )
 
 
-def _looks_concrete(value: Any) -> bool:
-    return bool(isinstance(value, str) and re.search(r"(?:_|\s)\d+$", value.strip()))
-
 
 _SEMANTIC_ANCHOR_SOURCES = frozenset({
-    BindingSource.TASK,
-    BindingSource.RUNTIME_PLAN,
-    BindingSource.DATA_FLOW,
-    BindingSource.REPEAT,
+    BindingSource.TASK, BindingSource.RUNTIME_PLAN, BindingSource.DATA_FLOW, BindingSource.REPEAT,
 })
 
 
@@ -445,6 +438,8 @@ class RuntimeBindingStore:
         context = getattr(task, "context", {}) or {}
         values = dict(context.get("semantic_bindings") or context.get("semantic_params") or context.get("bindings") or {})
         for role, value in values.items():
+            if value is None:
+                continue  # A declared but unfilled role is not a value/identity anchor.
             self._set("__task__", RuntimeBinding(
                 role=str(role), value=value, semantic_type=str(context.get("binding_types", {}).get(role, "entity")),
                 source=BindingSource.TASK, status=BindingStatus.GROUNDED,
@@ -479,7 +474,7 @@ class RuntimeBindingStore:
                     source = RuntimeBinding(
                         edge.source_role, raw, "entity", BindingSource.TOOL_OUTPUT,
                         BindingStatus.GROUNDED,
-                        BindingResolution.CONCRETE if _looks_concrete(raw) else BindingResolution.SEMANTIC,
+                        BindingResolution.CONCRETE,
                         [edge.edge_id], revision,
                     )
             if source is None:
@@ -487,7 +482,7 @@ class RuntimeBindingStore:
             current_resolution = (
                 source.resolution
                 if source.world_revision == revision
-                else BindingResolution.SEMANTIC
+                else (BindingResolution.CONCRETE if source.resolution is BindingResolution.RELATION_VERIFIED else source.resolution)
             )
             self._set(current.occurrence_id, RuntimeBinding(
                 edge.target_role, source.value, source.semantic_type, BindingSource.DATA_FLOW,
@@ -504,7 +499,7 @@ class RuntimeBindingStore:
             return RuntimeBinding(
                 role="", value=expression.constant, semantic_type=type(expression.constant).__name__,
                 source=BindingSource.RUNTIME_PLAN, status=BindingStatus.GROUNDED,
-                resolution=BindingResolution.CONCRETE, evidence_refs=["constant"], world_revision=0,
+                resolution=BindingResolution.SEMANTIC, evidence_refs=["constant"], world_revision=0,
             )
         if expression.kind is BindingExprKind.SKILL_INPUT:
             binding = self.semantic_anchor_for(occurrence_id, expression.source_role) or self.semantic_anchor_for(
@@ -518,7 +513,7 @@ class RuntimeBindingStore:
             value = (tool_outputs or {}).get((expression.source_step, expression.source_role))
             binding = None if value is None else RuntimeBinding(
                 expression.source_role, value, "entity", BindingSource.TOOL_OUTPUT,
-                BindingStatus.GROUNDED, BindingResolution.CONCRETE if _looks_concrete(value) else BindingResolution.SEMANTIC,
+                BindingStatus.GROUNDED, BindingResolution.CONCRETE,
                 [f"tool_output:{expression.source_step}:{expression.source_role}"], 0,
             )
         elif expression.kind is BindingExprKind.ADAPTER_TRANSFORM:
@@ -561,7 +556,7 @@ class RuntimeBindingStore:
             ):
                 # The publication still supplies stable downstream identity,
                 # but its state-scoped concrete proof is stale in this world.
-                resolution = BindingResolution.SEMANTIC
+                resolution = (BindingResolution.CONCRETE if resolution is BindingResolution.RELATION_VERIFIED else resolution)
             self._set(occurrence.occurrence_id, RuntimeBinding(
                 role, binding.value, binding.semantic_type, source,
                 binding.status, resolution, list(binding.evidence_refs), revision,
@@ -578,7 +573,7 @@ class RuntimeBindingStore:
             self._set(owner, RuntimeBinding(
                 role, copy.deepcopy(anchor.value), anchor.semantic_type, BindingSource.DATA_FLOW,
                 BindingStatus.GROUNDED,
-                anchor.resolution if anchor.world_revision == revision else BindingResolution.SEMANTIC,
+                anchor.resolution if anchor.world_revision == revision else (BindingResolution.CONCRETE if anchor.resolution is BindingResolution.RELATION_VERIFIED else anchor.resolution),
                 list(anchor.evidence_refs), revision,
             ), "validated_support_input_identity")
 
@@ -593,7 +588,6 @@ class RuntimeBindingStore:
                 role, value, (semantic_types or {}).get(role, "entity"), BindingSource.AGENT_PROPOSED,
                 BindingStatus.PROPOSED, BindingResolution.SEMANTIC, [], revision,
             )
-            self._proposals[(occurrence_id, role)] = proposal
             proposals[role] = proposal
         return proposals
 
@@ -687,21 +681,11 @@ class RuntimeBindingStore:
                 and binding.resolution is not BindingResolution.SEMANTIC
                 and binding.world_revision < revision
             ):
-                invalid = RuntimeBinding(
-                    binding.role, binding.value, binding.semantic_type, binding.source,
-                    BindingStatus.INVALIDATED, binding.resolution, list(binding.evidence_refs), revision,
+                retained = RuntimeBinding(
+                    binding.role, copy.deepcopy(binding.value), binding.semantic_type, binding.source,
+                    BindingStatus.GROUNDED, BindingResolution.CONCRETE, list(binding.evidence_refs), revision,
                 )
-                anchor = self._support_input_anchors.get(key)
-                if anchor is not None:
-                    # Navigation invalidates the old execution proof, not the
-                    # helper-certified input identity. Ordinary grounding must
-                    # certify this semantic value again at the new revision.
-                    invalid = RuntimeBinding(
-                        anchor.role, copy.deepcopy(anchor.value), anchor.semantic_type,
-                        BindingSource.DATA_FLOW, BindingStatus.GROUNDED,
-                        BindingResolution.SEMANTIC, list(anchor.evidence_refs), revision,
-                    )
-                self._set(key[0], invalid, "world_revision_invalidated")
+                self._set(key[0], retained, "relation_expired_identity_retained")
 
     def publish_validated_outputs(
         self, occurrence: RuntimeOccurrence | str, outputs: dict[str, Any],
@@ -713,7 +697,7 @@ class RuntimeBindingStore:
         for role, value in outputs.items():
             binding = RuntimeBinding(
                 role, value, "entity", BindingSource.TOOL_OUTPUT, BindingStatus.GROUNDED,
-                BindingResolution.CONCRETE if _looks_concrete(value) else BindingResolution.SEMANTIC,
+                BindingResolution.CONCRETE,
                 list(validation_refs), revision,
             )
             self._outputs[(occurrence_id, role)] = binding

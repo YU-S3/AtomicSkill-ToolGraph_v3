@@ -1,125 +1,49 @@
-"""Verified graph execution; the Runtime Agent is invoked only at breakpoints."""
-from __future__ import annotations
-
-from typing import Any
-
+"""One explicit-dataflow entry, then uninterrupted Agent node execution."""
 from ..core.errors import AtomicSkillGraphError, FailureLayer
-from ..core.results import NodeExecutionStatus
 from .checkpoint import increment
-from .runtime_step import run_runtime_step
-from .support_closure import SupportClosure
 
 
 class VerifiedCompositeExecutor:
-    def __init__(self, node_executor: Any) -> None:
+    def __init__(self, node_executor):
         self.nodes = node_executor
 
-    def run_occurrence(self, occurrence: Any, ctx: Any) -> Any:
-        executor = self.nodes
-        occurrence_id = occurrence.occurrence_id
-        excluded = ctx.rejected_runtime_implementations.setdefault(occurrence_id, set())
-        mode = ctx.runtime_step_modes.get(occurrence_id, "preparation")
-        agent_preparing = False
+    def run_occurrence(self, occurrence, ctx):
+        ex = self.nodes
         try:
-            while True:
-                for draft_id, trial in ctx.runtime_tool_trials.items():
-                    if trial.get("source_occurrence_id") == occurrence_id and not trial.get("terminal_interrupted"):
-                        executor._mark_runtime_trial_parent_resumed(ctx, {"draft_id": draft_id, "trial": trial})
-                assisted_here = any(item.get("occurrence_id") == occurrence_id
-                                    for item in ctx.trace_builder.trace.metadata.get("runtime_steps", []))
-                effect = executor._complete_from_current_effect(
-                    occurrence, ctx, mode=mode if assisted_here else "entry", preferred_values=[],
-                )
-                if effect is not None:
-                    executor._mark_runtime_trial_parent_completed(ctx, occurrence)
-                    return effect
-                if ctx.benchmark_terminal():
-                    return executor._runtime_automation_terminal_boundary(occurrence)
-                compiled = executor.invocation_compiler.compile_candidates(
-                    occurrence, ctx.binding_store,
-                    max_candidates=int(ctx.runtime_config.get("max_implementation_candidates", 3)),
-                    task_id=ctx.task_id,
-                )
-                compiled = [item for item in compiled if str(item.implementation.ref) not in excluded]
-                if not compiled:
-                    mode = "seeded"
-                ctx.runtime_step_modes[occurrence_id] = mode
-                bootstrap = not ctx.graph_bootstrap_completed
-                result = None
-                if not bootstrap:
-                    increment(ctx, "composite_auto_gate_attempt_count")
-                    # Closing the current Atomic is not choosing a new route.
-                    # A non-None result has already attempted execution (or
-                    # replayed its exact rejection): do not attempt it twice.
-                    result = executor.try_autonomous(occurrence, compiled, ctx) if compiled else None
-                    if result is None and not agent_preparing and ctx.runtime_config.get("support_closure", False):
-                        supported = SupportClosure(executor).close(occurrence, ctx, compiled)
-                        if ctx.benchmark_terminal():
-                            return executor._runtime_automation_terminal_boundary(occurrence)
-                        if supported:
-                            effect = executor._complete_from_current_effect(
-                                occurrence, ctx, mode=mode if assisted_here else "entry", preferred_values=[],
-                            )
-                            if effect is not None:
-                                executor._mark_runtime_trial_parent_completed(ctx, occurrence)
-                                return effect
-                            result = executor.try_autonomous(occurrence, compiled, ctx) if compiled else None
+            completed = ex._complete_from_current_effect(occurrence, ctx, mode="entry", preferred_values=[])
+            if completed is not None:
+                return completed
+            if ctx.execution_terminal():
+                return ex._runtime_automation_terminal_boundary(occurrence)
+            invocations = ex.invocation_compiler.compile_candidates(
+                occurrence, ctx.binding_store,
+                task_id=ctx.task_id)
+            mode = "preparation" if invocations else "seeded"
+            bootstrap = not ctx.graph_bootstrap_completed
+            ctx.graph_bootstrap_completed = True
+            if bootstrap:
+                ctx.trace_builder.trace.metadata.setdefault("node_entry_checks", []).append({
+                    "occurrence_id": occurrence.occurrence_id, "revision": ctx.world_revision,
+                    "reason": "graph_bootstrap", "selected": None, "candidates": []})
+            if not bootstrap:
+                increment(ctx, "composite_auto_gate_attempt_count")
+                result = ex.try_autonomous(occurrence, invocations, ctx)
                 if result is not None:
                     if result.atomic_effect_passed:
                         increment(ctx, "composite_auto_node_count")
-                        assisted = any(item.get("occurrence_id") == occurrence_id
-                                       for item in ctx.trace_builder.trace.metadata.get("runtime_steps", []))
-                        if mode == "seeded":
-                            result.node_status = NodeExecutionStatus.SEEDED_SUCCESS
-                        elif assisted:
-                            result.node_status = NodeExecutionStatus.DIRECT_AGENT_PREPARED_SUCCESS
-                        else:
-                            increment(ctx, "post_bootstrap_llm_free_node_count")
-                        executor._mark_runtime_trial_parent_completed(ctx, occurrence)
+                        increment(ctx, "post_bootstrap_llm_free_node_count")
                         return result
-                    if result.started:
-                        mode = "seeded"
-                        ctx.record_failed_invocation(
-                            occurrence_id=occurrence_id, implementation_ref=result.implementation_ref,
-                            failure_code=result.failure_code, message=result.failure_code,
-                        )
-                    if ctx.benchmark_terminal():
+                    if ctx.execution_terminal():
                         return result
-                atomic = executor.invocation_compiler.skills.get_atomic(occurrence.node_ref)
-                obligations = tuple(SupportClosure(executor).obligations(occurrence, atomic, ctx, compiled))
-                if agent_preparing:
-                    increment(ctx, "agent_preparation_continuation_count")
-                    if obligations and ctx.runtime_config.get("support_closure", False):
-                        increment(ctx, "automatic_support_suppressed_by_agent_ownership_count")
-                missing = ctx.binding_store.runtime_prompt_projection(
-                    occurrence, atomic.inputs,
-                )["missing_or_insufficient_bindings"]
-                support_candidates = executor._retrieve_runtime_support_candidates(
-                    blocked_atomic=atomic, missing_roles=missing, ctx=ctx,
-                    obligations=obligations,
-                )
-                if not bootstrap:
-                    increment(ctx, "composite_breakpoint_count")
-                step = run_runtime_step(executor, mode, occurrence, ctx, compiled,
-                                        support_candidates, bootstrap=bootstrap)
-                ctx.graph_bootstrap_completed = True
-                if step.automation_request:
-                    step = run_runtime_step(executor, mode, occurrence, ctx, compiled,
-                                            support_candidates, draft_request=step.automation_request)
-                agent_preparing = step.control_owner == "agent"
-                if step.failure_code:
-                    return executor.not_started(occurrence, failure_code=step.failure_code)
-                if step.result is not None:
-                    if step.result.atomic_effect_passed:
-                        executor._mark_runtime_trial_parent_completed(ctx, occurrence)
-                        return step.result
-                    if step.result.started:
-                        mode = "seeded"
-                    if ctx.benchmark_terminal():
-                        return step.result
+                    ctx.record_failed_invocation(occurrence_id=occurrence.occurrence_id,
+                        implementation_ref=result.implementation_ref,
+                        failure_code=result.failure_code, message=result.failure_code)
+                    mode = "seeded"
+            increment(ctx, "composite_breakpoint_count")
+            return ex.run_agent_node(occurrence, ctx, mode=mode, bootstrap=bootstrap)
         except AtomicSkillGraphError as exc:
             if exc.layer == FailureLayer.INFRASTRUCTURE:
                 raise
-            result = executor.not_started(occurrence, failure_code=exc.code)
+            result = ex.not_started(occurrence, failure_code=exc.code)
             result.failure_layer = exc.layer.value
             return result

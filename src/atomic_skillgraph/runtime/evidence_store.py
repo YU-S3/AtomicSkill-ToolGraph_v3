@@ -35,12 +35,26 @@ class GroundingEvidenceStore:
         self.revision = int(revision)
         for spec in catalog:
             for role, value in spec.arguments.items():
-                self._add(GroundingEvidence(
+                observed = self._add(GroundingEvidence(
                     evidence_id=f"entity:{revision}:{role}:{value}:{spec.action_id}", evidence_type="entity_concrete",
                     payload={"role": role, "value": value, "action_type": spec.action_type}, source="action_catalog",
                     observed_at_revision=revision, valid_from_revision=revision,
                     stability=EvidenceStability.REVISION_SCOPED, action_id=spec.action_id,
                 ))
+                # Catalog membership/affordance expires after an action; the
+                # identity of an actually observed value does not. This proof
+                # authenticates only a caller-supplied value, never supplies
+                # a missing role or proves a current relationship/existence.
+                if not any(item.evidence_type == "observed_value_identity"
+                           and item.payload.get("value") == value
+                           for item in self._evidence.values()):
+                    self._add(GroundingEvidence(
+                        evidence_id=f"observed_identity:{uuid.uuid4().hex}",
+                        evidence_type="observed_value_identity",
+                        payload={"value": value, "evidence_refs": [observed.evidence_id]},
+                        source="action_catalog_identity", observed_at_revision=revision,
+                        valid_from_revision=revision, stability=EvidenceStability.PERSISTENT,
+                    ))
             self._add(GroundingEvidence(
                 evidence_id=f"affordance:{revision}:{spec.action_id}", evidence_type="harness_affordance",
                 payload={"action_type": spec.action_type, "arguments": dict(spec.arguments)}, source="action_catalog",
@@ -57,6 +71,14 @@ class GroundingEvidenceStore:
         ))
 
     def add_validated_tool_output(self, role: str, value: Any, validation_refs: list[str]) -> GroundingEvidence:
+        if not validation_refs:
+            raise ValueError("validated output identity requires validation witnesses")
+        self._add(GroundingEvidence(
+            evidence_id=f"identity:{role}:{uuid.uuid4().hex}", evidence_type="validated_value_identity",
+            payload={"role": role, "value": value, "validation_refs": list(validation_refs)},
+            source="validated_output", observed_at_revision=self.revision,
+            valid_from_revision=self.revision, stability=EvidenceStability.PERSISTENT,
+        ))
         return self._add(GroundingEvidence(
             evidence_id=f"tool_output:{role}:{uuid.uuid4().hex}", evidence_type="validated_tool_output",
             payload={"role": role, "value": value, "validation_refs": list(validation_refs)}, source="tool_output",
@@ -110,7 +132,7 @@ class GroundingEvidenceStore:
                 return []
             matched = [
                 item for item in valid
-                if item.evidence_type in {"entity_concrete", "validated_tool_output"}
+                if item.evidence_type in {"entity_concrete", "validated_tool_output", "validated_value_identity", "observed_value_identity"}
                 and item.payload.get("value") in values.values()
             ]
             return matched if len({item.payload.get("value") for item in matched}) >= len(set(values.values())) else []

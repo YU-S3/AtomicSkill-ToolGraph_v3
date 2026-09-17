@@ -92,7 +92,7 @@ def _take_candidate(input_role: str, output_role: str, suffix: str):
             "required": [input_role],
             "additionalProperties": False,
         },
-        {
+        {"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {output_role: {"type": "string"}},

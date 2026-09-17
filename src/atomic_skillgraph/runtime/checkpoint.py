@@ -59,7 +59,7 @@ def capture(ctx: Any, occurrence_id: str) -> RuntimeExecutionCheckpoint:
 
 
 def restore(ctx: Any, checkpoint: RuntimeExecutionCheckpoint, failure_code: str) -> None:
-    if ctx.terminal_latched or ctx.benchmark_terminal():
+    if ctx.terminal_latched or ctx.execution_terminal():
         return
     end = len(ctx.trace_builder.trace.environment_actions)
     replay_count = 0

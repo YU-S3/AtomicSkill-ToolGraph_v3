@@ -113,7 +113,7 @@ def _alignment_payload() -> dict:
 def _extraction_payload() -> dict:
     return {
         "provisional_atomics": [{
-            "atomic_proposal": {
+            "atomic_proposal": {"guideline": {"steps": ["Use public evidence to satisfy the declared capability."], "notes": []},
                 "phase_id": "acquire",
                 "intent": "acquire_target_object",
                 "event_start": 0,

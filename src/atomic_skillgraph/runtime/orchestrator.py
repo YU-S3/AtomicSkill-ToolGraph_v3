@@ -50,7 +50,7 @@ def refresh_learning_eligibility(trace: TraceRecord) -> None:
 def _task_terminal(ctx: Any) -> bool:
     """Control-flow terminal authority; simple namespaces stay compatible."""
 
-    benchmark_terminal = getattr(ctx, "benchmark_terminal", None)
+    benchmark_terminal = getattr(ctx, "execution_terminal", None)
     return bool(getattr(ctx, "terminal_latched", False)) or bool(
         benchmark_terminal() if callable(benchmark_terminal) else False
     )
@@ -178,146 +178,6 @@ class RuntimeOrchestrator:
             node_action_budget=int(config.get("node_action_budget", 35)),
             token_limits=dict(config.get("token_limits", {})), turn_limits=dict(config.get("turn_limits", {})),
         )
-
-    def _reconcile_terminal_current_atomic(
-        self,
-        occurrence: RuntimeOccurrence,
-        ctx: TaskRuntimeContext,
-        *,
-        mode: str,
-        started_result: ImplementationExecutionResult | None = None,
-    ) -> ImplementationExecutionResult | None:
-        """Validate the current Atomic once more before a terminal skip.
-
-        This is deliberately only a deterministic state reconciliation.  The
-        delegated NodeExecutor path retains Atomic-effect and RepeatBlock
-        authority and cannot issue an Agent, environment, or Tool action.
-        """
-
-        if not _task_terminal(ctx):
-            return None
-
-        if started_result is None:
-            # Preserve the R8 non-started and Seeded reconciliation behavior.
-            return self.node_executor._complete_from_current_effect(
-                occurrence,
-                ctx,
-                mode=mode,
-                preferred_values=[],
-            )
-
-        if not self._started_terminal_reconciliation_is_safe(started_result):
-            return None
-
-        exact_started_bindings = {
-            str(role): binding.value
-            for role, binding in dict(
-                getattr(started_result, "realized_bindings", {}) or {}
-            ).items()
-            if getattr(binding, "status", None) == BindingStatus.GROUNDED
-        }
-        metrics = ctx.trace_builder.trace.metadata.setdefault(
-            "v32_metrics", {},
-        )
-        attempt_key = "runtime_terminal_started_reconciliation_attempt_count"
-        metrics[attempt_key] = int(metrics.get(attempt_key, 0)) + 1
-        resolutions: list[Any] = []
-        try:
-            reconciled = self.node_executor._complete_from_current_effect(
-                occurrence,
-                ctx,
-                mode=mode,
-                preferred_values=[],
-                preferred_bindings=exact_started_bindings,
-                resolution_out=resolutions,
-            )
-        except Exception:
-            failure_key = (
-                "runtime_terminal_started_reconciliation_failure_count"
-            )
-            metrics[failure_key] = int(metrics.get(failure_key, 0)) + 1
-            raise
-        if reconciled is None:
-            failure_key = "runtime_terminal_started_reconciliation_failure_count"
-            metrics[failure_key] = int(metrics.get(failure_key, 0)) + 1
-            return None
-
-        success_key = "runtime_terminal_started_reconciliation_success_count"
-        metrics[success_key] = int(metrics.get(success_key, 0)) + 1
-        witness_refs = list(dict.fromkeys(
-            str(ref)
-            for resolution in resolutions
-            if bool(getattr(resolution, "passed", False))
-            for ref in list(getattr(resolution, "witness_refs", []) or [])
-            if str(ref)
-        ))
-        merged = replace(
-            started_result,
-            atomic_effect_passed=True,
-            validated_outputs=dict(reconciled.validated_outputs),
-            after_state_ref=(
-                reconciled.after_state_ref or started_result.after_state_ref
-            ),
-            node_status=NodeExecutionStatus.DIRECT_TERMINAL_EFFECT_SUCCESS,
-            terminal_effect_reconciled=True,
-            atomic_witness_refs=witness_refs,
-        )
-        self._update_started_invocation_result(ctx, occurrence, merged)
-        return merged
-
-    @staticmethod
-    def _started_terminal_reconciliation_is_safe(result: Any) -> bool:
-        """Fail closed for intrinsic failures below the Atomic boundary."""
-
-        if not (
-            bool(getattr(result, "started", False))
-            and bool(getattr(result, "terminal_interrupted", False))
-            and not bool(getattr(result, "atomic_effect_passed", False))
-        ):
-            return False
-
-        raw_layer = getattr(result, "failure_layer", "")
-        failure_layer = str(getattr(raw_layer, "value", raw_layer) or "")
-        if failure_layer in {"implementation", "tool", "runtime_binding"}:
-            return False
-
-        failure_code = str(getattr(result, "failure_code", "") or "")
-        intrinsic_codes = {
-            "runtime_relation_not_grounded",
-            "stale_grounding_evidence",
-            "environment_action_rejected",
-        }
-        if (
-            failure_code in intrinsic_codes
-            or failure_code.startswith("implementation_")
-            or failure_code.startswith("tool_")
-            or failure_code.startswith("runtime_binding_")
-            or failure_code.startswith("runtime_repetition_")
-        ):
-            return False
-        return not any(
-            bool(getattr(tool_result, "intrinsic_failure", False))
-            for tool_result in list(getattr(result, "tool_results", []) or [])
-        )
-
-    @staticmethod
-    def _update_started_invocation_result(
-        ctx: TaskRuntimeContext,
-        occurrence: RuntimeOccurrence,
-        result: ImplementationExecutionResult,
-    ) -> None:
-        """Attach reconciliation to its invocation without rewriting Tool truth."""
-
-        for record in reversed(
-            ctx.trace_builder.trace.implementation_invocations
-        ):
-            if (
-                record.occurrence_id == occurrence.occurrence_id
-                and record.implementation_ref == result.implementation_ref
-                and bool(dict(record.result or {}).get("started", False))
-            ):
-                record.result = to_primitive(result)
-                return
 
     def create_trace_builder(self, task: HarnessTask, *, attempt_id: str = "") -> TraceBuilder:
         """Create the immutable-at-finalization skeleton before Planner/API work."""
@@ -451,130 +311,24 @@ class RuntimeOrchestrator:
                 ctx.binding_store.apply_data_flow(plan, step_id, ctx.validated_outputs, revision=ctx.world_revision)
                 ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
                 ctx.begin_occurrence(occurrence)
-                already = self.node_executor._complete_from_current_effect(
-                    occurrence,
-                    ctx,
-                    mode="entry",
-                    preferred_values=[],
-                )
-                if already is not None:
-                    outputs = dict(already.validated_outputs)
-                    node.status = NodeExecutionStatus.ALREADY_SATISFIED
-                    node.validated_outputs = outputs
-                    if outputs:
-                        validation_refs = self._latest_atomic_witnesses(
-                            ctx,
-                            occurrence.occurrence_id,
-                        )
-                        ctx.binding_store.publish_validated_outputs(
-                            occurrence,
-                            outputs,
-                            validation_refs,
-                            ctx.world_revision,
-                        )
-                        ctx.validated_outputs[occurrence.occurrence_id] = outputs
-                        for role, value in outputs.items():
-                            ctx.evidence_store.add_validated_tool_output(
-                                role,
-                                value,
-                                validation_refs,
-                            )
-                    terminal = self.validation.task.terminal(
-                        ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
-                    )
-                    if _task_terminal(ctx):
-                        self._mark_remaining_terminal(ctx, index + 1)
-                        break
-                    continue
-
-                invocations = self.invocation_compiler.compile_candidates(
-                    occurrence, ctx.binding_store,
-                    max_candidates=int(self.runtime_config.get("max_implementation_candidates", 3)),
-                    task_id=task.task_id,
-                )
-                if self.runtime_config.get("verified_composite_executor", False):
-                    from .composite_executor import VerifiedCompositeExecutor
-                    direct = VerifiedCompositeExecutor(self.node_executor).run_occurrence(occurrence, ctx)
-                elif not invocations:
-                    direct = self.node_executor.not_started(occurrence, failure_code="no_compatible_implementation")
-                else:
-                    direct = self.node_executor.try_autonomous(occurrence, invocations, ctx)
-                    if direct is None:
-                        direct = self.node_executor.run_preparation_session(
-                            occurrence, invocations, ctx,
-                            learned_call_repair_limit=int(self.runtime_config.get("learned_toolcall_repair_limit", 2)),
-                        )
-                node.direct_result = to_primitive(direct)
-                final = direct
-                if _task_terminal(ctx) and not direct.atomic_effect_passed:
-                    reconciled = self._reconcile_terminal_current_atomic(
-                        occurrence,
-                        ctx,
-                        mode="preparation",
-                        started_result=(direct if direct.started else None),
-                    )
-                    if reconciled is None:
-                        node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
-                        trace = ctx.trace_builder.trace
-                        trace.metadata.setdefault("task_terminal", {})
-                        trace.metadata["task_terminal"].update({
-                            "during": "direct",
-                            "origin": ctx.terminal_origin,
-                            "revision": ctx.terminal_revision,
-                        })
-                        self._mark_remaining_terminal(ctx, index + 1)
-                        break
-                    direct = reconciled
-                    node.direct_result = to_primitive(direct)
-                    final = direct
-                if not direct.atomic_effect_passed:
-                    if direct.failure_code == "runtime_plan_conflict":
-                        node.status = direct.node_status
-                        node.failure = {
-                            "failure_layer": direct.failure_layer or "composite",
-                            "failure_code": "runtime_plan_conflict",
-                            "direct_started": direct.started,
-                        }
+                from .composite_executor import VerifiedCompositeExecutor
+                final = VerifiedCompositeExecutor(self.node_executor).run_occurrence(occurrence, ctx)
+                node.direct_result = to_primitive(final)
+                if _task_terminal(ctx) and not final.atomic_effect_passed:
+                    node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+                    self._mark_remaining_terminal(ctx, index + 1)
+                    break
+                if not final.atomic_effect_passed:
+                    node.status = final.node_status
+                    node.failure = {"failure_layer": final.failure_layer, "failure_code": final.failure_code,
+                                    "direct_started": final.started}
+                    if final.failure_code == "runtime_plan_conflict":
                         ctx.plan_conflict_declared = True
-                        ctx.plan_conflict_context = self._plan_conflict_context(
-                            ctx, occurrence,
-                        )
-                        ctx.trace_builder.trace.metadata.setdefault(
-                            "runtime_plan_conflicts", []
-                        ).append(dict(ctx.plan_conflict_context))
-                        break
-                    if direct.implementation_ref and direct.failure_code:
-                        ctx.record_failed_invocation(
-                            occurrence_id=occurrence.occurrence_id,
-                            implementation_ref=direct.implementation_ref,
-                            failure_code=direct.failure_code,
-                            message=direct.failure_code,
-                        )
-                    seeded = (direct if self.runtime_config.get("verified_composite_executor", False)
-                              else self.node_executor.run_seeded_fresh(occurrence, ctx))
-                    node.seeded_result = to_primitive(seeded)
-                    final = seeded
-                    if _task_terminal(ctx) and not seeded.atomic_effect_passed:
-                        reconciled = self._reconcile_terminal_current_atomic(
-                            occurrence,
-                            ctx,
-                            mode="seeded",
-                        )
-                        if reconciled is None:
-                            node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
-                            self._mark_remaining_terminal(ctx, index + 1)
-                            break
-                        seeded = reconciled
-                        node.seeded_result = to_primitive(seeded)
-                        final = seeded
-                    if not seeded.atomic_effect_passed:
-                        node.status = NodeExecutionStatus.SEEDED_FAILED
-                        node.failure = {
-                            "failure_layer": seeded.failure_layer, "failure_code": seeded.failure_code,
-                            "direct_started": direct.started,
-                        }
+                        ctx.plan_conflict_context = self._plan_conflict_context(ctx, occurrence)
+                        ctx.trace_builder.trace.metadata.setdefault("runtime_plan_conflicts", []).append(dict(ctx.plan_conflict_context))
+                    else:
                         ctx.plan_execution_failed = True
-                        break
+                    break
                 node.status = final.node_status
                 node.validated_outputs = dict(final.validated_outputs)
                 if final.validated_outputs:
@@ -601,7 +355,7 @@ class RuntimeOrchestrator:
         terminal = self.validation.task.terminal(
             ctx.task_contract, ctx.harness.validator_channel(), getattr(ctx.harness.validator_channel(), "won", False),
         )
-        if ctx.rescue_allowed() and not ctx.benchmark_terminal():
+        if ctx.rescue_allowed() and not ctx.execution_terminal():
             ctx.task_rescue_used = True
             # Task rescue is task-level Dynamic execution.  It keeps every
             # action already charged to the global episode budget, but it must
@@ -920,128 +674,21 @@ class RuntimeOrchestrator:
             ctx.world_revision,
         )
         ctx.begin_occurrence(occurrence)
-        already = self.node_executor._complete_from_current_effect(
-            occurrence,
-            ctx,
-            mode="entry",
-            preferred_values=[],
-        )
-        if already is not None:
-            node.status = NodeExecutionStatus.ALREADY_SATISFIED
-            node.validated_outputs = dict(already.validated_outputs)
-            self._publish_cold_outputs(
-                ctx,
-                occurrence,
-                already.validated_outputs,
-            )
-            return True, "", "already_satisfied"
-
-        invocations = self.invocation_compiler.compile_candidates(
-            occurrence,
-            ctx.binding_store,
-            max_candidates=int(
-                self.runtime_config.get("max_implementation_candidates", 3)
-            ),
-            task_id=ctx.task.task_id,
-        )
-        if not invocations:
-            direct = self.node_executor.not_started(
-                occurrence,
-                failure_code="no_compatible_implementation",
-            )
-        else:
-            direct = self.node_executor.try_autonomous(
-                occurrence,
-                invocations,
-                ctx,
-            )
-            if direct is None:
-                direct = self.node_executor.run_preparation_session(
-                    occurrence,
-                    invocations,
-                    ctx,
-                    learned_call_repair_limit=int(
-                        self.runtime_config.get(
-                            "learned_toolcall_repair_limit",
-                            2,
-                        )
-                    ),
-                    plan_context_plan=execution_plan,
-                )
-        node.direct_result = to_primitive(direct)
-        final = direct
-        if _task_terminal(ctx) and not direct.atomic_effect_passed:
-            reconciled = self._reconcile_terminal_current_atomic(
-                occurrence,
-                ctx,
-                mode="preparation",
-                started_result=(direct if direct.started else None),
-            )
-            if reconciled is None:
-                node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
-                return False, "benchmark_terminal", "goal_terminal"
-            direct = reconciled
-            node.direct_result = to_primitive(direct)
-            final = direct
-        if not direct.atomic_effect_passed:
-            if direct.failure_code == "runtime_plan_conflict":
-                node.status = direct.node_status
-                node.failure = {
-                    "failure_layer": direct.failure_layer or "composite",
-                    "failure_code": "runtime_plan_conflict",
-                    "direct_started": direct.started,
-                }
-                ctx.plan_conflict_declared = True
-                ctx.plan_conflict_context = self._plan_conflict_context(
-                    ctx,
-                    occurrence,
-                    execution_plan=execution_plan,
-                )
-                ctx.trace_builder.trace.metadata.setdefault(
-                    "runtime_plan_conflicts", [],
-                ).append(dict(ctx.plan_conflict_context))
-                return False, "runtime_plan_conflict", "plan_conflict"
-            if direct.implementation_ref and direct.failure_code:
-                ctx.record_failed_invocation(
-                    occurrence_id=occurrence.occurrence_id,
-                    implementation_ref=direct.implementation_ref,
-                    failure_code=direct.failure_code,
-                    message=direct.failure_code,
-                )
-            seeded = self.node_executor.run_seeded_fresh(
-                occurrence,
-                ctx,
-                plan_context_plan=execution_plan,
-            )
-            node.seeded_result = to_primitive(seeded)
-            final = seeded
-            if _task_terminal(ctx) and not seeded.atomic_effect_passed:
-                reconciled = self._reconcile_terminal_current_atomic(
-                    occurrence,
-                    ctx,
-                    mode="seeded",
-                )
-                if reconciled is None:
-                    node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
-                    return False, "benchmark_terminal", "goal_terminal"
-                seeded = reconciled
-                node.seeded_result = to_primitive(seeded)
-                final = seeded
+        from .composite_executor import VerifiedCompositeExecutor
+        final = VerifiedCompositeExecutor(self.node_executor).run_occurrence(occurrence, ctx)
+        node.direct_result = to_primitive(final)
+        if _task_terminal(ctx) and not final.atomic_effect_passed:
+            node.status = NodeExecutionStatus.SKIPPED_GOAL_TERMINAL
+            return False, "benchmark_terminal", "goal_terminal"
         if not final.atomic_effect_passed:
-            node.status = (
-                NodeExecutionStatus.SEEDED_FAILED
-                if node.seeded_result
-                else NodeExecutionStatus.DIRECT_FAILED
-            )
-            underlying_failure = (
-                final.failure_code
-                or "cold_start_verified_step_failed"
-            )
-            node.failure = {
-                "failure_layer": final.failure_layer or "atomic",
-                "failure_code": underlying_failure,
-                "direct_started": direct.started,
-            }
+            node.status = final.node_status
+            node.failure = {"failure_layer": final.failure_layer, "failure_code": final.failure_code,
+                            "direct_started": final.started}
+            if final.failure_code == "runtime_plan_conflict":
+                ctx.plan_conflict_declared = True
+                ctx.plan_conflict_context = self._plan_conflict_context(ctx, occurrence, execution_plan=execution_plan)
+                ctx.trace_builder.trace.metadata.setdefault("runtime_plan_conflicts", []).append(dict(ctx.plan_conflict_context))
+                return False, "runtime_plan_conflict", "plan_conflict"
             return False, "cold_start_verified_step_failed", "failed"
         node.status = final.node_status
         node.validated_outputs = dict(final.validated_outputs)
@@ -1313,7 +960,7 @@ class RuntimeOrchestrator:
                 refs = list(record.result.get("witness_refs", []))
                 if refs:
                     return refs
-        return [f"validator:occurrence:{occurrence_id}:revision:{ctx.world_revision}"]
+        raise ValueError(f"validated occurrence {occurrence_id} has no actual witnesses")
 
     def _mark_remaining_terminal(self, ctx: TaskRuntimeContext, start_index: int) -> None:
         existing = {node.step_id for node in ctx.trace_builder.trace.node_records}

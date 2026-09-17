@@ -80,7 +80,7 @@ def test_task_anchor_survives_concrete_overwrite_and_revision_invalidation() -> 
     store.invalidate_revision(2)
     assert (
         store.snapshot_for_node(occurrence)["object"].status
-        is BindingStatus.INVALIDATED
+        is BindingStatus.GROUNDED
     )
     persistent = store.semantic_anchor_for(occurrence, "object")
     assert persistent is not None
@@ -94,8 +94,8 @@ def test_task_anchor_survives_concrete_overwrite_and_revision_invalidation() -> 
     ) == {
         "task_semantic_context": {"object": "pen"},
         "occurrence_semantic_anchors": {"object": "pen"},
-        "execution_ready_bindings": {},
-        "missing_or_insufficient_bindings": ["object"],
+        "execution_ready_bindings": {"object": "pen_1"},
+        "missing_or_insufficient_bindings": [],
     }
 
 
@@ -185,21 +185,21 @@ def test_validated_dataflow_is_anchor_but_tool_output_alone_is_not() -> None:
     store.invalidate_revision(2)
     assert (
         store.snapshot_for_node(source)["held_object"].status
-        is BindingStatus.INVALIDATED
+        is BindingStatus.GROUNDED
     )
     assert (
         store.snapshot_for_node(target)["object"].status
-        is BindingStatus.INVALIDATED
+        is BindingStatus.GROUNDED
     )
     assert store.semantic_anchor_for(source, "held_object") is None
     assert store.semantic_anchor_for(target, "object").value == "pen_1"
 
     # Re-resolving the formal edge in a later world may recover semantic
-    # identity, but it must not resurrect the stale concrete proof.
+    # identity, with concrete identity only, not the stale relation proof.
     store.resolve_occurrence_specs(target, 2)
     refreshed = store.snapshot_for_node(target)["object"]
     assert refreshed.status is BindingStatus.GROUNDED
-    assert refreshed.resolution is BindingResolution.SEMANTIC
+    assert refreshed.resolution is BindingResolution.CONCRETE
     store.commit_grounded(
         target.occurrence_id,
         {"object": _harness_binding("object", "pen_1", 2)},

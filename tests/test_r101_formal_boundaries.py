@@ -43,7 +43,8 @@ def test_E05_persistent_support_policy_view_does_not_mutate_provenance():
     assert 'soapbar' not in view.summary and 'cabinet_1' not in view.summary
     assert all(not item.description for item in view.inputs + view.outputs)
     assert view.effects == atomic.effects and view.validator_spec == atomic.validator_spec
-    assert view.metadata == atomic.metadata
+    assert view.metadata == {**atomic.metadata, "guidance_rejection": "guideline is not portable"}
+    assert not view.guideline
     assert to_primitive(atomic) == before
 
 
@@ -53,9 +54,9 @@ def test_F04_r101_is_explicitly_registered_and_budget_guarded(phase):
     from experiments.run_v3_frozen_eval import _frozen_protocol, _validate_formal_config as frozen_guard
     root = Path(__file__).resolve().parents[1]
     name, protocol, guard, expected = (
-        ('alfworld_train_full_120_r101_seed42', _train_protocol, train_guard, ('r101_full120', 42, 20, 120))
+        ('alfworld_train_full_120_r102_seed42', _train_protocol, train_guard, ('r102_full120', 42, 20, 120))
         if phase == 'train' else
-        ('alfworld_frozen_eval_134_r101_seed42', _frozen_protocol, frozen_guard, ('r101_frozen134', 42, 0, 134)))
+        ('alfworld_frozen_eval_134_r102_seed42', _frozen_protocol, frozen_guard, ('r102_frozen134', 42, 0, 134)))
     config = load_config(root / 'configs' / (name + '.yaml'))
     assert protocol(config) == expected
     guard(config, root / config['experiment']['output_dir'])
@@ -65,7 +66,7 @@ def test_F04_r101_is_explicitly_registered_and_budget_guarded(phase):
         with pytest.raises(ProtocolError):
             validate_deepseek_formal_llm(changed)
     changed = copy.deepcopy(config)
-    changed['runtime']['short_runtime_steps'] = False
+    changed['runtime']['rollback_automatic_execution_failure'] = False
     with pytest.raises(ProtocolError):
         validate_deepseek_formal_llm(changed)
 

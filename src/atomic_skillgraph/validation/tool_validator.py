@@ -9,30 +9,12 @@ from ..core.results import ValidationResult
 
 
 def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
-    errors: list[str] = []
-    expected = schema.get("type")
-    type_map = {
-        "object": dict, "array": list, "string": str, "integer": int,
-        "number": (int, float), "boolean": bool, "null": type(None),
-    }
-    if expected in type_map and not isinstance(value, type_map[expected]):
-        return [f"{path}: expected {expected}"]
-    if expected == "object" and isinstance(value, dict):
-        for name in schema.get("required", []):
-            if name not in value:
-                errors.append(f"{path}.{name}: required")
-        properties = schema.get("properties", {})
-        if schema.get("additionalProperties") is False:
-            errors.extend(f"{path}.{name}: additional property" for name in value if name not in properties)
-        for name, item in value.items():
-            if name in properties:
-                errors.extend(validate_json_schema(item, properties[name], f"{path}.{name}"))
-    elif expected == "array" and isinstance(value, list) and "items" in schema:
-        for index, item in enumerate(value):
-            errors.extend(validate_json_schema(item, schema["items"], f"{path}[{index}]"))
-    if "enum" in schema and value not in schema["enum"]:
-        errors.append(f"{path}: not in enum")
-    return errors
+    from ..agents.protocol import validate_schema_instance, SchemaValidationError
+    try:
+        validate_schema_instance(value, schema, path=path)
+        return []
+    except (SchemaValidationError, TypeError, ValueError) as exc:
+        return [str(exc)]
 
 
 class ToolValidator:

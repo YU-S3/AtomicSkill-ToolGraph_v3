@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fixtures.r102 import compile_fixture
 
 import copy
 import json
@@ -136,7 +137,7 @@ def test_c01_exact_reuse_builds_current_canonical_case_without_mutating_old_tool
     skills = SkillRegistry(artifacts, database)
     tools = ToolRegistry(artifacts, database)
     old_occurrence = _source("task-a", "trace-a", "object", "apple_1")
-    old = ToolCompiler().compile([old_occurrence])[0]
+    old = compile_fixture([old_occurrence])[0]
     old_atomic = replace(old.atomic, status=SkillStatus.ACTIVE)
     old_tool = replace(old.tool, status=ToolStatus.ACTIVE)
     old_implementation = replace(
@@ -151,7 +152,7 @@ def test_c01_exact_reuse_builds_current_canonical_case_without_mutating_old_tool
     old_signature = _tool_signature(old_tool)
 
     new_occurrence = _source("task-b", "trace-b", "item", "mug_2")
-    new_atomic = ToolCompiler().compile([new_occurrence])[0].atomic
+    new_atomic = compile_fixture([new_occurrence])[0].atomic
     system = AtomicSkillGraphSystem.__new__(AtomicSkillGraphSystem)
     system.skills = skills
     system.tools = tools
@@ -206,8 +207,8 @@ def test_c02_each_case_resolves_to_its_own_trace_and_manifest_task(tmp_path) -> 
         task_manifest_path=manifest_path,
     )
     compiler = ToolCompiler()
-    case_a = compiler.compile([_source("task-a", "trace-a", "object", "apple_1")])[0].tool.tests[0]
-    case_b = compiler.compile([_source("task-b", "trace-b", "item", "mug_2")])[0].tool.tests[0]
+    case_a = compile_fixture([_source("task-a", "trace-a", "object", "apple_1")])[0].tool.tests[0]
+    case_b = compile_fixture([_source("task-b", "trace-b", "item", "mug_2")])[0].tool.tests[0]
 
     resolved_a = authority.resolve(
         case_a, current_task=task_b, current_trace=trace_b,
@@ -225,7 +226,7 @@ def test_c02_each_case_resolves_to_its_own_trace_and_manifest_task(tmp_path) -> 
 def test_formal_manifest_supplies_split_when_trace_task_metadata_does_not(
     tmp_path,
 ) -> None:
-    case = ToolCompiler().compile([
+    case = compile_fixture([
         _source("task-a", "trace-a", "object", "apple_1")
     ])[0].tool.tests[0]
     case["source_task"]["metadata"].pop("split", None)
@@ -267,7 +268,7 @@ def test_formal_manifest_supplies_split_when_trace_task_metadata_does_not(
     ],
 )
 def test_c04_c09_source_identity_is_fail_closed(mutation, expected_code) -> None:
-    case = ToolCompiler().compile([
+    case = compile_fixture([
         _source("task-a", "trace-a", "object", "apple_1")
     ])[0].tool.tests[0]
     mutation(case)
@@ -285,7 +286,7 @@ def test_c04_c09_source_identity_is_fail_closed(mutation, expected_code) -> None
 
 
 def test_c09_disallowed_source_split_does_not_fall_back_to_current_task() -> None:
-    case = ToolCompiler().compile([
+    case = compile_fixture([
         _source("task-a", "trace-a", "object", "apple_1")
     ])[0].tool.tests[0]
     authority = ReplaySourceAuthority(
@@ -314,7 +315,7 @@ def test_c08_terminal_prefix_does_not_admit_the_unfinished_tool() -> None:
             "required": ["item"],
             "additionalProperties": False,
         },
-        interface={
+        interface={"entry_contract": {"conditions": [], "grounding_constraints": []},
             "output_schema": {
                 "type": "object",
                 "properties": {"held_object": {"type": "string"}},
@@ -435,7 +436,7 @@ def test_harness_replay_programming_errors_propagate(
     error_type,
 ) -> None:
     occurrence = _source("task-a", "trace-a", "object", "apple_1")
-    compiled = ToolCompiler().compile([occurrence])[0]
+    compiled = compile_fixture([occurrence])[0]
     opaque_tool = replace(compiled.tool, artifact_kind="opaque_tool")
     task = fake_task("task-a", "apple_1")
     system = AtomicSkillGraphSystem.__new__(AtomicSkillGraphSystem)
@@ -464,7 +465,7 @@ def test_tool_runner_programming_errors_propagate(
     from atomic_skillgraph.runtime.tool_runner import ToolRunner
 
     occurrence = _source("task-a", "trace-a", "object", "apple_1")
-    compiled = ToolCompiler().compile([occurrence])[0]
+    compiled = compile_fixture([occurrence])[0]
     tool_ir = replace(compiled.tool, artifact_kind="tool_ir_v1")
     task = fake_task("task-a", "apple_1")
     system = AtomicSkillGraphSystem.__new__(AtomicSkillGraphSystem)
@@ -577,7 +578,7 @@ def test_c07_admission_consumes_typed_passed_and_rejects_truthy_objects() -> Non
 
 def test_shared_case_builder_rejects_noncanonical_binding_roles() -> None:
     occurrence = _source("task-a", "trace-a", "item", "apple_1")
-    atomic = ToolCompiler().compile([occurrence])[0].atomic
+    atomic = compile_fixture([occurrence])[0].atomic
     original_occurrence = to_primitive(occurrence)
     mismatched = replace(
         occurrence,
@@ -602,7 +603,7 @@ def test_c06_apply_evolution_replays_each_case_once_and_deduplicates_version(
     compiler = ToolCompiler()
 
     source_a = _source("task-a", "trace-a", "object", "apple_1")
-    compiled_a = compiler.compile([source_a])[0]
+    compiled_a = compile_fixture([source_a])[0]
     atomic_a = replace(compiled_a.atomic, status=SkillStatus.ACTIVE)
     tool_a = replace(compiled_a.tool, status=ToolStatus.ACTIVE)
     implementation_a = replace(
@@ -634,7 +635,7 @@ def test_c06_apply_evolution_replays_each_case_once_and_deduplicates_version(
     system.repair_store = SimpleNamespace(save=repair_proposals.append)
 
     source_b = _source("task-b", "trace-b", "item", "mug_2")
-    atomic_b = compiler.compile([source_b])[0].atomic
+    atomic_b = compile_fixture([source_b])[0].atomic
     task_b = _task("task-b", "mug_2")
     compiled_b = system._existing_executable_reuse(
         source_b,
@@ -724,7 +725,7 @@ def test_c06_apply_evolution_replays_each_case_once_and_deduplicates_version(
     source_c = _source("task-c", "trace-c", "item", "plate_3")
     task_c = _task("task-c", "plate_3")
     tasks["task-c"] = task_c
-    atomic_c = compiler.compile([source_c])[0].atomic
+    atomic_c = compile_fixture([source_c])[0].atomic
     compiled_c = system._existing_executable_reuse(
         source_c,
         atomic_c,
