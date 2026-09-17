@@ -691,6 +691,16 @@ class RuntimeBindingStore:
                     binding.role, binding.value, binding.semantic_type, binding.source,
                     BindingStatus.INVALIDATED, binding.resolution, list(binding.evidence_refs), revision,
                 )
+                anchor = self._support_input_anchors.get(key)
+                if anchor is not None:
+                    # Navigation invalidates the old execution proof, not the
+                    # helper-certified input identity. Ordinary grounding must
+                    # certify this semantic value again at the new revision.
+                    invalid = RuntimeBinding(
+                        anchor.role, copy.deepcopy(anchor.value), anchor.semantic_type,
+                        BindingSource.DATA_FLOW, BindingStatus.GROUNDED,
+                        BindingResolution.SEMANTIC, list(anchor.evidence_refs), revision,
+                    )
                 self._set(key[0], invalid, "world_revision_invalidated")
 
     def publish_validated_outputs(

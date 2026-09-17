@@ -81,6 +81,10 @@ def test_B08_support_input_identity_survives_later_child_revision_without_stale_
     assert transfer_inputs(request, parent, result, ctx).passed
     ctx.world_revision += 1  # A later navigation/helper changes the world.
     ctx.binding_store.invalidate_revision(ctx.world_revision)
+    invalidated = ctx.binding_store.snapshot_for_node(request.consumer)['object']
+    assert invalidated.value == 'object_2'
+    assert invalidated.status is BindingStatus.GROUNDED
+    assert invalidated.resolution is BindingResolution.SEMANTIC
     # Expiring state proof must not erase the validated consumer identity.
     assert not consumer_guard(request, parent, {'object': 'object_1'}, ctx).passed
     assert consumer_guard(request, parent, {'object': 'object_2'}, ctx).passed
