@@ -171,6 +171,31 @@ def test_G03_live_atomicizer_rejects_implicit_legacy_boundary():
         Atomicizer().validate_and_canonicalize([proposal], normalized)
 
 
+@pytest.mark.parametrize('status', ['give_up', 'plan_conflict'])
+def test_F03_only_authorized_graph_failure_enters_task_tool_rescue(tmp_path, status):
+    chosen = {}
+    def choose(request, count):
+        if count == 1:
+            return 'report_runtime_status', {'status': status, 'detail': 'declared incomplete-graph fixture'}
+        assert status == 'plan_conflict' and count == 2
+        return 'invoke_support_atomic', {'support_atomic_ref': chosen['ref'], 'arguments': {'target': 'cabinet_1'}}
+    system, ctx, _, _, provider = setup(tmp_path, choose)
+    system.harness.case = replace(system.harness.case, terminal_action='GO_TO')
+    helper, _ = install_fixture(system, 'rescue_navigation', [],
+        [SemanticPredicate('agent.at_location', {'location': '$target'})], [('GO_TO', 'destination')])
+    chosen['ref'] = str(helper.ref)
+    system.planner.build_plan = lambda *args, **kwargs: ctx.plan
+    try:
+        trace = system.orchestrator.run_task(ctx.task)
+        assert trace.task_rescue_required is (status == 'plan_conflict')
+        assert trace.benchmark_success is (status == 'plan_conflict')
+        assert len(provider.requests) == (2 if status == 'plan_conflict' else 1)
+        assert len(trace.environment_actions) == (1 if status == 'plan_conflict' else 0)
+        assert not trace.graph_self_sufficient_success
+    finally:
+        system.close()
+
+
 def typed_preparation_example():
     from atomic_skillgraph.core.contracts import ParameterSpec
     from atomic_skillgraph.evolution.atomicizer import AtomicOccurrenceProposal

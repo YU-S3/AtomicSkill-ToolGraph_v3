@@ -1,8 +1,8 @@
 """Declared real-provider T5 routes, not autonomous benchmark performance.
 
 The initial case declares no reusable graph. The rescue case declares a real
-take contract from the existing route fixture, with a one-call Agent give-up
-menu to enter normal rescue. Neither invents a parent for task automation.
+take contract from the existing route fixture, with an Agent-declared conflict
+menu for that deliberately incomplete graph. Neither invents an automation parent.
 All draft roles, values, programs, actions and validation are production paths.
 """
 from __future__ import annotations
@@ -51,7 +51,7 @@ class TaskAutomationProvider:
         return self.delegate.complete(messages=messages, tools=tools)
 
 
-class GiveUpEntryProvider:
+class PlanConflictEntryProvider:
     def __init__(self, delegate):
         self.delegate = delegate
 
@@ -61,8 +61,11 @@ class GiveUpEntryProvider:
     def complete(self, messages, *, tools):
         messages = copy.deepcopy(messages)
         messages[0]['content'] += (
-            '\nDECLARED RESCUE ENTRY FIXTURE: report_runtime_status give_up now '
-            'so the normal task-rescue route is exercised. Do not claim completion.')
+            '\nDECLARED RESCUE ENTRY FIXTURE: this diagnostic graph only covers '
+            'a prerequisite capability and omits the final obligation in the task goal. '
+            'Explicitly report_runtime_status plan_conflict for this incomplete graph, '
+            'so the normal task-rescue route is exercised. Do not claim completion. '
+            'give_up merely terminates a route and does not authorize task rescue.')
         return self.delegate.complete(messages=messages,
             tools=[tool for tool in tools if tool.name == 'report_runtime_status'])
 
@@ -114,8 +117,8 @@ def run(config_path, output):
                 plan = route.make_plan(task, parent, implementations, system.harness)
                 plan.source, plan.source_composite_ref = 'atomic_composition', None
                 system.planner.build_plan = lambda *args, **kwargs: plan
-                system._provider_override['runtime_preparation'] = GiveUpEntryProvider(delegates['runtime_preparation'])
-                system._provider_override['runtime_seeded'] = GiveUpEntryProvider(delegates['runtime_seeded'])
+                system._provider_override['runtime_preparation'] = PlanConflictEntryProvider(delegates['runtime_preparation'])
+                system._provider_override['runtime_seeded'] = PlanConflictEntryProvider(delegates['runtime_seeded'])
             started = time.monotonic()
             try:
                 trace = system.run_task(task)
