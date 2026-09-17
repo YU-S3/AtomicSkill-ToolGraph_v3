@@ -38,3 +38,25 @@ def test_builder_setup_exception_keeps_usage_and_immutable_trace(tmp_path, monke
     assert trace['llm_usage'] == usage
     assert trace['metadata']['diagnostic_setup_or_execution_error']['type'] == 'RuntimeError'
     assert not trace['environment_actions']
+
+
+def test_diagnostic_finishes_pending_maintenance_before_freeze(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from experiments import run_v3_r102_targeted as targeted
+    calls = []
+    class API:
+        database = object()
+        def run_maintenance(self, **kwargs):
+            calls.append(('maintenance', kwargs))
+            return SimpleNamespace(pending_count=0)
+        def knowledge_digest(self):
+            return 'stable'
+        def freeze(self, destination):
+            assert [name for name, _ in calls] == ['maintenance', 'audit']
+            calls.append(('freeze', destination))
+    monkeypatch.setattr(targeted, 'artifact_audit_snapshot',
+                        lambda database: calls.append(('audit', database)))
+    result = targeted.finalize_diagnostic(API(), tmp_path, [{'task_id': 'last_saved_task'}])
+    assert calls[0][1] == {'triggering_task_id': 'last_saved_task',
+        'milestone': 'r102_diagnostic_final_batch', 'finalize_pending': True}
+    assert result['source_digest_unchanged']

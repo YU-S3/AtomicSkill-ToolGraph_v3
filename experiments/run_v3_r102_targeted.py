@@ -135,6 +135,22 @@ def action_source_audit(trace):
             'events': rows}
 
 
+def finalize_diagnostic(system, output, rows):
+    """Use the formal maintenance-before-freeze boundary, without running tasks again."""
+    maintenance = system.run_maintenance(
+        triggering_task_id=rows[-1]['task_id'],
+        milestone='r102_diagnostic_final_batch', finalize_pending=True)
+    if maintenance.pending_count != 0:
+        raise RuntimeError('Diagnostic final maintenance left pending repairs')
+    artifact_audit_snapshot(system.database)
+    digest = system.knowledge_digest()
+    system.freeze(output / 'frozen_bank')
+    if system.knowledge_digest() != digest:
+        raise RuntimeError('Freeze changed source knowledge')
+    return {'maintenance': to_primitive(maintenance), 'knowledge_digest': digest,
+            'source_digest_unchanged': True}
+
+
 def run(config_path, output, *, mode):
     start = time.monotonic()
     output = Path(output).resolve()
@@ -209,15 +225,13 @@ def run(config_path, output, *, mode):
             print(json.dumps({k: v for k, v in row.items() if k not in {'llm_usage', 'runtime_tool_trials', 'support_transfers'}}, ensure_ascii=False), flush=True)
             if row['action_source_audit']['unattributed_world_actions']:
                 raise RuntimeError('Diagnostic action provenance audit failed; see saved Trace and progress')
-        digest = system.knowledge_digest()
-        system.freeze(output / 'frozen_bank')
-        if system.knowledge_digest() != digest:
-            raise RuntimeError('Freeze changed source knowledge')
+        finalization = finalize_diagnostic(system, output, rows)
         usage = [item.to_dict() for item in system.usage.events]
     result = {'mode': mode, 'complete': len(rows) == len(entries), 'cases': rows,
         'tasks': len(rows), 'official_successes': sum(row['official_won'] for row in rows),
         'code_hash': manifest['code_hash'], 'code_unchanged': hash_code(REPO) == manifest['code_hash'],
         'wall_seconds': time.monotonic() - start, 'formal_experiment': False,
+        'finalization': finalization,
         'total_tokens': sum(int(event.get('total_tokens') or 0) for event in usage)}
     atomic_write_json(output / 'summary.json', result)
     return result
