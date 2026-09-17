@@ -74,6 +74,22 @@ def test_V04_parameter_schema_preserves_types_and_optionality():
                       'required': ['count'], 'additionalProperties': False}
 
 
+def test_semantic_argument_presence_does_not_satisfy_authored_evidence_requirement():
+    from atomic_skillgraph.tooling.entry_contract import check_tool_entry
+    tool = SimpleNamespace(signature=parameter_schema([ParameterSpec('term', 'entity')]),
+        interface={'entry_contract': {'conditions': [], 'grounding_constraints': []}})
+    evidence = GroundingEvidenceStore()
+    assert check_tool_entry(tool, {'term': 'category'}, None, evidence, 0).passed
+    assert not check_tool_entry(tool, {}, None, evidence, 0).passed
+    tool.interface['entry_contract']['grounding_constraints'] = [{
+        'constraint_id': 'author_requires_evidence', 'kind': 'argument_exists',
+        'required_resolution': 'semantic',
+        'argument_mapping': {'value': {'kind': 'skill_input', 'source_role': 'term'}}}]
+    result = check_tool_entry(tool, {'term': 'category'}, None, evidence, 0)
+    assert not result.passed
+    assert result.failure_codes == ['tool_entry_constraint_unsatisfied']
+
+
 def test_L02_entry_contract_changes_executable_identity_and_failure_cache(tmp_path):
     from test_r102_execution import _opened, _prepare
     from atomic_skillgraph.evolution.aligner import _tool_signature

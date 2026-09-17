@@ -89,6 +89,9 @@ def test_tool_builder_uses_r922_instruction_and_canonical_ref() -> None:
 
     assert "entry_contract" in instruction
     assert 'proposal_version="2"' in instruction
+    assert 'Input presence and types are already checked' in instruction
+    assert 'requires matching current grounding evidence' in instruction
+    assert 'required_resolution="semantic" does not waive that evidence requirement' in instruction
     assert payload["atomic_ref"] == provenance.atomic_ref
     assert payload["canonical_atomic"]["effects"] == _atomic_view()["effects"]
     assert payload["source_kind"] == "success_evolution"
