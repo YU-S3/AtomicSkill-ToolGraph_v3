@@ -77,6 +77,23 @@ def test_A04_canonical_identity_is_regenerated(tmp_path):
         assert system.ledger.count() == 1
 
 
+def test_A02_all_unregistered_failures_remain_trace_only(tmp_path):
+    with AtomicSkillGraphSystem(_system_config(tmp_path), harness=FakeHarness()) as system:
+        trace = system.orchestrator.create_trace_builder(fake_task('all_failed', 'apple_1')).trace
+        tool = ToolCompiler().compile([_source('source', 'source_trace', 'object', 'apple_1')])[0].tool
+        observation(system, trace, tool, 1, False)
+        before = artifact_audit_snapshot(system.database)
+        resolve(system, trace)
+        trace.finish()
+        system.traces.save_atomic(trace)
+        system._commit_replay_certificates(trace)
+        assert not trace.metadata['replay_certificate_events']
+        assert len(trace.metadata['replay_candidate_observations']) == 1
+        assert not trace.metadata['tool_replay_results'][0]['passed']
+        assert system.ledger.count() == 0
+        assert artifact_audit_snapshot(system.database) == before
+
+
 def test_A06_batch_precheck_is_atomic(tmp_path):
     with AtomicSkillGraphSystem(_system_config(tmp_path), harness=FakeHarness()) as system:
         trace = system.orchestrator.create_trace_builder(fake_task('batch', 'apple_1')).trace

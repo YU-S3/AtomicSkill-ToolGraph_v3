@@ -199,6 +199,12 @@ def test_D02_D04_budget_interrupt_is_audited_restored_not_refunded(tmp_path, ori
         assert trace.tool_executions[-1].result['intrinsic_failure'] is False
         assert trace.implementation_invocations[-1].result['interrupted_by_budget']
         assert trace.metadata['runtime_rollbacks'][-1]['origin'] == origin
+        if origin == 'runtime_trial':
+            excluded = trace.metadata['runtime_trial_credit_exclusions']
+            assert trace.implementation_invocations[-1].attempt_id in excluded['implementation_attempt_ids']
+            assert trace.tool_executions[-1].attempt_id in excluded['tool_execution_ids']
+            events = system.credit.assign(trace)
+            assert not any(event.artifact_ref in {str(impl.ref), str(compiled.tools[0].ref)} for event in events)
     finally:
         system.close()
 
@@ -321,5 +327,65 @@ def test_C05_C10_short_frame_keeps_concrete_last_action_and_shared_resource_quer
         assert 'cabinet_1' in str(frame['last_step'])
         assert 'GO_TO' in str(frame['last_step'])
         assert all([m['role'] for m in request.messages] == ['system', 'user'] for request in provider.requests)
+    finally:
+        system.close()
+
+
+def test_C04_C05_repeat_refusal_carries_completed_identity_and_actual_action(tmp_path):
+    from test_r10_runtime import setup, action
+    from atomic_skillgraph.runtime.runtime_step import run_runtime_step
+    def choose(request, count):
+        if count < 3:
+            return action(request, 'GO_TO', destination='cabinet_1') if count == 1 else action(request, 'OPEN')
+        name, arguments = action(request, 'TAKE', object='egg_1')
+        arguments['intent'] = 'attempt_current_atomic'
+        return name, arguments
+    system, ctx, occurrence, invocations, provider = setup(tmp_path, choose)
+    try:
+        ex = system.orchestrator.node_executor
+        for _ in range(2):
+            run_runtime_step(ex, 'preparation', occurrence, ctx, invocations, [])
+        repeat = RuntimeRepeatConstraint('twice', 2, (('previous',), (occurrence.step_id,)), ('item',), (),
+            {'previous': {'item': 'object'}, occurrence.step_id: {'item': 'object'}})
+        ctx.binding_store.configure_repeat_constraints([repeat])
+        ctx.binding_store.commit_repeat_bindings('previous', {'object': 'egg_1'}, effect_passed=True)
+        for _ in range(2):
+            run_runtime_step(ex, 'seeded', occurrence, ctx, invocations, [])
+        frame = provider.requests[-1].policy_context['execution_frame']
+        assert frame['repeat']['iteration_index'] == 1
+        assert frame['repeat']['committed_distinct_values'] == {'item': ['egg_1']}
+        assert frame['last_step']['action_type'] == 'TAKE'
+        assert frame['last_step']['action_arguments']['object'] == 'egg_1'
+        assert frame['last_step']['error'] == 'runtime_repetition_distinctness_violation'
+        assert provider.requests[-1].policy_context['rejected_candidates']
+        assert len(ctx.trace_builder.trace.environment_actions) == 2
+        assert len(provider.requests) == 4
+    finally:
+        system.close()
+
+
+def test_B10_duplicate_relation_proofs_are_not_ambiguous():
+    request, parent, ctx = boundary()
+    parent.preconditions *= 2
+    request.producer.effects *= 2
+    assert prove_request(request, parent, ctx).passed
+    assert request.output_mapping == {'location': 'station', 'entity': 'object'}
+    assert len([p for p in request.mapping_evidence if p['kind'] == 'joint_relation']) == 1
+
+
+def test_C06_support_refusal_is_exact_to_arguments_and_state(tmp_path):
+    from test_r10_runtime import setup
+    from atomic_skillgraph.agents.protocol import NativeToolCall
+    from atomic_skillgraph.runtime.negative_memory import remember_rejection, cached_rejection, current_rejections
+    system, ctx, occurrence, _, _ = setup(tmp_path, lambda *args: pytest.fail('no model'))
+    try:
+        call = NativeToolCall('refused', 'invoke_support_atomic', {'atomic_ref': 'skill://helper@1.0.0', 'arguments': {'object': 'egg_1'}})
+        remember_rejection(ctx, occurrence, call, {'accepted': False, 'error': 'runtime_repetition_distinctness_violation'})
+        assert cached_rejection(ctx, occurrence, call)
+        assert 'egg_1' in str(current_rejections(ctx, occurrence))
+        other = replace(call, arguments={**call.arguments, 'arguments': {'object': 'egg_2'}})
+        assert not cached_rejection(ctx, occurrence, other)
+        ctx.world_revision += 1
+        assert not cached_rejection(ctx, occurrence, call)
     finally:
         system.close()

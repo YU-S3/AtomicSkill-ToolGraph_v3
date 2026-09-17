@@ -96,6 +96,8 @@ class ImplementationRunner:
                 ctx.trace_builder.trace.implementation_invocations.append(ImplementationInvocationRecord(
                     attempt_id, occurrence.occurrence_id, str(compiled.implementation.ref),
                     dict(preflight.normalized_arguments), to_primitive(preflight), payload, span.span_id))
+                if execution_scope == "runtime_trial":
+                    self._exclude_trial_credit(ctx.trace_builder.trace, attempt_id, tool_execution_start)
                 raise
             tool_results.append(result)
             started = started or result.started
@@ -212,30 +214,23 @@ class ImplementationRunner:
         )
         ctx.trace_builder.trace.implementation_invocations.append(invocation_record)
         if execution_scope == "runtime_trial":
-            trace = ctx.trace_builder.trace
-            metadata = getattr(trace, "metadata", None)
-            if not isinstance(metadata, dict):
-                metadata = {}
-                trace.metadata = metadata
-            exclusions = metadata.setdefault(
-                "runtime_trial_credit_exclusions",
-                {
-                    "implementation_attempt_ids": [],
-                    "tool_execution_ids": [],
-                },
-            )
-            exclusions["implementation_attempt_ids"] = list(dict.fromkeys([
-                *exclusions.get("implementation_attempt_ids", []),
-                attempt_id,
-            ]))
-            trial_tool_ids = [
-                str(item.attempt_id)
-                for item in list(getattr(trace, "tool_executions", ()))[
-                    tool_execution_start:
-                ]
-            ]
-            exclusions["tool_execution_ids"] = list(dict.fromkeys([
-                *exclusions.get("tool_execution_ids", []),
-                *trial_tool_ids,
-            ]))
+            self._exclude_trial_credit(ctx.trace_builder.trace, attempt_id, tool_execution_start)
         return result
+
+    @staticmethod
+    def _exclude_trial_credit(trace, attempt_id, tool_execution_start):
+        """Task-local attempts remain raw audit even on budget interruption.
+
+        They never name persistent deployment assets. This must happen before
+        propagating an exception, not only after a normally returned trial.
+        """
+        exclusions = trace.metadata.setdefault("runtime_trial_credit_exclusions", {
+            "implementation_attempt_ids": [], "tool_execution_ids": [],
+        })
+        exclusions["implementation_attempt_ids"] = list(dict.fromkeys([
+            *exclusions.get("implementation_attempt_ids", []), attempt_id,
+        ]))
+        exclusions["tool_execution_ids"] = list(dict.fromkeys([
+            *exclusions.get("tool_execution_ids", []),
+            *[str(item.attempt_id) for item in trace.tool_executions[tool_execution_start:]],
+        ]))
