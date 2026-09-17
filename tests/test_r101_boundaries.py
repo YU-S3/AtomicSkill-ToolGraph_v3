@@ -149,6 +149,27 @@ def test_B06_predicate_selected_support_cannot_replace_concrete_parent():
     assert runner.calls == 0
 
 
+@pytest.mark.parametrize('wrong_family', [False, True])
+def test_B09_predicate_selected_support_keeps_real_ambiguity_and_semantic_guard(wrong_family):
+    from test_r92_support_and_public_memory import _support_call_fixture, _support_call
+    executor, runner, ctx, session, occurrence, parent, candidate = _support_call_fixture(
+        executable=True, preflight_passed=False)
+    candidate = replace(candidate, role_mappings=(), predicate_obligations=(
+        {'input_mapping': {'destination': 'source'}},
+        {'input_mapping': {'destination': 'alternate'}}))
+    parent.inputs.append(ParameterSpec('alternate', 'location'))
+    ctx.binding_store.commit_grounded(occurrence.occurrence_id, {role: RuntimeBinding(
+        role, 'desk', 'location', BindingSource.TASK, BindingStatus.GROUNDED,
+        BindingResolution.SEMANTIC) for role in ('source', 'alternate')})
+    ctx.harness = SimpleNamespace(semantic_value_compatible=lambda **kw:
+        kw['semantic_anchor'] == 'desk' and kw['concrete_value'] == 'desk_2')
+    payload = executor._invoke_support_atomic_call(
+        _support_call(candidate, arguments={'destination': 'cabinet_1' if wrong_family else 'desk_2'}),
+        session, occurrence, ctx, parent, [candidate])
+    assert payload['error'] == 'support_predicate_mapping_ambiguous'
+    assert runner.calls == 0
+
+
 def test_D07_D08_execution_cache_ignores_uuid_but_not_program_arguments_or_world(tmp_path):
     from test_r10_runtime import setup
     from atomic_skillgraph.runtime.invocation_transaction import execution_cache_key
