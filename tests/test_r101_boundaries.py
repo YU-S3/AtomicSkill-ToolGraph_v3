@@ -201,3 +201,125 @@ def test_D02_D04_budget_interrupt_is_audited_restored_not_refunded(tmp_path, ori
         assert trace.metadata['runtime_rollbacks'][-1]['origin'] == origin
     finally:
         system.close()
+
+
+def test_C01_satisfied_navigation_precedes_entry_affordance_and_has_no_tool_credit(tmp_path, monkeypatch):
+    from test_r10_runtime import setup, action
+    from experiments.r10_world_checks import install_fixture, bind
+    from atomic_skillgraph.runtime.runtime_step import run_runtime_step
+    from atomic_skillgraph.runtime.support_closure import SupportClosure
+    system, ctx, original, invocations, _ = setup(tmp_path,
+        lambda request, count: action(request, 'GO_TO', destination='cabinet_1'))
+    try:
+        ex = system.orchestrator.node_executor
+        run_runtime_step(ex, 'preparation', original, ctx, invocations, [])
+        atomic, impl = install_fixture(system, 'already_at', [], [SemanticPredicate('agent.at_location', {'location': '$target'})],
+            [('GO_TO', 'destination')], source_target='cabinet_1')
+        occurrence = RuntimeOccurrence('already_at', 'already_at', atomic.ref, [], {}, [str(impl.ref)], atomic.effects)
+        bind(ctx, occurrence, 'cabinet_1')
+        compiled = system.invocation_compiler.compile_candidates(occurrence, ctx.binding_store, task_id=ctx.task_id)
+        before = len(ctx.trace_builder.trace.environment_actions)
+        monkeypatch.setattr(system.invocation_compiler, 'autonomous_preflight', lambda *a, **kw: pytest.fail('effect must precede action preflight'))
+        assert SupportClosure(ex).close(occurrence, ctx, compiled)
+        assert len(ctx.trace_builder.trace.environment_actions) == before
+        assert not ctx.trace_builder.trace.tool_executions
+        assert not ctx.trace_builder.trace.implementation_invocations
+    finally:
+        system.close()
+
+
+def test_C02_child_holds_allows_parent_completion_without_second_take(tmp_path):
+    from test_r10_runtime import setup, action
+    from atomic_skillgraph.runtime.runtime_step import run_runtime_step
+    from atomic_skillgraph.runtime.support_closure import SupportClosure
+    def choose(request, count):
+        return action(request, 'GO_TO', destination='cabinet_1') if count == 1 else action(request, 'OPEN') if count == 2 else action(request, 'TAKE', object='egg_1')
+    system, ctx, occurrence, invocations, _ = setup(tmp_path, choose)
+    try:
+        ex = system.orchestrator.node_executor
+        for _ in range(3):
+            run_runtime_step(ex, 'preparation', occurrence, ctx, invocations, [])
+        assert [a.action_type for a in ctx.trace_builder.trace.environment_actions] == ['GO_TO', 'OPEN', 'TAKE']
+        assert SupportClosure(ex).close(occurrence, ctx, invocations)
+        assert len(ctx.trace_builder.trace.environment_actions) == 3
+        assert not ctx.trace_builder.trace.tool_executions
+    finally:
+        system.close()
+
+
+def test_D10_inconsistent_restore_stops_as_infrastructure(tmp_path, monkeypatch):
+    from test_r10_runtime import setup, action
+    from atomic_skillgraph.runtime.runtime_step import run_runtime_step
+    from atomic_skillgraph.runtime.checkpoint import capture, restore
+    from atomic_skillgraph.core.errors import AtomicSkillGraphError
+    system, ctx, occurrence, invocations, _ = setup(tmp_path,
+        lambda request, count: action(request, 'GO_TO', destination='cabinet_1'))
+    try:
+        checkpoint = capture(ctx, occurrence.occurrence_id)
+        run_runtime_step(system.orchestrator.node_executor, 'preparation', occurrence, ctx, invocations, [])
+        monkeypatch.setattr(ctx.harness, 'restore_runtime_checkpoint', lambda *args: SimpleNamespace(metadata={'restored_digest': 'wrong'}))
+        with pytest.raises(AtomicSkillGraphError) as raised:
+            restore(ctx, checkpoint, 'original_failure')
+        assert raised.value.code == 'runtime_checkpoint_restore_failed'
+        assert raised.value.layer.value == 'infrastructure'
+        assert ctx.budget.used_global_actions == 1
+        assert not ctx.trace_builder.trace.metadata.get('runtime_rollbacks')
+    finally:
+        system.close()
+
+
+def test_D03_successful_support_with_rejected_parent_delivery_is_rolled_back(tmp_path):
+    from test_r10_runtime import setup
+    from experiments.r10_world_checks import install_fixture, bind
+    from atomic_skillgraph.runtime.invocation_transaction import execute_invocation
+    from atomic_skillgraph.traces.canonical import canonical_action_indices
+    system, ctx, _, _, _ = setup(tmp_path, lambda *args: pytest.fail('no model'))
+    try:
+        atomic, impl = install_fixture(system, 'delivery_rejected', [],
+            [SemanticPredicate('agent.at_location', {'location': '$target'})],
+            [('GO_TO', 'destination')], source_target='cabinet_1')
+        occurrence = RuntimeOccurrence('delivery', 'delivery', atomic.ref, [], {}, [str(impl.ref)], atomic.effects)
+        ctx.begin_occurrence(occurrence)
+        bind(ctx, occurrence, 'cabinet_1')
+        compiled = system.invocation_compiler.compile_candidates(occurrence, ctx.binding_store, task_id=ctx.task_id)[0]
+        preflight = system.invocation_compiler.autonomous_preflight(compiled, occurrence,
+            ctx.binding_store, ctx.evidence_store, ctx.world_revision, task_contract=ctx.task_contract)
+        assert preflight.passed
+        digest = ctx.harness._runtime_state_digest()
+        bindings = copy.deepcopy(vars(ctx.binding_store))
+        def reject_delivery(result):
+            assert result.started and result.atomic_effect_passed
+            return SimpleNamespace(passed=False, failure_codes=['runtime_repetition_distinctness_violation'])
+        result = execute_invocation(system.orchestrator.node_executor.implementation_runner,
+            compiled, preflight, occurrence, ctx, agent_prepared=True,
+            origin='agent_selected_support', accept_result=reject_delivery)
+        assert result.started and not result.atomic_effect_passed and not result.validated_outputs
+        assert result.failure_code == 'runtime_repetition_distinctness_violation'
+        assert ctx.harness._runtime_state_digest() == digest
+        assert vars(ctx.binding_store) == bindings
+        assert ctx.budget.used_global_actions == 1
+        assert len(ctx.trace_builder.trace.environment_actions) == 1
+        assert canonical_action_indices(ctx.trace_builder.trace) == []
+        assert ctx.trace_builder.trace.metadata['runtime_rollbacks'][-1]['origin'] == 'agent_selected_support'
+    finally:
+        system.close()
+
+
+def test_C05_C10_short_frame_keeps_concrete_last_action_and_shared_resource_query(tmp_path):
+    from test_r10_runtime import setup, action
+    from atomic_skillgraph.runtime.runtime_step import run_runtime_step
+    system, ctx, occurrence, invocations, provider = setup(tmp_path,
+        lambda request, count: action(request, 'GO_TO', destination='cabinet_1'))
+    try:
+        ex = system.orchestrator.node_executor
+        run_runtime_step(ex, 'preparation', occurrence, ctx, invocations, [])
+        run_runtime_step(ex, 'seeded', occurrence, ctx, invocations, [])
+        frame = provider.requests[-1].policy_context['execution_frame']
+        assert frame['mode'] == 'seeded'
+        assert frame['current_occurrence_id'] == occurrence.occurrence_id
+        assert frame['remaining_resources']['task_actions'] == ctx.budget.global_action_budget - 1
+        assert 'cabinet_1' in str(frame['last_step'])
+        assert 'GO_TO' in str(frame['last_step'])
+        assert all([m['role'] for m in request.messages] == ['system', 'user'] for request in provider.requests)
+    finally:
+        system.close()
