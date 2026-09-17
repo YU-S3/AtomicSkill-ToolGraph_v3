@@ -14,6 +14,7 @@ from ..core.serialization import to_primitive
 from ..core.support_authority import input_identity_source_role, support_role_authority
 from .checkpoint import increment
 from .support_retriever import SupportObligation, predicate_input_mapping
+from .support_request import SupportRequest, prove_request, consumer_guard, known_consumer_values, transfer_inputs, consumer_constraints, validate_transfer
 
 
 def _active(value: Any) -> bool:
@@ -78,9 +79,12 @@ class SupportClosure:
             ))
         return result
 
-    def close(self, occurrence: Any, ctx: Any, invocations: list, stack: tuple = ()) -> bool:
+    def close(self, occurrence: Any, ctx: Any, invocations: list, stack: tuple = (),
+              *, effect_guard=None, input_guard=None) -> bool:
         ex = self.executor
         atomic = ex.invocation_compiler.skills.get_atomic(occurrence.node_ref)
+        if ex._complete_from_current_effect(occurrence, ctx, mode="entry", preferred_values=[], effect_guard=effect_guard) is not None:
+            return True
         obligations = self.obligations(occurrence, atomic, ctx, invocations)
         increment(ctx, "support_obligation_count", len(obligations))
         changed = False
@@ -152,11 +156,27 @@ class SupportClosure:
             # executable discovery route (nor choose their own unrelated value).
             options = [(p, i, o, a) for p, i, o, a in options
                        if mapped_support_bindings(p, i, a, occurrence, ctx.binding_store) is not None]
+            requests = {}
+            for p, i, o, a in options:
+                request = SupportRequest(ctx.budget.current_occurrence_id, occurrence, p, dict(i), dict(o), set(a))
+                request.consumer_value_guard = input_guard
+                request.grounding_constraints = consumer_constraints(ex.invocation_compiler, atomic)
+                if not prove_request(request, atomic, ctx).passed:
+                    continue
+                support_bindings = mapped_support_bindings(p, request.input_mapping, request.anchor_inputs, occurrence, ctx.binding_store)
+                if support_bindings is None or not consumer_guard(request, atomic,
+                        known_consumer_values(request, {k: v.value for k, v in support_bindings.items()}), ctx).passed:
+                    continue
+                identity = canonical_json({'producer': str(p.ref), 'inputs': request.input_mapping, 'outputs': request.output_mapping})
+                requests[identity] = request
+            options = list(requests.values())
             if len(options) != 1:
                 if len(options) > 1:
                     increment(ctx, "support_closure_ambiguity_count")
                 continue
-            producer, input_mapping, output_mapping, anchor_inputs = options[0]
+            request = options[0]
+            producer, input_mapping, output_mapping, anchor_inputs = (
+                request.producer, request.input_mapping, request.output_mapping, request.anchor_inputs)
             support = RuntimeOccurrence(
                 step_id=f"support::{uuid.uuid4().hex}", occurrence_id=f"support::{uuid.uuid4().hex}",
                 node_ref=producer.ref, requirement_ids=[], binding_specs={},
@@ -166,6 +186,7 @@ class SupportClosure:
             )
             if not support.implementation_candidates:
                 continue
+            request.producer_occurrence_id = support.occurrence_id
             support_bindings = mapped_support_bindings(
                 producer, input_mapping, anchor_inputs, occurrence, ctx.binding_store)
             if support_bindings is None:
@@ -187,9 +208,15 @@ class SupportClosure:
             increment(ctx, "support_closure_attempt_count")
             try:
                 ctx.begin_occurrence(support)
-                self.close(support, ctx, implementations, (*stack, key))
+                guard = lambda resolution: validate_transfer(request, atomic, resolution.output_candidates, ctx)
+                result = ex._complete_from_current_effect(support, ctx, mode="entry", preferred_values=[], effect_guard=guard)
+                if result is None:
+                    self.close(support, ctx, implementations, (*stack, key), effect_guard=guard,
+                        input_guard=lambda values: consumer_guard(request, atomic, known_consumer_values(request, values), ctx))
                 if ctx.benchmark_terminal():
                     return changed
+                if result is None:
+                    result = ex._complete_from_current_effect(support, ctx, mode="entry", preferred_values=[], effect_guard=guard)
                 current = ctx.binding_store.snapshot_for_node(support)
                 # Unmapped inputs may be supplied by recursive validated
                 # Support, but cannot be chosen incidentally by this helper's
@@ -198,7 +225,12 @@ class SupportClosure:
                 supplied = all(not item.required or (
                     item.name in current and current[item.name].status is BindingStatus.GROUNDED)
                     for item in producer.inputs)
-                result = ex.try_autonomous(support, implementations, ctx) if supplied else None
+                if result is None and supplied:
+                    result = ex.try_autonomous(support, implementations, ctx,
+                        accept_result=lambda value: transfer_inputs(request, atomic, value, ctx), consumer=occurrence)
+                elif result is not None:
+                    if not transfer_inputs(request, atomic, result, ctx).passed:
+                        result = None
             finally:
                 ctx.begin_occurrence(occurrence)
                 ctx._after_action_refresh = parent_refresh
@@ -212,7 +244,6 @@ class SupportClosure:
             })
             if result is None or not result.atomic_effect_passed:
                 if result is not None and result.started and result.implementation_ref:
-                    ctx.rejected_runtime_implementations.setdefault(occurrence.occurrence_id, set()).add(result.implementation_ref)
                     ctx.record_failed_invocation(
                         occurrence_id=occurrence.occurrence_id, implementation_ref=result.implementation_ref,
                         failure_code=result.failure_code, message="Automatic Support failed; see the invocation and rollback audit",
@@ -224,10 +255,6 @@ class SupportClosure:
             if len(outputs) != len(output_mapping):
                 continue
             refs = list(result.atomic_witness_refs)
-            if outputs:
-                ctx.binding_store.publish_validated_outputs(occurrence, outputs, refs, ctx.world_revision)
-                for role, value in outputs.items():
-                    ctx.evidence_store.add_validated_tool_output(role, value, refs)
             increment(ctx, "support_closure_success_count")
             increment(ctx, "support_auto_execution_count")
             ctx.trace_builder.trace.metadata.setdefault("runtime_support_node_records", []).append({
@@ -238,4 +265,8 @@ class SupportClosure:
             if producer.metadata.get("runtime_support_promotion"):
                 increment(ctx, "runtime_support_reuse_count")
             changed = True
+            if ex._complete_from_current_effect(occurrence, ctx, mode="entry", preferred_values=[], effect_guard=effect_guard) is not None:
+                values = ctx.trace_builder.trace.metadata.setdefault('r101_metrics', {})
+                values['atomic_satisfied_after_support'] = values.get('atomic_satisfied_after_support', 0) + 1
+                return True
         return changed

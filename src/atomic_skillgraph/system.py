@@ -640,6 +640,7 @@ class AtomicSkillGraphSystem:
             runtime_config=runtime_config,
             failure_knowledge=self.failure_knowledge,
         )
+        self.orchestrator.node_executor.runtime_resources = self._runtime_remaining_tokens
         extraction_config = dict(self.config.get("extraction") or {})
         self.extraction_policy = ExtractionPolicy(**{
             key: extraction_config.get(key, default)
@@ -661,6 +662,7 @@ class AtomicSkillGraphSystem:
             tool_builder_factory=self._tool_builder_session,
             tool_compiler=self.tool_compiler,
         )
+        self.orchestrator.node_executor.automation_coordinator.runtime_resources = self._runtime_remaining_tokens
         self.composite_builder = CompositeBuilder()
         self.failure_processor = FailureProcessor(self.validation.failure_localizer)
         self.gap_diagnoser = GapDiagnoser(self.skills)
@@ -847,6 +849,19 @@ class AtomicSkillGraphSystem:
             budget_scope="usage_bucket",
         )
 
+    def _runtime_remaining_tokens(self, occurrence_id: str) -> dict[str, int]:
+        """Pure query shared by session admission and public execution frames."""
+        cfg = self._stage_config("runtime")
+        session_ids = {
+            item.session.session_id for item in self._observed_sessions
+            if item.task_id == self._current_task_id and item.occurrence_id == occurrence_id
+            and item.session_type in {"RuntimePreparationSession", "SeededSession"}
+        }
+        used = sum(event.usage.total_tokens for event in self.usage.events[self._current_task_usage_start:]
+                   if event.session_id in session_ids)
+        return {"node_tokens": max(0, int(cfg.get("max_total_tokens_per_node", 80000)) - used),
+                "task_tokens": self._shared_tool_builder_tokens("runtime")}
+
     def _runtime_session(self, session_kind: str, occurrence_id: str) -> _SessionProxy:
         single_step = session_kind.startswith("runtime_step_")
         if single_step:
@@ -867,16 +882,8 @@ class AtomicSkillGraphSystem:
             # Reconstruct the allocation from the authoritative usage ledger,
             # not from session lifetime. Preparation/Seeded/Draft share one
             # occurrence allocation; Builder is charged only to the task cap.
-            session_ids = {
-                item.session.session_id for item in self._observed_sessions
-                if item.task_id == self._current_task_id
-                and item.occurrence_id == occurrence_id
-                and item.session_type in {"RuntimePreparationSession", "SeededSession"}
-            }
-            used = sum(event.usage.total_tokens for event in self.usage.events[self._current_task_usage_start:]
-                       if event.session_id in session_ids)
-            node_remaining = max(0, token_cap - used)
-            task_remaining = self._shared_tool_builder_tokens("runtime")
+            resources = self._runtime_remaining_tokens(occurrence_id)
+            node_remaining, task_remaining = resources["node_tokens"], resources["task_tokens"]
             token_cap = task_remaining if task_level else min(node_remaining, task_remaining)
             if task_level or task_remaining <= node_remaining:
                 exhaustion_code = "runtime_task_token_budget_exhausted"
@@ -1606,6 +1613,8 @@ class AtomicSkillGraphSystem:
         )
         from .runtime.r10_metrics import finalize as finalize_r10_metrics
         finalize_r10_metrics(trace, getattr(self, "config", {}))
+        from .evolution.replay_publication import resolve as resolve_replay_publication
+        resolve_replay_publication(self, trace)
         self.traces.save_atomic(trace)
 
         if run_mode is RuntimeMode.ONLINE:
@@ -2223,8 +2232,8 @@ class AtomicSkillGraphSystem:
     def _commit_replay_certificates(self, trace: TraceRecord) -> None:
         """Publish only after the immutable audit Trace has been persisted."""
         if not self.readonly:
-            events = [EvidenceEvent(**item) for item in
-                      trace.metadata.get("replay_certificate_events", [])]
+            from .evolution.replay_publication import validate_batch
+            events = validate_batch(self, trace)
             if events:
                 self._commit_evidence(events)
 
@@ -5561,6 +5570,8 @@ class AtomicSkillGraphSystem:
             _require_formal_usage(usage, trace.agent_turns)
         trace.finish()
         self._capture_replay_bank_metrics(trace)
+        from .evolution.replay_publication import resolve as resolve_replay_publication
+        resolve_replay_publication(self, trace)
         self.traces.save_atomic(trace)
         self._commit_replay_certificates(trace)
 

@@ -197,6 +197,8 @@ def _authoritative_contract_projection(values: Any) -> Any:
         return to_primitive(values)
     projected: list[Any] = []
     for atomic in values:
+        from ..agents.portable_support_view import portable_support_view
+        atomic = portable_support_view(atomic)
         if not hasattr(atomic, "ref"):
             projected.append(to_primitive(atomic))
             continue

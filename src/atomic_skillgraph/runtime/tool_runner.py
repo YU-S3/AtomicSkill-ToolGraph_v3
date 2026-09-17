@@ -49,6 +49,7 @@ class ToolRunner:
         execution_scope: str = "registered",
     ) -> ToolExecutionResult:
         before_revision = ctx.world_revision
+        attempt_id = f"tool_attempt_{uuid.uuid4().hex}"
         local = self.validator.validate_asset(tool)
         if not local.passed:
             return ToolExecutionResult(
@@ -79,7 +80,18 @@ class ToolRunner:
             except (KeyError, TypeError, ValueError) as exc:
                 failure_index, failure_code, failure_message = index, "tool_primitive_rejected", str(exc)
                 break
-            ctx.budget.consume_action()
+            try:
+                ctx.budget.consume_action()
+            except BudgetExhausted as exc:
+                ctx.trace_builder.finish_span(span.span_id)
+                interrupted = ToolExecutionResult(str(tool.ref), True, started, False,
+                    ctx.world_revision != before_revision, executed, index, partial, {},
+                    before_revision, ctx.world_revision, "runtime_agent", exc.code, str(exc),
+                    intrinsic_failure=False)
+                record = ToolExecutionRecord(attempt_id, occurrence_id, str(tool.ref), to_primitive(interrupted), span.span_id)
+                record.result["interrupted_by_budget"] = True
+                ctx.trace_builder.trace.tool_executions.append(record)
+                raise
             started = True
             result = ctx.harness.execute_action(spec.action_id, spec.revision)
             executed += 1
@@ -150,7 +162,7 @@ class ToolRunner:
             },
         )
         ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(
-            f"tool_attempt_{uuid.uuid4().hex}", occurrence_id, str(tool.ref), to_primitive(tool_result), span.span_id,
+            attempt_id, occurrence_id, str(tool.ref), to_primitive(tool_result), span.span_id,
         ))
         return tool_result
 
@@ -297,6 +309,7 @@ class ToolRunner:
                 failure_code
             ),
             "failure_code": failure_code,
+            "attempted_action": dict(state.attempted_action) if failure_code else {},
             "validated_paths": sorted(set(state.validated_paths)),
             "unvalidated_paths": sorted(set(state.unvalidated_paths)),
             "loop_iteration_counts": dict(state.loop_iteration_counts),
@@ -339,6 +352,9 @@ class ToolRunner:
         self, node: dict[str, Any], primitive: PrimitiveToolStep,
         ctx: Any, state: ToolExecutionState, *, occurrence_id: str, span_id: str,
     ) -> dict[str, Any]:
+        state.attempted_action = {"action_type": primitive.action_type, "arguments": {
+            role: expression.constant if expression.kind is BindingExprKind.CONSTANT else state.bindings.get(expression.source_role)
+            for role, expression in primitive.argument_mapping.items()}}
         try:
             spec = ctx.harness.compile_primitive(primitive, state.bindings)
         except KeyError as exc:
@@ -900,6 +916,7 @@ class ToolRunner:
         execution_scope: str = "registered",
     ) -> ToolExecutionResult:
         before_revision = ctx.world_revision
+        attempt_id = f"tool_attempt_{uuid.uuid4().hex}"
         state = self._ir_state(tool, bindings, ctx)
         program = [dict(node) for node in tool.artifact.get("program", [])]
         terminal: list[dict[str, Any]] = []
@@ -910,8 +927,6 @@ class ToolRunner:
                 span_id=span_id, tool=tool, terminal=terminal,
             )
         except BudgetExhausted as exc:
-            if execution_scope != "runtime_trial":
-                raise
             state.failure_code = exc.code
             state.failure_message = str(exc)
             total_nodes = self._program_node_count(program)
@@ -943,9 +958,12 @@ class ToolRunner:
                 ),
             )
             ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(
-                f"tool_attempt_{uuid.uuid4().hex}", occurrence_id,
+                attempt_id, occurrence_id,
                 str(tool.ref), to_primitive(result), span_id,
             ))
+            ctx.trace_builder.trace.tool_executions[-1].result["interrupted_by_budget"] = True
+            if execution_scope != "runtime_trial" or getattr(ctx, 'runtime_config', {}).get('rollback_automatic_execution_failure'):
+                raise
             return result
         except ValueError as exc:
             raw_code = str(exc).split(":", 1)[0]
@@ -991,7 +1009,7 @@ class ToolRunner:
                 ),
             )
             ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(
-                f"tool_attempt_{uuid.uuid4().hex}", occurrence_id, str(tool.ref),
+                attempt_id, occurrence_id, str(tool.ref),
                 to_primitive(result), span_id,
             ))
             return result
@@ -1103,7 +1121,7 @@ class ToolRunner:
         )
         ctx.trace_builder.finish_span(span_id)
         ctx.trace_builder.trace.tool_executions.append(ToolExecutionRecord(
-            f"tool_attempt_{uuid.uuid4().hex}", occurrence_id, str(tool.ref),
+            attempt_id, occurrence_id, str(tool.ref),
             to_primitive(result), span_id,
         ))
         return result

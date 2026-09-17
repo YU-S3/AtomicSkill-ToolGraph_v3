@@ -478,6 +478,7 @@ def test_r21_formal_runtime_parameters_and_action_budgets_are_frozen() -> None:
 def test_r21_report_derives_commit_conflict_replay_and_token_metrics() -> None:
     trace = {
         "trace_id": "trace-r21",
+        "benchmark_success": True,
         "schema_version": 3,
         "task": {
             "task_id": "task-r21",

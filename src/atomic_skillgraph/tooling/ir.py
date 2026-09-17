@@ -50,6 +50,7 @@ class ToolExecutionState:
     step_effect_results: list[dict[str, Any]] = field(default_factory=list)
     failure_code: str = ""
     failure_message: str = ""
+    attempted_action: dict[str, Any] = field(default_factory=dict)
     program_node_id: str = ""
     catalog_revision: int | None = None
 

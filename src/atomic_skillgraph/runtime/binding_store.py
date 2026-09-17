@@ -74,6 +74,18 @@ class RuntimeBindingStore:
     def _repeat_key(block_id: str, block_role: str) -> str:
         return f"{block_id}::{block_role}"
 
+    def repeat_execution_frame(self, step_id: str) -> dict[str, Any] | None:
+        owner = self._repeat_step_owner.get(step_id)
+        if owner is None:
+            return None
+        constraint, index = owner
+        return {"block_id": constraint.block_id, "iteration_index": index,
+                "count": constraint.count, "role_mapping": dict(constraint.step_role_bindings[step_id]),
+                "committed_distinct_values": {role: copy.deepcopy(list(self.repeat_state.committed_distinct_values.get(
+                    self._repeat_key(constraint.block_id, role), {}).values())) for role in constraint.distinct_roles},
+                "committed_shared_values": {role: copy.deepcopy(self.repeat_state.committed_shared_values[self._repeat_key(constraint.block_id, role)])
+                    for role in constraint.shared_roles if self._repeat_key(constraint.block_id, role) in self.repeat_state.committed_shared_values}}
+
     def configure_repeat_constraints(
         self,
         constraints: list[RuntimeRepeatConstraint]

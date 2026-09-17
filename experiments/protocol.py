@@ -175,7 +175,7 @@ def audit_failed_attempt(
 def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
     """Fail closed unless a formal run uses the probed DeepSeek V4 dialect."""
 
-    if str(config.get("repair_revision", "")) == "R10":
+    if str(config.get("repair_revision", "")) in {"R10", "R10.1"}:
         runtime = dict(config.get("runtime") or {})
         flags = ("graph_bootstrap_agent_step", "verified_composite_executor", "short_runtime_steps",
                  "support_closure", "rollback_automatic_execution_failure", "lazy_runtime_automation_interface",
@@ -606,6 +606,12 @@ def hash_config(config: Mapping[str, Any] | Sequence[Any] | str | Path | Any) ->
 def hash_code(root: str | Path) -> str:
     """Hash experiment-relevant source/config files in deterministic path order."""
 
+    return sha256_json(code_file_manifest(root))
+
+
+def code_file_manifest(root: str | Path) -> list[dict[str, str]]:
+    """The exact byte-level inputs of hash_code, without changing exclusions."""
+
     root = Path(root).resolve()
     if not root.exists():
         raise FileNotFoundError(root)
@@ -628,7 +634,39 @@ def hash_code(root: str | Path) -> str:
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             }
         )
-    return sha256_json(records)
+    return records
+
+
+def capture_execution_manifest(root, output_dir, config_hash, capability):
+    """Immutable checkout/probe evidence alongside (not inside) code identity."""
+    import importlib.metadata
+    import platform
+    import subprocess
+    root, output_dir = Path(root), Path(output_dir)
+    records = code_file_manifest(root)
+    digest = sha256_json(records)
+    if capability.get('code_hash') != digest or capability.get('config_hash') != config_hash:
+        raise ProtocolError('execution checkout differs from provider capability probe')
+    target = output_dir / 'execution_code_manifest.json'
+    if target.exists():
+        old = json.loads(target.read_text(encoding='utf-8'))
+        if old['code_hash'] != digest or old['config_hash'] != config_hash or old['files'] != records:
+            raise ProtocolError('execution checkout differs from immutable per-file manifest')
+        return old
+    revision = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root, capture_output=True, text=True)
+    packages = {}
+    for name in ('atomic-skillgraph', 'alfworld', 'textworld', 'PyYAML', 'requests'):
+        try:
+            packages[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            packages[name] = None
+    record = {'git_sha': revision.stdout.strip() if revision.returncode == 0 else None,
+        'code_hash': digest, 'config_hash': config_hash, 'files': records,
+        'python': platform.python_version(), 'packages': packages,
+        'provider_probe_identity': {key: capability.get(key) for key in
+            ('passed', 'provider_fingerprint', 'code_hash', 'config_hash')}}
+    atomic_create_json(target, record)
+    return record
 
 
 def hash_knowledge(

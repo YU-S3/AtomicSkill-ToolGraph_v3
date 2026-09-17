@@ -51,6 +51,16 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
     state = {**state, "last_step_feedback": ctx.runtime_step_feedback.get(occurrence.occurrence_id, {})}
     bindings = ctx.binding_store.runtime_prompt_projection(occurrence, atomic.inputs)
     audit: dict[str, Any] = {}
+    query = getattr(executor, "runtime_resources", None)
+    resources = query(ctx.budget.current_occurrence_id or occurrence.occurrence_id) if query else {}
+    frame = {"current_step_id": occurrence.step_id, "current_occurrence_id": occurrence.occurrence_id,
+             "mode": mode, "current_atomic_ref": str(occurrence.node_ref),
+             "repeat": ctx.binding_store.repeat_execution_frame(occurrence.step_id),
+             "completed_step_ids": [node.step_id for node in ctx.trace_builder.trace.node_records
+                 if node.status.value in {"direct_autonomous_success", "direct_agent_prepared_success", "seeded_success", "already_satisfied"}],
+             "last_step": ctx.runtime_step_feedback.get(occurrence.occurrence_id, {}),
+             "remaining_resources": {**resources, "node_actions": ctx.budget.remaining_node_actions,
+                                     "task_actions": ctx.budget.remaining_global_actions}}
     prompt = executor.context_builder.runtime_node(
         task_goal=ctx.task_goal, atomic_contract=atomic,
         task_semantic_context=bindings["task_semantic_context"],
@@ -73,6 +83,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         runtime_step_mode=mode,
         rejected_candidates=[*sorted(ctx.rejected_runtime_implementations.get(occurrence.occurrence_id, set())),
                              *current_rejections(ctx, occurrence)],
+        execution_frame=frame,
     )
     instruction = (
         "\nR10: This is a fresh one-decision RuntimeStep. Return exactly one native call. "
@@ -106,6 +117,9 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         turn = session.next_turn(prompt, tools=tools)
         executor._record_turn(session, turn, ctx)
         call = turn.tool_calls[0]
+        selected_action = next((item for item in ctx.action_catalog
+            if call.name == 'environment_action' and item.action_id == call.arguments.get('action_id')
+            and item.revision == ctx.world_revision), None)
         cached = cached_rejection(ctx, occurrence, call)
         if cached is not None:
             payload = cached
@@ -181,7 +195,8 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                         failure_layer="runtime_binding", failure_code=gate.reason,
                         message="Atomic preconditions lack current authoritative evidence")
             if outcome.result is None and preflight.passed:
-                outcome.result = executor.implementation_runner.run(
+                from .invocation_transaction import execute_invocation
+                outcome.result = execute_invocation(executor.implementation_runner,
                     compiled, preflight, occurrence, ctx, agent_prepared=True,
                 )
                 if mode == "seeded" and outcome.result.atomic_effect_passed:
@@ -201,9 +216,13 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         # Tool body, to the next fresh decision. Rollback does not erase it.
         ctx.runtime_step_feedback[occurrence.occurrence_id] = {
             "tool": call.name,
+            "arguments": to_primitive(call.arguments),
+            **({'action_type': selected_action.action_type, 'action_arguments': to_primitive(selected_action.arguments)}
+               if selected_action is not None else {}),
             **{key: payload[key] for key in (
                 "accepted", "passed", "error", "message", "failure_code", "stage",
                 "r0_passed", "static_passed", "r1_passed", "preflight_failure_code",
+                "started", "failure_layer", "cached_rejection", "rollback", "trial_failure",
             ) if isinstance(payload, dict) and key in payload},
         }
         if isinstance(payload, dict) and isinstance(payload.get("validation"), dict):

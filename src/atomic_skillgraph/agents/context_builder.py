@@ -67,6 +67,7 @@ class ContextBuilder:
         projection_audit: dict[str, Any] | None = None,
         runtime_step_mode: str | None = None,
         rejected_candidates: Iterable[Any] = (),
+        execution_frame: Mapping[str, Any] | None = None,
     ) -> str:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
@@ -133,6 +134,7 @@ class ContextBuilder:
         if runtime_step_mode is not None:
             projected["runtime_step_mode"] = runtime_step_mode
             projected["rejected_candidates"] = _policy_value(list(rejected_candidates))
+            projected["execution_frame"] = _policy_value(dict(execution_frame or {}))
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         return _render(
@@ -747,6 +749,9 @@ def _as_mapping(value: Any) -> dict[str, Any]:
 
 
 def _project(value: Any, fields: Iterable[str]) -> dict[str, Any]:
+    from .portable_support_view import portable_support_view
+    if hasattr(value, 'effects'):
+        value = portable_support_view(value)
     mapping = _as_mapping(value)
     return {
         name: _policy_value(mapping[name])

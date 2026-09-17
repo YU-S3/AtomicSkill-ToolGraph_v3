@@ -94,6 +94,8 @@ class _TraceBuilder:
 
 
 class _BindingStore:
+    def repeat_execution_frame(self, _step_id):
+        return None
     def snapshot_for_node(self, _occurrence: object) -> dict[str, object]:
         return {}
 
@@ -289,7 +291,7 @@ def test_runtime_trial_separates_atomic_authority_from_tool_path_refs(monkeypatc
         static_validator=_StaticValidator(),
     )
     ctx = SimpleNamespace(
-        world_revision=0, action_catalog=[],
+        world_revision=0, action_catalog=[], budget=__import__('atomic_skillgraph.runtime.budget', fromlist=['RuntimeBudget']).RuntimeBudget(),
         harness=SimpleNamespace(
             profile_name="alfworld",
             semantic_predicate_schema=lambda: [],
@@ -308,7 +310,7 @@ def test_runtime_trial_separates_atomic_authority_from_tool_path_refs(monkeypatc
     outcome = coordinator.process_draft(
         draft=draft,
         ctx=ctx,
-        occurrence=SimpleNamespace(occurrence_id="occ_locate"),
+        occurrence=SimpleNamespace(occurrence_id="occ_locate", step_id="locate", node_ref="skill://locate@1.0.0"),
     )
 
     assert outcome.r1_passed is True
@@ -413,7 +415,7 @@ def test_terminal_runtime_prefix_is_e1_evidence_but_not_tool_admission(
         static_validator=_StaticValidator(),
     )
     ctx = SimpleNamespace(
-        world_revision=0, action_catalog=[],
+        world_revision=0, action_catalog=[], budget=__import__('atomic_skillgraph.runtime.budget', fromlist=['RuntimeBudget']).RuntimeBudget(),
         harness=SimpleNamespace(
             profile_name="alfworld",
             semantic_predicate_schema=lambda: [],
@@ -432,7 +434,7 @@ def test_terminal_runtime_prefix_is_e1_evidence_but_not_tool_admission(
     outcome = coordinator.process_draft(
         draft=draft,
         ctx=ctx,
-        occurrence=SimpleNamespace(occurrence_id="occ_locate"),
+        occurrence=SimpleNamespace(occurrence_id="occ_locate", step_id="locate", node_ref="skill://locate@1.0.0"),
     )
 
     assert outcome.r1_passed is False

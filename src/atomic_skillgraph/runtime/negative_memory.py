@@ -20,29 +20,62 @@ class RejectedRuntimeCandidate:
     evidence_refs: tuple[str, ...] = ()
 
 
+def consumer_step_identity(occurrence):
+    # Support UUIDs are execution audit identities, not distinct obligations.
+    # Atomic contract, formal bindings, world and Repeat remain in the key.
+    return "support" if occurrence.step_id.startswith("support::") else occurrence.step_id
+
+
 def state_signature(ctx, occurrence):
     # Revision alone is insufficient after rollback/replay. Include the
     # authoritative world, current role bindings, and committed Repeat state.
     return content_hash(to_primitive({
         "revision": ctx.world_revision,
         "atomic_ref": str(occurrence.node_ref),
-        "step_id": occurrence.step_id,
-        "world": ctx.harness.validator_channel().snapshot(),
-        "bindings": ctx.binding_store.snapshot_for_node(occurrence),
-        "semantic_anchors": sorted(ctx.binding_store._semantic_anchors.items()),
-        "grounding_evidence": ctx.evidence_store._evidence,
+        "step_id": consumer_step_identity(occurrence),
+        "world": _semantic_state(ctx.harness.validator_channel().snapshot()),
+        "bindings": {k: _binding(v) for k, v in ctx.binding_store.snapshot_for_node(occurrence).items()},
+        "semantic_anchors": {role: _binding(value) for (owner, role), value in ctx.binding_store._semantic_anchors.items()
+                             if owner in {occurrence.occurrence_id, "task"}},
         "repeat": ctx.binding_store.repeat_state,
     }))
 
 
-def query_key(occurrence, call):
+def _binding(value):
+    return {key: to_primitive(getattr(value, key)) for key in ('value', 'semantic_type', 'source', 'status', 'resolution')}
+
+
+def _semantic_state(value):
+    value = to_primitive(value)
+    if isinstance(value, dict):
+        return {key: _semantic_state(item) for key, item in value.items()
+                if key not in {'evidence_id', 'evidence_refs', 'witness_refs', 'event_id', 'timestamp', 'observed_at'}}
+    if isinstance(value, list):
+        return sorted((_semantic_state(item) for item in value), key=lambda item: content_hash(item))
+    return value
+
+
+def query_key(occurrence, call, ctx=None):
+    arguments = call.arguments
+    if call.name == 'environment_action' and ctx is not None:
+        # First validate the current action identity. An invalid/stale id may
+        # never become legal merely because an older call was cached.
+        spec = next((item for item in ctx.action_catalog
+                     if item.action_id == arguments['action_id'] and item.revision == ctx.world_revision), None)
+        if spec is None:
+            raise KeyError(arguments['action_id'])
+        arguments = {'action_type': spec.action_type, 'arguments': spec.arguments, 'intent': arguments['intent']}
     return content_hash({"occurrence": occurrence.occurrence_id,
-                         "tool": call.name, "arguments": call.arguments})
+                         "tool": call.name, "arguments": arguments})
 
 
 def cached_rejection(ctx, occurrence, call):
     signature = state_signature(ctx, occurrence)
-    entry = ctx.rejected_runtime_candidates.get(query_key(occurrence, call) + ":" + signature)
+    try:
+        key = query_key(occurrence, call, ctx)
+    except (KeyError, ValueError):
+        return None  # Ordinary handler reports the original protocol error.
+    entry = ctx.rejected_runtime_candidates.get(key + ":" + signature)
     if entry:
         return {**copy.deepcopy(entry["payload"]), "deterministic_rejection_cache_hit": True}
     return None
@@ -57,12 +90,16 @@ def remember_rejection(ctx, occurrence, call, payload):
     typed_preflight = call.name.startswith("invoke_impl_") and payload.get("failure_layer") in {
         "runtime_binding", "runtime_agent",
     } and not payload.get("started", False)
-    if not (call.name == "validate_current_atomic" or typed_preflight):
+    support_rejection = call.name == 'invoke_support_atomic' and payload.get('accepted') is False
+    env_rejection = call.name == 'environment_action' and payload.get('repeat_preflight_rejected') is True
+    if not (call.name == "validate_current_atomic" or typed_preflight or support_rejection or env_rejection):
         return
+    if support_rejection or env_rejection:
+        validation = {**payload, 'passed': False, 'failure_code': payload.get('preflight_failure_code') or payload.get('failure_code') or payload.get('error')}
     if not isinstance(validation, dict) or validation.get("passed") is not False or not validation.get("failure_code"):
         return
     claims = call.arguments.get("candidate_bindings", {}) if call.name == "validate_current_atomic" else call.arguments
-    key = query_key(occurrence, call)
+    key = query_key(occurrence, call, ctx)
     refs = tuple(validation.get("witness_refs", ()))
     candidates = [RejectedRuntimeCandidate(
         occurrence.occurrence_id, role, copy.deepcopy(value), validation["failure_code"],
@@ -81,5 +118,5 @@ def current_rejections(ctx, occurrence):
     return [{"tool": value["tool"], "scope": "exact_call_and_authoritative_state",
              "candidate_group": copy.deepcopy(value["candidate_group"])}
             for value in ctx.rejected_runtime_candidates.values()
-            if value["state_signature"] == signature
+            if value.get("state_signature") == signature
             and any(item["occurrence_id"] == occurrence.occurrence_id for item in value["candidate_group"])]

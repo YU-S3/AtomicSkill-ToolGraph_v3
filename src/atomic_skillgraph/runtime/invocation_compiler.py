@@ -142,6 +142,10 @@ class InvocationCompiler:
             dict(implementation.metadata or {}).get("semantic_description")
             or canonical_intent.replace("_", " ")
         )
+        if atomic.metadata.get('runtime_support_promotion'):
+            description = contract_label(atomic.effects, atomic.outputs).replace('_', ' ')
+            properties = {name: {key: value for key, value in spec.items() if key != 'description'}
+                          for name, spec in properties.items()}
         return ImplementationInvocationSpec(
             name=f"invoke_impl_{name_id}_{name_digest}", implementation_ref=implementation.ref,
             atomic_ref=atomic.ref,

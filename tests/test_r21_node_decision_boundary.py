@@ -17,7 +17,7 @@ from atomic_skillgraph.core.contracts import (
     ColdStartPlanStep, ParameterSpec, SemanticPredicate,
 )
 from atomic_skillgraph.core.results import (
-    ToolCallPreflightResult, ValidationResult,
+    ImplementationExecutionResult, ToolCallPreflightResult, ValidationResult,
 )
 from atomic_skillgraph.harness.alfworld import AlfWorldValidatorChannel
 from atomic_skillgraph.harness.protocol import HarnessActionSpec
@@ -47,109 +47,25 @@ def _context(factory: FakeAgentFactory):
     )
 
 
-def test_support_atomic_missing_mapped_output_is_not_success(
-    monkeypatch,
-) -> None:
-    support_ref = "skill://support_missing_output@1.0.0"
-    support_atomic = SimpleNamespace(
-        ref=support_ref,
-        inputs=[],
-        outputs=[ParameterSpec("entity", "entity")],
-        effects=[],
-    )
-    candidate = SupportCandidate(
-        atomic_ref=support_ref,
-        score=1.0,
-        supplied_roles=("entity",),
-        output_roles=("entity",),
-        effect_predicates=(),
-        diagnostics=(),
-        role_mappings=(
-            SupportRoleMapping(
-                "entity",
-                "object",
-                "entity",
-                "relation_verified",
-                "concrete",
-                "evidence",
-            ),
-        ),
-    )
-    executor = NodeExecutor.__new__(NodeExecutor)
-    executor.invocation_compiler = SimpleNamespace(
-        skills=SimpleNamespace(
-            get_atomic=lambda _ref: support_atomic,
-            implementations_for=lambda *_args, **_kwargs: [],
-        ),
-        mode="online",
-        compile_candidates=lambda *_args, **_kwargs: [object()],
-    )
-    executor.try_autonomous = lambda *_args, **_kwargs: SimpleNamespace(
-        atomic_effect_passed=True,
-        validated_outputs={},
-    )
-    monkeypatch.setattr(
-        executor, "_augment_runtime_payload", lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        executor, "_record_control_call", lambda *_args, **_kwargs: None,
-    )
-    publish_calls: list[dict] = []
-    evidence_calls: list[dict] = []
-    trace = SimpleNamespace(metadata={}, validations=[])
-    ctx = SimpleNamespace(
-        begin_occurrence=lambda _occurrence: None,
-        binding_store=SimpleNamespace(
-            resolve_occurrence_specs=lambda *_args, **_kwargs: None,
-            publish_validated_outputs=lambda *_args, **_kwargs: (
-                publish_calls.append({"published": True})
-            ),
-        ),
-        evidence_store=SimpleNamespace(
-            add_validated_tool_output=lambda *_args, **_kwargs: (
-                evidence_calls.append({"published": True})
-            ),
-        ),
-        trace_builder=SimpleNamespace(trace=trace),
-        world_revision=1,
-        task_id="task-support-output",
-        validated_outputs={},
-    )
-    occurrence = SimpleNamespace(
-        step_id="blocked-step",
-        occurrence_id="blocked-occurrence",
-    )
-    blocked = SimpleNamespace(
-        inputs=[
-            ParameterSpec(
-                "object", "entity", required_resolution="concrete",
-            )
-        ],
-    )
-    call = SimpleNamespace(
-        call_id="support-call",
-        name="invoke_support_atomic",
-        arguments={
-            "support_atomic_ref": support_ref,
-            "arguments": {},
-            "output_mapping": {"entity": "object"},
-        },
-    )
-
+def test_support_atomic_missing_mapped_output_is_not_success(monkeypatch) -> None:
+    # A complete, authorized Support contract is required to reach the output
+    # guard; the runner intentionally violates only its required output.
+    from test_r92_support_and_public_memory import _support_call_fixture, _support_call
+    executor, runner, ctx, session, occurrence, blocked, candidate = _support_call_fixture(
+        executable=True, preflight_passed=True)
+    publish_calls, evidence_calls = [], []
+    monkeypatch.setattr(ctx.binding_store, "publish_validated_outputs",
+                        lambda *args, **kwargs: publish_calls.append(args))
+    ctx.evidence_store.add_validated_tool_output = lambda *args, **kwargs: evidence_calls.append(args)
+    runner.result = ImplementationExecutionResult("skill://impl_support@1.0.0",
+        str(candidate.atomic_ref), True, True, True, True, validated_outputs={})
+    trace = ctx.trace_builder.trace
     payload = executor._invoke_support_atomic_call(
-        call,
-        SimpleNamespace(session_id="support-session"),
-        occurrence,
-        ctx,
-        blocked,
-        [candidate],
-    )
-
+        _support_call(candidate, arguments={"destination": "desk_2"}),
+        session, occurrence, ctx, blocked, [candidate])
     assert payload["passed"] is False
     assert payload["error"] == "support_atomic_output_unresolved"
-    assert trace.metadata["v32_metrics"] == {
-        "runtime_support_selected_count": 1,
-    }
+    assert trace.metadata["v32_metrics"] == {"runtime_support_selected_count": 1}
     assert "runtime_graph_augmentation" not in trace.metadata
     assert publish_calls == []
     assert evidence_calls == []
@@ -414,7 +330,7 @@ def test_direct_autonomous_accepts_validator_backed_concrete_binding(
     preflight = ToolCallPreflightResult(
         True, str(invocations[0].implementation.ref),
     )
-    sentinel = object()
+    sentinel = ImplementationExecutionResult(str(invocations[0].implementation.ref), str(occurrence.node_ref), True, True, True, True)
     monkeypatch.setattr(
         runtime.invocation_compiler,
         "autonomous_preflight",
@@ -447,7 +363,7 @@ def test_direct_autonomous_accepts_semantic_value_only_after_role_constraint_cer
         ),
         "test_role_specific_constraint",
     )
-    sentinel = object()
+    sentinel = ImplementationExecutionResult(str(invocations[0].implementation.ref), str(occurrence.node_ref), True, True, True, True)
     monkeypatch.setattr(
         runtime.node_executor.implementation_runner,
         "run",

@@ -69,6 +69,7 @@ class NodeExecutor:
 
     def try_autonomous(
         self, occurrence: Any, invocations: list[CompiledInvocation], ctx: Any,
+        *, accept_result: Any = None, consumer: Any = None,
     ) -> ImplementationExecutionResult | None:
         if not invocations:
             return self.not_started(occurrence, failure_code="no_compatible_implementation")
@@ -112,37 +113,16 @@ class NodeExecutor:
             for parameter in compiled.atomic.inputs
         ):
             return None
-        checkpoint = None
-        if getattr(ctx, "runtime_config", {}).get("rollback_automatic_execution_failure"):
-            from .checkpoint import capture
-            checkpoint = capture(ctx, occurrence.occurrence_id)
-        try:
-            result = self.implementation_runner.run(
-                compiled, preflight, occurrence, ctx, agent_prepared=False,
-            )
-        except BudgetExhausted as exc:
-            # Registered Tools propagate exhaustion rather than returning a
-            # Tool failure. Roll back partial automatic work without refunding
-            # resources or changing the original budget error's authority.
-            if checkpoint is not None:
-                from .checkpoint import increment, restore
-                increment(ctx, "llm_free_environment_action_count",
-                          len(ctx.trace_builder.trace.environment_actions) - checkpoint.action_prefix_end)
-                restore(ctx, checkpoint, exc.code)
-            raise
-        if getattr(ctx, "runtime_config", {}).get("verified_composite_executor"):
+        from .invocation_transaction import execute_invocation
+        result = execute_invocation(self.implementation_runner,
+            compiled, preflight, occurrence, ctx, agent_prepared=False, accept_result=accept_result, consumer=consumer)
+        if getattr(ctx, "runtime_config", {}).get("verified_composite_executor") and not result.cached_rejection:
             records = ctx.trace_builder.trace.implementation_invocations
             if records:
                 ctx.trace_builder.trace.metadata.setdefault("r10_automatic_invocations", []).append({
                     "occurrence_id": occurrence.occurrence_id, "attempt_id": records[-1].attempt_id,
                     "implementation_ref": str(compiled.implementation.ref),
                 })
-        if checkpoint is not None:
-            from .checkpoint import increment, restore
-            increment(ctx, "llm_free_environment_action_count",
-                      len(ctx.trace_builder.trace.environment_actions) - checkpoint.action_prefix_end)
-            if not result.atomic_effect_passed:
-                restore(ctx, checkpoint, result.failure_code)
         if bool(getattr(result, "atomic_effect_passed", False)):
             ctx.clear_failed_invocation(occurrence.occurrence_id)
         return result
@@ -342,6 +322,8 @@ class NodeExecutor:
 
     @staticmethod
     def _atomic_policy_contract(atomic: Any) -> dict[str, Any]:
+        from ..agents.portable_support_view import portable_support_view
+        atomic = portable_support_view(atomic)
         primitive = dict(to_primitive(atomic))
         return {
             key: primitive[key]
@@ -877,6 +859,7 @@ class NodeExecutor:
         provisional_bindings: list[RuntimeBinding] = (),
         atomic_override: Any | None = None,
         resolution_out: list[AtomicEffectResolution] | None = None,
+        effect_guard: Any = None,
     ) -> ImplementationExecutionResult | None:
         atomic = atomic_override or self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
         bindings = ctx.binding_store.snapshot_for_node(occurrence)
@@ -982,6 +965,8 @@ class NodeExecutor:
                         else "RepeatBlock preflight rejected the Atomic witness"
                     ),
                 ))
+            return None
+        if effect_guard is not None and not effect_guard(resolution).passed:
             return None
         committed = ctx.binding_store.commit_atomic_effect_witnesses(
             occurrence.occurrence_id,
@@ -1891,6 +1876,19 @@ class NodeExecutor:
             return finalize({"accepted": False, "error": "support_implementation_ambiguous"})
         compiled = preferred[0] if preferred else invocations[0]
         predicate_options = getattr(candidate, "predicate_obligations", ())
+        from .support_request import SupportRequest, prove_request, consumer_guard, known_consumer_values, transfer_inputs, consumer_constraints, validate_transfer
+        from ..core.support_authority import input_identity_source_role
+        from .invocation_transaction import execute_invocation
+        input_mapping = {}
+        anchor_inputs = set()
+        for output, consumer in output_mapping.items():
+            source = input_identity_source_role(support_atomic, output)
+            if not source:
+                source = support_atomic.validator_spec.get("output_semantic_constraints", {}).get(output, {}).get("compatible_with_input")
+                if source:
+                    anchor_inputs.add(source)
+            if source:
+                input_mapping[source] = consumer
         if output_mapping and getattr(ctx, "runtime_config", {}).get("short_runtime_steps"):
             from dataclasses import replace
             from ..core.semantic_types import semantic_types_compatible
@@ -1924,6 +1922,26 @@ class NodeExecutor:
                 for producer, consumer in valid[0].items()
                 if producer in {item.name for item in support_atomic.inputs}
             })
+            input_mapping.update({p: c for p, c in valid[0].items()
+                                  if p in {item.name for item in support_atomic.inputs}})
+        request = SupportRequest(ctx.budget.current_occurrence_id, occurrence, support_atomic,
+                                 input_mapping, dict(output_mapping), anchor_inputs)
+        request.grounding_constraints = consumer_constraints(self.invocation_compiler, atomic)
+        request.producer_occurrence_id = support_occurrence.occurrence_id
+        proof = prove_request(request, atomic, ctx, agent_selected=True)
+        if not proof.passed:
+            return finalize({"accepted": False, "passed": False, "error": proof.failure_codes[0],
+                             "failure_code": proof.failure_codes[0], "message": proof.messages[0]})
+        output_mapping = request.output_mapping
+        from .support_closure import mapped_support_bindings
+        seeds = mapped_support_bindings(support_atomic, request.input_mapping,
+            request.anchor_inputs, occurrence, ctx.binding_store)
+        if seeds is not None:
+            ctx.binding_store.commit_grounded(support_occurrence.occurrence_id, seeds)
+        parent_guard = consumer_guard(request, atomic, known_consumer_values(request, arguments), ctx)
+        if not parent_guard.passed:
+            return finalize({"accepted": False, "passed": False, "error": parent_guard.failure_codes[0],
+                             "failure_code": parent_guard.failure_codes[0], "message": parent_guard.messages[0]})
         parent_refresh = getattr(ctx, "_after_action_refresh", None)
         parent_failed_invocation = (
             dict(ctx.last_failed_invocation)
@@ -1955,6 +1973,8 @@ class NodeExecutor:
                 )
                 result = self.try_autonomous(
                     support_occurrence, invocations, ctx,
+                    accept_result=lambda value: transfer_inputs(request, atomic, value, ctx),
+                    consumer=occurrence,
                 )
             else:
                 prepared = prepare_arguments(
@@ -1968,7 +1988,19 @@ class NodeExecutor:
                     revision=ctx.world_revision,
                     task_contract=ctx.task_contract,
                 )
-                preflight = (
+                # Resolve effects before asking for a new entry affordance.
+                # This allows an already-satisfied navigation/pick capability.
+                result = self._complete_from_current_effect(
+                    support_occurrence, ctx, mode="entry", preferred_values=list(arguments.values()),
+                    preferred_bindings=arguments,
+                    provisional_bindings=prepared.binding_updates if prepared.passed else [],
+                    effect_guard=lambda resolution: validate_transfer(request, atomic, resolution.output_candidates, ctx),
+                )
+                if result is not None:
+                    transfer = transfer_inputs(request, atomic, result, ctx)
+                    if not transfer.passed:
+                        result = None
+                preflight = ToolCallPreflightResult(True, str(compiled.implementation.ref)) if result is not None else (
                     self.invocation_compiler.validate_execution_context(
                         compiled,
                         prepared,
@@ -1980,20 +2012,22 @@ class NodeExecutor:
                     if prepared.passed
                     else prepared
                 )
-                if preflight.passed and getattr(ctx, "runtime_config", {}).get("short_runtime_steps"):
+                if result is None and preflight.passed and getattr(ctx, "runtime_config", {}).get("short_runtime_steps"):
                     from .node_gate import precondition_gate
                     gate = precondition_gate(self, support_occurrence, compiled, ctx)
                     if not gate.ready:
                         preflight = ToolCallPreflightResult(False, str(compiled.implementation.ref),
                             failure_layer="runtime_binding", failure_code=gate.reason,
                             message="Support Atomic preconditions are not currently satisfied")
-                if preflight.passed:
-                    result = self.implementation_runner.run(
+                if result is None and preflight.passed:
+                    result = execute_invocation(self.implementation_runner,
                         compiled,
                         preflight,
                         support_occurrence,
                         ctx,
                         agent_prepared=True,
+                        accept_result=lambda value: transfer_inputs(request, atomic, value, ctx),
+                        consumer=occurrence,
                     )
         finally:
             # A failed or exceptional support attempt may change the real
@@ -2080,6 +2114,8 @@ class NodeExecutor:
             "result": to_primitive(result) if result is not None else None,
             "new_revision": ctx.world_revision,
         }
+        if result is not None and result.failure_code:
+            payload["error"] = result.failure_code
         if atomic_effect_passed and not output_mapping_complete:
             payload["error"] = "support_atomic_output_unresolved"
         if passed:
@@ -2097,19 +2133,6 @@ class NodeExecutor:
                     f"validator:occurrence:{support_occurrence.occurrence_id}"
                     f":revision:{ctx.world_revision}"
                 ]
-            ctx.binding_store.publish_validated_outputs(
-                occurrence,
-                support_outputs,
-                support_refs,
-                ctx.world_revision,
-            )
-            ctx.validated_outputs[occurrence.occurrence_id] = dict(
-                support_outputs
-            )
-            for role, value in support_outputs.items():
-                ctx.evidence_store.add_validated_tool_output(
-                    role, value, support_refs,
-                )
             v32_metrics["runtime_support_success_count"] = int(
                 v32_metrics.get("runtime_support_success_count", 0)
             ) + 1
@@ -2573,7 +2596,8 @@ class NodeExecutor:
                         returned_action_executed=False,
                     )
                     continue
-                result = self.implementation_runner.run(compiled, preflight, occurrence, ctx, agent_prepared=True)
+                from .invocation_transaction import execute_invocation
+                result = execute_invocation(self.implementation_runner, compiled, preflight, occurrence, ctx, agent_prepared=True)
                 if result.atomic_effect_passed:
                     self._mark_runtime_trial_parent_completed(
                         ctx, occurrence,

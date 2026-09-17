@@ -41,7 +41,7 @@ from .cold_start_executor import ProvisionalNodeExecutor, provisional_atomic_vie
 
 def refresh_learning_eligibility(trace: TraceRecord) -> None:
     trace.learning_eligible = bool(
-        trace.strict_task_success
+        trace.benchmark_success
         and decision_usage_auditable(trace)
         and not trace.infrastructure_failure
     )
@@ -1140,7 +1140,7 @@ class RuntimeOrchestrator:
             ctx.harness.validator_channel(),
         )
         trace.cold_start_assisted_success = bool(
-            trace.strict_task_success
+            trace.benchmark_success
             and any(item.local_effect_passed for item in trace.cold_start_steps)
         )
         ctx.task_progress.record("task_terminal")

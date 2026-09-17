@@ -600,7 +600,7 @@ def test_gate36_full_system_runtime_self_tool_persists_and_reuses(tmp_path: Path
             for session in trace_b.agent_sessions
         )
         assert any(
-            change.get("reason") == "validated_output_published"
+            change.get("reason") == "grounding_preflight_passed"
             and change.get("role") == "location"
             and dict(change.get("current") or {}).get("value") == _room_for("mug_1")
             for change in trace_b.binding_changes

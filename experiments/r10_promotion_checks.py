@@ -114,13 +114,17 @@ def run(config_path, output, indexes):
             events = [*runtime_events, *prepare_and_apply(system, trace, task, observations)]
             trace.evidence_event_refs = list(dict.fromkeys([*trace.evidence_event_refs, *[e.event_id for e in events]]))
             finalize(trace, config)
+            from atomic_skillgraph.evolution.replay_publication import resolve
+            resolve(system, trace)
             system.traces.save_atomic(trace)
             for observation in observations:
                 system.runtime_support_store.append(observation)
             system._commit_replay_certificates(trace)
             system._commit_evidence(events)
             system._provider_override = None
-            row = {"task_id": task.task_id, "trace_id": trace.trace_id, "strict_success": trace.benchmark_success and trace.task_contract_success,
+            row = {"task_id": task.task_id, "trace_id": trace.trace_id,
+                "official_success": trace.benchmark_success, "contract_agreement": trace.task_contract_success,
+                "targeted_acceptance_conjunction": trace.benchmark_success and trace.task_contract_success,
                 "learning_eligible": trace.learning_eligible, "observation_signatures": [o["contract_signature"] for o in observations],
                 "promotions": trace.metadata.get("runtime_support_promotions", []),
                 "rejections": trace.metadata.get("runtime_support_promotion_rejections", []),

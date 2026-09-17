@@ -77,6 +77,7 @@ _R92_TRAIN_RUN_SEEDS = {
     "alfworld_train_full_120_r92_seed42": 42,
 }
 _R10_TRAIN_RUN_SEEDS = {"alfworld_train_full_120_r10_seed42": 42}
+_R101_TRAIN_RUN_SEEDS = {"alfworld_train_full_120_r101_seed42": 42}
 _R7_TRAIN_REFERENCE_PATH = Path("data/baseline_manifests/train_120.json")
 _R7_TRAIN_REFERENCE_ID = "train_120"
 
@@ -98,6 +99,8 @@ def _train_protocol(config: dict[str, Any]) -> tuple[str, int, int, int]:
         return "r9_full120", _R9_TRAIN_RUN_SEEDS[name], 20, 120
     if name in _R92_TRAIN_RUN_SEEDS:
         return "r92_full120", _R92_TRAIN_RUN_SEEDS[name], 20, 120
+    if name in _R101_TRAIN_RUN_SEEDS:
+        return "r101_full120", _R101_TRAIN_RUN_SEEDS[name], 20, 120
     if name in _R10_TRAIN_RUN_SEEDS:
         return "r10_full120", _R10_TRAIN_RUN_SEEDS[name], 20, 120
     raise ProtocolError(
@@ -110,7 +113,7 @@ def _r7_train_reference_manifest(
 ) -> ReferenceManifest | None:
     protocol, _, _, _ = _train_protocol(config)
     if protocol not in {
-        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120",
+        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120", "r101_full120",
     }:
         return None
     selection = dict((config.get("harness") or {}).get("task_selection") or {})
@@ -147,6 +150,7 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
     protocol, _, expected_per_type, expected_total = _train_protocol(config)
     if per_type != expected_per_type or total != expected_total:
         label = (
+            "R10.1 Full-120" if protocol == "r101_full120" else
             "R10 Full-120" if protocol == "r10_full120" else
             "R9.2 Full-120" if protocol == "r92_full120" else
             "R9 Full-120" if protocol == "r9_full120" else
@@ -237,7 +241,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         if actual != wanted
     ]
     if protocol in {
-        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120",
+        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120", "r101_full120",
     }:
         if lifecycle.get("candidate_exploration_seed") != expected_seed:
             mismatches.append(
@@ -263,7 +267,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
                 "R8 lifecycle.composite_candidate_zero_success_trial_limit "
                 "must be integer 3"
             )
-    if protocol in {"r9_full120", "r92_full120", "r10_full120"}:
+    if protocol in {"r9_full120", "r92_full120", "r10_full120", "r101_full120"}:
         required_lifecycle = {
             "composite_active_deployment_successes": 2,
             "composite_candidate_zero_success_trial_limit": 3,
@@ -280,6 +284,8 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
             mismatches.append(
                 "R9/R9.2 formal ALFWorld planner.literal_authorities must be empty"
             )
+    if protocol == "r101_full120" and config.get("repair_revision") != "R10.1":
+        mismatches.append("R10.1 formal train requires repair_revision=R10.1")
     if protocol == "r10_full120" and config.get("repair_revision") != "R10":
         mismatches.append("R10 formal train requires repair_revision=R10")
     if protocol == "r92_full120" and config.get("repair_revision") != "R9.2":
@@ -304,7 +310,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     if mismatches:
         raise ProtocolError("formal train config mismatch: " + "; ".join(mismatches))
     if protocol in {
-        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120",
+        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120", "r101_full120",
     }:
         _r7_train_reference_manifest(config)
 
@@ -693,6 +699,9 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
         code_hash=code_digest,
         run_if_missing=not resume or bool(recovery),
     )
+    if protocol == 'r101_full120':
+        from experiments.protocol import capture_execution_manifest
+        capture_execution_manifest(REPO_ROOT, output_dir, config_digest, capability_manifest)
     print(json.dumps({
         "provider_capability_manifest": {
             "passed": capability_manifest.get("passed"),
@@ -1036,6 +1045,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
             "r8_full120": f"train_full_120_r8_seed{experiment_seed}",
             "r9_full120": f"train_full_120_r9_seed{experiment_seed}",
             "r10_full120": f"train_full_120_r10_seed{experiment_seed}",
+            "r101_full120": f"train_full_120_r101_seed{experiment_seed}",
             "r92_full120": f"train_full_120_r92_seed{experiment_seed}",
         }.get(protocol, "train_full_30")
         report_title = {
@@ -1052,6 +1062,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
                 f"(seed {experiment_seed})"
             ),
             "r10_full120": f"AtomicSkillGraph v3 ALFWorld Full-120 R10 Train (seed {experiment_seed})",
+            "r101_full120": f"AtomicSkillGraph v3 ALFWorld Full-120 R10.1 Train (seed {experiment_seed})",
             "r92_full120": (
                 f"AtomicSkillGraph v3 ALFWorld Full-120 R9.2 Train "
                 f"(seed {experiment_seed})"
@@ -1072,7 +1083,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
             require_r9_formal_freeze_audit(
                 system.database, system.skills,
             )
-            if protocol in {"r9_full120", "r92_full120", "r10_full120"}
+            if protocol in {"r9_full120", "r92_full120", "r10_full120", "r101_full120"}
             else require_active_composite_frozen_closure(
                 system.database, system.skills,
             )
@@ -1096,7 +1107,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
             ),
         }
         if closure_audit is not None:
-            if protocol in {"r9_full120", "r92_full120", "r10_full120"}:
+            if protocol in {"r9_full120", "r92_full120", "r10_full120", "r101_full120"}:
                 freeze_provenance.update({
                     "r9_formal_freeze_audit_passed": True,
                     "r9_formal_freeze_audit": closure_audit,

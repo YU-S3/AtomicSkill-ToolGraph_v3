@@ -71,9 +71,11 @@ def safe_runtime_automation_outcome(
             key: to_primitive(outcome.trial[key])
             for key in (
                 "draft_id", "r1_outputs", "r1", "terminal_interrupted",
+                "failure_feedback",
             )
             if key in outcome.trial
         }
+        projected["trial_failure"] = to_primitive(outcome.trial.get("failure_feedback", {}))
     return projected
 
 
@@ -317,6 +319,15 @@ class RuntimeAutomationCoordinator:
                     ),
                     "runtime_entry": {
                         "revision": ctx.world_revision,
+                        "remaining_resources": {
+                            **(self.runtime_resources(ctx.budget.current_occurrence_id)
+                               if callable(getattr(self, "runtime_resources", None)) else {}),
+                            "node_actions": ctx.budget.remaining_node_actions,
+                            "task_actions": ctx.budget.remaining_global_actions,
+                        },
+                        "consumer_obligation": {"atomic_ref": str(occurrence.node_ref),
+                            "step_id": occurrence.step_id,
+                            "repeat": ctx.binding_store.repeat_execution_frame(occurrence.step_id)},
                         "input_values": dict(input_resolution.values),
                         "action_catalog": [
                             {"action_type": action.action_type,
@@ -394,6 +405,14 @@ class RuntimeAutomationCoordinator:
             )
 
         trial_bindings = dict(input_resolution.values)
+        from .invocation_transaction import execution_cache_key, cache_lookup
+        failure_key = execution_cache_key(_TaskLocalInvocation(compiled), trial_bindings, occurrence, ctx)
+        cached = cache_lookup(ctx, failure_key, occurrence)
+        if cached is not None:
+            return RuntimeAutomationOutcome(True, to_primitive(r0), proposal=to_primitive(proposal),
+                static_passed=True, static_report=to_primitive(static),
+                failure_code=cached['failure_code'], message='Identical program, arguments and consumer state previously failed; no action was repeated',
+                stage='deterministic_failure_cached', cache_hit=True)
         preflight = ToolCallPreflightResult(
             True,
             str(compiled.implementation.ref),
@@ -425,214 +444,232 @@ class RuntimeAutomationCoordinator:
         tool_record_start = len(
             getattr(ctx.trace_builder.trace, "tool_executions", ())
         )
-        checkpoint = None
-        if getattr(ctx, "runtime_config", {}).get("rollback_automatic_execution_failure"):
-            from .checkpoint import capture
-            checkpoint = capture(ctx, occurrence.occurrence_id)
-        result = self.implementation_runner.run(
-            _TaskLocalInvocation(compiled), preflight, occurrence, ctx,
-            agent_prepared=False,
-            execution_scope="runtime_trial",
-        )
-        trial_event_end = len(getattr(
-            getattr(ctx.trace_builder, "trace", None),
-            "environment_actions",
-            (),
-        )) - 1
-        predicate_domains = {
-            str(item.predicate): str(item.effect_domain)
-            for item in ctx.harness.semantic_predicate_schema()
-        }
-        r1_effect_event_authorities = (
-            _trial_harness_effect_event_authorities(
-                baseline_facts=list(baseline_occurrence_facts),
-                evidence_snapshots=[
-                    dict(item)
-                    for item in evidence_snapshots[evidence_snapshot_start:]
-                    if isinstance(item, Mapping)
-                ],
-                environment_actions=list(trace_actions),
-                trial_event_start=int(trial_event_start),
-                trial_event_end=int(trial_event_end),
-                occurrence_id=str(occurrence.occurrence_id),
-                predicate_domains=predicate_domains,
+        from .invocation_transaction import InvocationTransaction
+        with InvocationTransaction(ctx, occurrence, origin="runtime_trial", failure_code="runtime_automation_r1_rejected") as transaction:
+            result = self.implementation_runner.run(
+                _TaskLocalInvocation(compiled), preflight, occurrence, ctx,
+                agent_prepared=False,
+                execution_scope="runtime_trial",
             )
-        )
-        tool_results = list(result.tool_results)
-        tool_completed = bool(
-            tool_results and all(bool(tool.completed) for tool in tool_results)
-        )
-        terminal_interrupted = bool(
-            tool_results and any(tool.terminal_interrupted for tool in tool_results)
-        )
-        tool_intrinsic_failure = bool(
-            tool_results and any(tool.intrinsic_failure for tool in tool_results)
-        )
-        outputs_valid = bool(
-            result.validated_outputs
-            and all(value not in (None, "") for value in result.validated_outputs.values())
-        )
-        atomic_effect_passed = bool(result.atomic_effect_passed)
-        executed_path_effects_passed = bool(
-            tool_results
-            and all(
-                int(getattr(tool, "executed_step_count", 0) or 0) == 0
-                or (
-                    len(list(dict(
-                        getattr(tool, "tool_path_evidence", {}) or {}
-                    ).get("step_effect_results", [])))
-                    >= int(getattr(tool, "executed_step_count", 0) or 0)
-                    and all(
-                        isinstance(item, dict)
-                        and item.get("step_effect_passed") is True
-                        for item in list(dict(
-                            getattr(tool, "tool_path_evidence", {}) or {}
-                        ).get("step_effect_results", []))
-                    )
-                )
-                for tool in tool_results
-            )
-        )
-        r1_passed = bool(
-            result.started
-            and atomic_effect_passed
-            and executed_path_effects_passed
-            and tool_completed
-            and outputs_valid
-            and not tool_intrinsic_failure
-            and not terminal_interrupted
-        )
-        admission_eligible = bool(
-            result.started
-            and atomic_effect_passed
-            and executed_path_effects_passed
-            and tool_completed
-            and outputs_valid
-            and not tool_intrinsic_failure
-            and not terminal_interrupted
-        )
-        # A benchmark-terminal prefix cannot admit the original Tool, but its
-        # executed prefix still supplies positive task-local Atomic evidence
-        # to E1.  Downstream replay/admission remains responsible for any
-        # shorter Tool that the Success Extractor proposes from that prefix.
-        e1_effect_eligible = bool(
-            result.started
-            and atomic_effect_passed
-            and executed_path_effects_passed
-            and outputs_valid
-            and not tool_intrinsic_failure
-            and (admission_eligible or terminal_interrupted)
-        )
-        input_authorities = dict(input_resolution.input_authorities)
-        implementation_attempt_ids = [
-            str(item.attempt_id)
-            for item in list(
-                getattr(
-                    ctx.trace_builder.trace,
-                    "implementation_invocations",
-                    (),
-                )
-            )[implementation_record_start:]
-        ]
-        tool_execution_ids = [
-            str(item.attempt_id)
-            for item in list(
-                getattr(ctx.trace_builder.trace, "tool_executions", ())
-            )[
-                tool_record_start:
-            ]
-        ]
-        tool_path_witness_refs: list[str] = []
-        for tool_result in result.tool_results:
-            evidence = dict(getattr(tool_result, "tool_path_evidence", {}) or {})
-            tool_path_witness_refs.extend(
-                str(item) for item in evidence.get("evidence_refs", [])
-            )
-            for step in evidence.get("step_effect_results", []):
-                if isinstance(step, dict) and step.get("witness_refs"):
-                    tool_path_witness_refs.extend(map(str, step.get("witness_refs", [])))
-        r1_witness_refs = list(dict.fromkeys(
-            str(ref) for ref in result.atomic_witness_refs
-        ))
-        trial = {
-            "draft_id": draft.draft_id,
-            "source_occurrence_id": str(occurrence.occurrence_id),
-            "atomic_ref": str(atomic.ref),
-            "tool_ref": str(compiled.tool.ref),
-            "implementation_ref": str(compiled.implementation.ref),
-            "trial_bindings": to_primitive(trial_bindings),
-            "input_authorities": to_primitive(input_authorities),
-            "implementation_attempt_ids": implementation_attempt_ids,
-            "tool_execution_ids": tool_execution_ids,
-            "r1_outputs": to_primitive(result.validated_outputs),
-            "r1_witness_refs": r1_witness_refs,
-            "tool_path_witness_refs": list(dict.fromkeys(tool_path_witness_refs)),
-            "result": to_primitive(result),
-            "r1": {
-                "started": bool(result.started),
-                "atomic_effect_passed": atomic_effect_passed,
-                "executed_path_effects_passed": executed_path_effects_passed,
-                "tool_completed": tool_completed,
-                "terminal_interrupted": terminal_interrupted,
-                "outputs_valid": outputs_valid,
-                "tool_intrinsic_failure": tool_intrinsic_failure,
-                "admission_eligible": admission_eligible,
-                "e1_effect_eligible": e1_effect_eligible,
-            },
-            "terminal_interrupted": terminal_interrupted,
-            "parent_resumed_after_trial": False,
-            "parent_completed_after_trial": False,
-            "trial_event_start": int(trial_event_start),
-            "trial_event_end": int(trial_event_end),
-            "r1_effect_event_authorities": to_primitive(
-                r1_effect_event_authorities
-            ),
-        }
-        if e1_effect_eligible:
-            trial.update({
-                "declared_effects": to_primitive(list(compiled.atomic.effects)),
-                "output_derivations": to_primitive(dict(
-                    compiled.atomic.validator_spec.get("output_derivations") or {}
-                )),
-                "after_revision": int(tool_results[-1].after_revision),
-            })
-        ctx.runtime_tool_trials[draft.draft_id] = trial
-        if r1_passed and getattr(ctx, "runtime_config", {}).get("persistent_runtime_support_promotion"):
-            from dataclasses import replace
-            from ..evolution.contract_canonicalizer import AtomicContractCanonicalizer
-            from ..evolution.tool_compiler import build_occurrence_replay_case
-            from ..traces.canonical import canonical_action_indices
-            canonicalizer = AtomicContractCanonicalizer()
-            source = replace(
-                compiled.occurrence, input_bindings=dict(trial_bindings),
-                output_bindings=dict(result.validated_outputs),
-                source_task={}, event_start=trial_event_start, event_end=trial_event_end,
-                action_events=[to_primitive(trace_actions[i]) for i in range(trial_event_start, trial_event_end + 1)],
-                prefix_events=[to_primitive(trace_actions[i]) for i in canonical_action_indices(ctx.trace_builder.trace)
-                               if i < trial_event_start],
-            )
-            # R1 provenance is task-local evidence, not the reusable contract.
-            # Preserve all semantic/output constraints; move only source ids
-            # out of the prospective persistent validator specification.
-            persistent_spec = {key: value for key, value in compiled.atomic.validator_spec.items()
-                               if key not in {"task_local", "occurrence_id", "trace_id"}}
-            persistent_spec["validator_id"] = "harness_atomic_effect"
-            persistent_atomic = replace(compiled.atomic, validator_spec=persistent_spec,
-                metadata={"runtime_support_promotion": True,
-                          "source_runtime_trace_id": ctx.trace_builder.trace.trace_id})
-            bundle = canonicalizer.canonicalize(persistent_atomic, compiled.tool, compiled.implementation)
-            source = canonicalizer.rewrite_canonical_occurrence(source, bundle, atomic_ref=bundle.atomic.ref)
-            bundle.tool.tests = [build_occurrence_replay_case(
-                source, bundle.atomic, source_task=ctx.task, kind="tool_proposal_replay",
-            )]
-            trial["promotion_bundle"] = {
-                "atomic": to_primitive(bundle.atomic), "tool": to_primitive(bundle.tool),
-                "implementation": to_primitive(bundle.implementation),
+            trial_event_end = len(getattr(
+                getattr(ctx.trace_builder, "trace", None),
+                "environment_actions",
+                (),
+            )) - 1
+            predicate_domains = {
+                str(item.predicate): str(item.effect_domain)
+                for item in ctx.harness.semantic_predicate_schema()
             }
-            trial["tool_proposal"] = to_primitive(proposal)
-        if checkpoint is not None and not r1_passed:
-            from .checkpoint import restore
-            restore(ctx, checkpoint, "runtime_automation_r1_rejected")
+            r1_effect_event_authorities = (
+                _trial_harness_effect_event_authorities(
+                    baseline_facts=list(baseline_occurrence_facts),
+                    evidence_snapshots=[
+                        dict(item)
+                        for item in evidence_snapshots[evidence_snapshot_start:]
+                        if isinstance(item, Mapping)
+                    ],
+                    environment_actions=list(trace_actions),
+                    trial_event_start=int(trial_event_start),
+                    trial_event_end=int(trial_event_end),
+                    occurrence_id=str(occurrence.occurrence_id),
+                    predicate_domains=predicate_domains,
+                )
+            )
+            tool_results = list(result.tool_results)
+            tool_completed = bool(
+                tool_results and all(bool(tool.completed) for tool in tool_results)
+            )
+            terminal_interrupted = bool(
+                tool_results and any(tool.terminal_interrupted for tool in tool_results)
+            )
+            tool_intrinsic_failure = bool(
+                tool_results and any(tool.intrinsic_failure for tool in tool_results)
+            )
+            outputs_valid = bool(
+                result.validated_outputs
+                and all(value not in (None, "") for value in result.validated_outputs.values())
+            )
+            atomic_effect_passed = bool(result.atomic_effect_passed)
+            executed_path_effects_passed = bool(
+                tool_results
+                and all(
+                    int(getattr(tool, "executed_step_count", 0) or 0) == 0
+                    or (
+                        len(list(dict(
+                            getattr(tool, "tool_path_evidence", {}) or {}
+                        ).get("step_effect_results", [])))
+                        >= int(getattr(tool, "executed_step_count", 0) or 0)
+                        and all(
+                            isinstance(item, dict)
+                            and item.get("step_effect_passed") is True
+                            for item in list(dict(
+                                getattr(tool, "tool_path_evidence", {}) or {}
+                            ).get("step_effect_results", []))
+                        )
+                    )
+                    for tool in tool_results
+                )
+            )
+            r1_passed = bool(
+                result.started
+                and atomic_effect_passed
+                and executed_path_effects_passed
+                and tool_completed
+                and outputs_valid
+                and not tool_intrinsic_failure
+                and not terminal_interrupted
+            )
+            admission_eligible = bool(
+                result.started
+                and atomic_effect_passed
+                and executed_path_effects_passed
+                and tool_completed
+                and outputs_valid
+                and not tool_intrinsic_failure
+                and not terminal_interrupted
+            )
+            # A benchmark-terminal prefix cannot admit the original Tool, but its
+            # executed prefix still supplies positive task-local Atomic evidence
+            # to E1.  Downstream replay/admission remains responsible for any
+            # shorter Tool that the Success Extractor proposes from that prefix.
+            e1_effect_eligible = bool(
+                result.started
+                and atomic_effect_passed
+                and executed_path_effects_passed
+                and outputs_valid
+                and not tool_intrinsic_failure
+                and (admission_eligible or terminal_interrupted)
+            )
+            input_authorities = dict(input_resolution.input_authorities)
+            implementation_attempt_ids = [
+                str(item.attempt_id)
+                for item in list(
+                    getattr(
+                        ctx.trace_builder.trace,
+                        "implementation_invocations",
+                        (),
+                    )
+                )[implementation_record_start:]
+            ]
+            tool_execution_ids = [
+                str(item.attempt_id)
+                for item in list(
+                    getattr(ctx.trace_builder.trace, "tool_executions", ())
+                )[
+                    tool_record_start:
+                ]
+            ]
+            tool_path_witness_refs: list[str] = []
+            for tool_result in result.tool_results:
+                evidence = dict(getattr(tool_result, "tool_path_evidence", {}) or {})
+                tool_path_witness_refs.extend(
+                    str(item) for item in evidence.get("evidence_refs", [])
+                )
+                for step in evidence.get("step_effect_results", []):
+                    if isinstance(step, dict) and step.get("witness_refs"):
+                        tool_path_witness_refs.extend(map(str, step.get("witness_refs", [])))
+            r1_witness_refs = list(dict.fromkeys(
+                str(ref) for ref in result.atomic_witness_refs
+            ))
+            trial = {
+                "draft_id": draft.draft_id,
+                "source_occurrence_id": str(occurrence.occurrence_id),
+                "atomic_ref": str(atomic.ref),
+                "tool_ref": str(compiled.tool.ref),
+                "implementation_ref": str(compiled.implementation.ref),
+                "trial_bindings": to_primitive(trial_bindings),
+                "input_authorities": to_primitive(input_authorities),
+                "implementation_attempt_ids": implementation_attempt_ids,
+                "tool_execution_ids": tool_execution_ids,
+                "r1_outputs": to_primitive(result.validated_outputs),
+                "r1_witness_refs": r1_witness_refs,
+                "tool_path_witness_refs": list(dict.fromkeys(tool_path_witness_refs)),
+                "result": to_primitive(result),
+                "r1": {
+                    "started": bool(result.started),
+                    "atomic_effect_passed": atomic_effect_passed,
+                    "executed_path_effects_passed": executed_path_effects_passed,
+                    "tool_completed": tool_completed,
+                    "terminal_interrupted": terminal_interrupted,
+                    "outputs_valid": outputs_valid,
+                    "tool_intrinsic_failure": tool_intrinsic_failure,
+                    "admission_eligible": admission_eligible,
+                    "e1_effect_eligible": e1_effect_eligible,
+                },
+                "terminal_interrupted": terminal_interrupted,
+                "parent_resumed_after_trial": False,
+                "parent_completed_after_trial": False,
+                "trial_event_start": int(trial_event_start),
+                "trial_event_end": int(trial_event_end),
+                "r1_effect_event_authorities": to_primitive(
+                    r1_effect_event_authorities
+                ),
+            }
+            if e1_effect_eligible:
+                trial.update({
+                    "declared_effects": to_primitive(list(compiled.atomic.effects)),
+                    "output_derivations": to_primitive(dict(
+                        compiled.atomic.validator_spec.get("output_derivations") or {}
+                    )),
+                    "after_revision": int(tool_results[-1].after_revision),
+                })
+            ctx.runtime_tool_trials[draft.draft_id] = trial
+            if r1_passed and getattr(ctx, "runtime_config", {}).get("persistent_runtime_support_promotion"):
+                from dataclasses import replace
+                from ..evolution.contract_canonicalizer import AtomicContractCanonicalizer
+                from ..evolution.portability import contract_label
+                from ..evolution.tool_compiler import build_occurrence_replay_case
+                from ..traces.canonical import canonical_action_indices
+                canonicalizer = AtomicContractCanonicalizer()
+                source = replace(
+                    compiled.occurrence, input_bindings=dict(trial_bindings),
+                    output_bindings=dict(result.validated_outputs),
+                    source_task={}, event_start=trial_event_start, event_end=trial_event_end,
+                    action_events=[to_primitive(trace_actions[i]) for i in range(trial_event_start, trial_event_end + 1)],
+                    prefix_events=[to_primitive(trace_actions[i]) for i in canonical_action_indices(ctx.trace_builder.trace)
+                                   if i < trial_event_start],
+                )
+                # R1 provenance is task-local evidence, not the reusable contract.
+                # Preserve all semantic/output constraints; move only source ids
+                # out of the prospective persistent validator specification.
+                persistent_spec = {key: value for key, value in compiled.atomic.validator_spec.items()
+                                   if key not in {"task_local", "occurrence_id", "trace_id"}}
+                persistent_spec["validator_id"] = "harness_atomic_effect"
+                persistent_atomic = replace(compiled.atomic, validator_spec=persistent_spec,
+                    summary=contract_label(compiled.atomic.effects, compiled.atomic.outputs),
+                    inputs=[replace(p, description="") for p in compiled.atomic.inputs],
+                    outputs=[replace(p, description="") for p in compiled.atomic.outputs],
+                    guideline={"runtime_automation": True, "steps": []},
+                    metadata={"runtime_support_promotion": True,
+                              "source_runtime_trace_id": ctx.trace_builder.trace.trace_id})
+                bundle = canonicalizer.canonicalize(persistent_atomic, compiled.tool, compiled.implementation)
+                bundle.tool.summary = persistent_atomic.summary
+                bundle.implementation.summary = persistent_atomic.summary
+                source = canonicalizer.rewrite_canonical_occurrence(source, bundle, atomic_ref=bundle.atomic.ref)
+                bundle.tool.tests = [build_occurrence_replay_case(
+                    source, bundle.atomic, source_task=ctx.task, kind="tool_proposal_replay",
+                )]
+                trial["promotion_bundle"] = {
+                    "atomic": to_primitive(bundle.atomic), "tool": to_primitive(bundle.tool),
+                    "implementation": to_primitive(bundle.implementation),
+                }
+                trial["tool_proposal"] = to_primitive(proposal)
+            transaction.accepted = r1_passed
+        trial["failure_feedback"] = {
+            "failure_code": result.failure_code,
+            "failure_layer": result.failure_layer,
+            "message": next((r.failure_message for r in result.tool_results if r.failure_code), ""),
+            "started": result.started, "not_committed": not r1_passed,
+            "rollback": bool(transaction.checkpoint and not r1_passed and not ctx.benchmark_terminal()),
+            "restored_revision": ctx.world_revision,
+            "failing_action": next((r.tool_path_evidence.get('attempted_action', {})
+                for r in result.tool_results if r.failure_code), {}),
+            "stage": "r1" if not r1_passed else "committed",
+        }
+        if failure_key and not r1_passed and result.failure_layer in {'tool', 'atomic', 'runtime_binding', 'implementation'}:
+            ctx.rejected_runtime_candidates[failure_key] = {
+                'failure_code': result.failure_code or 'runtime_automation_r1_rejected',
+                'failure_layer': result.failure_layer}
         _increment_funnel(ctx, "trial_started", int(bool(result.started)))
         _increment_funnel(ctx, "trial_completed", int(bool(tool_completed)))
         _increment_funnel(

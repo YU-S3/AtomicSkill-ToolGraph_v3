@@ -122,6 +122,8 @@ class SupportAtomicRetriever:
         blocked_inputs = {str(item.name): item for item in blocked_atomic.inputs}
         candidates: list[SupportCandidate] = []
         for atomic in atomics:
+            from ..agents.portable_support_view import portable_support_view
+            atomic = portable_support_view(atomic)
             if str(atomic.ref) == str(blocked_atomic.ref):
                 continue
             execution_available = bool(

@@ -482,7 +482,7 @@ def test_runtime_automation_admission_requires_executed_path_effects(
         static_validator=Static(),
     )
     ctx = SimpleNamespace(
-        world_revision=0, action_catalog=[],
+        world_revision=0, action_catalog=[], budget=__import__('atomic_skillgraph.runtime.budget', fromlist=['RuntimeBudget']).RuntimeBudget(),
         harness=SimpleNamespace(
             profile_name="alfworld",
             semantic_predicate_schema=lambda: [],
@@ -490,7 +490,7 @@ def test_runtime_automation_admission_requires_executed_path_effects(
         ),
         tool_evidence_snapshot=lambda: {},
         trace_builder=SimpleNamespace(trace=SimpleNamespace(trace_id="trace")),
-        binding_store=SimpleNamespace(snapshot_for_node=lambda _occ: {}),
+        binding_store=SimpleNamespace(snapshot_for_node=lambda _occ: {}, repeat_execution_frame=lambda _step: None),
         validated_outputs={},
         runtime_tool_trials={},
         action_history=[],
@@ -501,7 +501,7 @@ def test_runtime_automation_admission_requires_executed_path_effects(
     outcome = coordinator.process_draft(
         draft=draft,
         ctx=ctx,
-        occurrence=SimpleNamespace(occurrence_id="occ"),
+        occurrence=SimpleNamespace(occurrence_id="occ", step_id="step", node_ref="skill://parent@1.0.0"),
     )
 
     assert outcome.r1_passed is False

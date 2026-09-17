@@ -215,6 +215,7 @@ class ImplementationExecutionResult:
     terminal_interrupted: bool = False
     atomic_witness_refs: list[str] = field(default_factory=list)
     terminal_effect_reconciled: bool = False
+    cached_rejection: bool = False
 
 
 @dataclass(frozen=True)

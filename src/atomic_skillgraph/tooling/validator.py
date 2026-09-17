@@ -2212,12 +2212,13 @@ class ToolStaticValidator:
         for index, predicate in enumerate(
             [*draft.preconditions, *draft.effects]
         ):
-            _append_literal_hits(
-                draft_literal_hits,
-                dict(predicate.args),
-                f"predicates[{index}].args",
-                known_instances,
-            )
+            for role, value in dict(predicate.args).items():
+                # Only nodes already proved by the exact closure parser are
+                # references. Unknown references/constants still fail the
+                # original closure and literal checks, respectively.
+                if (index, str(role)) not in predicate_source_roles:
+                    _append_literal_hits(draft_literal_hits, value,
+                        f"predicates[{index}].args.{role}", known_instances)
         for role, raw in dict(
             getattr(draft, "input_binding_specs", None) or {}
         ).items():

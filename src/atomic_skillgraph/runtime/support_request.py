@@ -1,0 +1,250 @@
+"""Task-local proof and consumer-input handoff shared by both Support routes."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from ..core.bindings import BindingResolution, BindingSource, BindingStatus, RuntimeBinding, resolution_satisfies
+from ..core.results import ValidationResult
+from ..core.semantic_types import semantic_types_compatible
+from ..core.support_authority import input_identity_source_role, _referenced_role
+from ..core.serialization import to_primitive
+from .support_retriever import SupportObligation, predicate_input_mapping
+
+
+@dataclass
+class SupportRequest:
+    root_occurrence_id: str
+    consumer: Any
+    producer: Any
+    input_mapping: dict[str, str]
+    output_mapping: dict[str, str]
+    anchor_inputs: set[str] = field(default_factory=set)
+    mapping_evidence: list[dict] = field(default_factory=list)
+    consumer_value_guard: Any = None
+    grounding_constraints: list[Any] = field(default_factory=list)
+    grounding_proofs: list[Any] = field(default_factory=list)
+    producer_occurrence_id: str = ''
+
+
+def consumer_constraints(compiler, atomic):
+    return [constraint for implementation in compiler.skills.implementations_for(atomic.ref, mode=compiler.mode)
+            for constraint in getattr(implementation, 'grounding_constraints', ())]
+
+
+def _fail(ctx, metric, code, message):
+    values = ctx.trace_builder.trace.metadata.setdefault('r101_metrics', {})
+    values[metric] = values.get(metric, 0) + 1
+    return ValidationResult.fail('support', code, message)
+
+
+def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
+    """Aliases recall candidates; anchors or a complete relation authorize them."""
+    producer = request.producer
+    parent = ctx.binding_store.snapshot_for_node(request.consumer)
+    outputs = {p.name: p for p in producer.outputs}
+    inputs = {p.name: p for p in consumer_atomic.inputs}
+    constraints = producer.validator_spec.get('output_semantic_constraints', {})
+    authorized = set()
+    for out, dest in request.output_mapping.items():
+        if out not in outputs or dest not in inputs or not semantic_types_compatible(
+                outputs[out].semantic_type, inputs[dest].semantic_type):
+            return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_boundary_invalid', 'Unknown or incompatible boundary role')
+        anchor = ctx.binding_store.semantic_anchor_for(request.consumer, dest) or parent.get(dest)
+        identity = input_identity_source_role(producer, out)
+        semantic_input = constraints.get(out, {}).get('compatible_with_input')
+        if anchor is not None and anchor.status is BindingStatus.GROUNDED:
+            if identity and request.input_mapping.get(identity) == dest:
+                authorized.add(out)
+                request.mapping_evidence.append({'kind': 'input_identity', 'output': out, 'consumer_input': dest})
+            elif semantic_input and request.input_mapping.get(semantic_input) == dest:
+                authorized.add(out)
+                request.anchor_inputs.add(semantic_input)
+                request.mapping_evidence.append({'kind': 'semantic_anchor', 'output': out, 'consumer_input': dest})
+    # A multi-argument formal relation can carry a correlated fresh output.
+    # A unary current-location predicate alone cannot identify an unknown station.
+    relation_options = {}
+    for predicate in consumer_atomic.preconditions:
+        if len(predicate.args) < 2:
+            continue
+        obligation = SupportObligation('predicate', str(consumer_atomic.ref), request.consumer.occurrence_id,
+            predicate=predicate.predicate, predicate_args=tuple(sorted(predicate.args.items())),
+            effect_domain=predicate.effect_domain.value, cardinality=predicate.cardinality, distinct_by=predicate.distinct_by)
+        for mapping in predicate_input_mapping(producer, consumer_atomic, obligation):
+            output_part = {p: c for p, c in mapping.items() if p in outputs}
+            if not output_part or any(request.output_mapping.get(p, c) != c for p, c in output_part.items()):
+                continue
+            input_part = {p: c for p, c in mapping.items() if p not in outputs}
+            proposed_inputs = dict(request.input_mapping)
+            proposed_anchors = set(request.anchor_inputs)
+            anchored, conflict = False, False
+            for p, c in mapping.items():
+                anchor = ctx.binding_store.semantic_anchor_for(request.consumer, c) or parent.get(c)
+                if anchor is None or anchor.status is not BindingStatus.GROUNDED:
+                    continue
+                source = p if p in input_part else input_identity_source_role(producer, p)
+                semantic_source = constraints.get(p, {}).get('compatible_with_input') if p in outputs else None
+                source = source or semantic_source
+                if not source:
+                    continue
+                if source in proposed_inputs and proposed_inputs[source] != c:
+                    conflict = True
+                    break
+                proposed_inputs[source] = c
+                if semantic_source:
+                    proposed_anchors.add(source)
+                anchored = True
+            if anchored and not conflict and all(proposed_inputs.get(p) == c for p, c in input_part.items()):
+                from ..core.refs import canonical_json
+                combined = {**request.output_mapping, **output_part}
+                identity = canonical_json({'inputs': proposed_inputs, 'outputs': combined})
+                relation_options[identity] = (proposed_inputs, combined, proposed_anchors,
+                    {'kind': 'joint_relation', 'predicate': predicate.predicate, 'mapping': mapping})
+    if len(relation_options) > 1:
+        return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_ambiguous', 'Multiple complete relation mappings')
+    if relation_options:
+        new_inputs, new_outputs, new_anchors, proof = next(iter(relation_options.values()))
+        request.input_mapping, request.output_mapping, request.anchor_inputs = new_inputs, new_outputs, new_anchors
+        authorized.update(proof['mapping'].keys() & outputs.keys())
+        request.mapping_evidence.append(proof)
+    # The consumer's declared public affordance can prove a multi-role relation
+    # too. This is a deferred delivery obligation, not type/alias authority.
+    # No action type or benchmark-specific station rule is introduced here.
+    from ..core.bindings import GroundingConstraintKind
+    for constraint in request.grounding_constraints:
+        if constraint.kind is not GroundingConstraintKind.HARNESS_AFFORDANCE:
+            continue
+        roles = {_referenced_role(expr) for expr in constraint.argument_mapping.values()} - {''}
+        for out, dest in request.output_mapping.items():
+            if out in authorized or dest not in roles or len(roles) < 2:
+                continue
+            if any(binding is not None and binding.status is BindingStatus.GROUNDED
+                   for role in roles - {dest}
+                   for binding in [ctx.binding_store.semantic_anchor_for(request.consumer, role) or parent.get(role)]):
+                authorized.add(out)
+                request.grounding_proofs.append(constraint)
+                request.mapping_evidence.append({'kind': 'consumer_grounding_relation',
+                    'output': out, 'consumer_input': dest, 'constraint': to_primitive(constraint)})
+    if set(request.output_mapping) - authorized:
+        return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_authority_missing',
+                     'Role aliases do not prove this consumer input; supply an anchored identity or full relation')
+    # Predicate-only helpers must operate on their consumer's values, not pick
+    # an arbitrary entity through their own action affordances.
+    if not request.output_mapping and not request.input_mapping:
+        return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_authority_missing', 'Missing formal input mapping')
+    owner = ctx.binding_store._repeat_step_owner.get(request.consumer.step_id)
+    if owner is not None and not agent_selected:
+        constraint, _ = owner
+        restricted = {constraint.step_role_bindings[request.consumer.step_id][r]
+                      for r in constraint.distinct_roles if r in constraint.step_role_bindings[request.consumer.step_id]}
+        if any(dest in restricted and not input_identity_source_role(producer, out)
+               for out, dest in request.output_mapping.items()):
+            return _fail(ctx, 'support_mapping_authority_rejects', 'support_fresh_repeat_requires_agent',
+                         'Fresh output is unknown; no implicit exclusion input may be invented')
+    return ValidationResult.ok('support', mapping_proved=True)
+
+
+def consumer_guard(request, consumer_atomic, values, ctx):
+    """Read-only: validates the entire correlated value group before any commit."""
+    current = ctx.binding_store.snapshot_for_node(request.consumer)
+    specs = {p.name: p for p in consumer_atomic.inputs}
+    projected = {k: v.value for k, v in current.items() if v.status is BindingStatus.GROUNDED}
+    for role, value in values.items():
+        if role not in specs:
+            return _fail(ctx, 'support_input_transfer_rejects', 'support_input_unknown', role)
+        anchor = ctx.binding_store.semantic_anchor_for(request.consumer, role)
+        for binding in (anchor, current.get(role)):
+            if binding is None or binding.status is not BindingStatus.GROUNDED:
+                continue
+            if binding.resolution in {BindingResolution.CONCRETE, BindingResolution.RELATION_VERIFIED}:
+                compatible = value == binding.value
+            else:
+                check = getattr(ctx.harness, 'semantic_value_compatible', None)
+                compatible = check(role=role, concrete_value=value, semantic_anchor=binding.value,
+                                   semantic_type=specs[role].semantic_type) if callable(check) else value == binding.value
+            if not compatible:
+                return _fail(ctx, 'support_parent_identity_rejects', 'runtime_semantic_anchor_mismatch',
+                             f'Support cannot replace consumer identity for {role}')
+        projected[role] = value
+    repeat = ctx.binding_store.preflight_repeat_bindings(request.consumer.step_id, projected)
+    if not repeat.passed:
+        return _fail(ctx, 'support_parent_identity_rejects', repeat.failure_codes[0], repeat.messages[0])
+    for constraint in ctx.task_contract.identity_constraints:
+        if constraint.scope != 'occurrence' or constraint.left_role not in projected or constraint.right_role not in projected:
+            continue
+        equal = projected[constraint.left_role] == projected[constraint.right_role]
+        if (constraint.relation.value == 'same_as' and not equal) or (constraint.relation.value == 'distinct_from' and equal):
+            return _fail(ctx, 'support_parent_identity_rejects', 'runtime_identity_constraint_mismatch', 'Consumer identity constraint failed')
+    if request.consumer_value_guard is not None:
+        inherited = request.consumer_value_guard(projected)
+        if not inherited.passed:
+            return inherited
+    return ValidationResult.ok('support', consumer_input_valid=True)
+
+
+def known_consumer_values(request, actual_arguments):
+    # Input mappings are formal identities even for predicate-only helpers.
+    return {consumer: actual_arguments[producer] for producer, consumer in request.input_mapping.items()
+            if producer in actual_arguments and producer not in request.anchor_inputs}
+
+
+def validate_transfer(request, consumer_atomic, outputs, ctx):
+    """Read-only acceptance used before both effect-shortcut and Tool commit."""
+    values = {dest: outputs[out] for out, dest in request.output_mapping.items() if out in outputs}
+    if len(values) != len(request.output_mapping):
+        return _fail(ctx, 'support_input_transfer_rejects', 'support_atomic_output_unresolved', 'Missing correlated output')
+    report = consumer_guard(request, consumer_atomic, values, ctx)
+    if not report.passed:
+        return report
+    for constraint in request.grounding_proofs:
+        assignments = []
+        for action in ctx.action_catalog:
+            if action.revision != ctx.world_revision or action.action_type != constraint.action_type:
+                continue
+            assignment = {}
+            for argument, expr in constraint.argument_mapping.items():
+                role = _referenced_role(expr)
+                if role:
+                    assignment[role] = action.arguments.get(argument)
+            if any(assignment.get(role) != value for role, value in values.items() if role in assignment):
+                continue
+            if not assignment or any(value is None for value in assignment.values()):
+                continue
+            if not consumer_guard(request, consumer_atomic, assignment, ctx).passed:
+                continue
+            if ctx.evidence_store.match_constraint(constraint, assignment, ctx.world_revision):
+                assignments.append(assignment)
+        if not assignments:
+            return _fail(ctx, 'support_input_transfer_rejects', 'support_consumer_relation_not_grounded',
+                         'Support output has no current complete consumer relation witness')
+    specs = {p.name: p for p in consumer_atomic.inputs}
+    from ..core.support_authority import output_resolution_authority
+    for out, dest in request.output_mapping.items():
+        resolution, _ = output_resolution_authority(request.producer, out)
+        if not resolution_satisfies(resolution, specs[dest].required_resolution):
+            return _fail(ctx, 'support_input_transfer_rejects', 'support_output_resolution_insufficient', dest)
+    return report
+
+
+def transfer_inputs(request, consumer_atomic, result, ctx):
+    report = validate_transfer(request, consumer_atomic, result.validated_outputs, ctx)
+    if not report.passed:
+        return report
+    from ..core.support_authority import output_resolution_authority
+    specs = {p.name: p for p in consumer_atomic.inputs}
+    values = {dest: result.validated_outputs[out] for out, dest in request.output_mapping.items()}
+    bindings = {}
+    for out, dest in request.output_mapping.items():
+        resolution, _ = output_resolution_authority(request.producer, out)
+        bindings[dest] = RuntimeBinding(dest, values[dest], specs[dest].semantic_type,
+            BindingSource.HARNESS_EVIDENCE, BindingStatus.GROUNDED, BindingResolution(resolution),
+            list(result.atomic_witness_refs), ctx.world_revision)
+    # No parent output publication or parent Repeat commit here.
+    ctx.binding_store.commit_grounded(request.consumer.occurrence_id, bindings)
+    ctx.trace_builder.trace.metadata.setdefault('support_input_transfers', []).append({
+        'consumer_occurrence_id': request.consumer.occurrence_id, 'producer_atomic_ref': str(request.producer.ref),
+        'producer_occurrence_id': request.producer_occurrence_id, 'root_occurrence_id': request.root_occurrence_id,
+        'output_mapping': dict(request.output_mapping), 'values': values,
+        'mapping_evidence': to_primitive(request.mapping_evidence), 'witness_refs': list(result.atomic_witness_refs),
+        'revision': ctx.world_revision})
+    return report

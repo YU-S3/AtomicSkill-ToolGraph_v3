@@ -25,6 +25,8 @@ COUNTERS = (
 def finalize(trace, config):
     if not config.get("runtime", {}).get("short_runtime_steps"):
         return
+    from .r101_metrics import finalize as finalize_r101
+    finalize_r101(trace)
     values = trace.metadata.setdefault("r10_metrics", {})
     for name in COUNTERS:
         values.setdefault(name, 0)

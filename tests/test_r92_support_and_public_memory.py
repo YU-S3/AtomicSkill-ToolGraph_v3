@@ -744,6 +744,7 @@ class _SupportCallCompiler:
             implementations_for=lambda _ref, *, mode: [implementation],
         )
         self.compiled = SimpleNamespace(
+            atomic=support_atomic, implementation=implementation, tools=[],
             spec=SimpleNamespace(
                 name="invoke_impl_support",
                 input_schema={
@@ -816,6 +817,7 @@ def _support_call_fixture(*, executable: bool, preflight_passed: bool):
             {"object": "target", "location": _input("source")},
         )],
     )
+    support.validator_spec = {"output_derivations": {"location": {"kind": "input_identity", "input_role": "destination"}}}
     candidate = SupportAtomicRetriever().retrieve(
         blocked_atomic=blocked,
         missing_roles=["source"],
@@ -840,6 +842,9 @@ def _support_call_fixture(*, executable: bool, preflight_passed: bool):
     executor = NodeExecutor.__new__(NodeExecutor)
     executor.invocation_compiler = compiler
     executor.implementation_runner = runner
+    # These tests isolate selected-Support preflight/transfer. Effect-first
+    # resolution is covered with the real harness in the R10/R10.1 suites.
+    executor._complete_from_current_effect = lambda *_args, **_kwargs: None
     executor._augment_runtime_payload = lambda *_args, **_kwargs: None
     executor._record_control_call = lambda *_args, **_kwargs: None
     executor._activate_occurrence_state = (
@@ -850,7 +855,8 @@ def _support_call_fixture(*, executable: bool, preflight_passed: bool):
         task_id="support_task",
         task_contract=TaskContract(),
         world_revision=0,
-        binding_store=SimpleNamespace(),
+        binding_store=RuntimeBindingStore(),
+        budget=SimpleNamespace(current_occurrence_id=parent.occurrence_id),
         evidence_store=SimpleNamespace(),
         validated_outputs={},
         active_occurrence_id=parent.occurrence_id,
@@ -860,6 +866,10 @@ def _support_call_fixture(*, executable: bool, preflight_passed: bool):
             trace=SimpleNamespace(metadata={}),
         ),
     )
+    from atomic_skillgraph.core.bindings import RuntimeBinding, BindingSource, BindingStatus, BindingResolution
+    ctx.binding_store.commit_grounded(parent.occurrence_id, {"source": RuntimeBinding(
+        "source", "desk_2", "location", BindingSource.DATA_FLOW, BindingStatus.GROUNDED,
+        BindingResolution.CONCRETE, ["validated:prior-node"], 0)})
     session = SimpleNamespace(session_id="support_session")
     return executor, runner, ctx, session, parent, blocked, candidate
 
@@ -1001,15 +1011,9 @@ def test_support_success_publishes_to_parent_and_refreshes_after_revision() -> N
     evidence = []
     refreshes = []
     retrievals = []
-    ctx.binding_store = SimpleNamespace(
-        resolve_occurrence_specs=lambda *_args, **_kwargs: None,
-        publish_validated_outputs=lambda *args: published.append(args),
-        runtime_prompt_projection=lambda *_args, **_kwargs: {
-            "missing_or_insufficient_bindings": (
-                ["source"] if ctx.world_revision == 0 else []
-            ),
-        },
-    )
+    ctx.binding_store.publish_validated_outputs = lambda *args: published.append(args)
+    ctx.binding_store.runtime_prompt_projection = lambda *_args, **_kwargs: {
+        "missing_or_insufficient_bindings": ["source"] if ctx.world_revision == 0 else []}
     ctx.evidence_store = SimpleNamespace(
         add_validated_tool_output=lambda *args: evidence.append(args),
     )
@@ -1042,13 +1046,12 @@ def test_support_success_publishes_to_parent_and_refreshes_after_revision() -> N
     assert runner.calls == 1
     assert ctx.active_occurrence_id == parent.occurrence_id
     assert refreshes == [parent.occurrence_id]
-    assert published[0][0] is parent
-    assert published[0][1] == {"source": "desk_2"}
-    assert published[0][3] == 1
-    assert ctx.validated_outputs[parent.occurrence_id] == {
-        "source": "desk_2",
-    }
-    assert evidence[0][:2] == ("source", "desk_2")
+    # R10.1 changes the contract: Support supplies INPUT, never parent OUTPUT.
+    assert published == []
+    assert ctx.binding_store.snapshot_for_node(parent)["source"].value == "desk_2"
+    assert ctx.binding_store.snapshot_for_node(parent)["source"].world_revision == 1
+    assert parent.occurrence_id not in ctx.validated_outputs
+    assert evidence == []
     assert ctx.trace_builder.trace.metadata["runtime_support_funnel"][
         "validated_output_published_count"
     ] == 1

@@ -144,6 +144,12 @@ class LocatingHarness:
 
     profile_name = "fake_v3"
 
+    def semantic_value_compatible(self, **kwargs):
+        # Match the production-shaped validator used by this harness; Support
+        # now also checks the consumer's semantic anchor before delivery.
+        from atomic_skillgraph.harness.alfworld import semantic_value_compatible
+        return semantic_value_compatible(**kwargs)
+
     def __init__(self) -> None:
         self._catalog = HarnessActionCatalog(self._parse_action)
         self._validator = LocatingValidatorChannel()
@@ -1093,7 +1099,7 @@ def test_gate29_cross_task_runtime_tool_reuse(tmp_path: Path) -> None:
     assert len(search_actions) >= 1
     published = [
         change for change in trace_b.binding_changes
-        if change.get("reason") == "validated_output_published"
+        if change.get("reason") == "grounding_preflight_passed"
         and change.get("role") == "location"
         and dict(change.get("current") or {}).get("value") == _room_for("mug_1")
     ]

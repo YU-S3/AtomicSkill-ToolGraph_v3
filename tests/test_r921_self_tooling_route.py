@@ -121,7 +121,11 @@ def test_multicandidate_native_route_reaches_real_r1(tmp_path, route, stop_when)
         builder_payload = json.loads(outcome["builder"].requests[0]["messages"][-1]["content"].split(
             "POLICY_CONTEXT_JSON\n", 1)[1])
         entry = builder_payload["harness_interface"]["runtime_entry"]
-        assert entry == {"revision": 0, "input_values": {"target": "egg"}, "action_catalog": [
+        assert entry["remaining_resources"] == {"node_actions": 35, "task_actions": 100,
+            "node_tokens": system._stage_config('runtime').get('max_total_tokens_per_node', 80000),
+            "task_tokens": system._stage_config('runtime').get('max_total_tokens_per_task', 300000)}
+        assert entry["consumer_obligation"] == {"atomic_ref": "skill://r921_parent_take@1.0.0", "step_id": "parent", "repeat": None}
+        assert {key: entry[key] for key in ("revision", "input_values", "action_catalog")} == {"revision": 0, "input_values": {"target": "egg"}, "action_catalog": [
             {"action_type": "GO_TO", "arguments": {"destination": location}} for location in case.locations]}
         assert "semantic_compatible_with" in builder_payload["tool_ir_schema"]["evidence_selector_contract"]["where"]
         assert builder_payload["semantic_delta"] == {}

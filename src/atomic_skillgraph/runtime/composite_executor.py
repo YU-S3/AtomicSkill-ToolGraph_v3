@@ -74,8 +74,6 @@ class VerifiedCompositeExecutor:
                         return result
                     if result.started:
                         mode = "seeded"
-                        if result.implementation_ref:
-                            excluded.add(result.implementation_ref)
                         ctx.record_failed_invocation(
                             occurrence_id=occurrence_id, implementation_ref=result.implementation_ref,
                             failure_code=result.failure_code, message=result.failure_code,
@@ -106,7 +104,6 @@ class VerifiedCompositeExecutor:
                         return step.result
                     if step.result.started:
                         mode = "seeded"
-                        excluded.add(step.result.implementation_ref)
                     if ctx.benchmark_terminal():
                         return step.result
         except AtomicSkillGraphError as exc:

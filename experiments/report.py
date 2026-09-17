@@ -18,6 +18,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 from atomic_skillgraph.runtime.r10_metrics import COUNTERS as R10_COUNTERS, aggregate as aggregate_r10_metrics
+from atomic_skillgraph.runtime.r101_metrics import aggregate as aggregate_r101_metrics
 
 
 USAGE_BUCKETS = (
@@ -939,12 +940,8 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         if task_contract_raw is None
         else _boolean(task_contract_raw)
     )
-    strict_raw = _field(trace, "strict_task_success", None)
-    strict_task_success = (
-        benchmark_success
-        if strict_raw is None
-        else _boolean(strict_raw)
-    )
+    # Legacy serialization alias only, never an independent success gate.
+    strict_task_success = benchmark_success
     failure_codes = _failure_codes(trace, nodes, invocations, executions)
     planner_atomic_full_coverage = _planner_atomic_full_coverage(planner)
     planner_p2_used = (
@@ -1181,6 +1178,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "runtime_automation_funnel": automation_funnel,
         "runtime_support_funnel": support_funnel,
         "r10_metrics": dict(metadata.get("r10_metrics", {})),
+        "r101_metrics": dict(metadata.get("r101_metrics", {})),
         **tool_replay,
         **r21_runtime,
         **r31_runtime,
@@ -1615,6 +1613,7 @@ def summarize_traces(
         "runtime_automation_funnel": automation_funnel,
         "runtime_support_funnel": support_funnel,
         "r10_metrics": aggregate_r10_metrics(task_rows),
+        "r101_metrics": aggregate_r101_metrics(task_rows),
         **{
             # Replay is a resource-level diagnostic. Failed attempts and
             # maintenance replay remain visible even though they are not
@@ -2064,6 +2063,10 @@ def render_markdown(
         for name in R92_AUTOMATION_FUNNEL_FIELDS
     )))
     r10 = _mapping(summary.get("r10_metrics", {}))
+    r101 = _mapping(summary.get("r101_metrics", {}))
+    if any(r101.values()):
+        lines.extend(["", "## R10.1 execution boundary diagnostics", ""])
+        lines.extend(_markdown_pairs(tuple(r101.items())))
     if any(r10.values()):
         lines.extend(["", "## R10 graph execution, support and rollback", ""])
         lines.extend(_markdown_pairs(tuple(r10.items())))
@@ -2199,7 +2202,7 @@ def render_markdown(
 
     lines.extend(["", "## Per-task results", ""])
     lines.append(
-        "| Task | Official won | Strict | Learning | Plan | Graph self-sufficient | Rescue | Tokens | LLM latency ms | Cost USD |"
+        "| Task | Official won | Contract agreement (diagnostic) | Learning | Plan | Graph self-sufficient | Rescue | Tokens | LLM latency ms | Cost USD |"
     )
     lines.append("|---|:---:|:---:|:---:|---|:---:|:---:|---:|---:|---:|")
     for row in rows:
@@ -2207,7 +2210,7 @@ def render_markdown(
             "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
                 _markdown_cell(row.get("task_id", "")),
                 _yes_no(row.get("benchmark_success")),
-                _yes_no(row.get("strict_task_success")),
+                _yes_no(row.get("task_contract_success")),
                 _yes_no(row.get("learning_eligible")),
                 _markdown_cell(row.get("plan_source", "")),
                 _yes_no(row.get("graph_self_sufficient_success")),

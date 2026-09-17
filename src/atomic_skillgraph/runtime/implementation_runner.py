@@ -10,6 +10,7 @@ from ..core.results import (
     ImplementationExecutionResult, NodeExecutionStatus, ToolCallPreflightResult,
 )
 from ..core.serialization import to_primitive
+from ..core.errors import BudgetExhausted
 from ..traces.schema import ImplementationInvocationRecord, ValidationRecord
 from ..validation.engine import ValidationEngine
 from .invocation_compiler import CompiledInvocation
@@ -78,14 +79,24 @@ class ImplementationRunner:
             except (KeyError, TypeError, ValueError):
                 failure_layer, failure_code = "implementation", "implementation_mapping_error"
                 break
-            result = self.tool_runner.run(
-                tool,
-                arguments,
-                ctx,
-                occurrence_id=occurrence.occurrence_id,
-                parent_span_id=span.span_id,
-                execution_scope=execution_scope,
-            )
+            try:
+                result = self.tool_runner.run(
+                    tool, arguments, ctx, occurrence_id=occurrence.occurrence_id,
+                    parent_span_id=span.span_id, execution_scope=execution_scope,
+                )
+            except BudgetExhausted as exc:
+                ctx.trace_builder.finish_span(span.span_id)
+                actions = ctx.trace_builder.trace.environment_actions[span.action_start:]
+                interrupted = ImplementationExecutionResult(str(compiled.implementation.ref),
+                    str(compiled.atomic.ref), True, bool(actions), False, False,
+                    failure_layer=exc.layer.value, failure_code=exc.code,
+                    node_status=NodeExecutionStatus.DIRECT_FAILED if actions else NodeExecutionStatus.FAILED_NOT_STARTED)
+                payload = to_primitive(interrupted)
+                payload['interrupted_by_budget'] = True
+                ctx.trace_builder.trace.implementation_invocations.append(ImplementationInvocationRecord(
+                    attempt_id, occurrence.occurrence_id, str(compiled.implementation.ref),
+                    dict(preflight.normalized_arguments), to_primitive(preflight), payload, span.span_id))
+                raise
             tool_results.append(result)
             started = started or result.started
             for role, value in result.output_candidates.items():

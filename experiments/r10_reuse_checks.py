@@ -96,7 +96,9 @@ def run(config_path, source, output, indexes):
             review = system.lifecycle.review(artifact_refs=refs)
             system._provider_override = None
             row = {"task_id": task.task_id, "trace_id": trace.trace_id, "status_before": status_before,
-                "automatic_entry": automatic, "strict_success": trace.benchmark_success and trace.task_contract_success,
+                "automatic_entry": automatic, "official_success": trace.benchmark_success,
+                "contract_agreement": trace.task_contract_success,
+                "targeted_acceptance_conjunction": trace.benchmark_success and trace.task_contract_success,
                 "lifecycle_review": to_primitive(review), "r10_metrics": trace.metadata["r10_metrics"],
                 "tool_builder_calls": sum(event.bucket.value == "tool_builder_runtime" for event in usage),
                 "duration_seconds": time.monotonic() - started}
