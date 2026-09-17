@@ -175,7 +175,7 @@ def run(config_path, output):
                 trace = trace_builder.trace
                 system._attach_external_sessions(trace, system._observed_sessions)
                 trace.llm_usage = [event.to_dict() for event in system.usage.events]
-                from atomic_skillgraph.agents.provider_audit import sanitize_error_text
+                from experiments.protocol import sanitize_error_text
                 trace.metadata['diagnostic_setup_or_execution_error'] = {
                     'type': type(exc).__name__, 'error': sanitize_error_text(exc)}
                 trace.metadata['acceptance_fixture'] = manifest
