@@ -126,6 +126,10 @@ def test_A08_mixed_candidates_close_through_full_run_task(tmp_path, monkeypatch)
     config = _config(tmp_path)
     config['runtime']['persistent_runtime_support_promotion'] = True
     with AtomicSkillGraphSystem(config, harness=Gate36Harness(), provider=injected) as system:
+        from experiments.protocol import TaskCheckpointStore
+        checkpoint = TaskCheckpointStore(tmp_path / '.mixed_checkpoint', system.data_dir)
+        checkpoint.create(system.database, run_id='mixed', task_id='mixed_pipeline',
+            before_digest=system.knowledge_digest(), config_hash='fixture', code_commit='fixture')
         rejected_ref = ToolRef('mixed_rejected', '1.0.0')
         accepted_ref = ToolRef('mixed_accepted', '1.0.0')
 
@@ -156,3 +160,8 @@ def test_A08_mixed_candidates_close_through_full_run_task(tmp_path, monkeypatch)
         persisted = system.traces.load(trace.trace_id)
         assert persisted.metadata['replay_publication_decisions'] == trace.metadata['replay_publication_decisions']
         artifact_audit_snapshot(system.database)
+        checkpoint.clear()
+        assert not checkpoint.root.exists()
+        checkpoint.create(system.database, run_id='mixed', task_id='next_task',
+            before_digest=system.knowledge_digest(), config_hash='fixture', code_commit='fixture')
+        assert checkpoint.manifest_path.is_file()

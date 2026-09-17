@@ -442,6 +442,8 @@ def test_recursive_predicate_support_executes_child_then_parent(tmp_path):
     assert [item.action_type for item in ctx.trace_builder.trace.environment_actions] == ["GO_TO", "OPEN"]
     assert ctx.trace_builder.trace.metadata["r10_metrics"]["support_closure_success_count"] == 2
     assert provider.requests == []
+    assert ctx.budget.current_occurrence_id == occurrence.occurrence_id
+    assert ctx.budget.used_node_actions == ctx.budget.used_global_actions == 2
 
 
 def staged_observation(tmp_path, case_id="r10_step"):
