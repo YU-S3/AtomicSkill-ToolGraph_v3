@@ -15,6 +15,7 @@ from pathlib import Path
 import time
 
 from atomic_skillgraph.core.serialization import atomic_create_json, atomic_write_json
+from atomic_skillgraph.core.results import RuntimeLinearPlan
 from atomic_skillgraph.system import AtomicSkillGraphSystem, load_config, _SYSTEM_PROMPTS
 from experiments import self_tooling_targeted as route
 from experiments.protocol import artifact_audit_snapshot, capture_execution_manifest, hash_code, hash_config
@@ -104,7 +105,9 @@ def run(config_path, output):
             dynamic = TaskAutomationProvider(delegates['runtime_dynamic'])
             system._provider_override = {**delegates, 'runtime_dynamic': dynamic}
             if entry['declared_route'] == 'initial':
-                system.planner.build_plan = lambda *args, **kwargs: None
+                plan = RuntimeLinearPlan.full_dynamic(task.task_id,
+                    system.harness.task_contract(task), reason='declared_no_graph_acceptance')
+                system.planner.build_plan = lambda *args, **kwargs: plan
             else:
                 case = route.RouteCase(task.task_id, target=task.context['semantic_bindings']['object'])
                 parent, implementations = route.install_parent(system, case)
