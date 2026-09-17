@@ -166,6 +166,15 @@ def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
     return ValidationResult.ok('support', mapping_proved=True)
 
 
+def binding_accepts_proposal(binding, role, value, ctx):
+    """Compatibility only, not evidence that an Agent proposal is grounded."""
+    if binding.resolution in {BindingResolution.CONCRETE, BindingResolution.RELATION_VERIFIED}:
+        return value == binding.value
+    check = getattr(getattr(ctx, 'harness', None), 'semantic_value_compatible', None)
+    return check(role=role, concrete_value=value, semantic_anchor=binding.value,
+                 semantic_type=binding.semantic_type) if callable(check) else value == binding.value
+
+
 def consumer_guard(request, consumer_atomic, values, ctx):
     """Read-only: validates the entire correlated value group before any commit."""
     current = ctx.binding_store.snapshot_for_node(request.consumer)
@@ -178,13 +187,7 @@ def consumer_guard(request, consumer_atomic, values, ctx):
         for binding in (anchor, current.get(role)):
             if binding is None or binding.status is not BindingStatus.GROUNDED:
                 continue
-            if binding.resolution in {BindingResolution.CONCRETE, BindingResolution.RELATION_VERIFIED}:
-                compatible = value == binding.value
-            else:
-                check = getattr(ctx.harness, 'semantic_value_compatible', None)
-                compatible = check(role=role, concrete_value=value, semantic_anchor=binding.value,
-                                   semantic_type=specs[role].semantic_type) if callable(check) else value == binding.value
-            if not compatible:
+            if not binding_accepts_proposal(binding, role, value, ctx):
                 return _fail(ctx, 'support_parent_identity_rejects', 'runtime_semantic_anchor_mismatch',
                              f'Support cannot replace consumer identity for {role}')
         projected[role] = value

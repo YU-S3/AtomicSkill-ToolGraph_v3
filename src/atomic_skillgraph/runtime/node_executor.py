@@ -1907,11 +1907,15 @@ class NodeExecutor:
                 anchors[source] = replace(anchor, role=source)
             ctx.binding_store.commit_grounded(support_occurrence.occurrence_id, anchors)
         if predicate_options and not output_mapping:
+            from .support_request import binding_accepts_proposal
+            from ..core.refs import canonical_json
             parent = ctx.binding_store.snapshot_for_node(occurrence)
-            mappings = [option["input_mapping"] for option in predicate_options]
+            mappings = {canonical_json(option["input_mapping"]): option["input_mapping"]
+                        for option in predicate_options}.values()
             valid = [mapping for mapping in mappings if all(
                 consumer in parent and parent[consumer].status is BindingStatus.GROUNDED
-                and (producer not in arguments or arguments[producer] == parent[consumer].value)
+                and (producer not in arguments or binding_accepts_proposal(
+                    parent[consumer], consumer, arguments[producer], ctx))
                 for producer, consumer in mapping.items()
                 if producer in {item.name for item in support_atomic.inputs})]
             if len(valid) != 1:

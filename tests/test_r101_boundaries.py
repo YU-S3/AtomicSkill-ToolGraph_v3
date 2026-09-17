@@ -113,6 +113,42 @@ def test_B05_B06_B07_parent_repeat_known_values_and_fresh_boundary():
     assert frame['committed_distinct_values'] == {'item': ['object_1']}
 
 
+@pytest.mark.parametrize('duplicate', [False, True])
+def test_B06_B10_predicate_selected_support_accepts_concrete_semantic_proposal(duplicate):
+    from test_r92_support_and_public_memory import _support_call_fixture, _support_call
+    executor, runner, ctx, session, occurrence, parent, candidate = _support_call_fixture(
+        executable=True, preflight_passed=False)
+    mapping = {'input_mapping': {'destination': 'source'}}
+    candidate = replace(candidate, role_mappings=(),
+                        predicate_obligations=(mapping, mapping) if duplicate else (mapping,))
+    ctx.binding_store.commit_grounded(occurrence.occurrence_id, {'source': RuntimeBinding(
+        'source', 'desk', 'location', BindingSource.TASK, BindingStatus.GROUNDED,
+        BindingResolution.SEMANTIC)})
+    ctx.harness = SimpleNamespace(semantic_value_compatible=lambda **kw:
+        kw['semantic_anchor'] == 'desk' and kw['concrete_value'] == 'desk_2')
+    payload = executor._invoke_support_atomic_call(
+        _support_call(candidate, arguments={'destination': 'desk_2'}),
+        session, occurrence, ctx, parent, [candidate])
+    # The valid proposal reaches ordinary grounding; that boundary is
+    # deliberately failing in this fixture, so there must still be no action.
+    assert payload['error'] == 'support_not_execution_ready'
+    assert runner.calls == 0
+    assert ctx.binding_store.snapshot_for_node(occurrence)['source'].resolution is BindingResolution.SEMANTIC
+
+
+def test_B06_predicate_selected_support_cannot_replace_concrete_parent():
+    from test_r92_support_and_public_memory import _support_call_fixture, _support_call
+    executor, runner, ctx, session, occurrence, parent, candidate = _support_call_fixture(
+        executable=True, preflight_passed=False)
+    candidate = replace(candidate, role_mappings=(),
+        predicate_obligations=({'input_mapping': {'destination': 'source'}},))
+    payload = executor._invoke_support_atomic_call(
+        _support_call(candidate, arguments={'destination': 'desk_3'}),
+        session, occurrence, ctx, parent, [candidate])
+    assert payload['error'] == 'support_predicate_mapping_ambiguous'
+    assert runner.calls == 0
+
+
 def test_D07_D08_execution_cache_ignores_uuid_but_not_program_arguments_or_world(tmp_path):
     from test_r10_runtime import setup
     from atomic_skillgraph.runtime.invocation_transaction import execution_cache_key
