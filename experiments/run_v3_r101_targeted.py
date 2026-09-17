@@ -111,6 +111,14 @@ def run(config_path, output, *, source_run=None, chain=False):
     capture_execution_manifest(REPO, output, manifest['config_hash'], capability)
     rows = []
     with AtomicSkillGraphSystem(config) as system:
+        # Diagnostic runner journal, not a second accounting authority. Keep
+        # already-metered calls even if a later task is interrupted.
+        append_usage = system.usage.append
+        def persist_usage(event):
+            result = append_usage(event)
+            atomic_write_json(output / 'all_usage.json', [item.to_dict() for item in system.usage.events])
+            return result
+        system.usage.append = persist_usage
         artifact_audit_snapshot(system.database)
         tasks = {task.task_id: task for task in system.harness.load_tasks(limit=max(e['env_index'] for e in entries) + 1)}
         for entry in entries:
@@ -154,7 +162,7 @@ def run(config_path, output, *, source_run=None, chain=False):
             print(json.dumps({key: value for key, value in row.items() if key not in {'llm_usage', 'support_transfers'}}, ensure_ascii=False), flush=True)
         # Includes maintenance calls as well as task calls, no failed trial filtering.
         usage = [event.to_dict() for event in system.usage.events]
-        atomic_create_json(output / 'all_usage.json', usage)
+        atomic_write_json(output / 'all_usage.json', usage)
     result = {'cases': rows, 'complete': len(rows) == len(entries), 'official_successes': sum(row['official_success'] for row in rows),
         'tasks': len(rows), 'wall_seconds': time.monotonic() - start,
         'code_hash': manifest['code_hash'], 'code_unchanged': hash_code(REPO) == manifest['code_hash'],

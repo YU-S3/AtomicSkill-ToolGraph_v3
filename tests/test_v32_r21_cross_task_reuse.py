@@ -150,6 +150,12 @@ class LocatingHarness:
         from atomic_skillgraph.harness.alfworld import semantic_value_compatible
         return semantic_value_compatible(**kwargs)
 
+    def public_catalog_relation_schema(self):
+        # Same public relation actually recorded by this fixture's validator.
+        return [{'action_type': 'TAKE', 'argument_roles': ['object', 'location'],
+            'predicates': [{'predicate': 'entity.discovered_at',
+                'argument_mapping': {'entity': 'object', 'location': 'location'}}]}]
+
     def __init__(self) -> None:
         self._catalog = HarnessActionCatalog(self._parse_action)
         self._validator = LocatingValidatorChannel()

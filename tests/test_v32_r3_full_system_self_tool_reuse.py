@@ -576,7 +576,7 @@ def test_gate36_full_system_runtime_self_tool_persists_and_reuses(tmp_path: Path
         augmentations = list(trace_b.metadata.get("runtime_graph_augmentation") or [])
         assert any(
             item["support_atomic_ref"] == locate_atomic_ref
-            and item["output_mapping"] == {"location": "location"}
+            and item["output_mapping"] == {"location": "location", "entity": "object"}
             for item in augmentations
         )
         target_executions = [

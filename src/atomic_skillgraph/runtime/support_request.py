@@ -32,6 +32,39 @@ def consumer_constraints(compiler, atomic):
             for constraint in getattr(implementation, 'grounding_constraints', ())]
 
 
+def consumer_relations(request, consumer_atomic, ctx):
+    """Declared preconditions, or formal public adapter projections of entry.
+
+    A multi-argument action alone is NOT a semantic relation. The existing
+    adapter schema must explicitly map its arguments to a named predicate.
+    """
+    from ..core.bindings import GroundingConstraintKind
+    from ..core.contracts import SemanticPredicate
+    result = [(predicate, None) for predicate in consumer_atomic.preconditions]
+    if not request.grounding_constraints:
+        return result
+    schema = getattr(ctx.harness, 'public_catalog_relation_schema', None)
+    predicates = getattr(ctx.harness, 'semantic_predicate_schema', None)
+    if not callable(schema) or not callable(predicates):
+        return result
+    domains = {spec.predicate: spec.effect_domain for spec in predicates()}
+    for constraint in request.grounding_constraints:
+        if constraint.kind is not GroundingConstraintKind.HARNESS_AFFORDANCE:
+            continue
+        for relation in schema():
+            if relation['action_type'] != constraint.action_type:
+                continue
+            for projection in relation['predicates']:
+                mapping = projection['argument_mapping']
+                if projection['predicate'] not in domains or not set(mapping.values()) <= constraint.argument_mapping.keys():
+                    continue
+                predicate = SemanticPredicate(projection['predicate'],
+                    {role: constraint.argument_mapping[argument] for role, argument in mapping.items()},
+                    effect_domain=domains[projection['predicate']])
+                result.append((predicate, constraint))
+    return result
+
+
 def _fail(ctx, metric, code, message):
     values = ctx.trace_builder.trace.metadata.setdefault('r101_metrics', {})
     values[metric] = values.get(metric, 0) + 1
@@ -64,7 +97,7 @@ def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
     # A multi-argument formal relation can carry a correlated fresh output.
     # A unary current-location predicate alone cannot identify an unknown station.
     relation_options = {}
-    for predicate in consumer_atomic.preconditions:
+    for predicate, grounding_proof in consumer_relations(request, consumer_atomic, ctx):
         if len(predicate.args) < 2:
             continue
         obligation = SupportObligation('predicate', str(consumer_atomic.ref), request.consumer.occurrence_id,
@@ -82,6 +115,11 @@ def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
                 anchor = ctx.binding_store.semantic_anchor_for(request.consumer, c) or parent.get(c)
                 if anchor is None or anchor.status is not BindingStatus.GROUNDED:
                     continue
+                # The full predicate correlates this output to an anchored
+                # consumer role. Delivery must still match that anchor. An
+                # input identity is needed only to infer a producer INPUT;
+                # it is not required for an independently witnessed output.
+                anchored = True
                 source = p if p in input_part else input_identity_source_role(producer, p)
                 semantic_source = constraints.get(p, {}).get('compatible_with_input') if p in outputs else None
                 source = source or semantic_source
@@ -93,38 +131,22 @@ def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
                 proposed_inputs[source] = c
                 if semantic_source:
                     proposed_anchors.add(source)
-                anchored = True
             if anchored and not conflict and all(proposed_inputs.get(p) == c for p, c in input_part.items()):
                 from ..core.refs import canonical_json
                 combined = {**request.output_mapping, **output_part}
                 identity = canonical_json({'inputs': proposed_inputs, 'outputs': combined})
-                relation_options[identity] = (proposed_inputs, combined, proposed_anchors,
-                    {'kind': 'joint_relation', 'predicate': predicate.predicate, 'mapping': mapping})
+                relation_options.setdefault(identity, (proposed_inputs, combined, proposed_anchors,
+                    {'kind': 'joint_relation', 'predicate': predicate.predicate, 'mapping': mapping}, grounding_proof))
     if len(relation_options) > 1:
         return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_ambiguous', 'Multiple complete relation mappings')
     if relation_options:
-        new_inputs, new_outputs, new_anchors, proof = next(iter(relation_options.values()))
+        new_inputs, new_outputs, new_anchors, proof, grounding_proof = next(iter(relation_options.values()))
         request.input_mapping, request.output_mapping, request.anchor_inputs = new_inputs, new_outputs, new_anchors
         authorized.update(proof['mapping'].keys() & outputs.keys())
         request.mapping_evidence.append(proof)
-    # The consumer's declared public affordance can prove a multi-role relation
-    # too. This is a deferred delivery obligation, not type/alias authority.
-    # No action type or benchmark-specific station rule is introduced here.
-    from ..core.bindings import GroundingConstraintKind
-    for constraint in request.grounding_constraints:
-        if constraint.kind is not GroundingConstraintKind.HARNESS_AFFORDANCE:
-            continue
-        roles = {_referenced_role(expr) for expr in constraint.argument_mapping.values()} - {''}
-        for out, dest in request.output_mapping.items():
-            if out in authorized or dest not in roles or len(roles) < 2:
-                continue
-            if any(binding is not None and binding.status is BindingStatus.GROUNDED
-                   for role in roles - {dest}
-                   for binding in [ctx.binding_store.semantic_anchor_for(request.consumer, role) or parent.get(role)]):
-                authorized.add(out)
-                request.grounding_proofs.append(constraint)
-                request.mapping_evidence.append({'kind': 'consumer_grounding_relation',
-                    'output': out, 'consumer_input': dest, 'constraint': to_primitive(constraint)})
+        if grounding_proof is not None:
+            request.grounding_proofs.append(grounding_proof)
+            proof['public_relation_constraint'] = to_primitive(grounding_proof)
     if set(request.output_mapping) - authorized:
         return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_authority_missing',
                      'Role aliases do not prove this consumer input; supply an anchored identity or full relation')

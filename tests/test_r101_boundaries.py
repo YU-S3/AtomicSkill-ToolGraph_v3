@@ -36,6 +36,14 @@ def boundary(*, relation=True):
 @pytest.mark.parametrize('selected', [False, True])
 def test_B01_B02_alias_does_not_authorize_unknown_station(selected):
     request, parent, ctx = boundary(relation=False)
+    from atomic_skillgraph.core.bindings import GroundingConstraint, GroundingConstraintKind, BindingExpression, BindingExprKind
+    # Several entry arguments alone must not invent a producer/consumer
+    # relation. This was the task36/46 pre-execution boundary.
+    request.grounding_constraints = [GroundingConstraint('entry', GroundingConstraintKind.HARNESS_AFFORDANCE,
+        'PROCESS', {'item': BindingExpression(BindingExprKind.SKILL_INPUT, source_role='object'),
+                    'station': BindingExpression(BindingExprKind.SKILL_INPUT, source_role='station')})]
+    ctx.harness.public_catalog_relation_schema = lambda: []
+    ctx.harness.semantic_predicate_schema = lambda: []
     report = prove_request(request, parent, ctx, agent_selected=selected)
     assert not report.passed
     assert report.failure_codes == ['support_mapping_authority_missing']
@@ -63,6 +71,29 @@ def test_B04_missing_correlated_output_never_partially_commits():
     result = SimpleNamespace(validated_outputs={'location': 'place_2'}, atomic_witness_refs=['partial'])
     assert not transfer_inputs(request, parent, result, ctx).passed
     assert vars(ctx.binding_store) == before
+
+
+def test_B04_crossed_relation_values_cannot_borrow_separate_witnesses():
+    from atomic_skillgraph.core.bindings import GroundingConstraint, GroundingConstraintKind, BindingExpression, BindingExprKind
+    request, parent, ctx = boundary(relation=False)
+    request.output_mapping['entity'] = 'object'
+    constraint = GroundingConstraint('entry', GroundingConstraintKind.HARNESS_AFFORDANCE, 'TAKE',
+        {'object': BindingExpression(BindingExprKind.SKILL_INPUT, source_role='object'),
+         'source': BindingExpression(BindingExprKind.SKILL_INPUT, source_role='station')})
+    request.grounding_constraints = [constraint]
+    ctx.harness.public_catalog_relation_schema = lambda: [{'action_type': 'TAKE', 'predicates': [
+        {'predicate': 'entity.discovered_at', 'argument_mapping': {'entity': 'object', 'location': 'source'}}]}]
+    ctx.harness.semantic_predicate_schema = lambda: [SimpleNamespace(predicate='entity.discovered_at', effect_domain='evidence')]
+    assert prove_request(request, parent, ctx).passed
+    ctx.action_catalog = [SimpleNamespace(revision=0, action_type='TAKE', arguments={'object': obj, 'source': loc})
+        for obj, loc in [('object_1', 'place_1'), ('object_2', 'place_2')]]
+    ctx.evidence_store = SimpleNamespace(match_constraint=lambda *args: ['complete_action_witness'])
+    before = copy.deepcopy(vars(ctx.binding_store))
+    crossed = SimpleNamespace(validated_outputs={'entity': 'object_2', 'location': 'place_1'}, atomic_witness_refs=['different_facts'])
+    assert not transfer_inputs(request, parent, crossed, ctx).passed
+    assert vars(ctx.binding_store) == before
+    matching = SimpleNamespace(validated_outputs={'entity': 'object_2', 'location': 'place_2'}, atomic_witness_refs=['same_fact'])
+    assert transfer_inputs(request, parent, matching, ctx).passed
 
 
 def test_B05_B06_B07_parent_repeat_known_values_and_fresh_boundary():
@@ -98,6 +129,37 @@ def test_D07_D08_execution_cache_ignores_uuid_but_not_program_arguments_or_world
         assert execution_cache_key(changed, {'object': 'object_1'}, occurrence, ctx) != key
         ctx.world_revision += 1
         assert execution_cache_key(compiled, {'object': 'object_1'}, occurrence, ctx) != key
+    finally:
+        system.close()
+
+
+def test_D07_cache_hit_has_no_second_action_or_second_negative_attempt(tmp_path):
+    from test_r10_runtime import setup
+    from experiments.r10_world_checks import install_fixture, bind
+    from atomic_skillgraph.runtime.invocation_transaction import execute_invocation
+    system, ctx, _, _, _ = setup(tmp_path, lambda *args: pytest.fail('no model'))
+    try:
+        # The public world permits GO_TO but not CLOSE here. Fail after GO_TO.
+        atomic, impl = install_fixture(system, 'cached_partial', [], [SemanticPredicate('container.open', {'container': '$target'})],
+            [('GO_TO', 'destination'), ('CLOSE', 'object')], source_target='cabinet_1')
+        occurrence = RuntimeOccurrence('partial', 'partial', atomic.ref, [], {}, [str(impl.ref)], atomic.effects)
+        ctx.begin_occurrence(occurrence)
+        ctx.budget.begin_node(occurrence.occurrence_id)
+        bind(ctx, occurrence, 'cabinet_1')
+        compiled = system.invocation_compiler.compile_candidates(occurrence, ctx.binding_store, task_id=ctx.task_id)[0]
+        preflight = system.invocation_compiler.autonomous_preflight(compiled, occurrence,
+            ctx.binding_store, ctx.evidence_store, ctx.world_revision, task_contract=ctx.task_contract)
+        assert preflight.passed
+        invoke = lambda: execute_invocation(system.orchestrator.node_executor.implementation_runner,
+            compiled, preflight, occurrence, ctx, agent_prepared=True)
+        first = invoke()
+        assert first.started and not first.atomic_effect_passed
+        trace = ctx.trace_builder.trace
+        counts = (len(trace.environment_actions), len(trace.implementation_invocations), len(trace.tool_executions))
+        second = invoke()
+        assert second.cached_rejection and not second.started
+        assert counts == (len(trace.environment_actions), len(trace.implementation_invocations), len(trace.tool_executions))
+        assert trace.metadata['r101_metrics']['exact_failure_cache_hits'] == 1
     finally:
         system.close()
 
