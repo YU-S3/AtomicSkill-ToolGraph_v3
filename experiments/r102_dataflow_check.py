@@ -26,6 +26,7 @@ from atomic_skillgraph.tooling.builder_session import ToolBuilderSession
 from atomic_skillgraph.tooling.proposal import ToolProvenance
 from atomic_skillgraph.tooling.runtime_interface import public_primitive_action_schema
 from atomic_skillgraph.traces.schema import NodeTraceRecord
+from atomic_skillgraph.agents.structured_submission import StructuredSubmissionClient
 from experiments.protocol import hash_code, hash_config, capture_execution_manifest
 from experiments.run_v3_self_tooling_targeted import isolated_config
 from experiments.run_v3_r102_targeted import action_source_audit
@@ -68,82 +69,120 @@ def run(config_path, output):
         config_hash=manifest['config_hash'], code_hash=manifest['code_hash'], run_if_missing=True)
     capture_execution_manifest(REPO, output, manifest['config_hash'], capability)
     with AtomicSkillGraphSystem(config) as system:
+        append_usage = system.usage.append
+        def persist_usage(event):
+            result = append_usage(event)
+            atomic_write_json(output / 'all_usage.json', [item.to_dict() for item in system.usage.events])
+            return result
+        system.usage.append = persist_usage
         task = system.harness.load_tasks(limit=1)[0]
-        system.harness.reset(task)
+        initial = system.harness.reset(task)
         system._current_task_id, system._current_task_usage_start = task.task_id, 0
-        compiled = []
-        for atomic in contracts():
-            system.skills.register_atomic(atomic)
-            provenance = ToolProvenance(source='r102_dataflow_fixture', atomic_ref=str(atomic.ref),
-                source_trace_id='fixture', occurrence_id=atomic.ref.logical_id)
-            proposal = ToolBuilderSession(system._tool_builder_session('tool_builder_evolution', atomic.ref.logical_id)).build(
-                atomic=atomic, provenance=provenance, harness_interface={
-                    'profile': system.harness.profile_name,
-                    'predicate_vocabulary': to_primitive(system.harness.semantic_predicate_schema()),
-                    'primitive_actions': public_primitive_action_schema(system.harness)})
-            report = system.tool_static_validator.validate_proposal(proposal, atomic, system.harness)
-            atomic_write_json(output / (atomic.ref.logical_id + '_builder.json'), {'proposal': to_primitive(proposal), 'static': to_primitive(report)})
-            if not report.passed or proposal.decision != 'create':
-                raise RuntimeError('Real Builder failed T1 static admission; raw submission retained')
-            canonical = CanonicalAtomicOccurrence(atomic.ref.logical_id, 'fixture', atomic.summary, 0, 0,
-                {}, {}, atomic.inputs, atomic.outputs, atomic.preconditions, atomic.effects, [], [],
-                to_primitive(task), 'fixture', atomic.ref)
-            built = system.tool_compiler.compile_proposal(canonical, atomic, proposal, provenance)
-            built.tool.status, built.implementation.status = ToolStatus.ACTIVE, SkillStatus.ACTIVE
-            system.tools.register(built.tool)
-            system.skills.register_implementation(built.implementation)
-            compiled.append(built)
-        first, second = compiled
-        occurrences = [RuntimeOccurrence('upstream', 'upstream', first.atomic.ref, [], {}, [first.implementation.ref], first.atomic.effects),
-            RuntimeOccurrence('downstream', 'downstream', second.atomic.ref, [], {
-                role: BindingExpression(BindingExprKind.DATA_FLOW, source_role=role, source_step='upstream')
-                for role in ('object', 'location')}, [second.implementation.ref], second.atomic.effects)]
-        edges = [GraphEdge(f'edge_{role}', GraphEdgeType.DATA_FLOW, 'upstream', 'downstream', role, role)
-                 for role in ('object', 'location')]
-        plan = RuntimeLinearPlan(task.task_id, 'atomic_composition', None, occurrences,
-            ['upstream', 'downstream'], [], edges, system.harness.task_contract(task), {'acceptance_fixture': True})
-        ctx = TaskRuntimeContext.create(task, plan, system.harness, system.orchestrator.create_trace_builder(task),
-            RuntimeBudget(global_action_budget=100, node_action_budget=35))
-        ctx.runtime_config = config['runtime']
-        ctx.task_goal = ('TARGETED DATAFLOW ACCEPTANCE, not the episode goal: choose a currently closed container '
-            'destination from public observation/catalog and invoke the offered reach implementation. '
-            'Do not open it yourself: the next declared graph node opens the returned container. '
-            'Choose the concrete destination yourself; do not change either contract.')
-        trace = ctx.trace_builder.trace
-        trace.runtime_plan = to_primitive(plan)
-        trace.metadata['acceptance_fixture'] = manifest
-        results, provider_counts = [], []
-        for occurrence in occurrences:
-            ctx.budget.begin_node(occurrence.occurrence_id)
-            ctx.binding_store.apply_data_flow(plan, occurrence.step_id, ctx.validated_outputs, revision=ctx.world_revision)
-            ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
-            ctx.begin_occurrence(occurrence)
-            result = VerifiedCompositeExecutor(system.orchestrator.node_executor).run_occurrence(occurrence, ctx)
-            results.append(result)
-            provider_counts.append(len(system.usage.events))
-            trace.node_records.append(NodeTraceRecord(occurrence.occurrence_id, occurrence.step_id, str(occurrence.node_ref),
-                result.node_status, to_primitive(result), {}, dict(result.validated_outputs)))
-            if not result.atomic_effect_passed:
-                break
-            refs = system.orchestrator._latest_atomic_witnesses(ctx, occurrence.occurrence_id)
-            ctx.binding_store.publish_validated_outputs(occurrence, result.validated_outputs, refs, ctx.world_revision)
-            ctx.validated_outputs[occurrence.occurrence_id] = dict(result.validated_outputs)
-            for role, value in result.validated_outputs.items():
-                ctx.evidence_store.add_validated_tool_output(role, value, refs)
-        system._attach_external_sessions(trace, system._observed_sessions)
-        trace.llm_usage = [event.to_dict() for event in system.usage.events]
-        trace.metadata['usage_reconciliation'] = _reconcile_events(system.usage.events)
-        _require_formal_usage(system.usage.events, trace.agent_turns)
-        trace.finish()
-        system.traces.save_atomic(trace)
-        result = {'passed': len(results) == 2 and all(r.atomic_effect_passed for r in results)
-            and provider_counts[0] == provider_counts[1] and results[1].node_status.value == 'direct_autonomous_success',
-            'trace_id': trace.trace_id, 'results': to_primitive(results), 'provider_counts': provider_counts,
-            'action_source_audit': action_source_audit(trace), 'wall_seconds': time.monotonic() - started,
-            'code_unchanged': hash_code(REPO) == manifest['code_hash'], **manifest}
-        atomic_write_json(output / 'summary.json', result)
-        print(result, flush=True)
-        return result
+        trace_builder = system.orchestrator.create_trace_builder(task)
+        trace_saved = False
+        try:
+            values = [action.arguments['destination'] for action in system.harness.action_catalog()
+                      if action.action_type == 'GO_TO']
+            choice = StructuredSubmissionClient().request(
+                system._runtime_session('runtime_step_preparation', 'fixture_input'),
+                prompt=('T1 acceptance input selection only: choose a closed container destination from the public '
+                    'observation and catalog below. The two declared test nodes will reach it, then open it. '
+                    'No world action is executed by this submission.\n' + initial.observation),
+                tool_name='select_fixture_input', description='Select one public concrete fixture input.',
+                schema={'type': 'object', 'properties': {'destination': {'type': 'string', 'enum': values}},
+                        'required': ['destination'], 'additionalProperties': False}).value
+            atomic_write_json(output / 'agent_selected_input.json', choice)
+            compiled = []
+            for atomic in contracts():
+                system.skills.register_atomic(atomic)
+                provenance = ToolProvenance(source='r102_dataflow_fixture', atomic_ref=str(atomic.ref),
+                    source_trace_id='fixture', occurrence_id=atomic.ref.logical_id)
+                proposal = ToolBuilderSession(system._tool_builder_session('tool_builder_evolution', atomic.ref.logical_id)).build(
+                    atomic=atomic, provenance=provenance, harness_interface={
+                        'profile': system.harness.profile_name,
+                        'predicate_vocabulary': to_primitive(system.harness.semantic_predicate_schema()),
+                        'primitive_actions': public_primitive_action_schema(system.harness)})
+                report = system.tool_static_validator.validate_proposal(proposal, atomic, system.harness)
+                atomic_write_json(output / (atomic.ref.logical_id + '_builder.json'), {'proposal': to_primitive(proposal), 'static': to_primitive(report)})
+                if not report.passed or proposal.decision != 'create':
+                    raise RuntimeError('Real Builder failed T1 static admission; raw submission retained')
+                canonical = CanonicalAtomicOccurrence(atomic.ref.logical_id, 'fixture', atomic.summary, 0, 0,
+                    {parameter.name: choice['destination'] for parameter in atomic.inputs},
+                    {parameter.name: choice['destination'] for parameter in atomic.outputs},
+                    atomic.inputs, atomic.outputs, atomic.preconditions, atomic.effects, [], [],
+                    to_primitive(task), 'fixture', atomic.ref)
+                built = system.tool_compiler.compile_proposal(canonical, atomic, proposal, provenance)
+                built.tool.status, built.implementation.status = ToolStatus.ACTIVE, SkillStatus.ACTIVE
+                system.tools.register(built.tool)
+                system.skills.register_implementation(built.implementation)
+                compiled.append(built)
+            first, second = compiled
+            occurrences = [RuntimeOccurrence('upstream', 'upstream', first.atomic.ref, [], {
+                'destination': BindingExpression(BindingExprKind.CONSTANT, constant=choice['destination'])},
+                [first.implementation.ref], first.atomic.effects),
+                RuntimeOccurrence('downstream', 'downstream', second.atomic.ref, [], {
+                    role: BindingExpression(BindingExprKind.DATA_FLOW, source_role=role, source_step='upstream')
+                    for role in ('object', 'location')}, [second.implementation.ref], second.atomic.effects)]
+            edges = [GraphEdge(f'edge_{role}', GraphEdgeType.DATA_FLOW, 'upstream', 'downstream', role, role)
+                     for role in ('object', 'location')]
+            plan = RuntimeLinearPlan(task.task_id, 'atomic_composition', None, occurrences,
+                ['upstream', 'downstream'], [], edges, system.harness.task_contract(task), {'acceptance_fixture': True})
+            ctx = TaskRuntimeContext.create(task, plan, system.harness, trace_builder,
+                RuntimeBudget(global_action_budget=100, node_action_budget=35))
+            ctx.runtime_config = config['runtime']
+            ctx.task_goal = ('TARGETED DATAFLOW ACCEPTANCE, not the episode goal: choose a currently closed container '
+                'destination from public observation/catalog and invoke the offered reach implementation. '
+                'Do not open it yourself: the next declared graph node opens the returned container. '
+                'Choose the concrete destination yourself; do not change either contract.')
+            trace = ctx.trace_builder.trace
+            trace.runtime_plan = to_primitive(plan)
+            trace.metadata['acceptance_fixture'] = manifest
+            results, provider_counts = [], []
+            for occurrence in occurrences:
+                ctx.budget.begin_node(occurrence.occurrence_id)
+                ctx.binding_store.apply_data_flow(plan, occurrence.step_id, ctx.validated_outputs, revision=ctx.world_revision)
+                ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
+                ctx.begin_occurrence(occurrence)
+                result = VerifiedCompositeExecutor(system.orchestrator.node_executor).run_occurrence(occurrence, ctx)
+                results.append(result)
+                provider_counts.append(len(system.usage.events))
+                trace.node_records.append(NodeTraceRecord(occurrence.occurrence_id, occurrence.step_id, str(occurrence.node_ref),
+                    result.node_status, to_primitive(result), {}, dict(result.validated_outputs)))
+                if not result.atomic_effect_passed:
+                    break
+                refs = system.orchestrator._latest_atomic_witnesses(ctx, occurrence.occurrence_id)
+                ctx.binding_store.publish_validated_outputs(occurrence, result.validated_outputs, refs, ctx.world_revision)
+                ctx.validated_outputs[occurrence.occurrence_id] = dict(result.validated_outputs)
+                for role, value in result.validated_outputs.items():
+                    ctx.evidence_store.add_validated_tool_output(role, value, refs)
+            system._attach_external_sessions(trace, system._observed_sessions)
+            trace.llm_usage = [event.to_dict() for event in system.usage.events]
+            trace.metadata['usage_reconciliation'] = _reconcile_events(system.usage.events)
+            _require_formal_usage(system.usage.events, trace.agent_turns)
+            trace.finish()
+            system.traces.save_atomic(trace)
+            trace_saved = True
+            result = {'passed': len(results) == 2 and all(r.atomic_effect_passed for r in results)
+                and provider_counts[0] == provider_counts[1] and results[1].node_status.value == 'direct_autonomous_success',
+                'trace_id': trace.trace_id, 'results': to_primitive(results), 'provider_counts': provider_counts,
+                'action_source_audit': action_source_audit(trace), 'wall_seconds': time.monotonic() - started,
+                'code_unchanged': hash_code(REPO) == manifest['code_hash'], **manifest}
+            atomic_write_json(output / 'summary.json', result)
+            print(result, flush=True)
+            return result
+        except Exception as exc:
+            if not trace_saved:
+                trace = trace_builder.trace
+                system._attach_external_sessions(trace, system._observed_sessions)
+                trace.llm_usage = [event.to_dict() for event in system.usage.events]
+                from atomic_skillgraph.agents.provider_audit import sanitize_error_text
+                trace.metadata['diagnostic_setup_or_execution_error'] = {
+                    'type': type(exc).__name__, 'error': sanitize_error_text(exc)}
+                trace.metadata['acceptance_fixture'] = manifest
+                trace.finish()
+                system.traces.save_atomic(trace)
+            raise
+
 
 
 if __name__ == '__main__':
