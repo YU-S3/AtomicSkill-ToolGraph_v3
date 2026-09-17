@@ -265,7 +265,7 @@ def transfer_inputs(request, consumer_atomic, result, ctx):
             BindingSource.HARNESS_EVIDENCE, BindingStatus.GROUNDED, BindingResolution(resolution),
             list(result.atomic_witness_refs), ctx.world_revision)
     # No parent output publication or parent Repeat commit here.
-    ctx.binding_store.commit_grounded(request.consumer.occurrence_id, bindings)
+    ctx.binding_store.commit_validated_support_inputs(request.consumer.occurrence_id, bindings)
     ctx.trace_builder.trace.metadata.setdefault('support_input_transfers', []).append({
         'consumer_occurrence_id': request.consumer.occurrence_id, 'producer_atomic_ref': str(request.producer.ref),
         'producer_occurrence_id': request.producer_occurrence_id, 'root_occurrence_id': request.root_occurrence_id,

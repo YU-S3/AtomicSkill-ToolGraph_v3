@@ -73,6 +73,27 @@ def test_B04_missing_correlated_output_never_partially_commits():
     assert vars(ctx.binding_store) == before
 
 
+def test_B08_support_input_identity_survives_later_child_revision_without_stale_authority():
+    request, parent, ctx = boundary()
+    assert prove_request(request, parent, ctx, agent_selected=True).passed
+    result = SimpleNamespace(validated_outputs={'entity': 'object_2', 'location': 'place_2'},
+                             atomic_witness_refs=['joint_witness'])
+    assert transfer_inputs(request, parent, result, ctx).passed
+    ctx.world_revision += 1  # A later navigation/helper changes the world.
+    ctx.binding_store.invalidate_revision(ctx.world_revision)
+    # Expiring state proof must not erase the validated consumer identity.
+    assert not consumer_guard(request, parent, {'object': 'object_1'}, ctx).passed
+    assert consumer_guard(request, parent, {'object': 'object_2'}, ctx).passed
+    assert not ctx.binding_store._outputs
+    assert not ctx.binding_store.repeat_state.committed_distinct_values
+    ctx.binding_store.resolve_occurrence_specs(request.consumer, ctx.world_revision)
+    current = ctx.binding_store.snapshot_for_node(request.consumer)
+    assert current['object'].value == 'object_2'
+    # Known identity alone does not claim a fresh environment relation.
+    assert current['object'].resolution is BindingResolution.SEMANTIC
+    assert current['object'].status is BindingStatus.GROUNDED
+
+
 def test_B04_crossed_relation_values_cannot_borrow_separate_witnesses():
     from atomic_skillgraph.core.bindings import GroundingConstraint, GroundingConstraintKind, BindingExpression, BindingExprKind
     request, parent, ctx = boundary(relation=False)

@@ -54,6 +54,10 @@ class RuntimeBindingStore:
         # revision-scoped Harness grounding must not erase the Task/plan/
         # DataFlow/Repeat value that grounding was meant to satisfy.
         self._semantic_anchors: dict[tuple[str, str], RuntimeBinding] = {}
+        # A validated helper can narrow a consumer INPUT identity without
+        # completing that consumer or publishing one of its OUTPUTs. Keep
+        # this lineage separate from revision-scoped executable grounding.
+        self._support_input_anchors: dict[tuple[str, str], RuntimeBinding] = {}
         self._bindings: dict[tuple[str, str], RuntimeBinding] = {}
         self._outputs: dict[tuple[str, str], RuntimeBinding] = {}
         self._proposals: dict[tuple[str, str], RuntimeBinding] = {}
@@ -503,11 +507,8 @@ class RuntimeBindingStore:
                 resolution=BindingResolution.CONCRETE, evidence_refs=["constant"], world_revision=0,
             )
         if expression.kind is BindingExprKind.SKILL_INPUT:
-            binding = self._semantic_anchors.get(
-                (occurrence_id, expression.source_role),
-            ) or self._semantic_anchors.get(
-                ("__task__", expression.source_role),
-            )
+            binding = self.semantic_anchor_for(occurrence_id, expression.source_role) or self.semantic_anchor_for(
+                "__task__", expression.source_role)
         elif expression.kind is BindingExprKind.DATA_FLOW:
             source_owner = self._step_to_occurrence.get(
                 expression.source_step, expression.source_step
@@ -521,11 +522,8 @@ class RuntimeBindingStore:
                 [f"tool_output:{expression.source_step}:{expression.source_role}"], 0,
             )
         elif expression.kind is BindingExprKind.ADAPTER_TRANSFORM:
-            source = self._semantic_anchors.get(
-                (occurrence_id, expression.source_role),
-            ) or self._semantic_anchors.get(
-                ("__task__", expression.source_role),
-            )
+            source = self.semantic_anchor_for(occurrence_id, expression.source_role) or self.semantic_anchor_for(
+                "__task__", expression.source_role)
             if source is None or expression.transform_id not in self._transforms:
                 return None
             binding = RuntimeBinding(
@@ -557,7 +555,8 @@ class RuntimeBindingStore:
                 source = binding.source
             resolution = binding.resolution
             if (
-                expression.kind is BindingExprKind.DATA_FLOW
+                (expression.kind is BindingExprKind.DATA_FLOW
+                 or (occurrence.occurrence_id, role) in self._support_input_anchors)
                 and binding.world_revision != revision
             ):
                 # The publication still supplies stable downstream identity,
@@ -567,6 +566,21 @@ class RuntimeBindingStore:
                 role, binding.value, binding.semantic_type, source,
                 binding.status, resolution, list(binding.evidence_refs), revision,
             ), "binding_expression")
+        # Correlated Support may supply a role with no original plan binding
+        # expression. Retain its identity, but never refresh expired proof.
+        for (owner, role), anchor in self._support_input_anchors.items():
+            if owner != occurrence.occurrence_id:
+                continue
+            current = self._bindings.get((owner, role))
+            if (current is not None and current.status is BindingStatus.GROUNDED
+                    and current.value == anchor.value and current.world_revision == revision):
+                continue
+            self._set(owner, RuntimeBinding(
+                role, copy.deepcopy(anchor.value), anchor.semantic_type, BindingSource.DATA_FLOW,
+                BindingStatus.GROUNDED,
+                anchor.resolution if anchor.world_revision == revision else BindingResolution.SEMANTIC,
+                list(anchor.evidence_refs), revision,
+            ), "validated_support_input_identity")
 
     def propose_agent_arguments(
         self, occurrence: RuntimeOccurrence | str, arguments: dict[str, Any], revision: int,
@@ -609,6 +623,14 @@ class RuntimeBindingStore:
     def commit_grounded(self, occurrence_id: str, bindings: dict[str, RuntimeBinding]) -> None:
         for binding in bindings.values():
             self._set(occurrence_id, binding, "grounding_preflight_passed")
+
+    def commit_validated_support_inputs(self, occurrence_id: str, bindings: dict[str, RuntimeBinding]) -> None:
+        """Called only after the complete Support transfer guard has passed."""
+        from dataclasses import replace
+        for role, binding in bindings.items():
+            self._support_input_anchors[(occurrence_id, role)] = replace(
+                copy.deepcopy(binding), source=BindingSource.DATA_FLOW)
+        self.commit_grounded(occurrence_id, bindings)
 
     def commit_atomic_effect_witnesses(
         self,
@@ -729,7 +751,7 @@ class RuntimeBindingStore:
         }
         occurrence_anchors = {
             role: binding.value
-            for (owner, role), binding in self._semantic_anchors.items()
+            for (owner, role), binding in {**self._semantic_anchors, **self._support_input_anchors}.items()
             if owner == occurrence_id
             and binding.status is BindingStatus.GROUNDED
         }
@@ -765,7 +787,7 @@ class RuntimeBindingStore:
         occurrence_id = (
             occurrence if isinstance(occurrence, str) else occurrence.occurrence_id
         )
-        binding = self._semantic_anchors.get((occurrence_id, str(role)))
+        binding = self._support_input_anchors.get((occurrence_id, str(role))) or self._semantic_anchors.get((occurrence_id, str(role)))
         if binding is None or binding.status is not BindingStatus.GROUNDED:
             return None
         if binding.source not in _SEMANTIC_ANCHOR_SOURCES:
