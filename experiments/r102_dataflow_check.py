@@ -42,12 +42,12 @@ def contracts():
         {'output_derivations': {role: {'kind': 'input_identity', 'input_role': 'destination'} for role in ('object', 'location')}},
         [], {'steps': ['Move to the supplied destination and return its verified identity.'], 'notes': []},
         {'acceptance_fixture': True}, SkillStatus.ACTIVE)
-    consumer = AbstractAtomicSkill(SkillRef('r102_t1_open', '1.0.0'), 'Open the supplied container at the supplied current location',
-        [param('object'), param('location')], [param('opened')],
+    consumer = AbstractAtomicSkill(SkillRef('r102_t1_observe', '1.0.0'), 'Examine the supplied entity at the supplied current location',
+        [param('object'), param('location')], [param('observed')],
         [SemanticPredicate('agent.at_location', {'location': '$location'})],
-        [SemanticPredicate('container.open', {'container': '$object'})],
-        {'output_derivations': {'opened': {'kind': 'input_identity', 'input_role': 'object'}}},
-        [], {'steps': ['At the supplied location, open the supplied container.'], 'notes': []},
+        [SemanticPredicate('object.observed', {'object': '$object'}, effect_domain='evidence')],
+        {'output_derivations': {'observed': {'kind': 'input_identity', 'input_role': 'object'}}},
+        [], {'steps': ['At the supplied location, examine the supplied entity.'], 'notes': []},
         {'acceptance_fixture': True}, SkillStatus.ACTIVE)
     return producer, consumer
 
@@ -85,8 +85,8 @@ def run(config_path, output):
                       if action.action_type == 'GO_TO']
             choice = StructuredSubmissionClient().request(
                 system._runtime_session('runtime_step_preparation', 'fixture_input'),
-                prompt=('T1 acceptance input selection only: choose a closed container destination from the public '
-                    'observation and catalog below. The two declared test nodes will reach it, then open it. '
+                prompt=('T1 acceptance input selection only: choose a destination from the public '
+                    'observation and catalog below. The two declared test nodes will reach it, then examine it. '
                     'No world action is executed by this submission.\n' + initial.observation),
                 tool_name='select_fixture_input', description='Select one public concrete fixture input.',
                 schema={'type': 'object', 'properties': {'destination': {'type': 'string', 'enum': values}},
@@ -130,9 +130,9 @@ def run(config_path, output):
             ctx = TaskRuntimeContext.create(task, plan, system.harness, trace_builder,
                 RuntimeBudget(global_action_budget=100, node_action_budget=35))
             ctx.runtime_config = config['runtime']
-            ctx.task_goal = ('TARGETED DATAFLOW ACCEPTANCE, not the episode goal: choose a currently closed container '
-                'destination from public observation/catalog and invoke the offered reach implementation. '
-                'Do not open it yourself: the next declared graph node opens the returned container. '
+            ctx.task_goal = ('TARGETED DATAFLOW ACCEPTANCE, not the episode goal: choose a destination '
+                'from public observation/catalog and invoke the offered reach implementation. '
+                'Do not examine it yourself: the next declared graph node examines the returned entity. '
                 'Choose the concrete destination yourself; do not change either contract.')
             trace = ctx.trace_builder.trace
             trace.runtime_plan = to_primitive(plan)
