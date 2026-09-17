@@ -70,7 +70,12 @@ def check_tool_entry(tool, arguments, harness, evidence_store, revision):
         validate_schema_instance(arguments, tool.signature)
     except (KeyError, TypeError, ValueError, SchemaValidationError) as exc:
         return ValidationResult.fail('tool', 'tool_entry_contract_invalid', str(exc))
-    conditions = [SemanticPredicate(**p) for p in entry['conditions']]
+    # JSON persistence leaves typed references as dictionaries. Reconstruct the
+    # declared expressions before passing them to the Harness; otherwise they
+    # are interpreted as literal values instead of references to these inputs.
+    conditions = [SemanticPredicate(**{**p, 'args': {
+        role: BindingExpression.from_dict(value) if isinstance(value, dict) else value
+        for role, value in p['args'].items()}}) for p in entry['conditions']]
     if conditions:
         report = harness.validator_channel().validate_atomic_effect({
             'effects': conditions, 'bindings': dict(arguments), 'output_candidates': {}})

@@ -107,3 +107,41 @@ def test_L02_entry_contract_changes_executable_identity_and_failure_cache(tmp_pa
         assert execution_cache_key(before, args, occurrence, ctx) != execution_cache_key(changed, args, occurrence, ctx)
     finally:
         system.close()
+
+
+@pytest.mark.parametrize('representation', ['structured', 'dollar', 'constant'])
+def test_entry_json_roundtrip_checks_authored_given_values_against_actual_facts(representation):
+    import json
+    from atomic_skillgraph.harness.alfworld import AlfWorldValidatorChannel
+    from atomic_skillgraph.tooling.entry_contract import check_tool_entry
+    validator = AlfWorldValidatorChannel()
+    harness = SimpleNamespace(validator_channel=lambda: validator)
+    given = {'item': 'parcel_1', 'place': 'surface_1'}
+    def reference(role):
+        if representation == 'structured':
+            return {'kind': 'skill_input', 'source_role': role}
+        if representation == 'constant':
+            return {'kind': 'constant', 'constant': given[role]}
+        return '$' + role
+    # Exercise the persisted JSON form emitted by ToolBuilder, not only $roles.
+    entry = normalize_entry_contract({'conditions': [
+        {'predicate': 'agent.holds', 'args': {'object': reference('item')}},
+        {'predicate': 'agent.at_location', 'args': {'location': reference('place')}}],
+        'grounding_constraints': []}, given)
+    tool = SimpleNamespace(signature=parameter_schema([ParameterSpec(r, 'entity') for r in given]),
+        interface={'entry_contract': json.loads(json.dumps(entry))})
+    evidence = GroundingEvidenceStore()
+    assert not check_tool_entry(tool, given, harness, evidence, 0).passed
+    for revision, (action, arguments) in enumerate([
+        ('TAKE', {'object': 'parcel_1', 'source': 'box_1'}),
+        ('GO_TO', {'destination': 'surface_1'})], 1):
+        validator.record(HarnessActionSpec(str(revision), revision - 1, action, arguments, '', '', {}),
+                         accepted=True, revision=revision, done=False, won=False)
+    facts_before = copy.deepcopy(validator._facts)
+    assert check_tool_entry(tool, given, harness, evidence, 2).passed
+    assert validator._facts == facts_before and validator.revision == 2
+    if representation != 'constant':
+        assert not check_tool_entry(tool, {**given, 'item': 'parcel_2'}, harness, evidence, 2).passed
+    validator.record(HarnessActionSpec('3', 2, 'GO_TO', {'destination': 'elsewhere_1'}, '', '', {}),
+                     accepted=True, revision=3, done=False, won=False)
+    assert not check_tool_entry(tool, given, harness, evidence, 3).passed
