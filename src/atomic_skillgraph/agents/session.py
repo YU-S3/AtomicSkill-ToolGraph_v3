@@ -111,6 +111,10 @@ class ReplayAgentSession:
         self._turn_index = 0
         self._accepted_turn_count = 0
         self._protocol_repairs_used = 0
+        self._protocol_repair_budget = {"used": 0}
+        self._logical_stage: dict[str, str] = {}
+        self._last_shared_budget_check: dict[str, Any] = {}
+        self._shared_budget_requests: list[dict[str, Any]] = []
         self._context_compaction_count = 0
         self._structured_phase_compaction_count = 0
         self._structured_phase_pruned_message_count = 0
@@ -354,6 +358,9 @@ class ReplayAgentSession:
                 "provider_call_count": self._turn_index,
                 "accepted_turn_count": self._accepted_turn_count,
                 "protocol_repairs_used": self._protocol_repairs_used,
+                "shared_protocol_repairs_used": self._protocol_repair_budget["used"],
+                "logical_stage": dict(self._logical_stage),
+                "shared_budget_requests": copy.deepcopy(self._shared_budget_requests),
                 "context_compaction_count": self._context_compaction_count,
                 "structured_phase_compaction_count": (
                     self._structured_phase_compaction_count
@@ -420,6 +427,8 @@ class ReplayAgentSession:
     ) -> AgentTurn:
         while True:
             self._check_budget_before_call()
+            if self._last_shared_budget_check:
+                self._shared_budget_requests.append(dict(self._last_shared_budget_check))
             repair_in_progress = self._protocol_repair_in_progress()
             if not repair_in_progress:
                 self._compact_superseded_action_catalogs()
@@ -471,7 +480,7 @@ class ReplayAgentSession:
                     self._accepted_turn_count += 1
                     return turn
 
-            can_repair = self._protocol_repairs_used < PROTOCOL_REPAIR_LIMIT
+            can_repair = self._protocol_repair_budget["used"] < PROTOCOL_REPAIR_LIMIT
             self._protocol_failures.append(
                 ProtocolFailureRecord(
                     turn_index=max(0, self._turn_index - 1),
@@ -485,6 +494,7 @@ class ReplayAgentSession:
                 self._terminal_protocol_failure = failure
                 raise failure
             self._protocol_repairs_used += 1
+            self._protocol_repair_budget["used"] += 1
             self._check_budget_before_call()
             if accepted_candidate is not None:
                 self._append_rejected_turn_for_replay(accepted_candidate, failure)
@@ -599,11 +609,25 @@ class ReplayAgentSession:
             remaining = getattr(self, "shared_remaining_tokens", None)
             if callable(remaining):
                 from dataclasses import replace
+                shared = max(0, int(remaining()))
+                local_remaining = max(0, self._budget_tracker.budget.max_total_tokens
+                                      - self._budget_tracker.used_total_tokens)
                 self._budget_tracker.budget = replace(self._budget_tracker.budget,
-                    max_total_tokens=self._budget_tracker.used_total_tokens + max(0, int(remaining())))
+                    max_total_tokens=self._budget_tracker.used_total_tokens + min(local_remaining, shared))
+                self._last_shared_budget_check = {"turn_index": self._turn_index,
+                    "usage_bucket": self._usage_bucket.value, "shared_remaining": shared,
+                    "session_remaining": local_remaining, "effective_remaining": min(local_remaining, shared)}
             self._budget_tracker.check_before_call(
                 returned_action_executed=returned_action_executed,
             )
+
+    def share_protocol_repair_budget(self, budget: dict[str, int], *,
+                                    stage_identity: dict[str, str] | None = None) -> None:
+        """Share the existing repair allowance across fresh logical-stage sessions."""
+        if self._turn_index or type(budget.get('used')) is not int or budget['used'] < 0:
+            raise ValueError('protocol repair budget must be installed before the first request')
+        self._protocol_repair_budget = budget
+        self._logical_stage = dict(stage_identity or {})
 
     def _check_semantic_budget_before_call(
         self, *, returned_action_executed: bool = False,

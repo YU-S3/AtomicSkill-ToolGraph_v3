@@ -736,7 +736,8 @@ def _register_take_graph(
             ),
         ]})],
     )
-    extractor = ExtractorSession(session)
+    e2_session = factory.new_session("extractor")
+    extractor = ExtractorSession(session, session_factory=lambda phase: e2_session)
     proposals = extractor.propose_atomics(normalized)
     canonical = Atomicizer().validate_and_canonicalize(proposals, normalized)
 
@@ -766,7 +767,7 @@ def _register_take_graph(
             "insight": {"source": "gate29_bootstrap"},
         }
 
-    session.enqueue(FakeReply.structured(e2_reply))
+    e2_session.enqueue(FakeReply.structured(e2_reply))
     e2 = extractor.propose_composite(canonical, [])
     assert session.remaining_replies == 0
 
@@ -1250,10 +1251,10 @@ def test_r4_system_retained_atomic_is_retrieved_and_runs_seeded_for_new_entity(
         "kind": "skill_input", "source_role": "target",
     }
 
-    extractor_session = factory.new_session(
-        "extractor",
-        [
-            FakeReply.structured({"occurrences": [e1_wire]}),
+    extractor_session = factory.new_session("extractor", [
+        FakeReply.structured({"occurrences": [e1_wire]}),
+    ])
+    e2_session = factory.new_session("extractor", [
             FakeReply.structured({
                 "selected_existing_edge_ids": [],
                 "selected_new_edge_candidate_ids": [],
@@ -1282,7 +1283,7 @@ def test_r4_system_retained_atomic_is_retrieved_and_runs_seeded_for_new_entity(
     evolution.tools = tools
     evolution.graph = graph
     evolution.aligner = Aligner(skills, tools)
-    evolution._extractor_session = lambda _task_id: extractor_session
+    evolution._extractor_session = lambda _task_id, phase: extractor_session if phase == "e1" else e2_session
     evolution._tool_builder_session = lambda *_args: builder_session
     evolution.harness = harness
     evolution.validation = validation

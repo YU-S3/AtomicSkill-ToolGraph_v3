@@ -131,7 +131,7 @@ def _proposal(
     )
 
 
-def test_atomicizer_rejects_false_validator_and_terminal_effect_leak() -> None:
+def test_atomicizer_rechecks_own_effect_and_rejects_terminal_effect_leak() -> None:
     heat = SemanticPredicate("object.heated", {"object": "apple_1"})
     actions = [_action(0, "HEAT", {"object": "apple_1", "station": "microwave_1"}, won=True)]
     proposal = _proposal(
@@ -144,8 +144,8 @@ def test_atomicizer_rejects_false_validator_and_terminal_effect_leak() -> None:
         target_effects=[heat],
         validations=[{"occurrence_id": "", "level": "atomic", "result": {"passed": False}, "revision": 1}],
     )
-    with pytest.raises(ValueError, match="validator rejected"):
-        Atomicizer(legacy_source_replay=True).validate_and_canonicalize([proposal], normalized)
+    accepted = Atomicizer(legacy_source_replay=True).validate_and_canonicalize([proposal], normalized)
+    assert len(accepted) == 1
 
     # A terminal PUT may witness placement, but it cannot be used as a generic
     # witness for a different formal target effect achieved earlier.

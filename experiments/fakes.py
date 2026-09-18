@@ -485,6 +485,12 @@ class ScriptedAgentSession:
     def enqueue(self, *replies: FakeReply) -> None:
         self._replies.extend(replies)
 
+    def share_protocol_repair_budget(self, budget: dict[str, int], *, stage_identity=None) -> None:
+        if self._turn_index:
+            raise AssertionError("repair budget must be installed before the first turn")
+        self._protocol_repair_budget = budget
+        self._logical_stage = dict(stage_identity or {})
+
     def set_usage_bucket(self, bucket: UsageBucket | str) -> None:
         if self._pending is not None:
             raise AssertionError("cannot change fake usage bucket with a pending ToolCall")

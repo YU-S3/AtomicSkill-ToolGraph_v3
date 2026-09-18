@@ -300,7 +300,7 @@ def test_prepare_evolution_exposes_runtime_r1_fact_to_e1(
     captured = {}
 
     class _CaptureExtractor:
-        def __init__(self, _session):
+        def __init__(self, *, session_factory):
             pass
 
         def propose_atomics(self, normalized, *_args, **_kwargs):

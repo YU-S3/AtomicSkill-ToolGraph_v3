@@ -237,7 +237,7 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
     class FakeExtractor:
         e2_called = False
 
-        def __init__(self, _session) -> None:
+        def __init__(self, *, session_factory) -> None:
             pass
 
         def propose_atomics(self, *_args, **_kwargs):
@@ -452,7 +452,7 @@ def test_e2_rejection_does_not_discard_prepared_atomic(
     class RejectingE2Extractor:
         e2_called = False
 
-        def __init__(self, _session) -> None:
+        def __init__(self, *, session_factory) -> None:
             pass
 
         def propose_atomics(self, *_args, **_kwargs):

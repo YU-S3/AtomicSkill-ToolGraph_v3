@@ -334,7 +334,8 @@ def test_semantic_alias_full_chain_reaches_frozen_stored_composite(
             )],
         }),
     ])
-    extractor = ExtractorSession(session)
+    e2_session = factory.new_session("extractor")
+    extractor = ExtractorSession(session, session_factory=lambda phase: e2_session)
     canonical = Atomicizer().validate_and_canonicalize(
         extractor.propose_atomics(normalized), normalized,
     )
@@ -355,7 +356,7 @@ def test_semantic_alias_full_chain_reaches_frozen_stored_composite(
         staged, bundle.atomic, bundle.tool, bundle.implementation,
     )
 
-    session.enqueue(FakeReply.structured({
+    e2_session.enqueue(FakeReply.structured({
         "selected_existing_edge_ids": [],
         "selected_new_edge_candidate_ids": [],
         "summary": "observe target with illuminating device",

@@ -169,16 +169,15 @@ def test_runtime_r1_effect_witness_has_single_atomic_owner() -> None:
         _event(0, "EXAMINE", {"item": "apple_1"}, shared=True),
         _event(1, "EXAMINE", {"item": "apple_1"}, shared=True),
     ]
-    actions[0]["after_revision"] = 2
     normalized = _normalized(actions)
-    runtime_ref = (
-        "alfworld_action_fact:r2:object.observed:object=apple_1"
-    )
+    # Deliberately duplicate one opaque trial witness across consecutive
+    # transitions: ownership must reject this, not a malformed revision gap.
+    runtime_ref = "runtime_trial_fact:shared_observation"
     normalized["after_state_facts"] = [
         {
             "predicate": "object.observed",
             "args": {"object": "apple_1"},
-            "revision": 2,
+            "revision": 1,
             "witness_ref": runtime_ref,
             "event_index": 0,
             "source_kind": "runtime_trial_r1",

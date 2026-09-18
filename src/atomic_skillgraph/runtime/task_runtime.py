@@ -12,7 +12,7 @@ from ..tooling.runtime_interface import build_runtime_automation_interface
 from .invocation_transaction import execute_invocation
 from .loop_guard import ActionLoopGuard
 from .checkpoint import increment
-from .runtime_step import automation_request_tool
+from .runtime_step import automation_request_tool, public_step_feedback
 
 
 @dataclass(frozen=True)
@@ -124,6 +124,10 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                 turn = session.next_turn(prompt, tools=tools)
                 executor._record_turn(session, turn, ctx)
                 call = turn.tool_calls[0]
+                before_revision = ctx.world_revision
+                selected_action = next((a for a in ctx.action_catalog
+                    if call.name == 'environment_action' and a.action_id == call.arguments.get('action_id')
+                    and a.revision == before_revision), None)
                 request = None
                 if call.name == 'environment_action':
                     payload, _ = executor._execute_environment_call(call, session, None, ctx,
@@ -145,9 +149,8 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                     failure_code = 'benchmark_failure'
                 if call.name not in {'environment_action', 'invoke_support_atomic'}:
                     executor._record_control_call(call, session, consumer, ctx, call_kind='task_runtime', result=payload)
-                feedback = {key: payload[key] for key in ('accepted', 'passed', 'error', 'message', 'failure_code', 'stage', 'r1_passed') if key in payload}
-                result = payload.get('result') or payload.get('trial') or {}
-                feedback['validated_outputs'] = result.get('validated_outputs', result.get('r1_outputs', {}))
+                feedback = public_step_feedback(call, payload, before_revision=before_revision,
+                    after_revision=ctx.world_revision, selected_action=selected_action)
                 executor._finalize_tool_result(session, call.call_id, payload, tools)
                 if failure_code:
                     break

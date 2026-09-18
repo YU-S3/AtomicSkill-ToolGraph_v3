@@ -260,7 +260,7 @@ def _system_for_replay(
     proposal = _replay_proposal(fixture)
 
     class _FixtureExtractor:
-        def __init__(self, _session: Any) -> None:
+        def __init__(self, *, session_factory) -> None:
             pass
 
         def propose_atomics(self, *_args: Any, **_kwargs: Any) -> list[Any]:

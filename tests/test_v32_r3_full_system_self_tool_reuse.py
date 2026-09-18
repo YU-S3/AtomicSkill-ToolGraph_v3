@@ -326,7 +326,7 @@ def _e1_reply(request: FakeProviderRequest) -> dict[str, Any]:
 
     context = request.policy_context
     actions = list(context["canonical_trace"]["actions"])
-    boundary_effects = list(context["boundary_authorities"]["effects"])
+    boundary_effects = list(context["canonical_trace"]["boundary_authorities"]["effects"])
     witnesses_by_event: dict[str, list[dict[str, Any]]] = {}
     for fact in boundary_effects:
         event_id = str(fact.get("event_id", ""))
@@ -446,7 +446,7 @@ def _e1_reply(request: FakeProviderRequest) -> dict[str, Any]:
         entry = actions[item['event_start']]['before_revision']
         item['input_provenance_refs'] = {}
         for role, value in item['input_roles'].items():
-            source = next(a for a in context['boundary_authorities']['inputs']
+            source = next(a for a in context['canonical_trace']['boundary_authorities']['inputs']
                           if a.get('value') == value and a.get('kind') == 'public_catalog'
                           and a.get('available_revision', entry + 1) <= entry)
             item['input_provenance_refs'][role] = {'authority_ref': source['authority_ref'], 'source_role': source['role']}

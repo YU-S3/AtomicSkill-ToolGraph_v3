@@ -754,6 +754,9 @@ class AtomicSkillGraphSystem:
             UsageBucket.RUNTIME_DYNAMIC_COLD_START_CONTINUATION, UsageBucket.TOOL_BUILDER_RUNTIME,
         }:
             session.shared_remaining_tokens = lambda: self._shared_tool_builder_tokens("runtime")
+        elif UsageBucket(bucket) in {UsageBucket.EXTRACTOR_E1, UsageBucket.EXTRACTOR_E2,
+                                     UsageBucket.TOOL_BUILDER_EVOLUTION}:
+            session.shared_remaining_tokens = lambda: self._shared_tool_builder_tokens("evolution")
         observed = _ObservedSession(
             session, session_type, occurrence_id, task_id, time.time(), []
         )
@@ -899,16 +902,14 @@ class AtomicSkillGraphSystem:
             semantic_max_turns=1 if single_step else None,
         )
 
-    def _extractor_session(self, task_id: str) -> _SessionProxy:
-        cfg = self._stage_config("extractor")
-        semantic_max_turns = int(cfg.get("max_turns", 2))
+    def _extractor_session(self, task_id: str, phase: str = "e1") -> _SessionProxy:
         return self._new_session(
-            stage="extractor", bucket=UsageBucket.EXTRACTOR_E1,
+            stage="extractor", bucket=UsageBucket.EXTRACTOR_E1 if phase == "e1" else UsageBucket.EXTRACTOR_E2,
             session_type="ExtractorSession", occurrence_id="", task_id=task_id,
-            max_turns=structured_provider_turn_cap(semantic_max_turns),
-            max_tokens=int(cfg.get("max_total_tokens_per_task", cfg.get("max_completion_tokens", 131072) * 2)),
+            max_turns=structured_provider_turn_cap(1),
+            max_tokens=self._shared_tool_builder_tokens("evolution"),
             exhaustion_code="extractor_token_budget_exhausted",
-            semantic_max_turns=semantic_max_turns,
+            semantic_max_turns=1,
         )
 
     def _failure_extractor_token_cap(self) -> int:
@@ -3700,7 +3701,7 @@ class AtomicSkillGraphSystem:
             "inputs": boundary_inputs,
             "effects": deduplicated_effects,
         }
-        extractor = ExtractorSession(self._extractor_session(task.task_id))
+        extractor = ExtractorSession(session_factory=lambda phase: self._extractor_session(task.task_id, phase))
         contract = self.harness.task_contract(task)
         matcher_factory = getattr(self.harness, "contract_matcher", None)
         matcher = (

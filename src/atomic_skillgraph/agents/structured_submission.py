@@ -14,7 +14,7 @@ from typing import Any
 
 from ..core.errors import AgentProtocolError, FailureLayer
 from ..tooling.ir import CONDITION_OPERATORS, CONDITION_SOURCES
-from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS, RUNTIME_OUTPUT_DERIVATION_RULES
+from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS, RUNTIME_OUTPUT_DERIVATION_RULES, OUTPUT_SEMANTIC_CONSTRAINT_RULES
 from .protocol import (
     AgentSession,
     AgentTurn,
@@ -211,7 +211,7 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         "boundary_schema_version": {"type": "string", "enum": ["2"]},
         "input_specs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
         "output_specs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
-        "output_semantic_constraints": {"type": "object", "additionalProperties": {
+        "output_semantic_constraints": {"type": "object", "description": OUTPUT_SEMANTIC_CONSTRAINT_RULES, "additionalProperties": {
             "type": "object", "required": ["compatible_with_input"], "additionalProperties": False,
             "properties": {"compatible_with_input": NONEMPTY_STRING_SCHEMA}}},
         "local_value_authority_refs": {"type": "array", "uniqueItems": True, "items": NONEMPTY_STRING_SCHEMA},
@@ -773,7 +773,7 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
                 "additionalProperties": False,
                 "properties": {"compatible_with_input": NONEMPTY_STRING_SCHEMA},
             },
-            "description": "Map a concrete output role to its required, type-compatible input anchor. A constraint supplies no witness and never upgrades a same-name semantic input.",
+            "description": OUTPUT_SEMANTIC_CONSTRAINT_RULES,
         },
         "draft_id": NONEMPTY_STRING_SCHEMA,
         "intent": NONEMPTY_STRING_SCHEMA,

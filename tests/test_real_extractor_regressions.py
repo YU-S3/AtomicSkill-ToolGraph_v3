@@ -316,7 +316,9 @@ def test_e2_authority_exposes_binding_identity_and_accepts_dataflow() -> None:
         usage_ledger=UsageLedger(),
         usage_bucket="extractor_e1",
     )
-    extractor = ExtractorSession(session)
+    extractor = ExtractorSession(session, session_factory=lambda phase: ReplayAgentSession(
+        provider, system_prompt="extractor", usage_ledger=UsageLedger(), usage_bucket="extractor_e2",
+    ))
     canonical = Atomicizer().validate_and_canonicalize(
         extractor.propose_atomics(normalized), normalized,
     )

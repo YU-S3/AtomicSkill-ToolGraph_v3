@@ -766,7 +766,7 @@ def _canonical_take_tool_payload() -> dict[str, Any]:
 
 
 class _ThreeOccurrenceExtractor:
-    def __init__(self, _session: object) -> None:
+    def __init__(self, *, session_factory) -> None:
         pass
 
     def propose_atomics(self, *_args: Any, **_kwargs: Any):

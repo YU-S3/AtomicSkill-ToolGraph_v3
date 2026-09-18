@@ -1021,20 +1021,29 @@ class Atomicizer:
             if str(span.get("span_id", ""))
         }
 
-        def span_lineage(span_id: str) -> frozenset[str]:
+        def span_lineage(span_id: str, event_index: int) -> frozenset[str]:
             occurrences: set[str] = set()
             seen: set[str] = set()
-            while span_id and span_id not in seen:
+            child = None
+            while span_id:
+                if span_id in seen:
+                    raise ValueError("noncontiguous_evidence_lineage_invalid: cyclic RuntimeSpan")
                 seen.add(span_id)
                 span = span_by_id.get(span_id)
                 if span is None:
-                    break
+                    raise ValueError("noncontiguous_evidence_lineage_invalid: orphan RuntimeSpan")
+                start, end = span.get("action_start"), span.get("action_end")
+                if (type(start) is not int or type(end) is not int
+                        or not 0 <= start <= event_index < end <= len(events)
+                        or span.get("learnable", True) is not True):
+                    raise ValueError("noncontiguous_evidence_lineage_invalid: invalid RuntimeSpan range/authority")
+                if child and not (start <= child['action_start'] and end >= child['action_end']):
+                    raise ValueError("noncontiguous_evidence_lineage_invalid: invalid parent range")
                 occurrence_id = str(span.get("occurrence_id", ""))
                 if occurrence_id:
                     occurrences.add(occurrence_id)
                 parent_id = str(span.get("parent_span_id", "") or "")
-                if not parent_id or parent_id == span_id:
-                    break
+                child = span
                 span_id = parent_id
             return frozenset(occurrences)
 
@@ -1100,6 +1109,7 @@ class Atomicizer:
                 selected = list(envelope_events)
             if not selected or not all(item.get("accepted") for item in selected):
                 raise ValueError(f"Atomic proposal contains rejected/no events: {proposal.phase_id}")
+            selected.sort(key=lambda item: int(item.get('event_index', events.index(item))))
             owned_support_events = {
                 str(item.get("event_id", item.get("action_id", "")))
                 for item in selected
@@ -1143,7 +1153,12 @@ class Atomicizer:
                     f"RuntimeSpan(s) {sorted(orphan_span_ids)} for "
                     f"{proposal.phase_id}"
                 )
-            lineages = {span_lineage(span_id) for span_id in selected_span_ids}
+            # Provider-step spans are execution attribution, not Atomic boundaries.
+            # Check the *whole* canonical envelope so sparse support cannot hide
+            # an intervening owner, bad range, rollback branch or revision gap.
+            lineages = {span_lineage(str(item.get('span_id', '')),
+                                     int(item.get('event_index', events.index(item))))
+                        for item in envelope_events}
             if len(lineages) > 1:
                 raise ValueError(f"noncontiguous_evidence_lineage_invalid: {proposal.phase_id}")
             lineage = next(iter(lineages)) if lineages else frozenset()
@@ -1151,17 +1166,12 @@ class Atomicizer:
                 raise ValueError(f"Atomic proposal crosses incompatible RuntimeSpan: {proposal.phase_id}")
             if not lineage and len(selected_span_ids) > 1:
                 raise ValueError(f"noncontiguous_evidence_lineage_invalid: {proposal.phase_id}")
-            containing = [
-                span for span in spans
-                if span.get("action_start", 0) <= proposal.event_start
-                and span.get("action_end", len(events)) >= proposal.event_end + 1
-                and (
-                    str(span.get("span_id", "")) in selected_span_ids
-                    or str(span.get("occurrence_id", "")) in lineage
-                )
-            ]
-            if spans and not containing:
-                raise ValueError(f"Atomic proposal crosses incompatible RuntimeSpan: {proposal.phase_id}")
+            envelope_span_ids = {str(item.get('span_id', '')) for item in envelope_events}
+            if not lineage and len(envelope_span_ids) > 1:
+                raise ValueError(f"noncontiguous_evidence_lineage_invalid: {proposal.phase_id}")
+            if any(int(a['after_revision']) != int(b['before_revision'])
+                   for a, b in zip(envelope_events, envelope_events[1:])):
+                raise ValueError(f"noncontiguous_evidence_lineage_invalid: revision gap: {proposal.phase_id}")
             if not proposal.input_roles:
                 raise ValueError("Atomic occurrence requires explicit input roles")
             inputs = dict(proposal.input_roles)
@@ -1221,7 +1231,7 @@ class Atomicizer:
                 input_provenance[role] = authority
             if typed_boundary:
                 from .typed_boundary import validate_input_specs, validate_local_authorities
-                input_specs, output_specs = validate_input_specs(proposal, input_provenance, selected[0])
+                input_specs, output_specs = validate_input_specs(proposal, input_provenance, events[proposal.event_start])
                 local_authorities = validate_local_authorities(proposal, authorities, normalized_trace)
                 for role, constraint in proposal.output_semantic_constraints.items():
                     if self.semantic_value_compatible is None or not self.semantic_value_compatible(
@@ -1282,7 +1292,7 @@ class Atomicizer:
                 prefix_facts += _normalized_state_facts(
                     normalized_trace,
                     key="before_state_facts",
-                    revision=int(selected[0].get("before_revision", 0)),
+                    revision=int(events[proposal.event_start].get("before_revision", 0)),
                 )
             if len(set(proposal.precondition_witness_refs)) != len(
                 proposal.precondition_witness_refs
@@ -1564,14 +1574,6 @@ class Atomicizer:
                         )
 
             validation_refs: list[str] = []
-            after_revision = int(selected[-1].get("after_revision", 0))
-            for validation in normalized_trace.get("validations", []):
-                if str(validation.get("level", "")) != "atomic" or int(validation.get("revision", -1)) != after_revision:
-                    continue
-                validation_result = dict(validation.get("result") or {})
-                if validation_result.get("passed") is not True:
-                    raise ValueError(f"Atomic validator rejected proposed boundary: {proposal.phase_id}")
-                validation_refs.extend(map(str, validation_result.get("witness_refs", [])))
             validation_refs.extend(
                 str(effect_facts[fact_index]["witness_ref"])
                 for fact_index in effect_witness_indexes

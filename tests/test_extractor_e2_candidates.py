@@ -100,7 +100,7 @@ def _chain() -> list[CanonicalAtomicOccurrence]:
 
 def _session(reply) -> ExtractorSession:
     provider = ScriptedAgentProvider([FakeReply.structured(reply)])
-    extractor = ExtractorSession(ReplayAgentSession(
+    extractor = ExtractorSession(session_factory=lambda phase: ReplayAgentSession(
         provider,
         system_prompt="extractor",
         usage_ledger=UsageLedger(),
@@ -116,7 +116,7 @@ def _repair_session(*replies) -> tuple[
     provider = ScriptedAgentProvider([
         FakeReply.structured(reply) for reply in replies
     ])
-    extractor = ExtractorSession(ReplayAgentSession(
+    extractor = ExtractorSession(session_factory=lambda phase: ReplayAgentSession(
         provider,
         system_prompt="extractor",
         usage_ledger=UsageLedger(),

@@ -1,4 +1,4 @@
-"""A real two-turn E1/E2 exchange in one AgentSession."""
+"""One logical Extractor, fresh stage conversations and shared learning limits."""
 
 from __future__ import annotations
 
@@ -233,26 +233,40 @@ def _e2_repair_prompt(
 
 
 class ExtractorSession:
-    def __init__(self, session: Any) -> None:
+    def __init__(self, session: Any = None, *, session_factory: Any = None) -> None:
+        if session is None and session_factory is None:
+            raise ValueError('Extractor needs an E1 session or a stage session factory')
         self.session = session
+        self._session_factory = session_factory
+        self._sessions: list[Any] = []
+        self._protocol_repair_budget = {'used': 0}
         self.context = ContextBuilder()
         self.submissions = StructuredSubmissionClient()
         self._e1_complete = False
         self._e2_complete = False
         self._e2_repair_complete = False
         self._e2_protocol_repairs_before: int | None = None
+        self._started_phases: set[str] = set()
+
+    def _begin_phase(self, phase: str) -> None:
+        if phase in self._started_phases:
+            raise RuntimeError(f'Extractor {phase} may run exactly once')
+        if phase != 'e1' or self.session is None:
+            if self._session_factory is None:
+                raise ValueError('E2/E2R require a fresh stage session factory')
+            self.session = self._session_factory(phase)
+        if any(s.session_id == self.session.session_id for s in self._sessions):
+            raise ValueError('Extractor stage factory reused a provider conversation')
+        self.session.share_protocol_repair_budget(self._protocol_repair_budget, stage_identity={
+            'logical_extractor_id': self._sessions[0].session_id if self._sessions else self.session.session_id,
+            'phase': phase,
+            'previous_session_id': self._sessions[-1].session_id if self._sessions else '',
+        })
+        self._sessions.append(self.session)
+        self._started_phases.add(phase)
 
     def _protocol_repairs_used(self) -> int:
-        snapshot = getattr(self.session, "snapshot", None)
-        if not callable(snapshot):
-            return 0
-        value = snapshot().get("protocol_repairs_used", 0)
-        if isinstance(value, bool):
-            return 0
-        try:
-            return max(0, int(value))
-        except (TypeError, ValueError):
-            return 0
+        return sum(int(s.snapshot().get('protocol_repairs_used', 0)) for s in self._sessions)
 
     @property
     def e2_protocol_repair_count(self) -> int:
@@ -275,6 +289,7 @@ class ExtractorSession:
     ) -> list[AtomicOccurrenceProposal]:
         if self._e1_complete:
             raise RuntimeError("Extractor E1 may run exactly once")
+        self._begin_phase('e1')
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("extractor_e1")
         try:
@@ -306,10 +321,6 @@ class ExtractorSession:
         for item in payload["occurrences"]:
             event_start = int(item["event_start"])
             event_end_exclusive = int(item["event_end"])
-            if event_end_exclusive <= event_start:
-                raise ValueError(
-                    "Extractor E1 event_end must be exclusive and greater than event_start"
-                )
             proposals.append(AtomicOccurrenceProposal(
                 phase_id=str(item["phase_id"]), intent=str(item["intent"]),
                 event_start=event_start, event_end=event_end_exclusive - 1,
@@ -366,6 +377,7 @@ class ExtractorSession:
             contract_matcher=contract_matcher,
         )
         self._e2_protocol_repairs_before = self._protocol_repairs_used()
+        self._begin_phase('e2')
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("extractor_e2")
         try:
@@ -417,6 +429,7 @@ class ExtractorSession:
         if self._e2_repair_complete:
             raise RuntimeError("Extractor E2R may run exactly once")
         self._e2_repair_complete = True
+        self._begin_phase('e2r')
         authority = _composite_authority(
             authoritative_occurrences,
             existing_edges,

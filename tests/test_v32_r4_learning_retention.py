@@ -178,7 +178,7 @@ def _take_proposal(value: str = "apple_1") -> AtomicOccurrenceProposal:
 class _OneOccurrenceExtractor:
     proposal = _take_proposal()
 
-    def __init__(self, _session: object) -> None:
+    def __init__(self, *, session_factory) -> None:
         pass
 
     def propose_atomics(self, *_args: Any, **_kwargs: Any):

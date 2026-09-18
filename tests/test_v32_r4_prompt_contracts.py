@@ -246,7 +246,7 @@ def test_r7_b3_extractor_forbids_reclassifying_input_as_fresh_output() -> None:
     instruction = prompt.split(_POLICY_SEPARATOR, 1)[0]
 
     assert (
-        "do not reclassify that existing identity as a fresh output"
+        "An output equal to an already declared concrete input must still use input_identity"
     ) in instruction
     assert (
         "use explicit formal-input/source-role mappings, with real authority refs."

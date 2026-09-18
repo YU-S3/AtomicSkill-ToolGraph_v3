@@ -644,7 +644,7 @@ def test_gate40_failed_runtime_trial_range_cannot_use_ordinary_delta(
     captured: dict = {}
 
     class _CaptureExtractor:
-        def __init__(self, _session):
+        def __init__(self, *, session_factory):
             pass
 
         def propose_atomics(self, normalized, *_args, **_kwargs):

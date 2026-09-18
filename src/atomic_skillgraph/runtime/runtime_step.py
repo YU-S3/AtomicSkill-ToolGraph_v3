@@ -23,6 +23,55 @@ class RuntimeStepResult:
     automation_request: dict[str, Any] | None = None
 
 
+def public_step_feedback(call: Any, payload: dict, *, before_revision: int,
+                         after_revision: int, selected_action: Any = None) -> dict:
+    """One completed call's public feedback, shared by Node and task Runtime.
+
+    This is a projection only: accepted is not a success certificate, and
+    failed invocation internals/programs are never serialized wholesale.
+    """
+    keys = ("accepted", "passed", "error", "message", "failure_code", "stage",
+            "r0_passed", "static_passed", "r1_passed", "preflight_failure_code",
+            "started", "completed", "failure_layer", "cached_rejection", "rollback",
+            "draft_id", "r1_outputs", "r1_witness_refs", "support_occurrence_id",
+            "atomic_effect_passed", "validated_outputs", "atomic_witness_refs")
+    feedback = {"tool": call.name, "arguments": to_primitive(call.arguments),
+                "before_revision": before_revision, "after_revision": after_revision,
+                **{k: to_primitive(payload[k]) for k in keys if k in payload}}
+    if selected_action is not None:
+        feedback.update(action_type=selected_action.action_type,
+                        action_arguments=to_primitive(selected_action.arguments))
+    result = payload.get('result')
+    if isinstance(result, dict):
+        feedback['helper_result'] = {k: to_primitive(result[k]) for k in keys if k in result}
+    trial = payload.get('trial')
+    failure_keys = ('failure_code', 'failure_layer', 'message', 'started',
+                    'not_committed', 'rollback', 'restored_revision', 'stage')
+
+    def project_failure(value: Any) -> dict:
+        if not isinstance(value, dict):
+            return {}
+        projected = {k: to_primitive(value[k]) for k in failure_keys if k in value}
+        action = value.get('failing_action')
+        if isinstance(action, dict):
+            projected['failing_action'] = {k: to_primitive(action[k])
+                for k in ('action_type', 'arguments') if k in action}
+        return projected
+
+    if isinstance(trial, dict):
+        feedback['trial'] = {k: to_primitive(trial[k]) for k in
+            ('draft_id', 'r1_outputs', 'terminal_interrupted') if k in trial}
+        if 'failure_feedback' in trial:
+            feedback['trial']['failure_feedback'] = project_failure(trial['failure_feedback'])
+    if isinstance(payload.get('trial_failure'), dict):
+        feedback['trial_failure'] = project_failure(payload['trial_failure'])
+    validation = payload.get('validation')
+    if isinstance(validation, dict):
+        feedback['validation'] = {k: to_primitive(validation[k]) for k in keys if k in validation}
+        feedback.update({k: validation[k] for k in ('failure_code','message') if validation.get(k)})
+    return feedback
+
+
 def automation_request_tool() -> NativeToolSpec:
     return NativeToolSpec(
         "request_runtime_automation",
@@ -121,6 +170,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         if not draft_request:
             executor._mark_prior_trials_parent_continuation(ctx, occurrence, session.session_id)
         call = turn.tool_calls[0]
+        before_revision = ctx.world_revision
         selected_action = next((item for item in ctx.action_catalog
             if call.name == 'environment_action' and item.action_id == call.arguments.get('action_id')
             and item.revision == ctx.world_revision), None)
@@ -228,40 +278,9 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         remember_rejection(ctx, occurrence, call, payload)
         # Carry finite public feedback, never an assistant conversation or
         # Tool body, to the next fresh decision. Rollback does not erase it.
-        ctx.runtime_step_feedback[occurrence.occurrence_id] = {
-            "tool": call.name,
-            "arguments": to_primitive(call.arguments),
-            **({'action_type': selected_action.action_type, 'action_arguments': to_primitive(selected_action.arguments)}
-               if selected_action is not None else {}),
-            **{key: payload[key] for key in (
-                "accepted", "passed", "error", "message", "failure_code", "stage",
-                "r0_passed", "static_passed", "r1_passed", "preflight_failure_code",
-                "started", "failure_layer", "cached_rejection", "rollback", "trial_failure",
-                "draft_id", "r1_outputs", "r1_witness_refs", "support_occurrence_id",
-                "atomic_effect_passed",
-            ) if isinstance(payload, dict) and key in payload},
-        }
-        # Carry actual validated helper returns, not a full nested execution
-        # record (which can contain Tool bodies and unbounded trace details).
-        helper_result = payload.get("result") if isinstance(payload, dict) else None
-        if isinstance(helper_result, dict):
-            ctx.runtime_step_feedback[occurrence.occurrence_id]["helper_result"] = {
-                key: helper_result[key] for key in (
-                    "atomic_effect_passed", "validated_outputs", "atomic_witness_refs",
-                    "failure_code", "message", "started",
-                ) if key in helper_result
-            }
-        trial = payload.get("trial") if isinstance(payload, dict) else None
-        if isinstance(trial, dict):
-            ctx.runtime_step_feedback[occurrence.occurrence_id]["trial"] = {
-                key: trial[key] for key in ("draft_id", "r1_outputs", "terminal_interrupted", "failure_feedback")
-                if key in trial
-            }
-        if isinstance(payload, dict) and isinstance(payload.get("validation"), dict):
-            ctx.runtime_step_feedback[occurrence.occurrence_id].update({
-                key: payload["validation"][key] for key in ("failure_code", "message")
-                if payload["validation"].get(key)
-            })
+        ctx.runtime_step_feedback[occurrence.occurrence_id] = public_step_feedback(
+            call, payload, before_revision=before_revision,
+            after_revision=ctx.world_revision, selected_action=selected_action)
         executor._finalize_tool_result(session, call.call_id, payload, tools)
         return outcome
     finally:

@@ -294,7 +294,8 @@ def _extract_and_register(
         "extractor",
         [FakeReply.structured({"occurrences": e1_occurrences})],
     )
-    extractor = ExtractorSession(session)
+    e2_session = factory.new_session("extractor")
+    extractor = ExtractorSession(session, session_factory=lambda phase: e2_session)
     proposals = extractor.propose_atomics(normalized)
     canonical = Atomicizer(legacy_source_replay=True).validate_and_canonicalize(proposals, normalized)
 
@@ -334,12 +335,12 @@ def _extract_and_register(
             "insight": {"source": "deterministic_fullchain"},
         }
 
-    session.enqueue(
+    e2_session.enqueue(
         FakeReply.structured(e2_reply)
     )
     e2 = extractor.propose_composite(canonical, [])
     new_edges = list(e2.new_edges)
-    assert session.remaining_replies == 0
+    assert session.remaining_replies == e2_session.remaining_replies == 0
 
     admission = Admission(validation.tool)
     atomic_refs = []

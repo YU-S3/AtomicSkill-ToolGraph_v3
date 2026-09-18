@@ -119,7 +119,7 @@ def test_prepare_evolution_does_not_repair_valid_initial_e2(
         repair_calls = 0
         e2_protocol_repair_count = 0
 
-        def __init__(self, _session) -> None:
+        def __init__(self, *, session_factory) -> None:
             pass
 
         def propose_atomics(self, *_args, **_kwargs):
@@ -170,7 +170,7 @@ def test_failed_e2_repair_preserves_prepared_atomics(
         repair_calls = 0
         e2_protocol_repair_count = 0
 
-        def __init__(self, _session) -> None:
+        def __init__(self, *, session_factory) -> None:
             pass
 
         def propose_atomics(self, *_args, **_kwargs):

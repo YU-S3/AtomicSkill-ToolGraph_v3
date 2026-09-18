@@ -13,7 +13,7 @@ from dataclasses import is_dataclass
 from typing import Any, Iterable, Mapping
 
 from ..core.serialization import to_primitive
-from ..tooling.runtime_interface import public_tool_ir_condition_contract
+from ..tooling.runtime_interface import public_tool_ir_condition_contract, OUTPUT_SEMANTIC_CONSTRAINT_RULES
 from .runtime_policy_projection import project_runtime_payload
 from .runtime_prompt_texts import (
     DYNAMIC_PROMPT,
@@ -290,7 +290,7 @@ class ContextBuilder:
             "source_kind": source_kind,
         }
         return _render(
-            """You are the ToolBuilder. Submit exactly one native create_tool call for the supplied Atomic, or submit decision=no_tool. Do not execute environment actions. Do not return a program as prose, Markdown, or standalone JSON.
+            OUTPUT_SEMANTIC_CONSTRAINT_RULES + "\n\n" + """You are the ToolBuilder. Submit exactly one native create_tool call for the supplied Atomic, or submit decision=no_tool. Do not execute environment actions. Do not return a program as prose, Markdown, or standalone JSON.
 
 AUTHORITY AND IMMUTABLE FIELDS
 Submit proposal_version="2" and an explicit entry_contract with conditions and grounding_constraints arrays (including when empty). Declare only external requirements that must already hold before this Tool starts; do not elevate requirements of a conditional internal ACTION or a later serial step to the whole Tool entrance. Entry references use declared inputs or portable constants only, never future outputs or loop locals. Atomic preconditions remain binding; entry_contract cannot override them.
@@ -397,7 +397,7 @@ Check the immutable boundary, exact final_effects copy, each ACTION's argument/s
         runtime_tool_trials: Iterable[Any] = (),
     ) -> str:
         return _render(
-            """Propose the smallest sufficient set of reusable Atomic capability occurrences
+            OUTPUT_SEMANTIC_CONSTRAINT_RULES + "\n\n" + """Propose the smallest sufficient set of reusable Atomic capability occurrences
 from the supplied code-authoritative successful trace.
 
 The trace is the only factual authority. Do not assume a benchmark taxonomy,
@@ -447,7 +447,7 @@ canonical_intent. Otherwise propose a new portable intent.
 Declare boundary_schema_version="2", explicit input_specs/output_specs (ParameterSpec),
 output_semantic_constraints and local_value_authority_refs. Types and required_resolution
 are part of the capability contract, never inferred from the sample value or role name.
-Inputs can be semantic anchors known at entry; outputs can be newly discovered concrete
+Inputs must be known at the declared event_start, not merely at the first selected support event. Inputs can be semantic anchors known at entry; outputs can be newly discovered concrete
 values or typed boolean/list/map results. E1 declares capability/evidence, not Tool IR.
 
 Map each formal input to input_provenance_refs[formal_role] =
@@ -493,7 +493,7 @@ output_roles:
 - EFFECT_WITNESS: a typed argument of one declared authoritative Effect witness.
 Do not invent an output value.
 Do not derive an output from observation prose.
-Use only supplied boundary_authorities / effect witness refs.
+Use only supplied canonical_trace.boundary_authorities / effect witness refs.
 
 For every entity output, perform this identity-lineage self-check:
 1. compare it against every declared input identity;
@@ -545,9 +545,10 @@ For every proposed occurrence:
    represented by a declared input role, unless the exact Effect argument is
    intentionally represented by a separately legal output derivation;
 
-3. if a task-relevant entity already has a valid supplied input authority,
-   do not reclassify that existing identity as a fresh output merely to avoid
-   a primitive-role collision;
+3. fresh is relative to this capability's explicit external inputs, not to whether
+   the identity has ever occurred in the world. Authority somewhere in the Trace
+   does not make a value known at entry or require every internal value to be an input.
+   An output equal to an already declared concrete input must still use input_identity;
 
 4. use explicit formal-input/source-role mappings, with real authority refs.
 
@@ -570,13 +571,6 @@ Review canonical_trace.uncovered_event_ids within the full context. Return occur
                 ],
                 "runtime_tool_trials": _policy_value(
                     list(runtime_tool_trials)
-                ),
-                "boundary_authorities": _policy_value(
-                    dict(
-                        _policy_value(canonical_trace).get(
-                            "boundary_authorities", {}
-                        )
-                    )
                 ),
             },
         )

@@ -323,7 +323,7 @@ def test_prepare_evolution_projects_only_accepted_action_arguments(
     captured: dict[str, object] = {}
 
     class _CaptureExtractor:
-        def __init__(self, _session: object) -> None:
+        def __init__(self, *, session_factory) -> None:
             pass
 
         def propose_atomics(self, normalized: dict[str, object], *_args, **_kwargs):

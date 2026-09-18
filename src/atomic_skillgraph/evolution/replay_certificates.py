@@ -9,7 +9,7 @@ from ..governance.ledger import EvidenceEvent, EvidenceEventType, EvidenceLedger
 from .replay import ReplayCaseResult, replay_case_id
 
 
-REPLAY_AUTHORITY_VERSION = "tool_replay_r1021_v1"
+REPLAY_AUTHORITY_VERSION = "tool_replay_r1021_final_v1"
 REPLAY_EVENTS = (EvidenceEventType.REPLAY_VALIDATED, EvidenceEventType.REPLAY_REJECTED)
 
 
