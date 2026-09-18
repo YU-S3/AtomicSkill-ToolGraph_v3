@@ -26,6 +26,7 @@ from atomic_skillgraph.core.contracts import (
 from atomic_skillgraph.tooling.proposal import RuntimeAutomationAtomicDraft
 from atomic_skillgraph.tooling.runtime_interface import (
     RUNTIME_INPUT_BINDING_KINDS,
+    RUNTIME_OUTPUT_DERIVATION_RULES,
     build_runtime_automation_interface,
     build_runtime_automation_interface_update,
     resolve_runtime_automation_inputs,
@@ -89,8 +90,9 @@ def test_runtime_draft_schema_explains_role_reference_derivation() -> None:
 
     assert "$<input_role>" in precondition_help
     assert "$<role>" in effect_help
-    assert "Each fresh required output" in effect_help
-    assert "exactly one distinct (predicate, argument_role)" in effect_help
+    assert "runtime_automation_interface.fresh_output_rules" in effect_help
+    assert "Each fresh required output" in RUNTIME_OUTPUT_DERIVATION_RULES
+    assert "exactly one distinct (predicate, argument_role)" in RUNTIME_OUTPUT_DERIVATION_RULES
     assert "angle-bracket placeholder" in effect_help
 
 

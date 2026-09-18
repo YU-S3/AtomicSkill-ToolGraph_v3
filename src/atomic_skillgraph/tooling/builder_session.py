@@ -14,6 +14,7 @@ from ..agents.context_builder import ContextBuilder
 from ..agents.structured_submission import (
     TOOL_PROPOSAL_SCHEMA,
     StructuredSubmissionClient,
+    specialize_tool_proposal_schema,
 )
 from ..core.contracts import AbstractAtomicSkill
 from .proposal import ToolProposal, ToolProvenance, tool_proposal_from_dict
@@ -60,7 +61,7 @@ class ToolBuilderSession:
                 "Submit either a complete declarative ToolProposal with a bounded "
                 "ACTION/IF/FOR_EACH/STOP_WHEN/RETURN IR program, or decision=no_tool."
             ),
-            schema=TOOL_PROPOSAL_SCHEMA,
+            schema=specialize_tool_proposal_schema(TOOL_PROPOSAL_SCHEMA, atomic, harness_interface or {}),
         )
         try:
             return tool_proposal_from_dict(submission.value)

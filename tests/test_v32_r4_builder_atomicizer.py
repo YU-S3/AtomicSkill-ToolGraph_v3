@@ -57,7 +57,7 @@ def test_tool_proposal_parse_error_wraps_only_payload_conversion(
     )
 
     with pytest.raises(ToolProposalParseError) as caught:
-        builder.build(atomic=object(), provenance=object())  # type: ignore[arg-type]
+        builder.build(atomic=SimpleNamespace(ref="skill://parse@1.0.0", inputs=[], outputs=[]), provenance=object())  # type: ignore[arg-type]
 
     assert isinstance(caught.value.__cause__, cause_type)
 
@@ -74,7 +74,7 @@ def test_tool_proposal_parse_error_does_not_reclassify_request_failures(
     monkeypatch.setattr(builder.submissions, "request", reject_request)
 
     with pytest.raises(ValueError) as caught:
-        builder.build(atomic=object(), provenance=object())  # type: ignore[arg-type]
+        builder.build(atomic=SimpleNamespace(ref="skill://parse@1.0.0", inputs=[], outputs=[]), provenance=object())  # type: ignore[arg-type]
 
     assert caught.value is original
     assert not isinstance(caught.value, ToolProposalParseError)

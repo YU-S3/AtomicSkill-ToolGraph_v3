@@ -234,7 +234,10 @@ def _wire_parameter(name: str) -> dict[str, Any]:
     }
 
 
-def _create_take_tool_payload(atomic_ref: str = "skill://placeholder@1.0.0") -> dict[str, Any]:
+def _create_take_tool_payload(atomic_ref: str | None = None) -> dict[str, Any]:
+    if atomic_ref is None:
+        occurrence, = Atomicizer().validate_and_canonicalize([_take_proposal()], _normalized_take())
+        atomic_ref = str(occurrence.proposed_ref)
     return {
         "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
@@ -284,7 +287,7 @@ def _create_take_tool_payload(atomic_ref: str = "skill://placeholder@1.0.0") -> 
     }
 
 
-def _no_tool_payload(atomic_ref: str = "skill://placeholder@1.0.0") -> dict[str, Any]:
+def _no_tool_payload(atomic_ref: str | None = None) -> dict[str, Any]:
     payload = _create_take_tool_payload(atomic_ref)
     payload.update({
         "decision": "no_tool",

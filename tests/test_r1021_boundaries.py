@@ -181,7 +181,7 @@ def test_B02_source_role_is_cited_port_not_its_lineage_metadata():
     authority['source_role'] = 'ancestor_port'
     assert typed_atomicizer().validate_and_canonicalize([proposal], normalized)
     prompt = ContextBuilder().extractor_e1(canonical_trace=normalized)
-    assert 'authority.role' in prompt and 'NOT its optional source_role' in prompt
+    assert "cited authority's role field" in prompt and 'not its optional source_role ancestry' in prompt
     description = ATOMIC_EXTRACTION_SCHEMA['properties']['input_provenance_refs']['description']
     assert 'role == submitted source_role' in description
     assert 'Unique proposed occurrence ID' in ATOMIC_EXTRACTION_SCHEMA['properties']['phase_id']['description']

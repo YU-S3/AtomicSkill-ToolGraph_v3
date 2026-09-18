@@ -276,11 +276,10 @@ def test_r9_b7_e1_prompt_contains_entity_identity_lineage_self_check() -> None:
         canonical_trace={"actions": []},
     ).split("\n\nPOLICY_CONTEXT_JSON\n", 1)[0]
 
-    assert "For every entity output, perform this identity-lineage self-check:" in instruction
-    assert "compare it against every declared input identity" in instruction
-    assert "if it is an existing input identity, use input_identity" in instruction
-    assert "effect_witness is only for an identity not already supplied" in instruction
-    assert "never use effect_witness merely because a post-state predicate" in instruction
+    assert "An entity output equal to an existing explicit entity input must use input_identity" in instruction
+    assert "not be relabeled fresh" in instruction
+    assert "effect_witness identifies the actual argument of a declared effect" in instruction
+    assert "output identity/derivation" in instruction
 
 
 def _atomic_with_lineage(input_role: str) -> AbstractAtomicSkill:

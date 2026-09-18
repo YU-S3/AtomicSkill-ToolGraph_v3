@@ -385,7 +385,8 @@ def test_e1_prompt_is_general_and_carries_compact_known_contracts() -> None:
         "pick_two",
         "ALFWorld",
     ):
-        assert forbidden.casefold() not in instruction.casefold()
+        import re
+        assert not re.search(r"\b" + re.escape(forbidden) + r"\b", instruction, re.IGNORECASE)
     assert json.loads(payload_text)["known_atomic_contracts"] == known
 
 

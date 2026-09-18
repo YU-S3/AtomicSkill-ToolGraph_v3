@@ -543,7 +543,7 @@ def test_status_surface_and_node_prompt_define_three_distinct_meanings() -> None
         item["content"] for item in session.snapshot["messages"]
         if item["role"] == "user"
     )
-    assert "report_runtime_status reports genuine inability or a formal plan conflict, not success" in prompt
+    assert "report_runtime_status reports genuine inability or a supported plan conflict, not success" in prompt
     factory.assert_exhausted()
 
 

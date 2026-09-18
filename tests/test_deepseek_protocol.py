@@ -737,9 +737,9 @@ def test_context_builder_separates_grounding_authorities() -> None:
     assert payload["current_action_catalog"]["actions"][0]["arguments"] == {
         "destination": "coffeetable_1",
     }
-    assert "Read the selected action\'s action_type and arguments" in payload_text
-    assert "Skill guidance is a soft experience reference" in payload_text
-    assert "Shared role names do not imply data flow" in payload_text
+    assert "current action catalog, verified returns, progress, and exact last-call feedback" in payload_text
+    assert "Skill guidance is advisory" in payload_text
+    assert "Map helper results to the intended parent inputs explicitly" in payload_text
 
 
 def test_deepseek_payload_has_thinking_and_reasoning_effort() -> None:

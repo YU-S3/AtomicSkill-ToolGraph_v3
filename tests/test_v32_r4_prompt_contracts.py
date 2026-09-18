@@ -89,22 +89,21 @@ def test_tool_builder_uses_r922_instruction_and_canonical_ref() -> None:
 
     assert "entry_contract" in instruction
     assert 'proposal_version="2"' in instruction
-    assert 'Input presence and types are already checked' in instruction
-    assert 'requires matching current grounding evidence' in instruction
-    assert 'required_resolution="semantic" does not waive that evidence requirement' in instruction
+    assert 'The call schema checks input presence and types.' in instruction
+    assert 'requires the applicable current grounding evidence' in instruction
+    assert 'Empty arrays do not waive genuine requirements.' in instruction
     assert payload["atomic_ref"] == provenance.atomic_ref
     assert payload["canonical_atomic"]["effects"] == _atomic_view()["effects"]
     assert payload["source_kind"] == "success_evolution"
     assert (
-        "an action_catalog loop local is an authorized primitive argument"
+        "in-scope local"
         in instruction
     )
     assert (
-        "missing pre-trial atomic_evidence_support or semantic_delta is not by "
-        "itself a reason for NO_TOOL"
+        "missing pre-trial effect witnesses do not by themselves imply no_tool"
         in instruction
     )
-    assert "never substitute output_role or bare predicate/argument_role" in instruction
+    assert "entries use role, not output_role" in instruction
     assert "SECRET_TRACE_ID" not in prompt
     assert "SECRET_OCCURRENCE_ID" not in prompt
     assert "SECRET_TASK_ID" not in prompt
@@ -176,81 +175,42 @@ def test_tool_builder_accepts_mapping_provenance_but_requires_atomic_ref() -> No
 
 
 def test_extractor_e1_contains_only_the_frozen_boundary_replacements() -> None:
-    prompt = ContextBuilder().extractor_e1(canonical_trace={"actions": []})
-    instruction = prompt.split(_POLICY_SEPARATOR, 1)[0]
-
-    assert (
-        "event_start is inclusive and event_end is exclusive in this submission. "
-        "A single event at index i uses [i, i+1). Code performs the "
-        "exclusive-to-inclusive conversion; do not subtract one yourself."
-    ) in instruction
-    assert (
-        "The precondition boundary is exactly canonical_trace.actions[event_start]."
-        "authoritative_before_state_facts."
-    ) in instruction
+    instruction = ContextBuilder().extractor_e1(canonical_trace={"actions": []}).split(_POLICY_SEPARATOR, 1)[0]
+    assert 'Use [event_start,event_end): start is inclusive and end is exclusive.' in instruction
+    assert "declared entry event's before-state" in instruction
     assert 'input_provenance_refs[formal_role]' in instruction
     assert '{authority_ref, source_role}' in instruction
-    assert 'allowed only through that explicit mapping' in instruction
-    assert (
-        "precondition_witness_refs must name those exact entry-state certificates, "
-        "with matching predicate, arguments, and effect_domain;"
-    ) in instruction
-    assert (
-        "a fact may persist across revisions, but its certificate at a later "
-        "revision is not interchangeable with the certificate at the entry boundary;"
-    ) in instruction
-    self_check = (
-        "Before the one native submission, verify every proposed occurrence "
-        "independently: [event_start,event_end) contains its support_event_ids;"
-    )
-    assert self_check in instruction
-    assert instruction.index(self_check) < instruction.index(
-        "Call the offered native submission tool exactly once."
-    )
-
-    # Existing non-boundary extraction semantics remain present.
-    assert "support_event_ids, not envelope overlap" in instruction
-    assert "shared_precondition_event_ids is not a general list" in instruction
-    assert 'existing ToolBuilder' in instruction
-    assert "incomplete Composite coverage must not force invented capabilities" in instruction
-    assert "preconditions:\n- may be empty;" not in instruction
+    assert 'Shared prerequisite evidence does not authorize duplicate ownership' in instruction
+    assert 'Do not invent a capability to complete a graph' in instruction
+    assert 'ToolBuilder writes the bounded program' in instruction
+    # Detailed certificate coordinates and overlap rules have one home in the
+    # offered schema; do not duplicate that manual in the user prefix.
+    properties = ATOMIC_EXTRACTION_SCHEMA['properties']
+    assert 'authoritative_before_state_facts' in properties['event_start']['description']
+    assert 'later revision is not interchangeable' in properties['precondition_witness_refs']['description']
+    assert properties['shared_precondition_event_ids']['type'] == 'array'
 
 
 def test_r7_b1_extractor_explains_code_owned_semantic_aliases() -> None:
-    prompt = ContextBuilder().extractor_e1(canonical_trace={"actions": []})
-    instruction = prompt.split(_POLICY_SEPARATOR, 1)[0]
-
-    assert 'public_binding/public_catalog' in instruction
-    assert 'Do not invent authority references' in instruction
-    assert 'entry time and occurrence/task scope must match' in instruction
-    assert 'Formal-role renaming' in instruction
+    instruction = ContextBuilder().extractor_e1(canonical_trace={"actions": []}).split(_POLICY_SEPARATOR, 1)[0]
+    assert "source_role must equal the cited authority's role field" in instruction
+    assert 'not its optional source_role ancestry metadata' in instruction
+    assert 'The formal name may differ through this explicit mapping.' in instruction
+    assert 'Do not invent references' in instruction
 
 
 def test_r7_b2_extractor_requires_predicate_role_closure() -> None:
-    prompt = ContextBuilder().extractor_e1(canonical_trace={"actions": []})
-    instruction = prompt.split(_POLICY_SEPARATOR, 1)[0]
-
-    assert (
-        "every episode concrete identity referenced by a precondition"
-    ) in instruction
-    assert (
-        "represented by one declared input role with a supplied input authority"
-    ) in instruction
-    assert (
-        "every non-fresh episode concrete identity referenced by an Effect"
-    ) in instruction
+    instruction = ContextBuilder().extractor_e1(canonical_trace={"actions": []}).split(_POLICY_SEPARATOR, 1)[0]
+    assert 'matching supplied witnesses, argument keys, domain, and correct time' in instruction
+    assert 'Every required output has one explicit derivation.' in instruction
+    assert "input_identity returns exactly a declared input's typed value" in instruction
 
 
 def test_r7_b3_extractor_forbids_reclassifying_input_as_fresh_output() -> None:
-    prompt = ContextBuilder().extractor_e1(canonical_trace={"actions": []})
-    instruction = prompt.split(_POLICY_SEPARATOR, 1)[0]
-
-    assert (
-        "An output equal to an already declared concrete input must still use input_identity"
-    ) in instruction
-    assert (
-        "use explicit formal-input/source-role mappings, with real authority refs."
-    ) in instruction
+    instruction = ContextBuilder().extractor_e1(canonical_trace={"actions": []}).split(_POLICY_SEPARATOR, 1)[0]
+    assert 'An entity output equal to an existing explicit entity input must use input_identity' in instruction
+    assert 'not be relabeled fresh' in instruction
+    assert 'exact formal-to-authority mapping' in instruction
 
 
 def test_r102_schema_additions_preserve_formal_binding_boundaries() -> None:

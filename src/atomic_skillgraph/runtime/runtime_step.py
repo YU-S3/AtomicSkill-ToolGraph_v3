@@ -150,11 +150,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         rejected_candidates=current_rejections(ctx, occurrence),
         execution_frame=frame,
     )
-    instruction = (
-        "\nR10.2: This is a fresh one-decision RuntimeStep. Return exactly one native call. "
-        "You retain this node until explicit completion or termination; exploration does not authorize automatic invocation. "
-        "Use request_runtime_automation to request the separately loaded automation DSL."
-    )
+    instruction = ""
     if draft_request:
         import json
         instruction += "\nAUTOMATION_REQUEST\n" + json.dumps(draft_request, ensure_ascii=False)

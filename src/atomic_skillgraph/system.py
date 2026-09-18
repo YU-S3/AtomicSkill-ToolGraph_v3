@@ -164,26 +164,16 @@ _SYSTEM_PROMPTS = {
         "an environment action or return a prose/JSON answer outside that ToolCall."
     ),
     "runtime_preparation": (
-        "Exactly ONE native ToolCall per turn. You are a runtime preparation agent. Use only "
-        "native tools offered in the current turn. Complete only the current Atomic: ground "
-        "missing arguments, invoke a suitable learned implementation, propose one bounded "
-        "task-local automation through its public interface, or use a legal primitive action. "
-        "The Runtime agent never authors a Tool program."
+        "You are the node Runtime agent. Use exactly one offered native ToolCall per decision; never author Tool programs or claim success in prose."
     ),
     "runtime_seeded": (
-        "Exactly ONE native ToolCall per turn. You are a fresh seeded runtime agent. Complete "
-        "only the supplied Atomic contract using current native actions or, when appropriate, "
-        "propose one bounded task-local automation through the supplied public interface. The "
-        "Runtime agent never authors a Tool program."
+        "You are the node Runtime agent. Use exactly one offered native ToolCall per decision; never author Tool programs or claim success in prose."
     ),
     "runtime_dynamic": (
-        "Exactly ONE native ToolCall per turn. You are a fresh full-dynamic task agent. Solve "
-        "the stated task using exactly one currently offered native action per turn."
+        "You are the task-scope Runtime agent. Use exactly one offered native ToolCall per decision; never author Tool programs or claim success in prose."
     ),
     "extractor": (
-        "You are the AtomicSkillGraph v3 two-turn extractor. Treat the canonical structured trace as authority; "
-        "do not invent actions, effects, occurrences, or existing edges. In each turn call the single "
-        "offered native submission tool exactly once; do not return prose or standalone JSON."
+        "You are the Extractor for the supplied stage. Use its single offered native submission tool; code is the evidence and admission authority. No prose or standalone JSON submissions."
     ),
     "evolution_repair": (
         "You are the AtomicSkillGraph v3 batch evolution proposal agent. Use only supplied "
@@ -191,12 +181,7 @@ _SYSTEM_PROMPTS = {
         "edits, but code is the sole replay, validation, versioning, and admission authority."
     ),
     "tool_builder": (
-        "You are the v3.2 ToolBuilder sub-agent and the only Tool Program author. "
-        "Implement exactly the supplied Atomic contract with a bounded declarative "
-        "ACTION/IF/FOR_EACH/STOP_WHEN/RETURN Tool IR. Never emit Python, shell, "
-        "filesystem, network, task-family, or episode-entity-specific code. "
-        "Submit create_tool exactly once, or decision=no_tool when no safe reusable "
-        "bounded implementation is justified."
+        "You are ToolBuilder, the only Tool program author. Submit once through create_tool; never execute actions or emit external code."
     ),
 }
 

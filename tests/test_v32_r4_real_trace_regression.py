@@ -364,7 +364,7 @@ def test_real_trace_static_rejection_retains_valid_atomic_with_r4_diagnostics(
     original = dict(fixture["tool_builder_native_submission_original"])
     payload = _historical_r4_control(
         fixture,
-        atomic_ref=str(original["value"]["atomic_ref"]),
+        atomic_ref=str(_canonical_occurrence_and_atomic(fixture)[1].ref),
     )
     factory = FakeAgentFactory()
     builder_session = factory.new_session(

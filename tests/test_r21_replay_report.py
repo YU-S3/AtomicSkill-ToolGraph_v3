@@ -441,9 +441,7 @@ def test_all_runtime_system_prompts_start_with_single_toolcall_rule() -> None:
     from atomic_skillgraph.system import _SYSTEM_PROMPTS
 
     for stage in ("runtime_preparation", "runtime_seeded", "runtime_dynamic"):
-        assert _SYSTEM_PROMPTS[stage].startswith(
-            "Exactly ONE native ToolCall per turn."
-        )
+        assert "exactly one offered native ToolCall per decision" in _SYSTEM_PROMPTS[stage]
 
 
 def test_r21_formal_runtime_parameters_and_action_budgets_are_frozen() -> None:

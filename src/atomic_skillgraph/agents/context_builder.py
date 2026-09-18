@@ -18,6 +18,7 @@ from .runtime_policy_projection import project_runtime_payload
 from .runtime_prompt_texts import (
     DYNAMIC_PROMPT,
     R10_STEP_PROMPT,
+    AUTOMATION_DRAFT_PROMPT,
 )
 
 
@@ -33,6 +34,16 @@ _FORBIDDEN_POLICY_KEYS = {
     "tool_body",
     "source_code",
 }
+
+
+EXTRACTOR_COMPOSITE_PROMPT = """Compose only the supplied code-authoritative Atomic occurrences. Submit one submit_extractor_composite call using the offered schema. The canonical control sequence is fixed; do not create, delete, reorder, or reinterpret occurrences, their roles, or contracts.
+
+Select existing edges and new candidate edges only by their supplied IDs, and keep each list in its correct namespace. An eligible candidate is not automatically required: select the relationships semantically needed by this composition. Do not infer a data-flow mapping from matching role names, lexical similarity, or an imagined task recipe. Do not generate a new mapping, tool body, or proof.
+
+Use only the current canonical occurrences, their declared interfaces/identity relationships, fixed sequence, and edge candidates. Do not reconstruct E1 from memory. Write the required summary, guideline, and insight as portable descriptions of the selected composition, not as episode answers. Empty edge selections are allowed when the schema and the actual composition permit them; do not invent edges to fill a list.
+
+Before submitting, check selected IDs, duplicates, source/target meaning, forward direction, and preservation of the fixed occurrence sequence. Code performs graph validation. Do not claim validation success or request another planning turn.
+Do not select requires_skill merely for order: the fixed sequence already expresses it. Descriptions must not narrate benchmark families, source entity names, node counts, or validation mechanics."""
 
 
 class ContextBuilder:
@@ -139,7 +150,8 @@ class ContextBuilder:
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         return _render(
-            R10_STEP_PROMPT,
+            R10_STEP_PROMPT + ("\n\n" + AUTOMATION_DRAFT_PROMPT + "\n\n"
+                + OUTPUT_SEMANTIC_CONSTRAINT_RULES if runtime_automation_interface else ""),
             projected,
             sort_keys=False,
         )
@@ -184,12 +196,13 @@ class ContextBuilder:
         if task_runtime_frame is not None:
             payload["task_runtime_frame"] = _policy_value(dict(task_runtime_frame))
             if task_runtime_frame.get("runtime_automation_interface"):
-                payload["runtime_automation_interface"] = _policy_value(task_runtime_frame["runtime_automation_interface"])
+                payload["runtime_automation_interface"] = payload["task_runtime_frame"].pop("runtime_automation_interface")
         projected, audit = project_runtime_payload(payload)
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         return _render(
-            DYNAMIC_PROMPT,
+            DYNAMIC_PROMPT + ("\n\n" + AUTOMATION_DRAFT_PROMPT + "\n\n"
+                + OUTPUT_SEMANTIC_CONSTRAINT_RULES if payload.get("runtime_automation_interface") else ""),
             projected,
             sort_keys=False,
         )
@@ -290,59 +303,41 @@ class ContextBuilder:
             "source_kind": source_kind,
         }
         return _render(
-            OUTPUT_SEMANTIC_CONSTRAINT_RULES + "\n\n" + """You are the ToolBuilder. Submit exactly one native create_tool call for the supplied Atomic, or submit decision=no_tool. Do not execute environment actions. Do not return a program as prose, Markdown, or standalone JSON.
+            """Implement exactly the supplied Atomic capability. Submit one native create_tool call with decision=create or decision=no_tool. ToolBuilder is the program author; code independently checks schema, static validity, replay/trial, and admission. Do not execute actions or output a program outside the native submission.
 
-AUTHORITY AND IMMUTABLE FIELDS
-Submit proposal_version="2" and an explicit entry_contract with conditions and grounding_constraints arrays (including when empty). Declare only external requirements that must already hold before this Tool starts; do not elevate requirements of a conditional internal ACTION or a later serial step to the whole Tool entrance. Entry references use declared inputs or portable constants only, never future outputs or loop locals. Atomic preconditions remain binding; entry_contract cannot override them.
-Input presence and types are already checked against inputs/required by the call schema. Do not use argument_exists as another spelling of "the caller provided this parameter": it requires matching current grounding evidence for the supplied value, not merely a semantic family/category named in the task. required_resolution="semantic" does not waive that evidence requirement. argument_concrete authenticates an already supplied concrete identity; it does not prove current location, existence, possession, or affordance. harness_affordance requires the declared action and mapped argument values in the current catalog. A Tool that discovers an input category's instances must not require those still-unknown instances as an entry fact merely to check that its category input was supplied. Use empty entry arrays when there is no genuine external requirement beyond the supplied Atomic preconditions and typed inputs; never remove a genuine requirement to make a call pass.
-The supplied canonical_atomic defines the capability. The supplied atomic_ref is its identity. Echo atomic_ref exactly. Echo canonical_atomic.inputs and canonical_atomic.outputs exactly, including each role name, semantic_type, required, runtime_resolvable, and required_resolution. Do not add, delete, rename, or reinterpret a boundary role.
-Only the supplied Harness action/predicate interfaces and structured evidence may justify the implementation. Do not invent an action, predicate, argument role, current fact, or output. Do not copy an episode entity identifier into a reusable program constant.
+IMMUTABLE BOUNDARY
+Use proposal_version="2". Echo the supplied atomic_ref, canonical_atomic.inputs, and canonical_atomic.outputs exactly. For create, copy canonical_atomic.effects into final_effects with the same predicates, argument keys, formal references, domains, cardinality, and distinctness. Preserve the supplied output-semantic constraints and derivations; do not relabel an output as an input merely because their returned values coincide. Do not repair an invalid capability contract by deleting its conditions or inventing different outputs.
 
-KEEP THREE DIFFERENT THINGS SEPARATE
-1. ACTION.argument_mapping says how to call a primitive now.
-2. ACTION.expected_effects says what must be true immediately after that particular action.
-3. ToolProposal.final_effects is the Atomic's final contract, not a restatement in your preferred variable names.
-For a create proposal, copy canonical_atomic.effects into final_effects without changing predicate names, argument keys, formal source_role values, cardinality, distinct_by, or effect_domain. Do not rename a final output role to an input role just because RETURN will give them the same concrete value. Do not add extra final effects.
-For example, when the supplied final Effect uses source_role="result" and RETURN maps result to input item, the final Effect must still use "result", not "item". A step-level Effect may use "item" when that is the value justified immediately after the step. The example names are illustrative; use only this Atomic's actual roles.
+EXTERNAL ENTRY VERSUS INTERNAL WORK
+Provide entry_contract.conditions and entry_contract.grounding_constraints explicitly, including empty arrays when justified. Declare only conditions truly required before this program starts. Do not elevate an optional branch's action requirement or an intermediate result to the whole tool's entrance. Atomic preconditions remain binding.
+The call schema checks input presence and types. argument_exists is not a synonym for a supplied key: it requires the applicable current grounding evidence. argument_concrete authenticates a given identity, not its current location or affordance. A discovery tool accepting a category must not require the still-unknown discovered instance at entry. Empty arrays do not waive genuine requirements.
 
-ACTION ARGUMENTS AND STEP EFFECTS
-Use an action_type from harness_interface.primitive_actions and exactly its declared argument roles. In ACTION.argument_mapping, use {"kind":"skill_input","source_role":"<declared input>"}; a loop-local value inside its valid loop body uses {"kind":"local_variable","source_role":"<iteration variable>"}. Use constant only for a genuinely portable literal allowed by the interface, never for an episode entity or task identifier.
-Every ACTION needs a non-empty expected_effects list. Each effect must use the supplied predicate vocabulary, its exact argument roles, and its declared effect_domain. State only effects justified after that exact action; do not place later effects on an earlier step.
-Within ACTION.expected_effects, formal references use {"kind":"skill_input","source_role":"<formal role>"} or the supported $role notation; a definitely defined loop-local value may use {"kind":"local_variable","source_role":"<iteration variable>"}. A declared fresh output may be referenced only when the current action's structured evidence can resolve it. Prefer a currently known input/local value when it already names the affected entity.
-Do NOT use kind=tool_output, kind=data_flow, or kind=adapter_transform in ACTION.expected_effects. Adding source_step does not make tool_output valid in this field. Do not confuse the broader graph BindingExpression vocabulary with the narrower Tool IR field rules.
+PROGRAM AND SYMBOLS
+Use only the supplied Tool IR and public Harness vocabulary. Keep ACTION argument names separate from Atomic formal roles. ACTION.argument_mapping uses the supported kind/source_role expression for a declared input or in-scope local; constants must be portable and allowed. Graph data_flow/tool_output/adapter_transform are not Tool ACTION operands. ACTION.expected_effects are non-empty, evidence-justified immediate effects of that action; they are not the final contract copied onto every step. Use the field-specific reference forms in the syntax table. A declared fresh result can be referenced only where the actual action evidence can resolve it.
 
-RETURN AND OUTPUT DERIVATIONS
-RETURN.output_sources is an object keyed by the actual Atomic output roles. Do not put a selector directly at the top level of output_sources.
-For an input identity, use:
-{"<output_role>":{"source":"tool_input","field":"<input_role>"}}
-For a loop local, use source=local_variable and field=<iteration variable> within its valid scope.
-For a value read from structured semantic evidence, use:
-{"<output_role>":{"source":"semantic_evidence","where":{"predicate":"<supplied predicate>"},"project":{"kind":"argument","role":"<predicate argument role>"}}}
-Add the supported filters required to select the correct value. A selector must resolve the required identity; do not rely on an arbitrary first match. Do not infer selector results from prose.
-Follow atomic_output_derivations. An input_identity must return that input's exact identity. An effect_witness must agree with the declared predicate argument and the real witness; an output name alone is not evidence. A direct input return is permissible only when the implementation and contract prove it is that same witnessed identity.
-Do not use kind=skill_input, kind=tool_output, or kind=data_flow as a RETURN source. RETURN uses source/field/project, not argument_mapping's kind/source_role form.
-Every successful return path must supply the required outputs. Loop variables do not exist outside their loop bodies. Put shared work after IF branches only when its required values are available on both branches.
+Use unique node IDs, existing nesting limits, positive max_iterations, and a positive max_actions bound. These are limits on actual work, not evidence that the program has executed. Keep local variables in lexical scope and ensure required values are defined on every path that uses them. Never turn an episode location or object seen in the example into a reusable constant.
 
-BOUNDING AND SAFETY
-Use only ACTION, IF, FOR_EACH, STOP_WHEN, RETURN. Give nodes unique non-empty node_id values. Keep nesting within the existing maximum of four levels. Set a positive max_actions that bounds actual primitive actions; control nodes do not count as primitive actions. Bound every FOR_EACH with a positive max_iterations.
-In success_evolution, propose FOR_EACH only when the supplied evidence contains at least two structurally isomorphic distinct repetitions. In runtime_automation, loop behavior may instead earn evidence through the existing task-local R1 trial. Do not change this distinction.
-When harness_interface.tool_ir_collection_sources offers action_catalog, a FOR_EACH may enumerate the current public admissible primitive candidates with that exact selector contract. Filter only through its declared where fields and primitive-action roles, then project a top-level entry field or primitive argument into the loop local. This catalog access supplies candidates only: it does not choose a route, prove an Effect, or authorize an episode-specific constant.
-In runtime_automation, an action_catalog loop local is an authorized primitive argument even when it is not an Atomic boundary input or constant. Fresh final Effects and outputs may receive their first witness during the task-local R1 trial, so missing pre-trial atomic_evidence_support or semantic_delta is not by itself a reason for NO_TOOL; the trial must still validate them before they can pass.
-IF/STOP_WHEN also support selector_condition_v1: {op: exists|not_exists, match: {source: action_catalog, where: {action_type: a public primitive, ...}, project: {kind: argument, role: a public argument}, distinct: boolean}}. Use the declared semantic_compatible_with source/field and argument_role to query the target, not whether any unrelated object was observed. A valid empty query is false and permits continued bounded exploration; invalid selectors/references remain errors. This query reads the refreshed current catalog and creates no witness. It cannot be mixed with legacy source/field/value. Guard optional lookup with a query; required RETURN and filtered FOR_EACH still fail on unresolved results. The catalog's projected primitive arguments are legitimate candidate enumeration, not pre-existing final-effect evidence.
-For runtime_automation, harness_interface.runtime_entry is the current public invocation context, not a solution or reusable program constants. Primitive signatures describe possible calls, not which calls are currently admissible: only runtime_entry.action_catalog shows the initial available candidates. Do not assume a target-specific candidate already exists when it is absent there. Build against the declared semantic inputs and public candidate selectors, and allow observations to change after actions. The evidence_selector_contract supports target-filtered semantic_evidence using the same Harness matcher. Evidence need not be an explicit return argument of a primitive signature: it is read from the resulting structured public evidence, and only the real trial can establish the required final witness. Never infer discovery merely from visiting a candidate.
-STOP_WHEN and successful RETURN must preserve the same target constraint as the Atomic. A legacy predicate-name contains/exists test is not target-specific and may stop on an unrelated witness. Use the supported target-filtered match condition for a target-specific stopping decision. Matching a semantic input in a query does not rewrite that input into a concrete argument: project the matching public argument into a scoped local before passing it to an ACTION that requires an instance. Account for relevant admissible prerequisite interactions that can become available after earlier actions; an initially absent interaction is not globally unavailable. Review these boundaries before submission, including empty and irrelevant candidate results, without changing the Atomic contract or inventing facts.
-If supplied, harness_interface.public_catalog_relations documents the Harness's existing public fact projection: each predicate argument_mapping names its source primitive argument. It permits a target-filtered current catalog query to recognize the corresponding public witness without executing that primitive. It does not choose exploration actions or guarantee what future observations will expose. Respect its availability scope: a currently readable witness may disappear after moving elsewhere, so a successful output path must read it while it is available, not unconditionally after visiting all candidates.
-Use only supported condition/selector sources and operators. No Python, shell, filesystem, network, hidden model calls, task-family branches, or episode-specific constants.
-Formal role names are neutral symbols, and predicate argument names are not binding lookup keys. Preserve the supplied output_semantic_constraints unchanged: concrete RETURN values must match their declared input anchor through the Harness matcher and have current authoritative facts. Read each predicate's validation_source; promise only the necessary final Effects that this source can establish. A public policy relation alone is not validator truth.
-For action_catalog FOR_EACH only, collection_source.refresh_each_iteration=true re-queries the current catalog before every iteration, takes the first unseen projected value in catalog order, and admits newly visible candidates without executing vanished ones. False or absent preserves the entry snapshot. Both modes preserve lexical locals and max_iterations/max_actions/runtime budgets. Initial required no-match still fails; optional actions require a current condition.match guard, and an unavailable required ACTION remains an error.
-For a filtered/projected FOR_EACH, ZERO selected entries abort the entire Tool with tool_ir_selector_no_match; zero is not a harmless empty iteration. In particular, an optional interaction collection must be guarded by IF condition.match before it is enumerated. Also distinguish arriving at a candidate from gaining access to its contents: an initially absent target witness does not establish that no publicly offered access or inspection operation can reveal it. Choose any such operations from the supplied interface and current affordances, with their own immediate step effects; do not assume all candidate contents are exposed merely by arrival.
-Evidence_outputs are optional: use [] when unnecessary, including when RETURN already carries the required evidence selector. When supplied, each entry must use role=<actual output role> plus the supported source/where/project selector shape; never substitute output_role or bare predicate/argument_role fields. Path expectations describe what must be verified; never claim that an unexecuted path has already passed.
+SOURCE AND REPLAY
+For success_evolution, check the mandatory path against the declared source entry, supplied accepted causal evidence, public action semantics, and output derivations. A historical visit is not a reason to unconditionally visit again from an entry where it is already complete. Do not add obligatory actions merely to make the program look complete. Generalize supported structure rather than copy scene IDs or a full source action sequence. Preserve the existing historical-loop-evidence requirement; do not invent repetitions.
+For runtime_automation, missing pre-trial effect witnesses do not by themselves imply no_tool. Use the supplied current public inputs and interfaces to propose a bounded program; the existing independent R1 trial must establish the claimed results. Do not treat possible primitive signatures as a list of currently executable actions.
 
-NO_TOOL IS A VALID DECISION, NOT A FAKE EXECUTABLE
-If no safe, reusable, bounded implementation can satisfy the supplied contract, submit decision=no_tool with a specific rationale. Still include every field required by the offered native-tool schema: proposal_version="2", entry_contract={"conditions": [], "grounding_constraints": []}, a non-empty summary, the supplied atomic_ref, the supplied input/output lists, program=[], max_actions=1, final_effects=[], evidence_outputs=[], path_expectations=[], and rationale. The value 1 is a schema-compatible placeholder, not permission to execute an action. Code does not compile or run a no_tool proposal.
+CHANGING CANDIDATES
+Use only collection and condition operators actually supplied by the interface. Understand snapshot versus refresh_each_iteration exactly as documented; neither mode guarantees that a previously collected value still has a required affordance after state changes. Guard genuinely optional work with an authored current query. Required action failure must remain failure, not be skipped by the executor. A filtered required collection or RETURN selector with no match is not successful progress. A visit alone does not prove discovery or absence. Apply the target constraints to the chosen candidates, stop condition, and returned values; an unrelated witness cannot complete the capability.
 
-FINAL CHECK BEFORE THE SINGLE SUBMISSION
-Check the immutable boundary, exact final_effects copy, each ACTION's argument/step-effect rules, required RETURN output keys, local scopes, bounds, and portability. If any required value or effect cannot be justified, choose no_tool rather than inventing it. Do this within the existing call and token budget; do not request an additional repair turn.""",
+RETURN AND TERMINAL
+RETURN.output_sources is keyed by actual output roles and uses source/field/project, not ACTION's kind/source_role notation. Return an identity from its declared input, a definitely defined in-scope local, or a supported structured evidence selector. Correlated outputs must agree with one valid relation, not independent arbitrary first matches. Do not rely on a transient witness still being available after unrelated later actions.
+After official terminal, no new environment action or online model call is allowed. Only the original program's actually reachable pure tail may finish using available values. Do not jump over a pending action to reach RETURN. An unexecuted branch or unmet final effect cannot be reported as complete.
+
+NO_TOOL
+Choose no_tool when no supported safe bounded implementation can satisfy the supplied contract. Do not choose it merely because a contract needs multiple steps or has semantic inputs. Use the existing complete no_tool field shape supplied below; do not fabricate an executable or a PASS record. evidence_outputs and path_expectations may use their existing empty forms when unnecessary.
+
+BEFORE SUBMISSION
+Check: (1) exact boundary/final contract; (2) genuine entry requirements; (3) action vocabulary, arguments, and immediate effects; (4) mandatory source path or trial assumptions; (5) locals and bounds; (6) empty/stale/irrelevant candidate cases; (7) all required RETURN values and correlations; (8) portability. Perform this check within the single existing call; do not add a review turn or output extra self-check fields.
+
+FIELD SYNTAX
+ACTION input: {"kind":"skill_input","source_role":"<input>"}; scoped local: {"kind":"local_variable","source_role":"<local>"}. Expected-effect values use supported kind/source_role or $role references, never graph-only bindings. RETURN: {"<output>":{"source":"tool_input","field":"<input>"}} or scoped local_variable/structured semantic_evidence source/where/project. evidence_outputs entries use role, not output_role, with that selector shape.
+Entry references use inputs or portable constants only. Maximum nesting is four; success_evolution loops require at least two structurally isomorphic distinct repetitions. Snapshot is the default; action_catalog refresh_each_iteration=true re-queries each iteration for the first unseen projected value. Neither mode skips a required failure. Public catalog relations describe argument mappings and availability, not routes or validator truth.
+Complete no_tool shape: proposal_version="2", decision="no_tool", non-empty summary/rationale, exact atomic_ref and inputs/outputs, entry_contract={"conditions":[],"grounding_constraints":[]}, program=[], max_actions=1, final_effects=[], evidence_outputs=[], path_expectations=[]. The action bound is only a placeholder; no_tool is not executed.""" + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES,
             payload,
             sort_keys=False,
         )
@@ -397,162 +392,28 @@ Check the immutable boundary, exact final_effects copy, each ACTION's argument/s
         runtime_tool_trials: Iterable[Any] = (),
     ) -> str:
         return _render(
-            OUTPUT_SEMANTIC_CONSTRAINT_RULES + "\n\n" + """Propose the smallest sufficient set of reusable Atomic capability occurrences
-from the supplied code-authoritative successful trace.
+            """Extract independently useful, reusable Atomic capabilities from the supplied canonical successful experience. Submit exactly one submit_extractor_atomics call. You declare capability contracts and their evidence, not Tool programs. An empty occurrences array is valid when no eligible capability is supported. Do not invent a capability to complete a graph or meet a tool-count target.
 
-The trace is the only factual authority. Do not assume a benchmark taxonomy,
-task type, operation catalogue, or predefined workflow.
+CAPABILITY AND SOURCE
+One Atomic has one coherent intent and independently verifiable results. It may include multiple native steps and necessary internal preparation. A loop is not a capability merely because it repeats; bounded exploration is eligible when it establishes a supplied authoritative world/evidence transition. Preserve the source's allowed ownership and causal boundaries. Distinct short provider sessions do not by themselves require distinct Atomics. Use the supplied coverage information to distinguish new preparation experience from work already covered by a completed tool. Reuse an equivalent known contract when appropriate; do not merge an entire task into one capability.
 
-An Atomic occurrence is one independently meaningful and independently
-verifiable state transition with:
-- one coherent reusable intent;
-- explicit external input/output identities;
-- a minimal causal accepted-event slice;
-- at least one authoritative positive Effect or narrow terminal certificate.
+ENTRY, INTERNAL VALUES, AND OUTPUTS
+Declare boundary_schema_version="2", input_specs, output_specs, local_value_authority_refs, and output_semantic_constraints. An external input must be available at the declared event_start. Its required_resolution and semantic_type describe the capability requirement; neither an identifier-looking string nor a role name proves them. A semantic input is not the concrete instance found later. A value obtained inside the slice may remain internal if its supplied local authority is available before each actual use. Local evidence references are not Tool variable declarations. ToolBuilder writes the bounded program and its local variables later.
 
-Use state-transition evidence rather than action wording as authority.
+For each formal input, input_provenance_refs[formal_role] cites {authority_ref, source_role}. source_role must equal the cited authority's role field, not its optional source_role ancestry metadata. The formal name may differ through this explicit mapping. Preserve the actual value, type, resolution, availability time, and source ownership. Do not invent references, infer an entry value from later actions, strip instance suffixes, or derive authority from observation prose.
 
-Do not extract:
-- pure observation with no authoritative transition;
-- repeated checks;
-- failed attempts;
-- recovery actions;
-- incidental search/exploration detours that have no reusable, validated
-  evidence-domain Effect.
-A bounded Runtime-created automation that has passed R1 and produces an
-authoritative reusable evidence-domain Effect is not an incidental detour;
-review it as an ordinary Atomic candidate.
+TIME AND OWNERSHIP
+Use [event_start,event_end): start is inclusive and end is exclusive. An event i uses [i,i+1). Entry inputs and preconditions use exactly the declared entry event's before-state. A later selected support event is not an alternative entrance. Select explicit, unique accepted support_event_ids within that envelope. Their real Trace order is authoritative. Do not absorb rolled-back events or independent owners. Shared prerequisite evidence does not authorize duplicate ownership of an effect-producing event. Each phase_id is unique in this submission; it need not copy a Runtime owner ID.
 
-A setup/helper action belongs inside an occurrence only when it is necessary
-to replay the occurrence's core transition. A durable independently useful
-transition should remain a separate occurrence. Do not merge distinct
-effect-producing boundaries merely to reduce the number of occurrences.
+RESULTS AND CONDITIONS
+Every declared effect and precondition must have matching supplied witnesses, argument keys, domain, and correct time. Preserve cardinality, distinctness, and existing identity obligations. Conditions created by internal preparation are not entry conditions. Do not invent an effect because the task asks for it.
+Every required output has one explicit derivation. input_identity returns exactly a declared input's typed value and its actually certified identity level. effect_witness identifies the actual argument of a declared effect. Fresh is relative to this capability's external inputs, not necessarily never seen anywhere in the episode. An entity output equal to an existing explicit entity input must use input_identity, not be relabeled fresh. The sparse output-semantic rule supplied below governs category compatibility; a joint location or containment relation instead requires its declared relational evidence.
 
-intent requirements:
-- concise lower_snake_case;
-- describes exactly one reusable transition;
-- remains correct after replacing every concrete entity with another entity
-  having the same semantic role;
-- contains no instance identifier;
-- contains no source-episode object, location, receptacle, device, or task
-  wording;
-- contains no sequence of multiple intents.
+Write portable guideline steps and notes within the offered schema limits. These are soft experience suggestions, not a mandatory action script. Keep episode values in the source evidence/value fields, not in reusable intent or guideline. Do not change a rejected sibling to make another proposal appear valid.
 
-For each occurrence, supply portable guideline steps (1-6) and notes (0-2), each at most
-200 characters. These are soft experience suggestions, not mandatory action programs.
-Do not include episode entity identifiers, hidden state, or task-specific answers.
-If known_atomic_contracts contains an equivalent validated contract, reuse its
-canonical_intent. Otherwise propose a new portable intent.
-
-Declare boundary_schema_version="2", explicit input_specs/output_specs (ParameterSpec),
-output_semantic_constraints and local_value_authority_refs. Types and required_resolution
-are part of the capability contract, never inferred from the sample value or role name.
-Inputs must be known at the declared event_start, not merely at the first selected support event. Inputs can be semantic anchors known at entry; outputs can be newly discovered concrete
-values or typed boolean/list/map results. E1 declares capability/evidence, not Tool IR.
-
-Map each formal input to input_provenance_refs[formal_role] =
-{authority_ref, source_role}. Set source_role to the cited authority entry's exact
-role field (authority.role), NOT its optional source_role lineage metadata.
-For example, an authority with role="target" and source_role="object" is cited
-with source_role="target" even when your new formal input has another name.
-The cited role, value, type,
-resolution, entry time and occurrence/task scope must match. Formal-role renaming is
-allowed only through that explicit mapping. Prefer public_binding/public_catalog
-authorities with available_revision at or before the occurrence entry. Action arguments
-and post-state facts alone cannot establish what was known at entry.
-Do not invent authority references, strip entity suffixes, derive values from prose,
-or turn a future discovered output into a supposedly pre-known input.
-
-Values discovered during the selected causal slice may remain internal. Cite their
-supplied public local_value_authority_refs; each must be available before the action
-using it. These refs are evidence, not variable definitions. The existing ToolBuilder
-authors bounded loops/selectors/locals and RETURN; do not externalize every local
-operand or embed episode identifiers into permanent contracts, intent or guideline.
-
-phase_id is a unique ID for each proposed occurrence in this submission, not a required copy of the source RuntimeSpan/occurrence ID. Repeated uses of the same capability still need distinct phase_id values.
-event_start is inclusive and event_end is exclusive in this submission. A single event at index i uses [i, i+1). Code performs the exclusive-to-inclusive conversion; do not subtract one yourself.
-The precondition boundary is exactly canonical_trace.actions[event_start].authoritative_before_state_facts.
-Preconditions cite exactly the entry action's authoritative_before_state_facts,
-not a later fact established inside the slice. Support events must be accepted and
-within the envelope, with explicit support_event_ids. Preserve independent Effect
-ownership: shared_precondition_event_ids can overlap only for selected prerequisite
-events, never duplicate ownership of an Effect-producing event.
-Temporal evidence envelopes may overlap. Deduplicate support_event_ids, not envelope overlap.
-Two capabilities cannot own the same effect-producing support event.
-shared_precondition_event_ids is not a general list of prerequisite events: each shared
-event must also be selected in support_event_ids. Other prerequisites belong in the temporal envelope.
-Select the minimum coherent causal slice, including internal preparation when needed
-for the declared reusable capability. Bounded exploration with a genuinely validated
-evidence-domain transition is allowed. Repeated observation without a new validated
-effect is not by itself a capability.
-
-output_roles:
-- non-empty;
-- every required output must have exactly one code-verifiable derivation;
-- INPUT_IDENTITY: exactly the same typed value as one declared input, retaining its actual resolution; or
-- EFFECT_WITNESS: a typed argument of one declared authoritative Effect witness.
-Do not invent an output value.
-Do not derive an output from observation prose.
-Use only supplied canonical_trace.boundary_authorities / effect witness refs.
-
-For every entity output, perform this identity-lineage self-check:
-1. compare it against every declared input identity;
-2. if it is an existing input identity, use input_identity;
-3. effect_witness is only for an identity not already supplied by an input;
-4. never use effect_witness merely because a post-state predicate mentions the same entity.
-
-preconditions:
-- may be empty only when the proposed transition genuinely needs no declared entry facts;
-- include only necessary facts present in canonical_trace.actions[event_start].authoritative_before_state_facts;
-- precondition_witness_refs must name those exact entry-state certificates, with matching predicate, arguments, and effect_domain;
-- a fact may persist across revisions, but its certificate at a later revision is not interchangeable with the certificate at the entry boundary;
-- facts established inside the selected envelope are not entry preconditions;
-- preserve the supplied predicate argument keys and effect_domain; do not infer a precondition from task wording or observation prose.
-
-Boundary example, for syntax only: if event 5 establishes fact P, event 6 uses P to establish Q, and P was absent before event 5, an occurrence starting at 5 cannot cite P as an entry precondition. An occurrence selecting event 6 alone uses [6,7) and may cite the P certificate supplied in actions[6].authoritative_before_state_facts. Use the actual event IDs/revisions and facts from this trace, not these example numbers.
-
-effects:
-- non-empty;
-- copy only code-authoritative positive Effects or explicitly supplied narrow
-  terminal certificates;
-- never infer a fact from observation prose.
-
-Code will independently validate every proposal. Invalid proposals are
-discarded and cannot change the persistent graph.
-
-This is an official-success, learning-eligible trace. The code-authoritative target witness
-section identifies TaskContract effects already proven by accepted,
-state-derived facts. Propose only independently justified capabilities; incomplete Composite coverage must not force invented capabilities. Do not invent an Effect merely because the TaskContract
-requires it; use only the supplied witness facts and their causal event slices.
-When a witness is state-derived from earlier accepted transitions, select a
-minimal occurrence slice whose declared Effect is exactly that authoritative
-positive fact. Search/navigation detours remain non-learnable unless causally
-required inside that occurrence.
-
-  event_start/event_end are the temporal evidence envelope only. Explicitly
-  select support_event_ids. Support events may be non-contiguous within one
-  causal occurrence lineage. Do not include unrelated actions merely to make
-  the interval contiguous. Precondition and effect witnesses must be explicit.
-  Only extract causal capabilities supported before benchmark terminal success.
-
-Before the one native submission, verify every proposed occurrence independently: [event_start,event_end) contains its support_event_ids; each input's submitted source_role equals the cited authority.role and its value matches; every precondition reference belongs to the exact entry snapshot; every Effect reference belongs to the selected support events and matches the declared predicate/domain; every output has one legal input_identity or effect_witness derivation, and every entity output equal to any declared input identity uses explicit input_identity rather than effect_witness. Do not change correct sibling occurrences to hide an invalid one. This self-check adds no tool call and no retry.
-For every proposed occurrence:
-
-1. every episode concrete identity referenced by a precondition must be
-   represented by one declared input role with a supplied input authority;
-
-2. every non-fresh episode concrete identity referenced by an Effect must be
-   represented by a declared input role, unless the exact Effect argument is
-   intentionally represented by a separately legal output derivation;
-
-3. fresh is relative to this capability's explicit external inputs, not to whether
-   the identity has ever occurred in the world. Authority somewhere in the Trace
-   does not make a value known at entry or require every internal value to be an input.
-   An output equal to an already declared concrete input must still use input_identity;
-
-4. use explicit formal-input/source-role mappings, with real authority refs.
-
-Review canonical_trace.uncovered_event_ids within the full context. Return occurrences=[] if no new justified capability exists; do not manufacture a proposal or request another attempt. Call the offered native submission tool exactly once.""",
+BEFORE SUBMISSION
+Check: (1) unique phase IDs and valid half-open ranges; (2) input availability at the declared entry; (3) exact formal-to-authority mapping; (4) local availability and source ownership; (5) matching precondition/effect witnesses; (6) output identity/derivation and sparse compatibility; (7) portable guideline and unchanged known equivalent contracts. Check within this call; do not output a separate checklist, request an extra review, or claim that code validation has already passed.
+Use a portable lower_snake_case intent; preserve the canonical_intent of an equivalent known contract. Input/output role values are source-example values, not new authority.""" + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES,
             {
                 "canonical_trace": _policy_value(canonical_trace),
                 "known_atomic_contracts": _policy_value(
@@ -584,49 +445,7 @@ Review canonical_trace.uncovered_event_ids within the full context. Return occur
         new_edge_candidates: Iterable[Any] = (),
     ) -> str:
         return _render(
-            """The Composite represents the minimal reusable causal method, not a narration
-of the source episode.
-
-Use only the code-authoritative occurrences. Discard or correct any
-conflicting memory from the previous turn.
-
-The control sequence is code-authoritative and is not yours to rewrite.
-Existing edges are code-authoritative; select only their supplied IDs. New
-edge candidates have already passed deterministic endpoint, role,
-binding-identity/type, or effect-precondition eligibility checks. Select only
-the candidates semantically required by the reusable composition. Do not
-invent an endpoint, role, edge ID, edge type, or provenance.
-
-Do not describe:
-- the benchmark;
-- the task family;
-- the number of validated nodes;
-- source-episode entity names;
-- validation mechanics such as "canonical control sequence".
-
-summary:
-- concise;
-- reusable across entity substitutions;
-- describes the capability composition, not the source task sentence.
-
-guideline:
-- contains only reusable ordering, dependency, and parameter-flow guidance;
-- contains no concrete entity or location.
-
-insight:
-- may explain why the composition is reusable;
-- may not invent facts or dependencies.
-
-Do not select requires_skill solely to express temporal order; the canonical
-control sequence already carries order and occurrences need not be
-edge-connected.
-
-  Use only validated canonical Atomics. Runtime-created support Atomics are
-  ordinary candidates. Prefer a causally sufficient minimal subgraph. Do not
-  retain planned-but-unexecuted post-terminal nodes. Keep a support Atomic if
-  its evidence/output is actually consumed.
-
-Call the offered native submission tool exactly once.""",
+            EXTRACTOR_COMPOSITE_PROMPT,
             {
                 "canonical_occurrences": _policy_value(
                     list(canonical_occurrences)

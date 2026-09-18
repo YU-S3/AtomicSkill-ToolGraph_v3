@@ -108,10 +108,6 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                 task_progress=executor._task_progress_policy(ctx), exploration_memory=ctx.exploration_memory.policy_view(),
                 recent_failed_learned_invocation=ctx.last_failed_invocation,
                 rescue_method_guidance=executor._rescue_method_guidance(ctx) if rescue else None, projection_audit=audit, task_runtime_frame=frame)
-            prompt = ('Choose one native call. You may invoke an offered capability using explicitly supplied arguments, '
-                       'or request_runtime_automation for reusable multi-step work. Helper outputs are their own verified results, '
-                       'not completion of the whole task. There is no parent Atomic and no automatic binding transfer. '
-                       'A successful automation trial has already run; do not repeat it merely to commit it.\n') + prompt
             session = executor.session_factory(session_kind, '__task__')
             record = executor._record_session_start(session, 'DynamicTaskSession', '', ctx)
             increment(ctx, 'runtime_step_count')

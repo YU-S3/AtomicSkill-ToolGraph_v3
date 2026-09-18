@@ -68,13 +68,13 @@ def test_extractor_prompt_allows_shared_prerequisite_envelope_overlap() -> None:
     prompt = ContextBuilder().extractor_e1(canonical_trace={"actions": []})
     instruction, _payload = prompt.split("\n\nPOLICY_CONTEXT_JSON\n", 1)
 
-    assert "Temporal evidence envelopes may overlap" in instruction
-    assert "support_event_ids, not envelope overlap" in instruction
-    assert "same effect-producing support event" in instruction
-    assert "shared_precondition_event_ids" in instruction
-    assert "not a general list of prerequisite" in instruction
-    assert "must also be selected in support_event_ids" in instruction
-    assert "prerequisites belong in the temporal envelope" in instruction
+    assert "Shared prerequisite evidence does not authorize duplicate ownership" in instruction
+    assert "Select explicit, unique accepted support_event_ids within that envelope" in instruction
+    from atomic_skillgraph.agents.structured_submission import ATOMIC_EXTRACTION_SCHEMA
+    rule = ATOMIC_EXTRACTION_SCHEMA['properties']['shared_precondition_event_ids']['description']
+    assert "Selected support events used only as shared prerequisite" in rule
+    assert "permits overlap only when no two independent" in rule
+    assert "Atomic Effects claim the same event" in rule
     assert "Ranges must be ordered and non-overlapping." not in instruction
 
 

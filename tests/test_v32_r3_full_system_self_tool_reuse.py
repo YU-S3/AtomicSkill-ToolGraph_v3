@@ -260,7 +260,7 @@ def _tool_builder_reply(request: FakeProviderRequest) -> dict[str, Any]:
     common = {
         "proposal_version": "2", "entry_contract": {"conditions": [], "grounding_constraints": []},
         "decision": "create",
-        "atomic_ref": "skill://gate36_builder_boundary@1.0.0",
+        "atomic_ref": request.policy_context["atomic_ref"],
         "inputs": _input_specs(atomic),
         "outputs": _output_specs(atomic),
         "max_actions": 1,

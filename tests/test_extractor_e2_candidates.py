@@ -279,10 +279,15 @@ def test_unknown_e2_ids_are_typed_semantic_rejections(
     error_code,
 ) -> None:
     extractor = _session(payload)
+    # Keep the independent semantic guard, while the real offered schema now
+    # rejects this fabricated ID before materializing a valid provider reply.
+    from atomic_skillgraph.evolution.extractor_session import _composite_authority, _proposal_from_payload
     with pytest.raises(ExtractionContentError) as caught:
-        extractor.propose_composite(_chain(), [])
+        _proposal_from_payload(payload, _composite_authority(_chain(), []), stage="e2")
     assert caught.value.stage == "e2"
     assert caught.value.error_code == error_code
+    with pytest.raises(SchemaValidationError):
+        extractor.propose_composite(_chain(), [])
     assert extractor._e2_complete is False
     with pytest.raises(
         RuntimeError,
@@ -440,7 +445,10 @@ def test_e2_repair_rejects_unknown_candidate_and_is_consumed() -> None:
     )
     proposal = extractor.propose_composite(chain, [])
 
+    from atomic_skillgraph.evolution.extractor_session import _composite_authority, _proposal_from_payload
     with pytest.raises(ExtractionContentError) as rejected:
+        _proposal_from_payload(_e2_payload("candidate_unknown"), _composite_authority(chain, []), stage="e2_repair")
+    with pytest.raises(SchemaValidationError):
         extractor.repair_composite(
             proposal,
             ValueError("deterministic Composite rejection"),

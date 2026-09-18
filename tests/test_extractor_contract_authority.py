@@ -148,7 +148,7 @@ def test_e1_policy_context_carries_only_code_authoritative_target_witnesses() ->
         required_task_contract_witnesses=authority,
     )
     instruction, payload = prompt.split("\n\nPOLICY_CONTEXT_JSON\n", 1)
-    assert "incomplete Composite coverage must not force invented capabilities" in instruction
+    assert "Do not invent a capability to complete a graph" in instruction
     supplied = json.loads(payload)["required_task_contract_witnesses"]
     assert supplied["all_targets_witnessed"] is True
     assert supplied["targets"][0]["witness_facts"][0]["predicate"] == (

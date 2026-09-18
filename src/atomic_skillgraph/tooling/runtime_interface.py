@@ -7,17 +7,7 @@ Tool programs, persistent cases, or bindings owned by another occurrence.
 
 from __future__ import annotations
 
-OUTPUT_SEMANTIC_CONSTRAINT_RULES = (
-    'output_semantic_constraints is a sparse map and may be {}. Each key is an actual declared output role; '
-    'compatible_with_input must be the exact name of an actual declared formal input role, not prose, a sample '
-    'value, predicate role or source-audit role. It requires that output value to match the input semantic '
-    'category/identity anchor under the supplied matcher. It is not general relatedness, a data-flow edge, '
-    'or an object-location relationship. Do not constrain every output. For an input query, output item and '
-    'output site, item may match query while the item-site relationship needs its own joint public predicate '
-    'witness; site does not thereby belong to query. The broad entity type alone proves no category match. '
-    'An empty map supplies no witness, upgrades no authority and weakens no parent/task constraint. '
-    'Every authored constraint remains mandatory; never remove one to rescue an invalid proposal.'
-)
+OUTPUT_SEMANTIC_CONSTRAINT_RULES = """output_semantic_constraints is a sparse mapping and may be {}. Each key is a declared output role. compatible_with_input is the exact name of a declared formal input role, not prose, a sample value, a predicate argument name, or source-lineage metadata. It requires that output value to satisfy the semantic category/identity constraint supplied by that input. It does not mean that the values are merely related, does not express containment or location, and does not create a data-flow edge. Declare only necessary constraints. Every declared constraint is independently validated; code will not delete a wrong one to make a proposal pass."""
 
 from dataclasses import dataclass, field
 from typing import Any, Mapping

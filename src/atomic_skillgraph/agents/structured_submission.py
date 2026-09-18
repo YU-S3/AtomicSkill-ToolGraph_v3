@@ -14,7 +14,7 @@ from typing import Any
 
 from ..core.errors import AgentProtocolError, FailureLayer
 from ..tooling.ir import CONDITION_OPERATORS, CONDITION_SOURCES
-from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS, RUNTIME_OUTPUT_DERIVATION_RULES, OUTPUT_SEMANTIC_CONSTRAINT_RULES
+from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS
 from .protocol import (
     AgentSession,
     AgentTurn,
@@ -211,7 +211,7 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         "boundary_schema_version": {"type": "string", "enum": ["2"]},
         "input_specs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
         "output_specs": {"type": "array", "items": PARAMETER_SPEC_SCHEMA},
-        "output_semantic_constraints": {"type": "object", "description": OUTPUT_SEMANTIC_CONSTRAINT_RULES, "additionalProperties": {
+        "output_semantic_constraints": {"type": "object", "description": "Sparse output-role mapping; compatible_with_input names an exact declared formal input role, not a relation or prose.", "additionalProperties": {
             "type": "object", "required": ["compatible_with_input"], "additionalProperties": False,
             "properties": {"compatible_with_input": NONEMPTY_STRING_SCHEMA}}},
         "local_value_authority_refs": {"type": "array", "uniqueItems": True, "items": NONEMPTY_STRING_SCHEMA},
@@ -645,6 +645,25 @@ TOOL_IR_CONDITION_SCHEMA: dict[str, Any] = {
 }
 
 
+TOOL_ACTION_BINDING_SCHEMA: dict[str, Any] = {
+    "type": "object", "required": ["kind"], "additionalProperties": False,
+    "properties": {
+        "kind": {"enum": ["skill_input", "constant", "local_variable"]},
+        "source_role": {"type": "string"},
+        "constant": {},
+        # Accept the existing serialized BindingExpression's empty audit fields;
+        # these do not grant graph binding semantics to Tool operands.
+        "source_step": {"type": "string"},
+        "transform_id": {"type": "string"},
+    },
+    "oneOf": [
+        {"properties": {"kind": {"enum": ["skill_input", "local_variable"]},
+                        "source_role": NONEMPTY_STRING_SCHEMA}, "required": ["source_role"]},
+        {"properties": {"kind": {"const": "constant"}}, "required": ["constant"]},
+    ],
+}
+
+
 TOOL_IR_PROGRAM_NODE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["node_id", "op"],
@@ -658,7 +677,7 @@ TOOL_IR_PROGRAM_NODE_SCHEMA: dict[str, Any] = {
         "action_type": {"type": "string"},
         "argument_mapping": {
             "type": "object",
-            "additionalProperties": BINDING_EXPRESSION_SCHEMA,
+            "additionalProperties": TOOL_ACTION_BINDING_SCHEMA,
             "description": (
                 "Tool IR ACTION arguments use skill_input for a declared Atomic input "
                 "or constant only for a portable interface literal; a local_variable "
@@ -773,7 +792,7 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
                 "additionalProperties": False,
                 "properties": {"compatible_with_input": NONEMPTY_STRING_SCHEMA},
             },
-            "description": OUTPUT_SEMANTIC_CONSTRAINT_RULES,
+            "description": "Sparse output-role mapping; compatible_with_input names an exact declared formal input role, not a relation or prose.",
         },
         "draft_id": NONEMPTY_STRING_SCHEMA,
         "intent": NONEMPTY_STRING_SCHEMA,
@@ -797,7 +816,7 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
                 "Use public predicate argument-role keys exactly. Reference "
                 "declared inputs and outputs with $<role>, for example "
                 "{entity: $object, location: $source}. "
-                + RUNTIME_OUTPUT_DERIVATION_RULES + " A "
+                "Derivations use runtime_automation_interface.fresh_output_rules. A "
                 "fresh output may lack a witness before the future trial; do "
                 "not replace it with a runtime value or angle-bracket "
                 "placeholder."
@@ -850,7 +869,75 @@ RUNTIME_AUTOMATION_ATOMIC_SCHEMA: dict[str, Any] = {
 }
 
 
+def _finite_strings(values: list[str]) -> dict[str, Any]:
+    # No ambiguous empty enum: an empty vocabulary admits no string.
+    return {"type": "string", "enum": sorted(set(values))} if values else {"not": {}}
+
+
+def specialize_tool_proposal_schema(
+    base_schema: dict[str, Any], atomic: Any, public_interface: dict[str, Any],
+) -> dict[str, Any]:
+    """Constrain this known interface only; no new AST or semantic validator."""
+    schema = copy.deepcopy(base_schema)
+    props = schema["properties"]
+    props["atomic_ref"]["enum"] = [str(atomic.ref)]
+    for field in ("inputs", "outputs"):
+        # deepcopy preserves aliases inside the base tree: detach the shared
+        # ParameterSpec template before specializing each role namespace.
+        props[field]["items"] = copy.deepcopy(props[field]["items"])
+        names = [spec.name for spec in getattr(atomic, field)]
+        if names:
+            props[field]["items"]["properties"]["name"] = {
+                **copy.deepcopy(props[field]["items"]["properties"]["name"]),
+                "enum": names,
+            }
+        else:
+            props[field]["maxItems"] = 0
+    node = props["program"]["items"]
+    node_props = node["properties"]
+    # Only ACTION and RETURN have these contracts. Other opcodes may carry
+    # empty serialized optional fields; scope is still checked by the compiler.
+    node.setdefault("allOf", []).append({"anyOf": [
+        {"properties": {"op": {"not": {"const": "RETURN"}}}},
+        {"required": ["output_sources"], "properties": {"output_sources": {
+            "type": "object", "additionalProperties": False,
+            "properties": {spec.name: {"type": "object"} for spec in atomic.outputs},
+            "required": [spec.name for spec in atomic.outputs if spec.required],
+        }}},
+    ]})
+    if "primitive_actions" in public_interface:
+        vocabulary = _finite_strings([item["action_type"] for item in public_interface["primitive_actions"]])
+        node["allOf"].append({"anyOf": [
+            {"properties": {"op": {"not": {"const": "ACTION"}}}},
+            {"required": ["action_type"], "properties": {"action_type": vocabulary}},
+        ]})
+    if "predicate_vocabulary" in public_interface:
+        vocabulary = _finite_strings([item["predicate"] for item in public_interface["predicate_vocabulary"]])
+        for array in (props["final_effects"],
+                      props["entry_contract"]["properties"]["conditions"],
+                      node_props["expected_effects"]):
+            array["items"]["properties"]["predicate"] = copy.deepcopy(vocabulary)
+    return schema
+
+
+def specialize_composite_selection_schema(base_schema: dict[str, Any], authority: Any) -> dict[str, Any]:
+    """E2 and E2R share the same two disjoint, code-owned ID spaces."""
+    schema = copy.deepcopy(base_schema)
+    for field, identifiers in (
+        ("selected_existing_edge_ids", authority.existing_edge_by_id),
+        ("selected_new_edge_candidate_ids", authority.new_edge_candidate_ids),
+    ):
+        array = schema["properties"][field]
+        if identifiers:
+            array["items"] = _finite_strings(list(identifiers))
+        else:
+            array["maxItems"] = 0
+    return schema
+
+
 __all__ = [
+    "specialize_tool_proposal_schema",
+    "specialize_composite_selection_schema",
     "ATOMIC_EXTRACTION_SCHEMA",
     "RUNTIME_AUTOMATION_ATOMIC_SCHEMA",
     "TOOL_IR_CONDITION_SCHEMA",

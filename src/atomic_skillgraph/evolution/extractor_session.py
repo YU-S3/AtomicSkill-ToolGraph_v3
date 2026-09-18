@@ -6,11 +6,12 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from ..agents.context_builder import ContextBuilder
+from ..agents.context_builder import ContextBuilder, EXTRACTOR_COMPOSITE_PROMPT
 from ..agents.structured_submission import (
     ATOMIC_EXTRACTION_SCHEMA,
     COMPOSITE_EXTRACTION_SCHEMA,
     StructuredSubmissionClient,
+    specialize_composite_selection_schema,
 )
 from ..core.contracts import SemanticPredicate, ParameterSpec
 from ..core.errors import AgentProtocolError
@@ -214,15 +215,7 @@ def _e2_repair_prompt(
             authority.new_edge_candidates
         ),
     }
-    instruction = (
-        "E2R COMPOSITE REPAIR. The previous schema-valid Composite proposal "
-        "was rejected by deterministic Composite validation. Return one "
-        "complete replacement proposal using the unchanged E2 output schema. "
-        "You may only re-select from the exact existing-edge IDs and new-edge "
-        "candidate IDs supplied below. Do not modify the canonical control "
-        "sequence, invent an edge, change an Atomic occurrence, add facts, or "
-        "perform retrieval."
-    )
+    instruction = EXTRACTOR_COMPOSITE_PROMPT + "\n\n" + """Replace only the rejected E2 edge selection using the same supplied authority and the exact validation error. Submit once through submit_extractor_composite. Do not rerun E1, create or modify Atomic contracts, change the canonical control sequence, invent IDs, or request ToolBuilder. This is the existing single E2 repair opportunity, not a new retry loop. Unsupported selections must not be replaced with fabricated evidence."""
     return instruction + "\n\nPOLICY_CONTEXT_JSON\n" + json.dumps(
         policy_context,
         ensure_ascii=False,
@@ -399,7 +392,7 @@ class ExtractorSession:
                 description=(
                     "Select admitted Composite edge evidence and candidates."
                 ),
-                schema=E2_SCHEMA,
+                schema=specialize_composite_selection_schema(E2_SCHEMA, authority),
             ).value
         except AgentProtocolError as exc:
             raise ExtractionContentError(
@@ -449,7 +442,7 @@ class ExtractorSession:
                 description=(
                     "Replace the rejected Composite edge selection."
                 ),
-                schema=E2_SCHEMA,
+                schema=specialize_composite_selection_schema(E2_SCHEMA, authority),
             ).value
         except AgentProtocolError as exc:
             raise ExtractionContentError(
