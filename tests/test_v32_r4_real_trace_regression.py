@@ -323,8 +323,9 @@ def _system_for_replay(
     )
     from atomic_skillgraph.harness.protocol import HarnessTask
     source = normalized['source_task']
-    task = HarnessTask(**{k: copy.deepcopy(source[k]) for k in
-        ('task_id','goal','benchmark','task_type','context','metadata') if k in source})
+    task_source = {'goal': '', 'benchmark': '', **source}
+    task = HarnessTask(**{k: copy.deepcopy(task_source[k]) for k in
+        ('task_id','goal','benchmark','task_type','context','metadata') if k in task_source})
     return system, trace, task, database
 
 
