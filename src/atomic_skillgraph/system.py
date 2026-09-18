@@ -2822,6 +2822,76 @@ class AtomicSkillGraphSystem:
             error_code=error_code,
         )
 
+    @staticmethod
+    def _build_builder_source_context(occurrence: Any, normalized: dict[str, Any]) -> dict[str, Any]:
+        """Read the validated source coordinate, never a support/list/live entry."""
+        from .agents.context_builder import _project_tool_builder_facts
+
+        try:
+            if type(occurrence.event_start) is not int or type(occurrence.event_end) is not int:
+                raise ValueError("invalid source boundary coordinate")
+            if (not occurrence.source_trace_id or occurrence.source_trace_id != normalized["trace_id"]
+                    or canonical_json(occurrence.source_task) != canonical_json(normalized["source_task"])):
+                raise ValueError("source Trace/task identity mismatch")
+            index = {}
+            for event in normalized["actions"]:
+                coordinate = event["event_index"]
+                if type(coordinate) is not int or coordinate < 0 or coordinate in index:
+                    raise ValueError("invalid or duplicate canonical event_index")
+                if event.get("canonical_discarded"):
+                    raise ValueError("discarded event in canonical source")
+                index[coordinate] = event
+            entry = index[occurrence.event_start]
+            selected = sorted(occurrence.action_events, key=lambda e: e["event_index"])
+            if not selected or len({e['event_index'] for e in selected}) != len(selected):
+                raise ValueError("empty or duplicate source support")
+            for event in selected:
+                if (canonical_json(event) != canonical_json(index[event["event_index"]])
+                        or not occurrence.event_start <= event["event_index"] <= occurrence.event_end):
+                    raise ValueError("source support identity/owner/range mismatch")
+            prefix = [index[i] for i in sorted(index) if i < occurrence.event_start]
+            if canonical_json(prefix) != canonical_json(occurrence.prefix_events):
+                raise ValueError("source canonical prefix mismatch")
+            for event in [entry, *selected]:
+                if event["accepted"] is not True:
+                    raise ValueError("source entry/support is not accepted")
+                for key in ("before_revision", "after_revision"):
+                    if type(event[key]) is not int or event[key] < 0:
+                        raise ValueError("invalid source revision")
+                for key in ("authoritative_before_state_facts", "authoritative_positive_effects", "authoritative_negative_effects"):
+                    facts = event[key]
+                    if not isinstance(facts, list) or any(not isinstance(f, dict) for f in facts):
+                        raise ValueError("source facts must be a recorded list")
+                    for fact in facts:
+                        if (not isinstance(fact.get("predicate"), str) or not fact["predicate"]
+                                or not isinstance(fact.get("args"), dict)
+                                or fact.get("effect_domain") not in {"world", "evidence"}
+                                or not isinstance(fact.get("witness_ref"), str) or not fact["witness_ref"]
+                                or type(fact.get("revision")) is not int):
+                            raise ValueError("invalid canonical source fact")
+            declared = {s.name for s in occurrence.input_specs}
+            required = {s.name for s in occurrence.input_specs if s.required}
+            if not required <= set(occurrence.input_bindings) <= declared:
+                raise ValueError("source bindings differ from input specs")
+            # Canonical JSON preserves boolean/number/string distinctions and rejects
+            # non-JSON values. No entity normalization or inferred input is allowed.
+            canonical_json(occurrence.input_bindings)
+            return {
+                "source_boundary": {
+                    "entry_event_index": occurrence.event_start,
+                    "entry_before_revision": entry["before_revision"],
+                    "envelope_end_event_index": occurrence.event_end,
+                    "last_support_event_index": selected[-1]["event_index"],
+                    "last_support_after_revision": selected[-1]["after_revision"],
+                    "entry_facts_status": "recorded",
+                    "after_evidence_kind": "per_event_deltas",
+                },
+                "source_input_bindings": copy.deepcopy(occurrence.input_bindings),
+                "before_facts": _project_tool_builder_facts(entry["authoritative_before_state_facts"]),
+            }
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise AtomicSkillGraphError("builder_source_integrity", str(exc)) from exc
+
     def _build_tool_for_occurrence(
         self,
         occurrence: Any,
@@ -2866,23 +2936,28 @@ class AtomicSkillGraphSystem:
                 occurrence_id=occurrence.occurrence_id,
                 task_id=str(getattr(getattr(trace, "task", None), "task_id", "")),
             )
-            evidence_support = list(occurrence.action_events)
-            before_facts = []
-            after_facts = []
-            for item in normalized.get("before_state_facts", ()):
-                if (
-                    evidence_support
-                    and int(item.get("revision", -1))
-                    == int(evidence_support[0].get("before_revision", -1))
-                ):
-                    before_facts.append(item)
-            for item in normalized.get("after_state_facts", ()):
-                if (
-                    evidence_support
-                    and int(item.get("revision", -1))
-                    == int(evidence_support[-1].get("after_revision", -1))
-                ):
-                    after_facts.append(item)
+            stage = "tool_builder_source_context"
+            if trace.trace_id != occurrence.source_trace_id:
+                raise AtomicSkillGraphError("builder_source_integrity", "source Trace mismatch")
+            semantic_delta = self._build_builder_source_context(occurrence, normalized)
+            if canonical_json(to_primitive(atomic_view.inputs)) != canonical_json(to_primitive(occurrence.input_specs)):
+                raise AtomicSkillGraphError("builder_source_integrity", "Atomic/source input specs mismatch")
+            # Use the existing replay constructor's task/binding checks before
+            # paying for generation, not a new source-resolution authority.
+            try:
+                build_occurrence_replay_case(
+                    occurrence, atomic_view,
+                    source_task=source_task or occurrence.source_task,
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise AtomicSkillGraphError("builder_source_integrity", str(exc)) from exc
+            evidence_support = sorted(occurrence.action_events, key=lambda e: e["event_index"])
+            record["source_boundary"] = copy.deepcopy(semantic_delta["source_boundary"])
+            entry = next(e for e in normalized["actions"] if e["event_index"] == occurrence.event_start)
+            record["source_fact_counts"] = {
+                "recorded": len(entry["authoritative_before_state_facts"]),
+                "projected": len(semantic_delta["before_facts"]),
+            }
             action_schema = getattr(self.harness, "primitive_action_schema", None)
             primitive_actions = (
                 [dict(item) for item in action_schema()]
@@ -2890,6 +2965,7 @@ class AtomicSkillGraphSystem:
                 else []
             )
 
+            stage = "tool_builder_session"
             try:
                 session = self._tool_builder_session(
                     "tool_builder_evolution", occurrence.occurrence_id,
@@ -2915,10 +2991,7 @@ class AtomicSkillGraphSystem:
                     atomic=atomic_view,
                     provenance=provenance,
                     evidence_support=evidence_support,
-                    semantic_delta={
-                        "before_facts": before_facts,
-                        "after_facts": after_facts,
-                    },
+                    semantic_delta=semantic_delta,
                     harness_interface={
                         "profile": self.harness.profile_name,
                         "predicate_vocabulary": to_primitive(

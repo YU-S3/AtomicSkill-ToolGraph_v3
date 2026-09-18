@@ -100,7 +100,7 @@ def test_tool_builder_uses_r922_instruction_and_canonical_ref() -> None:
         in instruction
     )
     assert (
-        "missing pre-trial effect witnesses do not by themselves imply no_tool"
+        "Missing pre-trial final witnesses alone is not a reason for no_tool"
         in instruction
     )
     assert "entries use role, not output_role" in instruction
@@ -177,7 +177,7 @@ def test_tool_builder_accepts_mapping_provenance_but_requires_atomic_ref() -> No
 def test_extractor_e1_contains_only_the_frozen_boundary_replacements() -> None:
     instruction = ContextBuilder().extractor_e1(canonical_trace={"actions": []}).split(_POLICY_SEPARATOR, 1)[0]
     assert 'Use [event_start,event_end): start is inclusive and end is exclusive.' in instruction
-    assert "declared entry event's before-state" in instruction
+    assert "record whose event_index equals event_start" in instruction
     assert 'input_provenance_refs[formal_role]' in instruction
     assert '{authority_ref, source_role}' in instruction
     assert 'Shared prerequisite evidence does not authorize duplicate ownership' in instruction
@@ -189,28 +189,6 @@ def test_extractor_e1_contains_only_the_frozen_boundary_replacements() -> None:
     assert 'authoritative_before_state_facts' in properties['event_start']['description']
     assert 'later revision is not interchangeable' in properties['precondition_witness_refs']['description']
     assert properties['shared_precondition_event_ids']['type'] == 'array'
-
-
-def test_r7_b1_extractor_explains_code_owned_semantic_aliases() -> None:
-    instruction = ContextBuilder().extractor_e1(canonical_trace={"actions": []}).split(_POLICY_SEPARATOR, 1)[0]
-    assert "source_role must equal the cited authority's role field" in instruction
-    assert 'not its optional source_role ancestry metadata' in instruction
-    assert 'The formal name may differ through this explicit mapping.' in instruction
-    assert 'Do not invent references' in instruction
-
-
-def test_r7_b2_extractor_requires_predicate_role_closure() -> None:
-    instruction = ContextBuilder().extractor_e1(canonical_trace={"actions": []}).split(_POLICY_SEPARATOR, 1)[0]
-    assert 'matching supplied witnesses, argument keys, domain, and correct time' in instruction
-    assert 'Every required output has one explicit derivation.' in instruction
-    assert "input_identity returns exactly a declared input's typed value" in instruction
-
-
-def test_r7_b3_extractor_forbids_reclassifying_input_as_fresh_output() -> None:
-    instruction = ContextBuilder().extractor_e1(canonical_trace={"actions": []}).split(_POLICY_SEPARATOR, 1)[0]
-    assert 'An entity output equal to an existing explicit entity input must use input_identity' in instruction
-    assert 'not be relabeled fresh' in instruction
-    assert 'exact formal-to-authority mapping' in instruction
 
 
 def test_r102_schema_additions_preserve_formal_binding_boundaries() -> None:

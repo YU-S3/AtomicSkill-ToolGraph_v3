@@ -121,6 +121,7 @@ def _normalized_take(value: str = "apple_1") -> dict[str, Any]:
             "span_id": "span",
             "authoritative_before_state_facts": [],
             "authoritative_positive_effects": [effect],
+            "authoritative_negative_effects": [],
         }],
         "runtime_spans": [{
             "span_id": "span",
@@ -320,7 +321,7 @@ def _minimal_system(
     system._current_task_usage_start = 0
     system.mode = "online"
     system.readonly = False
-    system.normalizer = SimpleNamespace(build=lambda _trace: copy.deepcopy(normalized))
+    system.normalizer = SimpleNamespace(build=lambda _trace: {**copy.deepcopy(normalized), "trace_id": _trace.trace_id})
     system.atomicizer = Atomicizer()
     database = StateDatabase(tmp_path / "state.sqlite3")
     artifacts = ArtifactStore(tmp_path, database)

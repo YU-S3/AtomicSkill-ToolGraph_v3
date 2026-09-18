@@ -13,7 +13,7 @@ from dataclasses import is_dataclass
 from typing import Any, Iterable, Mapping
 
 from ..core.serialization import to_primitive
-from ..tooling.runtime_interface import public_tool_ir_condition_contract, OUTPUT_SEMANTIC_CONSTRAINT_RULES
+from ..tooling.runtime_interface import public_tool_ir_condition_contract, public_tool_ir_collection_sources, OUTPUT_SEMANTIC_CONSTRAINT_RULES
 from .runtime_policy_projection import project_runtime_payload
 from .runtime_prompt_texts import (
     DYNAMIC_PROMPT,
@@ -264,6 +264,7 @@ class ContextBuilder:
                 "schema_version": 1,
                 "opcodes": ["ACTION", "IF", "FOR_EACH", "STOP_WHEN", "RETURN"],
                 "condition_contract": public_tool_ir_condition_contract(),
+                "collection_sources": public_tool_ir_collection_sources(),
                 "evidence_selector_contract": {
                     "source": "semantic_evidence",
                     "where": {
@@ -318,8 +319,10 @@ Use only the supplied Tool IR and public Harness vocabulary. Keep ACTION argumen
 Use unique node IDs, existing nesting limits, positive max_iterations, and a positive max_actions bound. These are limits on actual work, not evidence that the program has executed. Keep local variables in lexical scope and ensure required values are defined on every path that uses them. Never turn an episode location or object seen in the example into a reusable constant.
 
 SOURCE AND REPLAY
-For success_evolution, check the mandatory path against the declared source entry, supplied accepted causal evidence, public action semantics, and output derivations. A historical visit is not a reason to unconditionally visit again from an entry where it is already complete. Do not add obligatory actions merely to make the program look complete. Generalize supported structure rather than copy scene IDs or a full source action sequence. Preserve the existing historical-loop-evidence requirement; do not invent repetitions.
-For runtime_automation, missing pre-trial effect witnesses do not by themselves imply no_tool. Use the supplied current public inputs and interfaces to propose a bounded program; the existing independent R1 trial must establish the claimed results. Do not treat possible primitive signatures as a list of currently executable actions.
+For success_evolution, semantic_delta.source_boundary identifies the declared capability entry. semantic_delta.before_facts contains the recorded, authorized source facts at that entry, not the first selected support event or the current live environment. source_input_bindings contains typed source-example values for this Atomic's formal inputs; use them only to interpret the source evidence, never as reusable program constants.
+atomic_evidence_support lists the selected accepted events in their real Trace order, including their before/after revisions and positive/negative fact changes. These are per-event changes, not a complete final-state snapshot. Sparse support does not imply that unselected work has already executed in your new program. A missing projected fact does not prove absence or persistence, and later evidence cannot authorize an entry input or precondition.
+Design against the declared entry, input boundary, supported causal work, and public primitive semantics. Do not repeat a historical preparation action unconditionally when the source entry already satisfies its purpose. Do not add obligatory actions merely to make a program look complete. Independently valid generalization remains allowed under the existing static and replay rules; the program need not copy the source action list. Required action failure remains failure.
+For runtime_automation, use the supplied current public invocation context and existing R1 contract instead of requiring a historical source occurrence. Missing pre-trial final witnesses alone is not a reason for no_tool. Code, not this prompt or the source example, determines whether execution and output validation pass. Do not treat possible primitive signatures as currently executable actions.
 
 CHANGING CANDIDATES
 Use only collection and condition operators actually supplied by the interface. Understand snapshot versus refresh_each_iteration exactly as documented; neither mode guarantees that a previously collected value still has a required affordance after state changes. Guard genuinely optional work with an authored current query. Required action failure must remain failure, not be skipped by the executor. A filtered required collection or RETURN selector with no match is not successful progress. A visit alone does not prove discovery or absence. Apply the target constraints to the chosen candidates, stop condition, and returned values; an unrelated witness cannot complete the capability.
@@ -403,7 +406,7 @@ Declare boundary_schema_version="2", input_specs, output_specs, local_value_auth
 For each formal input, input_provenance_refs[formal_role] cites {authority_ref, source_role}. source_role must equal the cited authority's role field, not its optional source_role ancestry metadata. The formal name may differ through this explicit mapping. Preserve the actual value, type, resolution, availability time, and source ownership. Do not invent references, infer an entry value from later actions, strip instance suffixes, or derive authority from observation prose.
 
 TIME AND OWNERSHIP
-Use [event_start,event_end): start is inclusive and end is exclusive. An event i uses [i,i+1). Entry inputs and preconditions use exactly the declared entry event's before-state. A later selected support event is not an alternative entrance. Select explicit, unique accepted support_event_ids within that envelope. Their real Trace order is authoritative. Do not absorb rolled-back events or independent owners. Shared prerequisite evidence does not authorize duplicate ownership of an effect-producing event. Each phase_id is unique in this submission; it need not copy a Runtime owner ID.
+Use [event_start,event_end): start is inclusive and end is exclusive. An event i uses [i,i+1). The entry event is the canonical_trace.actions record whose event_index equals event_start. event_start is an immutable Trace coordinate, not necessarily the current list position. Use that record's authoritative_before_state_facts. Do not move the entry to the first selected support event. Select explicit, unique accepted support_event_ids within that envelope. Their real Trace order is authoritative. Do not absorb rolled-back events or independent owners. Shared prerequisite evidence does not authorize duplicate ownership of an effect-producing event. Each phase_id is unique in this submission; it need not copy a Runtime owner ID.
 
 RESULTS AND CONDITIONS
 Every declared effect and precondition must have matching supplied witnesses, argument keys, domain, and correct time. Preserve cardinality, distinctness, and existing identity obligations. Conditions created by internal preparation are not entry conditions. Do not invent an effect because the task asks for it.
@@ -617,37 +620,30 @@ def _compact_budget(value: Mapping[str, Any]) -> dict[str, int]:
     return result
 
 
+def _project_tool_builder_facts(values: Iterable[Any]) -> list[dict[str, Any]]:
+    """The existing capability-local fact whitelist; never a raw snapshot."""
+    return [{key: copy.deepcopy(fact[key]) for key in (
+        "predicate", "args", "cardinality", "distinct_by", "effect_domain",
+        "witness_ref", "revision",
+    ) if key in fact} for fact in values]
+
+
 def _compact_tool_builder_evidence(values: Iterable[Any]) -> list[dict[str, Any]]:
     """Expose only the bounded Atomic occurrence's structured authorities."""
 
     result: list[dict[str, Any]] = []
-    for index, value in enumerate(values):
+    for value in values:
         mapping = _as_mapping(value)
-        positive_effects = [
-            {
-                key: _policy_value(fact[key])
-                for key in (
-                    "predicate", "args", "cardinality", "distinct_by",
-                    "effect_domain", "witness_ref", "revision",
-                )
-                if key in fact
-            }
-            for raw in mapping.get("authoritative_positive_effects", ())
-            if isinstance(raw, Mapping)
-            for fact in [dict(raw)]
-        ]
         result.append(_policy_value({
-            "event_id": str(
-                mapping.get("event_id", mapping.get("action_id", index))
-            ),
-            "action_type": str(mapping.get("action_type", "")),
-            "arguments": dict(mapping.get("arguments") or {}),
-            "accepted": bool(mapping.get("accepted", True)),
-            "before_revision": int(mapping.get("before_revision", 0)),
-            "after_revision": int(
-                mapping.get("after_revision", mapping.get("new_revision", 0))
-            ),
-            "authoritative_positive_effects": positive_effects,
+            "event_index": mapping["event_index"],
+            "event_id": mapping.get("event_id") or mapping["action_id"],
+            "action_type": mapping["action_type"],
+            "arguments": mapping["arguments"],
+            "accepted": mapping["accepted"],
+            "before_revision": mapping["before_revision"],
+            "after_revision": mapping["after_revision"],
+            "authoritative_positive_effects": _project_tool_builder_facts(mapping["authoritative_positive_effects"]),
+            "authoritative_negative_effects": _project_tool_builder_facts(mapping["authoritative_negative_effects"]),
         }))
     return result
 

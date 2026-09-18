@@ -321,10 +321,10 @@ def _system_for_replay(
             task_id=str(dict(fixture["source"])["task_id"]),
         ),
     )
-    task = SimpleNamespace(
-        task_id=str(dict(fixture["source"])["task_id"]),
-        context={},
-    )
+    from atomic_skillgraph.harness.protocol import HarnessTask
+    source = normalized['source_task']
+    task = HarnessTask(**{k: copy.deepcopy(source[k]) for k in
+        ('task_id','goal','benchmark','task_type','context','metadata') if k in source})
     return system, trace, task, database
 
 

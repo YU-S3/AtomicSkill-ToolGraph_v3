@@ -493,6 +493,7 @@ def test_tool_builder_context_exposes_only_bounded_occurrence_authority() -> Non
             occurrence_id="occurrence_fixture",
         ),
         evidence_support=[{
+            "event_index": 1,
             "event_id": "event_1",
             "action_type": "GO_TO",
             "arguments": {"destination": "cabinet_1"},
@@ -501,6 +502,7 @@ def test_tool_builder_context_exposes_only_bounded_occurrence_authority() -> Non
             "after_revision": 2,
             "observation": "SECRET_RAW_OBSERVATION",
             "task_goal": "SECRET_FULL_TASK_GOAL",
+            "authoritative_negative_effects": [],
             "authoritative_positive_effects": [{
                 "predicate": "agent.at_location",
                 "args": {"location": "cabinet_1"},
@@ -525,12 +527,14 @@ def test_tool_builder_context_exposes_only_bounded_occurrence_authority() -> Non
     assert payload["atomic_effect_witness_refs"] == [witness]
     assert payload["historical_loop_evidence_required"] is True
     assert payload["atomic_evidence_support"] == [{
+        "event_index": 1,
         "event_id": "event_1",
         "action_type": "GO_TO",
         "arguments": {"destination": "cabinet_1"},
         "accepted": True,
         "before_revision": 1,
         "after_revision": 2,
+        "authoritative_negative_effects": [],
         "authoritative_positive_effects": [{
             "predicate": "agent.at_location",
             "args": {"location": "cabinet_1"},

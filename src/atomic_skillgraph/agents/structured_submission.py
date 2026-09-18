@@ -231,8 +231,9 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "type": "integer",
             "minimum": 0,
             "description": (
-                "Inclusive entry index. Its exact precondition boundary is "
-                "canonical_trace.actions[event_start].authoritative_before_state_facts."
+                "Inclusive immutable Trace coordinate, not a list position. Use "
+                "authoritative_before_state_facts of the canonical_trace.actions "
+                "record whose event_index equals event_start, not the first support."
             ),
         },
         "event_end": {
@@ -271,7 +272,8 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "items": {"type": "string", "minLength": 1},
             "description": (
                 "Exact entry-snapshot certificates for the declared preconditions "
-                "from canonical_trace.actions[event_start].authoritative_before_state_facts. "
+                "from authoritative_before_state_facts of the canonical_trace.actions "
+                "record whose event_index equals event_start. "
                 "Predicate, arguments, and effect_domain must match; a certificate "
                 "from a later revision is not interchangeable."
             ),
@@ -367,8 +369,8 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": PREDICATE_SCHEMA,
             "description": (
-                "Only necessary facts present in canonical_trace.actions[event_start]."
-                "authoritative_before_state_facts. Facts established inside the "
+                "Only necessary authoritative_before_state_facts of the canonical_trace.actions "
+                "record whose event_index equals event_start. Facts established inside the "
                 "selected envelope are not entry preconditions."
             ),
         },

@@ -390,6 +390,9 @@ def test_success_evolution_tool_builder_compiles_ir_tool(tmp_path: Any) -> None:
             "event_id": "a0",
             "event_index": 0,
             "span_id": "span_1",
+            "authoritative_before_state_facts": [],
+            "authoritative_positive_effects": [],
+            "authoritative_negative_effects": [],
         }],
         "runtime_spans": [{
             "span_id": "span_1",
