@@ -206,4 +206,26 @@ def test_current_system_typed_directory_to_builder_replay_and_admission(tmp_path
         assert result['tool_refs'] and result['atomic_refs']
         tool=system.tools.get(result['tool_refs'][0])
         assert tool.tests and tool.tests[0]['prefix']==[{'action_type':'GO_TO','arguments':{'destination':'countertop_1'}}]
+        # Same pending certificate is usable before publication, without a new
+        # reset/action; distinct content/program/authority cannot borrow it.
+        from atomic_skillgraph.evolution.replay_certificates import ReplayCertificates
+        from atomic_skillgraph.evolution.aligner import _tool_signature
+        calls=[]
+        original_reset=system.harness.reset
+        def counted_reset(task):
+            calls.append(task.task_id)
+            return original_reset(task)
+        system.harness.reset=counted_reset
+        repeated=system._replay_case_with_source_authority(tool,tool.tests[0],
+            current_task=ctx.task,current_trace=trace,audit_trace=trace)
+        assert repeated.passed and repeated.stage=='certificate_reuse' and not calls
+        assert not repeated.started and repeated.executed_action_count==0
+        # Completed source/Trace publication uses exactly the existing ledger.
+        trace.finish();system.traces.save_atomic(trace);system._commit_replay_certificates(trace)
+        cert=ReplayCertificates(system.ledger);signature=_tool_signature(tool)
+        assert cert.lookup(signature,tool.tests[0]) is not None
+        assert cert.lookup(signature+'changed',tool.tests[0]) is None
+        changed=copy.deepcopy(tool.tests[0]);changed['prefix']=[]
+        assert cert.lookup(signature,changed) is None
+        assert ReplayCertificates(system.ledger,authority_version='different').lookup(signature,tool.tests[0]) is None
     finally: system.close()

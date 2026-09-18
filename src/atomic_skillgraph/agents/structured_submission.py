@@ -80,7 +80,17 @@ PARAMETER_SPEC_SCHEMA: dict[str, Any] = {
         "name": NONEMPTY_STRING_SCHEMA,
         "semantic_type": NONEMPTY_STRING_SCHEMA,
         "required": {"type": "boolean"},
-        "runtime_resolvable": {"type": "boolean"},
+        "runtime_resolvable": {
+            "type": "boolean",
+            "description": (
+                "Whether the Runtime Agent may resolve this input through the offered public "
+                "interfaces when a future invocation has no Task/DataFlow/caller binding. "
+                "This is independent of required_resolution and of whether the value was known "
+                "in the source trace. It never permits missing arguments, inferred authority, "
+                "hidden-state access, or replacement of an already bound identity. "
+                "For outputs this flag does not authorize fabrication of missing results."
+            ),
+        },
         "required_resolution": {
             "type": "string",
             "enum": ["semantic", "concrete", "relation_verified"],

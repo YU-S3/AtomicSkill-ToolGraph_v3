@@ -6,6 +6,7 @@ import os
 import copy
 import re
 import hashlib
+import json
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -1077,6 +1078,30 @@ class AlfWorldAdapter:
         self._observation = ""
         self._done = self._won = False
         self._runtime_accepted_prefix: list[dict[str, Any]] = []
+        # Only real discovery resets populate this immutable index prefix.
+        # It contains file locations, never world facts or model-supplied values.
+        self._discovered_files: tuple[str, ...] = ()
+        self._discovery_identity = ""
+        self._backend_identity = ""
+        self._exact_file: str | None = None
+
+    def _configuration_identity(self) -> str:
+        return json.dumps([self.split, self._build_config()], sort_keys=True)
+
+    def _close_backend(self) -> None:
+        env, self._env = self._env, None
+        self._tw_env = None
+        self._exact_file = None
+        self._backend_identity = ""
+        if env is not None:
+            env.close()
+
+    def _check_discovery_identity(self) -> str:
+        identity = self._configuration_identity()
+        if identity != self._discovery_identity:
+            self._discovered_files = ()
+            self._discovery_identity = identity
+        return identity
 
     def _build_config(self) -> dict[str, Any]:
         split_map = {"eval_out_of_distribution": "valid_unseen", "eval_in_distribution": "valid_seen", "train": "train"}
@@ -1106,6 +1131,8 @@ class AlfWorldAdapter:
         }
 
     def initialize(self) -> int:
+        identity = self._check_discovery_identity()
+        self._close_backend()
         try:
             import alfworld.agents.environment as alf_env
         except ImportError as exc:
@@ -1118,9 +1145,11 @@ class AlfWorldAdapter:
             env_class = alf_env.get_environment("AlfredTWEnv")
             self._tw_env = env_class(self._build_config(), train_eval=self.split)
             self._env = self._tw_env.init_env(batch_size=1)
+            self._backend_identity = identity
         except AtomicSkillGraphError:
             raise
         except Exception as exc:
+            self._close_backend()
             raise AtomicSkillGraphError(
                 "infrastructure_failure", f"failed to initialize ALFWorld: {exc}",
                 layer=FailureLayer.INFRASTRUCTURE,
@@ -1129,12 +1158,41 @@ class AlfWorldAdapter:
         self._task_index = 0
         return len(files) if files is not None else 0
 
+    def _prepare_exact_backend(self, game_file: str, identity: str) -> bool:
+        import alfworld.agents.environment as alf_env
+
+        env_class = alf_env.get_environment("AlfredTWEnv")
+        if not callable(getattr(env_class, "collect_game_files", None)):
+            return False  # Older dependencies retain the legal discovery path.
+        if self._env is not None and self._exact_file == game_file and self._backend_identity == identity:
+            return True
+        self._close_backend()
+
+        class _ExactFileEnv(env_class):
+            def collect_game_files(self, verbose=False):
+                self.game_files = [game_file]
+                self.num_games = 1
+
+        try:
+            self._tw_env = _ExactFileEnv(self._build_config(), train_eval=self.split)
+            self._env = self._tw_env.init_env(batch_size=1)
+            self._exact_file = game_file
+            self._backend_identity = identity
+        except Exception as exc:
+            self._close_backend()
+            raise AtomicSkillGraphError(
+                "infrastructure_failure", f"failed to initialize exact ALFWorld game: {exc}",
+                layer=FailureLayer.INFRASTRUCTURE,
+            ) from exc
+        return True
+
     def _raw_reset(self) -> tuple[HarnessTask, str, list[str]]:
         if self._env is None:
             self.initialize()
         try:
             observations, info = self._env.reset()
         except Exception as exc:
+            self._close_backend()
             raise AtomicSkillGraphError(
                 "infrastructure_failure", f"ALFWorld reset failed: {exc}",
                 layer=FailureLayer.INFRASTRUCTURE,
@@ -1142,6 +1200,16 @@ class AlfWorldAdapter:
         observation = str(observations[0])
         admissible = list(info.get("admissible_commands", [[]])[0])
         game_file = str((info.get("extra.gamefile") or [""])[0])
+        if self._exact_file is None:
+            normalized = game_file.replace("\\", "/")
+            if self._task_index == len(self._discovered_files):
+                self._discovered_files += (normalized,)
+            elif self._task_index < len(self._discovered_files) and self._discovered_files[self._task_index] != normalized:
+                self._close_backend()
+                raise AtomicSkillGraphError(
+                    "infrastructure_failure", "ALFWorld discovery index changed",
+                    layer=FailureLayer.INFRASTRUCTURE,
+                )
         match = _GAME_TYPE_RE.search(game_file)
         task_type = match.group(1) if match else "unknown"
         marker = "your task is to:"
@@ -1167,7 +1235,8 @@ class AlfWorldAdapter:
         return task, observation, admissible
 
     def load_tasks(self, *, limit: int = 0, task_type: str | None = None) -> list[HarnessTask]:
-        if self._env is None:
+        if (self._env is None or self._exact_file is not None
+                or self._backend_identity != self._configuration_identity()):
             total = self.initialize()
         else:
             files = getattr(self._tw_env, "gamefiles", None) or getattr(self._tw_env, "game_files", None)
@@ -1231,20 +1300,44 @@ class AlfWorldAdapter:
 
     def reset(self, task: HarnessTask) -> HarnessActionResult:
         index = int(task.context.get("env_index", 0))
-        self.initialize()
-        try:
-            for _ in range(index):
-                self._env.reset()
-                self._task_index += 1
-        except Exception as exc:
-            raise AtomicSkillGraphError(
-                "infrastructure_failure", f"ALFWorld deterministic seek failed: {exc}",
-                layer=FailureLayer.INFRASTRUCTURE,
-            ) from exc
-        actual, observation, admissible = self._raw_reset()
         expected = str(task.context.get("game_file", "")).replace("\\", "/")
+        identity = self._check_discovery_identity()
+        if index < 0:
+            raise AtomicSkillGraphError(
+                "infrastructure_failure", "ALFWorld task index must be nonnegative",
+                layer=FailureLayer.INFRASTRUCTURE,
+            )
+        # A caller's file/index pair is not its own authority. Discover it once
+        # through the original deterministic ordering if not already observed.
+        if expected and index >= len(self._discovered_files):
+            total = self.initialize()
+            if index >= total:
+                raise AtomicSkillGraphError(
+                    "infrastructure_failure", "ALFWorld task index outside discovery manifest",
+                    layer=FailureLayer.INFRASTRUCTURE,
+                )
+            for _ in range(index + 1):
+                self._raw_reset()
+        if expected and expected != self._discovered_files[index]:
+            raise AtomicSkillGraphError(
+                "infrastructure_failure", "ALFWorld deterministic task mapping changed: file/index mismatch",
+                layer=FailureLayer.INFRASTRUCTURE,
+            )
+        deterministic = not self._build_config()["env"].get("domain_randomization", False)
+        if expected and deterministic and self._prepare_exact_backend(expected, identity):
+            self._task_index = index
+        else:
+            self.initialize()
+            for _ in range(index):
+                self._raw_reset()
+        actual, observation, admissible = self._raw_reset()
         observed = str(actual.context.get("game_file", "")).replace("\\", "/")
-        if expected and observed and expected != observed:
+        signature = str(task.metadata.get("task_signature") or "")
+        if (expected and expected != observed) or (expected and (
+            actual.task_id != task.task_id or actual.goal != task.goal
+            or (signature and signature != actual.metadata["task_signature"])
+        )):
+            self._close_backend()
             raise AtomicSkillGraphError(
                 "infrastructure_failure",
                 f"ALFWorld deterministic task mapping changed: expected={expected}, actual={observed}",

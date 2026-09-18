@@ -515,6 +515,7 @@ class AtomicSkillGraphSystem:
 
         harness_config = dict(self.config.get("harness") or {})
         experiment = experiment_config
+        self._owns_harness = harness is None
         self.harness = harness or AlfWorldAdapter(
             split=str(experiment.get("split", harness_config.get("split", "train"))),
             max_steps=int(harness_config.get("max_steps", 100)),
@@ -6013,7 +6014,11 @@ class AtomicSkillGraphSystem:
             raise
 
     def close(self) -> None:
-        self.database.close()
+        try:
+            if self._owns_harness:
+                self.harness._close_backend()
+        finally:
+            self.database.close()
 
     def __enter__(self) -> "AtomicSkillGraphSystem":
         return self
