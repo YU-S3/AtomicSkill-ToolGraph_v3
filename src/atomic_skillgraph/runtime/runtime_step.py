@@ -35,15 +35,29 @@ def public_step_feedback(call: Any, payload: dict, *, before_revision: int,
             "started", "completed", "failure_layer", "cached_rejection", "rollback",
             "draft_id", "r1_outputs", "r1_witness_refs", "support_occurrence_id",
             "atomic_effect_passed", "validated_outputs", "atomic_witness_refs")
+    def project_result(value: dict) -> dict:
+        projected = {k: to_primitive(value[k]) for k in keys if k in value}
+        if value.get('failure_code') and not projected.get('message'):
+            message = value.get('failure_message')
+            if not message:
+                # Implementation results retain the public error text on the
+                # failed Tool result, not at their own root. Copy only that text.
+                message = next((r.get('failure_message') for r in value.get('tool_results', [])
+                    if isinstance(r, dict) and r.get('failure_code') == value['failure_code']
+                    and r.get('failure_message')), None)
+            if isinstance(message, str):
+                projected['message'] = message
+        return projected
+
     feedback = {"tool": call.name, "arguments": to_primitive(call.arguments),
                 "before_revision": before_revision, "after_revision": after_revision,
-                **{k: to_primitive(payload[k]) for k in keys if k in payload}}
+                **project_result(payload)}
     if selected_action is not None:
         feedback.update(action_type=selected_action.action_type,
                         action_arguments=to_primitive(selected_action.arguments))
     result = payload.get('result')
     if isinstance(result, dict):
-        feedback['helper_result'] = {k: to_primitive(result[k]) for k in keys if k in result}
+        feedback['helper_result'] = project_result(result)
     trial = payload.get('trial')
     failure_keys = ('failure_code', 'failure_layer', 'message', 'started',
                     'not_committed', 'rollback', 'restored_revision', 'stage')

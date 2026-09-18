@@ -258,6 +258,7 @@ def test_R01_R06_dynamic_next_prompt_keeps_failed_call(tmp_path, mode):
         assert feedback['tool'] == 'invoke_support_atomic'
         assert feedback['arguments']['arguments']['target'] == 'cabinet_1'
         assert feedback['helper_result']['failure_code'] == 'tool_ir_action_unavailable'
+        assert 'OPEN' in feedback['helper_result']['message']
         assert feedback['helper_result']['completed'] is False
         return 'report_runtime_status', {'status':'give_up','detail':'controlled boundary'}
     system, ctx, _, _, provider = setup(tmp_path, choose)
@@ -343,3 +344,48 @@ def test_R08_node_next_prompt_has_actual_action_and_no_automatic_work(tmp_path):
         assert not ctx.trace_builder.trace.tool_executions
     finally:
         system.close()
+
+
+def test_R02_preflight_feedback_survives_without_world_action(tmp_path):
+    from experiments.r10_world_checks import install_fixture
+    chosen = {}
+    def choose(request,count):
+        if count == 1:
+            return 'invoke_support_atomic', {'support_atomic_ref':chosen['ref'],'arguments':{'target':'cabinet_1'}}
+        feedback = request.policy_context['task_runtime_frame']['last_step']
+        assert not feedback['accepted'] and feedback['error'] and feedback['message']
+        assert feedback['arguments']['arguments'] == {'target':'cabinet_1'}
+        assert feedback['before_revision'] == feedback['after_revision'] == 0
+        return 'report_runtime_status', {'status':'give_up','detail':'preflight boundary observed'}
+    system,ctx,_,_,provider = setup(tmp_path,choose)
+    atomic,_ = install_fixture(system,'entry_guard',
+        [SemanticPredicate('container.open',{'container':'$target'})],
+        [SemanticPredicate('container.open',{'container':'$target'})],[('OPEN','object')])
+    chosen['ref'] = str(atomic.ref)
+    try:
+        system.orchestrator.node_executor.run_dynamic(ctx)
+        assert len(provider.requests)==2 and not ctx.trace_builder.trace.environment_actions
+    finally:
+        system.close()
+
+
+def test_I05_isomorphic_boundary_roles_values_and_source_ids():
+    import json
+    p,n = typed_preparation_example()
+    original, = typed_atomicizer().validate_and_canonicalize([p],n)
+    replacements = {'target':'query_role','found':'answer_role','category':'public_query_port',
+        'apple':'mug','apple_1':'mug_9',n['trace_id']:'isomorphic_source',p.phase_id:'another_phase'}
+    def rename(value):
+        if isinstance(value,str): return replacements.get(value,value)
+        if isinstance(value,list): return [rename(v) for v in value]
+        if isinstance(value,dict): return {replacements.get(k,k):rename(v) for k,v in value.items()}
+        return value
+    payload = rename(to_primitive(p))
+    payload['input_specs'] = [ParameterSpec(**v) for v in payload['input_specs']]
+    payload['output_specs'] = [ParameterSpec(**v) for v in payload['output_specs']]
+    payload['effects'] = [SemanticPredicate(**v) for v in payload['effects']]
+    payload['preconditions'] = [SemanticPredicate(**v) for v in payload['preconditions']]
+    changed, = typed_atomicizer().validate_and_canonicalize([AtomicOccurrenceProposal(**payload)],rename(n))
+    assert changed.input_bindings == {'query_role':'mug'}
+    assert changed.output_bindings == {'answer_role':'mug_9'}
+    assert len(changed.action_events)==len(original.action_events)
