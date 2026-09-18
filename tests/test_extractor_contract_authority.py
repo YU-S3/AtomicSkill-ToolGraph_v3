@@ -254,7 +254,8 @@ def test_e1_incomplete_coverage_prepares_atomic_but_skips_e2(
         lambda *_args, **_kwargs: [],
     )
     system = object.__new__(AtomicSkillGraphSystem)
-    system.normalizer = SimpleNamespace(build=lambda _trace: normalized)
+    from fixtures.typed_e1 import record_public_fixture_inputs
+    system.normalizer = SimpleNamespace(build=lambda _trace: record_public_fixture_inputs(_trace, normalized))
     system.atomicizer = Atomicizer()
     database = StateDatabase(tmp_path / "state.sqlite3")
     artifacts = ArtifactStore(tmp_path, database)
@@ -478,7 +479,8 @@ def test_e2_rejection_does_not_discard_prepared_atomic(
     artifacts = ArtifactStore(tmp_path, database)
     system = object.__new__(AtomicSkillGraphSystem)
     system.config = {}
-    system.normalizer = SimpleNamespace(build=lambda _trace: normalized)
+    from fixtures.typed_e1 import record_public_fixture_inputs
+    system.normalizer = SimpleNamespace(build=lambda _trace: record_public_fixture_inputs(_trace, normalized))
     system.atomicizer = Atomicizer()
     system.skills = SkillRegistry(artifacts, database)
     system.tools = ToolRegistry(artifacts, database)

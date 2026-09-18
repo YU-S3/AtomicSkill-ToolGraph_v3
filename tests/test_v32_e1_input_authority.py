@@ -104,17 +104,24 @@ def _current_proposal(refs: dict[str, str]) -> AtomicOccurrenceProposal:
     )
 
 
-def test_current_e1_accepts_exact_action_argument_authority() -> None:
+@pytest.mark.parametrize('kind', ['public_catalog', 'action_argument'])
+def test_current_e1_requires_typed_public_source_not_action_argument(kind) -> None:
     authority = {
         "authority_ref": "action_arg:e0:item",
         "event_id": "e0",
         "argument_role": "item",
-        "kind": "action_argument",
-        "source_kind": "action_argument",
+        "kind": kind,
+        "source_kind": kind,
+        "trace_id": "trace_input_authority",
         "role": "item",
         "value": "apple_1",
     }
 
+    if kind == 'action_argument':
+        with pytest.raises(ValueError, match='eligible scope'):
+            Atomicizer().validate_and_canonicalize(
+                [_current_proposal({'item':'action_arg:e0:item'})],_normalized(authority))
+        return
     occurrence = Atomicizer().validate_and_canonicalize(
         [_current_proposal({"item": "action_arg:e0:item"})],
         _normalized(authority),
@@ -317,7 +324,7 @@ def test_e1_schema_and_transport_require_and_preserve_input_refs() -> None:
     assert proposal.input_provenance_contract == "code_authority_v3_2"
 
 
-def test_prepare_evolution_projects_only_accepted_action_arguments(
+def test_prepare_evolution_does_not_grant_input_authority_from_action_arguments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -373,23 +380,5 @@ def test_prepare_evolution_projects_only_accepted_action_arguments(
     with pytest.raises(RuntimeError, match="captured"):
         system._prepare_evolution(trace, SimpleNamespace(task_id="task"))
 
-    assert captured["boundary_authorities"]["inputs"] == [
-        {
-            "authority_ref": "action_arg:e0:object",
-            "event_id": "e0",
-            "argument_role": "object",
-            "kind": "action_argument",
-            "source_kind": "action_argument",
-            "role": "object",
-            "value": "apple_1",
-        },
-        {
-            "authority_ref": "action_arg:e0:source",
-            "event_id": "e0",
-            "argument_role": "source",
-            "kind": "action_argument",
-            "source_kind": "action_argument",
-            "role": "source",
-            "value": "table_1",
-        },
-    ]
+    assert captured["boundary_authorities"]["inputs"] == []
+    assert captured['actions'][0]['arguments'] == {'object': 'apple_1', 'source': 'table_1'}

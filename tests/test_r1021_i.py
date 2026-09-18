@@ -169,3 +169,41 @@ def test_S12_S16_S18_native_multistep_builder_compile_source_replay(tmp_path):
         assert canonical_json(rewritten['bindings'])==canonical_json({bundle.input_role_map.get(k,k):v for k,v in c.input_bindings.items()})
         assert rewritten['prefix']==case['prefix']
     finally: system.close()
+
+
+def test_current_system_typed_directory_to_builder_replay_and_admission(tmp_path):
+    from test_r1021_final import raw_proposal
+    system,ctx,provider,c,n=source_case(tmp_path)
+    try:
+        proposal=AtomicOccurrenceProposal('access','make_container_accessible',c.event_start,c.event_end,
+            dict(c.input_bindings),dict(c.output_bindings),[],
+            [SemanticPredicate('container.open', {'container':'cabinet_1'})],'declared native capability',
+            support_event_ids=list(c.support_event_ids),effect_witness_refs=list(c.effect_witness_refs),
+            input_provenance_refs={'container':{'authority_ref':c.input_provenance_refs['container']['authority_ref'],
+                'source_role':c.input_provenance_refs['container']['role']}},
+            output_derivations={'accessible':{'kind':'input_identity','input_role':'container'}},
+            input_provenance_contract='code_authority_v3_2',boundary_schema_version='2',
+            input_specs=c.input_specs,output_specs=c.output_specs)
+        submitted=raw_proposal(proposal)
+        bad=copy.deepcopy(submitted);bad['phase_id']='bad_sibling'
+        bad['input_provenance_refs']['container']['authority_ref']='not_supplied'
+        def choose(request,_):
+            if 'canonical_trace' in request.policy_context:
+                actual=request.policy_context['canonical_trace']['boundary_authorities']['inputs']
+                assert actual and all(a['kind'] in {'public_binding','public_catalog'} for a in actual)
+                assert any(a['value']=='cabinet_1' and a['available_revision']==0 for a in actual)
+                assert any(a['kind']=='public_binding' for a in actual)
+                assert all(type(a['available_revision']) is int for a in actual)
+                return 'submit_extractor_atomics',{'occurrences':[submitted,bad]}
+            return author(request,create=True)
+        provider.choose=choose
+        trace=ctx.trace_builder.trace
+        prepared=system._prepare_evolution(trace,ctx.task)
+        assert len(prepared.compiled)==1
+        assert trace.metadata['extraction']['e1_validated']==1
+        assert trace.metadata['extraction']['e1_rejected']==1
+        result=system._apply_evolution(prepared,trace,ctx.task)
+        assert result['tool_refs'] and result['atomic_refs']
+        tool=system.tools.get(result['tool_refs'][0])
+        assert tool.tests and tool.tests[0]['prefix']==[{'action_type':'GO_TO','arguments':{'destination':'countertop_1'}}]
+    finally: system.close()

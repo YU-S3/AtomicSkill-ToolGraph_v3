@@ -52,7 +52,28 @@ def contracts():
     return producer, consumer
 
 
-def run(config_path, output):
+def fixture_proposal(atomic):
+    """Predeclared executor test programs, never a learned/production fallback."""
+    from atomic_skillgraph.tooling.proposal import tool_proposal_from_dict
+    action_type,argument,role = {
+        'r102_t1_reach': ('GO_TO','destination','destination'),
+        'r102_t1_observe': ('EXAMINE','object','object'),
+    }[atomic.ref.logical_id]
+    return tool_proposal_from_dict(dict(
+        proposal_version='2',decision='create',summary=atomic.summary,atomic_ref=str(atomic.ref),
+        inputs=to_primitive(atomic.inputs),outputs=to_primitive(atomic.outputs),
+        entry_contract={'conditions':to_primitive(atomic.preconditions),'grounding_constraints':[]},
+        program=[{'node_id':'act','op':'ACTION','action_type':action_type,
+            'argument_mapping':{argument:{'kind':'skill_input','source_role':role}},
+            'expected_effects':to_primitive(atomic.effects)},
+            {'node_id':'return','op':'RETURN','output_sources':{
+                name:{'source':'tool_input','field':d['input_role']}
+                for name,d in atomic.validator_spec['output_derivations'].items()}}],
+        max_actions=1,final_effects=to_primitive(atomic.effects),evidence_outputs=[],
+        path_expectations=[],rationale='Declared DataFlow execution fixture, not autonomous discovery.'))
+
+
+def run(config_path, output, *, fixture_programs=False):
     started = time.monotonic()
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -62,7 +83,7 @@ def run(config_path, output):
         raise ValueError('R10.2.1 configuration required')
     manifest = {'formal_experiment': False, 'fixture_active_status_not_lifecycle_evidence': True,
         'code_hash': hash_code(REPO), 'config_hash': hash_config(config), 'env_index': 0,
-        'contracts': to_primitive(contracts())}
+        'contracts': to_primitive(contracts()), 'fixture_programs': fixture_programs}
     atomic_create_json(output / 'declared_manifest.json', manifest)
     from atomic_skillgraph.agents.provider_probe import ensure_provider_capability
     capability = ensure_provider_capability(config, output_dir=output,
@@ -83,7 +104,7 @@ def run(config_path, output):
         try:
             values = [action.arguments['destination'] for action in system.harness.action_catalog()
                       if action.action_type == 'GO_TO']
-            choice = StructuredSubmissionClient().request(
+            choice = {'destination': values[0]} if fixture_programs else StructuredSubmissionClient().request(
                 system._runtime_session('runtime_step_preparation', 'fixture_input'),
                 prompt=('T1 acceptance input selection only: choose a destination from the public '
                     'observation and catalog below. The two declared test nodes will reach it, then examine it. '
@@ -97,7 +118,7 @@ def run(config_path, output):
                 system.skills.register_atomic(atomic)
                 provenance = ToolProvenance(source='r102_dataflow_fixture', atomic_ref=str(atomic.ref),
                     source_trace_id='fixture', occurrence_id=atomic.ref.logical_id)
-                proposal = ToolBuilderSession(system._tool_builder_session('tool_builder_evolution', atomic.ref.logical_id)).build(
+                proposal = fixture_proposal(atomic) if fixture_programs else ToolBuilderSession(system._tool_builder_session('tool_builder_evolution', atomic.ref.logical_id)).build(
                     atomic=atomic, provenance=provenance, harness_interface={
                         'profile': system.harness.profile_name,
                         'predicate_vocabulary': to_primitive(system.harness.semantic_predicate_schema()),
@@ -192,5 +213,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='configs/alfworld_train_full_120_r1021_seed42.yaml')
     parser.add_argument('--output', required=True)
+    parser.add_argument('--fixture-programs', action='store_true', help='Use declared deterministic programs, not learned assets.')
     args = parser.parse_args()
-    raise SystemExit(0 if run(args.config, args.output)['passed'] else 1)
+    raise SystemExit(0 if run(args.config, args.output, fixture_programs=args.fixture_programs)['passed'] else 1)

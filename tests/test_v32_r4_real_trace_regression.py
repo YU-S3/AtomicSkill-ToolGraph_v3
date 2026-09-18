@@ -285,8 +285,9 @@ def _system_for_replay(
     system._current_task_usage_start = 0
     system.mode = "online"
     system.readonly = False
+    from fixtures.typed_e1 import record_public_fixture_inputs
     system.normalizer = SimpleNamespace(
-        build=lambda _trace: copy.deepcopy(normalized),
+        build=lambda _trace: record_public_fixture_inputs(_trace, copy.deepcopy(normalized)),
     )
     system.atomicizer = Atomicizer()
     database = StateDatabase(tmp_path / "state.sqlite3")

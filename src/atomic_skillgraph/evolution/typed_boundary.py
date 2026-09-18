@@ -25,7 +25,7 @@ def public_value_authorities(trace: Any) -> list[dict]:
             "kind": "public_binding", "source_kind": "public_binding",
             "role": binding["role"], "value": binding["value"],
             "semantic_type": binding["semantic_type"], "resolution": binding["resolution"],
-            "available_revision": int(change["revision"]),
+            "available_revision": change["revision"],
             "source_occurrence_id": change.get("occurrence_id", ""),
             "trace_id": trace.trace_id,
         })
@@ -47,12 +47,15 @@ def public_value_authorities(trace: Any) -> list[dict]:
             "role": str(payload["role"]), "value": payload["value"],
             "semantic_type": str(payload.get("semantic_type", "entity")),
             "resolution": 'concrete' if evidence_type == 'entity_concrete' else str(payload.get('resolution', 'semantic')),
-            "available_revision": int(evidence["observed_at_revision"]),
+            "available_revision": evidence["observed_at_revision"],
             "trace_id": trace.trace_id, "source_occurrence_id": str(payload.get('source_occurrence_id', '')),
         })
     # Repeated catalog exposure does not need another copy in the E1 prompt.
     # Relation authority is revision-scoped, so never deduplicate its revisions.
     unique = {}
+    for item in result:
+        if type(item['available_revision']) is not int or item['available_revision'] < 0:
+            raise ValueError(f"invalid recorded public authority revision: {item['authority_ref']}")
     for item in sorted(result, key=lambda a: a['available_revision']):
         key = (item['kind'], item['source_occurrence_id'], item['role'], item['semantic_type'],
                item['resolution'], json_value_key(item['value']),
@@ -75,14 +78,20 @@ def validate_input_specs(proposal, authorities: dict, entry: dict):
     for spec in inputs:
         authority = authorities[spec.name]
         if not _available(authority, int(entry["before_revision"])):
-            raise ValueError(f"input authority was not available at entry: {spec.name}")
+            reason = ('missing or invalid typed time' if type(authority.get('available_revision')) is not int
+                      else 'later than entry or invalid revision')
+            raise ValueError(f"input authority was not available at entry: {spec.name}; "
+                             f"ref={authority.get('authority_ref')!r}, entry_revision={entry['before_revision']}, "
+                             f"available_revision={authority.get('available_revision')!r}; {reason}")
         if not semantic_types_compatible(str(authority.get("semantic_type", "")), spec.semantic_type):
-            raise ValueError(f"input authority type mismatch: {spec.name}")
+            raise ValueError(f"input authority type mismatch: {spec.name}; ref={authority.get('authority_ref')!r}, "
+                             f"actual={authority.get('semantic_type')!r}, required={spec.semantic_type!r}")
         actual_resolution = str(authority.get("resolution", "semantic"))
         if actual_resolution == 'relation_verified' and authority['available_revision'] != int(entry['before_revision']):
             actual_resolution = 'concrete'
         if not resolution_satisfies(actual_resolution, spec.required_resolution):
-            raise ValueError(f"input authority resolution mismatch: {spec.name}")
+            raise ValueError(f"input authority resolution mismatch: {spec.name}; ref={authority.get('authority_ref')!r}, "
+                             f"actual={actual_resolution!r}, required={spec.required_resolution!r}")
     in_specs, out_specs = {p.name: p for p in inputs}, {p.name: p for p in outputs}
     for role, constraint in proposal.output_semantic_constraints.items():
         if (role not in out_specs or not isinstance(constraint, dict)

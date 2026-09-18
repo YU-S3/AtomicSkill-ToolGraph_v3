@@ -1570,7 +1570,7 @@ class AlfWorldAdapter:
         raise KeyError(f"source replay prefix action is not currently admissible: {action_type} {arguments}")
 
     def supports_constraint(self, kind: str, verifier_id: str = "") -> bool:
-        return kind in {"argument_exists", "argument_concrete", "harness_affordance", "current_context"} or bool(verifier_id)
+        return not verifier_id and kind in {"argument_exists", "argument_concrete", "harness_affordance"}
 
 
 def _goal_roles(goal: str) -> dict[str, str]:

@@ -327,6 +327,22 @@ def test_f1_keeps_later_independent_effect_span_after_first_divergence() -> None
     }]
 
 
+@pytest.mark.parametrize('damage', ['missing_step', 'missing_witness', 'invalid_range'])
+def test_f1_invalid_claimed_prefix_is_rejection_not_key_error(damage):
+    alignment = _alignment()
+    if damage == 'missing_step':
+        alignment.matched_prefix_step_ids = ['step_place_soapbar_iter0']
+    elif damage == 'missing_witness':
+        alignment.step_alignments[0].effect_witness_refs = ['unknown']
+    else:
+        alignment.step_alignments[0].event_end = 999
+    cleaned, result = FailurePlanAlignmentValidator().validate(
+        alignment, cold_start_plan=_cold_plan(), trace=_trace())
+    assert cleaned is None and not result.passed
+    assert not result.checks['matched_prefix_authoritative']
+    assert result.failure_codes == ['failure_extractor_alignment_invalid']
+
+
 def test_f1_deduplicates_overlapping_candidate_spans_before_f2() -> None:
     trace = _trace()
     trace.environment_actions = [

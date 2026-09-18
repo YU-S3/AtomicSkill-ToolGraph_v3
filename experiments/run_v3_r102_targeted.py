@@ -160,7 +160,7 @@ def run(config_path, output, *, mode):
         raise ValueError('R10.2.1 configuration required')
     validate_deepseek_formal_llm(config)
     config['experiment'].update(task_manifest_path=None, phase='r1021_diagnostic')
-    ids = DEV_IDS if mode == 'dev16' else CHAIN_IDS
+    ids = DEV_IDS if mode == 'dev16' else [2, 3] if mode == 'smoke' else CHAIN_IDS
     reference = json.loads((REPO / 'data/baseline_manifests/train_120.json').read_text())
     by_id = {int(item['task_id'].split('_')[2]): item for item in reference['tasks']}
     entries = [by_id[index] for index in ids]
@@ -241,6 +241,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='configs/alfworld_train_full_120_r1021_seed42.yaml')
     parser.add_argument('--output', required=True)
-    parser.add_argument('--mode', choices=['dev16', 'chain'], required=True)
+    parser.add_argument('--mode', choices=['dev16', 'chain', 'smoke'], required=True)
     args = parser.parse_args()
     run(args.config, args.output, mode=args.mode)

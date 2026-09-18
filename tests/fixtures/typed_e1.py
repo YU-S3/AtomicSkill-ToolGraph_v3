@@ -17,6 +17,26 @@ def entity_ports(inputs, outputs):
     }
 
 
+def record_public_fixture_inputs(trace, normalized):
+    """Record explicitly declared unit-fixture inputs in the existing Trace format.
+
+    Not used for production traces or full-chain acceptance: those use actual
+    BindingStore/EvidenceStore recording. This migrates isolated E2/retention
+    fixtures without mocking the public-authority projection or its validators.
+    """
+    trace.trace_id = normalized['trace_id']
+    trace.grounding_evidence_changes = [{
+        'operation': 'add', 'payload': {
+            'evidence_id': a['authority_ref'], 'evidence_type': 'entity_concrete',
+            'observed_at_revision': a['available_revision'],
+            'payload': {'role': a['role'], 'value': a['value'],
+                        'semantic_type': a['semantic_type'],
+                        'source_occurrence_id': a.get('source_occurrence_id', '')},
+        }} for a in normalized.get('boundary_authorities', {}).get('inputs', [])
+        if a.get('resolution') == 'concrete' and type(a.get('available_revision')) is int]
+    return normalized
+
+
 def public_entities(normalized, values, *, revision=0, owner=''):
     """Declare the controlled fixture's explicitly known public input values."""
     authorities = [{

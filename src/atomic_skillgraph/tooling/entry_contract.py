@@ -83,6 +83,8 @@ def check_tool_entry(tool, arguments, harness, evidence_store, revision):
             return ValidationResult.fail('tool', 'tool_entry_conditions_unsatisfied',
                                          '; '.join(report.messages))
     for constraint in entry['grounding_constraints']:
+        if not harness.supports_constraint(constraint['kind'], constraint.get('verifier_id', '')):
+            return ValidationResult.fail('tool', 'tool_entry_constraint_unsatisfied', constraint['constraint_id'])
         if not evidence_store.match_constraint(constraint, arguments, revision):
             return ValidationResult.fail('tool', 'tool_entry_constraint_unsatisfied', constraint['constraint_id'])
     return ValidationResult.ok('tool', entry_contract=True)

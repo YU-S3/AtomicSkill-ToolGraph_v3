@@ -79,7 +79,8 @@ def _system(tmp_path, extractor_type, composite_builder):
     system.config = {}
     normalized = _normalized_trace()
     declare_take_fixture(_atomic_proposal(), normalized)
-    system.normalizer = SimpleNamespace(build=lambda _trace: normalized)
+    from fixtures.typed_e1 import record_public_fixture_inputs
+    system.normalizer = SimpleNamespace(build=lambda _trace: record_public_fixture_inputs(_trace, normalized))
     system.atomicizer = Atomicizer()
     system.skills = SkillRegistry(artifacts, database)
     system.tools = ToolRegistry(artifacts, database)

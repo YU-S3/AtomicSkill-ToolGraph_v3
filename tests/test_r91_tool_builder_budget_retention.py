@@ -904,7 +904,8 @@ def test_c04_c05_budget_exhaustion_preserves_prepared_sibling_and_continues(
     )
     monkeypatch.setattr(system_module, "ExtractorSession", _ThreeOccurrenceExtractor)
     normalized = _three_take_normalized()
-    system.normalizer = SimpleNamespace(build=lambda _trace: {**copy.deepcopy(normalized), "trace_id": _trace.trace_id})
+    from fixtures.typed_e1 import record_public_fixture_inputs
+    system.normalizer = SimpleNamespace(build=lambda _trace: record_public_fixture_inputs(_trace, {**copy.deepcopy(normalized), "trace_id": _trace.trace_id}))
     system.usage = factory.usage_ledger
     system.config = {
         "method_patch": "3.2",
@@ -1002,12 +1003,13 @@ def test_c14_d05_real_run_task_retains_budget_atomic_and_deployment_review(
             successful=True,
             task_rescue_required=True,
         )
+        from fixtures.typed_e1 import record_public_fixture_inputs
         system.normalizer = SimpleNamespace(
-            build=lambda _trace: {**copy.deepcopy(_normalized_take()), "trace_id": _trace.trace_id,
+            build=lambda _trace: record_public_fixture_inputs(_trace, {**copy.deepcopy(_normalized_take()), "trace_id": _trace.trace_id,
                 "source_task": {"task_id": task.task_id, "goal": task.goal,
                     "task_signature": task.metadata.get("task_signature", ""),
                     "benchmark": task.benchmark, "task_type": task.task_type,
-                    "context": copy.deepcopy(task.context), "metadata": copy.deepcopy(task.metadata)}}
+                    "context": copy.deepcopy(task.context), "metadata": copy.deepcopy(task.metadata)}})
         )
         system.extraction_policy.decide = lambda _trace: SimpleNamespace(
             should_extract=True,

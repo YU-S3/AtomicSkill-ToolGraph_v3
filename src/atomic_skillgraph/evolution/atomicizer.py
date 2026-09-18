@@ -494,6 +494,7 @@ def _input_authorities(
     selected_lineage: frozenset[str],
     support_indices: set[int],
     enforce_runtime_lineage: bool,
+    typed_boundary: bool,
 ) -> list[dict[str, Any]]:
     """Return only code-supplied E1 input authorities.
 
@@ -554,6 +555,8 @@ def _input_authorities(
         authority_kind = str(
             authority.get("kind", authority.get("source_kind", ""))
         ).casefold()
+        if typed_boundary and authority_kind in {"action_argument", "semantic_alias"}:
+            continue  # Historical post-action records are not typed entry certificates.
         if authority_kind in {"public_binding", "public_catalog"}:
             if authority.get("trace_id") != normalized_trace.get("trace_id"):
                 continue
@@ -1184,6 +1187,7 @@ class Atomicizer:
                 selected_lineage=lineage,
                 support_indices=support_indices,
                 enforce_runtime_lineage=current_e1_authority,
+                typed_boundary=typed_boundary and not self.legacy_source_replay,
             )
             supplied_input_refs = dict(
                 proposal.input_provenance_refs or {}
@@ -1224,6 +1228,14 @@ class Atomicizer:
                         )
                     authority = dict(matches[0])
                 else:
+                    if typed_boundary and not any(a.get('authority_ref') == ref for a in authorities):
+                        raw = [a for a in normalized_trace.get('boundary_authorities', {}).get('inputs', [])
+                               if a.get('authority_ref') == ref]
+                        if raw:
+                            raise ValueError(f"input authority ref not found in eligible scope: {ref}; "
+                                f"entry_revision={events[proposal.event_start]['before_revision']}, "
+                                f"available_revision={raw[0].get('available_revision')!r}, "
+                                f"kind={raw[0].get('kind')!r}, owner={raw[0].get('source_occurrence_id')!r}")
                     authority = _resolve_input_authority(
                         source_role, value, ref, authorities,
                         phase_id=proposal.phase_id,

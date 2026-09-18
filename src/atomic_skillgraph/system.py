@@ -3485,7 +3485,7 @@ class AtomicSkillGraphSystem:
         normalized = self.normalizer.build(trace)
         normalized["uncovered_event_ids"] = list(getattr(trace, "extraction_policy", {}).get("uncovered_event_ids", []))
         from .evolution.typed_boundary import public_value_authorities
-        normalized.setdefault("boundary_authorities", {}).setdefault("inputs", []).extend(public_value_authorities(trace))
+        normalized.setdefault("boundary_authorities", {})["inputs"] = public_value_authorities(trace)
         current_v32 = (
             str(normalized.get("semantic_authority_source", ""))
             == "validator_snapshot_v3_2"
@@ -3511,35 +3511,6 @@ class AtomicSkillGraphSystem:
             )
             for item in boundary_inputs
         }
-        for action in list(normalized.get("actions") or []):
-            if not isinstance(action, Mapping) or action.get("accepted") is not True:
-                continue
-            event_id = str(
-                action.get("event_id", action.get("action_id", ""))
-            )
-            if not event_id:
-                continue
-            for raw_role, value in dict(
-                action.get("arguments") or {}
-            ).items():
-                role = str(raw_role)
-                projected_authority = {
-                    "authority_ref": f"action_arg:{event_id}:{role}",
-                    "event_id": event_id,
-                    "argument_role": role,
-                    "kind": "action_argument",
-                    "source_kind": "action_argument",
-                    "role": role,
-                    "value": value,
-                }
-                identity = (
-                    projected_authority["authority_ref"],
-                    projected_authority["role"],
-                    repr(projected_authority["value"]),
-                )
-                if identity not in seen_boundary_inputs:
-                    seen_boundary_inputs.add(identity)
-                    boundary_inputs.append(projected_authority)
         runtime_trials = [
             trial
             for trial in list(

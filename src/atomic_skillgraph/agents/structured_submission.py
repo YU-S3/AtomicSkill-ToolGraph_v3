@@ -735,11 +735,11 @@ TOOL_PROPOSAL_SCHEMA: dict[str, Any] = {
                     "additionalProperties": False,
                     "properties": {
                         "constraint_id": NONEMPTY_STRING_SCHEMA,
-                        "kind": {"type": "string", "enum": ["argument_exists", "argument_concrete", "harness_affordance", "current_context", "custom_adapter"]},
+                        "kind": {"type": "string", "enum": ["argument_exists", "argument_concrete", "harness_affordance"]},
                         "action_type": {"type": "string"},
                         "argument_mapping": {"type": "object", "additionalProperties": BINDING_EXPRESSION_SCHEMA},
                         "required_resolution": {"type": "string", "enum": ["semantic", "concrete", "relation_verified"]},
-                        "verifier_id": {"type": "string"},
+                        "verifier_id": {"type": "string", "enum": [""]},
                     },
                 }},
             },

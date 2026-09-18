@@ -727,7 +727,7 @@ class FailurePlanAlignmentValidator:
         divergence_event = divergence.get("event_index")
         prefix_end = max((
             by_step[step_id].event_end or 0 for step_id in claimed_prefix
-        ), default=0)
+        ), default=0) if prefix_valid else 0
         divergence_after_prefix = (
             (not divergence_step or position.get(divergence_step, len(sequence)) >= len(claimed_prefix))
             and (divergence_event is None or int(divergence_event) >= prefix_end)

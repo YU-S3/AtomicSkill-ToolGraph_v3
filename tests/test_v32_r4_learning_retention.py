@@ -138,8 +138,9 @@ def _normalized_take(value: str = "apple_1") -> dict[str, Any]:
                 "authority_ref": "action_arg:e0:item",
                 "event_id": "e0",
                 "argument_role": "item",
-                "kind": "action_argument",
-                "source_kind": "action_argument",
+                "kind": "public_catalog",
+                "source_kind": "entity_concrete",
+                "trace_id": f"trace_{value}",
                 "role": "item",
                 "value": value,
                 "semantic_type": "entity", "resolution": "concrete", "available_revision": 0,
@@ -321,7 +322,8 @@ def _minimal_system(
     system._current_task_usage_start = 0
     system.mode = "online"
     system.readonly = False
-    system.normalizer = SimpleNamespace(build=lambda _trace: {**copy.deepcopy(normalized), "trace_id": _trace.trace_id})
+    from fixtures.typed_e1 import record_public_fixture_inputs
+    system.normalizer = SimpleNamespace(build=lambda _trace: record_public_fixture_inputs(_trace, {**copy.deepcopy(normalized), "trace_id": _trace.trace_id}))
     system.atomicizer = Atomicizer()
     database = StateDatabase(tmp_path / "state.sqlite3")
     artifacts = ArtifactStore(tmp_path, database)

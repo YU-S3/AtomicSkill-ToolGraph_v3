@@ -85,9 +85,47 @@ def test_semantic_argument_presence_does_not_satisfy_authored_evidence_requireme
         'constraint_id': 'author_requires_evidence', 'kind': 'argument_exists',
         'required_resolution': 'semantic',
         'argument_mapping': {'value': {'kind': 'skill_input', 'source_role': 'term'}}}]
-    result = check_tool_entry(tool, {'term': 'category'}, None, evidence, 0)
+    from atomic_skillgraph.harness.alfworld import AlfWorldAdapter
+    result = check_tool_entry(tool, {'term': 'category'}, object.__new__(AlfWorldAdapter), evidence, 0)
     assert not result.passed
     assert result.failure_codes == ['tool_entry_constraint_unsatisfied']
+
+
+@pytest.mark.parametrize('kind,verifier,allowed', [
+    ('argument_exists','',True),('argument_concrete','',True),('harness_affordance','',True),
+    ('current_context','agent.at_location',False),('custom_adapter','invented',False),
+    ('argument_exists','invented',False),
+])
+def test_formal_constraint_schema_static_and_runtime_agree(tmp_path,kind,verifier,allowed):
+    from atomic_skillgraph.agents.protocol import validate_schema_instance, SchemaValidationError
+    from atomic_skillgraph.agents.structured_submission import TOOL_PROPOSAL_SCHEMA
+    from atomic_skillgraph.harness.alfworld import AlfWorldAdapter
+    from atomic_skillgraph.tooling.entry_contract import check_tool_entry
+    from atomic_skillgraph.tooling.proposal import tool_proposal_from_dict
+    from test_r1021_i import source_case, author
+    from types import SimpleNamespace
+    system,ctx,provider,c,n=source_case(tmp_path)
+    try:
+        provider.choose=lambda r,_:author(r,create=True)
+        built,_=system._build_tool_for_occurrence(c,system._canonical_atomic_for_occurrence(c),n,ctx.trace_builder.trace,source_task=ctx.task)
+        constraint={'constraint_id':'authored','kind':kind,'verifier_id':verifier,
+            'action_type':'GO_TO','argument_mapping':{'destination':{'kind':'skill_input','source_role':'container'}}}
+        schema=TOOL_PROPOSAL_SCHEMA['properties']['entry_contract']['properties']['grounding_constraints']['items']
+        if allowed: validate_schema_instance(constraint,schema)
+        else:
+            with pytest.raises(SchemaValidationError): validate_schema_instance(constraint,schema)
+        harness=object.__new__(AlfWorldAdapter)
+        assert harness.supports_constraint(kind,verifier) is allowed
+        raw=author(provider.requests[-1],create=True)[1]
+        raw['entry_contract']['grounding_constraints']=[constraint]
+        system.harness.supports_constraint=harness.supports_constraint
+        static=system.tool_static_validator.validate_proposal(tool_proposal_from_dict(raw),built.atomic,system.harness)
+        assert ('tool_entry_constraint_unsupported' not in static.failure_codes) is allowed
+        store=GroundingEvidenceStore()
+        store.replace_action_catalog([HarnessActionSpec('go',0,'GO_TO',{'destination':'cabinet_1'},'go','go',{})],0)
+        tool=copy.deepcopy(built.tool);tool.interface['entry_contract']=raw['entry_contract']
+        assert check_tool_entry(tool,{'container':'cabinet_1'},harness,store,0).passed is allowed
+    finally: system.close()
 
 
 def test_L02_entry_contract_changes_executable_identity_and_failure_cache(tmp_path):
