@@ -80,7 +80,8 @@ def test_composite_keeps_runtime_gap_and_required_edges():
     with pytest.raises(ValueError,match='explicit DataFlow'):build()
 
 
-def test_native_learning_to_persisted_composite_and_runtime(tmp_path):
+@pytest.mark.parametrize('output_resolution', ['semantic', 'concrete'])
+def test_native_learning_to_persisted_composite_and_runtime(tmp_path, output_resolution):
     from test_r1021_i import source_case
     from test_r1021_final import raw_proposal
     from atomic_skillgraph.evolution.atomicizer import AtomicOccurrenceProposal
@@ -102,7 +103,9 @@ def test_native_learning_to_persisted_composite_and_runtime(tmp_path):
                 output_derivations={'result':{'kind':'input_identity','input_role':'target'}},
                 input_provenance_contract='code_authority_v3_2',boundary_schema_version='2',
                 input_specs=[ParameterSpec('target','entity',runtime_resolvable=True,required_resolution='concrete')],
-                output_specs=[ParameterSpec('result','entity',required_resolution='concrete')])
+                output_specs=[ParameterSpec('result','entity',required_resolution=output_resolution)],
+                output_semantic_constraints=({'result': {'compatible_with_input': 'target'}}
+                    if output_resolution == 'concrete' else {}))
             proposals.append(raw_proposal(p))
         bad=copy.deepcopy(proposals[0]);bad['phase_id']='bad';bad['input_provenance_refs']['target']['authority_ref']='forged'
         def choose(request,_):

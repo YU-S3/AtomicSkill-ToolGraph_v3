@@ -148,6 +148,9 @@ def _parameter(value: Mapping[str, Any]) -> ParameterSpec:
 
 
 def runtime_automation_draft_from_dict(value: Mapping[str, Any]) -> RuntimeAutomationAtomicDraft:
+    constraints = value.get("output_semantic_constraints", {})
+    if not isinstance(constraints, dict):
+        raise ValueError("output_semantic_constraints must be an object")
     return RuntimeAutomationAtomicDraft(
         draft_id=str(value["draft_id"]),
         intent=str(value["intent"]),
@@ -159,7 +162,7 @@ def runtime_automation_draft_from_dict(value: Mapping[str, Any]) -> RuntimeAutom
         source_occurrence_id=str(value.get("source_occurrence_id", "")),
         metadata=dict(value.get("metadata", {})),
         input_binding_specs=dict(value.get("input_binding_specs", {})),
-        output_semantic_constraints=dict(value.get("output_semantic_constraints", {})),
+        output_semantic_constraints=dict(constraints),
         guideline=dict(value.get("guideline", {})),
     )
 

@@ -60,6 +60,15 @@ def parameter_schema(parameters) -> dict:
         'required': [p.name for p in parameters if p.required], 'additionalProperties': False}
 
 
+def required_tool_parameters(signature):
+    """Existing JSON Schema required array with legacy property flags fallback."""
+    required = signature.get('required', [])
+    return set(required) if required else {
+        name for name, schema in signature.get('properties', {}).items()
+        if schema.get('required') is True
+    }
+
+
 def check_tool_entry(tool, arguments, harness, evidence_store, revision):
     """Pure admission for this actual Tool invocation, including serial steps."""
     from ..agents.protocol import validate_schema_instance, SchemaValidationError
@@ -68,6 +77,9 @@ def check_tool_entry(tool, arguments, harness, evidence_store, revision):
         entry = normalize_entry_contract(tool.interface.get('entry_contract'),
                                          tool.signature.get('properties', {}))
         validate_schema_instance(arguments, tool.signature)
+        missing = required_tool_parameters(tool.signature) - set(arguments)
+        if missing:
+            raise ValueError(f'missing required Tool parameters: {sorted(missing)}')
     except (KeyError, TypeError, ValueError, SchemaValidationError) as exc:
         return ValidationResult.fail('tool', 'tool_entry_contract_invalid', str(exc))
     # JSON persistence leaves typed references as dictionaries. Reconstruct the

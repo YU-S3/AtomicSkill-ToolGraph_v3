@@ -13,7 +13,7 @@ from ..core.serialization import to_primitive
 from ..core.errors import BudgetExhausted
 from ..traces.schema import ImplementationInvocationRecord, ValidationRecord
 from ..validation.engine import ValidationEngine
-from .invocation_compiler import CompiledInvocation
+from .invocation_compiler import CompiledInvocation, _tool_arguments
 from .tool_runner import ToolRunner
 
 
@@ -21,29 +21,6 @@ class ImplementationRunner:
     def __init__(self, validation: ValidationEngine) -> None:
         self.validation = validation
         self.tool_runner = ToolRunner(validation.tool)
-
-    def _tool_arguments(
-        self, mapping: dict[str, BindingExpression], atomic_values: dict[str, Any],
-        tool_outputs: dict[tuple[str, str], Any],
-    ) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for role, expression in mapping.items():
-            expression = BindingExpression.from_dict(expression)
-            if expression.kind is BindingExprKind.CONSTANT:
-                result[role] = expression.constant
-            elif expression.kind is BindingExprKind.SKILL_INPUT:
-                if expression.source_role not in atomic_values:
-                    raise KeyError(f"unresolved Atomic input {expression.source_role}")
-                result[role] = atomic_values[expression.source_role]
-            elif expression.kind is BindingExprKind.TOOL_OUTPUT:
-                result[role] = tool_outputs[(expression.source_step, expression.source_role)]
-            elif expression.kind in {BindingExprKind.DATA_FLOW, BindingExprKind.ADAPTER_TRANSFORM}:
-                if expression.source_role not in atomic_values:
-                    raise KeyError(f"unresolved mapped value {expression.source_role}")
-                result[role] = atomic_values[expression.source_role]
-            else:
-                raise ValueError(f"unsupported BindingExpression {expression.kind}")
-        return result
 
     def run(
         self, compiled: CompiledInvocation, preflight: ToolCallPreflightResult,
@@ -77,9 +54,13 @@ class ImplementationRunner:
                 break
             tool = tools_by_ref[str(binding.tool_ref)]
             try:
-                arguments = self._tool_arguments(binding.parameter_mapping, atomic_values, tool_outputs)
-            except (KeyError, TypeError, ValueError):
+                arguments = _tool_arguments(binding.parameter_mapping, atomic_values, tool_outputs, compiled.atomic, tool)
+            except (KeyError, TypeError, ValueError) as exc:
                 failure_layer, failure_code = "implementation", "implementation_mapping_error"
+                ctx.trace_builder.trace.validations.append(ValidationRecord(
+                    occurrence.occurrence_id, "implementation",
+                    {"passed": False, "failure_codes": [failure_code], "messages": [str(exc)]},
+                    ctx.world_revision))
                 break
             try:
                 result = self.tool_runner.run(

@@ -9,7 +9,7 @@ from ..core.refs import SkillRef, canonical_json
 from ..core.serialization import to_primitive
 from ..agents.structured_submission import StructuredSubmissionClient
 from .repair import RepairProposal
-from .typed_repairs import RepairEvidence, TypedRepairEngine
+from .typed_repairs import RepairEvidence, TypedRepairEngine, REPLACEMENT_SCHEMA, _atomic, _implementation
 
 
 ATOMIC_OPERATIONS = (
@@ -40,7 +40,7 @@ TYPED_REPAIR_DECISION_SCHEMA = {
                     "review_id": {"type": "string", "minLength": 1},
                     "decision": {"type": "string", "enum": ["no_change", "propose"]},
                     "operation": {"type": "string", "enum": ["no_change", *TYPED_OPERATIONS]},
-                    "replacements": {"type": "array", "items": {"type": "object"}},
+                    "replacements": {"type": "array", "items": REPLACEMENT_SCHEMA},
                     "rationale": {"type": "string", "minLength": 1},
                 },
             },
@@ -134,7 +134,10 @@ class TypedRepairProposalSession:
             "evidence does not justify an eligible operation. You may propose replacement "
             "artifact payloads only. Never invent, select, edit, or return evidence, cluster "
             "membership, target refs, or failure ids: code owns those fields and will replay, "
-            "validate, and admit every candidate.\n\nPOLICY_CONTEXT_JSON\n"
+            "validate, and admit every candidate. Each replacement requires its own ref "
+            "and the existing Atomic (summary) or Implementation (abstract_ref) structure. "
+            "replacement.ref is candidate identity, not permission to change target_refs; "
+            "the original revision/split/merge identity rules still apply.\n\nPOLICY_CONTEXT_JSON\n"
             + canonical_json({"reviews": [item.prompt_view() for item in reviews]}),
             tool_name="submit_typed_repair",
             description="Submit the evidence-bounded Atomic/Implementation repair decisions.",
@@ -149,16 +152,18 @@ class TypedRepairProposalSession:
         payload: Mapping[str, Any], reviews: Sequence[TypedRepairReview],
     ) -> list[TypedRepairDecision]:
         TypedRepairProposalSession._validate_reviews(reviews)
-        if set(payload) != {"decisions"} or not isinstance(payload["decisions"], list):
+        if not isinstance(payload, Mapping) or set(payload) != {"decisions"} or not isinstance(payload["decisions"], list):
             raise ValueError("typed repair response must contain only decisions[]")
         authority = {item.review_id: item for item in reviews}
         seen: set[str] = set()
         result: list[TypedRepairDecision] = []
         required_keys = {"review_id", "decision", "operation", "replacements", "rationale"}
-        for raw in payload["decisions"]:
+        for index, raw in enumerate(payload["decisions"]):
             if not isinstance(raw, Mapping) or set(raw) != required_keys:
                 raise ValueError("typed repair decision schema mismatch")
-            review_id = str(raw["review_id"])
+            if any(not isinstance(raw[key], str) for key in ("review_id", "decision", "operation", "rationale")):
+                raise ValueError(f"decisions[{index}]: decision text fields must be strings")
+            review_id = raw["review_id"]
             if review_id not in authority:
                 raise ValueError(f"unknown typed repair review: {review_id}")
             if review_id in seen:
@@ -181,6 +186,9 @@ class TypedRepairProposalSession:
                 expected_multiple = operation == "split_atomic"
                 if (expected_multiple and len(replacements) < 2) or (not expected_multiple and len(replacements) != 1):
                     raise ValueError("typed repair replacement cardinality invalid")
+                parser = _atomic if authority[review_id].target_layer == "atomic" else _implementation
+                for position, replacement in enumerate(replacements):
+                    parser(replacement, f"decisions[{index}].replacements[{position}]")
             result.append(TypedRepairDecision(
                 review_id, decision, operation,
                 tuple(dict(item) for item in replacements), rationale,

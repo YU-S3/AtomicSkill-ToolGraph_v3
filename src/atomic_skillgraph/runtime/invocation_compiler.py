@@ -23,7 +23,7 @@ from ..core.status import RuntimeMode, skill_status_usable, tool_status_usable
 from ..knowledge.skill_registry import SkillRegistry
 from ..knowledge.tool_registry import ToolRegistry
 from ..evolution.portability import contract_label, validate_portability
-from ..tooling.entry_contract import normalize_entry_contract, check_tool_entry
+from ..tooling.entry_contract import normalize_entry_contract, check_tool_entry, required_tool_parameters
 from .binding_store import RuntimeBindingStore
 from .evidence_store import GroundingEvidenceStore
 
@@ -42,6 +42,36 @@ class CompiledInvocation:
     atomic: AbstractAtomicSkill
     implementation: ImplementationAtom
     tools: list[ToolAsset]
+
+
+def _tool_arguments(mapping, atomic_values, tool_outputs, atomic, tool, *, first=False):
+    """Resolve explicit mappings; absence is allowed only at two optional ends."""
+    inputs = {p.name: p for p in atomic.inputs}
+    properties = tool.signature.get("properties", {})
+    required = required_tool_parameters(tool.signature)
+    result = {}
+    for role, raw in mapping.items():
+        expression = BindingExpression.from_dict(raw)
+        if role not in properties:
+            raise ValueError(f"unknown Tool parameter {role}")
+        if expression.kind is BindingExprKind.CONSTANT:
+            result[role] = expression.constant
+        elif expression.kind is BindingExprKind.SKILL_INPUT:
+            source = expression.source_role
+            if source not in inputs:
+                raise ValueError(f"unknown Atomic input {source} mapped to {role}")
+            if source not in atomic_values:
+                if not inputs[source].required and role not in required:
+                    continue
+                raise ValueError(f"missing Atomic input {source} mapped to {role}: source or target is required")
+            result[role] = atomic_values[source]
+        elif not first and expression.kind is BindingExprKind.TOOL_OUTPUT:
+            result[role] = tool_outputs[(expression.source_step, expression.source_role)]
+        elif not first and expression.kind in {BindingExprKind.DATA_FLOW, BindingExprKind.ADAPTER_TRANSFORM}:
+            result[role] = atomic_values[expression.source_role]
+        else:
+            raise ValueError(f"unresolved Tool parameter {role}: unsupported expression {expression.kind.value}")
+    return result
 
 
 class InvocationCompiler:
@@ -78,10 +108,8 @@ class InvocationCompiler:
             if tool is None or not tool_status_usable(tool.status, self.mode):
                 raise ValueError(f"Tool ref unavailable or unusable: {binding.tool_ref}")
             normalize_entry_contract(tool.interface.get('entry_contract'), tool.signature.get('properties', {}))
-            required = set(tool.signature.get("required", []))
+            required = required_tool_parameters(tool.signature)
             properties = tool.signature.get("properties", {})
-            if not required and isinstance(properties, dict):
-                required = {name for name, schema in properties.items() if schema.get("required") is True}
             missing = required - set(binding.parameter_mapping)
             if missing:
                 raise ValueError(f"Tool required arguments have no mapping: {sorted(missing)}")
@@ -599,14 +627,10 @@ class InvocationCompiler:
         tool = next((t for t in compiled.tools if t.ref == first.tool_ref), None)
         if tool is None:
             return fail('implementation', 'implementation_mapping_error', 'First Tool binding has no resolved Tool')
-        arguments = {}
-        for role, expression in first.parameter_mapping.items():
-            if expression.kind is BindingExprKind.CONSTANT:
-                arguments[role] = expression.constant
-            elif expression.kind is BindingExprKind.SKILL_INPUT and expression.source_role in values:
-                arguments[role] = values[expression.source_role]
-            else:
-                return fail('implementation', 'implementation_mapping_error', f'Unresolved first Tool parameter: {role}')
+        try:
+            arguments = _tool_arguments(first.parameter_mapping, values, {}, compiled.atomic, tool, first=True)
+        except (KeyError, TypeError, ValueError) as exc:
+            return fail('implementation', 'implementation_mapping_error', str(exc))
         entry = check_tool_entry(tool, arguments, self.harness, evidence_store, revision)
         if not entry.passed:
             return fail('tool', entry.failure_codes[0], '; '.join(entry.messages))

@@ -992,7 +992,9 @@ def test_normal_runtime_direct_repeat_commit_is_not_cold_start_only() -> None:
         spec,
         atomic,
         implementation,
-        [SimpleNamespace(ref=tool_ref)],
+        [SimpleNamespace(ref=tool_ref, signature={"properties": {
+            "object": {"type": "string"}, "destination": {"type": "string"}},
+            "required": ["object", "destination"]})],
     )
     occurrences = [
         RuntimeOccurrence(

@@ -146,6 +146,7 @@ def test_implementation_result_carries_atomic_validator_witnesses() -> None:
     runner.tool_runner.run = lambda *_args, **_kwargs: _successful_tool_result()
     atomic = SimpleNamespace(
         ref="atomic://locate@1.0.0",
+        inputs=[],
         outputs=[ParameterSpec("result", "entity")],
         validator_spec={"output_derivations": {"result": {"kind": "effect_witness"}}},
     )
@@ -166,7 +167,7 @@ def test_implementation_result_carries_atomic_validator_witnesses() -> None:
                 }
             },
         ),
-        tools=[SimpleNamespace(ref="tool://locate@1.0.0")],
+        tools=[SimpleNamespace(ref="tool://locate@1.0.0", signature={"properties": {}})],
     )
     ctx = SimpleNamespace(
         world_revision=7,

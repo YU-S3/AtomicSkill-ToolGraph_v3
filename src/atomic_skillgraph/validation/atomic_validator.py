@@ -86,11 +86,11 @@ class AtomicValidator:
             return ValidationResult("atomic", False, {}, ["atomic_output_schema_invalid"], [str(exc)])
         constraints = atomic.validator_spec.get("output_semantic_constraints", {})
         preferred_bindings = {}
+        try:
+            validate_output_semantic_constraints(atomic.inputs, atomic.outputs, constraints)
+        except ValueError as exc:
+            return ValidationResult("atomic", False, {}, ["atomic_output_semantic_constraint_invalid"], [str(exc)])
         if constraints:
-            try:
-                validate_output_semantic_constraints(atomic.inputs, atomic.outputs, constraints)
-            except ValueError as exc:
-                return ValidationResult("atomic", False, {}, ["atomic_output_semantic_constraint_invalid"], [str(exc)])
             input_specs = {p.name: p for p in atomic.inputs}
             for role, constraint in constraints.items():
                 source = constraint["compatible_with_input"]

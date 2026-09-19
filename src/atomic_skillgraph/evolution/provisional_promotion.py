@@ -348,7 +348,7 @@ class ProvisionalPromotionCompiler:
             input_provenance_contract='provisional_typed_v2',
             output_derivations=copy.deepcopy(dict(contract.get('validator_spec') or {}).get('output_derivations') or {
                 role: {'kind': 'input_identity', 'input_role': source} for role, source in identity.items()}),
-            output_semantic_constraints=copy.deepcopy(dict(contract.get('validator_spec') or {}).get('output_semantic_constraints') or {}),
+            output_semantic_constraints=copy.deepcopy(dict(contract.get('validator_spec') or {}).get('output_semantic_constraints', {})),
             preconditions=[
                 _predicate(item, all_bindings)
                 for item in contract.get("preconditions", ())

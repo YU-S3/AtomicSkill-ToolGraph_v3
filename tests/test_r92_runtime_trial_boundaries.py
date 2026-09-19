@@ -973,7 +973,8 @@ def test_runtime_trial_inputs_are_isolated_and_repeat_credit_is_excluded() -> No
         ),
         world_revision=1,
     )
-    tool = SimpleNamespace(ref="tool://trial@1.0.0")
+    tool = SimpleNamespace(ref="tool://trial@1.0.0", signature={
+        "properties": {"target": {"type": "string"}}, "required": ["target"]})
     tool_binding = SimpleNamespace(
         tool_ref=tool.ref,
         role="helper",
@@ -988,6 +989,7 @@ def test_runtime_trial_inputs_are_isolated_and_repeat_credit_is_excluded() -> No
     compiled = SimpleNamespace(
         atomic=SimpleNamespace(
             ref="skill://trial_atomic@1.0.0",
+            inputs=[SimpleNamespace(name="helper_target", required=True)],
             outputs=[],
             validator_spec={},
         ),

@@ -61,6 +61,11 @@ class SkillRegistry:
         self.database = database
 
     def register_atomic(self, artifact: AbstractAtomicSkill) -> None:
+        from ..tooling.proposal import validate_output_semantic_constraints
+        validate_output_semantic_constraints(
+            artifact.inputs, artifact.outputs,
+            artifact.validator_spec.get("output_semantic_constraints", {}),
+        )
         self.store.put("atomic", artifact)
 
     def register_implementation(self, artifact: ImplementationAtom) -> None:

@@ -9,6 +9,7 @@ from ..core.bindings import resolution_satisfies
 from ..core.semantic_types import semantic_types_compatible
 from ..core.serialization import json_values_equal, json_value_key, to_primitive
 from ..tooling.entry_contract import parameter_schema
+from ..tooling.proposal import validate_output_semantic_constraints
 from ..traces.canonical import canonical_trace_records
 
 
@@ -92,15 +93,7 @@ def validate_input_specs(proposal, authorities: dict, entry: dict):
         if not resolution_satisfies(actual_resolution, spec.required_resolution):
             raise ValueError(f"input authority resolution mismatch: {spec.name}; ref={authority.get('authority_ref')!r}, "
                              f"actual={actual_resolution!r}, required={spec.required_resolution!r}")
-    in_specs, out_specs = {p.name: p for p in inputs}, {p.name: p for p in outputs}
-    for role, constraint in proposal.output_semantic_constraints.items():
-        if (role not in out_specs or not isinstance(constraint, dict)
-                or set(constraint) != {"compatible_with_input"}
-                or constraint["compatible_with_input"] not in in_specs):
-            raise ValueError("invalid output semantic constraint roles")
-        source = in_specs[constraint["compatible_with_input"]]
-        if not semantic_types_compatible(source.semantic_type, out_specs[role].semantic_type):
-            raise ValueError("output semantic constraint type mismatch")
+    validate_output_semantic_constraints(inputs, outputs, proposal.output_semantic_constraints)
     return inputs, outputs
 
 

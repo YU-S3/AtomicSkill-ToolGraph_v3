@@ -19,6 +19,76 @@ from ..core.status import SkillStatus
 from ..knowledge.skill_registry import SkillRegistry
 from .repair import RepairProposal, RepairStore
 from .aligner import _atomic_signature
+from ..agents.protocol import validate_schema_instance
+from ..agents.structured_submission import (
+    SKILL_REF_SCHEMA, PARAMETER_SPEC_SCHEMA, PREDICATE_SCHEMA, BINDING_EXPRESSION_SCHEMA,
+)
+from ..tooling.proposal import validate_output_semantic_constraints
+
+
+_REF_SCHEMA = {"anyOf": [{"type": "string", "minLength": 1}, SKILL_REF_SCHEMA]}
+_TOOL_REF_SCHEMA = {"anyOf": [{"type": "string", "minLength": 1}, {
+    "type": "object", "required": ["tool_id", "version"], "additionalProperties": False,
+    "properties": {"tool_id": {"type": "string"}, "version": {"type": "string"}},
+}]}
+_PREDICATE_SCHEMA = {**PREDICATE_SCHEMA, "required": ["predicate"]}
+_MAPPING_SCHEMA = {"type": "object", "additionalProperties": BINDING_EXPRESSION_SCHEMA}
+_TOOL_BINDING_SCHEMA = {
+    "type": "object", "required": ["tool_ref", "role", "parameter_mapping"],
+    "additionalProperties": False, "properties": {
+        "tool_ref": _TOOL_REF_SCHEMA, "role": {"type": "string"},
+        "parameter_mapping": _MAPPING_SCHEMA, "order": {"type": "integer"},
+    },
+}
+_CONSTRAINT_SCHEMA = {
+    "type": "object", "required": ["constraint_id", "kind"], "additionalProperties": False,
+    "properties": {
+        "constraint_id": {"type": "string"},
+        "kind": {"type": "string", "enum": ["argument_exists", "argument_concrete", "harness_affordance", "current_context", "custom_adapter"]},
+        "action_type": {"type": "string"}, "argument_mapping": _MAPPING_SCHEMA,
+        "required_resolution": {"type": "string", "enum": ["semantic", "concrete", "relation_verified"]},
+        "verifier_id": {"type": "string"},
+    },
+}
+REPLACEMENT_SCHEMA = {
+    "type": "object", "required": ["ref"], "properties": {
+        "ref": _REF_SCHEMA, "abstract_ref": _REF_SCHEMA, "summary": {"type": "string"},
+        **{key: {"type": "array", "items": PARAMETER_SPEC_SCHEMA} for key in ("inputs", "outputs")},
+        **{key: {"type": "array", "items": _PREDICATE_SCHEMA} for key in ("preconditions", "effects")},
+        **{key: {"type": "object"} for key in ("validator_spec", "guideline", "metadata", "execution_policy", "compatibility", "quality")},
+        "failure_modes": {"type": "array", "items": {"type": "object"}},
+        "status": {"type": "string", "enum": [item.value for item in SkillStatus]},
+        "tool_bindings": {"type": "array", "items": _TOOL_BINDING_SCHEMA},
+        "grounding_constraints": {"type": "array", "items": _CONSTRAINT_SCHEMA},
+        "execution_policy": {"type": "object", "properties": {
+            "mode": {"type": "string"}, "output_mapping": _MAPPING_SCHEMA,
+        }},
+    },
+}
+
+
+def _checked(value, schema, path):
+    if isinstance(value, Mapping):
+        value = dict(value)
+    validate_schema_instance(value, schema, path=path)
+    return value
+
+
+def _reference(value, path):
+    _checked(value, _REF_SCHEMA, path)
+    try:
+        return SkillRef.from_dict(value) if isinstance(value, dict) else SkillRef.parse(value)
+    except ValueError as exc:
+        raise ValueError(f"{path}: {exc}") from exc
+
+
+def _expressions(mapping, path):
+    _checked(mapping, _MAPPING_SCHEMA, path)
+    for role, raw in mapping.items():
+        try:
+            BindingExpression.from_dict(raw)
+        except ValueError as exc:
+            raise ValueError(f"{path}.{role}: {exc}") from exc
 
 
 Artifact: TypeAlias = AbstractAtomicSkill | ImplementationAtom
@@ -103,14 +173,19 @@ class TypedRepairResult:
     lineage: tuple[LineageRecord, ...] = ()
 
 
-def _predicate(value: SemanticPredicate | Mapping[str, Any]) -> SemanticPredicate:
+def _predicate(value: SemanticPredicate | Mapping[str, Any], path="predicate") -> SemanticPredicate:
     if isinstance(value, SemanticPredicate):
         return value
-    args = {
-        str(key): BindingExpression.from_dict(item)
-        if isinstance(item, dict) and "kind" in item else item
-        for key, item in dict(value.get("args") or {}).items()
-    }
+    value = _checked(value, _PREDICATE_SCHEMA, path)
+    args = {}
+    for key, item in value.get("args", {}).items():
+        if isinstance(item, dict) and "kind" in item:
+            _checked(item, BINDING_EXPRESSION_SCHEMA, f"{path}.args.{key}")
+            try:
+                item = BindingExpression.from_dict(item)
+            except ValueError as exc:
+                raise ValueError(f"{path}.args.{key}: {exc}") from exc
+        args[key] = item
     return SemanticPredicate(
         predicate=str(value["predicate"]),
         args=args,
@@ -120,35 +195,45 @@ def _predicate(value: SemanticPredicate | Mapping[str, Any]) -> SemanticPredicat
     )
 
 
-def _parameter(value: ParameterSpec | Mapping[str, Any]) -> ParameterSpec:
-    return value if isinstance(value, ParameterSpec) else ParameterSpec(**dict(value))
+def _parameter(value: ParameterSpec | Mapping[str, Any], path="parameter") -> ParameterSpec:
+    return value if isinstance(value, ParameterSpec) else ParameterSpec(**_checked(value, PARAMETER_SPEC_SCHEMA, path))
 
 
-def _atomic(value: AbstractAtomicSkill | Mapping[str, Any]) -> AbstractAtomicSkill:
+def _atomic(value: AbstractAtomicSkill | Mapping[str, Any], path="replacement") -> AbstractAtomicSkill:
     if isinstance(value, AbstractAtomicSkill):
+        validate_output_semantic_constraints(value.inputs, value.outputs,
+            value.validator_spec.get("output_semantic_constraints", {}))
         return value
-    ref = SkillRef.from_dict(dict(value["ref"])) if isinstance(value["ref"], dict) else SkillRef.parse(value["ref"])
-    return AbstractAtomicSkill(
+    value = _checked(value, {**REPLACEMENT_SCHEMA, "required": ["ref", "summary"]}, path)
+    ref = _reference(value["ref"], f"{path}.ref")
+    atomic = AbstractAtomicSkill(
         ref=ref,
-        summary=str(value["summary"]),
-        inputs=[_parameter(item) for item in value.get("inputs", ())],
-        outputs=[_parameter(item) for item in value.get("outputs", ())],
-        preconditions=[_predicate(item) for item in value.get("preconditions", ())],
-        effects=[_predicate(item) for item in value.get("effects", ())],
+        summary=value["summary"],
+        inputs=[_parameter(item, f"{path}.inputs[{i}]") for i, item in enumerate(value.get("inputs", ()))],
+        outputs=[_parameter(item, f"{path}.outputs[{i}]") for i, item in enumerate(value.get("outputs", ()))],
+        preconditions=[_predicate(item, f"{path}.preconditions[{i}]") for i, item in enumerate(value.get("preconditions", ()))],
+        effects=[_predicate(item, f"{path}.effects[{i}]") for i, item in enumerate(value.get("effects", ()))],
         validator_spec=dict(value.get("validator_spec") or {}),
         failure_modes=[dict(item) for item in value.get("failure_modes", ())],
         guideline=dict(value.get("guideline") or {}),
         metadata=dict(value.get("metadata") or {}),
         status=SkillStatus(value.get("status", SkillStatus.DRAFT)),
     )
+    validate_output_semantic_constraints(atomic.inputs, atomic.outputs,
+        atomic.validator_spec.get("output_semantic_constraints", {}))
+    return atomic
 
 
-def _implementation(value: ImplementationAtom | Mapping[str, Any]) -> ImplementationAtom:
+def _implementation(value: ImplementationAtom | Mapping[str, Any], path="replacement") -> ImplementationAtom:
     if isinstance(value, ImplementationAtom):
         return value
-    ref = SkillRef.from_dict(dict(value["ref"])) if isinstance(value["ref"], dict) else SkillRef.parse(value["ref"])
-    abstract = value["abstract_ref"]
-    abstract_ref = SkillRef.from_dict(dict(abstract)) if isinstance(abstract, dict) else SkillRef.parse(abstract)
+    value = _checked(value, {**REPLACEMENT_SCHEMA, "required": ["ref", "abstract_ref"]}, path)
+    ref = _reference(value["ref"], f"{path}.ref")
+    abstract_ref = _reference(value["abstract_ref"], f"{path}.abstract_ref")
+    for field, key in (("tool_bindings", "parameter_mapping"), ("grounding_constraints", "argument_mapping")):
+        for index, item in enumerate(value.get(field, [])):
+            _expressions(item.get(key, {}), f"{path}.{field}[{index}].{key}")
+    _expressions(value.get("execution_policy", {}).get("output_mapping", {}), f"{path}.execution_policy.output_mapping")
     return ImplementationAtom(
         ref=ref,
         abstract_ref=abstract_ref,
@@ -293,7 +378,7 @@ class TypedRepairEngine:
         if not refs:
             raise ValueError("typed repair requires target refs")
         if operation in {"revise_atomic_contract", "split_atomic", "merge_atomic"}:
-            candidates = [_atomic(item) for item in replacements]
+            candidates = [_atomic(item, f"replacements[{i}]") for i, item in enumerate(replacements)]
             if operation == "revise_atomic_contract":
                 if len(refs) != 1 or len(candidates) != 1:
                     raise ValueError("Atomic revise requires one target and replacement")
@@ -312,7 +397,7 @@ class TypedRepairEngine:
                 refs, candidates[0], evidence, source_failure_ids,
             )
 
-        candidates = [_implementation(item) for item in replacements]
+        candidates = [_implementation(item, f"replacements[{i}]") for i, item in enumerate(replacements)]
         if len(refs) != 1 or len(candidates) != 1:
             raise ValueError("Implementation repair requires one target and replacement")
         if operation == "revise_implementation_mapping":

@@ -585,6 +585,9 @@ class AtomicContractCanonicalizer:
         output_role_map: Mapping[str, str] | None = None,
         atomic_ref: SkillRef | None = None,
     ) -> CanonicalizedAtomicBundle:
+        from ..tooling.proposal import validate_output_semantic_constraints
+        validate_output_semantic_constraints(atomic.inputs, atomic.outputs,
+            atomic.validator_spec.get("output_semantic_constraints", {}))
         input_roles = dict(input_role_map or _boundary_role_map(
             atomic, atomic.inputs, "input",
         ))
@@ -617,6 +620,8 @@ class AtomicContractCanonicalizer:
                 output_roles,
             ),
         )
+        validate_output_semantic_constraints(canonical_atomic.inputs, canonical_atomic.outputs,
+            canonical_atomic.validator_spec.get("output_semantic_constraints", {}))
         canonical_tool = (
             None
             if tool is None

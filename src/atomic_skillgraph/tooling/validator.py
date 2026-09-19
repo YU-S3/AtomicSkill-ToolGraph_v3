@@ -1525,6 +1525,12 @@ class ToolStaticValidator:
             return ToolStaticReport(False, {"tool_entry_contract": False},
                                     ["tool_entry_contract_invalid"], [str(exc)], {})
         checks["tool_entry_contract"] = True
+        try:
+            validate_output_semantic_constraints(atomic.inputs, atomic.outputs,
+                atomic.validator_spec.get("output_semantic_constraints", {}))
+        except ValueError as exc:
+            return ToolStaticReport(False, {"atomic_output_contract": False},
+                                    ["atomic_output_semantic_constraint_invalid"], [str(exc)], {})
         if proposal.decision == "no_tool":
             checks["no_tool"] = True
             return ToolStaticReport(True, checks, [], ["NO_TOOL"], {})

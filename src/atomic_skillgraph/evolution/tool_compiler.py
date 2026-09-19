@@ -292,6 +292,9 @@ class ToolCompiler:
         the persistent artifact envelope.
         """
 
+        from ..tooling.proposal import validate_output_semantic_constraints
+        validate_output_semantic_constraints(atomic.inputs, atomic.outputs,
+            atomic.validator_spec.get("output_semantic_constraints", {}))
         if proposal.decision == "no_tool":
             return CompiledKnowledge(occurrence, atomic, None, None)
         if not proposal.program:

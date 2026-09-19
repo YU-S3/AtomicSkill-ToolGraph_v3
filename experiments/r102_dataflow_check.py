@@ -39,14 +39,16 @@ def contracts():
     producer = AbstractAtomicSkill(SkillRef('r102_t1_reach', '1.0.0'), 'Reach the supplied destination',
         [param('destination')], [param('object'), param('location')], [],
         [SemanticPredicate('agent.at_location', {'location': '$destination'})],
-        {'output_derivations': {role: {'kind': 'input_identity', 'input_role': 'destination'} for role in ('object', 'location')}},
+        {'output_derivations': {role: {'kind': 'input_identity', 'input_role': 'destination'} for role in ('object', 'location')},
+         'output_semantic_constraints': {role: {'compatible_with_input': 'destination'} for role in ('object','location')}},
         [], {'steps': ['Move to the supplied destination and return its verified identity.'], 'notes': []},
         {'acceptance_fixture': True}, SkillStatus.ACTIVE)
     consumer = AbstractAtomicSkill(SkillRef('r102_t1_observe', '1.0.0'), 'Examine the supplied entity at the supplied current location',
-        [param('object'), param('location')], [param('observed')],
+        [param('object'), param('location'), ParameterSpec('hint', 'entity', required=False)], [param('observed')],
         [SemanticPredicate('agent.at_location', {'location': '$location'})],
         [SemanticPredicate('object.observed', {'object': '$object'}, effect_domain='evidence')],
-        {'output_derivations': {'observed': {'kind': 'input_identity', 'input_role': 'object'}}},
+        {'output_derivations': {'observed': {'kind': 'input_identity', 'input_role': 'object'}},
+         'output_semantic_constraints': {'observed': {'compatible_with_input': 'object'}}},
         [], {'steps': ['At the supplied location, examine the supplied entity.'], 'notes': []},
         {'acceptance_fixture': True}, SkillStatus.ACTIVE)
     return producer, consumer
@@ -179,6 +181,15 @@ def run(config_path, output, *, fixture_programs=False):
                 for role, value in result.validated_outputs.items():
                     ctx.evidence_store.add_validated_tool_output(role, value, refs,
                         certified_binding=result.validated_output_bindings[role], occurrence_id=occurrence.occurrence_id)
+            # A single bounded real-service schema check in the same diagnostic
+            # run. Empty evidence cannot justify a semantic edit; none is applied.
+            from atomic_skillgraph.evolution.typed_repair_session import TypedRepairProposalSession, TypedRepairReview
+            review = TypedRepairReview('schema_check', 'atomic', (str(second.atomic.ref),),
+                ('revise_atomic_contract',), {'source': to_primitive(second.atomic)}, ())
+            typed_session = TypedRepairProposalSession(system._evolution_repair_session('schema_check'))
+            decisions = typed_session.propose([review])
+            typed_session.build_proposals(decisions, [review])
+            trace.metadata['typed_repair_schema_check'] = to_primitive(decisions)
             system._attach_external_sessions(trace, system._observed_sessions)
             trace.llm_usage = [event.to_dict() for event in system.usage.events]
             trace.metadata['usage_reconciliation'] = _reconcile_events(system.usage.events)

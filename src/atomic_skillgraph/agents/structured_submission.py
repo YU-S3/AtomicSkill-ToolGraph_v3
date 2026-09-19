@@ -14,7 +14,7 @@ from typing import Any
 
 from ..core.errors import AgentProtocolError, FailureLayer
 from ..tooling.ir import CONDITION_OPERATORS, CONDITION_SOURCES
-from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS
+from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS, OUTPUT_SEMANTIC_CONSTRAINT_RULES
 from .protocol import (
     AgentSession,
     AgentTurn,
@@ -94,6 +94,7 @@ PARAMETER_SPEC_SCHEMA: dict[str, Any] = {
         "required_resolution": {
             "type": "string",
             "enum": ["semantic", "concrete", "relation_verified"],
+            "description": OUTPUT_SEMANTIC_CONSTRAINT_RULES,
         },
         "description": {"type": "string"},
     },
