@@ -27,6 +27,9 @@ for SEED in 43 44; do
   RUN="$BATCH/seed$SEED"
   git clone --quiet --no-hardlinks --single-branch --branch main "$REPO" "$RUN"
   mkdir "$RUN/.tmp"
+done
+for SEED in 43 44; do
+  RUN="$BATCH/seed$SEED"
   (
     cd "$RUN"
     export PYTHONPATH="$PWD/src:$PWD" PYTHONUNBUFFERED=1 TMPDIR="$PWD/.tmp"
