@@ -186,8 +186,11 @@ def build_occurrence_replay_case(
 class ToolCompiler:
     def compile(self, occurrences: list[CanonicalAtomicOccurrence], *, entry_contracts=None) -> list[CompiledKnowledge]:
         """Compile source-replay artifacts; deployment requires an authored entry contract."""
+        from ..tooling.proposal import validate_output_semantic_constraints
         result: list[CompiledKnowledge] = []
         for occurrence in occurrences:
+            validate_output_semantic_constraints(occurrence.input_specs, occurrence.output_specs,
+                occurrence.output_semantic_constraints)
             output_identity: list[dict[str, str]] = []
             for output_role, value in sorted(occurrence.output_bindings.items()):
                 input_role = _role_for_value(value, occurrence.input_bindings)
@@ -206,6 +209,8 @@ class ToolCompiler:
                     "validator_id": "harness_atomic_effect",
                     "identity_strict": True,
                     "output_identity": output_identity,
+                    **({"output_semantic_constraints": copy.deepcopy(occurrence.output_semantic_constraints)}
+                       if occurrence.output_semantic_constraints else {}),
                 }, [],
                 dict(occurrence.guideline),
                 {"source_trace_ids": [occurrence.source_trace_id]}, SkillStatus.DRAFT,

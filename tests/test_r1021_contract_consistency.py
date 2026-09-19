@@ -135,6 +135,22 @@ def test_C5_untrusted_replacement_is_content_error(edit,path):
         with pytest.raises(ValueError,match=path): call()
 
 
+def test_C1_source_replay_compiler_preserves_authored_constraints():
+    from test_evolution_guards import _take_canonical
+    from atomic_skillgraph.evolution.tool_compiler import ToolCompiler
+    source = _take_canonical()
+    constraint = {source.output_specs[0].name: {'compatible_with_input':source.input_specs[0].name}}
+    source.output_semantic_constraints = constraint
+    for resolution, valid in [('semantic',False),('concrete',True)]:
+        source.input_specs = [replace(p,semantic_type='entity',required_resolution=resolution) for p in source.input_specs]
+        source.output_specs = [replace(p,required_resolution=resolution) for p in source.output_specs]
+        if valid:
+            compiled, = ToolCompiler().compile([source])
+            assert compiled.atomic.validator_spec['output_semantic_constraints'] == constraint
+        else:
+            with pytest.raises(ValueError,match='concrete'): ToolCompiler().compile([source])
+
+
 @pytest.mark.parametrize('internal_fault', [False, True])
 def test_C6_real_run_task_maintenance_and_runner_commit(tmp_path, monkeypatch, internal_fault):
     """Fixture selection only; run_task, validators, ledger and runner stay real."""
