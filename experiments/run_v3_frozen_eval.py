@@ -72,7 +72,9 @@ _R9_FROZEN_EVAL_RUN_SEEDS = {
     "alfworld_frozen_eval_134_r9_seed44": 44,
 }
 _R10_FROZEN_EVAL_RUN_SEEDS = {"alfworld_frozen_eval_134_r10_seed42": 42}
-_R1021_FROZEN_EVAL_RUN_SEEDS = {"alfworld_frozen_eval_134_r1021_seed42": 42}
+_R1021_FROZEN_EVAL_RUN_SEEDS = {
+    f"alfworld_frozen_eval_134_r1021_seed{seed}": seed for seed in (42, 43, 44)
+}
 _R92_FROZEN_EVAL_RUN_SEEDS = {
     "alfworld_frozen_eval_134_r92_seed42": 42,
 }

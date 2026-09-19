@@ -33,6 +33,7 @@ for SEED in 43 44; do
   (
     cd "$RUN"
     export PYTHONPATH="$PWD/src:$PWD" PYTHONUNBUFFERED=1 TMPDIR="$PWD/.tmp"
+    "$ASG_PY" -m experiments.check_r1021_launch --seed "$SEED"
     "$ASG_PY" -m experiments.run_v3_smoke --provider-probe --config "configs/alfworld_train_full_120_r1021_seed${SEED}.yaml"
   ) >"$RUN/provider_probe.log" 2>&1 &
   PROBE_PIDS+=("$!")

@@ -77,7 +77,9 @@ _R92_TRAIN_RUN_SEEDS = {
     "alfworld_train_full_120_r92_seed42": 42,
 }
 _R10_TRAIN_RUN_SEEDS = {"alfworld_train_full_120_r10_seed42": 42}
-_R1021_TRAIN_RUN_SEEDS = {"alfworld_train_full_120_r1021_seed42": 42}
+_R1021_TRAIN_RUN_SEEDS = {
+    f"alfworld_train_full_120_r1021_seed{seed}": seed for seed in (42, 43, 44)
+}
 _R7_TRAIN_REFERENCE_PATH = Path("data/baseline_manifests/train_120.json")
 _R7_TRAIN_REFERENCE_ID = "train_120"
 
