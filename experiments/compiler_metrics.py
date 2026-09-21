@@ -13,6 +13,42 @@ def ratio(n, d):
     return n / d if d else None
 
 
+def _runtime_requests(trace):
+    # Exact producer types, also used by report._session_bucket_map. Steps
+    # provide the execution link; types catch interrupted/legacy sessions.
+    runtime_types = {'RuntimePreparationSession', 'SeededSession', 'DynamicTaskSession',
+                     'ProvisionalSeededSession', 'DynamicColdStartContinuationSession',
+                     'ColdStartDynamicContinuationSession'}
+    sessions = trace.get('agent_sessions', [])
+    ids = {s['session_id'] for s in trace.get('metadata', {}).get('runtime_steps', [])}
+    ids.update(s['session_id'] for s in sessions if s.get('session_type') in runtime_types)
+    missing, requests = set(), {}
+    for session_id in sorted(ids):
+        records = [s for s in sessions if s['session_id'] == session_id]
+        if not records:
+            missing.add(f'{session_id}:runtime_session_missing')
+        for session in records:
+            if session.get('session_type') not in runtime_types:
+                missing.add(f'{session_id}:runtime_session_type_mismatch')
+            audits = (session.get('snapshot') or {}).get('runtime_request_context_audits')
+            if not isinstance(audits, list):
+                missing.add(f'{session_id}:runtime_request_audits_missing')
+                continue
+            for audit in audits:
+                sequence, repair = audit.get('request_sequence'), audit.get('repair_in_progress')
+                if type(sequence) is not int or type(repair) is not bool:
+                    missing.add(f'{session_id}:runtime_request_audit_invalid')
+                    continue
+                key = (session_id, sequence)
+                if key in requests and requests[key] != repair:
+                    missing.add(f'{session_id}:runtime_request_audit_conflict')
+                requests[key] = repair
+    return dict(residual_runtime_decisions=None if missing else sum(not v for v in requests.values()),
+                runtime_protocol_repairs=None if missing else sum(requests.values()),
+                runtime_request_capture_status='partial' if missing else 'complete',
+                runtime_request_missing_reasons=sorted(missing))
+
+
 def trace_metrics(trace):
     t = to_primitive(trace)
     if not isinstance(t, dict):
@@ -40,16 +76,7 @@ def trace_metrics(trace):
         completed=len({p['implementation_attempt_id'] for p in non_source if p['complete_success']}),
         consumed=len({p['implementation_attempt_id'] for p in non_source if p['implementation_attempt_id'] in consumed_producers}))
         if source_known else None)
-    runtime_requests, repairs = [], []
-    runtime_sessions = [s for s in t.get('agent_sessions', []) if s.get('session_type', '').startswith('runtime')]
-    observed_sessions = True
-    for session in runtime_sessions:
-        audits = session.get('snapshot', {}).get('runtime_request_context_audits')
-        if audits is None:
-            observed_sessions = False
-            continue
-        for a in audits:
-            (repairs if a['repair_in_progress'] else runtime_requests).append((session['session_id'], a['request_sequence']))
+    runtime_requests = _runtime_requests(t)
     buckets = Counter(u.get('bucket', 'unknown') for u in t.get('llm_usage', []))
     compilation = obs['compilation']
     rollback = t.get('metadata', {}).get('runtime_rollbacks', [])
@@ -72,8 +99,7 @@ def trace_metrics(trace):
         llm_free_complete_successors_by_origin=dict(Counter(next((p.get('evidence_origin','unknown') for p in links
             if p['implementation_attempt_id']==e['selected_invocation_attempt_id']),'unknown') for e in free)),
         entry_outcomes=dict(Counter(e['outcome'] for e in entries)),
-        residual_runtime_decisions=len(set(runtime_requests)) if observed_sessions else None,
-        runtime_protocol_repairs=len(set(repairs)) if observed_sessions else None,
+        **runtime_requests,
         provider_http_attempts=len(t.get('provider_requests', [])),
         unknown_usage_attempts=sum(r.get('usage_status') != 'reported' for r in t.get('provider_requests', [])),
         logical_calls_by_bucket=dict(buckets),

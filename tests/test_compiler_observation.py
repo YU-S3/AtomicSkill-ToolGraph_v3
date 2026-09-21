@@ -142,6 +142,86 @@ def test_CM05_roundtrip_old_trace_unknown_and_readonly_bank(tmp_path):
     finally: system.close()
 
 
+@pytest.mark.parametrize('entry', ['transaction', 'direct', 'runtime_trial'])
+@pytest.mark.parametrize('update,consumed', [('unchanged', True), ('recertified', False),
+                                           ('overwritten', False), ('identical', True)])
+def test_CM04_effective_preflight_lineage_and_execution_invariance(tmp_path, monkeypatch, entry, update, consumed):
+    from experiments.r10_world_checks import install_fixture
+    from atomic_skillgraph.core.bindings import (BindingExpression, BindingExprKind, RuntimeBinding,
+                                                BindingSource, BindingStatus, BindingResolution)
+    from atomic_skillgraph.core.contracts import SemanticPredicate
+    from atomic_skillgraph.core.edges import GraphEdge, GraphEdgeType
+    from atomic_skillgraph.core.results import RuntimeOccurrence
+    from atomic_skillgraph.runtime.invocation_transaction import execute_invocation
+    from atomic_skillgraph.runtime.implementation_runner import ImplementationRunner
+    records = []
+    for enabled in (False, True):
+        ids = iter(range(1, 10000))
+        monkeypatch.setattr(uuid, 'uuid4', lambda: uuid.UUID(int=next(ids)))
+        system, ctx, _, _, provider = setup(tmp_path/str(enabled), lambda *a: pytest.fail('unexpected model call'))
+        try:
+            role = BindingExpression(BindingExprKind.SKILL_INPUT, source_role='target')
+            atomic, impl = install_fixture(system, 'move_test', [],
+                [SemanticPredicate('agent.at_location', {'location': role})], [('GO_TO', 'destination')],
+                source_target='countertop_1')
+            occ = RuntimeOccurrence('move_test', 'move_test', atomic.ref, [], {}, [impl.ref], atomic.effects)
+            producer = replace(occ, occurrence_id='producer', step_id='producer')
+            ctx.plan.occurrences.extend([producer, occ])
+            ctx.plan.data_edges = [GraphEdge('flow', GraphEdgeType.DATA_FLOW, 'producer', occ.step_id,
+                                            source_role='value', target_role='target')]
+            ctx.begin_occurrence(occ); ctx.budget.begin_node(occ.occurrence_id)
+            binding = RuntimeBinding('value', 'countertop_1', 'entity', BindingSource.TOOL_OUTPUT,
+                BindingStatus.GROUNDED, BindingResolution.CONCRETE, ['witness'], ctx.world_revision)
+            ctx.binding_store.publish_validated_outputs('producer', {'value': binding.value}, ['witness'],
+                ctx.world_revision, certified_bindings={'value': binding})
+            ctx.binding_store.apply_data_flow(ctx.plan, occ.step_id, revision=ctx.world_revision)
+            original = ctx.binding_store.snapshot_for_node(occ)['target']
+            compiled = system.invocation_compiler.compile_candidates(occ, ctx.binding_store, task_id=ctx.task_id)[0]
+            # Certify the alternate input in a fresh scope. The normal Agent
+            # path must still reject replacing a concrete DATA_FLOW anchor;
+            # this case tests the transaction's already-certified update only.
+            certification_scope = replace(occ, occurrence_id='fresh_scope') if update == 'overwritten' else occ
+            preflight = system.invocation_compiler.preflight(compiled,
+                call_name=compiled.spec.name, call_id='controlled',
+                arguments={'target': 'countertop_2' if update == 'overwritten' else 'countertop_1'},
+                occurrence=certification_scope, binding_store=ctx.binding_store, evidence_store=ctx.evidence_store,
+                revision=ctx.world_revision, arguments_are_agent_proposals=update in {'recertified', 'overwritten'})
+            assert preflight.passed, preflight
+            if update == 'identical':
+                preflight = replace(preflight, binding_updates=[original])
+            elif update == 'unchanged':
+                assert preflight.binding_updates == [original]
+                # Registered runners can retain the already committed input;
+                # trial requires its certified inputs in the preflight itself.
+                if entry != 'runtime_trial':
+                    preflight = replace(preflight, binding_updates=[])
+            else:
+                assert preflight.binding_updates[0].source == BindingSource.HARNESS_EVIDENCE
+            if enabled:
+                observe(ctx, system, provider)
+            runner = ImplementationRunner(system.validation)
+            if entry == 'transaction':
+                result = execute_invocation(runner, compiled, preflight, occ, ctx, agent_prepared=True)
+            else:
+                result = runner.run(compiled, preflight, occ, ctx, agent_prepared=True,
+                                    execution_scope='runtime_trial' if entry == 'runtime_trial' else 'registered')
+            assert result.started and result.completed and result.atomic_effect_passed, result
+            trace = ctx.trace_builder.trace
+            if enabled:
+                rows = trace.metadata['compiler_observability']['dataflow_consumptions']
+                assert bool(rows) == consumed
+                if rows:
+                    assert rows[0]['edge_id'] == 'flow'
+                    assert rows[0]['consumer_invocation_id'] == trace.implementation_invocations[0].attempt_id
+            records.append(to_primitive(dict(requests=provider.requests, preflight=preflight,
+                actions=trace.environment_actions, validations=trace.validations,
+                invocations=trace.implementation_invocations, result=result,
+                usage=[e.to_dict() for e in system.usage.events], world=ctx.harness._runtime_state_digest())))
+        finally:
+            system.close()
+    assert records[0] == records[1]
+
+
 def test_CM06_all_task_denominator_and_no_duplicate_cost_or_replay_deployment(tmp_path):
     from experiments.report import trace_to_row, summarize_traces
     system,ctx,occ,inv,p=setup(tmp_path,lambda r,n:action(r,'GO_TO',destination='cabinet_1'))
@@ -152,6 +232,8 @@ def test_CM06_all_task_denominator_and_no_duplicate_cost_or_replay_deployment(tm
         t.llm_usage=[e.to_dict() for e in system.usage.events]
         finalize(t)
         row=trace_to_row(t)
+        assert row['compiler_diagnostics']['residual_runtime_decisions'] == 1
+        assert row['compiler_diagnostics']['runtime_protocol_repairs'] == 0
         old=to_primitive(t);old['metadata'].pop('compiler_observability');old['trace_id']='other'
         oldrow=trace_to_row(old)
         summary=summarize_traces([row,oldrow])
@@ -162,3 +244,35 @@ def test_CM06_all_task_denominator_and_no_duplicate_cost_or_replay_deployment(tm
         assert m['non_source_deployment'] is None
         assert m['autonomous_complete_success_rate'] is None
     finally: system.close()
+
+
+def test_CM06_real_session_types_repairs_missing_and_deduplication(tmp_path):
+    from atomic_skillgraph.traces.schema import AgentSessionRecord
+    system, ctx, _, _, p = setup(tmp_path, lambda *a: None)
+    try:
+        observe(ctx, system, p)
+        t = ctx.trace_builder.trace
+        assert trace_metrics(t)['residual_runtime_decisions'] == 0
+        t.agent_sessions = [AgentSessionRecord(str(i), kind, 'node', 0, snapshot={
+            'runtime_request_context_audits': [{'request_sequence': 1, 'repair_in_progress': False}]})
+            for i, kind in enumerate(('RuntimePreparationSession', 'SeededSession', 'DynamicTaskSession'))]
+        t.metadata['runtime_steps'] = [{'session_id': s.session_id} for s in t.agent_sessions]
+        assert trace_metrics(t)['residual_runtime_decisions'] == 3
+        t.agent_sessions = t.agent_sessions[:1]
+        t.metadata['runtime_steps'] = [{'session_id': '0'}]
+        audits = t.agent_sessions[0].snapshot['runtime_request_context_audits']
+        audits.extend([audits[0].copy(), {'request_sequence': 2, 'repair_in_progress': True}])
+        assert trace_metrics(t)['residual_runtime_decisions'] == 1
+        assert trace_metrics(t)['runtime_protocol_repairs'] == 1
+        t.agent_sessions[0].snapshot = {}
+        metrics = trace_metrics(t)
+        assert metrics['residual_runtime_decisions'] is None
+        assert metrics['runtime_protocol_repairs'] is None
+        assert metrics['runtime_request_capture_status'] == 'partial'
+        assert metrics['runtime_request_missing_reasons'] == ['0:runtime_request_audits_missing']
+        t.agent_sessions = []
+        assert trace_metrics(t)['runtime_request_missing_reasons'] == ['0:runtime_session_missing']
+        t.metadata.pop('compiler_observability')
+        assert trace_metrics(t) is None
+    finally:
+        system.close()

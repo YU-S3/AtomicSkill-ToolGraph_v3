@@ -127,13 +127,16 @@ def node_window(occurrence, ctx):
             row['outcome'] = 'ambiguous_route' if reason == 'ambiguous_implementations' else 'no_ready_route'
 
 
-def _dataflow_inputs(ctx, occurrence, arguments):
+def _dataflow_inputs(ctx, occurrence, arguments, *, binding_updates=(), include_stored=True):
     """Record only actual compiled input reads, not output publication.
 
     A replaced or re-certified binding is conservatively not credited to the
     original DATA_FLOW edge. No value-only lineage inference.
     """
-    bindings = ctx.binding_store.snapshot_for_node(occurrence)
+    bindings = ctx.binding_store.snapshot_for_node(occurrence) if include_stored else {}
+    # Direct runner/trial callers do not commit to the store. Match the same
+    # effective overlay used by ImplementationRunner, without changing it.
+    bindings.update({b.role: b for b in binding_updates})
     trace = ctx.trace_builder.trace
     result = []
     for role, binding in bindings.items():
@@ -171,7 +174,9 @@ def program_window(compiled, preflight, occurrence, ctx, execution_scope):
     # Read before runner commits/changes any further binding state.
     marker = getattr(ctx, '_compiler_invocation_marker', {})
     consumed = (marker['consumed'] if 'consumed' in marker else
-                _dataflow_inputs(ctx, occurrence, preflight.normalized_arguments)) if preflight.passed else []
+                _dataflow_inputs(ctx, occurrence, preflight.normalized_arguments,
+                                 binding_updates=preflight.binding_updates,
+                                 include_stored=execution_scope != 'runtime_trial')) if preflight.passed else []
     origin = 'runtime_trial' if execution_scope == 'runtime_trial' else ORIGINS.get(marker.get('origin'), 'unknown')
     try:
         yield

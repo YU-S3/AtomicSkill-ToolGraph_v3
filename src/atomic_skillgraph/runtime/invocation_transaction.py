@@ -86,10 +86,12 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
     observed = observation(ctx)
     links = observed['program_invocation_links'] if observed is not None else []
     link_start = len(links)
-    consumed = _dataflow_inputs(ctx, occurrence, preflight.normalized_arguments) if observed is not None else []
     with InvocationTransaction(ctx, occurrence, origin=origin) as transaction:
         ctx.binding_store.commit_grounded(occurrence.occurrence_id,
             {binding.role: binding for binding in preflight.binding_updates})
+        consumed = _dataflow_inputs(ctx, occurrence, preflight.normalized_arguments,
+            binding_updates=preflight.binding_updates,
+            include_stored=execution_scope != 'runtime_trial') if observed is not None else []
         previous_marker = getattr(ctx, '_compiler_invocation_marker', None)
         ctx._compiler_invocation_marker = dict(origin=origin, native_call_id=authorizing_native_call_id,
             consumer_scope=getattr(consumer, 'consumer_scope', 'node'), consumed=consumed)
