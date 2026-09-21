@@ -41,6 +41,7 @@ from .core.refs import canonical_json, content_hash
 from .core.serialization import atomic_write_json, to_primitive
 from .core.status import RuntimeMode, SkillStatus, ToolStatus
 from .evolution.admission import Admission
+from .evolution.learning_interventions import system_scope as learning_scope, condition as learning_condition
 from .evolution.aligner import Aligner, ToolAlignmentResult, _tool_signature
 from .evolution.atomicizer import AtomicProposalBatchRejected, Atomicizer
 from .evolution.composite_builder import CompositeBuilder
@@ -203,10 +204,20 @@ def _trace_release_metadata(config: Mapping[str, Any]) -> dict[str, str]:
     repair_revision = str(config.get("repair_revision", "")).strip()
     if repair_revision:
         metadata["repair_revision"] = repair_revision
+    if repair_revision == "R10.3":
+        from .knowledge.r103_protocol import METADATA
+        metadata.update(METADATA)
     return metadata
 
 
 _LONG_TERM_KNOWLEDGE_TABLES = (
+    "execution_attribution_index",
+    "runtime_admission_attempts",
+    "learning_source_effect_index",
+    "learning_source_index",
+    "candidate_route_exposures",
+    "generalization_attempts",
+    "artifact_identity_index",
     "artifact_index",
     "recommended_pointers",
     "graph_edges",
@@ -411,6 +422,9 @@ class _ToolBuildBudgetExhausted(Exception):
 
 
 class AtomicSkillGraphSystem:
+    # Legacy narrow unit fixtures construct this object without __init__.
+    # Real construction always derives this gate from the explicit revision.
+    r103 = False
     """Wire Planner → Runtime → Validation → Evolution → Governance.
 
     Runtime paths never import v2 or FlowEvo.  External providers and harnesses
@@ -459,11 +473,16 @@ class AtomicSkillGraphSystem:
                 "frozen trace_data_dir must be outside the immutable snapshot root"
             )
 
-        self.database = StateDatabase(self.data_dir / "state.sqlite3", readonly=self.readonly)
+        self.r103 = self.config.get("repair_revision") == "R10.3"
+        self.database = StateDatabase(self.data_dir / "state.sqlite3", readonly=self.readonly, r103=self.r103)
+        self.learning_source_store = None
+        if self.r103:
+            from .knowledge.learning_sources import LearningSourceStore
+            self.learning_source_store = LearningSourceStore(self.database, self.data_dir)
         self.runtime_support_store = None
         if self.config.get("runtime", {}).get("persistent_runtime_support_promotion"):
             from .knowledge.runtime_support_store import RuntimeSupportStore
-            self.runtime_support_store = RuntimeSupportStore(self.database)
+            self.runtime_support_store = RuntimeSupportStore(self.database, self.data_dir) if self.r103 else RuntimeSupportStore(self.database)
         self.artifacts = ArtifactStore(self.data_dir, self.database)
         try:
             self.artifacts.verify_all()
@@ -472,6 +491,13 @@ class AtomicSkillGraphSystem:
             raise
         self.skills = SkillRegistry(self.artifacts, self.database)
         self.tools = ToolRegistry(self.artifacts, self.database)
+        if self.r103:
+            from .evolution.learning_interventions import bind_bank
+            try:
+                bind_bank(self)
+            except Exception:
+                self.database.close()
+                raise
         self.graph = GraphStore(self.database, self.skills)
         cold_start_config = dict(self.config.get("cold_start") or {})
         self.cold_start_enabled = bool(
@@ -589,7 +615,12 @@ class AtomicSkillGraphSystem:
             self.skills, self.tools, self.harness, mode=self.mode,
             candidate_policy=self.candidate_policy,
         )
+        self.invocation_compiler.r103 = self.r103
         runtime_config = dict(self.config.get("runtime") or {})
+        from .runtime.interventions import DeploymentIntervention
+        self.deployment_intervention = DeploymentIntervention.from_config(self.config)
+        if self.config.get("r103_interventions"):
+            runtime_config["r103_deployment_intervention"] = self.deployment_intervention.to_dict()
         runtime_llm = self._stage_config("runtime")
         runtime_config.setdefault(
             "learned_toolcall_repair_limit",
@@ -622,6 +653,7 @@ class AtomicSkillGraphSystem:
             failure_knowledge=self.failure_knowledge,
         )
         self.orchestrator.node_executor.runtime_resources = self._runtime_remaining_tokens
+        self.orchestrator.node_executor.context_builder.runtime_presentation = self.deployment_intervention.presentation
         extraction_config = dict(self.config.get("extraction") or {})
         self.extraction_policy = ExtractionPolicy(**{
             key: extraction_config.get(key, default)
@@ -671,6 +703,9 @@ class AtomicSkillGraphSystem:
         self.evolution_maintenance = (
             None if self.readonly else EvolutionMaintenance(self.repair_store)
         )
+        if self.r103 and self.readonly:
+            from .knowledge.source_snapshots import verify_learning_sources
+            verify_learning_sources(self)
 
     def _resolve_path(self, value: str | Path) -> Path:
         path = Path(value).expanduser()
@@ -1243,6 +1278,7 @@ class AtomicSkillGraphSystem:
         } for item in self.provisional_promotion_compiler.last_rejections)
         return prepared
 
+    @learning_scope
     def run_task(
         self,
         task: HarnessTask,
@@ -1250,7 +1286,7 @@ class AtomicSkillGraphSystem:
         mode: RuntimeMode | str | None = None,
         attempt_id: str = "",
     ) -> TraceRecord:
-        if self.config.get("repair_revision") != "R10.2.1":
+        if self.config.get("repair_revision") not in {"R10.2.1", "R10.3"}:
             raise ValueError("Runtime protocol migration required: use repair_revision=R10.2.1 and a fresh bank; historical runs require their original commit")
         run_mode = RuntimeMode(mode or self.mode)
         if self.readonly and run_mode is not RuntimeMode.FROZEN:
@@ -1270,6 +1306,24 @@ class AtomicSkillGraphSystem:
             task, attempt_id=attempt_id,
         )
         trace_builder.trace.metadata.update(_trace_release_metadata(self.config))
+        if learning_condition(self.config) != "Full":
+            trace_builder.trace.metadata["r103_learning_intervention"] = learning_condition(self.config)
+        if self.config.get("r103_interventions"):
+            trace_builder.trace.metadata["r103_intervention"] = self.deployment_intervention.to_dict()
+            trace_builder.trace.metadata["experiment_kind"] = "diagnostic"
+        self._committed_execution_sources = []
+        self._staged_learning_sources = []
+        self._prepared_generalization = None
+        self.invocation_compiler.independent_task_key = ""
+        if self.r103 and run_mode is RuntimeMode.ONLINE:
+            from .knowledge.execution_observations import manifest_source
+            source = manifest_source(self, trace_builder.trace)
+            if source is not None:
+                trace_builder.trace.metadata["execution_source"] = source
+                from .knowledge.execution_observations import execution_identity
+                self.invocation_compiler.independent_task_key = execution_identity(source, trace_builder.trace.trace_id, "route_key", 0)["source_independent_task_key"]
+            if self.runtime_support_store is not None:
+                self._committed_execution_sources = self.runtime_support_store.committed()
         trace_builder.trace.metadata.setdefault("environment", {}).update({
             "alfworld_version": installed_alfworld_version(),
         })
@@ -1575,16 +1629,34 @@ class AtomicSkillGraphSystem:
                 assert self.evolution_maintenance is not None
                 self.evolution_maintenance.commit_repairs(repair_proposals)
 
+        if run_mode is RuntimeMode.ONLINE and self.r103 and trace.learning_eligible:
+            from .evolution.generalization import apply_sidecar
+            promotion_events.extend(apply_sidecar(self, trace, task, self._prepared_generalization))
+
         support_observations = []
+        staged_execution_sources = []
         if run_mode is RuntimeMode.ONLINE and getattr(self, "runtime_support_store", None) is not None:
-            from .evolution.runtime_support_promotion import collect_observations, prepare_and_apply
-            support_observations = collect_observations(self, trace)
-            promotion_events.extend(prepare_and_apply(self, trace, task, support_observations))
-            trace.metadata["runtime_support_observation_ids"] = [item["observation_id"] for item in support_observations]
-            trace.metadata.setdefault("r10_metrics", {})["runtime_support_observation_count"] = len(support_observations)
+            if self.r103:
+                from .knowledge.execution_observations import collect_execution_observations
+                from .evolution.execution_attribution import prepare_attributions
+                staged_execution_sources = [self.runtime_support_store.stage(observation, evidence)
+                    for observation, evidence in collect_execution_observations(trace, self.harness.profile_name)]
+                if learning_condition(self.config) != "L-identity-support":
+                    promotion_events.extend(prepare_attributions(self, trace, task, self._committed_execution_sources))
+                trace.metadata["runtime_support_observation_ids"] = [item["execution_key"] for item in staged_execution_sources]
+                trace.metadata["runtime_execution_source_capsules"] = staged_execution_sources
+            else:
+                from .evolution.runtime_support_promotion import collect_observations, prepare_and_apply
+                support_observations = collect_observations(self, trace)
+                promotion_events.extend(prepare_and_apply(self, trace, task, support_observations))
+                trace.metadata["runtime_support_observation_ids"] = [item["observation_id"] for item in support_observations]
+            trace.metadata.setdefault("r10_metrics", {})["runtime_support_observation_count"] = len(support_observations) + len(staged_execution_sources)
             trace.evidence_event_refs = list(dict.fromkeys([
                 *trace.evidence_event_refs, *[event.event_id for event in promotion_events],
             ]))
+        if run_mode is RuntimeMode.ONLINE and self.r103 and not trace.infrastructure_failure:
+            promotion_events.extend(self.learning_source_store.prepare_attestations(self, trace))
+        trace.evidence_event_refs = list(dict.fromkeys([*trace.evidence_event_refs, *[event.event_id for event in promotion_events]]))
         trace.runtime_plan["failure_stage"] = ""
         self._finalize_v31_metrics(
             trace,
@@ -1595,6 +1667,9 @@ class AtomicSkillGraphSystem:
         finalize_r10_metrics(trace, getattr(self, "config", {}))
         from .evolution.replay_publication import resolve as resolve_replay_publication
         resolve_replay_publication(self, trace)
+        if self.r103:
+            from .evolution.identity_audit import snapshot
+            trace.metadata["identity_audit"] = snapshot()
         self.traces.save_atomic(trace)
 
         if run_mode is RuntimeMode.ONLINE:
@@ -1607,7 +1682,38 @@ class AtomicSkillGraphSystem:
                 # Runtime and provisional-promotion credit remain Trace-first:
                 # the immutable evidence source already names every event id
                 # before one append-only ledger transaction publishes them.
-                self._commit_evidence([*runtime_events, *promotion_events])
+                generalization = getattr(self, "_prepared_generalization", None)
+                learning_sources = list(getattr(self, "_staged_learning_sources", []))
+                if generalization:
+                    learning_sources.extend(generalization["sources"])
+                displays = self.r103 and trace.metadata.get("execution_source") and trace.metadata.get("candidate_route_exposures")
+                admission_attempts = self.r103 and trace.metadata.get("runtime_admission_attempts")
+                if staged_execution_sources or learning_sources or displays or admission_attempts or (generalization and generalization["attempt"]):
+                    from .evolution.identity_matching import raw_hash
+                    from .knowledge.source_snapshots import publish as publish_source_trace
+                    source_trace_hash = publish_source_trace(self.data_dir, self.traces.load_payload(trace.trace_id))
+                    for _, historical in learning_sources:
+                        if historical.trace_id != trace.trace_id:
+                            publish_source_trace(self.data_dir, self.traces.load_payload(historical.trace_id))
+                    def commit_sources(connection):
+                        if admission_attempts:
+                            from .knowledge.source_snapshots import commit_admissions
+                            commit_admissions(connection, trace, source_trace_hash)
+                        if displays:
+                            from .knowledge.source_snapshots import commit_displays
+                            commit_displays(connection, trace, source_trace_hash)
+                        for reference in staged_execution_sources:
+                            self.runtime_support_store.commit(connection, reference, source_trace_hash)
+                        for reference, source_trace in learning_sources:
+                            if self._normalized_learning_source(source_trace) != self.learning_source_store.read(reference)["normalized"]:
+                                raise RuntimeError("learning capsule changed before final task commit")
+                            parent_hash = source_trace_hash if source_trace.trace_id == trace.trace_id else raw_hash(self.traces.load_payload(source_trace.trace_id))
+                            self.learning_source_store.commit(connection, reference, parent_hash)
+                        if generalization and generalization["attempt"]:
+                            self.learning_source_store.commit_attempt(connection, generalization["attempt"])
+                    self._commit_evidence([*runtime_events, *promotion_events], companion_write=commit_sources)
+                else:
+                    self._commit_evidence([*runtime_events, *promotion_events])
                 self._review_task_deployments(runtime_events)
             self._maybe_run_maintenance()
             self._persist_maintenance_state()
@@ -1642,7 +1748,7 @@ class AtomicSkillGraphSystem:
             )
         tool_ref = tool_alignment.ref
         implementation_ref = self.aligner.align_implementation(
-            compiled.implementation, atomic_ref, tool_ref,
+            compiled.implementation, atomic_ref, tool_ref, source_tool=certified_tool,
         )
         self._add_structural_edge(
             str(implementation_ref), str(atomic_ref),
@@ -2171,8 +2277,10 @@ class AtomicSkillGraphSystem:
                      "replay_certificate_reuses", "replay_failures"):
             metrics.setdefault(name, 0)
         metrics["replay_case_observations"] = metrics.get("replay_case_observations", 0) + 1
-        cached = certificates.lookup(signature, case, pending=pending)
+        cached = certificates.lookup(signature, case, pending=pending, tool=tool, semantic_profile=self.harness.profile_name)
         if cached is not None:
+            if audit_trace is not None and certificates.last_reuse_proof is not None:
+                audit_trace.metadata.setdefault("replay_case_mapping_proofs", []).append(certificates.last_reuse_proof)
             metrics["replay_certificate_reuses"] = metrics.get("replay_certificate_reuses", 0) + 1
             # Certificate reuse is not an environment execution and must not
             # appear in tool_replay_results or acquire deployment credit.
@@ -2194,6 +2302,8 @@ class AtomicSkillGraphSystem:
                 artifact_ref=str(self.aligner.replay_target_ref(tool)
                                  if current_task is not None else tool.ref),
                 trace_id=audit_trace.trace_id, task_id=audit_trace.task.task_id,
+                tool=tool,
+                semantic_profile=self.harness.profile_name,
             )
             audit_trace.metadata.setdefault("replay_certificate_events", []).append(to_primitive(event))
             audit_trace.evidence_event_refs = list(dict.fromkeys([
@@ -2499,6 +2609,8 @@ class AtomicSkillGraphSystem:
         atomic_view: AbstractAtomicSkill,
         *,
         source_task: HarnessTask | Mapping[str, Any],
+        source_entry_facts: list[dict[str, Any]] | None = None,
+        reuse_audit: list[dict[str, Any]] | None = None,
     ) -> CompiledKnowledge | None:
         """Reuse an exact existing Implementation/Tool without calling ToolBuilder."""
 
@@ -2532,6 +2644,22 @@ class AtomicSkillGraphSystem:
                 implementation, existing_tool, bundle.atomic,
             ):
                 continue
+            if source_entry_facts is not None:
+                from .evolution.atomicizer import _predicate_has_witnesses
+                from .core.bindings import BindingExprKind, BindingExpression
+                from .knowledge.skill_registry import _predicate
+                tool_inputs = {}
+                for formal, raw in implementation.tool_bindings[0].parameter_mapping.items():
+                    expression = BindingExpression.from_dict(raw)
+                    tool_inputs[formal] = (expression.constant if expression.kind is BindingExprKind.CONSTANT
+                        else canonical_occurrence.input_bindings.get(expression.source_role))
+                entry = existing_tool.interface.get("entry_contract", {})
+                if any(not _predicate_has_witnesses(_predicate(condition), source_entry_facts,
+                        tool_inputs, require_domain=True) for condition in entry.get("conditions", [])):
+                    if reuse_audit is not None:
+                        reuse_audit.append({"implementation_ref": str(implementation.ref),
+                            "tool_ref": str(existing_tool.ref), "status": "source_entry_not_proven"})
+                    continue
             current_case = build_occurrence_replay_case(
                 canonical_occurrence,
                 bundle.atomic,
@@ -2542,8 +2670,19 @@ class AtomicSkillGraphSystem:
                     else "source_replay"
                 ),
             )
+            from .evolution.executable_boundary import atomic_boundary_view
+            view = atomic_boundary_view(bundle.atomic, existing_tool, implementation)
+            if view is None:
+                if reuse_audit is not None:
+                    reuse_audit.append({"implementation_ref": str(implementation.ref),
+                        "status": "atomic_tool_boundary_not_bijective"})
+                continue
+            replay_tool, replay_implementation, boundary_proof = view
+            if boundary_proof is not None and reuse_audit is not None:
+                reuse_audit.append({"implementation_ref": str(implementation.ref),
+                    "status": "atomic_tool_boundary_proven", "proof": to_primitive(boundary_proof)})
             candidate_tool = replace(
-                existing_tool,
+                replay_tool,
                 tests=[current_case],
                 provenance={
                     **dict(existing_tool.provenance),
@@ -2559,13 +2698,13 @@ class AtomicSkillGraphSystem:
                 },
                 status=ToolStatus.ADMISSION_PENDING,
             )
-            if _tool_signature(candidate_tool) != _tool_signature(existing_tool):
+            if _tool_signature(candidate_tool) != _tool_signature(replay_tool):
                 continue
             return CompiledKnowledge(
                 canonical_occurrence,
                 bundle.atomic,
                 candidate_tool,
-                implementation,
+                replay_implementation,
             )
         return None
 
@@ -2900,6 +3039,8 @@ class AtomicSkillGraphSystem:
         normalized: dict[str, Any],
         trace: TraceRecord,
         source_task: HarnessTask | None = None,
+        *, additional_evidence_sources: list[dict] | None = None,
+        allow_exact_reuse: bool = True,
     ) -> tuple[CompiledKnowledge | None, dict[str, int]]:
         """Success Evolution Tool path: exact reuse else ToolBuilder + static gate."""
 
@@ -2911,10 +3052,23 @@ class AtomicSkillGraphSystem:
                 occurrence,
                 atomic_view,
                 source_task=source_task or occurrence.source_task,
-            )
+                source_entry_facts=next((action.get("authoritative_before_state_facts")
+                    for action in normalized.get("actions", [])
+                    if action.get("event_index") == occurrence.event_start), None),
+                reuse_audit=record.setdefault("reuse_candidates", []),
+            ) if allow_exact_reuse else None
             if exact is not None:
-                record["outcome"] = "exact_reuse"
-                return exact, self._r4_builder_return_metrics(record)
+                # One current-source replay, not a replay per old alternative.
+                # A rejection leaves this occurrence's original Builder chance
+                # untouched; no second E1 or offline token pool is created.
+                case = exact.tool.tests[0]
+                result = self._replay_case_with_source_authority(exact.tool, case,
+                    current_task=source_task or trace.task, current_trace=trace, audit_trace=trace)
+                record["reuse_attempt"] = {"tool_ref": str(exact.tool.ref),
+                    "implementation_ref": str(exact.implementation.ref), "result": to_primitive(result)}
+                if result.passed:
+                    record["outcome"] = "exact_reuse"
+                    return exact, self._r4_builder_return_metrics(record)
 
             stage = "tool_builder_session"
             shared_remaining = int(
@@ -3001,6 +3155,7 @@ class AtomicSkillGraphSystem:
                         "primitive_actions": primitive_actions,
                     },
                     bucket="tool_builder_evolution",
+                    **({"additional_evidence_sources": additional_evidence_sources} if additional_evidence_sources else {}),
                 )
             except BudgetExhausted as exc:
                 if (
@@ -3481,8 +3636,7 @@ class AtomicSkillGraphSystem:
             })
         return authorities
 
-    def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
-        self._initialize_r4_learning_diagnostics(trace)
+    def _normalized_learning_source(self, trace: TraceRecord) -> dict:
         normalized = self.normalizer.build(trace)
         normalized["uncovered_event_ids"] = list(getattr(trace, "extraction_policy", {}).get("uncovered_event_ids", []))
         from .evolution.typed_boundary import public_value_authorities
@@ -3490,9 +3644,6 @@ class AtomicSkillGraphSystem:
         current_v32 = (
             str(normalized.get("semantic_authority_source", ""))
             == "validator_snapshot_v3_2"
-        )
-        trace.metadata["semantic_authority_source"] = str(
-            normalized.get("semantic_authority_source", "")
         )
         boundary_inputs: list[dict[str, Any]] = [
             dict(item)
@@ -3731,6 +3882,26 @@ class AtomicSkillGraphSystem:
             "inputs": boundary_inputs,
             "effects": deduplicated_effects,
         }
+        return normalized
+
+    def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
+        self._generalization_context = None
+        self._prepared_generalization = None
+        try:
+            return self._prepare_ordinary_evolution(trace, task)
+        finally:
+            # This is after ordinary E1/Builder/E2/E2R, even on a content
+            # rejection. It never buys another E1 or a separate token pool.
+            import sys
+            primary = sys.exc_info()[1]
+            if self.r103 and self._generalization_context is not None and (primary is None or isinstance(primary, ExtractionContentError)):
+                from .evolution.generalization import prepare_sidecar
+                self._prepared_generalization = prepare_sidecar(self, trace, task, self._generalization_context)
+
+    def _prepare_ordinary_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
+        self._initialize_r4_learning_diagnostics(trace)
+        normalized = self._normalized_learning_source(trace)
+        trace.metadata["semantic_authority_source"] = str(normalized.get("semantic_authority_source", ""))
         extractor = ExtractorSession(session_factory=lambda phase: self._extractor_session(task.task_id, phase))
         contract = self.harness.task_contract(task)
         matcher_factory = getattr(self.harness, "contract_matcher", None)
@@ -3752,7 +3923,12 @@ class AtomicSkillGraphSystem:
             self.skills,
             limit=20,
         )
-        proposals = extractor.propose_atomics(
+        groups = []
+        if self.r103 and learning_condition(self.config) != "L-generalization":
+            summaries, groups = self.learning_source_store.recall(self, trace, normalized)
+            trace.metadata["generalization_recall_summaries"] = summaries
+        request_e1 = extractor.propose_batch if self.r103 else extractor.propose_atomics
+        response = request_e1(
             normalized,
             known_atomic_contracts,
             to_primitive(witness_authority),
@@ -3762,7 +3938,11 @@ class AtomicSkillGraphSystem:
             runtime_tool_trials=list(
                 trace.metadata.get("runtime_tool_trials", {}).values()
             ),
+            **({"generalization_groups": [{"group_id": g["group_id"], "history": g["history"]} for g in groups]} if self.r103 else {}),
         )
+        proposals = response.occurrences if self.r103 else response
+        if self.r103:
+            self._generalization_context = {"groups": groups, "normalized": normalized, "batch": response}
         if not proposals:
             trace.metadata["extraction"].update({"e1_proposed": 0, "e1_validated": 0, "reviewed_no_proposal": True})
             return _PreparedEvolution([], None, {}, str(trace.runtime_plan.get("source_composite_ref") or ""))
@@ -3845,6 +4025,16 @@ class AtomicSkillGraphSystem:
                 "extractor_e1_occurrence_rejected",
                 str(exc),
             ) from exc
+
+        if self.r103:
+            for occurrence in canonical:
+                proposal = next(p for p in proposals if p.phase_id == occurrence.phase_id)
+                atomic_view = self._canonical_atomic_for_occurrence(occurrence)
+                if atomic_view is not None:
+                    reference = self.learning_source_store.stage(trace, normalized, occurrence, atomic_view,
+                        self.harness.profile_name, proposal=proposal)
+                    if reference:
+                        self._staged_learning_sources.append((reference, trace))
 
         atomicizer_rejections = [
             {
@@ -4556,7 +4746,7 @@ class AtomicSkillGraphSystem:
                 harness=self.harness,
             )
             implementation_ref = self.aligner.align_implementation(
-                admitted_implementation, atomic_ref, tool_ref
+                admitted_implementation, atomic_ref, tool_ref, source_tool=admitted_tool,
             )
             atomic_refs.append(atomic_ref)
             tool_refs.append(tool_ref)
@@ -4786,11 +4976,11 @@ class AtomicSkillGraphSystem:
             {"support_trace_ids": [trace_id], **metadata},
         ))
 
-    def _commit_evidence(self, events: list[Any]) -> None:
-        if not events:
+    def _commit_evidence(self, events: list[Any], *, companion_write=None) -> None:
+        if not events and companion_write is None:
             return
         assert self.ledger is not None and self.projection is not None and self.lifecycle is not None
-        self.ledger.append_transaction(events)
+        self.ledger.append_transaction(events, companion_write=companion_write)
         self.projection.consume(events)
 
     def _review_task_deployments(
@@ -4881,6 +5071,7 @@ class AtomicSkillGraphSystem:
                     (key, str(value)),
                 )
 
+    @learning_scope
     def run_maintenance(
         self,
         *,
@@ -5579,6 +5770,15 @@ class AtomicSkillGraphSystem:
         usage_start: int,
         provider_offsets: Mapping[int, int],
     ) -> None:
+        attribution_events = []
+        if (self.r103 and self.runtime_support_store is not None and not trace.infrastructure_failure
+                and learning_condition(self.config) != "L-identity-support"):
+            from .evolution.execution_attribution import prepare_attributions
+            attribution_events = prepare_attributions(self, trace, None, self.runtime_support_store.committed())
+            trace.evidence_event_refs = list(dict.fromkeys([*trace.evidence_event_refs, *[event.event_id for event in attribution_events]]))
+        if self.r103 and not trace.infrastructure_failure:
+            attribution_events.extend(self.learning_source_store.prepare_attestations(self, trace))
+            trace.evidence_event_refs = list(dict.fromkeys([*trace.evidence_event_refs, *[event.event_id for event in attribution_events]]))
         self._attach_external_sessions(
             trace, self._observed_sessions[sessions_start:]
         )
@@ -5592,8 +5792,22 @@ class AtomicSkillGraphSystem:
         self._capture_replay_bank_metrics(trace)
         from .evolution.replay_publication import resolve as resolve_replay_publication
         resolve_replay_publication(self, trace)
+        if self.r103:
+            from .evolution.identity_audit import snapshot
+            trace.metadata["identity_audit"] = snapshot()
         self.traces.save_atomic(trace)
         self._commit_replay_certificates(trace)
+
+        admission_attempts = self.r103 and trace.metadata.get("runtime_admission_attempts")
+        if attribution_events or admission_attempts:
+            if admission_attempts:
+                from .knowledge.source_snapshots import publish, commit_admissions
+                digest = publish(self.data_dir, self.traces.load_payload(trace.trace_id))
+                self._commit_evidence(attribution_events,
+                    companion_write=lambda connection: commit_admissions(connection, trace, digest))
+            else:
+                self._commit_evidence(attribution_events)
+            self.lifecycle.review(artifact_refs=sorted({event.artifact_ref for event in attribution_events}))
 
     def _replay_maintenance_tool(
         self,
@@ -5817,12 +6031,19 @@ class AtomicSkillGraphSystem:
             (str(row["key"]), str(row["value"]))
             for row in self.database.rows("SELECT key,value FROM metadata ORDER BY key")
         ]
-        if metadata != [
-            ("schema_version", "3"),
-            ("state_patch_level", STATE_PATCH_LEVEL),
-        ]:
+        expected_metadata = {"schema_version": "3", "state_patch_level": STATE_PATCH_LEVEL}
+        if self.r103:
+            from .knowledge.r103_protocol import METADATA
+            expected_metadata.update(METADATA)
+            selected = learning_condition(self.config)
+            if selected != "Full" and any(key == "r103_learning_condition" for key, value in metadata):
+                expected_metadata["r103_learning_condition"] = selected
+        if dict(metadata) != expected_metadata:
             return False
+        available_tables = {row[0] for row in self.database.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         for table in _LONG_TERM_KNOWLEDGE_TABLES:
+            if table not in available_tables and not self.r103 and table in {"learning_source_index", "generalization_attempts", "candidate_route_exposures", "runtime_admission_attempts", "learning_source_effect_index"}:
+                continue
             if self.database.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None:
                 return False
         if self.database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_support_observations'").fetchone():
@@ -5883,8 +6104,12 @@ class AtomicSkillGraphSystem:
             ),
         }
         table_records: dict[str, list[list[Any]]] = {}
+        if self.database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_identity_index'").fetchone():
+            specs["artifact_identity_index"] = ("*", "artifact_ref,identity_version")
         if self.database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_support_observations'").fetchone():
             specs["runtime_support_observations"] = ("*", "observation_id")
+        from .knowledge.r103_protocol import add_digest_specs
+        add_digest_specs(self.database.connection, specs)
         for table, (columns, order) in specs.items():
             table_records[table] = [
                 [to_primitive(value) for value in row]
@@ -5911,6 +6136,7 @@ class AtomicSkillGraphSystem:
                 })
         return content_hash({"files": files, "tables": table_records})
 
+    @learning_scope
     def freeze(
         self,
         destination: str | Path,
@@ -5918,6 +6144,7 @@ class AtomicSkillGraphSystem:
         provenance: Mapping[str, Any] | None = None,
     ) -> Path:
         """Create one immutable, relocatable knowledge snapshot."""
+        from .knowledge.r103_protocol import METADATA as R103_METADATA
         if self.readonly:
             raise RuntimeError("cannot freeze from an already read-only snapshot")
         if self._last_maintenance_success_count != self._online_successes:
@@ -5935,6 +6162,9 @@ class AtomicSkillGraphSystem:
             raise FileExistsError(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         self.artifacts.verify_all()
+        if self.r103:
+            from .knowledge.source_snapshots import verify_learning_sources
+            verify_learning_sources(self)
         if self.failure_knowledge is not None:
             self.failure_knowledge.verify_all()
         digest = self.knowledge_digest()
@@ -5998,9 +6228,10 @@ class AtomicSkillGraphSystem:
                 "knowledge_digest": digest,
                 "source_data_dir": str(self.data_dir),
                 "provenance": to_primitive(dict(provenance or {})),
+                **(R103_METADATA if self.r103 else {}),
             })
             os.replace(temporary, destination)
-            with StateDatabase(destination / "state.sqlite3", readonly=True) as frozen_db:
+            with StateDatabase(destination / "state.sqlite3", readonly=True, r103=self.r103) as frozen_db:
                 frozen_artifacts = ArtifactStore(destination, frozen_db)
                 frozen_artifacts.verify_all()
                 view = type("FrozenDigestView", (), {})()

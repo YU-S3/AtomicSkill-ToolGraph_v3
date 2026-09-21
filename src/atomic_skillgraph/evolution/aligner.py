@@ -18,6 +18,7 @@ from .contract_canonicalizer import (
     canonical_atomic_contract,
     composite_structure_payload,
 )
+from .identity_matching import IdentityProof, match_atomic, match_tool, match_implementation, bounded_matches, MAX_SEARCH_STATES
 
 
 def _canonical_atomic_contract(value: AbstractAtomicSkill) -> dict[str, Any]:
@@ -33,6 +34,12 @@ def _atomic_signature(value: AbstractAtomicSkill) -> str:
 
 
 def _tool_signature(value: ToolAsset) -> str:
+    """Legacy exact-byte replay/cache key, NOT an equivalence proof.
+
+    Alpha identity consumers must call match_tool and apply its explicit maps.
+    This key intentionally remains conservative for historical case APIs until
+    their source-specific certificate has verified the full executable bytes.
+    """
     # Replay cases and provenance are evidence for an immutable executable,
     # not part of executable identity.  They are credited through the Ledger.
     return content_hash({
@@ -88,6 +95,7 @@ class ToolAlignmentResult:
     operation: str = "reuse"
     admitted: bool = True
     admission_failures: tuple[str, ...] = ()
+    identity_proof: IdentityProof | None = None
 
 
 class Aligner:
@@ -173,15 +181,11 @@ class Aligner:
 
     def align_tool(self, candidate: ToolAsset) -> ToolRef:
         signature = _tool_signature(candidate)
-        for existing in self.tools.tools():
-            if _tool_signature(existing) == signature:
-                if not (
-                    candidate.status is ToolStatus.CANDIDATE
-                    and existing.status not in {
-                        ToolStatus.CANDIDATE, ToolStatus.ACTIVE, ToolStatus.PREFERRED,
-                    }
-                ):
-                    return existing.ref
+        for existing, result in bounded_matches(candidate, self.tools.tools(), match_tool):
+            if result.status == "exact":
+                # Identity is independent of availability: failed programs
+                # cannot acquire a clean lifecycle by changing their names.
+                return existing.ref
         ref = self._next_tool_ref(
             ToolRef(f"tool_{signature[:24]}", "1.0.0")
         )
@@ -207,14 +211,14 @@ class Aligner:
             return None
         matches = [
             item
-            for item in self.tools.tools()
-            if _tool_signature(item) == _tool_signature(candidate)
+            for item, result in bounded_matches(candidate, self.tools.tools(), match_tool)
+            if result.status == "exact"
             and item.status in {
                 ToolStatus.CANDIDATE,
                 ToolStatus.ACTIVE,
                 ToolStatus.PREFERRED,
             }
-            and all(certificates.lookup(_tool_signature(item), case) is not None
+            and all(certificates.lookup(_tool_signature(item), case, tool=item) is not None
                     for case in candidate.tests)
         ]
         if not matches:
@@ -239,15 +243,9 @@ class Aligner:
         their outcomes separately from the immutable ToolAsset.
         """
         signature = _tool_signature(candidate)
-        matches = [
-            item for item in self.tools.tools()
-            if _tool_signature(item) == signature
-            and item.status in {
-                ToolStatus.CANDIDATE,
-                ToolStatus.ACTIVE,
-                ToolStatus.PREFERRED,
-            }
-        ]
+        results = list(bounded_matches(candidate, self.tools.tools(), match_tool))
+        matches = [item for item, result in results if result.status == "exact"]
+        proofs = {str(item.ref): result.proof for item, result in results if result.status == "exact"}
         if candidate.status is not ToolStatus.CANDIDATE:
             if matches:
                 existing = sorted(
@@ -264,6 +262,7 @@ class Aligner:
                         str,
                         candidate.metadata.get("admission_failure") or [],
                     )),
+                    proofs[str(existing.ref)],
                 )
             # Admission failure is itself immutable diagnostic knowledge, but
             # never a validated discovery. Preserve a SHADOW only when there
@@ -292,31 +291,65 @@ class Aligner:
             key=lambda item: (_version_key(item.ref.version), str(item.ref)),
             reverse=True,
         )[0]
-        return ToolAlignmentResult(existing.ref, existing.ref, "add_replay")
+        usable = existing.status in {ToolStatus.CANDIDATE, ToolStatus.ACTIVE, ToolStatus.PREFERRED}
+        return ToolAlignmentResult(existing.ref, existing.ref, "add_replay", usable,
+            () if usable else ("equivalent_executable_unavailable",), proofs[str(existing.ref)])
 
     def replay_target_ref(self, candidate: ToolAsset) -> ToolRef:
         """Resolve the same eventual ref as alignment without registering it."""
         signature = _tool_signature(candidate)
-        matches = [item for item in self.tools.tools()
-                   if _tool_signature(item) == signature and item.status in {
-                       ToolStatus.CANDIDATE, ToolStatus.ACTIVE, ToolStatus.PREFERRED}]
+        matches = [item for item, result in bounded_matches(candidate, self.tools.tools(), match_tool)
+                   if result.status == "exact"]
         if matches:
             return max(matches, key=lambda item: (_version_key(item.ref.version), str(item.ref))).ref
         return self._next_tool_ref(ToolRef(f"tool_{signature[:24]}", "1.0.0"))
 
-    def align_implementation(self, candidate: ImplementationAtom, atomic_ref: SkillRef, tool_ref: ToolRef) -> SkillRef:
+    def align_implementation(self, candidate: ImplementationAtom, atomic_ref: SkillRef, tool_ref: ToolRef,
+                             *, source_tool: ToolAsset | None = None) -> SkillRef:
+        if len(candidate.tool_bindings) != 1:
+            raise ValueError("single-Tool alignment cannot retarget a multi-Tool implementation")
+        if source_tool is not None:
+            from ..core.bindings import BindingExprKind, BindingExpression
+            destination = self.tools.get(tool_ref)
+            result = match_tool(source_tool, destination)
+            if result.status != "exact" or result.proof is None:
+                # A newly registered raw-identical unsupported legacy Tool
+                # needs no role remapping, but cannot share equivalence credit.
+                if _tool_signature(source_tool) != _tool_signature(destination):
+                    raise ValueError("Tool role retargeting requires a complete identity proof")
+            else:
+                proof = result.proof
+                bindings = [replace(b, parameter_mapping={proof.input_role_map.get(k, k): v
+                    for k, v in b.parameter_mapping.items()}) for b in candidate.tool_bindings]
+                policy = dict(candidate.execution_policy)
+                if "output_mapping" in policy:
+                    mapping = {}
+                    for k, raw in policy["output_mapping"].items():
+                        expression = BindingExpression.from_dict(raw)
+                        if expression.kind is BindingExprKind.TOOL_OUTPUT:
+                            expression = replace(expression, source_role=proof.output_role_map.get(
+                                expression.source_role, expression.source_role))
+                        mapping[k] = expression
+                    policy["output_mapping"] = mapping
+                candidate = replace(candidate, tool_bindings=bindings, execution_policy=policy)
         candidate = replace(
             candidate, abstract_ref=atomic_ref,
             tool_bindings=[replace(item, tool_ref=tool_ref) for item in candidate.tool_bindings],
         )
         signature = _implementation_signature(candidate)
+        atomic = self.skills.get_atomic(atomic_ref)
+        source_tools = {str(b.tool_ref): self.tools.get(b.tool_ref) for b in candidate.tool_bindings}
+        remaining = MAX_SEARCH_STATES
         for existing in self.skills.implementations():
-            if signature == _implementation_signature(existing):
-                if not (
-                    candidate.status is SkillStatus.CANDIDATE
-                    and existing.status not in {SkillStatus.CANDIDATE, SkillStatus.ACTIVE}
-                ):
-                    return existing.ref
+            result = match_implementation(candidate, existing,
+                source_atomic=atomic, target_atomic=self.skills.get_atomic(existing.abstract_ref),
+                source_tools=source_tools,
+                target_tools={str(b.tool_ref): self.tools.get(b.tool_ref) for b in existing.tool_bindings}, max_states=remaining)
+            remaining -= result.search_states
+            if result.status == "exact":
+                return existing.ref
+            if remaining <= 0:
+                break
         ref = self._next_skill_ref(
             SkillRef(f"impl_{signature[:24]}", "1.0.0"),
             "implementation",

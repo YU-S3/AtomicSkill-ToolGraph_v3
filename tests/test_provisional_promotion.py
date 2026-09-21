@@ -284,7 +284,7 @@ def test_promotion_evidence_is_trace_first_and_appended_with_runtime_events() ->
                 operation="reuse",
                 source_ref=None,
             ),
-            align_implementation=lambda implementation, *_args: implementation.ref,
+            align_implementation=lambda implementation, *_args, **_kwargs: implementation.ref,
         ),
         admission=Admission(ToolValidator()),
         harness=_Harness(),
@@ -330,6 +330,7 @@ def test_promotion_evidence_is_trace_first_and_appended_with_runtime_events() ->
         order.append("deployment_review")
 
     pipeline = SimpleNamespace(
+        r103=False,
         orchestrator=SimpleNamespace(run_task=lambda *_args, **_kwargs: trace),
         _attach_provider_requests=lambda *_args, **_kwargs: None,
         _require_resource_usage_complete=lambda *_args, **_kwargs: None,

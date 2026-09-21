@@ -197,7 +197,10 @@ def test_r92_train_freeze_provenance_records_repair_revision() -> None:
 
 def _source_train_authority(
     tmp_path: Path,
+    revision: str = "R9.2",
 ) -> tuple[Path, RunManifest, dict[str, object], str]:
+    from atomic_skillgraph.knowledge.r103_protocol import metadata_for
+    revision_metadata = {"repair_revision": revision, **metadata_for({"repair_revision": revision})}
     run_id = "alfworld_train_full_30_r92_authority_fixture"
     train_run_dir = tmp_path / run_id
     source_data_dir = train_run_dir / "data_v3"
@@ -232,7 +235,7 @@ def _source_train_authority(
                 "tasks_per_type": 5,
                 "total_tasks": 30,
                 "llm_config_hash": "llm-hash",
-                "repair_revision": "R9.2",
+                **revision_metadata,
             },
         )
         store = ManifestStore(tmp_path, database)
@@ -272,9 +275,20 @@ def _source_train_authority(
         "source_initial_knowledge_digest": manifest.knowledge_digest,
         "source_final_knowledge_digest": frozen_digest,
         "source_llm_config_hash": "llm-hash",
-        "repair_revision": "R9.2",
+        **revision_metadata,
     }
     return train_run_dir, manifest, {"provenance": provenance}, frozen_digest
+
+
+def test_r103_frozen_source_requires_all_protocol_provenance(tmp_path):
+    train_dir, manifest, frozen, digest = _source_train_authority(tmp_path, "R10.3")
+    kwargs = dict(train_run_dir=train_dir, train_manifest=manifest,
+                  freeze_manifest=frozen, frozen_digest=digest,
+                  current_code_digest="code-hash", current_llm_hash="llm-hash")
+    _verify_source_train(**kwargs)
+    frozen["provenance"].pop("execution_support_version")
+    with pytest.raises(ProtocolError, match="provenance"):
+        _verify_source_train(**kwargs)
 
 
 def test_r92_frozen_source_verifier_accepts_matching_revision(

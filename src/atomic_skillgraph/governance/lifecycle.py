@@ -120,7 +120,7 @@ class LifecyclePolicy:
             return _keep(ref, "atomic", status, "active_evidence_stable")
         if status is SkillStatus.CANDIDATE:
             if (
-                stats.independent_task_count
+                stats.independent_canonical_support_count
                 >= self.thresholds.atomic_active_independent_support
             ):
                 return _move(
@@ -149,7 +149,7 @@ class LifecyclePolicy:
             if stats.stable_replacement:
                 return _move(ref, "implementation", status, SkillStatus.SUPPRESSED, "superseded")
             if (
-                stats.consecutive_intrinsic_failures
+                stats.execution_support.get("consecutive_intrinsic_failures", stats.consecutive_intrinsic_failures)
                 >= self.thresholds.implementation_suppress_consecutive_failures
             ):
                 return _move(
@@ -162,7 +162,7 @@ class LifecyclePolicy:
             return _keep(ref, "implementation", status, "active_evidence_stable")
         if status is SkillStatus.CANDIDATE:
             if (
-                stats.independent_direct_success_count
+                stats.independent_execution_support_count
                 >= self.thresholds.implementation_active_direct_successes
             ):
                 return _move(
@@ -197,7 +197,7 @@ class LifecyclePolicy:
             if stats.stable_replacement:
                 return _move(ref, "tool", status, ToolStatus.SUPPRESSED, "superseded")
             if (
-                stats.consecutive_intrinsic_failures
+                stats.execution_support.get("consecutive_intrinsic_failures", stats.consecutive_intrinsic_failures)
                 >= self.thresholds.tool_suppress_consecutive_failures
             ):
                 return _move(
@@ -219,9 +219,9 @@ class LifecyclePolicy:
         if status is ToolStatus.CANDIDATE:
             if (
                 stats.validated_count > 0
-                and stats.independent_direct_success_count
+                and stats.independent_execution_support_count
                 >= self.thresholds.tool_active_started_successes
-                and stats.intrinsic_failure_count
+                and stats.execution_support.get("intrinsic_failure_count", stats.intrinsic_failure_count)
                 <= self.thresholds.tool_candidate_max_intrinsic_failures
             ):
                 return _move(
@@ -247,8 +247,8 @@ class LifecyclePolicy:
 
     def _preferred_tool(self, stats: ArtifactStats) -> bool:
         return (
-            stats.started_count >= self.thresholds.tool_preferred_min_started
-            and stats.reliability_lower_bound(z=self.thresholds.tool_preferred_wilson_z)
+            stats.execution_support.get("started_count", stats.started_count) >= self.thresholds.tool_preferred_min_started
+            and stats.execution_reliability_lower_bound(z=self.thresholds.tool_preferred_wilson_z)
             >= self.thresholds.tool_preferred_reliability_lower_bound
             and stats.preferred_utility_evidence_count > 0
         )

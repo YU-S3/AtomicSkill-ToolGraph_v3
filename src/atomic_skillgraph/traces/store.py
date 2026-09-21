@@ -42,7 +42,12 @@ class TraceStore:
         return read_json(self.root / f"{trace_id}.json")
 
     def load(self, trace_id: str) -> TraceRecord:
-        payload = self.load_payload(trace_id)
+        return self.from_payload(self.load_payload(trace_id))
+
+    @staticmethod
+    def from_payload(payload: dict) -> TraceRecord:
+        # Do not mutate a caller's immutable content-addressed source snapshot.
+        payload = dict(payload)
         task = TaskRecord(**payload.pop("task"))
         payload["node_records"] = [NodeTraceRecord(**item) for item in payload.get("node_records", [])]
         payload["provider_requests"] = [

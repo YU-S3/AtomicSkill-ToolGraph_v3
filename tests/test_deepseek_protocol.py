@@ -737,8 +737,9 @@ def test_context_builder_separates_grounding_authorities() -> None:
     assert payload["current_action_catalog"]["actions"][0]["arguments"] == {
         "destination": "coffeetable_1",
     }
-    assert "current action catalog, verified returns, progress, and exact last-call feedback" in payload_text
-    assert "Skill guidance is advisory" in payload_text
+    assert "Use the current public state and the offered interfaces" in payload_text
+    assert "Read the exact last-call feedback" in payload_text
+    assert "steps and notes are soft guidance" in payload_text
     assert "Map helper results to the intended parent inputs explicitly" in payload_text
 
 

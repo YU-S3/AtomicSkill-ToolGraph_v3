@@ -191,7 +191,12 @@ class InvocationCompiler:
     def compile_candidates(
         self, occurrence: Any, binding_store: RuntimeBindingStore,
         *, max_candidates: int | None = None, task_id: str = "",
+        evidence_store: GroundingEvidenceStore | None = None, revision: int | None = None,
+        task_contract: TaskContract | None = None,
     ) -> list[CompiledInvocation]:
+        if getattr(self, "r103", False):
+            return self._compile_routes(occurrence, binding_store, max_candidates=max_candidates,
+                task_id=task_id, evidence_store=evidence_store, revision=revision, task_contract=task_contract)
         atomic = self.skills.get_atomic(occurrence.node_ref)
         current = binding_store.snapshot_for_node(occurrence)
         refs = list(occurrence.implementation_candidates)
@@ -261,6 +266,165 @@ class InvocationCompiler:
                 break
         return result
 
+    def route_availability(self, compiled, occurrence, binding_store, evidence_store, revision, task_contract=None):
+        """Original compiler/preflight as a read-only diagnostic; never commits updates."""
+        incompatible = self._compatibility_failure(compiled)
+        if incompatible is not None:
+            return {"state": "unusable", "gaps": [incompatible.failure_code], "message": incompatible.message}
+        if evidence_store is None or revision is None:
+            return {"state": "preparable", "gaps": ["current_evidence_unavailable"]}
+        values = {role: binding.value for role,binding in binding_store.snapshot_for_node(occurrence).items()
+                  if binding.status is BindingStatus.GROUNDED}
+        conflict = self._identity_failure(compiled, occurrence, binding_store, values, task_contract)
+        if conflict is not None:
+            return {"state": "unusable", "gaps": [conflict.failure_code], "message": conflict.message}
+        missing = compiled.spec.input_schema.get("required", [])
+        if missing:
+            return {"state": "preparable", "gaps": ["input:" + role for role in missing]}
+        prepared = self.prepare_arguments(compiled, call_name=compiled.spec.name, call_id="route_readonly_probe",
+            arguments={}, occurrence=occurrence, binding_store=binding_store, evidence_store=evidence_store,
+            revision=revision, arguments_are_agent_proposals=False, task_contract=task_contract)
+        checked = self.validate_execution_context(compiled, prepared, occurrence=occurrence,
+            binding_store=binding_store, evidence_store=evidence_store, revision=revision) if prepared.passed else prepared
+        if checked.passed:
+            return {"state": "ready", "gaps": []}
+        # The normal validators distinguish current evidence/entry gaps from
+        # a proved semantic conflict. No validator result is made into PASS.
+        conflict = checked.failure_layer == "implementation" or checked.failure_code in {
+            "runtime_semantic_anchor_mismatch", "runtime_identity_constraint_mismatch"}
+        return {"state": "unusable" if conflict else "preparable", "gaps": [checked.failure_code], "message": checked.message}
+
+    def _compatibility_failure(self, compiled):
+        reason = ""
+        profiles = compiled.implementation.compatibility.get("harness_profiles") or []
+        if profiles and self.harness.profile_name not in profiles:
+            reason = "Harness profile incompatible"
+        elif not skill_status_usable(compiled.implementation.status, self.mode):
+            reason = "Implementation status unusable"
+        elif any(not tool_status_usable(tool.status, self.mode) or tool.safety.get("blocked") for tool in compiled.tools):
+            reason = "Tool unavailable or unsafe"
+        if reason:
+            return ToolCallPreflightResult(False, str(compiled.implementation.ref), failure_layer="implementation",
+                failure_code="implementation_compatibility_error", message=reason)
+        return None
+
+    def _compile_routes(self, occurrence, binding_store, *, max_candidates, task_id, evidence_store, revision, task_contract):
+        from ..evolution.identity_matching import match_implementation, raw_hash, MAX_SEARCH_STATES
+        from ..governance.projections import ArtifactStats
+        from ..knowledge.identity_index import IdentityIndex
+        import json
+        atomic = self.skills.get_atomic(occurrence.node_ref)
+        if not skill_status_usable(atomic.status, self.mode):
+            return []
+        current = binding_store.snapshot_for_node(occurrence)
+        routes = []
+        remaining_identity_states = MAX_SEARCH_STATES
+        identity_index = IdentityIndex(self.skills.database, self.skills.store.data_dir)
+        for ref in occurrence.implementation_candidates:
+            try:
+                implementation = self.skills.get_implementation(ref)
+                tools = [self.tools.get(b.tool_ref) for b in implementation.tool_bindings]
+                compiled = CompiledInvocation(self.compile(atomic, implementation, tools, current), atomic, implementation, tools)
+                availability = self.route_availability(compiled, occurrence, binding_store, evidence_store, revision, task_contract)
+                if availability["state"] == "unusable":
+                    continue
+                duplicate = None
+                for route in routes:
+                    if remaining_identity_states <= 0:
+                        break  # Unknown comparison keeps both legal routes.
+                    other = route["compiled"]
+                    proof = match_implementation(implementation, other.implementation, source_atomic=atomic, target_atomic=other.atomic,
+                        source_tools={str(t.ref): t for t in tools}, target_tools={str(t.ref): t for t in other.tools},
+                        max_states=remaining_identity_states)
+                    remaining_identity_states -= proof.search_states
+                    if proof.status == "exact":
+                        duplicate = route
+                        break
+                candidate = any(str(item.status.value) == "candidate" for item in (atomic, implementation, *tools))
+                if duplicate is not None:
+                    # Equivalent interfaces are one route. Prefer an available
+                    # reliable representative, never create a new ref/status.
+                    if duplicate["candidate"] and not candidate:
+                        duplicate.update(compiled=compiled, candidate=False, availability=availability)
+                    continue
+                row = self.skills.database.execute("SELECT projection_json FROM lifecycle_projection WHERE artifact_ref=?", (str(ref),)).fetchone()
+                stats = ArtifactStats.from_dict(json.loads(row[0])) if row else ArtifactStats(str(ref), "implementation")
+                route_key = identity_index.equivalence_key(str(implementation.ref))
+                displays = self.skills.database.execute("SELECT COUNT(*) FROM candidate_route_exposures WHERE route_key=?",
+                                                       (route_key,)).fetchone()[0]
+                routes.append(dict(compiled=compiled, availability=availability, candidate=candidate, stats=stats,
+                    displays=displays, route_key=route_key))
+            except AtomicSkillGraphError as exc:
+                if exc.layer is FailureLayer.INFRASTRUCTURE:
+                    raise
+                self.compile_rejections.append(dict(implementation_ref=str(ref), code="implementation_compile_rejected", reason=str(exc)))
+            except (KeyError, TypeError, ValueError) as exc:
+                self.compile_rejections.append(dict(implementation_ref=str(ref), code="implementation_compile_rejected", reason=str(exc)))
+        reliable_ready = any(not r["candidate"] and r["availability"]["state"] == "ready" for r in routes)
+        task_key = getattr(self, "independent_task_key", "") or task_id
+        allowed = []
+        for route in routes:
+            if route["candidate"] and self.candidate_policy is not None and not self.candidate_policy.allows(
+                artifact_ref=route["route_key"], artifact_kind="implementation", status="candidate", mode=self.mode,
+                task_id=task_key, reliable_active_available=reliable_ready):
+                continue
+            allowed.append(route)
+        def rank(route):
+            stats = route["stats"]
+            return (route["availability"]["state"] != "ready",
+                stats.execution_support.get("intrinsic_failure_count", stats.intrinsic_failure_count),
+                max(0, 2-stats.independent_execution_support_count), route["displays"],
+                raw_hash([task_key, route["route_key"]]))
+        reliable = sorted((r for r in allowed if not r["candidate"]), key=rank)
+        candidates = sorted((r for r in allowed if r["candidate"]), key=rank)
+        limit = min(3, max_candidates if max_candidates is not None else 3)
+        selected = reliable[:limit]
+        if candidates and limit > 0:
+            selected = reliable[:limit-1] + candidates[:1]
+        selected.sort(key=rank)
+        self.route_diagnostics = [{"implementation_ref": str(r["compiled"].implementation.ref),
+            "route_equivalence_key": r["route_key"], "candidate": r["candidate"], **r["availability"]} for r in selected]
+        return [r["compiled"] for r in selected]
+
+    def record_display(self, ctx, session_id, invocations, native_tools, *, native_name=None):
+        if not getattr(self, "r103", False) or self.mode is RuntimeMode.FROZEN:
+            return
+        from ..knowledge.identity_index import IdentityIndex
+        names = {tool.name for tool in native_tools}
+        index = IdentityIndex(self.skills.database, self.skills.store.data_dir)
+        audit = ctx.trace_builder.trace.metadata.setdefault("candidate_route_exposures", [])
+        for invocation in invocations:
+            if (native_name or invocation.spec.name) not in names:
+                continue
+            key = index.equivalence_key(str(invocation.implementation.ref))
+            row = {"session_id":session_id, "route_key":key, "implementation_ref":str(invocation.implementation.ref),
+                   "native_name":native_name or invocation.spec.name,
+                   "candidate":any(str(item.status.value) == "candidate" for item in
+                       (invocation.atomic,invocation.implementation,*invocation.tools))}
+            if row not in audit:
+                audit.append(row)
+
+    @staticmethod
+    def _identity_failure(compiled, occurrence, binding_store, values, task_contract):
+        def fail(code, message):
+            return ToolCallPreflightResult(False, str(compiled.implementation.ref),
+                failure_layer="runtime_binding", failure_code=code, message=message)
+        if task_contract is not None:
+            for constraint in task_contract.identity_constraints:
+                if (constraint.scope != "occurrence" or constraint.left_role not in values
+                        or constraint.right_role not in values):
+                    continue
+                left, right = values[constraint.left_role], values[constraint.right_role]
+                if ((constraint.relation is IdentityRelation.SAME_AS and left != right)
+                        or (constraint.relation is IdentityRelation.DISTINCT_FROM and left == right)):
+                    return fail("runtime_identity_constraint_mismatch",
+                                "Agent proposal violates occurrence identity/cardinality constraints")
+        repeat = binding_store.preflight_repeat_bindings(occurrence.step_id, values)
+        if not repeat.passed:
+            return fail(repeat.failure_codes[0] if repeat.failure_codes else "runtime_repetition_distinctness_violation",
+                        "Invocation arguments violate an effect-committed RepeatBlock binding")
+        return None
+
     def prepare_arguments(
         self, compiled: CompiledInvocation, *, call_name: str, call_id: str,
         arguments: dict[str, Any], occurrence: Any, binding_store: RuntimeBindingStore,
@@ -315,50 +479,15 @@ class InvocationCompiler:
         # Occurrence-scoped identity is a pre-start obligation.  Task-scoped
         # cardinality/identity remains a terminal contract obligation because
         # a multi-object task may legitimately use one invocation per object.
-        if task_contract is not None:
-            proposal_values = {
-                role: binding.value for role, binding in current.items()
-                if binding.status is BindingStatus.GROUNDED
-            }
-            proposal_values.update(arguments)
-            for constraint in task_contract.identity_constraints:
-                if constraint.scope != "occurrence":
-                    continue
-                if (
-                    constraint.left_role not in proposal_values
-                    or constraint.right_role not in proposal_values
-                ):
-                    continue
-                left = proposal_values[constraint.left_role]
-                right = proposal_values[constraint.right_role]
-                if (
-                    constraint.relation is IdentityRelation.SAME_AS and left != right
-                ) or (
-                    constraint.relation is IdentityRelation.DISTINCT_FROM and left == right
-                ):
-                    return fail(
-                        "runtime_binding", "runtime_identity_constraint_mismatch",
-                        "Agent proposal violates occurrence identity/cardinality constraints",
-                    )
         repeat_values = {
             role: binding.value
             for role, binding in current.items()
             if binding.status is BindingStatus.GROUNDED
         }
         repeat_values.update(arguments)
-        repeat_preflight = binding_store.preflight_repeat_bindings(
-            occurrence.step_id, repeat_values,
-        )
-        if not repeat_preflight.passed:
-            code = (
-                repeat_preflight.failure_codes[0]
-                if repeat_preflight.failure_codes
-                else "runtime_repetition_distinctness_violation"
-            )
-            return fail(
-                "runtime_binding", code,
-                "Invocation arguments violate an effect-committed RepeatBlock binding",
-            )
+        identity_failure = self._identity_failure(compiled, occurrence, binding_store, repeat_values, task_contract)
+        if identity_failure is not None:
+            return identity_failure
         grounded: dict[str, RuntimeBinding] = {}
         matched: list[str] = []
         if arguments_are_agent_proposals:
@@ -606,16 +735,9 @@ class InvocationCompiler:
                     "runtime_binding_not_concrete",
                     f"binding resolution insufficient after context validation: {parameter.name}",
                 )
-        # Compatibility
-        profiles = compiled.implementation.compatibility.get("harness_profiles") or []
-        if profiles and self.harness.profile_name not in profiles:
-            return fail("implementation", "implementation_compatibility_error", "Harness profile incompatible")
-        # Safety/lifecycle
-        if not skill_status_usable(compiled.implementation.status, self.mode):
-            return fail("implementation", "implementation_compatibility_error", "Implementation status unusable")
-        for tool in compiled.tools:
-            if not tool_status_usable(tool.status, self.mode) or tool.safety.get("blocked"):
-                return fail("implementation", "implementation_compatibility_error", f"Tool unavailable or unsafe: {tool.ref}")
+        incompatible = self._compatibility_failure(compiled)
+        if incompatible is not None:
+            return incompatible
         if compiled.atomic.preconditions:
             report = self.harness.validator_channel().validate_atomic_effect({
                 'effects': compiled.atomic.preconditions, 'bindings': values, 'output_candidates': {}})

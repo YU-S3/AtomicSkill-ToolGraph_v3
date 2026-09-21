@@ -94,7 +94,8 @@ def prepare_and_apply(system: Any, trace: Any, task: Any, observations: list[dic
             alignment = system.aligner.align_tool_with_replays(admitted, admission=system.admission, replay=None)
             if not alignment.admitted:
                 continue
-            implementation_ref = system.aligner.align_implementation(implementation, atomic_ref, alignment.ref)
+            implementation_ref = system.aligner.align_implementation(implementation, atomic_ref, alignment.ref,
+                source_tool=admitted)
             system._add_structural_edge(str(implementation_ref), str(atomic_ref), GlobalRelationType.IMPLEMENTS, trace.trace_id)
             system._add_structural_edge(str(implementation_ref), str(alignment.ref), GlobalRelationType.CONTAINS, trace.trace_id)
             refs = [str(atomic_ref), str(implementation_ref), str(alignment.ref)]

@@ -40,6 +40,7 @@ class ToolBuilderSession:
         harness_interface: dict[str, Any] | None = None,
         near_match_interfaces: list[dict[str, Any]] | None = None,
         local_failures: list[dict[str, Any]] | None = None,
+        additional_evidence_sources: list[dict[str, Any]] | None = None,
         bucket: str = "tool_builder_evolution",
     ) -> ToolProposal:
         if hasattr(self.session, "set_usage_bucket"):
@@ -52,6 +53,7 @@ class ToolBuilderSession:
             harness_interface=harness_interface or {},
             near_match_interfaces=near_match_interfaces or [],
             local_failures=local_failures or [],
+            additional_evidence_sources=additional_evidence_sources or [],
         )
         submission = self.submissions.request(
             self.session,

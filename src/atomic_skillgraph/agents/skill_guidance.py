@@ -34,4 +34,22 @@ def guidance_view(atomic):
                                        formal_roles=roles)
     except ValueError as exc:
         return {"soft_reference": True, "guidance_absent": True, "rejection_reason": str(exc)}
-    return {"soft_reference": True, "guidance_absent": not bool(guidance), **guidance}
+    return organize_guidance_view({"soft_reference": True, "guidance_absent": not bool(guidance), **guidance})
+
+
+def organize_guidance_view(view):
+    """Stable typed main/note grouping, downstream of the original validity gate.
+
+    Adapted from EmbodiSkill format_task_prompt_with_skills, commit
+    760126030eab1d33ec6a6f30988f0f1fb58df3a7 (MIT). See THIRD_PARTY_NOTICES.md.
+    Unlike upstream, no prefix classification, deduplication or rewriting.
+    """
+    import copy
+    result = {}
+    for key in ("soft_reference", "guidance_absent", "rejection_reason", "steps", "notes"):
+        if key in view:
+            result[key] = copy.deepcopy(view[key])
+    for key, value in view.items():
+        if key not in result:
+            result[key] = copy.deepcopy(value)
+    return result

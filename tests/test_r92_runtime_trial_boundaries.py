@@ -422,13 +422,13 @@ def test_draft_idempotency_conflict_and_safe_agent_projection() -> None:
     )
     arguments = _draft_payload(occurrence.occurrence_id)
     first = runtime.node_executor._process_runtime_automation_call(
-        SimpleNamespace(arguments=arguments), ctx, occurrence,
+        SimpleNamespace(call_id="draft-first", arguments=arguments), ctx, occurrence,
     )
     duplicate = runtime.node_executor._process_runtime_automation_call(
-        SimpleNamespace(arguments=dict(arguments)), ctx, occurrence,
+        SimpleNamespace(call_id="draft-repeat", arguments=dict(arguments)), ctx, occurrence,
     )
     conflicting = runtime.node_executor._process_runtime_automation_call(
-        SimpleNamespace(arguments={**arguments, "intent": "different"}),
+        SimpleNamespace(call_id="draft-conflict", arguments={**arguments, "intent": "different"}),
         ctx,
         occurrence,
     )

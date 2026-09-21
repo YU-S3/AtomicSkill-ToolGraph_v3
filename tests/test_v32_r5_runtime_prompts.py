@@ -82,7 +82,7 @@ def _downstream() -> dict:
 def test_node_prompt_is_shared_and_guidance_is_soft():
     assert R10_STEP_PROMPT.endswith(SEARCH_POLICY)
     assert DYNAMIC_PROMPT == "\n\n".join((DYNAMIC_ONLY, SEARCH_POLICY))
-    assert "guidance is advisory" in R10_STEP_PROMPT
+    assert "steps and notes are soft guidance, not additional preconditions or executable code" in R10_STEP_PROMPT
     assert "you continue this node" in R10_STEP_PROMPT
     assert "Unknown fresh outputs are not selected for you" in R10_STEP_PROMPT
     assert "support closure" not in R10_STEP_PROMPT

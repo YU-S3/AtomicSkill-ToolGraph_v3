@@ -75,6 +75,7 @@ class ArtifactStats:
     first_event_rowid: int = 0
     last_event_rowid: int = 0
     last_event_id: str = ""
+    execution_support: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.artifact_kind = str(self.artifact_kind).casefold()
@@ -166,6 +167,103 @@ class ArtifactStats:
         value = event.value if isinstance(event, EvidenceEventType) else str(event)
         return self.event_counts.get(value, 0)
 
+    @property
+    def independent_execution_support_count(self) -> int:
+        if not self.execution_support:
+            return self.independent_direct_success_count
+        return len(self.execution_support["union_support_tasks"])
+
+    @property
+    def independent_canonical_support_count(self) -> int:
+        if not self.execution_support:
+            return self.independent_task_count
+        return len(self.execution_support.get("union_support_tasks", []))
+
+    def _apply_canonical_support(self, event):
+        if self.artifact_kind != "atomic" or event.event not in {
+            EvidenceEventType.CANONICAL_SUPPORT_ATTESTED, EvidenceEventType.DIRECT_SUCCESS,
+            EvidenceEventType.AGENT_NODE_SUCCESS, EvidenceEventType.SEEDED_SUCCESS}:
+            return
+        metadata = event.metadata
+        task = metadata.get("source_independent_task_key")
+        if not task:
+            return
+        kind = ("attributed_trial_support_tasks" if metadata.get("source_class") == "runtime_online_trial"
+                else "registered_canonical_support_tasks")
+        if event.event is EvidenceEventType.CANONICAL_SUPPORT_ATTESTED and metadata.get("outcome") != "complete_success":
+            raise ProjectionCorruptionError("canonical attribution must attest a successful contract")
+        values = set(self.execution_support.get(kind, []))
+        values.add(task)
+        self.execution_support[kind] = sorted(values)
+        trial = set(self.execution_support.get("attributed_trial_support_tasks", []))
+        direct = set(self.execution_support.get("registered_canonical_support_tasks", []))
+        self.execution_support.update(version="r103.online.v1", union_support_tasks=sorted(direct | (trial if len(trial) >= 2 else set())))
+
+    def execution_reliability_lower_bound(self, *, z: float = 1.96) -> float:
+        if not self.execution_support:
+            return self.reliability_lower_bound(z=z)
+        n = self.execution_support["started_count"]
+        if n == 0:
+            return 0.0
+        p = self.execution_support["complete_success_count"] / n
+        z2 = z * z
+        return max(0.0, (p + z2 / (2*n) - z * math.sqrt((p*(1-p) + z2/(4*n))/n)) / (1+z2/n))
+
+    def _apply_execution_support(self, event: EvidenceEvent) -> None:
+        supported = {EvidenceEventType.EXECUTION_STARTED, EvidenceEventType.DIRECT_SUCCESS,
+            EvidenceEventType.DIRECT_FAILURE, EvidenceEventType.EXECUTION_ATTRIBUTED}
+        if event.event not in supported or self.artifact_kind not in {"tool", "implementation"}:
+            return
+        metadata = event.metadata
+        key = metadata.get("source_execution_key")
+        if not key:
+            if event.event is EvidenceEventType.EXECUTION_ATTRIBUTED:
+                raise ProjectionCorruptionError("attribution lacks source execution key")
+            return  # Legacy report view; no guessed independent source identity.
+        task = metadata.get("source_independent_task_key")
+        order = metadata.get("source_order")
+        if not task or not isinstance(order, (list, tuple)) or len(order) != 3 or any(type(i) is not int or i < 0 for i in order):
+            raise ProjectionCorruptionError("source execution order/task authority missing")
+        sources = self.execution_support.setdefault("executions", {})
+        row = sources.setdefault(key, {"task": task, "source_order": list(order), "started": False,
+            "outcome": "", "intrinsic_failure": False, "registered": False, "attributed": False})
+        if row["task"] != task or row["source_order"] != list(order):
+            raise ProjectionCorruptionError("one source execution has conflicting source identity/order")
+        attributed = event.event is EvidenceEventType.EXECUTION_ATTRIBUTED
+        row["attributed" if attributed else "registered"] = True
+        started = metadata.get("source_started") if attributed else metadata.get("started")
+        if event.event is EvidenceEventType.EXECUTION_STARTED:
+            started = True
+        if started is True:
+            row["started"] = True
+        outcome = metadata.get("outcome", "") if attributed else (
+            "complete_success" if event.event is EvidenceEventType.DIRECT_SUCCESS else
+            "intrinsic_failure" if event.event is EvidenceEventType.DIRECT_FAILURE and _is_intrinsic_failure(event) else "")
+        if outcome:
+            if outcome not in {"complete_success", "intrinsic_failure"} or row["outcome"] not in {"", outcome}:
+                raise ProjectionCorruptionError("one source execution cannot have conflicting terminal outcomes")
+            if not row["started"] or (attributed and outcome == "complete_success" and metadata.get("source_completed") is not True):
+                raise ProjectionCorruptionError("execution support lacks physical start/completion")
+            row["outcome"] = outcome
+            row["intrinsic_failure"] = outcome == "intrinsic_failure"
+        direct = {r["task"] for r in sources.values() if r["registered"] and r["outcome"] == "complete_success"}
+        trial = {r["task"] for r in sources.values() if r["attributed"] and r["outcome"] == "complete_success"}
+        eligible_trial = trial if len(trial) >= 2 else set()
+        active_rows = [r for r in sources.values() if r["registered"] or r["outcome"] == "intrinsic_failure" or r["task"] in eligible_trial]
+        consecutive = 0
+        for _key, r in sorted(sources.items(), key=lambda item: (item[1]["source_order"], item[0])):
+            if r["intrinsic_failure"]:
+                consecutive += 1
+            elif r["outcome"] == "complete_success" and (r["registered"] or r["task"] in eligible_trial):
+                consecutive = 0
+        self.execution_support.update({
+            "version": "r103.online.v1", "registered_direct_support_tasks": sorted(direct),
+            "attributed_trial_support_tasks": sorted(trial), "union_support_tasks": sorted(direct | eligible_trial),
+            "started_count": sum(r["started"] for r in active_rows),
+            "complete_success_count": sum(r["outcome"] == "complete_success" for r in active_rows),
+            "intrinsic_failure_count": sum(r["intrinsic_failure"] for r in active_rows),
+            "consecutive_intrinsic_failures": consecutive})
+
     def apply(self, event: EvidenceEvent, rowid: int) -> None:
         if event.artifact_ref != self.artifact_ref or event.artifact_kind != self.artifact_kind:
             raise ProjectionCorruptionError(
@@ -179,6 +277,8 @@ class ArtifactStats:
             self.first_event_rowid = rowid
         self.last_event_rowid = rowid
         self.last_event_id = event.event_id
+        self._apply_execution_support(event)
+        self._apply_canonical_support(event)
 
         name = event.event.value
         self.event_counts[name] = self.event_counts.get(name, 0) + 1
@@ -328,6 +428,7 @@ class ArtifactStats:
             "first_event_rowid": self.first_event_rowid,
             "last_event_rowid": self.last_event_rowid,
             "last_event_id": self.last_event_id,
+            "execution_support": self.execution_support,
         }
 
     @classmethod

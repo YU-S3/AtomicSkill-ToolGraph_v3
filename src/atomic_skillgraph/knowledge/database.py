@@ -236,9 +236,10 @@ CREATE TABLE IF NOT EXISTS cold_start_evidence (
 
 
 class StateDatabase:
-    def __init__(self, path: str | Path, *, readonly: bool = False) -> None:
+    def __init__(self, path: str | Path, *, readonly: bool = False, r103: bool = False) -> None:
         self.path = Path(path)
         self.readonly = readonly
+        self.r103 = r103
         existed = self.path.is_file()
         if not readonly:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,6 +271,13 @@ class StateDatabase:
 
     def initialize(self) -> None:
         self._connection.executescript(DDL)
+        from .identity_index import DDL as IDENTITY_DDL
+        self._connection.executescript(IDENTITY_DDL)
+        self._connection.execute("""CREATE TABLE execution_attribution_index (
+            target_ref TEXT NOT NULL, source_execution_key TEXT NOT NULL, evidence_class TEXT NOT NULL,
+            outcome TEXT NOT NULL, certificate_hash TEXT NOT NULL, event_id TEXT NOT NULL,
+            PRIMARY KEY(target_ref,source_execution_key,evidence_class,outcome),
+            FOREIGN KEY(event_id) REFERENCES evidence_events(event_id))""")
         self._connection.execute(
             "INSERT OR IGNORE INTO metadata(key, value) VALUES('schema_version', ?)",
             (str(SCHEMA_VERSION),),
@@ -279,6 +287,11 @@ class StateDatabase:
             "VALUES('state_patch_level', ?)",
             (STATE_PATCH_LEVEL,),
         )
+        if self.r103:
+            from .r103_protocol import METADATA, SOURCE_DDL
+            from .execution_observations import DDL as OBSERVATION_DDL
+            self._connection.executescript(OBSERVATION_DDL + SOURCE_DDL)
+            self._connection.executemany("INSERT INTO metadata(key,value) VALUES(?,?)", METADATA.items())
         self._connection.commit()
 
     def _validate_version(self) -> None:
@@ -305,6 +318,12 @@ class StateDatabase:
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
         available = {str(row["name"]) for row in rows}
+        if not self.readonly or "artifact_identity_index" in available:
+            info = self._connection.execute('PRAGMA table_info("artifact_identity_index")').fetchall()
+            expected = ("artifact_ref", "identity_version", "artifact_kind", "raw_payload_hash",
+                "harness_profile", "bucket_key", "refinement_fingerprint", "equivalence_id", "proof_path", "proof_hash")
+            if tuple(row["name"] for row in info) != expected or tuple(row["name"] for row in info if row["pk"]) != ("artifact_ref", "identity_version"):
+                raise RuntimeError("r103_identity_schema_mismatch: new writer requires a fresh knowledge bank")
         missing_tables = sorted(set(_REQUIRED_COLUMNS) - available)
         if missing_tables:
             raise RuntimeError(STATE_PATCH_MISMATCH)
@@ -373,6 +392,9 @@ class StateDatabase:
             )
         self._validate_version()
         self._validate_schema()
+        if self.r103:
+            from .r103_protocol import validate
+            validate(self._connection)
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:

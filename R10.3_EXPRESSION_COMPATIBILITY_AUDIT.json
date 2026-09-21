@@ -1,0 +1,33 @@
+{
+  "projection_version": "r103.expression.v1",
+  "upstream_commit": "760126030eab1d33ec6a6f30988f0f1fb58df3a7",
+  "adapted_source": "EmbodiSkill tasks/workflow/format.py main/notes grouping and stable traversal",
+  "license": "third_party/embodiskill/LICENSE",
+  "notice": "THIRD_PARTY_NOTICES.md",
+  "upstream_not_imported": ["agentkit", "manual", "embedding", "TeamSolver", "reflect_episode", "revise_manual"],
+  "field_contract": {
+    "guideline.steps": "same text, sequence, duplicates, portability and size validation",
+    "guideline.notes": "same text and original Atomic ownership; no replacement or generated updates",
+    "soft_reference": "retained",
+    "guidance_absent": "original absence/rejection reason retained",
+    "allowed_implementation_invocations.description": "removed only if identical actual native definition or the exact shared ONE_NATIVE_CALL_PREFIX wrapper",
+    "allowed_implementation_invocations.input_schema": "removed only on typed equality with actual native serialization",
+    "scope_readiness_unknown_fields": "retained",
+    "execution_frame.last_step": "retained with original invocation identity and exact feedback",
+    "downstream_obligations": "existing reversible pack/unpack; no new lossy summarizer",
+    "support_candidates": "interfaces not fully carried by an actual native definition stay in the payload",
+    "POLICY_CONTEXT_JSON": "original delimiter plus exactly one JSON object",
+    "expression_audit": "Trace-only; never included in policy payload"
+  },
+  "production_callsites": {
+    "runtime/runtime_step.py": "normal and lazy draft tools finalized before ContextBuilder and sent as the same list",
+    "runtime/task_runtime.py": "Dynamic/rescue/continuation tools finalized before ContextBuilder",
+    "agents/context_builder.py": "native_tool_specs=None does not remove definitions"
+  },
+  "controlled_tests": ["tests/test_r103_expression.py", "tests/test_r103_interventions.py", "tests/test_v32_r5_runtime_projection.py", "tests/test_v32_r5_runtime_prompts.py"],
+  "real_request_evidence": null,
+  "guideline_revision_tables_added": false,
+  "native_execution_permissions_changed_by_expression": false,
+  "measured_total_token_benefit": null,
+  "status": "deterministic_coverage_passed_real_validation_pending"
+}

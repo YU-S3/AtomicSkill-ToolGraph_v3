@@ -1,0 +1,39 @@
+{
+  "repair_revision": "R10.3",
+  "r103_design_revision": "execution-expression-v1.1",
+  "status": "finite_validation_pending_not_formally_released",
+  "provider_reasoning_effort": "high",
+  "formal_experiment_started": false,
+  "dev16": {
+    "empty_bank": true,
+    "reference": "data/baseline_manifests/train_120.json",
+    "display_numbers_in_order": [2, 3, 15, 16, 28, 34, 36, 40, 45, 46, 53, 57, 1, 7, 12, 31],
+    "learning_condition": "Full",
+    "result": null
+  },
+  "paired_deployment": {
+    "source": "the completed frozen dev16 bank from the same exact code snapshot",
+    "selection": "first two declared dev entries, fixed before outcomes",
+    "long_term_bank_readonly": true,
+    "conditions": {
+      "C11": {"presentation": "new", "programs": true, "automatic_entry": true, "result": null},
+      "C01": {"presentation": "old", "programs": true, "automatic_entry": true, "result": null},
+      "C10": {"presentation": "new", "programs": false, "automatic_entry": false, "result": null},
+      "A0": {"presentation": "new", "programs": true, "automatic_entry": false, "result": null},
+      "C00": {"presentation": "old", "programs": false, "automatic_entry": false, "scheduled": false, "result": null}
+    },
+    "conditional_expression_effect": null,
+    "conditional_program_effect": null,
+    "interaction": null
+  },
+  "learning_ablations": {
+    "L-identity-support": {"implemented": true, "independent_empty_bank_required": true, "run": false, "result": null},
+    "L-generalization": {"implemented": true, "independent_empty_bank_required": true, "run": false, "result": null}
+  },
+  "limitations": [
+    "Two training-side diagnostic tasks do not establish a formal SR or token benefit.",
+    "No interaction is estimated without C00.",
+    "No learning-ablation effect is claimed without independent training.",
+    "Unknown provider usage and unavailable reasoning are not measured zeros."
+  ]
+}

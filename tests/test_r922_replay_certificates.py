@@ -106,11 +106,11 @@ def test_ten_cases_linear_certificates_resume_changed_program_and_direct(tmp_pat
         # the same trace's certificates twice is an append-only no-op.
         system._commit_replay_certificates(traces[0])
         assert len(ReplayCertificates(system.ledger).events(signature)) == 10
-        assert ReplayCertificates(system.ledger).lookup(signature, cases[4]) is not None
-        assert ReplayCertificates(system.ledger, authority_version="changed").lookup(signature, cases[4]) is None
+        assert ReplayCertificates(system.ledger).lookup(signature, cases[4], semantic_profile=system.harness.profile_name) is not None
+        assert ReplayCertificates(system.ledger, authority_version="changed").lookup(signature, cases[4], semantic_profile=system.harness.profile_name) is None
         tampered = copy.deepcopy(cases[4])
         tampered["bindings"]["object"] = "unobserved_999"
-        assert certificates.lookup(signature, tampered) is None
+        assert certificates.lookup(signature, tampered, semantic_profile=system.harness.profile_name) is None
 
         # Two or more independent cases still expose one actual invocation.
         task = fake_task("direct", "apple_99", requires_rescue=True)

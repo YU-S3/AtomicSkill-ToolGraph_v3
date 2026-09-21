@@ -21,10 +21,10 @@ from test_r10_runtime import setup, action
 from test_r1021_boundaries import typed_atomicizer
 
 
-def source_case(tmp_path, *, sparse=False, support_late=False):
+def source_case(tmp_path, *, sparse=False, support_late=False, case_id="r10_step", include_proposal=False):
     system, ctx, owner, invocations, provider = setup(tmp_path, lambda r, n:
         action(r, 'GO_TO', destination='countertop_1') if n == 1 else
-        action(r, 'GO_TO', destination='cabinet_1') if n <= 2+int(sparse) else action(r, 'OPEN'))
+        action(r, 'GO_TO', destination='cabinet_1') if n <= 2+int(sparse) else action(r, 'OPEN'), case_id=case_id)
     step = lambda: run_runtime_step(system.orchestrator.node_executor, 'preparation', owner, ctx, invocations, [])
     step()  # genuine accepted prefix creates P, removed by capability navigation
     if sparse:
@@ -52,7 +52,8 @@ def source_case(tmp_path, *, sparse=False, support_late=False):
         input_specs=[ParameterSpec('container','entity',required_resolution='concrete')],
         output_specs=[ParameterSpec('accessible','entity',required_resolution='concrete')])
     c, = typed_atomicizer().validate_and_canonicalize([p], n)
-    return system, ctx, provider, c, n
+    result = system, ctx, provider, c, n
+    return (*result, p) if include_proposal else result
 
 
 def author(request, *, create=False):
@@ -223,9 +224,9 @@ def test_current_system_typed_directory_to_builder_replay_and_admission(tmp_path
         # Completed source/Trace publication uses exactly the existing ledger.
         trace.finish();system.traces.save_atomic(trace);system._commit_replay_certificates(trace)
         cert=ReplayCertificates(system.ledger);signature=_tool_signature(tool)
-        assert cert.lookup(signature,tool.tests[0]) is not None
-        assert cert.lookup(signature+'changed',tool.tests[0]) is None
+        assert cert.lookup(signature,tool.tests[0], semantic_profile=system.harness.profile_name) is not None
+        assert cert.lookup(signature+'changed',tool.tests[0], semantic_profile=system.harness.profile_name) is None
         changed=copy.deepcopy(tool.tests[0]);changed['prefix']=[]
-        assert cert.lookup(signature,changed) is None
-        assert ReplayCertificates(system.ledger,authority_version='different').lookup(signature,tool.tests[0]) is None
+        assert cert.lookup(signature,changed, semantic_profile=system.harness.profile_name) is None
+        assert ReplayCertificates(system.ledger,authority_version='different').lookup(signature,tool.tests[0], semantic_profile=system.harness.profile_name) is None
     finally: system.close()

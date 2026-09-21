@@ -242,7 +242,7 @@ def validate_deepseek_formal_llm(config: Mapping[str, Any]) -> None:
             "max_total_tokens_per_batch": 120000,
         },
     }
-    r1021 = config.get("repair_revision") == "R10.2.1"
+    r1021 = config.get("repair_revision") in {"R10.2.1", "R10.3"}
     if r1021:
         stage_expected["runtime"].pop("max_total_tokens_per_node")
         stage_expected["runtime"]["max_total_tokens_per_task"] = 600000
@@ -2952,6 +2952,10 @@ def _knowledge_table_rows(connection: Any) -> dict[str, list[list[Any]]]:
     }
     if "runtime_support_observations" in existing:
         specs["runtime_support_observations"] = ("*", "observation_id")
+    if "artifact_identity_index" in existing:
+        specs["artifact_identity_index"] = ("*", "artifact_ref,identity_version")
+    from atomic_skillgraph.knowledge.r103_protocol import add_digest_specs
+    add_digest_specs(connection, specs)
     result: dict[str, list[list[Any]]] = {}
     for table, (columns, order) in specs.items():
         if table not in existing:

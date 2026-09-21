@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -29,6 +30,71 @@ E1_SCHEMA = {
 }
 
 E2_SCHEMA = COMPOSITE_EXTRACTION_SCHEMA
+
+
+@dataclass(frozen=True)
+class ExtractionBatch:
+    occurrences: list[AtomicOccurrenceProposal]
+    generalizations: list[dict[str, Any]]
+
+
+def e1_schema(groups=()):
+    schema = copy.deepcopy(E1_SCHEMA)
+    schema["properties"]["generalizations"] = {"type": "array", "maxItems": 1 if groups else 0,
+        "items": {"type": "object", "required": ["group_id", "source_proposals", "rationale"], "additionalProperties": False,
+            "properties": {"group_id": {"type": "string", "enum": [g["group_id"] for g in groups] or ["no_group_available"]},
+                "rationale": {"type": "string", "maxLength": 512},
+                "source_proposals": {"type": "array", "minItems": 2, "maxItems": 2,
+                    "items": {"type": "object", "required": ["source_slot", "proposal"], "additionalProperties": False,
+                        "properties": {"source_slot": {"type": "string", "enum": ["current", "history"]},
+                                       "proposal": copy.deepcopy(ATOMIC_EXTRACTION_SCHEMA)}}}}}}
+    return schema
+
+
+def parse_occurrence_payload(item):
+    """One half-open boundary conversion shared by ordinary and sidecar E1."""
+    event_start = int(item["event_start"])
+    event_end_exclusive = int(item["event_end"])
+    return AtomicOccurrenceProposal(
+        phase_id=str(item["phase_id"]), intent=str(item["intent"]),
+        event_start=event_start, event_end=event_end_exclusive - 1,
+        input_roles=dict(item["input_roles"]), output_roles=dict(item["output_roles"]),
+        preconditions=[_predicate(value) for value in item["preconditions"]],
+        effects=[_predicate(value) for value in item["effects"]], rationale=str(item["rationale"]),
+        support_event_ids=[str(value) for value in item.get("support_event_ids", [])],
+        shared_precondition_event_ids=[
+            str(value)
+            for value in item.get(
+                "shared_precondition_event_ids", []
+            )
+        ],
+        precondition_witness_refs=[str(value) for value in item.get("precondition_witness_refs", [])],
+        effect_witness_refs=[str(value) for value in item.get("effect_witness_refs", [])],
+        ordering_constraints=[dict(value) for value in item.get("ordering_constraints", [])],
+        input_provenance_refs={
+            str(role): dict(authority_ref)
+            for role, authority_ref in dict(
+                item["input_provenance_refs"]
+            ).items()
+        },
+        input_provenance_contract="code_authority_v3_2",
+        boundary_schema_version=str(item["boundary_schema_version"]),
+        input_specs=[ParameterSpec(**spec) for spec in item["input_specs"]],
+        output_specs=[ParameterSpec(**spec) for spec in item["output_specs"]],
+        output_semantic_constraints=dict(item["output_semantic_constraints"]),
+        local_value_authority_refs=list(item["local_value_authority_refs"]),
+        guideline=dict(item["guideline"]),
+        # Every output derivation is an explicit E1 authority claim.
+        # Preserve it verbatim for deterministic code validation;
+        # neither INPUT_IDENTITY nor EFFECT_WITNESS may be inferred
+        # from coincident concrete values at this boundary.
+        output_derivations={
+            str(role): dict(raw)
+            for role, raw in dict(
+                item["output_derivations"]
+            ).items()
+        },
+    )
 
 
 @dataclass
@@ -271,7 +337,7 @@ class ExtractorSession:
             - self._e2_protocol_repairs_before,
         )
 
-    def propose_atomics(
+    def propose_batch(
         self,
         normalized_trace: dict[str, Any],
         known_atomic_contracts: list[Any] | tuple[Any, ...] = (),
@@ -279,7 +345,8 @@ class ExtractorSession:
         *,
         runtime_automation_drafts: list[Any] | tuple[Any, ...] = (),
         runtime_tool_trials: list[Any] | tuple[Any, ...] = (),
-    ) -> list[AtomicOccurrenceProposal]:
+        generalization_groups: list[dict] | tuple[dict, ...] = (),
+    ) -> ExtractionBatch:
         if self._e1_complete:
             raise RuntimeError("Extractor E1 may run exactly once")
         self._begin_phase('e1')
@@ -296,12 +363,13 @@ class ExtractorSession:
                     ),
                     runtime_automation_drafts=runtime_automation_drafts,
                     runtime_tool_trials=runtime_tool_trials,
+                    generalization_groups=generalization_groups,
                 ),
                 tool_name="submit_extractor_atomics",
                 description=(
                     "Submit the complete Atomic occurrence extraction proposal."
                 ),
-                schema=E1_SCHEMA,
+                schema=e1_schema(generalization_groups),
             ).value
         except AgentProtocolError as exc:
             raise ExtractionContentError(
@@ -310,51 +378,12 @@ class ExtractorSession:
                 str(exc),
             ) from exc
         self._e1_complete = True
-        proposals: list[AtomicOccurrenceProposal] = []
-        for item in payload["occurrences"]:
-            event_start = int(item["event_start"])
-            event_end_exclusive = int(item["event_end"])
-            proposals.append(AtomicOccurrenceProposal(
-                phase_id=str(item["phase_id"]), intent=str(item["intent"]),
-                event_start=event_start, event_end=event_end_exclusive - 1,
-                input_roles=dict(item["input_roles"]), output_roles=dict(item["output_roles"]),
-                preconditions=[_predicate(value) for value in item["preconditions"]],
-                effects=[_predicate(value) for value in item["effects"]], rationale=str(item["rationale"]),
-                support_event_ids=[str(value) for value in item.get("support_event_ids", [])],
-                shared_precondition_event_ids=[
-                    str(value)
-                    for value in item.get(
-                        "shared_precondition_event_ids", []
-                    )
-                ],
-                precondition_witness_refs=[str(value) for value in item.get("precondition_witness_refs", [])],
-                effect_witness_refs=[str(value) for value in item.get("effect_witness_refs", [])],
-                ordering_constraints=[dict(value) for value in item.get("ordering_constraints", [])],
-                input_provenance_refs={
-                    str(role): dict(authority_ref)
-                    for role, authority_ref in dict(
-                        item["input_provenance_refs"]
-                    ).items()
-                },
-                input_provenance_contract="code_authority_v3_2",
-                boundary_schema_version=str(item["boundary_schema_version"]),
-                input_specs=[ParameterSpec(**spec) for spec in item["input_specs"]],
-                output_specs=[ParameterSpec(**spec) for spec in item["output_specs"]],
-                output_semantic_constraints=dict(item["output_semantic_constraints"]),
-                local_value_authority_refs=list(item["local_value_authority_refs"]),
-                guideline=dict(item["guideline"]),
-                # Every output derivation is an explicit E1 authority claim.
-                # Preserve it verbatim for deterministic code validation;
-                # neither INPUT_IDENTITY nor EFFECT_WITNESS may be inferred
-                # from coincident concrete values at this boundary.
-                output_derivations={
-                    str(role): dict(raw)
-                    for role, raw in dict(
-                        item["output_derivations"]
-                    ).items()
-                },
-            ))
-        return proposals
+        return ExtractionBatch([parse_occurrence_payload(item) for item in payload["occurrences"]],
+                               copy.deepcopy(payload.get("generalizations", [])))
+
+    def propose_atomics(self, *args, **kwargs) -> list[AtomicOccurrenceProposal]:
+        """Legacy list consumer; delegates once, never makes a second request."""
+        return self.propose_batch(*args, **kwargs).occurrences
 
     def propose_composite(
         self, authoritative_occurrences: list[CanonicalAtomicOccurrence],

@@ -145,8 +145,6 @@ def _rewrite_nested(value: Any, role_map: Mapping[str, str]) -> Any:
             for key, item in value.items()
         }
     if isinstance(value, str):
-        if value in role_map:
-            return role_map[value]
         if value.startswith("$"):
             role = value[1:]
             return "$" + role_map.get(role, role)
@@ -196,8 +194,17 @@ def _rewrite_validator_spec(
     raw_identity = payload.pop("output_identity", None)
     raw_derivations = payload.pop("output_derivations", None)
     raw_constraints = payload.pop("output_semantic_constraints", None)
-    expression_roles = {**output_role_map, **input_role_map}
-    rewritten = _rewrite_nested(payload, expression_roles)
+    # Unknown validator extensions remain literal. Only declared role fields
+    # and the three supported output-constraint schemas are alpha-renamed.
+    # In particular "$role" inside an opaque string is not a reference.
+    rewritten = copy.deepcopy(payload)
+    # These are validator role-reference fields, unlike an arbitrary string
+    # constant that happens to have the same spelling as a role.
+    for field, mapping in (("input_role", input_role_map), ("output_role", output_role_map)):
+        if isinstance(payload.get(field), str):
+            value = payload[field]
+            rewritten[field] = ("$" + mapping.get(value[1:], value[1:]) if value.startswith("$")
+                                else mapping.get(value, value))
     if raw_derivations is not None:
         rewritten["output_derivations"] = {
             output_role_map.get(role, role): {
@@ -329,6 +336,10 @@ def _identity_payload(
             output_role_map,
         )
     )
+    # Existing RuntimeAutomation compilation explicitly distinguishes these
+    # task-local envelope leaves from the validator's semantic contract.
+    for provenance_leaf in ("task_local", "occurrence_id", "trace_id"):
+        validator_contract.pop(provenance_leaf, None)
     # Output witness refs identify one concrete validation event, not the
     # reusable output-derivation contract.  Keep them in the persisted
     # validator_spec for audit, but exclude only this task-local provenance
@@ -357,8 +368,15 @@ def _identity_payload(
 def canonical_atomic_contract(atomic: AbstractAtomicSkill) -> dict[str, Any]:
     """Return the one alpha-normalized Atomic identity payload."""
 
-    inputs = _boundary_role_map(atomic, atomic.inputs, "input")
-    outputs = _boundary_role_map(atomic, atomic.outputs, "output")
+    from .identity_matching import canonical_atomic_roles
+    maps = canonical_atomic_roles(atomic)
+    if maps is None:
+        # A bounded search cannot authorize equivalence. Keep a conservative
+        # raw identity for callers using this value as a retrieval/cache key.
+        return {"identity_search": "unknown", "raw_contract": _identity_payload(
+            atomic, {s.name: s.name for s in atomic.inputs},
+            {s.name: s.name for s in atomic.outputs})}
+    inputs, outputs = maps
     return _identity_payload(atomic, inputs, outputs)
 
 
@@ -546,30 +564,11 @@ def aligned_role_maps(
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Map candidate aliases onto an alpha-equivalent persisted schema."""
 
-    if atomic_contract_signature(candidate) != atomic_contract_signature(persisted):
-        raise ValueError("Atomic contracts are not alpha-equivalent")
-
-    def align(
-        candidate_specs: list[ParameterSpec],
-        persisted_specs: list[ParameterSpec],
-        prefix: str,
-    ) -> dict[str, str]:
-        candidate_neutral = _boundary_role_map(candidate, candidate_specs, prefix)
-        persisted_neutral = _boundary_role_map(persisted, persisted_specs, prefix)
-        persisted_by_neutral = {
-            neutral: role for role, neutral in persisted_neutral.items()
-        }
-        if set(candidate_neutral.values()) != set(persisted_by_neutral):
-            raise ValueError("alpha-equivalent Atomic role boundaries do not align")
-        return {
-            role: persisted_by_neutral[neutral]
-            for role, neutral in candidate_neutral.items()
-        }
-
-    return (
-        align(candidate.inputs, persisted.inputs, "input"),
-        align(candidate.outputs, persisted.outputs, "output"),
-    )
+    from .identity_matching import match_atomic
+    result = match_atomic(candidate, persisted)
+    if result.status != "exact" or result.proof is None:
+        raise ValueError(f"Atomic identity {result.status}: {result.reason}")
+    return result.proof.input_role_map, result.proof.output_role_map
 
 
 class AtomicContractCanonicalizer:
@@ -588,12 +587,14 @@ class AtomicContractCanonicalizer:
         from ..tooling.proposal import validate_output_semantic_constraints
         validate_output_semantic_constraints(atomic.inputs, atomic.outputs,
             atomic.validator_spec.get("output_semantic_constraints", {}))
-        input_roles = dict(input_role_map or _boundary_role_map(
-            atomic, atomic.inputs, "input",
-        ))
-        output_roles = dict(output_role_map or _boundary_role_map(
-            atomic, atomic.outputs, "output",
-        ))
+        from .identity_matching import canonical_atomic_roles
+        neutral = canonical_atomic_roles(atomic) if input_role_map is None or output_role_map is None else None
+        # UNKNOWN cannot invalidate a legal discovery. Its original role schema
+        # is retained, while exact-match callers independently require proof.
+        input_roles = dict(input_role_map if input_role_map is not None else
+            neutral[0] if neutral is not None else {s.name: s.name for s in atomic.inputs})
+        output_roles = dict(output_role_map if output_role_map is not None else
+            neutral[1] if neutral is not None else {s.name: s.name for s in atomic.outputs})
         expression_roles = {**output_roles, **input_roles}
         signature = content_hash(
             _identity_payload(atomic, input_roles, output_roles)
@@ -680,15 +681,13 @@ class AtomicContractCanonicalizer:
                 ).items()
             }
             steps.append(step)
-        artifact["steps"] = steps
-        artifact["output_mapping"] = {
-            output_roles.get(str(role), str(role)): _rewrite_expression(
-                expression, input_roles,
-            )
-            for role, expression in dict(
-                artifact.get("output_mapping") or {}
-            ).items()
-        }
+        if "steps" in artifact:
+            artifact["steps"] = steps
+        if "output_mapping" in artifact:
+            artifact["output_mapping"] = {
+                output_roles.get(str(role), str(role)): _rewrite_expression(expression, input_roles)
+                for role, expression in dict(artifact["output_mapping"]).items()
+            }
         tests: list[dict[str, Any]] = []
         for raw_case in tool.tests:
             case = copy.deepcopy(dict(raw_case))
@@ -755,7 +754,8 @@ class AtomicContractCanonicalizer:
             output_mapping[output_roles.get(str(role), str(role))] = (
                 _rewrite_expression(expression, role_source)
             )
-        policy["output_mapping"] = output_mapping
+        if "output_mapping" in policy:
+            policy["output_mapping"] = output_mapping
         return replace(
             implementation,
             abstract_ref=atomic_ref,

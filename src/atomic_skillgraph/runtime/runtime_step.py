@@ -49,7 +49,7 @@ def public_step_feedback(call: Any, payload: dict, *, before_revision: int,
                 projected['message'] = message
         return projected
 
-    feedback = {"tool": call.name, "arguments": to_primitive(call.arguments),
+    feedback = {"call_id": call.call_id, "tool": call.name, "arguments": to_primitive(call.arguments),
                 "before_revision": before_revision, "after_revision": after_revision,
                 **project_result(payload)}
     if selected_action is not None:
@@ -104,6 +104,12 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                      atomic_override: Any = None, plan_context_plan: Any = None) -> RuntimeStepResult:
     if mode not in {"preparation", "seeded"}:
         raise ValueError(f"unsupported RuntimeStep mode: {mode}")
+    from .interventions import policy
+    intervention = policy(ctx)
+    if not intervention.programs:
+        if draft_request:
+            raise RuntimeError("disabled program channel cannot carry a draft request")
+        invocations, support_candidates = [], []
     session_kind = "provisional_seeded" if atomic_override is not None else mode
     session = executor.session_factory(f"runtime_step_{session_kind}", occurrence.occurrence_id)
     record = executor._record_session_start(
@@ -127,6 +133,17 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
              "last_step": ctx.runtime_step_feedback.get(occurrence.occurrence_id, {}),
              "remaining_resources": {**resources, "node_actions_used": ctx.budget.used_node_actions,
                                      "task_actions": ctx.budget.remaining_global_actions}}
+    # Capture the actual allowed surface before projecting its public copy.
+    # Spec construction cannot invoke tools or commit argument bindings.
+    if draft_request:
+        tools = [executor._automation_tool()]
+    else:
+        tools = [tool for tool in executor._node_tools(
+            ctx, atomic, invocations=invocations, allow_plan_conflict=True,
+            support_candidates=support_candidates,
+        ) if tool.name != "propose_runtime_automation_atomic"]
+        if intervention.programs:
+            tools.append(automation_request_tool())
     prompt = executor.context_builder.runtime_node(
         task_goal=ctx.task_goal, atomic_contract=atomic,
         task_semantic_context=bindings["task_semantic_context"],
@@ -146,6 +163,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
             ctx.harness, occurrence, ctx.binding_store) if draft_request else None),
         recent_failed_learned_invocation=ctx.last_failed_invocation,
         projection_audit=audit,
+        native_tool_specs=tools,
         runtime_step_mode=mode,
         rejected_candidates=current_rejections(ctx, occurrence),
         execution_frame=frame,
@@ -154,13 +172,6 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
     if draft_request:
         import json
         instruction += "\nAUTOMATION_REQUEST\n" + json.dumps(draft_request, ensure_ascii=False)
-        tools = [executor._automation_tool()]
-    else:
-        tools = [tool for tool in executor._node_tools(
-            ctx, atomic, invocations=invocations, allow_plan_conflict=True,
-            support_candidates=support_candidates,
-        ) if tool.name != "propose_runtime_automation_atomic"]
-        tools.append(automation_request_tool())
     prompt = instruction + "\n" + prompt
     increment(ctx, "runtime_step_count")
     increment(ctx, f"runtime_step_{mode}_count")
@@ -176,6 +187,9 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
             occurrence_id=occurrence.occurrence_id, origin="runtime_step",
         )
         turn = session.next_turn(prompt, tools=tools)
+        if getattr(executor.invocation_compiler, "r103", False):
+            executor.invocation_compiler.record_display(ctx, session.session_id, invocations, tools)
+            executor._record_support_display(ctx, session.session_id, support_candidates, tools)
         executor._record_turn(session, turn, ctx)
         if not draft_request:
             executor._mark_prior_trials_parent_continuation(ctx, occurrence, session.session_id)

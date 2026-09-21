@@ -24,6 +24,8 @@ class EvidenceEventType(str, Enum):
     VALIDATED = "validated"
     REPLAY_VALIDATED = "replay_validated"
     REPLAY_REJECTED = "replay_rejected"
+    EXECUTION_ATTRIBUTED = "execution_attributed"
+    CANONICAL_SUPPORT_ATTESTED = "canonical_support_attested"
     SELECTED = "selected"
     PREFLIGHT_REJECTED = "preflight_rejected"
     EXECUTION_STARTED = "execution_started"
@@ -226,14 +228,14 @@ class EvidenceLedger:
     def __init__(self, database: StateDatabase) -> None:
         self.database = database
 
-    def append_transaction(self, events: Iterable[EvidenceEvent]) -> AppendResult:
+    def append_transaction(self, events: Iterable[EvidenceEvent], *, companion_write: Any = None) -> AppendResult:
         if self.database.readonly:
             raise RuntimeError("frozen evidence ledger is read-only")
         requested = list(events)
         for event in requested:
             if not isinstance(event, EvidenceEvent):
                 raise TypeError("EvidenceLedger only accepts EvidenceEvent instances")
-        if not requested:
+        if not requested and companion_write is None:
             return AppendResult(0, 0, 0, self.max_rowid())
 
         unique: list[EvidenceEvent] = []
@@ -279,8 +281,38 @@ class EvidenceLedger:
                         )
                     existing_duplicates += 1
                     continue
+                if event.event in {EvidenceEventType.EXECUTION_ATTRIBUTED, EvidenceEventType.CANONICAL_SUPPORT_ATTESTED}:
+                    metadata = event.metadata
+                    required = ("source_execution_key", "source_independent_task_key", "source_trace_hash",
+                        "source_class", "outcome", "attribution_certificate_hash")
+                    if any(not metadata.get(key) for key in required):
+                        raise EvidenceConflictError("attributed evidence lacks source authority")
+                    if metadata["outcome"] not in {"complete_success", "intrinsic_failure"}:
+                        raise EvidenceConflictError("invalid attributed execution outcome")
+                    if event.event is EvidenceEventType.CANONICAL_SUPPORT_ATTESTED and event.artifact_kind != "atomic":
+                        raise EvidenceConflictError("canonical semantic support cannot credit a program")
+                    from .attribution_validation import verify as verify_attribution
+                    try:
+                        verify_attribution(event, self.database)
+                    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+                        raise EvidenceConflictError(f"invalid attribution certificate: {exc}") from exc
+                    previous = connection.execute("SELECT * FROM execution_attribution_index "
+                        "WHERE target_ref=? AND source_execution_key=? AND evidence_class=?",
+                        (event.artifact_ref, metadata["source_execution_key"], metadata["source_class"])).fetchone()
+                    if previous is not None:
+                        if (previous["outcome"] != metadata["outcome"]
+                                or previous["certificate_hash"] != metadata["attribution_certificate_hash"]
+                                or previous["event_id"] != event.event_id):
+                            raise EvidenceConflictError("source execution has conflicting attribution or terminal outcomes")
+                        raise EvidenceConflictError("attribution index exists without its immutable ledger event")
                 connection.execute(_INSERT, event.database_values())
+                if event.event in {EvidenceEventType.EXECUTION_ATTRIBUTED, EvidenceEventType.CANONICAL_SUPPORT_ATTESTED}:
+                    connection.execute("INSERT INTO execution_attribution_index VALUES(?,?,?,?,?,?)", (
+                        event.artifact_ref, event.metadata["source_execution_key"], event.metadata["source_class"],
+                        event.metadata["outcome"], event.metadata["attribution_certificate_hash"], event.event_id))
                 inserted += 1
+            if companion_write is not None:
+                companion_write(connection)
             row = connection.execute(
                 "SELECT COALESCE(MAX(rowid), 0) AS last_rowid FROM evidence_events"
             ).fetchone()

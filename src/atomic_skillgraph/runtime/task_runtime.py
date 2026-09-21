@@ -36,7 +36,8 @@ def invoke_task_capability(executor, call, consumer, ctx, candidate):
         node_ref=ref, requirement_ids=[], binding_specs={},
         implementation_candidates=[str(i.ref) for i in executor.invocation_compiler.skills.implementations_for(
             ref, mode=executor.invocation_compiler.mode)], expected_effects=list(atomic.effects))
-    choices = executor.invocation_compiler.compile_candidates(occurrence, ctx.binding_store, task_id=ctx.task_id)
+    choices = executor.invocation_compiler.compile_candidates(occurrence, ctx.binding_store, task_id=ctx.task_id,
+        evidence_store=ctx.evidence_store, revision=ctx.world_revision, task_contract=ctx.task_contract)
     preferred = [c for c in choices if c.implementation.quality.get('preferred')]
     if not choices or (len(choices) > 1 and len(preferred) != 1):
         return {"accepted": False, "error": "runtime_support_no_unambiguous_executable"}
@@ -73,6 +74,8 @@ def invoke_task_capability(executor, call, consumer, ctx, candidate):
 
 
 def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, continuation_context=None):
+    from .interventions import policy
+    intervention = policy(ctx)
     consumer = TaskConsumer()
     ctx.clear_active_occurrence()
     kind = 'cold_start_dynamic_continuation' if cold_start_continuation else 'task_rescue' if rescue else 'full_dynamic'
@@ -86,8 +89,12 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
             pool = list(executor.invocation_compiler.skills.atomics(mode=executor.invocation_compiler.mode))
             candidates = executor.support_retriever.retrieve_for_task(
                 query=ctx.task_goal, atomics=pool,
-                execution_availability=executor._support_execution_availability(pool))
-            tools = [executor._environment_tool(ctx, node_level=False), executor._status_tool(), automation_request_tool()]
+                execution_availability=executor._support_execution_availability(pool, ctx))
+            if not intervention.programs:
+                candidates = []
+            tools = [executor._environment_tool(ctx, node_level=False), executor._status_tool()]
+            if intervention.programs:
+                tools.append(automation_request_tool())
             if candidates:
                 tools.append(executor._support_tool(candidates))
             if request:
@@ -107,7 +114,8 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                 relevant_action_history=ctx.relevant_history(''), remaining_budget=ctx.budget.snapshot(),
                 task_progress=executor._task_progress_policy(ctx), exploration_memory=ctx.exploration_memory.policy_view(),
                 recent_failed_learned_invocation=ctx.last_failed_invocation,
-                rescue_method_guidance=executor._rescue_method_guidance(ctx) if rescue else None, projection_audit=audit, task_runtime_frame=frame)
+                rescue_method_guidance=executor._rescue_method_guidance(ctx) if rescue else None,
+                projection_audit=audit, task_runtime_frame=frame, native_tool_specs=tools)
             session = executor.session_factory(session_kind, '__task__')
             record = executor._record_session_start(session, 'DynamicTaskSession', '', ctx)
             increment(ctx, 'runtime_step_count')
@@ -118,6 +126,7 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
             try:
                 executor._record_runtime_context_projection(ctx, audit, session_id=session.session_id, occurrence_id='', origin='runtime_step')
                 turn = session.next_turn(prompt, tools=tools)
+                executor._record_support_display(ctx, session.session_id, candidates, tools)
                 executor._record_turn(session, turn, ctx)
                 call = turn.tool_calls[0]
                 before_revision = ctx.world_revision

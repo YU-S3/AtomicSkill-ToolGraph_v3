@@ -81,8 +81,8 @@ def run(config_path, output, *, fixture_programs=False):
     output.mkdir(parents=True, exist_ok=False)
     config = isolated_config(load_config(config_path), output)
     config['experiment']['task_manifest_path'] = None
-    if config.get('repair_revision') != 'R10.2.1':
-        raise ValueError('R10.2.1 configuration required')
+    if config.get('repair_revision') not in {'R10.2.1', 'R10.3'}:
+        raise ValueError('R10.2.1/R10.3 configuration required')
     manifest = {'formal_experiment': False, 'fixture_active_status_not_lifecycle_evidence': True,
         'code_hash': hash_code(REPO), 'config_hash': hash_config(config), 'env_index': 0,
         'contracts': to_primitive(contracts()), 'fixture_programs': fixture_programs}
@@ -92,6 +92,9 @@ def run(config_path, output, *, fixture_programs=False):
         config_hash=manifest['config_hash'], code_hash=manifest['code_hash'], run_if_missing=True)
     capture_execution_manifest(REPO, output, manifest['config_hash'], capability)
     with AtomicSkillGraphSystem(config) as system:
+        if config.get('repair_revision') == 'R10.3':
+            from experiments.run_v3_r103_validation import capture_requests
+            capture_requests(system, output)
         append_usage = system.usage.append
         def persist_usage(event):
             result = append_usage(event)
@@ -160,14 +163,18 @@ def run(config_path, output, *, fixture_programs=False):
             trace = ctx.trace_builder.trace
             trace.runtime_plan = to_primitive(plan)
             trace.metadata['acceptance_fixture'] = manifest
-            results, provider_counts = [], []
+            results, provider_counts, provider_segments = [], [], []
             for occurrence in occurrences:
                 ctx.budget.begin_node(occurrence.occurrence_id)
                 ctx.binding_store.apply_data_flow(plan, occurrence.step_id, ctx.validated_outputs, revision=ctx.world_revision)
                 ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision,
                     input_specs=system.skills.get_atomic(occurrence.node_ref).inputs)
                 ctx.begin_occurrence(occurrence)
+                before_requests = sum(p.request_record_count for p in system._provider_instances())
                 result = VerifiedCompositeExecutor(system.orchestrator.node_executor).run_occurrence(occurrence, ctx)
+                after_requests = sum(p.request_record_count for p in system._provider_instances())
+                provider_segments.append({'occurrence_id':occurrence.occurrence_id,
+                    'before':before_requests,'after':after_requests,'attempts':after_requests-before_requests})
                 results.append(result)
                 provider_counts.append(len(system.usage.events))
                 trace.node_records.append(NodeTraceRecord(occurrence.occurrence_id, occurrence.step_id, str(occurrence.node_ref),
@@ -198,8 +205,10 @@ def run(config_path, output, *, fixture_programs=False):
             system.traces.save_atomic(trace)
             trace_saved = True
             result = {'passed': len(results) == 2 and all(r.atomic_effect_passed for r in results)
-                and provider_counts[0] == provider_counts[1] and results[1].node_status.value == 'direct_autonomous_success',
+                and provider_counts[0] == provider_counts[1] and provider_segments[1]['attempts'] == 0
+                and results[1].node_status.value == 'direct_autonomous_success',
                 'trace_id': trace.trace_id, 'results': to_primitive(results), 'provider_counts': provider_counts,
+                'provider_segments':provider_segments,
                 'action_source_audit': action_source_audit(trace), 'wall_seconds': time.monotonic() - started,
                 'code_unchanged': hash_code(REPO) == manifest['code_hash'], **manifest}
             atomic_write_json(output / 'summary.json', result)

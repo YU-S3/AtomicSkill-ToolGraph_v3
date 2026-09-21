@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from atomic_skillgraph.knowledge.r103_protocol import metadata_for as r103_metadata_for
+
 import argparse
 from collections import Counter
 from datetime import datetime, timezone
@@ -81,6 +83,7 @@ _R1021_TRAIN_RUN_SEEDS = {
     f"alfworld_train_full_120_r1021_seed{seed}": seed for seed in (42, 43, 44)
 }
 _R7_TRAIN_REFERENCE_PATH = Path("data/baseline_manifests/train_120.json")
+_R103_TRAIN_RUN_SEEDS = {f"alfworld_train_full_120_r103_seed{seed}": seed for seed in (42, 43, 44)}
 _R7_TRAIN_REFERENCE_ID = "train_120"
 
 
@@ -91,6 +94,8 @@ def _path(value: str | Path) -> Path:
 
 def _train_protocol(config: dict[str, Any]) -> tuple[str, int, int, int]:
     name = str((config.get("experiment") or {}).get("name", ""))
+    if name in _R103_TRAIN_RUN_SEEDS:
+        return "r103_full120", _R103_TRAIN_RUN_SEEDS[name], 20, 120
     if name in _LEGACY_TRAIN_RUN_NAMES:
         return "legacy_full30", 42, 5, 30
     if name in _R7_TRAIN_RUN_SEEDS:
@@ -115,7 +120,7 @@ def _r7_train_reference_manifest(
 ) -> ReferenceManifest | None:
     protocol, _, _, _ = _train_protocol(config)
     if protocol not in {
-        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120", "r1021_full120",
+        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120", "r1021_full120", "r103_full120",
     }:
         return None
     selection = dict((config.get("harness") or {}).get("task_selection") or {})
@@ -152,6 +157,7 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
     protocol, _, expected_per_type, expected_total = _train_protocol(config)
     if per_type != expected_per_type or total != expected_total:
         label = (
+            "R10.3 Full-120" if protocol == "r103_full120" else
             "R10.2.1 Full-120" if protocol == "r1021_full120" else
             "R10 Full-120" if protocol == "r10_full120" else
             "R9.2 Full-120" if protocol == "r92_full120" else
@@ -243,7 +249,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
         if actual != wanted
     ]
     if protocol in {
-        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120", "r1021_full120",
+        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120", "r1021_full120", "r103_full120",
     }:
         if lifecycle.get("candidate_exploration_seed") != expected_seed:
             mismatches.append(
@@ -269,7 +275,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
                 "R8 lifecycle.composite_candidate_zero_success_trial_limit "
                 "must be integer 3"
             )
-    if protocol in {"r9_full120", "r92_full120", "r10_full120", "r1021_full120"}:
+    if protocol in {"r9_full120", "r92_full120", "r10_full120", "r1021_full120", "r103_full120"}:
         required_lifecycle = {
             "composite_active_deployment_successes": 2,
             "composite_candidate_zero_success_trial_limit": 3,
@@ -286,6 +292,9 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
             mismatches.append(
                 "R9/R9.2 formal ALFWorld planner.literal_authorities must be empty"
             )
+    if protocol == "r103_full120":
+        from atomic_skillgraph.knowledge.r103_protocol import validate_config
+        mismatches.extend(validate_config(config))
     if protocol == "r1021_full120" and config.get("repair_revision") != "R10.2.1":
         mismatches.append("R10.2.1 formal train requires repair_revision=R10.2.1")
     if protocol == "r10_full120" and config.get("repair_revision") != "R10":
@@ -312,7 +321,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     if mismatches:
         raise ProtocolError("formal train config mismatch: " + "; ".join(mismatches))
     if protocol in {
-        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120", "r1021_full120",
+        "r7_full120", "r8_full120", "r9_full120", "r92_full120", "r10_full120", "r1021_full120", "r103_full120",
     }:
         _r7_train_reference_manifest(config)
 
@@ -676,7 +685,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
     invocation_started_at = datetime.now(timezone.utc)
     config_path = _path(config_path)
     config = load_config(config_path)
-    if config.get("repair_revision") != "R10.2.1":
+    if config.get("repair_revision") not in {"R10.2.1", "R10.3"}:
         raise ProtocolError("Use a fresh R10.2.1 config and bank; historical execution requires its original checkout")
     experiment = dict(config.get("experiment") or {})
     if experiment.get("phase") != "train" or experiment.get("runtime_mode") != "online":
@@ -703,7 +712,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
         code_hash=code_digest,
         run_if_missing=not resume or bool(recovery),
     )
-    if protocol == 'r1021_full120':
+    if protocol in {'r1021_full120', 'r103_full120'}:
         from experiments.protocol import capture_execution_manifest
         capture_execution_manifest(REPO_ROOT, output_dir, config_digest, capability_manifest)
     print(json.dumps({
@@ -818,6 +827,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
                 knowledge_digest=initial_digest,
                 tasks=task_items,
                 metadata={
+                    **r103_metadata_for(config),
                     "condition": "full",
                     "run_started_at": invocation_started_at.isoformat(),
                     "environment": {"alfworld_version": "0.4.2"},
@@ -1050,6 +1060,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
             "r9_full120": f"train_full_120_r9_seed{experiment_seed}",
             "r10_full120": f"train_full_120_r10_seed{experiment_seed}",
             "r1021_full120": f"train_full_120_r1021_seed{experiment_seed}",
+            "r103_full120": f"train_full_120_r103_seed{experiment_seed}",
             "r92_full120": f"train_full_120_r92_seed{experiment_seed}",
         }.get(protocol, "train_full_30")
         report_title = {
@@ -1067,6 +1078,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
             ),
             "r10_full120": f"AtomicSkillGraph v3 ALFWorld Full-120 R10 Train (seed {experiment_seed})",
             "r1021_full120": f"AtomicSkillGraph v3 ALFWorld Full-120 R10.2.1 Train (seed {experiment_seed})",
+            "r103_full120": f"AtomicSkillGraph v3 ALFWorld Full-120 R10.3 Train (seed {experiment_seed})",
             "r92_full120": (
                 f"AtomicSkillGraph v3 ALFWorld Full-120 R9.2 Train "
                 f"(seed {experiment_seed})"
@@ -1087,7 +1099,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
             require_r9_formal_freeze_audit(
                 system.database, system.skills,
             )
-            if protocol in {"r9_full120", "r92_full120", "r10_full120", "r1021_full120"}
+            if protocol in {"r9_full120", "r92_full120", "r10_full120", "r1021_full120", "r103_full120"}
             else require_active_composite_frozen_closure(
                 system.database, system.skills,
             )
@@ -1095,6 +1107,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
             else None
         )
         freeze_provenance = {
+            **(r103_metadata_for(manifest.metadata) if manifest.metadata.get("repair_revision") == "R10.3" else {}),
             "source_run_id": manifest.run_id,
             "source_run_manifest_hash": manifest.manifest_hash,
             "source_config_hash": manifest.config_hash,
@@ -1111,7 +1124,7 @@ def run(config_path: str | Path, *, resume: bool = False, provider_recovery: boo
             ),
         }
         if closure_audit is not None:
-            if protocol in {"r9_full120", "r92_full120", "r10_full120", "r1021_full120"}:
+            if protocol in {"r9_full120", "r92_full120", "r10_full120", "r1021_full120", "r103_full120"}:
                 freeze_provenance.update({
                     "r9_formal_freeze_audit_passed": True,
                     "r9_formal_freeze_audit": closure_audit,

@@ -11,7 +11,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from typing import Any
+from typing import Any, Iterable
+
+from .protocol import NativeToolSpec, ONE_NATIVE_CALL_PREFIX
 
 
 FORMAT = "runtime_downstream_dedup_v1"
@@ -161,8 +163,102 @@ def pack_downstream_context(raw: Any) -> tuple[Any, str]:
     return packed, "deduplicated"
 
 
+def _native_table(specs: Iterable[NativeToolSpec]) -> list[dict[str, Any]]:
+    rows = []
+    for spec in specs:
+        if not isinstance(spec, NativeToolSpec):
+            raise ValueError("native specs must use the provider protocol adapter")
+        # Compare the same representation the provider actually sends.
+        rows.append(copy.deepcopy(spec.to_openai()["function"]))
+    return rows
+
+
+def restore_native_interfaces(projected, native_tool_specs, audit):
+    """Audit-only inverse. Reject a changed table, payload or replacement proof."""
+    if digest(projected) != audit["projected_payload_hash"]:
+        raise ValueError("expression payload integrity mismatch")
+    result = copy.deepcopy(projected)
+    if audit["replacements"]:
+        rows = _native_table(native_tool_specs)
+        if digest(rows) != audit["native_specs_hash"]:
+            raise ValueError("expression native table integrity mismatch")
+        seen = set()
+        for replacement in audit["replacements"]:
+            index = replacement["index"]
+            items = result["allowed_implementation_invocations"]
+            if type(index) is not int or index < 0 or index >= len(items) or index in seen:
+                raise ValueError("invalid expression replacement")
+            seen.add(index)
+            item = items[index]
+            matching = [row for row in rows if row["name"] == replacement["native_name"]]
+            if len(matching) != 1 or item.get("name") != replacement["native_name"]:
+                raise ValueError("ambiguous expression replacement")
+            if "description" in item or "input_schema" in item:
+                raise ValueError("expression restoration would overwrite data")
+            description = matching[0]["description"]
+            rule = replacement["description_rule"]
+            if rule == "one_native_call_prefix_v1" and description.startswith(ONE_NATIVE_CALL_PREFIX):
+                description = description[len(ONE_NATIVE_CALL_PREFIX):]
+            elif rule != "identity":
+                raise ValueError("unknown expression description wrapper")
+            item.update(description=description, input_schema=copy.deepcopy(matching[0]["parameters"]))
+    if digest(result) != audit["source_payload_hash"]:
+        raise ValueError("expression roundtrip mismatch")
+    return result
+
+
+def compact_native_interfaces(raw, native_tool_specs=None):
+    """Pure, reversible substitution of definitions offered in THIS request.
+
+    The caller supplies an already policy-safe view. No interface is created,
+    filtered or made ready here; unknown fields and unsupported shapes survive.
+    """
+    out = copy.deepcopy(raw)
+    specs = list(native_tool_specs) if native_tool_specs is not None else None
+    audit = dict(projection_version="r103.expression.v1", source_payload_hash=digest(raw),
+                 native_specs_hash=None, replacements=[], removed_paths=[],
+                 original_fallback_reasons=[], required_surface_equal=False)
+    rows = None
+    if specs is not None:
+        try:
+            rows = _native_table(specs)
+            audit["native_specs_hash"] = digest(rows)
+        except (ValueError, TypeError):
+            audit["original_fallback_reasons"].append({"reason": "native_table_unrecognized"})
+    else:
+        audit["original_fallback_reasons"].append({"reason": "native_table_absent"})
+    items = out.get("allowed_implementation_invocations")
+    if rows is not None and isinstance(items, list):
+        for index, item in enumerate(items):
+            reason = "definition_fields_absent_or_unrecognized"
+            if isinstance(item, dict) and isinstance(item.get("description"), str) and isinstance(item.get("input_schema"), dict):
+                matching = [row for row in rows if row["name"] == item.get("name")]
+                reason = "native_not_unique_in_actual_request"
+                if len(matching) == 1:
+                    native = matching[0]
+                    rule = ("identity" if native["description"] == item["description"] else
+                            "one_native_call_prefix_v1" if native["description"] == ONE_NATIVE_CALL_PREFIX + item["description"] else None)
+                    reason = "description_differs" if rule is None else "schema_differs"
+                    if rule is not None and canonical_bytes(native["parameters"]) == canonical_bytes(item["input_schema"]):
+                        del item["description"], item["input_schema"]
+                        audit["replacements"].append(dict(index=index, native_name=item["name"], description_rule=rule))
+                        audit["removed_paths"].extend(f"allowed_implementation_invocations[{index}].{key}" for key in ("description", "input_schema"))
+                        reason = ""
+            if reason:
+                audit["original_fallback_reasons"].append(dict(index=index, reason=reason))
+    guidance = raw.get("current_state_snapshot", {}).get("current_atomic", {}).get("skill_guidance")
+    audit.update(projected_payload_hash=digest(out), guidance_input_hash=digest(guidance),
+                 guidance_output_hash=digest(out.get("current_state_snapshot", {}).get("current_atomic", {}).get("skill_guidance")),
+                 before_utf8_bytes=len(canonical_bytes(raw)), after_utf8_bytes=len(canonical_bytes(out)),
+                 byte_count_is_not_token_count=True)
+    restored = restore_native_interfaces(out, specs, audit)
+    audit["required_surface_equal"] = canonical_bytes(restored) == canonical_bytes(raw)
+    return out, audit
+
+
 def project_runtime_payload(
-    raw: dict[str, Any],
+    raw: dict[str, Any], *, native_tool_specs: Iterable[NativeToolSpec] | None = None,
+    expression_enabled: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return an Agent-facing copy and a separate Trace-only projection audit."""
 
@@ -198,6 +294,10 @@ def project_runtime_payload(
         "after_payload_utf8_bytes": len(canonical_bytes(out)),
         "byte_count_is_not_token_count": True,
     }
+    out, audit["expression_audit"] = compact_native_interfaces(out, native_tool_specs if expression_enabled else None)
+    audit["runtime_presentation"] = "new" if expression_enabled else "old"
+    audit["after_payload_sha256"] = digest(out)
+    audit["after_payload_utf8_bytes"] = len(canonical_bytes(out))
     return out, audit
 
 

@@ -18,6 +18,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 from atomic_skillgraph.runtime.r10_metrics import COUNTERS as R10_COUNTERS, aggregate as aggregate_r10_metrics
+from experiments.r103_metrics import trace_metrics as r103_trace_metrics, aggregate as aggregate_r103_metrics
 from atomic_skillgraph.runtime.r101_metrics import aggregate as aggregate_r101_metrics
 
 
@@ -1179,6 +1180,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "runtime_automation_funnel": automation_funnel,
         "runtime_support_funnel": support_funnel,
         "r10_metrics": dict(metadata.get("r10_metrics", {})),
+        "r103_diagnostics": r103_trace_metrics(trace),
         "r1021_retired_limits": dict(metadata.get("r1021_retired_limits", {})),
         "r1021_learning_coverage": {
             "uncovered_event_ids": list(_mapping(_field(trace, "extraction_policy", {})).get("uncovered_event_ids", [])),
@@ -1619,6 +1621,7 @@ def summarize_traces(
         "runtime_automation_funnel": automation_funnel,
         "runtime_support_funnel": support_funnel,
         "r10_metrics": aggregate_r10_metrics(task_rows),
+        "r103_diagnostics": aggregate_r103_metrics(resource_rows),
         "r1021_retired_limit_crossings": [
             {"task_id": row["task_id"], **row["r1021_retired_limits"]}
             for row in task_rows if row.get("r1021_retired_limits", {}).get("crossings")

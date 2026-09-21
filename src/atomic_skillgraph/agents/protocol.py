@@ -15,6 +15,7 @@ from typing import Any, Protocol, runtime_checkable
 
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _CALL_ID = re.compile(r"^[!-~]{1,256}$")
+ONE_NATIVE_CALL_PREFIX = "Exactly ONE native ToolCall per turn. "
 
 
 class SchemaValidationError(ValueError):

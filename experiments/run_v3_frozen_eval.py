@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from atomic_skillgraph.knowledge.r103_protocol import metadata_for as r103_metadata_for
+
 import argparse
 from datetime import datetime, timezone
 import json
@@ -79,6 +81,7 @@ _R92_FROZEN_EVAL_RUN_SEEDS = {
     "alfworld_frozen_eval_134_r92_seed42": 42,
 }
 _R7_TRAIN_REFERENCE_ID = "train_120"
+_R103_FROZEN_EVAL_RUN_SEEDS = {f"alfworld_frozen_eval_134_r103_seed{seed}": seed for seed in (42, 43, 44)}
 _R7_TRAIN_REFERENCE_PATH = Path("data/baseline_manifests/train_120.json")
 _R7_TEST_REFERENCE_ID = "test_ood_full_134"
 _R7_TEST_REFERENCE_PATH = Path("data/baseline_manifests/test_ood_full_134.json")
@@ -97,6 +100,8 @@ def _is_source_train_replay(config: dict[str, Any]) -> bool:
 def _frozen_protocol(config: dict[str, Any]) -> tuple[str, int, int, int]:
     experiment = dict(config.get("experiment") or {})
     name = str(experiment.get("name", ""))
+    if name in _R103_FROZEN_EVAL_RUN_SEEDS:
+        return "r103_frozen134", _R103_FROZEN_EVAL_RUN_SEEDS[name], 0, 134
     if _is_source_train_replay(config):
         if name != "alfworld_frozen_train30_replay_b6a82ed":
             raise ProtocolError(
@@ -127,7 +132,7 @@ def _r7_reference_manifests(
 ) -> tuple[ReferenceManifest, ReferenceManifest] | None:
     protocol, _, _, _ = _frozen_protocol(config)
     if protocol not in {
-        "r7_frozen134", "r8_frozen134", "r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134",
+        "r7_frozen134", "r8_frozen134", "r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
     }:
         return None
     selection = dict((config.get("harness") or {}).get("task_selection") or {})
@@ -180,6 +185,7 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
             "r9_frozen134": "R9 fixed-manifest held-out eval",
             "r10_frozen134": "R10 fixed-manifest held-out eval",
             "r1021_frozen134": "R10.2.1 fixed-manifest held-out eval",
+            "r103_frozen134": "R10.3 fixed-manifest held-out eval",
             "r92_frozen134": "R9.2 fixed-manifest held-out eval",
         }[protocol]
         raise ProtocolError(
@@ -189,7 +195,7 @@ def _selection(config: dict[str, Any]) -> tuple[list[str], int, int]:
     if selection.get("require_exact_count") is not True:
         raise ProtocolError("formal frozen selection must require the exact count")
     if protocol not in {
-        "r7_frozen134", "r8_frozen134", "r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134",
+        "r7_frozen134", "r8_frozen134", "r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
     } and total != len(labels) * per_type:
         raise ProtocolError("legacy formal frozen selection must use the exact balanced count")
     require_disjoint = selection.get("require_disjoint_from_train_manifest")
@@ -222,6 +228,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
             | frozenset(_R92_FROZEN_EVAL_RUN_SEEDS)
             | frozenset(_R10_FROZEN_EVAL_RUN_SEEDS)
             | frozenset(_R1021_FROZEN_EVAL_RUN_SEEDS)
+            | frozenset(_R103_FROZEN_EVAL_RUN_SEEDS)
         )
     )
     expected_split = "train" if source_train_replay else "eval_out_of_distribution"
@@ -259,7 +266,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
             "fixed_manifest"
             if protocol in {
                 "r7_frozen134", "r8_frozen134", "r9_frozen134",
-                "r92_frozen134", "r10_frozen134", "r1021_frozen134",
+                "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
             }
             else "balanced_fixed_manifest",
         ),
@@ -293,10 +300,10 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     run_name = str(experiment.get("name", ""))
     source_revision = experiment.get("source_git_revision")
     if protocol in {
-        "r7_frozen134", "r8_frozen134", "r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134",
+        "r7_frozen134", "r8_frozen134", "r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
     }:
         revision = (
-            "r1021" if protocol == "r1021_frozen134"
+            "r103" if protocol == "r103_frozen134" else "r1021" if protocol == "r1021_frozen134"
             else "r10" if protocol == "r10_frozen134"
             else "r92" if protocol == "r92_frozen134"
             else "r9" if protocol == "r9_frozen134"
@@ -352,7 +359,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
                     "R8 lifecycle.composite_candidate_zero_success_trial_limit "
                     "must be integer 3"
                 )
-        if protocol in {"r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134"}:
+        if protocol in {"r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134"}:
             required_lifecycle = {
                 "composite_active_deployment_successes": 2,
                 "composite_candidate_zero_success_trial_limit": 3,
@@ -369,6 +376,9 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
                 mismatches.append(
                     "R9/R9.2 formal ALFWorld planner.literal_authorities must be empty"
                 )
+        if protocol == "r103_frozen134":
+            from atomic_skillgraph.knowledge.r103_protocol import validate_config
+            mismatches.extend(validate_config(config))
         if protocol == "r1021_frozen134" and config.get("repair_revision") != "R10.2.1":
             mismatches.append("R10.2.1 formal frozen eval requires repair_revision=R10.2.1")
         if protocol == "r10_frozen134" and config.get("repair_revision") != "R10":
@@ -425,7 +435,7 @@ def _validate_formal_config(config: dict[str, Any], output_dir: Path) -> None:
     if mismatches:
         raise ProtocolError("formal frozen config mismatch: " + "; ".join(mismatches))
     if protocol in {
-        "r7_frozen134", "r8_frozen134", "r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134",
+        "r7_frozen134", "r8_frozen134", "r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
     }:
         _r7_reference_manifests(config)
 
@@ -525,6 +535,7 @@ def _verify_source_train(
                     f"source fixed Full-120 game file differs from reference at index {index}"
                 )
     expected_provenance = {
+        **r103_metadata_for(metadata),
         "source_run_id": train_manifest.run_id,
         "source_run_manifest_hash": train_manifest.manifest_hash,
         "source_config_hash": train_manifest.config_hash,
@@ -659,7 +670,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
     invocation_started_at = datetime.now(timezone.utc)
     config_path = _path(config_path)
     config = load_config(config_path)
-    if config.get("repair_revision") != "R10.2.1":
+    if config.get("repair_revision") not in {"R10.2.1", "R10.3"}:
         raise ProtocolError("Use a fresh R10.2.1 config and bank; historical execution requires its original checkout")
     experiment = dict(config.get("experiment") or {})
     phase = str(experiment.get("phase", ""))
@@ -678,7 +689,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
     max_task_attempts = int(experiment["max_task_attempts"])
     output_dir.mkdir(parents=True, exist_ok=True)
     run_id = str(experiment.get("name", "alfworld_frozen_eval_60"))
-    if protocol == 'r1021_frozen134':
+    if protocol in {'r1021_frozen134', 'r103_frozen134'}:
         from atomic_skillgraph.agents.provider_probe import ensure_provider_capability
         from experiments.protocol import capture_execution_manifest
         capability = ensure_provider_capability(config, output_dir=output_dir,
@@ -733,7 +744,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 raise ProtocolError(
                     "R8 frozen snapshot Active Composite closure authority mismatch"
                 )
-        elif protocol in {"r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134"}:
+        elif protocol in {"r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134"}:
             formal_audit = require_r9_formal_freeze_audit(
                 system.database, system.skills,
             )
@@ -797,6 +808,10 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
         if not train_manifest_path.is_file():
             raise ProtocolError(f"source train manifest missing: {train_manifest_path}")
         train_manifest = RunManifest.from_dict(json.loads(train_manifest_path.read_text(encoding="utf-8")))
+        if protocol == "r103_frozen134" and train_manifest.metadata.get("repair_revision") != "R10.3":
+            raise ProtocolError("R10.3 Frozen source must be a matching R10.3 training snapshot")
+        if protocol == "r103_frozen134" and any(train_manifest.metadata.get(k) != v for k, v in r103_metadata_for(config).items()):
+            raise ProtocolError("R10.3 source train protocol metadata differs")
         if protocol == "r1021_frozen134" and train_manifest.metadata.get("repair_revision") != "R10.2.1":
             raise ProtocolError("R10.2.1 Frozen-134 source train manifest lacks repair_revision=R10.2.1")
         if protocol == "r10_frozen134" and train_manifest.metadata.get("repair_revision") != "R10":
@@ -826,7 +841,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
             expected_experiment_seed=experiment_seed,
             require_frozen_closure=(protocol == "r8_frozen134"),
             require_r9_freeze_audit=(
-                protocol in {"r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134"}
+                protocol in {"r9_frozen134", "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134"}
             ),
         )
         train_signatures = {item.task_signature for item in train_manifest.tasks}
@@ -866,6 +881,7 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                     config_hash=config_digest, code_commit=code_digest,
                     knowledge_digest=digest_before, tasks=task_items,
                     metadata={
+                        **r103_metadata_for(config),
                         "condition": "full", "source_train_run": train_manifest.run_id,
                         "run_started_at": invocation_started_at.isoformat(),
                         "environment": {"alfworld_version": "0.4.2"},
@@ -1018,10 +1034,10 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 "frozen_train30_replay_b6a82ed"
                 if source_train_replay
                 else (
-                    f"frozen_eval_134_{dict(r7_frozen134='r7', r8_frozen134='r8', r9_frozen134='r9', r92_frozen134='r92', r10_frozen134='r10', r1021_frozen134='r1021')[protocol]}_seed{experiment_seed}"
+                    f"frozen_eval_134_{dict(r7_frozen134='r7', r8_frozen134='r8', r9_frozen134='r9', r92_frozen134='r92', r10_frozen134='r10', r1021_frozen134='r1021', r103_frozen134='r103')[protocol]}_seed{experiment_seed}"
                     if protocol in {
                         "r7_frozen134", "r8_frozen134", "r9_frozen134",
-                        "r92_frozen134", "r10_frozen134", "r1021_frozen134",
+                        "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
                     }
                     else (
                     "frozen_eval_60"
@@ -1035,11 +1051,11 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                 if source_train_replay
                 else (
                     f"AtomicSkillGraph v3 ALFWorld Frozen Held-out-134 "
-                    f"{dict(r7_frozen134='R7', r8_frozen134='R8', r9_frozen134='R9', r92_frozen134='R9.2', r10_frozen134='R10', r1021_frozen134='R10.2.1')[protocol]} Eval "
+                    f"{dict(r7_frozen134='R7', r8_frozen134='R8', r9_frozen134='R9', r92_frozen134='R9.2', r10_frozen134='R10', r1021_frozen134='R10.2.1', r103_frozen134='R10.3')[protocol]} Eval "
                     f"(seed {experiment_seed})"
                     if protocol in {
                         "r7_frozen134", "r8_frozen134", "r9_frozen134",
-                        "r92_frozen134", "r10_frozen134", "r1021_frozen134",
+                        "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
                     }
                     else "AtomicSkillGraph v3 ALFWorld Frozen Held-out Eval"
                 )

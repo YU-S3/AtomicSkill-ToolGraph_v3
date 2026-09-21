@@ -110,10 +110,7 @@ class SkillRegistry:
         self,
         candidate: AbstractAtomicSkill,
         *,
-        statuses: Iterable[SkillStatus | str] = (
-            SkillStatus.CANDIDATE,
-            SkillStatus.ACTIVE,
-        ),
+        statuses: Iterable[SkillStatus | str] | None = None,
     ) -> SkillRef | None:
         """Read-only lookup using the same canonical contract as Aligner.
 
@@ -124,15 +121,17 @@ class SkillRegistry:
 
         # Local import keeps the knowledge registry independent from the
         # stateful Aligner while sharing its pure canonical identity function.
-        from ..evolution.contract_canonicalizer import atomic_contract_signature
+        from ..evolution.identity_matching import match_atomic, bounded_matches
 
-        allowed = {SkillStatus(value) for value in statuses}
-        signature = atomic_contract_signature(candidate)
+        allowed = None if statuses is None else {SkillStatus(value) for value in statuses}
+        from .identity_index import IdentityIndex
+        indexed = IdentityIndex(self.database, self.store.data_dir).candidates("atomic", candidate)
+        pool = self.atomics() if indexed is None else [self.get_atomic(ref) for ref in indexed]
         matches = [
             atomic
-            for atomic in self.atomics()
-            if atomic.status in allowed
-            and atomic_contract_signature(atomic) == signature
+            for atomic, result in bounded_matches(candidate,
+                (item for item in pool if allowed is None or item.status in allowed), match_atomic)
+            if result.status == "exact"
         ]
         if not matches:
             return None

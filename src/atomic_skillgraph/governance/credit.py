@@ -6,7 +6,7 @@ not inspect observations, action text, exception messages, or reasoning text.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -165,7 +165,107 @@ class CreditAssigner:
         indexed.sort(key=lambda item: (item[1].sequence_no, item[0]))
         for _, attempt in indexed:
             events.extend(self._assign_attempt(normalized, attempt))
+        source = _field(trace, "metadata", {}).get("execution_source")
+        if source:
+            from ..knowledge.execution_observations import execution_identity
+            tool_order = {str(_field(item, "attempt_id", "")): i for i, item in enumerate(_field(trace, "tool_executions", []))}
+            impl_order = {str(_field(item, "attempt_id", "")): i for i, item in enumerate(_field(trace, "implementation_invocations", []))}
+            enriched = []
+            for event in events:
+                order = tool_order if event.artifact_kind == "tool" else impl_order
+                if event.artifact_kind in {"tool", "implementation"} and event.attempt_id in order:
+                    authority = execution_identity(source, normalized.trace_id, event.attempt_id, order[event.attempt_id])
+                    event = replace(event, metadata={**event.metadata, **authority, "source_class": "registered_direct"})
+                elif event.artifact_kind == "atomic":
+                    authority = execution_identity(source, normalized.trace_id, event.attempt_id, event.sequence_no // 100)
+                    event = replace(event, metadata={**event.metadata, **authority, "source_class": "registered_canonical"})
+                enriched.append(event)
+            events = enriched
         return events
+
+    def attribute_execution(self, *, source: dict, target_atomic: Any, target_tool: Any,
+                            target_implementation: Any, publishing_task_id: str,
+                            publishing_trace_id: str, artifact_kind: str) -> EvidenceEvent | None:
+        """Deterministic proof boundary; LLM submissions cannot create this event."""
+        from ..knowledge.execution_observations import OnlineExecutionObservation, execution_identity
+        from ..core.contracts import AbstractAtomicSkill, ToolAsset, ImplementationAtom
+        from ..core.serialization import dataclass_from_dict, to_primitive
+        from ..evolution.identity_matching import match_atomic, match_tool, match_implementation, raw_hash
+        observation = OnlineExecutionObservation(**source["observation"])
+        if observation.outcome not in {"success", "failure"} or not source.get("source_trace_hash"):
+            return None
+        evidence = source["evidence"]
+        bundle = evidence["bundle"]
+        a = dataclass_from_dict(AbstractAtomicSkill, bundle["atomic"])
+        t = dataclass_from_dict(ToolAsset, bundle["tool"])
+        i = dataclass_from_dict(ImplementationAtom, bundle["implementation"])
+        tool_proof = match_tool(t, target_tool)
+        if tool_proof.status != "exact":
+            return None
+        if target_atomic is None or observation.outcome == "failure":
+            # Intrinsic failure belongs to the exact program, even when a
+            # different Atomic now binds it. No contract/route credit follows.
+            if artifact_kind != "tool" or observation.outcome != "failure":
+                return None
+            proofs = [tool_proof.proof]
+        else:
+            atomic_proof = match_atomic(a, target_atomic)
+            if atomic_proof.status != "exact":
+                return None
+            proofs = [atomic_proof.proof, tool_proof.proof]
+        if artifact_kind == "implementation":
+            route = match_implementation(i, target_implementation, source_atomic=a, target_atomic=target_atomic,
+                source_tools={str(t.ref): t}, target_tools={str(target_tool.ref): target_tool})
+            if route.status != "exact" or observation.outcome == "failure":
+                return None  # A Tool failure is not a mapping/policy intrinsic failure.
+            proofs.append(route.proof)
+            execution_id = evidence["implementation_attempt_id"]
+            ordinal = evidence["implementation_event_ordinal"]
+            target = target_implementation
+        elif artifact_kind == "tool":
+            execution_id, target = observation.source_execution_id, target_tool
+            ordinal = observation.source_order[2]
+        elif artifact_kind == "atomic":
+            if observation.outcome != "success":
+                return None
+            execution_id, target = observation.source_execution_id, target_atomic
+            ordinal = observation.source_order[2]
+        else:
+            raise CreditAssignmentError("unsupported attribution layer")
+        identity = execution_identity(evidence["source_identity"], observation.source_trace_id,
+            execution_id, ordinal)
+        metadata = {**identity, "source_class": "runtime_online_trial",
+            "source_trace_id": observation.source_trace_id, "source_trace_hash": source["source_trace_hash"],
+            "source_task_id": observation.source_task_id, "source_started": observation.started,
+            "source_completed": observation.completed,
+            "outcome": "complete_success" if observation.outcome == "success" else "intrinsic_failure",
+            "source_observation": source["reference"], "identity_proofs": to_primitive(proofs)}
+        metadata["attribution_certificate_hash"] = raw_hash(metadata)
+        return EvidenceEvent.create(task_id=publishing_task_id, trace_id=publishing_trace_id,
+            occurrence_id="execution_attribution", attempt_id="attribute:" + identity["source_execution_key"],
+            sequence_no=0, artifact_ref=str(target.ref), artifact_kind=artifact_kind,
+            event=(EvidenceEventType.CANONICAL_SUPPORT_ATTESTED if artifact_kind == "atomic"
+                   else EvidenceEventType.EXECUTION_ATTRIBUTED), metadata=metadata)
+
+    def attest_canonical_source(self, *, source: dict, source_atomic: Any, target_atomic: Any,
+                                publishing_task_id: str, publishing_trace_id: str):
+        """Semantic source support only; never Tool execution or replay credit."""
+        from ..evolution.identity_matching import match_atomic, raw_hash
+        from ..core.serialization import to_primitive
+        proof = match_atomic(source_atomic, target_atomic)
+        if proof.status != "exact":
+            return None
+        key = "canonical_" + raw_hash([source["independent_task_key"], source["canonical_snapshot_hash"], source["sample_key"]])
+        metadata = {"source_execution_key": key, "source_independent_task_key": source["independent_task_key"],
+            "source_trace_id": source["source_trace_id"], "source_trace_hash": source["source_trace_hash"],
+            "source_class": "canonical_learning_source", "outcome": "complete_success",
+            "source_observation": {k: source[k] for k in ("sample_key", "capsule_path", "capsule_hash")},
+            "identity_proofs": [to_primitive(proof.proof)]}
+        metadata["attribution_certificate_hash"] = raw_hash(metadata)
+        return EvidenceEvent.create(task_id=publishing_task_id, trace_id=publishing_trace_id,
+            occurrence_id="canonical_source", attempt_id=key, sequence_no=0,
+            artifact_ref=str(target_atomic.ref), artifact_kind="atomic",
+            event=EvidenceEventType.CANONICAL_SUPPORT_ATTESTED, metadata=metadata)
 
     def _assign_attempt(
         self, trace: CreditTrace, attempt: CreditAttempt

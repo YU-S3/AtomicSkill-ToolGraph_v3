@@ -39,7 +39,7 @@ from .support_retriever import SupportAtomicRetriever
 
 
 SessionFactory = Callable[[str, str], Any]
-_ONE_NATIVE_CALL = "Exactly ONE native ToolCall per turn. "
+from ..agents.protocol import ONE_NATIVE_CALL_PREFIX as _ONE_NATIVE_CALL
 
 
 class NodeExecutor:
@@ -68,6 +68,9 @@ class NodeExecutor:
 
     def try_autonomous(self, occurrence, invocations, ctx):
         """Purely inspect all declared candidates, then execute at most one."""
+        from .interventions import policy
+        if not policy(ctx).automatic_entry or not policy(ctx).programs:
+            return None
         from .invocation_transaction import execute_invocation
         ready, reasons = [], []
         for compiled in invocations:
@@ -488,6 +491,9 @@ class NodeExecutor:
             "origin": origin,
             "tool_call_id": tool_call_id or None,
         })
+        if "expression_audit" in record:
+            record["expression_audit"].update(session_id=session_id or None,
+                occurrence_id=occurrence_id, origin=origin, tool_call_id=tool_call_id or None)
         audits = metadata.setdefault("runtime_context_projection_audits", [])
         # Node-level environment results are augmented once on return from the
         # harness and may be augmented again after Atomic validation is added.
@@ -1072,6 +1078,7 @@ class NodeExecutor:
     def _support_execution_availability(
         self,
         atomics: list[Any],
+        ctx: Any = None,
     ) -> dict[str, bool]:
         """Check the same mode-compatible implementation/tool boundary used at call time."""
 
@@ -1082,7 +1089,25 @@ class NodeExecutor:
             # SkillRegistry always provides the executable authority method.
             return {str(item.ref): True for item in atomics}
         result: dict[str, bool] = {}
+        self._r103_support_display_routes = {}
         for atomic in atomics:
+            if ctx is not None and getattr(self.invocation_compiler, "r103", False):
+                # Same empty helper occurrence and original compiler as the
+                # explicit call. This is a read-only probe, not a new binding.
+                occurrence = RuntimeOccurrence(
+                    step_id="support_availability", occurrence_id="support_availability",
+                    node_ref=atomic.ref, requirement_ids=[], binding_specs={},
+                    implementation_candidates=[str(i.ref) for i in implementations_for(
+                        atomic.ref, mode=self.invocation_compiler.mode)],
+                    expected_effects=list(atomic.effects))
+                routes = self.invocation_compiler.compile_candidates(occurrence, ctx.binding_store,
+                    task_id=ctx.task_id, evidence_store=ctx.evidence_store,
+                    revision=ctx.world_revision, task_contract=ctx.task_contract)
+                preferred = [r for r in routes if r.implementation.quality.get("preferred")]
+                selected = preferred if len(preferred) == 1 else routes if len(routes) == 1 else []
+                result[str(atomic.ref)] = bool(selected)
+                self._r103_support_display_routes[str(atomic.ref)] = selected
+                continue
             available = False
             for implementation in implementations_for(
                 atomic.ref,
@@ -1108,6 +1133,15 @@ class NodeExecutor:
                 break
             result[str(atomic.ref)] = available
         return result
+
+    def _record_support_display(self, ctx, session_id, candidates, native_tools):
+        if not getattr(self.invocation_compiler, "r103", False):
+            return
+        routes = getattr(self, "_r103_support_display_routes", {})
+        for candidate in candidates:
+            self.invocation_compiler.record_display(ctx, session_id,
+                routes.get(str(candidate.atomic_ref), []), native_tools,
+                native_name="invoke_support_atomic")
 
     def _retrieve_runtime_support_candidates(
         self,
@@ -1139,7 +1173,7 @@ class NodeExecutor:
             atomics=mode_pool,
             top_k=None,
         )
-        availability = self._support_execution_availability(mode_pool)
+        availability = self._support_execution_availability(mode_pool, ctx)
         executable = self.support_retriever.retrieve(
             obligations=obligations,
             blocked_atomic=blocked_atomic,
@@ -1456,6 +1490,8 @@ class NodeExecutor:
             ctx=ctx,
             occurrence=occurrence,
         )
+        if outcome.trial is not None:
+            outcome.trial["authorizing_native_call_id"] = call.call_id
         safe_outcome = safe_runtime_automation_outcome(outcome)
         payload = {
             "accepted": True,
@@ -1780,7 +1816,7 @@ class NodeExecutor:
         )
         invocations = self.invocation_compiler.compile_candidates(
             support_occurrence, ctx.binding_store,
-            task_id=ctx.task_id,
+            task_id=ctx.task_id, evidence_store=ctx.evidence_store, revision=ctx.world_revision, task_contract=ctx.task_contract,
         )
         if not invocations:
             return finalize({
@@ -2067,7 +2103,7 @@ class NodeExecutor:
             atomic = atomic_override or self.invocation_compiler.skills.get_atomic(occurrence.node_ref)
             invocations = ([] if atomic_override else self.invocation_compiler.compile_candidates(
                 occurrence, ctx.binding_store,
-                task_id=ctx.task_id))
+                task_id=ctx.task_id, evidence_store=ctx.evidence_store, revision=ctx.world_revision, task_contract=ctx.task_contract))
             if not invocations:
                 mode = "seeded"
             missing = ctx.binding_store.runtime_prompt_projection(occurrence, atomic.inputs)["missing_or_insufficient_bindings"]

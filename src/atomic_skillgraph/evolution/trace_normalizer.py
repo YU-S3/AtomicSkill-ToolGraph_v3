@@ -442,7 +442,11 @@ class TraceNormalizer:
                 # Official ``won`` is never used to synthesize a semantic fact.
                 "authoritative_terminal_effect_certificates": [],
             })
-        spans = [to_primitive(item) for item in canonical_trace_records(trace, "runtime_spans") if item.learnable]
+        # TraceStore retains nested records as dictionaries after reload. Use
+        # the same serialized view as actions/validations before inspecting a
+        # span; historical sources must normalize identically to live ones.
+        spans = [value for item in canonical_trace_records(trace, "runtime_spans")
+                 if (value := to_primitive(item))["learnable"]]
         validations = [to_primitive(item) for item in canonical_trace_records(trace, "validations")]
         input_authorities: list[dict[str, Any]] = []
         seen_input_authorities: set[tuple[str, str, str]] = set()

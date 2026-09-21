@@ -441,7 +441,7 @@ def test_terminal_world_is_never_rolled_back(tmp_path):
 
 
 
-def staged_observation(tmp_path, case_id="r10_step"):
+def staged_observation(tmp_path, case_id="r10_step", *, repair_revision=None):
     from atomic_skillgraph.evolution.runtime_support_promotion import collect_observations
     from atomic_skillgraph.knowledge.runtime_support_store import RuntimeSupportStore
     case = route.RouteCase(case_id)
@@ -450,6 +450,8 @@ def staged_observation(tmp_path, case_id="r10_step"):
             return "propose_runtime_automation_atomic", route.fixed_draft(request, case)
         return "request_runtime_automation", {"reason": "systematic public search", "intended_capability": "locate target"}
     system, ctx, occurrence, invocations, provider = setup(tmp_path, choose, case_id=case_id)
+    if repair_revision:
+        ctx.trace_builder.trace.metadata["repair_revision"] = repair_revision
     ctx.runtime_config["persistent_runtime_support_promotion"] = True
     system.runtime_support_store = RuntimeSupportStore(system.database)
     system._provider_override = {"runtime_preparation": provider, "runtime_seeded": provider,

@@ -1506,6 +1506,10 @@ def knowledge_digest(database: Any) -> str:
             "event_id",
         ),
     }
+    if database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_identity_index'").fetchone():
+        specs["artifact_identity_index"] = ("*", "artifact_ref,identity_version")
+    from atomic_skillgraph.knowledge.r103_protocol import add_digest_specs
+    add_digest_specs(database.connection, specs)
     tables = {
         table: [list(row) for row in database.execute(
             f"SELECT {columns} FROM {table} ORDER BY {order}"

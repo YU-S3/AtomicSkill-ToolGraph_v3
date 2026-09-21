@@ -462,9 +462,10 @@ def test_aligner_does_not_merge_incompatible_atomic_contracts(tmp_path) -> None:
     )
     skills.register_atomic(shadow)
     revived = aligner.align_atomic(replace(shadow, status=SkillStatus.DRAFT))
-    assert revived.logical_id != shadow.ref.logical_id
-    assert revived.version == "1.0.0"
-    assert skills.get_atomic(revived).status is SkillStatus.CANDIDATE
+    # R10.3 I14: identity spans all lifecycle states. Re-submitting an exact
+    # contract cannot launder its previous status into a fresh Candidate.
+    assert revived == shadow.ref
+    assert skills.get_atomic(revived).status is SkillStatus.SHADOW
     database.close()
 
 

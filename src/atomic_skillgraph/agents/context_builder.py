@@ -13,8 +13,10 @@ from dataclasses import is_dataclass
 from typing import Any, Iterable, Mapping
 
 from ..core.serialization import to_primitive
+from ..tooling.capability_boundary import CAPABILITY_BOUNDARY_RULES
 from ..tooling.runtime_interface import public_tool_ir_condition_contract, public_tool_ir_collection_sources, OUTPUT_SEMANTIC_CONSTRAINT_RULES
 from .runtime_policy_projection import project_runtime_payload
+from .protocol import NativeToolSpec
 from .runtime_prompt_texts import (
     DYNAMIC_PROMPT,
     R10_STEP_PROMPT,
@@ -76,6 +78,7 @@ class ContextBuilder:
         runtime_step_mode: str | None = None,
         rejected_candidates: Iterable[Any] = (),
         execution_frame: Mapping[str, Any] | None = None,
+        native_tool_specs: Iterable[NativeToolSpec] | None = None,
     ) -> str:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
@@ -142,18 +145,20 @@ class ContextBuilder:
                 runtime_automation_drafts
             ),
         }
-        projected, audit = project_runtime_payload(payload)
         if runtime_step_mode is not None:
-            projected["runtime_step_mode"] = runtime_step_mode
-            projected["rejected_candidates"] = _policy_value(list(rejected_candidates))
-            projected["execution_frame"] = _policy_value(dict(execution_frame or {}))
+            payload["runtime_step_mode"] = runtime_step_mode
+            payload["rejected_candidates"] = _policy_value(list(rejected_candidates))
+            payload["execution_frame"] = _policy_value(dict(execution_frame or {}))
+        original_presentation = getattr(self, "runtime_presentation", "new") == "old"
+        projected, audit = project_runtime_payload(payload, native_tool_specs=native_tool_specs,
+                                                  expression_enabled=not original_presentation)
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         return _render(
-            R10_STEP_PROMPT + ("\n\n" + AUTOMATION_DRAFT_PROMPT + "\n\n"
+            self._runtime_instruction("node") + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
                 + OUTPUT_SEMANTIC_CONSTRAINT_RULES if runtime_automation_interface else ""),
             projected,
-            sort_keys=False,
+            sort_keys=original_presentation,
         )
 
     def dynamic_task(
@@ -167,6 +172,7 @@ class ContextBuilder:
         task_progress: Mapping[str, Any] | None = None,
         rescue_method_guidance: Mapping[str, Any] | None = None,
         task_runtime_frame: Mapping[str, Any] | None = None,
+        native_tool_specs: Iterable[NativeToolSpec] | None = None,
         exploration_memory: Mapping[str, Any] | None = None,
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
         projection_audit: dict[str, Any] | None = None,
@@ -197,15 +203,24 @@ class ContextBuilder:
             payload["task_runtime_frame"] = _policy_value(dict(task_runtime_frame))
             if task_runtime_frame.get("runtime_automation_interface"):
                 payload["runtime_automation_interface"] = payload["task_runtime_frame"].pop("runtime_automation_interface")
-        projected, audit = project_runtime_payload(payload)
+        original_presentation = getattr(self, "runtime_presentation", "new") == "old"
+        projected, audit = project_runtime_payload(payload, native_tool_specs=native_tool_specs,
+                                                  expression_enabled=not original_presentation)
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         return _render(
-            DYNAMIC_PROMPT + ("\n\n" + AUTOMATION_DRAFT_PROMPT + "\n\n"
+            self._runtime_instruction("dynamic") + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
                 + OUTPUT_SEMANTIC_CONSTRAINT_RULES if payload.get("runtime_automation_interface") else ""),
             projected,
-            sort_keys=False,
+            sort_keys=original_presentation,
         )
+
+    def _runtime_instruction(self, scope):
+        from . import runtime_prompt_texts as current
+        from . import baseline_runtime_prompt_texts as original
+        source = original if getattr(self, "runtime_presentation", "new") == "old" else current
+        return getattr(source, {"node": "R10_STEP_PROMPT", "dynamic": "DYNAMIC_PROMPT",
+                                "draft": "AUTOMATION_DRAFT_PROMPT"}[scope])
 
     def tool_builder(
         self,
@@ -217,6 +232,7 @@ class ContextBuilder:
         harness_interface: Mapping[str, Any] | None = None,
         near_match_interfaces: Iterable[Any] | None = None,
         local_failures: Iterable[Any] | None = None,
+        additional_evidence_sources: Iterable[Any] | None = None,
     ) -> str:
         atomic_mapping = _as_mapping(atomic)
         provenance_mapping = _as_mapping(provenance)
@@ -247,6 +263,8 @@ class ContextBuilder:
         # full trace, full planner history, full skill bank, or old Tool bodies.
         payload = {
             "canonical_atomic": atomic_view,
+            **({"additional_evidence_sources": _policy_value(list(additional_evidence_sources))}
+               if additional_evidence_sources else {}),
             "output_semantic_constraints": _policy_value(dict(
                 dict(atomic_mapping.get("validator_spec") or {}).get("output_semantic_constraints") or {}
             )),
@@ -340,7 +358,7 @@ Check: (1) exact boundary/final contract; (2) genuine entry requirements; (3) ac
 FIELD SYNTAX
 ACTION input: {"kind":"skill_input","source_role":"<input>"}; scoped local: {"kind":"local_variable","source_role":"<local>"}. Expected-effect values use supported kind/source_role or $role references, never graph-only bindings. RETURN: {"<output>":{"source":"tool_input","field":"<input>"}} or scoped local_variable/structured semantic_evidence source/where/project. evidence_outputs entries use role, not output_role, with that selector shape.
 Entry references use inputs or portable constants only. Maximum nesting is four; success_evolution loops require at least two structurally isomorphic distinct repetitions. Snapshot is the default; action_catalog refresh_each_iteration=true re-queries each iteration for the first unseen projected value. Neither mode skips a required failure. Public catalog relations describe argument mappings and availability, not routes or validator truth.
-Complete no_tool shape: proposal_version="2", decision="no_tool", non-empty summary/rationale, exact atomic_ref and inputs/outputs, entry_contract={"conditions":[],"grounding_constraints":[]}, program=[], max_actions=1, final_effects=[], evidence_outputs=[], path_expectations=[]. The action bound is only a placeholder; no_tool is not executed.""" + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES,
+Complete no_tool shape: proposal_version="2", decision="no_tool", non-empty summary/rationale, exact atomic_ref and inputs/outputs, entry_contract={"conditions":[],"grounding_constraints":[]}, program=[], max_actions=1, final_effects=[], evidence_outputs=[], path_expectations=[]. The action bound is only a placeholder; no_tool is not executed.""" + "\n\n" + CAPABILITY_BOUNDARY_RULES + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES,
             payload,
             sort_keys=False,
         )
@@ -393,7 +411,9 @@ Complete no_tool shape: proposal_version="2", decision="no_tool", non-empty summ
         required_task_contract_witnesses: Any = (),
         runtime_automation_drafts: Iterable[Any] = (),
         runtime_tool_trials: Iterable[Any] = (),
+        generalization_groups: Iterable[Any] = (),
     ) -> str:
+        groups = list(generalization_groups)
         return _render(
             """Extract independently useful, reusable Atomic capabilities from the supplied canonical successful experience. Submit exactly one submit_extractor_atomics call. You declare capability contracts and their evidence, not Tool programs. An empty occurrences array is valid when no eligible capability is supported. Do not invent a capability to complete a graph or meet a tool-count target.
 
@@ -417,9 +437,11 @@ Write portable guideline steps and notes within the offered schema limits. These
 
 BEFORE SUBMISSION
 Check: (1) unique phase IDs and valid half-open ranges; (2) input availability at the declared entry; (3) exact formal-to-authority mapping; (4) local availability and source ownership; (5) matching precondition/effect witnesses; (6) output identity/derivation and sparse compatibility; (7) portable guideline and unchanged known equivalent contracts. Check within this call; do not output a separate checklist, request an extra review, or claim that code validation has already passed.
-Use a portable lower_snake_case intent; preserve the canonical_intent of an equivalent known contract. Input/output role values are source-example values, not new authority.""" + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES,
+Use a portable lower_snake_case intent; preserve the canonical_intent of an equivalent known contract. Input/output role values are source-example values, not new authority.""" + "\n\n" + CAPABILITY_BOUNDARY_RULES + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES + (
+"\nYou may propose at most one optional generalizations sidecar for the offered group. Give exactly one current and one history source_proposal using the same occurrence schema. Each source keeps its own values, half-open event coordinates, owner and authority refs. Both proposals must express one identical reusable contract; code validates each separately. Do not intersect conditions, import prior evidence into current, or insert the sidecar into occurrences merely to fill the current graph. Prefer a coherent capability including necessary preparation, often 2-4 actions when supported, not a forced action count. Empty generalizations is valid." if groups else ""),
             {
                 "canonical_trace": _policy_value(canonical_trace),
+                **({"generalization_groups": _policy_value(groups)} if groups else {}),
                 "known_atomic_contracts": _policy_value(
                     list(known_atomic_contracts)
                 ),

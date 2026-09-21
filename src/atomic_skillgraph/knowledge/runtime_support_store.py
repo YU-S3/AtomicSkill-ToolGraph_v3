@@ -17,6 +17,12 @@ CREATE TABLE IF NOT EXISTS runtime_support_observations (
 
 
 class RuntimeSupportStore:
+    def __new__(cls, database: Any, data_dir=None):
+        if data_dir is not None:
+            from .execution_observations import ExecutionObservationStore
+            return ExecutionObservationStore(database, data_dir)
+        return super().__new__(cls)
+
     def __init__(self, database: Any) -> None:
         self.database = database
         if not database.readonly:

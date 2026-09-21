@@ -67,6 +67,8 @@ class ArtifactStore:
         if self.database.readonly:
             raise RuntimeError("frozen artifact store is read-only")
         atomic_write_json(target, payload)
+        from .identity_index import prepare_index_row
+        identity_row = prepare_index_row(self.data_dir, kind, artifact, payload, self.database)
         current_status = status or str(getattr(getattr(artifact, "status", "draft"), "value", getattr(artifact, "status", "draft")))
         try:
             with self.database.transaction() as connection:
@@ -75,6 +77,8 @@ class ArtifactStore:
                     "VALUES(?,?,?,?,?,?,?,?)",
                     (artifact_ref, kind, logical_id, version, digest, str(current_status), str(target.resolve()), SCHEMA_VERSION),
                 )
+                if identity_row is not None:
+                    connection.execute("INSERT INTO artifact_identity_index VALUES(?,?,?,?,?,?,?,?,?,?)", identity_row)
         except Exception:
             target.unlink(missing_ok=True)
             raise
@@ -157,6 +161,21 @@ class ArtifactStore:
     def verify_all(self) -> None:
         for row in self.database.rows("SELECT artifact_ref FROM artifact_index ORDER BY artifact_ref"):
             self.verify_ref(row["artifact_ref"])
+        if self.database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_identity_index'").fetchone():
+            from .identity_index import IdentityIndex
+            if self.database.r103:
+                from ..evolution.identity_matching import IDENTITY_VERSION
+                missing = self.database.execute("SELECT artifact_ref FROM artifact_index a "
+                    "WHERE artifact_kind IN ('atomic','tool','implementation') AND NOT EXISTS "
+                    "(SELECT 1 FROM artifact_identity_index i WHERE i.artifact_ref=a.artifact_ref AND i.identity_version=?) LIMIT 1",
+                    (IDENTITY_VERSION,)).fetchone()
+                if missing is not None:
+                    raise RuntimeError(f"R10.3 artifact missing identity row: {missing[0]}")
+            index = IdentityIndex(self.database, self.data_dir)
+            for row in self.database.rows("SELECT artifact_ref FROM artifact_identity_index ORDER BY artifact_ref"):
+                index.verify(row["artifact_ref"])
+        from .source_snapshots import verify_bank
+        verify_bank(self.database, self.data_dir)
 
     def copy_snapshot(self, destination: str | Path) -> Path:
         destination = Path(destination)

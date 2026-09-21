@@ -607,6 +607,9 @@ class RuntimeAutomationCoordinator:
                     r1_effect_event_authorities
                 ),
             }
+            if getattr(ctx, "runtime_config", {}).get("persistent_runtime_support_promotion"):
+                trial["execution_bundle"] = {"atomic": to_primitive(compiled.atomic),
+                    "tool": to_primitive(compiled.tool), "implementation": to_primitive(compiled.implementation)}
             if e1_effect_eligible:
                 trial.update({
                     "declared_effects": to_primitive(list(compiled.atomic.effects)),
@@ -616,7 +619,7 @@ class RuntimeAutomationCoordinator:
                     "after_revision": int(tool_results[-1].after_revision),
                 })
             ctx.runtime_tool_trials[draft.draft_id] = trial
-            if r1_passed and getattr(ctx, "runtime_config", {}).get("persistent_runtime_support_promotion"):
+            if (r1_passed or tool_intrinsic_failure) and getattr(ctx, "runtime_config", {}).get("persistent_runtime_support_promotion"):
                 from dataclasses import replace
                 from ..evolution.contract_canonicalizer import AtomicContractCanonicalizer
                 from ..evolution.portability import contract_label
@@ -636,7 +639,10 @@ class RuntimeAutomationCoordinator:
                 # out of the prospective persistent validator specification.
                 persistent_spec = {key: value for key, value in compiled.atomic.validator_spec.items()
                                    if key not in {"task_local", "occurrence_id", "trace_id"}}
-                persistent_spec["validator_id"] = "harness_atomic_effect"
+                if ctx.trace_builder.trace.metadata.get("repair_revision") != "R10.3":
+                    persistent_spec["validator_id"] = "harness_atomic_effect"
+                # R10.3 execution credit requires the same complete validator
+                # contract as the actually executed draft, not a renamed one.
                 persistent_atomic = replace(compiled.atomic, validator_spec=persistent_spec,
                     summary=contract_label(compiled.atomic.effects, compiled.atomic.outputs),
                     inputs=[replace(p, description="") for p in compiled.atomic.inputs],

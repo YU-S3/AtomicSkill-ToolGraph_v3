@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.errors import AgentProtocolError, FailureLayer
+from ..tooling.capability_boundary import OUTPUT_IDENTITY_RULE, ENTRY_BOUNDARY_RULE
 from ..tooling.ir import CONDITION_OPERATORS, CONDITION_SOURCES
 from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS, OUTPUT_SEMANTIC_CONSTRAINT_RULES
 from .protocol import (
@@ -321,6 +322,7 @@ ATOMIC_EXTRACTION_SCHEMA: dict[str, Any] = {
         },
         "output_derivations": {
             "type": "object",
+            "description": OUTPUT_IDENTITY_RULE,
             "minProperties": 1,
             "propertyNames": {"type": "string", "minLength": 1},
             "additionalProperties": {
@@ -737,6 +739,7 @@ TOOL_PROPOSAL_SCHEMA: dict[str, Any] = {
     "properties": {
         "proposal_version": {"type": "string", "enum": ["2"]},
         "entry_contract": {
+            "description": ENTRY_BOUNDARY_RULE,
             "type": "object", "required": ["conditions", "grounding_constraints"],
             "additionalProperties": False,
             "properties": {

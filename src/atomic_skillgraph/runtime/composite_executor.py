@@ -17,7 +17,7 @@ class VerifiedCompositeExecutor:
                 return ex._runtime_automation_terminal_boundary(occurrence)
             invocations = ex.invocation_compiler.compile_candidates(
                 occurrence, ctx.binding_store,
-                task_id=ctx.task_id)
+                task_id=ctx.task_id, evidence_store=ctx.evidence_store, revision=ctx.world_revision, task_contract=ctx.task_contract)
             mode = "preparation" if invocations else "seeded"
             bootstrap = not ctx.graph_bootstrap_completed
             ctx.graph_bootstrap_completed = True
