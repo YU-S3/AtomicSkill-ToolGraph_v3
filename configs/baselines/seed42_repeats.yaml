@@ -1,0 +1,25 @@
+schema_version: 1
+seed: 42
+repeats: [1, 2]
+# Original Test134 is repetition 0. Paths are relative to this repository.
+sources:
+  b0_dynamic:
+    test: ../AtomicSkill-ToolGraph_b0_dynamic/runs/baselines/b0_formal_3seed_20260916T084306Z/seed_42
+    frozen: ../AtomicSkill-ToolGraph_b0_dynamic/runs/baselines/b0_formal_3seed_20260916T084306Z/seed_42/frozen
+    digest: 9355ce0e4e65d0e16b975d90c4aa2ebb2541f6343a9876ba4086322ed3dbb0dc
+  b1_static_skill:
+    test: runs/baselines/b1_formal_3seed_20260916T104747Z/seed_42
+    frozen: runs/baselines/b1_formal_3seed_20260916T104747Z/seed_42/frozen
+    digest: 08b649ad2e28bf0091a4f3fd2c02f32b4a6251fed32564f2efb9be4339428ed0
+  b3_skillopt:
+    test: runs/baselines/protocol_faithful_matched_train_v2/b3_skillopt/formal_3seed_authorityfix_20260912T052314Z/recovered_test_waiver_20260913T073609Z/seed_42
+    frozen: runs/baselines/protocol_faithful_matched_train_v2/b3_skillopt/formal_3seed_authorityfix_20260912T052314Z/seed_42/train/frozen
+    digest: 2c29508cdb27e91fd9cbcca7e2c8d9e9256ef7bd6b51badcb717c308c188c736
+  b4_embodiskill:
+    test: runs/baselines/b4_v23_3seed_20260914T132713Z/seed_42
+    frozen: runs/baselines/b4_v23_3seed_20260914T132713Z/seed_42/frozen
+    digest: 88545e80a2729161cdfb4ee5564a82eae506593c01c59c8770517c820955e57c
+  b5_gepa:
+    test: runs/baselines/b5_formal_3seed_20260915T120310Z/seed_42/test
+    frozen: runs/baselines/b5_formal_3seed_20260915T120310Z/seed_42/train_attempt_1/frozen
+    digest: f0ce5239a452e1955f564b2221f144a78217f582170ad81b0945a3d411c530be
