@@ -21,6 +21,8 @@ class TraceStore:
             raise RuntimeError("trace store is read-only")
         if trace.schema_version != 3:
             raise ValueError("only v3 traces can be persisted")
+        from .compiler_observer import finalize
+        finalize(trace)
         target = self.root / f"{trace.trace_id}.json"
         try:
             return atomic_create_json(target, trace)

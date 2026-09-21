@@ -23,6 +23,14 @@ class ImplementationRunner:
         self.tool_runner = ToolRunner(validation.tool)
 
     def run(
+        self, compiled, preflight, occurrence, ctx, *, agent_prepared, execution_scope="registered",
+    ):
+        from ..traces.compiler_observer import program_window
+        with program_window(compiled, preflight, occurrence, ctx, execution_scope):
+            return self._run(compiled, preflight, occurrence, ctx,
+                             agent_prepared=agent_prepared, execution_scope=execution_scope)
+
+    def _run(
         self, compiled: CompiledInvocation, preflight: ToolCallPreflightResult,
         occurrence: Any, ctx: Any, *, agent_prepared: bool,
         execution_scope: str = "registered",

@@ -90,6 +90,9 @@ def prepare_sidecar(system, trace, task, context):
         finally:
             records = trace.metadata.get("evolution_tool_builds", [])[record_start:]
             if records:
+                audit['builder_record_indices'] = list(range(record_start, record_start + len(records)))
+                for record in records:
+                    record['source_scope'] = 'generalization_sidecar'
                 audit["builder_calls"] = sum(bool(record.get("builder_entered")) for record in records)
         if item is None:
             attempt["result_status"] = "no_tool_atomic_retained"

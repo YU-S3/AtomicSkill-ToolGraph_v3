@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 from atomic_skillgraph.runtime.r10_metrics import COUNTERS as R10_COUNTERS, aggregate as aggregate_r10_metrics
 from experiments.r103_metrics import trace_metrics as r103_trace_metrics, aggregate as aggregate_r103_metrics
+from experiments.compiler_metrics import trace_metrics as compiler_trace_metrics, aggregate as aggregate_compiler_metrics
 from atomic_skillgraph.runtime.r101_metrics import aggregate as aggregate_r101_metrics
 
 
@@ -370,6 +371,7 @@ _FROZEN_FORBIDDEN_COLD_START_BUCKETS = (
 )
 
 REPORT_COLUMNS = (
+    "compiler_diagnostics",
     "trace_id",
     "schema_version",
     "task_id",
@@ -726,14 +728,21 @@ def _r4_learning_metrics(metadata: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError(
             "R4 E1 proposal accounting must satisfy proposed=validated+rejected"
         )
-    if len(builds) > validated:
+    sidecar_indices = [i for i, b in enumerate(builds) if b.get('source_scope') == 'generalization_sidecar']
+    generalization = _mapping(metadata.get('generalization', {}))
+    declared_sidecar_indices = generalization.get('builder_record_indices', [])
+    if sidecar_indices != declared_sidecar_indices or (sidecar_indices and (
+            len(sidecar_indices) != 1 or not generalization.get('source_proof'))):
+        raise ValueError('R10.3 sidecar builder records do not match validated source audit')
+    ordinary_builds = [b for i, b in enumerate(builds) if i not in sidecar_indices]
+    if len(ordinary_builds) > validated:
         raise ValueError(
             "R4 evolution_tool_builds exceed the E1 validated count"
         )
-    if len(builds) < validated:
-        missing_build_records = validated - len(builds)
+    if len(ordinary_builds) < validated:
+        missing_build_records = validated - len(ordinary_builds)
         build_occurrence_ids = {
-            str(item["occurrence_id"]) for item in builds
+            str(item["occurrence_id"]) for item in ordinary_builds
         }
         pre_builder_rejection_ids = [
             str(item.get("occurrence_id", ""))
@@ -749,7 +758,7 @@ def _r4_learning_metrics(metadata: Mapping[str, Any]) -> dict[str, Any]:
             and len(unique_pre_builder_ids) == missing_build_records
         )
         interrupted_during_build = any(
-            item["outcome"] == "aborted" for item in builds
+            item["outcome"] == "aborted" for item in ordinary_builds
         )
         if not (
             interrupted_during_build or precisely_explained_before_builder
@@ -1181,6 +1190,7 @@ def trace_to_row(trace: Mapping[str, Any] | Any) -> dict[str, Any]:
         "runtime_support_funnel": support_funnel,
         "r10_metrics": dict(metadata.get("r10_metrics", {})),
         "r103_diagnostics": r103_trace_metrics(trace),
+        "compiler_diagnostics": compiler_trace_metrics(trace),
         "r1021_retired_limits": dict(metadata.get("r1021_retired_limits", {})),
         "r1021_learning_coverage": {
             "uncovered_event_ids": list(_mapping(_field(trace, "extraction_policy", {})).get("uncovered_event_ids", [])),
@@ -1622,6 +1632,7 @@ def summarize_traces(
         "runtime_support_funnel": support_funnel,
         "r10_metrics": aggregate_r10_metrics(task_rows),
         "r103_diagnostics": aggregate_r103_metrics(resource_rows),
+        "compiler_diagnostics": aggregate_compiler_metrics(task_rows),
         "r1021_retired_limit_crossings": [
             {"task_id": row["task_id"], **row["r1021_retired_limits"]}
             for row in task_rows if row.get("r1021_retired_limits", {}).get("crossings")
@@ -2419,6 +2430,10 @@ def write_reports(
         reasoning_effort_audit=audit,
     )
     root = Path(output_dir)
+    from experiments.compiler_metrics import write_reports as write_compiler_reports
+    write_compiler_reports(rows, root, resource_summary={
+        k: v for k, v in summary.items() if k.endswith('_tokens') or k in
+        ('call_count', 'cost_usd', 'token_mismatch', 'resource_usage_complete', 'usage_by_bucket')})
     paths = ReportPaths(
         jsonl=root / f"{stem}.jsonl",
         csv=root / f"{stem}.csv",

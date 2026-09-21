@@ -1973,6 +1973,7 @@ class NodeExecutor:
                     agent_prepared=True,
                     accept_result=lambda value: transfer_inputs(request, atomic, value, ctx),
                     consumer=occurrence,
+                    authorizing_native_call_id=call.call_id,
                 )
         finally:
             # A failed or exceptional support attempt may change the real

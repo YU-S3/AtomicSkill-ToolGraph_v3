@@ -100,8 +100,16 @@ class LearningSourceStore:
                    "source_occurrence_id", "contract_identity_key", "feature_payload_json", "capsule_path", "capsule_hash")
         previous = connection.execute("SELECT * FROM learning_source_index WHERE sample_key=?", (reference["sample_key"],)).fetchone()
         if previous is not None:
-            if any(previous[k] != reference[k] for k in columns) or previous["source_trace_hash"] != trace_hash:
+            if previous["source_trace_hash"] != trace_hash:
                 raise RuntimeError("conflicting learning source identity")
+            if any(previous[k] != reference[k] for k in columns):
+                # Ordinary and sidecar E1 may independently attest the same
+                # source capability with different author text/batch IDs.
+                # Keep the first immutable capsule/index; neither creates a
+                # second independent source. Both original proposals remain
+                # in their content-addressed capsules and submission Trace.
+                if not self._same_source_sample(previous, reference):
+                    raise RuntimeError("conflicting learning source identity")
             return
         sequence = connection.execute("SELECT COALESCE(MAX(committed_sequence),0)+1 FROM learning_source_index").fetchone()[0]
         connection.execute("INSERT INTO learning_source_index VALUES(?,?,?,?,?,?,?,?,?,?,?)", (
@@ -112,6 +120,45 @@ class LearningSourceStore:
         for predicate, domain in sorted({(item[0], item[1]) for item in feature["effects"]}):
             connection.execute("INSERT INTO learning_source_effect_index VALUES(?,?,?,?)",
                                (reference["sample_key"], feature["profile"], domain, predicate))
+
+    def _same_source_sample(self, previous, reference):
+        from ..core.serialization import dataclass_from_dict
+        from ..core.contracts import AbstractAtomicSkill
+        from ..evolution.atomicizer import CanonicalAtomicOccurrence
+        from ..evolution.identity_matching import match_atomic
+        from ..evolution.contract_canonicalizer import AtomicContractCanonicalizer, CanonicalizedAtomicBundle
+        old, new = self.read(previous), self.read(reference)
+        if old['features']['profile'] != new['features']['profile']:
+            return False
+        for row, payload in ((previous, old), (reference, new)):
+            if (row['source_occurrence_id'] != payload['occurrence']['occurrence_id']
+                    or typed_json(json.loads(row['feature_payload_json'])) != typed_json(payload['features'])):
+                return False
+        for key in ("protocol", "source_identity", "normalized", "canonical_snapshot_hash", "sample_key"):
+            if typed_json(old[key]) != typed_json(new[key]):
+                return False
+        for key in ("sample_key", "independent_task_key", "source_trace_id", "canonical_snapshot_hash", "contract_identity_key"):
+            if previous[key] != reference[key]:
+                return False
+        left = dataclass_from_dict(AbstractAtomicSkill, new["atomic"])
+        right = dataclass_from_dict(AbstractAtomicSkill, old["atomic"])
+        proof = match_atomic(left, right)
+        if proof.status != "exact":
+            return False
+        bundle = CanonicalizedAtomicBundle(right, {**proof.proof.output_role_map, **proof.proof.input_role_map},
+            None, None, proof.proof.input_role_map, proof.proof.output_role_map)
+        mapped = AtomicContractCanonicalizer().rewrite_canonical_occurrence(
+            dataclass_from_dict(CanonicalAtomicOccurrence, new["occurrence"]), bundle)
+        def evidence(value):
+            value = copy.deepcopy(to_primitive(value))
+            # These are proposal/batch labels, not source facts or authority.
+            for key in ("occurrence_id", "phase_id", "intent", "proposed_ref", "guideline"):
+                value.pop(key, None)
+            for key in ("input_specs", "output_specs"):
+                value[key] = sorted(({k:v for k,v in p.items() if k != "description"}
+                                     for p in value[key]), key=typed_json)
+            return value
+        return typed_json(evidence(mapped)) == typed_json(evidence(old["occurrence"]))
 
     @full_proof
     def verified(self, system, row):

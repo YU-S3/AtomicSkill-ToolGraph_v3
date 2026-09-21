@@ -29,6 +29,8 @@ def row_for(trace, elapsed):
     row = original_row_for(trace, elapsed)
     from experiments.r103_metrics import trace_metrics
     row["r103_diagnostics"] = trace_metrics(trace)
+    from experiments.compiler_metrics import trace_metrics as compiler_trace_metrics
+    row["compiler_diagnostics"] = compiler_trace_metrics(trace)
     usage = trace.llm_usage
     reasoning_known = all(item.get("reasoning_tokens") is not None for item in usage)
     row["completion_tokens"] = sum(item["completion_tokens"] for item in usage)
@@ -183,6 +185,8 @@ def train_dev16(config_path, output, learning_condition="Full"):
                 checkpoint.clear()
                 rows.append(row)
                 atomic_write_json(output / "progress.json",rows)
+                from experiments.compiler_metrics import write_reports as write_compiler_reports
+                write_compiler_reports(rows, output)
                 print(json.dumps({"completed":len(rows),"total":16,"task_id":task.task_id,
                     "official_won":row["official_won"],"total_tokens":row["total_tokens"],
                     "duration_seconds":row["duration_seconds"]}),flush=True)

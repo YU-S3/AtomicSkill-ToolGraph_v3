@@ -71,7 +71,8 @@ def cache_lookup(ctx, key, occurrence):
 
 
 def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_prepared,
-                       execution_scope='registered', accept_result=None, origin=None, consumer=None):
+                       execution_scope='registered', accept_result=None, origin=None, consumer=None,
+                       authorizing_native_call_id=None):
     from ..core.results import ImplementationExecutionResult, NodeExecutionStatus
     consumer = consumer or occurrence
     cache_key = execution_cache_key(compiled, preflight.normalized_arguments, consumer, ctx)
@@ -81,11 +82,25 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
             True, False, False, False, failure_layer=entry['failure_layer'], failure_code=entry['failure_code'],
             node_status=NodeExecutionStatus.FAILED_NOT_STARTED, cached_rejection=True)
     origin = origin or ('agent_selected_registered' if agent_prepared else 'automatic_registered')
+    from ..traces.compiler_observer import observation, _dataflow_inputs
+    observed = observation(ctx)
+    links = observed['program_invocation_links'] if observed is not None else []
+    link_start = len(links)
+    consumed = _dataflow_inputs(ctx, occurrence, preflight.normalized_arguments) if observed is not None else []
     with InvocationTransaction(ctx, occurrence, origin=origin) as transaction:
         ctx.binding_store.commit_grounded(occurrence.occurrence_id,
             {binding.role: binding for binding in preflight.binding_updates})
-        result = runner.run(compiled, preflight, occurrence, ctx,
-                            agent_prepared=agent_prepared, execution_scope=execution_scope)
+        previous_marker = getattr(ctx, '_compiler_invocation_marker', None)
+        ctx._compiler_invocation_marker = dict(origin=origin, native_call_id=authorizing_native_call_id,
+            consumer_scope=getattr(consumer, 'consumer_scope', 'node'), consumed=consumed)
+        try:
+            result = runner.run(compiled, preflight, occurrence, ctx,
+                                agent_prepared=agent_prepared, execution_scope=execution_scope)
+        finally:
+            if previous_marker is None:
+                del ctx._compiler_invocation_marker
+            else:
+                ctx._compiler_invocation_marker = previous_marker
         transaction.accepted = bool(result.completed and result.atomic_effect_passed and not result.failure_code)
         if transaction.accepted and accept_result is not None:
             report = accept_result(result)
@@ -97,6 +112,9 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
                 result.certified_input_bindings = {}
                 result.failure_layer = 'runtime_binding'
                 result.failure_code = report.failure_codes[0]
+                for link in links[link_start:]:
+                    if link['occurrence_id'] == occurrence.occurrence_id and link['implementation_ref'] == str(compiled.implementation.ref):
+                        link.update(complete_success=False, outputs_valid=False)
         transaction.failure_code = result.failure_code or 'invocation_rejected'
     if cache_key and not result.atomic_effect_passed and result.failure_layer in {'tool', 'atomic', 'runtime_binding', 'implementation'}:
         ctx.rejected_runtime_candidates[cache_key] = {'failure_code': result.failure_code, 'failure_layer': result.failure_layer}

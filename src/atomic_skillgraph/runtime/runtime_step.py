@@ -276,6 +276,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                 from .invocation_transaction import execute_invocation
                 outcome.result = execute_invocation(executor.implementation_runner,
                     compiled, preflight, occurrence, ctx, agent_prepared=True,
+                    authorizing_native_call_id=call.call_id,
                 )
                 if mode == "seeded" and outcome.result.atomic_effect_passed:
                     from ..core.results import NodeExecutionStatus

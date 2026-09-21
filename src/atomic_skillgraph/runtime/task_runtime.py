@@ -56,7 +56,8 @@ def invoke_task_capability(executor, call, consumer, ctx, candidate):
         if not preflight.passed:
             return {"accepted": False, "error": preflight.failure_code, "message": preflight.message}
         result = execute_invocation(executor.implementation_runner, compiled, preflight,
-            occurrence, ctx, agent_prepared=True, origin='task_agent_selected_registered', consumer=consumer)
+            occurrence, ctx, agent_prepared=True, origin='task_agent_selected_registered', consumer=consumer,
+            authorizing_native_call_id=call.call_id)
         if result.completed and result.atomic_effect_passed and not result.failure_code:
             ctx.binding_store.publish_validated_outputs(occurrence.occurrence_id, result.validated_outputs,
                 result.atomic_witness_refs, ctx.world_revision, certified_bindings=result.validated_output_bindings)

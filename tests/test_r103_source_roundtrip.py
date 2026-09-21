@@ -8,6 +8,53 @@ from atomic_skillgraph.traces.store import TraceStore
 from test_r1021_i import source_case
 
 
+def test_same_source_rephrased_e1_is_idempotent_but_evidence_conflicts_are_not(tmp_path):
+    from atomic_skillgraph.knowledge.learning_sources import LearningSourceStore
+    system, ctx, _, occurrence, normalized, proposal = source_case(tmp_path, include_proposal=True)
+    try:
+        trace = ctx.trace_builder.trace
+        trace.benchmark_success = trace.learning_eligible = True
+        trace.metadata['execution_source'] = dict(run_id='r', benchmark='synthetic', task_id=trace.task.task_id,
+            task_signature=trace.task.task_signature, attempt_id='a', manifest_ordinal=0,
+            attempt_ordinal=1, split='train', experiment_kind='formal')
+        store = LearningSourceStore(system.database, system.data_dir)
+        from atomic_skillgraph.knowledge.r103_protocol import SOURCE_DDL
+        system.database.connection.executescript(SOURCE_DDL)
+        atomic = system._canonical_atomic_for_occurrence(occurrence)
+        first = store.stage(trace, normalized, occurrence, atomic, system.harness.profile_name, proposal=proposal)
+        from test_r1021_boundaries import typed_atomicizer
+        other_proposal = copy.deepcopy(proposal)
+        other_proposal.phase_id = 'different_author_label'
+        other_proposal.intent = 'same evidence rephrased'
+        other_proposal.guideline = {'steps': ['Prepare the required input and check the effect.']}
+        other, = typed_atomicizer().validate_and_canonicalize([other_proposal], normalized)
+        other.occurrence_id += '_sidecar'
+        other_atomic = system._canonical_atomic_for_occurrence(other)
+        second = store.stage(trace, normalized, other, other_atomic, system.harness.profile_name, proposal=other_proposal)
+        assert first['sample_key'] == second['sample_key'] and first['capsule_hash'] != second['capsule_hash']
+        with system.database.transaction() as connection:
+            store.commit(connection, first, 'parent')
+            store.commit(connection, second, 'parent')
+        with system.database.transaction() as connection:
+            store.commit(connection, second, 'parent')
+        rows = system.database.rows('SELECT * FROM learning_source_index')
+        assert len(rows) == 1 and rows[0]['capsule_hash'] == first['capsule_hash']
+        assert store.read(second)['occurrence']['intent'] == other.intent
+        for field in ('prefix_events', 'effect_witness_refs'):
+            payload = copy.deepcopy(store.read(second))
+            payload['occurrence'][field] = []
+            assert payload != store.read(second)
+            damaged = {**second, **store._write(payload)}
+            with pytest.raises(RuntimeError, match='conflicting learning source'):
+                with system.database.transaction() as connection:
+                    store.commit(connection, damaged, 'parent')
+        with pytest.raises(RuntimeError, match='conflicting learning source'):
+            with system.database.transaction() as connection:
+                store.commit(connection, second, 'different_parent')
+    finally:
+        system.close()
+
+
 @pytest.mark.parametrize("sparse", [False, True])
 def test_learning_source_normalization_survives_trace_roundtrip(tmp_path, sparse):
     system, ctx, _, _, _ = source_case(tmp_path, sparse=sparse)

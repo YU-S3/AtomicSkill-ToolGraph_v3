@@ -36,6 +36,33 @@ def compile_routes(system, ctx, occurrence):
         task_contract=ctx.task_contract)
 
 
+def test_active_representative_uses_its_own_history_not_candidate_alias(tmp_path):
+    import json
+    from atomic_skillgraph.core.refs import ToolRef
+    from atomic_skillgraph.core.serialization import to_primitive
+    from atomic_skillgraph.governance.projections import ArtifactStats
+    system, ctx, occ, active = setup(tmp_path)
+    try:
+        candidate = replace(active, ref=SkillRef('first_candidate_alias', '1.0.0'), status=SkillStatus.CANDIDATE)
+        system.skills.register_implementation(candidate)
+        tool = system.tools.get(active.tool_bindings[0].tool_ref)
+        alternative_tool = replace(tool, ref=ToolRef('different_route', '1.0.0'),
+            artifact={**tool.artifact, 'max_actions': tool.artifact['max_actions']+1})
+        system.tools.register(alternative_tool)
+        alternative = replace(active, ref=SkillRef('second_active', '1.0.0'),
+            tool_bindings=[replace(active.tool_bindings[0], tool_ref=alternative_tool.ref)])
+        system.skills.register_implementation(alternative)
+        for impl, failures in ((candidate, 50), (active, 0), (alternative, 5)):
+            stats = ArtifactStats(str(impl.ref), 'implementation', intrinsic_failure_count=failures)
+            system.database.execute('INSERT OR REPLACE INTO lifecycle_projection VALUES(?,?,?)',
+                (str(impl.ref), json.dumps(to_primitive(stats)), 0))
+        occ.implementation_candidates = [candidate.ref, alternative.ref, active.ref]
+        selected = compile_routes(system, ctx, occ)
+        assert [c.implementation.ref for c in selected] == [active.ref, alternative.ref]
+    finally:
+        system.close()
+
+
 def test_D_incompatible_active_cannot_suppress_candidate_or_mutate_bindings(tmp_path):
     system, ctx, occurrence, impl = setup(tmp_path)
     try:

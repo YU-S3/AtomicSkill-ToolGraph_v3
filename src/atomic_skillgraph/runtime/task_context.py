@@ -115,6 +115,8 @@ class TaskRuntimeContext:
             ).values(),
         )
         progress.record("task_reset")
+        from ..traces.compiler_observer import initial_state
+        initial_state(context, reset)
         return context
 
     def begin_occurrence(self, occurrence: Any) -> OccurrenceAtomicEvidenceState:

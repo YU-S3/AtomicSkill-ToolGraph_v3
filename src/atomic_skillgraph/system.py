@@ -1328,6 +1328,20 @@ class AtomicSkillGraphSystem:
             "alfworld_version": installed_alfworld_version(),
         })
         provider_offsets = self._provider_request_offsets()
+        if self.r103:
+            from .traces.compiler_observer import initialize, admission_sources
+            persistent_tools = list(self.tools.tools())
+            persistent_refs = [str(t.ref) for t in persistent_tools]
+            def request_snapshot():
+                providers = self._provider_instances()
+                if any(not callable(getattr(p, 'request_records_since', None)) for p in providers):
+                    return None
+                return [str(item['request_id']) for p in providers
+                        for item in p.request_records_since(provider_offsets.get(id(p), 0))]
+            initialize(trace_builder, persistent_refs=persistent_refs, request_snapshot=request_snapshot,
+                       program_identities={r['artifact_ref']: r['equivalence_id'] for r in self.database.rows(
+                           'SELECT artifact_ref,equivalence_id FROM artifact_identity_index')},
+                       program_sources={str(t.ref): admission_sources(t) for t in persistent_tools})
         try:
             return self._run_task_pipeline(
                 task,

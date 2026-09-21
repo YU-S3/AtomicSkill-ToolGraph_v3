@@ -341,19 +341,20 @@ class InvocationCompiler:
                         duplicate = route
                         break
                 candidate = any(str(item.status.value) == "candidate" for item in (atomic, implementation, *tools))
-                if duplicate is not None:
-                    # Equivalent interfaces are one route. Prefer an available
-                    # reliable representative, never create a new ref/status.
-                    if duplicate["candidate"] and not candidate:
-                        duplicate.update(compiled=compiled, candidate=False, availability=availability)
-                    continue
                 row = self.skills.database.execute("SELECT projection_json FROM lifecycle_projection WHERE artifact_ref=?", (str(ref),)).fetchone()
                 stats = ArtifactStats.from_dict(json.loads(row[0])) if row else ArtifactStats(str(ref), "implementation")
                 route_key = identity_index.equivalence_key(str(implementation.ref))
                 displays = self.skills.database.execute("SELECT COUNT(*) FROM candidate_route_exposures WHERE route_key=?",
                                                        (route_key,)).fetchone()[0]
-                routes.append(dict(compiled=compiled, availability=availability, candidate=candidate, stats=stats,
-                    displays=displays, route_key=route_key))
+                row = dict(compiled=compiled, availability=availability, candidate=candidate, stats=stats,
+                           displays=displays, route_key=route_key)
+                if duplicate is not None:
+                    # Equivalent interfaces are one route. Prefer an available
+                    # reliable representative, never create a new ref/status.
+                    if duplicate["candidate"] and not candidate:
+                        duplicate.update(row)
+                    continue
+                routes.append(row)
             except AtomicSkillGraphError as exc:
                 if exc.layer is FailureLayer.INFRASTRUCTURE:
                     raise
