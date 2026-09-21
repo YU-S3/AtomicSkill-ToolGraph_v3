@@ -613,6 +613,15 @@ def test_c12_budget_metrics_are_recomputed_idempotently(
     assert trace.metadata["v32_metrics"] == expected
     assert expected["tool_builder_budget_exhausted_count"] == 1
     assert expected["atomic_only_retained_after_tool_budget_count"] == 1
+    # A valid execution outcome must survive the final report path too.
+    from experiments.report import trace_to_row
+    row = trace_to_row(trace)
+    assert row["tool_builder_aborted_count"] == 0
+    assert row["tool_builder_no_tool_count"] == 0
+    assert row["evolution_tool_builds"][0]["outcome"] == "budget_exhausted"
+    trace.metadata["evolution_tool_builds"][0]["outcome"] = "unknown_outcome"
+    with pytest.raises(ValueError, match="invalid final outcome"):
+        trace_to_row(trace)
     database.close()
 
 

@@ -616,6 +616,7 @@ def _r4_learning_metrics(metadata: Mapping[str, Any]) -> dict[str, Any]:
         "static_rejected",
         "legacy_compiled",
         "aborted",
+        "budget_exhausted",
     })
     for index, build in enumerate(builds):
         missing = [name for name in required_build_fields if name not in build]
