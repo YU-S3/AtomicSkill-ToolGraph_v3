@@ -15,10 +15,25 @@ set +a
 export PYTHONPATH="$REPO/src:$REPO"
 export PYTHONUNBUFFERED=1
 if [[ $# == 1 ]]; then
-  for seed in 42 43 44; do
-    test -f "$OUT/configs/seed${seed}_rep01.json"
-    test ! -e "$OUT/eval/seed${seed}/rep01"
-  done
+  exec 8>"$OUT/launch.lock"
+  flock -n 8 || { echo 'Release streams are already running' >&2; exit 1; }
+  "$ASG_PY" -m experiments.released_dev_checks --release-root "$OUT"
+  "$ASG_PY" - "$OUT" <<'PY'
+import json,sys
+from pathlib import Path
+from experiments.protocol import hash_config
+root=Path(sys.argv[1]).resolve()
+plan=json.loads((root/'evaluation_plan.json').read_text())
+assert len(plan['runs']) == 5 and {(r['seed'],r['rep']) for r in plan['runs']} == {(42,1),(42,2),(42,3),(43,1),(44,1)}
+for row in plan['runs']:
+    path=root/'configs'/f"seed{row['seed']}_rep{row['rep']:02}.json"
+    config=json.loads(path.read_text())
+    output=root/'eval'/f"seed{row['seed']}"/f"rep{row['rep']:02}"
+    assert Path(row['config']).resolve()==path and hash_config(config)==row['config_hash']
+    assert Path(config['experiment']['output_dir']).resolve()==output and not output.exists()
+    assert config['deployment']['presentation_profile']==plan['profile']
+    assert Path(config['bank_release']['release_manifest']).resolve()==root/f"seed{row['seed']}"/'frozen/release_manifest.json'
+PY
   for seed in 42 43 44; do
     nohup bash "${BASH_SOURCE[0]}" "$OUT" "$seed" > "$OUT/seed${seed}.log" 2>&1 < /dev/null &
     printf 'seed%s supervisor PID=%s; log=%s/seed%s.log\n' "$seed" "$!" "$OUT" "$seed"

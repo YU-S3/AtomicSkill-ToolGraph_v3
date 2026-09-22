@@ -32,11 +32,13 @@ def _percentile(values,q):
     return values[lo]+(values[hi]-values[lo])*(index-lo)
 
 def write_release_report(output,config,*,resource_traces,digest_after):
-    from .compiler_metrics import trace_metrics
+    from .compiler_metrics import trace_metrics, task_attempt_costs
     from atomic_skillgraph.core.serialization import to_primitive
     from atomic_skillgraph.deployment.publication_audit import json_lines
     from atomic_skillgraph.agents.runtime_expression_codec import _hash
     from collections import defaultdict
+    resource_traces = list(resource_traces)
+    task_costs = task_attempt_costs(resource_traces)
     output=Path(output);rows=[];usage={};requests={};expressions=[];compiler=[]
     task_usage=defaultdict(set)
     seen=set()
@@ -80,6 +82,8 @@ def write_release_report(output,config,*,resource_traces,digest_after):
         selected={r[0]:r[1] for r in db.execute("SELECT task_id,trace_id FROM run_tasks WHERE state='completed'")}
     scored=[r for r in rows if selected.get(r['task_id'])==r['trace_id']]
     scored_compiler=[r for r in compiler if selected.get(r['task_id'])==r['trace_id']]
+    for row in scored_compiler:
+        row.update(task_costs.get(row['task_id'], {}))
     if len(scored)!=len(selected):raise ValueError('completed task missing its scored Trace')
     costs=[sum(usage[key]['prompt_tokens']+usage[key]['completion_tokens'] for key in task_usage[task]) for task in selected]
     summary={'tasks':len(selected),'successes':sum(r['official_success'] is True for r in scored),
@@ -107,9 +111,13 @@ def write_release_report(output,config,*,resource_traces,digest_after):
         'captured':sum(bool(r.get('final_payload_audit')) for r in requests.values()),
         'matched_lean_requests':sum(r['final_lean_payload_matched'] for r in expressions)})
     from .compiler_metrics import aggregate as compiler_aggregate
-    atomic_write_json(output/'compiler_summary.json',compiler_aggregate(
-        [{'task_id':r['task_id'],'compiler_diagnostics':r if r.get('version') else None} for r in scored_compiler],
-        resource_summary={k:summary[k] for k in ('total_recorded_tokens','total_tokens','unknown_usage_requests','programmer_tokens')}))
+    compiler_rows = [{'task_id':r['task_id'], 'trace_id':r['trace_id'],
+        'compiler_diagnostics':r if r.get('version') else None,
+        **task_costs.get(r['task_id'], {})} for r in scored_compiler]
+    resources = {k:summary[k] for k in ('total_recorded_tokens','total_tokens','unknown_usage_requests','programmer_tokens')}
+    atomic_write_json(output/'compiler_summary.json',compiler_aggregate(compiler_rows, resource_summary=resources))
+    from .compiler_metrics import write_reports as write_compiler_reports
+    write_compiler_reports(compiler_rows, output/'reports', resource_summary=resources)
     for request in expressions:
         atomic_write_json(output/'provider_payload_audit'/f"{request['request_id']}.json",request.get('final_payload_audit'))
     if digest_after!=config['bank_release']['expected_bank_digest']:

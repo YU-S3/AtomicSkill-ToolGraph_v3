@@ -91,6 +91,9 @@ def restore(ctx: Any, checkpoint: RuntimeExecutionCheckpoint, failure_code: str)
             setattr(ctx.task_progress, key, value)
         ctx.task_progress.validator_channel = ctx.harness.validator_channel()
     except Exception as exc:
+        if getattr(ctx, 'search_history', None) is not None:
+            ctx.search_history.disposition(ctx, {item.attempt_id for item in
+                ctx.trace_builder.trace.tool_executions[checkpoint.attempt_starts['tool_executions']:]}, 'unknown')
         increment(ctx, "runtime_checkpoint_restore_failure_count")
         raise AtomicSkillGraphError(
             "runtime_checkpoint_restore_failed", str(exc), layer=FailureLayer.INFRASTRUCTURE,
@@ -115,6 +118,10 @@ def restore(ctx: Any, checkpoint: RuntimeExecutionCheckpoint, failure_code: str)
             if key in {"implementation_invocations", "tool_executions"}
         },
     })
+    if getattr(ctx, 'search_history', None) is not None:
+        rollback = ctx.trace_builder.trace.metadata['runtime_rollbacks'][-1]
+        ctx.search_history.disposition(ctx, set(rollback['discarded_attempt_ids']['tool_executions']),
+                                       'rolled_back', rollback['rollback_id'])
     increment(ctx, "runtime_rollback_count")
     increment(ctx, "runtime_rollback_replay_action_count", replay_count)
     increment(ctx, "rolled_back_environment_action_count", end - checkpoint.action_prefix_end)

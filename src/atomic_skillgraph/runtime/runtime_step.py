@@ -14,6 +14,26 @@ from ..tooling.runtime_interface import build_runtime_automation_interface
 from .checkpoint import increment, metrics
 from .loop_guard import ActionLoopGuard
 from .negative_memory import cached_rejection, current_rejections, remember_rejection
+from ..core.errors import BudgetExhausted
+from ..core.results import NodeExecutionStatus
+
+
+def completed_step_ids_for_policy(node_records):
+    complete = {NodeExecutionStatus.ALREADY_SATISFIED, NodeExecutionStatus.DIRECT_AUTONOMOUS_SUCCESS,
+        NodeExecutionStatus.DIRECT_AGENT_PREPARED_SUCCESS, NodeExecutionStatus.AGENT_COMPLETED_BEFORE_INVOCATION,
+        NodeExecutionStatus.SEEDED_SUCCESS}
+    return list(dict.fromkeys(n.step_id for n in node_records if n.status in complete))
+
+
+def record_interrupted_call(executor, call, session, occurrence, ctx, error, starts):
+    if call is None or any(r.call_id == call.call_id and r.session_id == session.session_id
+                           for r in ctx.trace_builder.trace.native_tool_calls):
+        return
+    refs = {key: [r.attempt_id for r in getattr(ctx.trace_builder.trace, key)[start:]]
+            for key, start in starts.items()}
+    executor._record_control_call(call, session, occurrence, ctx, call_kind='runtime_budget_interrupted',
+        result={'interrupted_by_budget': True, 'failure_code': error.code,
+                'failure_layer': error.layer.value, 'attempt_refs': refs})
 
 
 @dataclass
@@ -55,7 +75,7 @@ def public_step_feedback(call: Any, payload: dict, *, before_revision: int,
             projected['scope_diagnostics'] = [to_primitive(d) for d in scope_diagnostics if d]
         return projected
 
-    feedback = {"call_id": call.call_id, "tool": call.name, "arguments": to_primitive(call.arguments),
+    feedback = {"version": 'r103.runtime-feedback.v2', "call_id": call.call_id, "tool": call.name, "arguments": to_primitive(call.arguments),
                 "before_revision": before_revision, "after_revision": after_revision,
                 **project_result(payload)}
     if selected_action is not None:
@@ -134,8 +154,9 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
     frame = {"current_step_id": occurrence.step_id, "current_occurrence_id": occurrence.occurrence_id,
              "mode": mode, "current_atomic_ref": str(occurrence.node_ref),
              "repeat": ctx.binding_store.repeat_execution_frame(occurrence.step_id),
-             "completed_step_ids": [node.step_id for node in ctx.trace_builder.trace.node_records
-                 if node.status.value in {"direct_autonomous_success", "direct_agent_prepared_success", "seeded_success", "already_satisfied"}],
+             "completed_step_ids": completed_step_ids_for_policy(ctx.trace_builder.trace.node_records),
+             "terminal_completed_step_ids": list(dict.fromkeys(n.step_id for n in ctx.trace_builder.trace.node_records
+                 if n.status == NodeExecutionStatus.DIRECT_TERMINAL_EFFECT_SUCCESS)),
              "last_step": ctx.runtime_step_feedback.get(occurrence.occurrence_id, {}),
              "remaining_resources": {**resources, "node_actions_used": ctx.budget.used_node_actions,
                                      "task_actions": ctx.budget.remaining_global_actions}}
@@ -162,7 +183,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         implementation_invocations=[item.spec for item in invocations],
         downstream_plan_context=state["downstream_obligations"],
         current_state_snapshot=state,
-        exploration_memory=ctx.exploration_memory.policy_view(),
+        exploration_memory=ctx.exploration_policy_view(),
         support_atomic_candidates=support_candidates,
         support_summary_lookup=executor.context_builder.selected_support_summaries(
             executor.invocation_compiler.skills, support_candidates),
@@ -189,7 +210,11 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         increment(ctx, "runtime_automation_draft_step_count")
         increment(ctx, "runtime_automation_interface_load_count")
     outcome = RuntimeStepResult()
+    call = None
+    starts = {key: len(getattr(ctx.trace_builder.trace, key))
+              for key in ('tool_executions', 'implementation_invocations')}
     try:
+        ctx.search_history.note_projection(ctx, session.session_id)
         executor._record_runtime_context_projection(
             ctx, audit, session_id=session.session_id,
             occurrence_id=occurrence.occurrence_id, origin="runtime_step",
@@ -287,7 +312,6 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                     authorizing_native_call_id=call.call_id,
                 )
                 if mode == "seeded" and outcome.result.atomic_effect_passed:
-                    from ..core.results import NodeExecutionStatus
                     outcome.result.node_status = NodeExecutionStatus.SEEDED_SUCCESS
             payload = to_primitive(outcome.result or preflight)
             executor._record_control_call(call, session, occurrence, ctx,
@@ -316,6 +340,9 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
             after_revision=ctx.world_revision, selected_action=selected_action)
         executor._finalize_tool_result(session, call.call_id, payload, tools)
         return outcome
+    except BudgetExhausted as exc:
+        record_interrupted_call(executor, call, session, occurrence, ctx, exc, starts)
+        raise
     finally:
         ctx.trace_builder.finish_span(span.span_id)
         executor._finish_session(record, session, ctx)

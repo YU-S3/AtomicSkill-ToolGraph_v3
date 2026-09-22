@@ -16,6 +16,7 @@ from atomic_skillgraph.agents.runtime_prompt_texts import (
 
 
 SEPARATOR = "\n\nPOLICY_CONTEXT_JSON\n"
+from atomic_skillgraph.runtime.search_history import HISTORY_HELP
 
 
 def _split(rendered: str) -> tuple[str, dict]:
@@ -155,7 +156,7 @@ def test_preparation_prompt_projects_initial_payload_and_returns_full_audit() ->
     )
     instruction, payload = _split(rendered)
 
-    assert instruction == R10_STEP_PROMPT
+    assert instruction == R10_STEP_PROMPT + '\n\n' + HISTORY_HELP
     assert state == original_state
     assert support == original_support
     assert "diagnostics" not in payload["support_atomic_candidates"][0]
@@ -197,7 +198,7 @@ def test_seeded_and_dynamic_use_exact_replacement_prefixes_and_emit_audits() -> 
         projection_audit=seeded_audit,
     )
     seeded_instruction, seeded_payload = _split(seeded)
-    assert seeded_instruction == R10_STEP_PROMPT
+    assert seeded_instruction == R10_STEP_PROMPT + '\n\n' + HISTORY_HELP
     assert seeded_payload["current_state_snapshot"]["current_atomic"][
         "skill_guidance"
     ] == {"soft_reference": True, "guidance_absent": True, "rejection_reason": "guideline requires only steps and notes"}
@@ -220,7 +221,7 @@ def test_seeded_and_dynamic_use_exact_replacement_prefixes_and_emit_audits() -> 
         projection_audit=dynamic_audit,
     )
     dynamic_instruction, dynamic_payload = _split(dynamic)
-    assert dynamic_instruction == DYNAMIC_PROMPT
+    assert dynamic_instruction == DYNAMIC_PROMPT + '\n\n' + HISTORY_HELP
     assert dynamic_payload["rescue_method_guidance"] == {
         "conflict_code": "public_conflict"
     }

@@ -60,13 +60,15 @@ def execution_cache_key(compiled, arguments, consumer, ctx):
         'step': consumer_step_identity(consumer), 'state': state_signature(ctx, consumer)})
 
 
-def cache_lookup(ctx, key, occurrence):
+def cache_lookup(ctx, key, occurrence, call_id=None):
     entry = ctx.rejected_runtime_candidates.get(key) if key else None
     if entry is not None:
         values = ctx.trace_builder.trace.metadata.setdefault('r101_metrics', {})
         values['exact_failure_cache_hits'] = values.get('exact_failure_cache_hits', 0) + 1
         ctx.trace_builder.trace.metadata.setdefault('runtime_execution_cache_hits', []).append({
             'occurrence_id': occurrence.occurrence_id, 'failure_code': entry['failure_code'], 'cached_rejection': True})
+        if getattr(ctx, 'search_history', None) is not None:
+            ctx.search_history.cache_hit(ctx, entry.get('search_observation_ids', []), call_id, occurrence.occurrence_id)
     return entry
 
 
@@ -76,7 +78,7 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
     from ..core.results import ImplementationExecutionResult, NodeExecutionStatus
     consumer = consumer or occurrence
     cache_key = execution_cache_key(compiled, preflight.normalized_arguments, consumer, ctx)
-    entry = cache_lookup(ctx, cache_key, occurrence)
+    entry = cache_lookup(ctx, cache_key, occurrence, authorizing_native_call_id)
     if entry is not None:
         return ImplementationExecutionResult(str(compiled.implementation.ref), str(compiled.atomic.ref),
             True, False, False, False, failure_layer=entry['failure_layer'], failure_code=entry['failure_code'],
@@ -86,6 +88,7 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
     observed = observation(ctx)
     links = observed['program_invocation_links'] if observed is not None else []
     link_start = len(links)
+    history_start = set(ctx.search_history.attempts) if getattr(ctx, 'search_history', None) is not None else set()
     with InvocationTransaction(ctx, occurrence, origin=origin) as transaction:
         ctx.binding_store.commit_grounded(occurrence.occurrence_id,
             {binding.role: binding for binding in preflight.binding_updates})
@@ -94,7 +97,8 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
             include_stored=execution_scope != 'runtime_trial') if observed is not None else []
         previous_marker = getattr(ctx, '_compiler_invocation_marker', None)
         ctx._compiler_invocation_marker = dict(origin=origin, native_call_id=authorizing_native_call_id,
-            consumer_scope=getattr(consumer, 'consumer_scope', 'node'), consumed=consumed)
+            consumer_scope=getattr(consumer, 'consumer_scope', 'node'), consumed=consumed,
+            parent_occurrence_id=consumer.occurrence_id)
         try:
             result = runner.run(compiled, preflight, occurrence, ctx,
                                 agent_prepared=agent_prepared, execution_scope=execution_scope)
@@ -119,5 +123,7 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
                         link.update(complete_success=False, outputs_valid=False)
         transaction.failure_code = result.failure_code or 'invocation_rejected'
     if cache_key and not result.atomic_effect_passed and result.failure_layer in {'tool', 'atomic', 'runtime_binding', 'implementation'}:
-        ctx.rejected_runtime_candidates[cache_key] = {'failure_code': result.failure_code, 'failure_layer': result.failure_layer}
+        ctx.rejected_runtime_candidates[cache_key] = {'failure_code': result.failure_code, 'failure_layer': result.failure_layer,
+            'search_observation_ids': [i for i in ctx.search_history.attempts if i not in history_start]
+                if getattr(ctx, 'search_history', None) is not None else []}
     return result

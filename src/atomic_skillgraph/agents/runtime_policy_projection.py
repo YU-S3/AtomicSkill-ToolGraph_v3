@@ -256,6 +256,35 @@ def compact_native_interfaces(raw, native_tool_specs=None):
     return out, audit
 
 
+def project_support_presentation(raw, summaries=None):
+    """Same original summaries and exact preview dedup for both profiles."""
+    out = copy.deepcopy(raw)
+    audit = {'version': 'r103.runtime-feedback.v2', 'summary_source_hashes': {},
+             'missing_summary_refs': [], 'preview_sources': [], 'removed_exact_previews': 0}
+    for path, rows in [('support_atomic_candidates', out.get('support_atomic_candidates', [])),
+                      ('task_runtime_frame.capability_candidates', out.get('task_runtime_frame', {}).get('capability_candidates', []))]:
+        for i, row in enumerate(rows):
+            ref = row.get('atomic_ref')
+            if ref in (summaries or {}):
+                row['summary'] = summaries[ref]
+                audit['summary_source_hashes'][ref] = digest(summaries[ref])
+            else:
+                audit['missing_summary_refs'].append(ref)
+            if 'mapping_previews' in row:
+                audit['preview_sources'].append({'path': path, 'index': i,
+                    'mapping_previews': copy.deepcopy(row['mapping_previews'])})
+                seen, unique = set(), []
+                for item in row['mapping_previews']:
+                    key = canonical_bytes(item)
+                    if key not in seen:
+                        seen.add(key)
+                        unique.append(item)
+                audit['removed_exact_previews'] += len(row['mapping_previews']) - len(unique)
+                row['mapping_previews'] = unique
+    audit.update(before_bytes=len(canonical_bytes(raw)), after_bytes=len(canonical_bytes(out)))
+    return out, audit
+
+
 def project_runtime_payload(
     raw: dict[str, Any], *, native_tool_specs: Iterable[NativeToolSpec] | None = None,
     expression_enabled: bool = True,

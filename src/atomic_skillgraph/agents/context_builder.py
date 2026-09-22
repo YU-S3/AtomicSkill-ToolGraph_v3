@@ -52,8 +52,6 @@ class ContextBuilder:
     """Build deterministic, compact user inputs for v3 Agent sessions."""
 
     def selected_support_summaries(self, skills, candidates):
-        if getattr(self, 'presentation_profile', 'current') != 'lean':
-            return {}
         from ..evolution.portability import validate_portability
         result = {}
         for candidate in candidates:
@@ -242,10 +240,12 @@ class ContextBuilder:
         return rendered
 
     def _release_projection(self, projected, audit, summaries):
+        from .runtime_policy_projection import project_support_presentation
+        projected, audit['support_presentation'] = project_support_presentation(projected, summaries)
         if getattr(self, 'presentation_profile', 'current') != 'lean':
             return projected, ''
         from .runtime_expression_codec import project_lean, ROWS_HELP
-        result, details = project_lean(projected, summaries)
+        result, details = project_lean(projected)
         audit['release_expression'] = details
         explanation = '\n\n' + ROWS_HELP if any(t['applied'] for t in details['transforms'].values()) else ''
         return result, explanation
@@ -253,12 +253,17 @@ class ContextBuilder:
     def _runtime_instruction(self, scope):
         if getattr(self, 'presentation_profile', 'current') == 'lean' and scope in {'node','dynamic'}:
             from .lean_runtime_prompt_texts import NODE, DYNAMIC
-            return NODE if scope == 'node' else DYNAMIC
+            from ..runtime.search_history import HISTORY_HELP
+            return (NODE if scope == 'node' else DYNAMIC) + '\n\n' + HISTORY_HELP
         from . import runtime_prompt_texts as current
         from . import baseline_runtime_prompt_texts as original
         source = original if getattr(self, "runtime_presentation", "new") == "old" else current
-        return getattr(source, {"node": "R10_STEP_PROMPT", "dynamic": "DYNAMIC_PROMPT",
+        text = getattr(source, {"node": "R10_STEP_PROMPT", "dynamic": "DYNAMIC_PROMPT",
                                 "draft": "AUTOMATION_DRAFT_PROMPT"}[scope])
+        if scope in {'node', 'dynamic'}:
+            from ..runtime.search_history import HISTORY_HELP
+            text += '\n\n' + HISTORY_HELP
+        return text
 
     def tool_builder(
         self,

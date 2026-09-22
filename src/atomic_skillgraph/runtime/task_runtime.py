@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-from ..core.errors import AtomicSkillGraphError, FailureLayer
+from ..core.errors import AtomicSkillGraphError, FailureLayer, BudgetExhausted
 from ..core.results import RuntimeOccurrence
 from ..core.refs import SkillRef
 from ..core.serialization import to_primitive
@@ -12,7 +12,8 @@ from ..tooling.runtime_interface import build_runtime_automation_interface
 from .invocation_transaction import execute_invocation
 from .loop_guard import ActionLoopGuard
 from .checkpoint import increment
-from .runtime_step import automation_request_tool, public_step_feedback
+from .runtime_step import (automation_request_tool, public_step_feedback,
+                          completed_step_ids_for_policy, record_interrupted_call)
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,7 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
             if request:
                 tools = [executor._automation_tool()]
             frame = {"consumer_scope": "task", "source_occurrence_id": consumer.occurrence_id, "parent_atomic_ref": "",
+                     "completed_step_ids": completed_step_ids_for_policy(ctx.trace_builder.trace.node_records),
                      "capability_candidates": to_primitive(candidates), "last_step": feedback,
                      "continuation_context": continuation_context or {},
                      "automation_request": request}
@@ -118,7 +120,7 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
             prompt = executor.context_builder.dynamic_task(
                 task_goal=ctx.task_goal, observation=ctx.observation, action_catalog=ctx.action_catalog,
                 relevant_action_history=ctx.relevant_history(''), remaining_budget=ctx.budget.snapshot(),
-                task_progress=executor._task_progress_policy(ctx), exploration_memory=ctx.exploration_memory.policy_view(),
+                task_progress=executor._task_progress_policy(ctx), exploration_memory=ctx.exploration_policy_view(),
                 recent_failed_learned_invocation=ctx.last_failed_invocation,
                 rescue_method_guidance=executor._rescue_method_guidance(ctx) if rescue else None,
                 projection_audit=audit, task_runtime_frame=frame, native_tool_specs=tools,
@@ -131,7 +133,11 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
             if draft_step:
                 increment(ctx, 'runtime_automation_draft_step_count')
                 increment(ctx, 'runtime_automation_interface_load_count')
+            call = None
+            starts = {key: len(getattr(ctx.trace_builder.trace, key))
+                      for key in ('tool_executions', 'implementation_invocations')}
             try:
+                ctx.search_history.note_projection(ctx, session.session_id)
                 executor._record_runtime_context_projection(ctx, audit, session_id=session.session_id, occurrence_id='', origin='runtime_step')
                 turn = session.next_turn(prompt, tools=tools)
                 executor._record_support_display(ctx, session.session_id, candidates, tools)
@@ -167,6 +173,9 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                 executor._finalize_tool_result(session, call.call_id, payload, tools)
                 if failure_code:
                     break
+            except BudgetExhausted as exc:
+                record_interrupted_call(executor, call, session, consumer, ctx, exc, starts)
+                raise
             finally:
                 executor._finish_session(record, session, ctx)
                 ctx.trace_builder.trace.metadata.setdefault('runtime_steps', []).append({

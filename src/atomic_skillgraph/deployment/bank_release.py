@@ -523,6 +523,9 @@ def make_configs(releases,profile,repeats=None):
     expected_dev = 3 if oldfirst else 6
     if len(paired.get('pairs',[]))!=expected_dev or json.loads(automatic.read_text()).get('passed') is not True:
         raise ReleaseError('incomplete paired dev or automatic acceptance')
+    if oldfirst:
+        from experiments.released_dev_checks import verify_dev
+        verify_dev(output_root, write=True)
     plan=[]
     for release in releases:
         root=release.root.parent;output_root=root.parent

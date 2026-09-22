@@ -106,7 +106,74 @@ def trace_metrics(trace):
         logical_calls_by_bucket=dict(buckets),
         non_source_deployment=non_source_metrics,
         non_source_missing_reason=None if source_known else 'no_verified_admission_source_membership_at_deployment',
-        evidence_kind=t.get('metadata', {}).get('experiment_kind', 'unknown'))
+        evidence_kind=t.get('metadata', {}).get('experiment_kind', 'unknown'),
+        **search_metrics(t))
+
+
+def search_metrics(trace):
+    from atomic_skillgraph.runtime.search_history import identity
+    history = trace.get('metadata', {}).get('runtime_search_history')
+    if not history:
+        return {'search_history_capture_status': 'missing'}
+    attempts = history['attempts']
+    checks = [c for a in attempts for c in a['checks']]
+    observed = [c for c in checks if c['reached'] and c['selector_evaluated']]
+    visits = [identity(c['scope_value']) for c in observed]
+    actions = {i for a in attempts for i in a['action_indices']}
+    canonical = set(canonical_action_indices(trace))
+    projections = {p['session_id']: p for p in history['projections']}
+    request_checks = []
+    for request in trace.get('provider_requests', []):
+        p = projections.get(request['session_id'])
+        if p is None:
+            continue
+        contexts = request.get('final_payload_audit', {}).get('policy_contexts', [])
+        views = [c.get('exploration_memory', {}).get('search_history') for c in contexts]
+        request_checks.append({'request_id': request['request_id'], 'prior_observations': len(p['observation_ids']),
+            'history_present_and_exact': any(v is not None and identity(v) == p['history_hash'] for v in views)})
+    calls = [c for c in trace.get('native_tool_calls', [])
+             if c.get('preflight_result', {}).get('interrupted_by_budget')]
+    recorded = {i for c in calls for i in c['preflight_result'].get('attempt_refs', {}).get('tool_executions', [])}
+    interrupted = {t['attempt_id'] for t in trace.get('tool_executions', []) if t['result'].get('interrupted_by_budget')}
+    return dict(search_history_capture_status='partial' if trace.get('metadata', {}).get('search_history_capture_errors') else 'complete', actual_search_tool_starts=len(attempts),
+        search_cache_hits=sum(bool(h['observation_ids']) for h in history['cache_hits']),
+        checked_scope_visits=len(visits), unique_scope_values=len(set(visits)), revisited_scope_values=len(visits)-len(set(visits)),
+        all_search_actions=len(actions), canonical_search_actions=len(actions & canonical),
+        rolled_back_search_actions=len(actions-canonical), observed_scope_rows=len(observed),
+        incomplete_scope_rows=len(checks)-len(observed), search_history_request_checks=request_checks,
+        interrupted_native_calls_recorded=len(calls), interrupted_native_calls_missing=len(interrupted-recorded))
+
+
+def task_attempt_costs(resource_traces):
+    """One accounting authority for final-task reports; attempts never add tasks."""
+    from collections import defaultdict
+    usage, requests, events_by_task, requests_by_task = {}, {}, defaultdict(set), defaultdict(set)
+    for raw in resource_traces:
+        trace = to_primitive(raw)
+        task = trace['task']['task_id']
+        for row in trace.get('llm_usage', []):
+            key = row['event_id']
+            if key in usage and usage[key] != row:
+                raise ValueError('conflicting usage identity')
+            usage[key] = row
+            events_by_task[task].add(key)
+        for row in trace.get('provider_requests', []):
+            key = row['request_id']
+            if key in requests and requests[key] != row:
+                raise ValueError('conflicting provider request identity')
+            requests[key] = row
+            requests_by_task[task].add(key)
+    result = {}
+    for task in events_by_task.keys() | requests_by_task.keys():
+        events = [usage[k] for k in events_by_task[task]]
+        physical = [requests[k] for k in requests_by_task[task]]
+        prompt = sum(e['prompt_tokens'] for e in events)
+        completion = sum(e['completion_tokens'] for e in events)
+        result[task] = dict(prompt_tokens=prompt, completion_tokens=completion,
+            reasoning_tokens=sum(e['reasoning_tokens'] for e in events) if all(e.get('reasoning_tokens') is not None for e in events) else None,
+            total_tokens=None if any(q.get('usage_status') != 'reported' for q in physical) else prompt+completion,
+            call_count=len(physical))
+    return result
 
 
 def distribution(values):

@@ -209,6 +209,10 @@ class OpenAICompatibleProvider:
             'messages_utf8_bytes': len(json.dumps(payload['messages'], ensure_ascii=False).encode()),
             'tools_utf8_bytes': len(json.dumps(payload.get('tools', []), ensure_ascii=False).encode()),
             'policy_contexts': policy_segments,
+            'policy_blocks': [{key: {'sha256': hashlib.sha256(json.dumps(value,
+                ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
+                'utf8_bytes': len(json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode())}
+                for key, value in segment.items()} for segment in policy_segments],
             # Persist the hash BEFORE Trace's canonical JSON writer sorts
             # object keys. Re-hashing the loaded dict loses the sent order.
             'policy_context_sha256': [hashlib.sha256(json.dumps(segment,

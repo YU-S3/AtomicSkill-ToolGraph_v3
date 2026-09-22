@@ -325,6 +325,7 @@ class ToolRunner:
             "loop_iteration_counts": dict(state.loop_iteration_counts),
             "collection_observations": list(state.collection_observations),
             "condition_observations": list(state.condition_observations),
+            "iteration_observations": list(state.iteration_observations),
             "stop_condition_witnesses": list(
                 state.stop_condition_witnesses
             ),
@@ -852,11 +853,24 @@ class ToolRunner:
                             f"{node_id}:iteration:{count + 1}"
                         )
                         state.local[variable] = value
-                        signal = self._execute_ir_nodes(
-                            list(node.get("body") or []), state, ctx,
-                            occurrence_id=occurrence_id, span_id=span_id, tool=tool,
-                            terminal=terminal,
-                        )
+                        def action_index():
+                            builder = getattr(ctx, 'trace_builder', None)
+                            return len(builder.trace.environment_actions) if builder is not None else state.executed_action_count
+                        observation = {'node_id': node_id, 'value': to_primitive(value),
+                            'action_start': action_index(),
+                            'condition_start': len(state.condition_observations),
+                            'collection_start': len(state.collection_observations)}
+                        state.iteration_observations.append(observation)
+                        try:
+                            signal = self._execute_ir_nodes(
+                                list(node.get("body") or []), state, ctx,
+                                occurrence_id=occurrence_id, span_id=span_id, tool=tool,
+                                terminal=terminal,
+                            )
+                        finally:
+                            observation.update(action_end=action_index(),
+                                condition_end=len(state.condition_observations),
+                                collection_end=len(state.collection_observations))
                         count += 1
                         if signal in {"RETURN_PROGRAM", "BENCHMARK_TERMINAL", "FAIL_TOOL"}:
                             state.loop_iteration_counts[str(node.get("node_id", ""))] = count
@@ -936,6 +950,37 @@ class ToolRunner:
         before_revision = ctx.world_revision
         attempt_id = f"tool_attempt_{uuid.uuid4().hex}"
         state = self._ir_state(tool, bindings, ctx)
+        action_start = len(ctx.trace_builder.trace.environment_actions)
+        result, error = None, None
+        try:
+            result = self._run_ir_v1_body(tool, bindings, ctx, occurrence_id=occurrence_id,
+                span_id=span_id, execution_scope=execution_scope, before_revision=before_revision,
+                attempt_id=attempt_id, state=state)
+            return result
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            from .search_history import observe_search
+            history = getattr(ctx, 'search_history', None)
+            if history is not None:
+                try:
+                    observed = observe_search(tool, bindings, state, ctx, attempt_id=attempt_id,
+                        occurrence_id=occurrence_id, action_start=action_start,
+                        before_revision=before_revision, result=result, error=error)
+                    if observed is not None:
+                        history.record(ctx, observed)
+                except Exception as capture_error:
+                    if error is None:
+                        raise
+                    # Preserve the original execution/budget exception; expose
+                    # missing observer capture to the release gate, not as zero.
+                    ctx.trace_builder.trace.metadata.setdefault('search_history_capture_errors', []).append({
+                        'tool_attempt_id': attempt_id, 'error_type': type(capture_error).__name__,
+                        'message': str(capture_error)})
+
+    def _run_ir_v1_body(self, tool, bindings, ctx, *, occurrence_id, span_id,
+                        execution_scope, before_revision, attempt_id, state):
         program = [dict(node) for node in tool.artifact.get("program", [])]
         terminal: list[dict[str, Any]] = []
         control_signal = ""

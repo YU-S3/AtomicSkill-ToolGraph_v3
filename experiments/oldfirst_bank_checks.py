@@ -121,5 +121,10 @@ def run(config, entry, output):
             'multi_action_intervals': multi, 'automatic_intervals': auto, 'dataflow_consumptions': flows,
             'bank_digest_before': before, 'bank_digest_after': system.knowledge_digest()}
         atomic_write_json(output/'acceptance.json', report)
+        from .protocol import hash_code
+        from atomic_skillgraph.deployment.release_protocol import sha
+        report.update(code_hash=hash_code(Path(__file__).resolve().parents[1]),
+            trace_sha256=sha(output/'traces'/f'{trace.trace_id}.json'), task_identity=entry)
+        atomic_write_json(output/'acceptance.json', report)
         if not report['passed']: raise AssertionError(report)
         return report

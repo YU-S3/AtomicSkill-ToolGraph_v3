@@ -116,7 +116,14 @@ def dev(release_root,seed,suite,profiles):
                 load_release_source(frozen/'release_manifest.json',config)
                 check_automation(config,selected[2],root/'dev/automation')
             run(path,task_entries=lambda h,e=entry:resolve_tasks(SimpleNamespace(harness=h),[e]))
+            if suite == 'oldfirst-dev3':
+                from .released_dev_checks import check_episode
+                check_episode(output, code_hash=manifest['code_hash'], bank_digest=manifest['knowledge_digest'],
+                              entry=entry, profile=profile)
     compare_dev(root/'dev')
+    if suite == 'oldfirst-dev3':
+        from .released_dev_checks import verify_dev
+        verify_dev(root, write=True)
     return 0
 
 def main(argv=None):

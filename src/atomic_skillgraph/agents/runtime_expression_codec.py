@@ -96,6 +96,9 @@ def project_lean(payload,summaries=None):
                 audit['summary_source_hashes'][ref]=_hash(summaries[ref])
                 audit.setdefault('summary_replacements',[]).append({'path':path,'index':index,
                     'keys':original_keys,'value':original_summary,'present':'summary' in original_keys})
+            elif 'summary' in row:
+                audit['summary_visible_refs'].append(ref)
+                audit.setdefault('existing_summary_source_hashes', {})[ref] = _hash(row['summary'])
             else:audit['missing_summary_refs'].append(ref)
     if 'current_action_catalog' in result:
         result['current_action_catalog'],check=pack_catalog_rows(result['current_action_catalog']);audit['transforms']['catalog']=asdict(check)

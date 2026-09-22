@@ -15,6 +15,7 @@ from .budget import RuntimeBudget
 from .evidence_store import GroundingEvidenceStore
 from .state import ExplorationMemory, OccurrenceAtomicEvidenceState, normalized_facts
 from .task_progress import TaskProgressTracker
+from .search_history import TaskSearchHistory
 
 
 @dataclass
@@ -53,6 +54,7 @@ class TaskRuntimeContext:
     )
     active_occurrence_id: str = ""
     exploration_memory: ExplorationMemory = field(default_factory=ExplorationMemory)
+    search_history: TaskSearchHistory = field(default_factory=TaskSearchHistory)
     grounding_state_by_occurrence: dict[str, dict[str, Any]] = field(
         default_factory=dict,
     )
@@ -100,6 +102,7 @@ class TaskRuntimeContext:
             harness, task, budget, progress,
         )
         reset_snapshot = harness.validator_channel().snapshot()
+        context.search_history.sync(context)
         context._record_semantic_state_snapshot(
             reset_snapshot,
             origin="reset",
@@ -118,6 +121,11 @@ class TaskRuntimeContext:
         from ..traces.compiler_observer import initial_state
         initial_state(context, reset)
         return context
+
+    def exploration_policy_view(self):
+        view = copy.deepcopy(self.exploration_memory.policy_view())
+        view['search_history'] = self.search_history.policy_view()
+        return view
 
     def begin_occurrence(self, occurrence: Any) -> OccurrenceAtomicEvidenceState:
         """Start (or resume) one occurrence without resetting its evidence."""
