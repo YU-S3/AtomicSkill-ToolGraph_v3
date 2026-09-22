@@ -21,6 +21,12 @@ ONE_NATIVE_CALL_PREFIX = "Exactly ONE native ToolCall per turn. "
 class SchemaValidationError(ValueError):
     """Raised when a native tool argument or structured output is invalid."""
 
+    def __init__(self, message, *, path='', constraint=None, actual=None):
+        super().__init__(message)
+        self.path = path or str(message).split(':', 1)[0]
+        self.constraint = constraint
+        self.actual = actual
+
 
 def parse_json_strict(text: str) -> Any:
     """Parse exactly one RFC JSON value, rejecting NaN and duplicate keys."""
@@ -220,7 +226,8 @@ def validate_schema_instance(instance: Any, schema: dict[str, Any], *, path: str
         if not any(_matches_type(instance, item) for item in allowed_types):
             raise SchemaValidationError(
                 f"{path}: expected {' | '.join(str(item) for item in allowed_types)}, "
-                f"got {_json_type(instance)}"
+                f"got {_json_type(instance)}", path=path,
+                constraint={'type': declared_type}, actual={'type': _json_type(instance)}
             )
 
     if isinstance(instance, dict):
@@ -232,14 +239,16 @@ def validate_schema_instance(instance: Any, schema: dict[str, Any], *, path: str
             raise SchemaValidationError(f"{path}: schema required must be a string list")
         missing = [name for name in required if name not in instance]
         if missing:
-            raise SchemaValidationError(f"{path}: missing required properties {missing!r}")
+            raise SchemaValidationError(f"{path}: missing required properties {missing!r}",
+                path=path, constraint={'required': required}, actual={'missing': missing})
         additional = schema.get("additionalProperties", True)
         for name, value in instance.items():
             child_path = f"{path}.{name}"
             if name in properties:
                 validate_schema_instance(value, _schema(properties[name], path, name), path=child_path)
             elif additional is False:
-                raise SchemaValidationError(f"{child_path}: additional property is not allowed")
+                raise SchemaValidationError(f"{child_path}: additional property is not allowed",
+                    path=child_path, constraint={'additionalProperties': False}, actual={'property': name})
             elif isinstance(additional, dict):
                 validate_schema_instance(value, additional, path=child_path)
         _check_size(instance, schema, path, "Properties")
@@ -255,7 +264,8 @@ def validate_schema_instance(instance: Any, schema: dict[str, Any], *, path: str
         if schema.get("uniqueItems") is True:
             for index, value in enumerate(instance):
                 if value in instance[:index]:
-                    raise SchemaValidationError(f"{path}: array items must be unique")
+                    raise SchemaValidationError(f"{path}: array items must be unique", path=path,
+                        constraint={'uniqueItems': True}, actual={'duplicate_index': index})
 
     if isinstance(instance, str):
         _check_size(instance, schema, path, "Length")
@@ -334,9 +344,11 @@ def _check_size(value: Any, schema: dict[str, Any], path: str, suffix: str) -> N
     minimum = schema.get(f"min{suffix}")
     maximum = schema.get(f"max{suffix}")
     if minimum is not None and len(value) < int(minimum):
-        raise SchemaValidationError(f"{path}: size is below min{suffix}")
+        raise SchemaValidationError(f"{path}: size is below min{suffix}; expected >= {minimum}, actual {len(value)}",
+            path=path, constraint={f'min{suffix}': minimum}, actual={'length': len(value)})
     if maximum is not None and len(value) > int(maximum):
-        raise SchemaValidationError(f"{path}: size exceeds max{suffix}")
+        raise SchemaValidationError(f"{path}: size exceeds max{suffix}; expected <= {maximum}, actual {len(value)}",
+            path=path, constraint={f'max{suffix}': maximum}, actual={'length': len(value)})
 
 
 def _check_numeric(value: int | float, schema: dict[str, Any], path: str) -> None:

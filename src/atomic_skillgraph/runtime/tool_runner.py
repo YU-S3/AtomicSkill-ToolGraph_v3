@@ -323,6 +323,8 @@ class ToolRunner:
             "validated_paths": sorted(set(state.validated_paths)),
             "unvalidated_paths": sorted(set(state.unvalidated_paths)),
             "loop_iteration_counts": dict(state.loop_iteration_counts),
+            "collection_observations": list(state.collection_observations),
+            "condition_observations": list(state.condition_observations),
             "stop_condition_witnesses": list(
                 state.stop_condition_witnesses
             ),
@@ -774,6 +776,9 @@ class ToolRunner:
                     condition, state,
                     semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None),
                 )
+                state.condition_observations.append({"node_id": node_id,
+                    "condition": to_primitive(condition), "result": branch_taken,
+                    "locals": to_primitive(state.local), "revision": state.catalog_revision})
                 branch = node.get("then_branch") if branch_taken else node.get("else_branch")
                 state.path_tokens.append(
                     f"{node_id}:{'then' if branch_taken else 'else'}"
@@ -799,6 +804,10 @@ class ToolRunner:
                     collection_source, state,
                     semantic_compatible=getattr(ctx.harness, "semantic_value_compatible", None),
                 )
+                collection_observation = {"node_id": node_id, "source": to_primitive(collection_source),
+                    "values": to_primitive(values), "locals": to_primitive(state.local),
+                    "revision": state.catalog_revision, "completed": False}
+                state.collection_observations.append(collection_observation)
                 if (
                     not values
                     and self._selector_requires_match(collection_source)
@@ -863,6 +872,7 @@ class ToolRunner:
                     else:
                         state.local[variable] = previous
                 state.loop_iteration_counts[str(node.get("node_id", ""))] = count
+                collection_observation.update(completed=count == len(values), iterations=count)
                 if count > 1:
                     state.stop_condition_witnesses.append(
                         f"loop:{node.get('node_id')}:iterations:{count}"
@@ -1082,6 +1092,10 @@ class ToolRunner:
             "missing_effects": [dict(item) for item in missing_effects],
             "failure_code": "" if atomic_effect_passed else "tool_ir_final_effect_failed",
         }
+        from .scope_diagnostics import scope_exhaustion
+        diagnostic = scope_exhaustion(program, state, control_signal)
+        if diagnostic:
+            final_effect_result['scope_diagnostic'] = diagnostic
         if completed and not atomic_effect_passed:
             completed = False
             if not state.failure_code:

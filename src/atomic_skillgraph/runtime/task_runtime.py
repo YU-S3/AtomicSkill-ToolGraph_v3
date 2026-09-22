@@ -91,6 +91,11 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
             candidates = executor.support_retriever.retrieve_for_task(
                 query=ctx.task_goal, atomics=pool,
                 execution_availability=executor._support_execution_availability(pool, ctx))
+            if getattr(executor.invocation_compiler, 'r103', False):
+                from .support_interface import project_candidate
+                routes = getattr(executor, '_r103_support_display_routes', {})
+                candidates = [project_candidate(c, executor.invocation_compiler.skills.get_atomic(c.atomic_ref),
+                    None, consumer, ctx, executor.invocation_compiler, routes.get(c.atomic_ref, [])) for c in candidates]
             if not intervention.programs:
                 candidates = []
             tools = [executor._environment_tool(ctx, node_level=False), executor._status_tool()]

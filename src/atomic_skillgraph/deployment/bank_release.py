@@ -469,8 +469,13 @@ def freeze_release(prepared,checks):
     shutil.copy2(root/'release_checks.json',temporary/'release_checks.json')
     for name in ('source_inventory.json','asset_rewrite_manifest.jsonl','release_deployments.jsonl','identity_verification.json'):
         shutil.copy2(root/name,temporary/name)
-    manifest={'protocol_version':PROTOCOL_VERSION,'seed':prepared.seed,'source_zip_hash':source['source_zip_hash'],
-        'source_metadata':json.loads((root/'source/unpacked/provenance/original_freeze_manifest.json').read_text()),
+    if source['protocol_version'] == OLDFIRST_PROTOCOL_VERSION:
+        from .oldfirst_release import original_provenance
+        provenance = original_provenance(root)
+    else:
+        provenance = json.loads((root/'source/unpacked/provenance/original_freeze_manifest.json').read_text())
+    manifest={'protocol_version':source['protocol_version'],'seed':prepared.seed,'source_zip_hash':source['source_zip_hash'],
+        'source_metadata':provenance,
         'knowledge_digest':digest,'code_hash':hash_code(Path(__file__).resolve().parents[3]),
         'execution_files':code_file_manifest(Path(__file__).resolve().parents[3]),
         'resource_hash':hash_config({k:source['config'].get(k) for k in ('llm','runtime','cold_start','r103')}),
@@ -485,7 +490,11 @@ def load_release_source(path,config):
     from .release_protocol import _SOURCE_TOKEN
     path=Path(path).resolve();manifest=json.loads(path.read_text());bank=path.parent
     seed=config.get('bank_release',{}).get('source_seed')
-    if manifest.get('protocol_version')!=PROTOCOL_VERSION or manifest.get('seed')!=seed or manifest.get('source_zip_hash')!=INPUT_HASHES.get(seed):
+    protocol = manifest.get('protocol_version')
+    if config.get('bank_release', {}).get('protocol_version') != protocol:
+        raise ReleaseError('configured release protocol differs from manifest')
+    sources = OLDFIRST_SOURCE_ARCHIVES.get(seed, set()) if protocol == OLDFIRST_PROTOCOL_VERSION else {INPUT_HASHES.get(seed)}
+    if protocol not in {PROTOCOL_VERSION, OLDFIRST_PROTOCOL_VERSION} or manifest.get('seed')!=seed or manifest.get('source_zip_hash') not in sources:
         raise ReleaseError('release source identity mismatch')
     if manifest['files']!=_bank_files(bank):raise ReleaseError('release files missing, modified or unexpected')
     if manifest['code_hash']!=hash_code(Path(__file__).resolve().parents[3]):raise ReleaseError('release evaluator code mismatch')
@@ -493,6 +502,9 @@ def load_release_source(path,config):
     if manifest['resource_hash']!=hash_config(resources):raise ReleaseError('release model/resource mismatch')
     with StateDatabase(bank/'state.sqlite3',readonly=True,r103=True) as db:
         ArtifactStore(bank,db).verify_all();verify_deployments(db,bank)
+        if protocol == OLDFIRST_PROTOCOL_VERSION:
+            from .preferences import verify_preferences
+            verify_preferences(SkillRegistry(ArtifactStore(bank,db),db))
         actual=hash_knowledge(bank,database=db)
         if actual!=manifest['knowledge_digest'] or actual!=config['bank_release']['expected_bank_digest']:
             raise ReleaseError('release knowledge digest mismatch')
@@ -507,7 +519,9 @@ def make_configs(releases,profile,repeats=None):
     automatic=output_root/'dev/automation/acceptance.json'
     if not comparison.is_file() or not automatic.is_file():raise ReleaseError('paired dev and automatic acceptance must finish before formal configs')
     paired=json.loads(comparison.read_text())
-    if len(paired.get('pairs',[]))!=6 or json.loads(automatic.read_text()).get('passed') is not True:
+    oldfirst = all(json.loads((r.root/'release_manifest.json').read_text())['protocol_version'] == OLDFIRST_PROTOCOL_VERSION for r in releases)
+    expected_dev = 3 if oldfirst else 6
+    if len(paired.get('pairs',[]))!=expected_dev or json.loads(automatic.read_text()).get('passed') is not True:
         raise ReleaseError('incomplete paired dev or automatic acceptance')
     plan=[]
     for release in releases:
@@ -521,7 +535,8 @@ def make_configs(releases,profile,repeats=None):
                 runtime_mode='frozen',freeze_skills=True,allow_long_term_knowledge_writes=False,
                 output_dir=str(output),task_manifest_path=str(output/'task_manifest.json'))
             config['experiment'].pop('source_train_run_dir',None)
-            config['bank_release']={'protocol_version':PROTOCOL_VERSION,'source_seed':release.seed,
+            protocol = json.loads((release.root/'release_manifest.json').read_text())['protocol_version']
+            config['bank_release']={'protocol_version':protocol,'source_seed':release.seed,
                 'release_manifest':str(release.root/'release_manifest.json'),'expected_bank_digest':release.knowledge_digest}
             config['deployment']={'presentation_profile':profile,'presentation_version':'r103.frozen-expression.v2',
                 'input_authorization_version':'r103.caller-input.v1','programs':True,'automatic_entry':True,'capture_final_request':True,'repeat_index':rep}
@@ -530,6 +545,6 @@ def make_configs(releases,profile,repeats=None):
             # source guard is identical to the one used immediately before eval.
             load_release_source(release.root/'release_manifest.json',config)
             _json(path,config);plan.append({'seed':release.seed,'rep':rep,'config':str(path),'config_hash':hash_config(config),'output':str(output)})
-    _json(output_root/'evaluation_plan.json',{'protocol_version':PROTOCOL_VERSION,'profile':profile,'runs':plan,
+    _json(output_root/'evaluation_plan.json',{'protocol_version':OLDFIRST_PROTOCOL_VERSION if oldfirst else PROTOCOL_VERSION,'profile':profile,'runs':plan,
         'paired_dev_hash':sha(comparison),'automatic_acceptance_hash':sha(automatic)})
     return plan

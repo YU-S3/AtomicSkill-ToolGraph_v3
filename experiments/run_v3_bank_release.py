@@ -9,6 +9,15 @@ from atomic_skillgraph.deployment.bank_release import prepare_release,verify_rel
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     sub=parser.add_subparsers(dest='command',required=True)
+    old = sub.add_parser('oldfirst-prepare')
+    old.add_argument('--seed', type=int, choices=(42,43,44), required=True)
+    old.add_argument('--input', type=Path, required=True)
+    old.add_argument('--edit-plan', type=Path, required=True)
+    old.add_argument('--base-config', type=Path, required=True)
+    old.add_argument('--output', type=Path, required=True)
+    for name in ('oldfirst-verify', 'oldfirst-freeze'):
+        old = sub.add_parser(name)
+        old.add_argument('--prepared-root', type=Path, required=True)
     prepare=sub.add_parser('prepare')
     prepare.add_argument('--input-root',type=Path,required=True)
     prepare.add_argument('--output-root',type=Path,required=True)
@@ -23,6 +32,19 @@ def main(argv=None):
             command.add_argument('--profile',choices=('current','lean'),required=True)
             command.add_argument('--repeats',nargs='+',required=True)
     args=parser.parse_args(argv)
+    if args.command.startswith('oldfirst-'):
+        from atomic_skillgraph.deployment.oldfirst_release import prepare_oldfirst, verify_oldfirst
+        if args.command == 'oldfirst-prepare':
+            prepared = prepare_oldfirst(ReleaseSpec(args.seed, args.input.expanduser().resolve(),
+                args.output.expanduser().resolve(), load_config(args.base_config)), args.edit_plan)
+        else:
+            root = args.prepared_root.expanduser().resolve()
+            prepared = PreparedRelease(root, json.loads((root/'prepare_manifest.json').read_text())['seed'])
+            checked = verify_oldfirst(prepared)
+            if args.command == 'oldfirst-freeze':
+                freeze_release(prepared, checked)
+        print(json.dumps({'command': args.command, 'root': str(prepared.root)}), flush=True)
+        return 0
     args.output_root=args.output_root.expanduser().resolve()
     if args.command=='make-configs':
         repeats={int(k):int(v) for k,v in (r.split(':') for r in args.repeats)}

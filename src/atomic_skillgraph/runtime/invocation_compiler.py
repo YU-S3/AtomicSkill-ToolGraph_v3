@@ -377,8 +377,10 @@ class InvocationCompiler:
                 continue
             allowed.append(route)
         def rank(route):
+            from ..deployment.preferences import implementation_priority
             stats = route["stats"]
             return (route["availability"]["state"] != "ready",
+                -implementation_priority(self.skills, route['compiled'].implementation.ref, route['availability']['state'] == 'ready'),
                 stats.execution_support.get("intrinsic_failure_count", stats.intrinsic_failure_count),
                 max(0, 2-stats.independent_execution_support_count), route["displays"],
                 raw_hash([task_key, route["route_key"]]))
@@ -389,6 +391,18 @@ class InvocationCompiler:
         if candidates and limit > 0:
             selected = reliable[:limit-1] + candidates[:1]
         selected.sort(key=rank)
+        from ..deployment.preferences import implementation_priority
+        best_ready = any(r['availability']['state'] == 'ready' for r in selected)
+        priorities = [implementation_priority(self.skills, r['compiled'].implementation.ref,
+            r['availability']['state'] == 'ready') if (r['availability']['state'] == 'ready') == best_ready
+            else 0 for r in selected]
+        if priorities and max(priorities) > 0 and priorities.count(max(priorities)) == 1:
+            # Detached read-only projection consumed by existing unique-route
+            # selection. No historical quality/success statistic is persisted.
+            import copy
+            chosen = selected[priorities.index(max(priorities))]['compiled']
+            chosen.implementation = copy.deepcopy(chosen.implementation)
+            chosen.implementation.quality['preferred'] = True
         self.route_diagnostics = [{"implementation_ref": str(r["compiled"].implementation.ref),
             "route_equivalence_key": r["route_key"], "candidate": r["candidate"], **r["availability"]} for r in selected]
         return [r["compiled"] for r in selected]

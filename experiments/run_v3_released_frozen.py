@@ -83,13 +83,15 @@ def dev(release_root,seed,suite,profiles):
     from atomic_skillgraph.core.serialization import atomic_write_json
     from .run_v3_r103_validation import declared_entries,resolve_tasks
     from .release_report import compare_dev
-    if seed!=42 or suite!='frozen-dev6' or profiles!=['current','lean']:
-        raise ReleaseError('paired dev is seed42 frozen-dev6 with current and lean')
+    if seed!=42 or suite not in {'frozen-dev6', 'oldfirst-dev3'} or profiles!=['current','lean']:
+        raise ReleaseError('paired dev requires a declared seed42 suite with current and lean')
     root=Path(release_root).resolve();prepared=root/'seed42'
     base=json.loads((prepared/'prepare_manifest.json').read_text())['config']
     frozen=prepared/'frozen';manifest=json.loads((frozen/'release_manifest.json').read_text())
     selected={int(e['task_id'].split('_')[2]):e for e in declared_entries()}
-    entries=[selected[n] for n in (2,34,36,40,1,7)]
+    entries=[selected[n] for n in ((36,2,34) if suite == 'oldfirst-dev3' else (2,34,36,40,1,7))]
+    if suite == 'oldfirst-dev3' and manifest['protocol_version'] != 'r103.oldfirst-release.v1':
+        raise ReleaseError('oldfirst dev requires its own published source')
     atomic_write_json(root/'dev/declared_tasks.json',entries)
     for i,entry in enumerate(entries):
         for profile in (profiles if i%2==0 else list(reversed(profiles))):
@@ -107,9 +109,12 @@ def dev(release_root,seed,suite,profiles):
             path=root/'dev/configs'/f'{profile}_{entry["task_id"]}.json'
             atomic_write_json(path,config)
             if i==0 and profile==profiles[0]:
-                from .released_bank_checks import run as check_automation
+                if suite == 'oldfirst-dev3':
+                    from .oldfirst_bank_checks import run as check_automation
+                else:
+                    from .released_bank_checks import run as check_automation
                 load_release_source(frozen/'release_manifest.json',config)
-                check_automation(config,entry,root/'dev/automation')
+                check_automation(config,selected[2],root/'dev/automation')
             run(path,task_entries=lambda h,e=entry:resolve_tasks(SimpleNamespace(harness=h),[e]))
     compare_dev(root/'dev')
     return 0
@@ -119,7 +124,7 @@ def main(argv=None):
     p=sub.add_parser('run');p.add_argument('--config',required=True,type=Path);p.add_argument('--resume',action='store_true')
     p=sub.add_parser('aggregate');p.add_argument('--plan',required=True,type=Path);p.add_argument('--output',required=True,type=Path)
     p=sub.add_parser('dev');p.add_argument('--release-root',required=True,type=Path);p.add_argument('--seed',required=True,type=int,choices=(42,))
-    p.add_argument('--suite',required=True,choices=('frozen-dev6',));p.add_argument('--profiles',nargs='+',required=True,choices=('current','lean'))
+    p.add_argument('--suite',required=True,choices=('frozen-dev6','oldfirst-dev3'));p.add_argument('--profiles',nargs='+',required=True,choices=('current','lean'))
     args=parser.parse_args(argv)
     if args.command=='run':return run(args.config,resume=args.resume)
     if args.command=='dev':return dev(args.release_root,args.seed,args.suite,args.profiles)

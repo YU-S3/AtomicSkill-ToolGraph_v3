@@ -203,7 +203,21 @@ class SkillRegistry:
         return [self.get_composite(ref) for ref in self.list_refs("composite", mode=mode)]
 
     def implementations_for(self, abstract_ref: SkillRef, *, mode: RuntimeMode | str) -> list[ImplementationAtom]:
-        return [item for item in self.implementations(mode=mode) if item.abstract_ref == abstract_ref]
+        items = [item for item in self.implementations(mode=mode) if item.abstract_ref == abstract_ref]
+        from ..deployment.preferences import load_preferences, resolve_implementation
+        prefs = load_preferences(self.store)
+        if not prefs:
+            return items
+        blocked = {ref for group in prefs.get('blocked_equivalent_groups', []) for ref in group}
+        result = {}
+        for item in items:
+            item = resolve_implementation(self, item.ref, abstract_ref)
+            if not skill_status_usable(item.status, mode):
+                continue
+            if str(item.ref) in blocked or any(str(b.tool_ref) in blocked for b in item.tool_bindings):
+                continue
+            result[str(item.ref)] = item
+        return list(result.values())
 
     def update_status(self, ref: SkillRef | str, status: SkillStatus | str) -> None:
         if self.database.readonly:

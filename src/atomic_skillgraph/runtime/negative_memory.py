@@ -117,8 +117,22 @@ def remember_rejection(ctx, occurrence, call, payload):
 
 def current_rejections(ctx, occurrence):
     signature = state_signature(ctx, occurrence)
-    return [{"tool": value["tool"], "scope": "exact_call_and_authoritative_state",
-             "candidate_group": copy.deepcopy(value["candidate_group"])}
-            for value in ctx.rejected_runtime_candidates.values()
-            if value.get("state_signature") == signature
-            and any(item["occurrence_id"] == occurrence.occurrence_id for item in value["candidate_group"])]
+    selected = {}
+    for value in ctx.rejected_runtime_candidates.values():
+        payload = value.get('payload', {})
+        stable = payload.get('constraint_scope') == 'stable_schema'
+        if not stable and not (value.get('state_signature') == signature and any(
+                item['occurrence_id'] == occurrence.occurrence_id for item in value['candidate_group'])):
+            continue
+        # Stable constraints survive sessions/world revisions, but repeated
+        # malformed values do not replicate their large original argument lists.
+        key = content_hash({k: payload.get(k) for k in ('support_atomic_ref',
+            'error_code', 'argument_path', 'expected_constraint', 'actual_summary')}) if stable else value['query_key']
+        selected[key] = value
+    return [{"tool": value["tool"], "scope": value.get('payload', {}).get('constraint_scope', 'exact_call_and_authoritative_state'),
+             "constraint_feedback": {k: copy.deepcopy(value['payload'][k]) for k in
+                 ('error_code', 'argument_path', 'expected_constraint', 'actual_summary', 'support_atomic_ref')
+                 if k in value.get('payload', {})},
+             "candidate_group": [] if value.get('payload', {}).get('constraint_scope') == 'stable_schema'
+                 else copy.deepcopy(value["candidate_group"])}
+            for value in selected.values()]

@@ -53,6 +53,8 @@ class ToolExecutionState:
     attempted_action: dict[str, Any] = field(default_factory=dict)
     program_node_id: str = ""
     catalog_revision: int | None = None
+    collection_observations: list[dict[str, Any]] = field(default_factory=list)
+    condition_observations: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:

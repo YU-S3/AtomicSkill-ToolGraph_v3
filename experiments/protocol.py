@@ -720,6 +720,10 @@ def hash_knowledge(
                 }
             )
 
+    for name in ('deployment_preferences.json', 'edit_plan.lock.json'):
+        path = data_dir / name
+        if path.is_file():
+            file_records.append({'path': name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
     table_records: dict[str, list[list[Any]]] = {}
     close_connection = False
     connection = None

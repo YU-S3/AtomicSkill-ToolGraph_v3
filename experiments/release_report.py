@@ -5,6 +5,27 @@ from pathlib import Path
 from statistics import mean,median
 from atomic_skillgraph.core.serialization import atomic_write_json
 
+
+def execution_boundary_metrics(trace, compiler):
+    from collections import Counter
+    plan = trace.get('runtime_plan') or {}
+    audit = plan.get('planner_audit') or trace.get('planner_audit') or {}
+    selected = next((r for r in audit.get('composite_candidates', [])
+                     if r.get('composite_ref') == plan.get('source_composite_ref')), {})
+    rejected = Counter()
+    for call in trace.get('native_tool_calls', []):
+        result = call.get('preflight_result') or {}
+        if call.get('call_kind') == 'support_atomic_invocation' and result.get('accepted') is False:
+            rejected[result.get('error_code') or result.get('error') or result.get('failure_code') or 'unknown'] += 1
+    steps = trace.get('metadata', {}).get('runtime_steps', [])
+    return {'graph_started': plan.get('source') == 'stored_composite',
+        'program_static_closure': selected.get('program_static_closure'),
+        'prepared_runtime_calls': sum(s.get('mode') == 'preparation' for s in steps),
+        'support_rejections_by_code': dict(rejected),
+        'program_actions': compiler.get('program_policy_actions'),
+        'automatic_successors': compiler.get('llm_free_complete_successors'),
+        'normal_runtime_decisions': compiler.get('residual_runtime_decisions')}
+
 def _percentile(values,q):
     if not values:return None
     values=sorted(values);index=(len(values)-1)*q;lo=math.floor(index);hi=math.ceil(index)
@@ -48,7 +69,9 @@ def write_release_report(output,config,*,resource_traces,digest_after):
             'infrastructure_failure':trace.get('infrastructure_failure'),'recorded_tokens':sum(e['prompt_tokens']+e['completion_tokens'] for e in events),
             'prompt_tokens':sum(e['prompt_tokens'] for e in events),'completion_tokens':sum(e['completion_tokens'] for e in events),
             'reasoning_tokens':sum(e['reasoning_tokens'] for e in events) if all(e.get('reasoning_tokens') is not None for e in events) else None})
-        compiler.append({'task_id':task,'trace_id':trace['trace_id'],**(trace_metrics(trace) or {'capture_status':'missing'})})
+        metrics = trace_metrics(trace) or {'capture_status':'missing'}
+        compiler.append({'task_id':task,'trace_id':trace['trace_id'],**metrics,
+            **execution_boundary_metrics(trace, metrics)})
     manifest=json.loads((output/'run_manifest.json').read_text())
     # Terminal manifest identities determine scored tasks; failed prefixes stay
     # in the cost ledger but never count as extra evaluation episodes.
@@ -56,6 +79,7 @@ def write_release_report(output,config,*,resource_traces,digest_after):
     with sqlite3.connect(output/'run_state.sqlite3') as db:
         selected={r[0]:r[1] for r in db.execute("SELECT task_id,trace_id FROM run_tasks WHERE state='completed'")}
     scored=[r for r in rows if selected.get(r['task_id'])==r['trace_id']]
+    scored_compiler=[r for r in compiler if selected.get(r['task_id'])==r['trace_id']]
     if len(scored)!=len(selected):raise ValueError('completed task missing its scored Trace')
     costs=[sum(usage[key]['prompt_tokens']+usage[key]['completion_tokens'] for key in task_usage[task]) for task in selected]
     summary={'tasks':len(selected),'successes':sum(r['official_success'] is True for r in scored),
@@ -77,13 +101,14 @@ def write_release_report(output,config,*,resource_traces,digest_after):
         summary['actual_'+field+'_bytes']=sum(values) if all(v is not None for v in values) else None
     atomic_write_json(output/'summary.json',summary)
     json_lines(output/'runtime_expression_requests.jsonl',expressions)
-    json_lines(output/'compiler_task_metrics.jsonl',compiler)
+    json_lines(output/'compiler_task_metrics.jsonl',scored_compiler)
+    json_lines(output/'compiler_attempt_metrics.jsonl',compiler)
     atomic_write_json(output/'runtime_expression_coverage.json',{'physical_requests':len(requests),
         'captured':sum(bool(r.get('final_payload_audit')) for r in requests.values()),
         'matched_lean_requests':sum(r['final_lean_payload_matched'] for r in expressions)})
     from .compiler_metrics import aggregate as compiler_aggregate
     atomic_write_json(output/'compiler_summary.json',compiler_aggregate(
-        [{'task_id':r['task_id'],'compiler_diagnostics':r if r.get('version') else None} for r in compiler],
+        [{'task_id':r['task_id'],'compiler_diagnostics':r if r.get('version') else None} for r in scored_compiler],
         resource_summary={k:summary[k] for k in ('total_recorded_tokens','total_tokens','unknown_usage_requests','programmer_tokens')}))
     for request in expressions:
         atomic_write_json(output/'provider_payload_audit'/f"{request['request_id']}.json",request.get('final_payload_audit'))
@@ -127,9 +152,15 @@ def aggregate(plan_path,output):
             'pass1':None if missing else count/3,'pass2':None if missing else math.comb(count,2)/3,
             'pass3':None if missing else int(count==3)})
     complete=not any(r['missing'] for r in per_task)
+    def finished(run):
+        result=run.get('result') or {}
+        return result.get('tasks') == len(reference['tasks']) and {
+            row['task_id'] for row in result.get('rows',[])} == {t['task_id'] for t in reference['tasks']}
     payload={'runs':results,'main_three_seed':[r for r in results if r['rep']==1],
         'fixed_bank_seed42':{k:mean(r[k] for r in per_task) if complete else None for k in ('pass1','pass2','pass3')},
-        'paired_tasks':per_task,'complete':complete}
+        'paired_tasks':per_task,'complete':all(finished(r) for r in results),
+        'main_three_seed_complete':all(finished(r) for r in results if r['rep']==1),
+        'seed42_repeats_complete':complete}
     output=Path(output);output.mkdir(parents=True,exist_ok=True);atomic_write_json(output/'summary.json',payload)
     return payload
 

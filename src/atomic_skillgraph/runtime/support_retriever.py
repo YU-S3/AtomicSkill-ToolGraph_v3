@@ -7,7 +7,7 @@ benchmark workflow may enter this module.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
 from ..core.contracts import AbstractAtomicSkill
@@ -94,6 +94,11 @@ class SupportCandidate:
     execution_available: bool = False
     missing_required_inputs: tuple[str, ...] = ()
     predicate_obligations: tuple[dict[str, Any], ...] = ()
+    input_schema: dict[str, Any] = field(default_factory=dict)
+    allowed_output_mappings: tuple[dict[str, str], ...] = ()
+    mapping_previews: tuple[dict[str, Any], ...] = ()
+    mapping_proven: bool = False
+    input_ready: bool = False
 
 
 def _predicate_name(value: Any) -> str:

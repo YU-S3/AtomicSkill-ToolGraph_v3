@@ -39,6 +39,7 @@ class CompositeRetriever:
     ) -> CompositeRetrieval:
         result = CompositeRetrieval()
         ranked: list[tuple[float, str, CompositeSkill]] = []
+        deployment_rank = {}
         composites = self.skills.composites(mode=mode)
 
         def structural_reasons(composite: CompositeSkill) -> list[str]:
@@ -189,8 +190,17 @@ class CompositeRetriever:
                     )
                 result.rejections.append(rejection)
             elif complete_p0_eligible(composite):
+                closure_check = getattr(self.skills, 'deployment_closure', None)
+                if callable(closure_check):
+                    from ..deployment.preferences import load_preferences
+                    closure = closure_check(composite, mode)
+                    priority = next((p['priority'] for p in load_preferences(self.skills.store).get(
+                        'preferred_composites', []) if p['composite_ref'] == str(composite.ref)), 0)
+                    item.update(closure, deployment_priority=priority,
+                        ranking_basis='legal_contract_then_static_program_closure_then_publication_preference_then_lexical')
+                    deployment_rank[str(composite.ref)] = (-int(closure['program_static_closure']), -priority)
                 ranked.append((score, str(composite.ref), composite))
-        ranked.sort(key=lambda item: (-item[0], item[1]))
+        ranked.sort(key=lambda item: (*deployment_rank.get(item[1], (0, 0)), -item[0], item[1]))
         result.candidates = [item[2] for item in ranked[: self.top_k]]
         return result
 

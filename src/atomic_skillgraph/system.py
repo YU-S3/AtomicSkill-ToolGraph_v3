@@ -657,6 +657,10 @@ class AtomicSkillGraphSystem:
         if self.config.get('bank_release'):
             from .deployment.release_protocol import verify_deployments
             verify_deployments(self.database, self.data_dir)
+            from .deployment.preferences import load_preferences, static_closure
+            if load_preferences(self.artifacts):
+                self.skills.deployment_closure = lambda graph, mode: static_closure(
+                    self.skills, graph, self.harness, mode)
             profile = self.config.get('deployment', {}).get('presentation_profile', 'current')
             if profile not in {'current', 'lean'}:
                 raise ValueError('unsupported release presentation profile')
@@ -6158,6 +6162,10 @@ class AtomicSkillGraphSystem:
                     "path": path.relative_to(data_dir).as_posix(),
                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                 })
+        for name in ('deployment_preferences.json', 'edit_plan.lock.json'):
+            path = data_dir / name
+            if path.is_file():
+                files.append({'path': name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
         return content_hash({"files": files, "tables": table_records})
 
     @learning_scope

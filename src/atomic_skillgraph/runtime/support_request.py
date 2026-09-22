@@ -103,7 +103,7 @@ def _fail(ctx, metric, code, message):
     return ValidationResult.fail('support', code, message)
 
 
-def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
+def _prove_request_core(request, consumer_atomic, ctx, *, agent_selected=False):
     """Aliases recall candidates; anchors or a complete relation authorize them."""
     producer = request.producer
     parent = ctx.binding_store.snapshot_for_node(request.consumer)
@@ -114,7 +114,7 @@ def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
     for out, dest in request.output_mapping.items():
         if out not in outputs or dest not in inputs or not semantic_types_compatible(
                 outputs[out].semantic_type, inputs[dest].semantic_type):
-            return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_boundary_invalid', 'Unknown or incompatible boundary role')
+            return ValidationResult.fail('support', 'support_mapping_boundary_invalid', 'Unknown or incompatible boundary role')
         anchor = ctx.binding_store.semantic_anchor_for(request.consumer, dest) or parent.get(dest)
         identity = input_identity_source_role(producer, out)
         semantic_input = constraints.get(out, {}).get('compatible_with_input')
@@ -170,7 +170,7 @@ def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
                 relation_options.setdefault(identity, (proposed_inputs, combined, proposed_anchors,
                     {'kind': 'joint_relation', 'predicate': predicate.predicate, 'mapping': mapping}, grounding_proof))
     if len(relation_options) > 1:
-        return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_ambiguous', 'Multiple complete relation mappings')
+        return ValidationResult.fail('support', 'support_mapping_ambiguous', 'Multiple complete relation mappings')
     if relation_options:
         new_inputs, new_outputs, new_anchors, proof, grounding_proof = next(iter(relation_options.values()))
         request.input_mapping, request.output_mapping, request.anchor_inputs = new_inputs, new_outputs, new_anchors
@@ -180,12 +180,12 @@ def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
             request.grounding_proofs.append(grounding_proof)
             proof['public_relation_constraint'] = to_primitive(grounding_proof)
     if set(request.output_mapping) - authorized:
-        return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_authority_missing',
+        return ValidationResult.fail('support', 'support_mapping_authority_missing',
                      'Role aliases do not prove this consumer input; supply an anchored identity or full relation')
     # Predicate-only helpers must operate on their consumer's values, not pick
     # an arbitrary entity through their own action affordances.
     if not request.output_mapping and not request.input_mapping:
-        return _fail(ctx, 'support_mapping_authority_rejects', 'support_mapping_authority_missing', 'Missing formal input mapping')
+        return ValidationResult.fail('support', 'support_mapping_authority_missing', 'Missing formal input mapping')
     owner = ctx.binding_store._repeat_step_owner.get(request.consumer.step_id)
     if owner is not None and not agent_selected:
         constraint, _ = owner
@@ -193,9 +193,33 @@ def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
                       for r in constraint.distinct_roles if r in constraint.step_role_bindings[request.consumer.step_id]}
         if any(dest in restricted and not input_identity_source_role(producer, out)
                for out, dest in request.output_mapping.items()):
-            return _fail(ctx, 'support_mapping_authority_rejects', 'support_fresh_repeat_requires_agent',
+            return ValidationResult.fail('support', 'support_fresh_repeat_requires_agent',
                          'Fresh output is unknown; no implicit exclusion input may be invented')
     return ValidationResult.ok('support', mapping_proved=True)
+
+
+def prove_request(request, consumer_atomic, ctx, *, agent_selected=False):
+    """Execution boundary: recheck current evidence and count a rejection once."""
+    result = _prove_request_core(request, consumer_atomic, ctx, agent_selected=agent_selected)
+    if not result.passed:
+        return _fail(ctx, 'support_mapping_authority_rejects', result.failure_codes[0], result.messages[0])
+    return result
+
+
+def preview_support_mapping_authority(request, consumer_atomic, ctx, *, agent_selected=True):
+    """Pure preview; no binding, metric or caller-request mutation, no authority token."""
+    proposed = copy.copy(request)
+    for name in ('input_mapping', 'output_mapping', 'anchor_inputs', 'mapping_evidence', 'grounding_proofs'):
+        setattr(proposed, name, copy.deepcopy(getattr(request, name)))
+    result = _prove_request_core(proposed, consumer_atomic, ctx, agent_selected=agent_selected)
+    code = result.failure_codes[0] if not result.passed else ''
+    return {
+        'status': 'proven' if result.passed else 'needs_anchor' if code == 'support_mapping_authority_missing' else 'incompatible',
+        'input_mapping': proposed.input_mapping, 'output_mapping': proposed.output_mapping,
+        'anchor_inputs': sorted(proposed.anchor_inputs), 'mapping_evidence': proposed.mapping_evidence,
+        'error_code': code, 'required_anchor_or_relation': list(result.messages),
+        'relevant_revision': ctx.world_revision,
+    }
 
 
 def binding_accepts_proposal(binding, role, value, ctx, *, semantic_type=None):

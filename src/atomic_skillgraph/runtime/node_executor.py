@@ -1150,6 +1150,7 @@ class NodeExecutor:
         missing_roles: list[str],
         ctx: Any,
         obligations: tuple[Any, ...] = (),
+        occurrence: Any = None,
     ) -> list[Any]:
         atomics_method = getattr(self.invocation_compiler.skills, "atomics", None)
         if not callable(atomics_method):
@@ -1203,6 +1204,13 @@ class NodeExecutor:
             "filtered_no_executable_count",
             len(mode_refs - executable_refs),
         )
+        if occurrence is not None and getattr(self.invocation_compiler, "r103", False):
+            from .support_interface import project_candidate
+            routes = getattr(self, "_r103_support_display_routes", {})
+            executable = [project_candidate(c, self.invocation_compiler.skills.get_atomic(c.atomic_ref),
+                blocked_atomic, occurrence, ctx, self.invocation_compiler, routes.get(c.atomic_ref, []))
+                for c in executable]
+            executable.sort(key=lambda c: (-c.score, c.atomic_ref))
         displayed = executable[:3]
         if displayed:
             metrics = ctx.trace_builder.trace.metadata.setdefault(
@@ -1218,6 +1226,7 @@ class NodeExecutor:
 
     @staticmethod
     def _support_tool(candidates: list[Any]) -> NativeToolSpec:
+        from .support_interface import public_arguments_schema
         argument_properties: dict[str, dict[str, Any]] = {}
         for candidate in candidates:
             for parameter in getattr(candidate, "inputs", ()):
@@ -1255,6 +1264,9 @@ class NodeExecutor:
                     argument_properties[name] = {
                         "description": proposed["description"],
                     }
+        arguments_schema = public_arguments_schema(candidates) if all(
+            getattr(c, "input_schema", {}) for c in candidates) else {
+                "type": "object", "properties": argument_properties, "additionalProperties": False}
         return NativeToolSpec(
             "invoke_support_atomic",
             "Ask Runtime to execute a contract-compatible support Atomic whose "
@@ -1271,11 +1283,7 @@ class NodeExecutor:
                         "type": "string",
                         "enum": [str(item.atomic_ref) for item in candidates],
                     },
-                    "arguments": {
-                        "type": "object",
-                        "properties": argument_properties,
-                        "additionalProperties": False,
-                    },
+                    "arguments": arguments_schema,
                     "output_mapping": {
                         "type": "object",
                         "additionalProperties": {"type": "string"},
@@ -1684,6 +1692,12 @@ class NodeExecutor:
     def _resolve_support_output_mapping(
         call: Any, candidate: Any,
     ) -> dict[str, str] | None:
+        if getattr(candidate, "mapping_previews", ()):
+            options = candidate.allowed_output_mappings
+            requested = call.arguments.get("output_mapping")
+            if requested is None:
+                return dict(options[0]) if len(options) == 1 else None
+            return dict(requested) if requested in options else None
         role_mappings = tuple(
             getattr(candidate, "role_mappings", ())
         )
@@ -1725,6 +1739,18 @@ class NodeExecutor:
         plan_context_plan: Any | None = None,
     ) -> dict[str, Any]:
         def finalize(payload: dict[str, Any]) -> dict[str, Any]:
+            if payload.get("accepted") is False:
+                candidate = next((c for c in candidates if str(c.atomic_ref) ==
+                    str(call.arguments.get("support_atomic_ref", ""))), None)
+                payload.setdefault("error_code", payload.get("error", payload.get("failure_code", "support_rejected")))
+                payload.setdefault("argument_path", "$.output_mapping" if "mapping" in payload["error_code"] else "$.arguments")
+                payload.setdefault("expected_constraint", getattr(candidate, "input_schema", {}))
+                raw_arguments = call.arguments.get("arguments")
+                payload.setdefault("actual_summary", {"argument_roles": sorted(raw_arguments)}
+                    if isinstance(raw_arguments, dict) else {"type": type(raw_arguments).__name__})
+                payload.setdefault("allowed_output_mappings", list(getattr(candidate, "allowed_output_mappings", ())))
+                payload.setdefault("required_anchor_or_relation", [p for p in getattr(candidate, "mapping_previews", ()) if p["status"] != "proven"])
+                payload.setdefault("relevant_revision", ctx.world_revision)
             self._augment_runtime_payload(
                 payload,
                 ctx,
@@ -1780,7 +1806,22 @@ class NodeExecutor:
                 "error": "runtime_support_atomic_unavailable",
             }
             return finalize(payload)
-        arguments = dict(call.arguments.get("arguments") or {})
+        arguments = call.arguments.get("arguments", {})
+        if not isinstance(arguments, dict):
+            return finalize({"accepted": False, "error": "support_atomic_input_schema_invalid",
+                "argument_path": "$.arguments", "expected_constraint": {"type": "object"},
+                "constraint_scope": "stable_schema", "support_atomic_ref": str(support_ref)})
+        if getattr(candidate, "input_schema", {}):
+            from ..agents.protocol import SchemaValidationError, validate_schema_instance
+            try:
+                validate_schema_instance(arguments, candidate.input_schema, path="$.arguments")
+            except SchemaValidationError as exc:
+                self._increment_funnel(ctx, "runtime_support_funnel", "input_schema_rejection_count")
+                return finalize({"accepted": False, "error": "support_atomic_input_schema_invalid",
+                    "message": str(exc), "argument_path": exc.path,
+                    "expected_constraint": exc.constraint or candidate.input_schema,
+                    "actual_summary": exc.actual or {"argument_roles": sorted(arguments)},
+                    "constraint_scope": "stable_schema", "support_atomic_ref": str(support_ref)})
         if getattr(occurrence, "consumer_scope", "node") == "task":
             from .task_runtime import invoke_task_capability
             return finalize(invoke_task_capability(self, call, occurrence, ctx, candidate))
@@ -2109,7 +2150,7 @@ class NodeExecutor:
                 mode = "seeded"
             missing = ctx.binding_store.runtime_prompt_projection(occurrence, atomic.inputs)["missing_or_insufficient_bindings"]
             candidates = self._retrieve_runtime_support_candidates(
-                blocked_atomic=atomic, missing_roles=missing, ctx=ctx)
+                blocked_atomic=atomic, missing_roles=missing, ctx=ctx, occurrence=occurrence)
             step = run_runtime_step(self, mode, occurrence, ctx, invocations, candidates,
                                     bootstrap=bootstrap, atomic_override=atomic_override,
                                     plan_context_plan=plan_context_plan)
