@@ -633,16 +633,18 @@ def code_file_manifest(root: str | Path) -> list[dict[str, str]]:
     root = Path(root).resolve()
     if not root.exists():
         raise FileNotFoundError(root)
-    files = [root] if root.is_file() else [
-        path
-        for path in root.rglob("*")
-        if path.is_file()
-        and path.suffix.casefold() in _CODE_SUFFIXES
-        and not any(
-            part in _CODE_EXCLUDED_DIRS or part.endswith(".egg-info")
-            for part in path.relative_to(root).parts
-        )
-    ]
+    files = [root] if root.is_file() else []
+    if root.is_dir():
+        # Same file set as rglob + post-filter, without traversing millions of
+        # excluded experiment artifacts on a mounted Windows filesystem.
+        for directory, dirs, names in os.walk(root, followlinks=False):
+            dirs[:] = [name for name in dirs if name not in _CODE_EXCLUDED_DIRS
+                       and not name.endswith('.egg-info')]
+            for name in names:
+                path = Path(directory) / name
+                if (path.suffix.casefold() in _CODE_SUFFIXES and path.is_file()
+                        and name not in _CODE_EXCLUDED_DIRS and not name.endswith('.egg-info')):
+                    files.append(path)
     records = []
     for path in sorted(files, key=lambda item: item.as_posix()):
         relative = path.name if root.is_file() else path.relative_to(root).as_posix()
@@ -655,7 +657,7 @@ def code_file_manifest(root: str | Path) -> list[dict[str, str]]:
     return records
 
 
-def capture_execution_manifest(root, output_dir, config_hash, capability):
+def capture_execution_manifest(root, output_dir, config_hash, capability, *, capability_config_hash=None):
     """Immutable checkout/probe evidence alongside (not inside) code identity."""
     import importlib.metadata
     import platform
@@ -663,7 +665,7 @@ def capture_execution_manifest(root, output_dir, config_hash, capability):
     root, output_dir = Path(root), Path(output_dir)
     records = code_file_manifest(root)
     digest = sha256_json(records)
-    if capability.get('code_hash') != digest or capability.get('config_hash') != config_hash:
+    if capability.get('code_hash') != digest or capability.get('config_hash') != (capability_config_hash or config_hash):
         raise ProtocolError('execution checkout differs from provider capability probe')
     target = output_dir / 'execution_code_manifest.json'
     if target.exists():

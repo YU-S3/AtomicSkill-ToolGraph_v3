@@ -68,6 +68,9 @@ class ProviderRequestRecord:
     payload_fingerprint: str
     response_diagnostic: dict[str, Any] = field(default_factory=dict)
     provider_request_id: str = ""
+    request_sequence: int | None = None
+    repair_in_progress: bool | None = None
+    final_payload_audit: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

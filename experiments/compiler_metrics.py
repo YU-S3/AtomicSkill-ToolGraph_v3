@@ -82,6 +82,7 @@ def trace_metrics(trace):
     rollback = t.get('metadata', {}).get('runtime_rollbacks', [])
     return dict(version=VERSION, capture_status=obs['capture_status'], missing_reasons=obs['missing_reasons'],
         selected_route=compilation.get('selected_route', 'unknown'), accepted_graph=compilation.get('accepted_graph'),
+        graph_coverage=compilation.get('graph_coverage','unknown'),
         structural_reuse_kind=compilation.get('structural_reuse_kind', 'unknown'),
         canonical_policy_actions=len(canonical), all_policy_actions=len(t.get('environment_actions', [])),
         program_canonical_actions=len(program), program_policy_actions=len(union(links, 'policy_action_indices')),

@@ -78,7 +78,12 @@ def initial_state(ctx, reset):
     plan = to_primitive(ctx.plan)
     raw = plan.get('source')
     audit = ctx.trace_builder.trace.planner_audit
+    authority = plan.get('planner_audit',{}).get('selected_composite_authority',{}).get('kind')
+    coverage = ('no_graph' if raw in {'full_dynamic','cold_start'} else
+                'terminal_empirical' if authority == 'terminal_empirical' else
+                'complete_contract' if raw == 'stored_composite' else 'unknown')
     obs['compilation'] = dict(selected_route=ROUTES.get(raw, 'unknown'), source_route_raw=raw,
+        graph_coverage=coverage,
         accepted_graph=raw in {'stored_composite', 'atomic_composition'}, graph_payload_hash=content_hash(plan),
         source_composite_ref=plan.get('source_composite_ref'), planner_request_refs=[],
         validation_refs=['planner_audit.' + k for k in audit if 'validation' in k] or None,
@@ -141,10 +146,10 @@ def _dataflow_inputs(ctx, occurrence, arguments, *, binding_updates=(), include_
     result = []
     for role, binding in bindings.items():
         b = to_primitive(binding)
-        if b['source'] != 'data_flow' or role not in arguments or not json_values_equal(to_primitive(arguments[role]), b['value']):
+        if b['source'] not in {'data_flow', 'repeat'} or role not in arguments or not json_values_equal(to_primitive(arguments[role]), b['value']):
             continue
         for edge in ctx.plan.data_edges:
-            if edge.target_step != occurrence.step_id or edge.target_role != role or edge.edge_id not in b['evidence_refs']:
+            if edge.target_step != occurrence.step_id or edge.target_role != role:
                 continue
             producer = ctx.plan.occurrence(edge.source_step)
             changes = [(i, c) for i, c in enumerate(trace.binding_changes)
@@ -153,12 +158,28 @@ def _dataflow_inputs(ctx, occurrence, arguments, *, binding_updates=(), include_
             original = ctx.binding_store._outputs.get((producer.occurrence_id, edge.source_role))
             if not changes or original is None:
                 continue
+            expression = to_primitive(occurrence.binding_specs.get(role)) or {}
+            expression_changes=[i for i,c in changes if field(c,'reason')=='binding_expression']
+            uninterrupted_read=bool(expression_changes) and all(
+                field(c,'current')==b for c in trace.binding_changes[expression_changes[-1]+1:]
+                if field(c,'occurrence_id')==occurrence.occurrence_id and field(c,'role')==role)
+            expression_read = (expression.get('kind') == 'data_flow'
+                and expression.get('source_step') == edge.source_step
+                and expression.get('source_role') == edge.source_role
+                and uninterrupted_read
+                and json_values_equal(original.value, binding.value)
+                and set(original.evidence_refs).issubset(binding.evidence_refs))
+            if b['source'] == 'repeat' and not expression_read:
+                continue
+            if b['source'] == 'data_flow' and edge.edge_id not in b['evidence_refs'] and not expression_read:
+                continue
             result.append(dict(producer_occurrence_id=producer.occurrence_id, producer_invocation_id=None,
                 producer_output_role=edge.source_role, edge_id=edge.edge_id,
                 consumer_occurrence_id=occurrence.occurrence_id, consumer_input_role=role,
                 binding_ref=f'binding_changes:{changes[-1][0]}', evidence_refs=b['evidence_refs'],
                 producer_revision=original.world_revision, consumed_revision=ctx.world_revision,
-                consumer_preflight_ref=None, consumer_invocation_id=None, consumed=True, consumer_outcome=None))
+                consumer_preflight_ref=None, consumer_invocation_id=None, consumed=True, consumer_outcome=None,
+                binding_source=b['source'], expression_read=expression_read))
     return result
 
 
@@ -219,6 +240,9 @@ def program_window(compiled, preflight, occurrence, ctx, execution_scope):
                     admission_source_refs=sources, source_task_member=source_member,
                     evidence_origin=('fixture' if compiled.atomic.metadata.get('acceptance_fixture') else
                                      'learned' if sources else 'unknown'),
+                    program_origin=('authored_revision' if program and program.metadata.get('release_revision')
+                                    else 'learned' if sources else 'task_local' if persistent is not None and ref not in persistent else 'unknown'),
+                    invocation_origin=origin,
                     authorizing_native_call_id=marker.get('native_call_id'), policy_action_indices=indices,
                     canonical_action_indices=None, provider_boundary_before=before, provider_boundary_after=after,
                     provider_request_refs=None, started=tresult.get('started', result.get('started')),

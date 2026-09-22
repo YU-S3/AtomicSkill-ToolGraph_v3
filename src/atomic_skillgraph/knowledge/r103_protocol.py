@@ -137,3 +137,5 @@ def add_digest_specs(connection, specs):
             specs[table] = ("*", ",".join(pk))
     if "artifact_identity_index" in tables:
         specs["artifact_identity_index"] = ("*", "artifact_ref,identity_version")
+    if "release_deployments" in tables:
+        specs["release_deployments"] = ("*", "artifact_ref")

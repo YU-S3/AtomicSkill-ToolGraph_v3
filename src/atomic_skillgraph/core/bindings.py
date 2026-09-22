@@ -98,6 +98,7 @@ class BindingSource(str, Enum):
     TOOL_OUTPUT = "tool_output"
     HARNESS_EVIDENCE = "harness_evidence"
     AGENT_PROPOSED = "agent_proposed"
+    CALLER_AUTHORIZED = "caller_authorized"
     UNRESOLVED = "unresolved"
 
 

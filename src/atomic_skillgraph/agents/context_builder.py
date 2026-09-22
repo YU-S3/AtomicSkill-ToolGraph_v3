@@ -51,6 +51,20 @@ Do not select requires_skill merely for order: the fixed sequence already expres
 class ContextBuilder:
     """Build deterministic, compact user inputs for v3 Agent sessions."""
 
+    def selected_support_summaries(self, skills, candidates):
+        if getattr(self, 'presentation_profile', 'current') != 'lean':
+            return {}
+        from ..evolution.portability import validate_portability
+        result = {}
+        for candidate in candidates:
+            try:
+                atomic = skills.get_atomic(candidate.atomic_ref)
+            except KeyError:
+                continue  # The projection records this as a missing summary.
+            if validate_portability(atomic.summary).passed:
+                result[candidate.atomic_ref] = atomic.summary
+        return result
+
     def runtime_node(
         self,
         *,
@@ -79,6 +93,7 @@ class ContextBuilder:
         rejected_candidates: Iterable[Any] = (),
         execution_frame: Mapping[str, Any] | None = None,
         native_tool_specs: Iterable[NativeToolSpec] | None = None,
+        support_summary_lookup: Mapping[str, str] | None = None,
     ) -> str:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
@@ -152,14 +167,19 @@ class ContextBuilder:
         original_presentation = getattr(self, "runtime_presentation", "new") == "old"
         projected, audit = project_runtime_payload(payload, native_tool_specs=native_tool_specs,
                                                   expression_enabled=not original_presentation)
+        projected, lean_instruction = self._release_projection(projected, audit, support_summary_lookup)
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
-        return _render(
-            self._runtime_instruction("node") + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
+        rendered = _render(
+            self._runtime_instruction("node") + lean_instruction + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
                 + OUTPUT_SEMANTIC_CONSTRAINT_RULES if runtime_automation_interface else ""),
             projected,
             sort_keys=original_presentation,
         )
+        if projection_audit is not None:
+            import hashlib
+            projection_audit['final_render_hash'] = hashlib.sha256(rendered.encode()).hexdigest()
+        return rendered
 
     def dynamic_task(
         self,
@@ -176,6 +196,7 @@ class ContextBuilder:
         exploration_memory: Mapping[str, Any] | None = None,
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
         projection_audit: dict[str, Any] | None = None,
+        support_summary_lookup: Mapping[str, str] | None = None,
     ) -> str:
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
@@ -206,16 +227,33 @@ class ContextBuilder:
         original_presentation = getattr(self, "runtime_presentation", "new") == "old"
         projected, audit = project_runtime_payload(payload, native_tool_specs=native_tool_specs,
                                                   expression_enabled=not original_presentation)
+        projected, lean_instruction = self._release_projection(projected, audit, support_summary_lookup)
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
-        return _render(
-            self._runtime_instruction("dynamic") + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
+        rendered = _render(
+            self._runtime_instruction("dynamic") + lean_instruction + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
                 + OUTPUT_SEMANTIC_CONSTRAINT_RULES if payload.get("runtime_automation_interface") else ""),
             projected,
             sort_keys=original_presentation,
         )
+        if projection_audit is not None:
+            import hashlib
+            projection_audit['final_render_hash'] = hashlib.sha256(rendered.encode()).hexdigest()
+        return rendered
+
+    def _release_projection(self, projected, audit, summaries):
+        if getattr(self, 'presentation_profile', 'current') != 'lean':
+            return projected, ''
+        from .runtime_expression_codec import project_lean, ROWS_HELP
+        result, details = project_lean(projected, summaries)
+        audit['release_expression'] = details
+        explanation = '\n\n' + ROWS_HELP if any(t['applied'] for t in details['transforms'].values()) else ''
+        return result, explanation
 
     def _runtime_instruction(self, scope):
+        if getattr(self, 'presentation_profile', 'current') == 'lean' and scope in {'node','dynamic'}:
+            from .lean_runtime_prompt_texts import NODE, DYNAMIC
+            return NODE if scope == 'node' else DYNAMIC
         from . import runtime_prompt_texts as current
         from . import baseline_runtime_prompt_texts as original
         source = original if getattr(self, "runtime_presentation", "new") == "old" else current

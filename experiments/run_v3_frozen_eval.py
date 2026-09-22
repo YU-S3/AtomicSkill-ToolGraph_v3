@@ -863,241 +863,295 @@ def run(config_path: str | Path, *, resume: bool = False) -> int:
                     f"held-out manifest overlaps train signatures ({len(overlap)})"
                 )
 
-        state_db = StateDatabase(output_dir / "run_state.sqlite3")
-        try:
-            config_digest = hash_config(config_path)
-            store = ManifestStore(output_dir.parent, state_db)
-            if resume:
-                manifest = store.validate_resume(
-                    run_id,
-                    config_hash=config_digest,
-                    code_commit=code_digest,
-                    knowledge_digest=digest_before,
-                    tasks=task_items,
-                )
-            else:
-                manifest = RunManifest.create(
-                    run_id=run_id, phase=phase,
-                    config_hash=config_digest, code_commit=code_digest,
-                    knowledge_digest=digest_before, tasks=task_items,
-                    metadata={
-                        **r103_metadata_for(config),
-                        "condition": "full", "source_train_run": train_manifest.run_id,
-                        "run_started_at": invocation_started_at.isoformat(),
-                        "environment": {"alfworld_version": "0.4.2"},
-                        "task_types": labels, "tasks_per_type": per_type,
-                        "total_tasks": expected_total,
-                        "source_git_revision": str(
-                            train_manifest.metadata.get("git_revision", "")
-                        ),
-                        "source_code_commit": train_manifest.code_commit,
-                        "evaluator_code_commit": code_digest,
-                        **(
-                            {"repair_revision": str(config["repair_revision"])}
-                            if config.get("repair_revision")
-                            else {}
-                        ),
-                        "source_code_match_required": bool(
-                            experiment.get("require_source_code_match", True)
-                        ),
-                        **(
-                            {
-                                "seed": experiment_seed,
-                                "reference_manifest_id": reference_test_manifest.manifest_id,
-                                "reference_manifest_digest": reference_test_manifest.digest,
-                                "reference_manifest_seed": reference_test_manifest.seed,
-                                "reference_manifest_task_count": len(reference_test_manifest.tasks),
-                                "reference_manifest_family_counts": counts,
-                                "train_reference_manifest_id": reference_train_manifest.manifest_id,
-                                "train_reference_manifest_digest": reference_train_manifest.digest,
-                                "train_reference_manifest_seed": reference_train_manifest.seed,
-                                "reference_manifest_disjoint_audit": reference_disjoint_audit,
-                            }
-                            if reference_train_manifest is not None
-                            and reference_test_manifest is not None
-                            else {}
-                        ),
-                    },
-                )
-                store.persist_before_run(manifest)
-            run_started_at = str(
-                manifest.metadata.get("run_started_at", manifest.created_at)
+        return run_frozen_tasks(
+            system=system,
+            config=config,
+            config_path=config_path,
+            tasks=tasks,
+            task_items=task_items,
+            output_dir=output_dir,
+            resume=resume,
+            run_id=run_id,
+            phase=phase,
+            digest_before=digest_before,
+            max_task_attempts=max_task_attempts,
+            attempt_ledger=attempt_ledger,
+            train_manifest=train_manifest,
+            invocation_started_at=invocation_started_at,
+            invocation_started_monotonic=invocation_started_monotonic,
+            expected_total=expected_total,
+            labels=labels,
+            per_type=per_type,
+            experiment_seed=experiment_seed,
+            protocol=protocol,
+            source_train_replay=source_train_replay,
+            reference_train_manifest=reference_train_manifest,
+            reference_test_manifest=reference_test_manifest,
+            counts=counts,
+            reference_disjoint_audit=reference_disjoint_audit,
+        )
+
+def run_frozen_tasks(
+    *, system, config, config_path, tasks, task_items, output_dir, resume, run_id, phase, digest_before, max_task_attempts, attempt_ledger, train_manifest, invocation_started_at, invocation_started_monotonic, expected_total, labels, per_type, experiment_seed, protocol, source_train_replay, reference_train_manifest, reference_test_manifest, counts, reference_disjoint_audit
+):
+    """Shared production attempt loop; callers must authenticate their source first."""
+    experiment = dict(config.get("experiment") or {})
+    code_digest = hash_code(REPO_ROOT)
+    state_db = StateDatabase(output_dir / "run_state.sqlite3")
+    try:
+        config_digest = hash_config(config_path)
+        store = ManifestStore(output_dir.parent, state_db)
+        if resume:
+            manifest = store.validate_resume(
+                run_id,
+                config_hash=config_digest,
+                code_commit=code_digest,
+                knowledge_digest=digest_before,
+                tasks=task_items,
             )
-            ensure_task_manifest(
-                _path(experiment.get("task_manifest_path", "")), manifest
+        else:
+            manifest = RunManifest.create(
+                run_id=run_id, phase=phase,
+                config_hash=config_digest, code_commit=code_digest,
+                knowledge_digest=digest_before, tasks=task_items,
+                metadata={
+                    **r103_metadata_for(config),
+                    "condition": "full", "source_train_run": train_manifest.run_id,
+                    "run_started_at": invocation_started_at.isoformat(),
+                    "environment": {"alfworld_version": "0.4.2"},
+                    "task_types": labels, "tasks_per_type": per_type,
+                    "total_tasks": expected_total,
+                    "source_git_revision": str(
+                        train_manifest.metadata.get("git_revision", "")
+                    ),
+                    "source_code_commit": train_manifest.code_commit,
+                    "evaluator_code_commit": code_digest,
+                    **(
+                        {"repair_revision": str(config["repair_revision"])}
+                        if config.get("repair_revision")
+                        else {}
+                    ),
+                    "source_code_match_required": bool(
+                        experiment.get("require_source_code_match", True)
+                    ),
+                    **(
+                        {
+                            "seed": experiment_seed,
+                            "reference_manifest_id": reference_test_manifest.manifest_id,
+                            "reference_manifest_digest": reference_test_manifest.digest,
+                            "reference_manifest_seed": reference_test_manifest.seed,
+                            "reference_manifest_task_count": len(reference_test_manifest.tasks),
+                            "reference_manifest_family_counts": counts,
+                            "train_reference_manifest_id": reference_train_manifest.manifest_id,
+                            "train_reference_manifest_digest": reference_train_manifest.digest,
+                            "train_reference_manifest_seed": reference_train_manifest.seed,
+                            "reference_manifest_disjoint_audit": reference_disjoint_audit,
+                        }
+                        if reference_train_manifest is not None
+                        and reference_test_manifest is not None
+                        else {}
+                    ),
+                },
             )
-            store.mark_run_state(run_id, RunState.RUNNING)
-            by_id = {task.task_id: task for task in tasks}
-            for item in store.tasks_to_run(manifest):
-                artifact_before = artifact_audit_snapshot(system.database)
-                try:
-                    attempt_sequence = store.mark_task_running(
-                        run_id, item.task_id, max_attempts=max_task_attempts,
+            store.persist_before_run(manifest)
+        run_started_at = str(
+            manifest.metadata.get("run_started_at", manifest.created_at)
+        )
+        ensure_task_manifest(
+            _path(experiment.get("task_manifest_path", "")), manifest
+        )
+        store.mark_run_state(run_id, RunState.RUNNING)
+        by_id = {task.task_id: task for task in tasks}
+        def release_progress(state,current=None):
+            if not config.get('bank_release'):return
+            from atomic_skillgraph.core.serialization import atomic_write_json
+            completed=state_db.execute("SELECT count(*) FROM run_tasks WHERE run_id=? AND state='completed'",(run_id,)).fetchone()[0]
+            atomic_write_json(output_dir/'progress.json',{'run_id':run_id,'state':state,
+                'completed':completed,'total':len(tasks),'current_task':current,
+                'updated_at':datetime.now(timezone.utc).isoformat()})
+        release_progress('running')
+        for item in store.tasks_to_run(manifest):
+            release_progress('running',item.task_id)
+            artifact_before = artifact_audit_snapshot(system.database)
+            try:
+                attempt_sequence = store.mark_task_running(
+                    run_id, item.task_id, max_attempts=max_task_attempts,
+                )
+            except ProtocolError:
+                store.mark_run_state(run_id, RunState.INFRASTRUCTURE_FAILED)
+                raise
+            task_attempt = attempt_ledger.begin(
+                run_id=run_id,
+                task_id=item.task_id,
+                task_signature=item.task_signature,
+                attempt_kind="task",
+                sequence=attempt_sequence,
+            )
+            try:
+                trace = system.run_task(
+                    by_id[item.task_id], attempt_id=task_attempt.attempt_id,
+                )
+                attempt_ledger.capture(task_attempt, reason="run_task_returned")
+                artifact_after = artifact_audit_snapshot(system.database)
+                artifact_growth = artifact_growth_audit(
+                    artifact_before, artifact_after,
+                )
+                digest_after = system.knowledge_digest()
+                if digest_after != digest_before:
+                    raise ProtocolError("frozen evaluation changed long-term knowledge")
+                result = {
+                    "benchmark_success": trace.benchmark_success,
+                    "task_contract_success": trace.task_contract_success,
+                    "strict_task_success": trace.strict_task_success,
+                    "learning_eligible": trace.learning_eligible,
+                    "graph_self_sufficient_success": trace.graph_self_sufficient_success,
+                    "infrastructure_failure": trace.infrastructure_failure,
+                    "knowledge_digest_before": digest_before,
+                    "knowledge_digest_after": digest_after,
+                    "artifact_growth": artifact_growth,
+                    "artifact_lifecycle": artifact_after,
+                }
+                if trace.infrastructure_failure:
+                    store.mark_task_failed(
+                        run_id, item.task_id, infrastructure=True,
+                        trace_id=trace.trace_id, result=result,
                     )
-                except ProtocolError:
                     store.mark_run_state(run_id, RunState.INFRASTRUCTURE_FAILED)
-                    raise
-                task_attempt = attempt_ledger.begin(
-                    run_id=run_id,
-                    task_id=item.task_id,
-                    task_signature=item.task_signature,
-                    attempt_kind="task",
-                    sequence=attempt_sequence,
+                    raise RuntimeError(f"infrastructure failure at held-out task {item.task_id}")
+                store.mark_task_completed(
+                    run_id, item.task_id, trace_id=trace.trace_id, result=result
                 )
-                try:
-                    trace = system.run_task(
-                        by_id[item.task_id], attempt_id=task_attempt.attempt_id,
-                    )
-                    attempt_ledger.capture(task_attempt, reason="run_task_returned")
-                    artifact_after = artifact_audit_snapshot(system.database)
-                    artifact_growth = artifact_growth_audit(
-                        artifact_before, artifact_after,
-                    )
-                    digest_after = system.knowledge_digest()
-                    if digest_after != digest_before:
-                        raise ProtocolError("frozen evaluation changed long-term knowledge")
-                    result = {
-                        "benchmark_success": trace.benchmark_success,
-                        "task_contract_success": trace.task_contract_success,
-                        "strict_task_success": trace.strict_task_success,
-                        "learning_eligible": trace.learning_eligible,
-                        "graph_self_sufficient_success": trace.graph_self_sufficient_success,
-                        "infrastructure_failure": trace.infrastructure_failure,
-                        "knowledge_digest_before": digest_before,
-                        "knowledge_digest_after": digest_after,
-                        "artifact_growth": artifact_growth,
-                        "artifact_lifecycle": artifact_after,
-                    }
-                    if trace.infrastructure_failure:
+                release_progress('running')
+                print(json.dumps({
+                    "task": item.task_id,
+                    "official_alfworld_won": trace.benchmark_success,
+                    "strict_task_success": trace.strict_task_success,
+                    "learning_eligible": trace.learning_eligible,
+                    "trace_id": trace.trace_id,
+                }, ensure_ascii=False), flush=True)
+            except Exception as primary:
+                def update_failed_state() -> None:
+                    row = state_db.execute(
+                        "SELECT state FROM run_tasks WHERE run_id=? AND task_id=?",
+                        (run_id, item.task_id),
+                    ).fetchone()
+                    if row is not None and row["state"] == "running":
                         store.mark_task_failed(
                             run_id, item.task_id, infrastructure=True,
-                            trace_id=trace.trace_id, result=result,
+                            result={
+                                "error_type": type(primary).__name__,
+                                "error": str(primary),
+                            },
                         )
-                        store.mark_run_state(run_id, RunState.INFRASTRUCTURE_FAILED)
-                        raise RuntimeError(f"infrastructure failure at held-out task {item.task_id}")
-                    store.mark_task_completed(
-                        run_id, item.task_id, trace_id=trace.trace_id, result=result
-                    )
-                    print(json.dumps({
-                        "task": item.task_id,
-                        "official_alfworld_won": trace.benchmark_success,
-                        "strict_task_success": trace.strict_task_success,
-                        "learning_eligible": trace.learning_eligible,
-                        "trace_id": trace.trace_id,
-                    }, ensure_ascii=False), flush=True)
-                except Exception as primary:
-                    def update_failed_state() -> None:
-                        row = state_db.execute(
-                            "SELECT state FROM run_tasks WHERE run_id=? AND task_id=?",
-                            (run_id, item.task_id),
-                        ).fetchone()
-                        if row is not None and row["state"] == "running":
-                            store.mark_task_failed(
-                                run_id, item.task_id, infrastructure=True,
-                                result={
-                                    "error_type": type(primary).__name__,
-                                    "error": str(primary),
-                                },
-                            )
-                        store.mark_run_state(run_id, RunState.INFRASTRUCTURE_FAILED)
+                    store.mark_run_state(run_id, RunState.INFRASTRUCTURE_FAILED)
 
-                    audit_failed_attempt(
-                        primary=primary,
-                        attempt=task_attempt,
-                        attempt_ledger=attempt_ledger,
-                        receipt_root=output_dir / "failure_receipts",
-                        update_state=update_failed_state,
-                        capture_reason="task_exception",
-                    )
-                    raise
+                audit_failed_attempt(
+                    primary=primary,
+                    attempt=task_attempt,
+                    attempt_ledger=attempt_ledger,
+                    receipt_root=output_dir / "failure_receipts",
+                    update_state=update_failed_state,
+                    capture_reason="task_exception",
+                )
+                release_progress('infrastructure_failed',item.task_id)
+                raise
 
-            traces = load_task_report_traces(system.traces, state_db, run_id)
-            task_trace_ids = {str(trace.get("trace_id", "")) for trace in traces}
-            if "" in task_trace_ids or len(task_trace_ids) != len(traces):
-                raise ProtocolError("frozen report contains invalid/duplicate task trace_id")
-            attempt_usage_traces = attempt_ledger.auxiliary_traces(
-                manifest=manifest,
-                excluded_trace_ids=task_trace_ids,
-            )
-            resource_traces = [*traces, *attempt_usage_traces]
-            frozen_v31_guards = validate_frozen_v31_guards(traces)
-            validate_formal_usage(resource_traces)
-            usage_coverage = validate_usage_event_persistence(
-                system.usage.events,
-                resource_traces,
-            )
-            print(json.dumps({
-                "usage_trace_coverage": usage_coverage,
-                "frozen_v31_guards": frozen_v31_guards,
-            }, ensure_ascii=False), flush=True)
-            report_stem = (
-                "frozen_train30_replay_b6a82ed"
-                if source_train_replay
+        traces = load_task_report_traces(system.traces, state_db, run_id)
+        task_trace_ids = {str(trace.get("trace_id", "")) for trace in traces}
+        if "" in task_trace_ids or len(task_trace_ids) != len(traces):
+            raise ProtocolError("frozen report contains invalid/duplicate task trace_id")
+        attempt_usage_traces = attempt_ledger.auxiliary_traces(
+            manifest=manifest,
+            excluded_trace_ids=task_trace_ids,
+        )
+        resource_traces = [*traces, *attempt_usage_traces]
+        frozen_v31_guards = validate_frozen_v31_guards(traces)
+        validate_formal_usage(resource_traces)
+        usage_coverage = validate_usage_event_persistence(
+            system.usage.events,
+            resource_traces,
+        )
+        print(json.dumps({
+            "usage_trace_coverage": usage_coverage,
+            "frozen_v31_guards": frozen_v31_guards,
+        }, ensure_ascii=False), flush=True)
+        report_stem = (
+            "frozen_train30_replay_b6a82ed"
+            if source_train_replay
+            else (
+                f"frozen_eval_134_{dict(r7_frozen134='r7', r8_frozen134='r8', r9_frozen134='r9', r92_frozen134='r92', r10_frozen134='r10', r1021_frozen134='r1021', r103_frozen134='r103')[protocol]}_seed{experiment_seed}"
+                if protocol in {
+                    "r7_frozen134", "r8_frozen134", "r9_frozen134",
+                    "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
+                }
                 else (
-                    f"frozen_eval_134_{dict(r7_frozen134='r7', r8_frozen134='r8', r9_frozen134='r9', r92_frozen134='r92', r10_frozen134='r10', r1021_frozen134='r1021', r103_frozen134='r103')[protocol]}_seed{experiment_seed}"
-                    if protocol in {
-                        "r7_frozen134", "r8_frozen134", "r9_frozen134",
-                        "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
-                    }
-                    else (
-                    "frozen_eval_60"
-                    if run_id == "alfworld_frozen_eval_60"
-                    else run_id
-                    )
+                "frozen_eval_60"
+                if run_id == "alfworld_frozen_eval_60"
+                else run_id
                 )
             )
-            report_title = (
-                "AtomicSkillGraph v3 ALFWorld Frozen Train-30 Replay (b6a82ed bank)"
-                if source_train_replay
-                else (
-                    f"AtomicSkillGraph v3 ALFWorld Frozen Held-out-134 "
-                    f"{dict(r7_frozen134='R7', r8_frozen134='R8', r9_frozen134='R9', r92_frozen134='R9.2', r10_frozen134='R10', r1021_frozen134='R10.2.1', r103_frozen134='R10.3')[protocol]} Eval "
-                    f"(seed {experiment_seed})"
-                    if protocol in {
-                        "r7_frozen134", "r8_frozen134", "r9_frozen134",
-                        "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
-                    }
-                    else "AtomicSkillGraph v3 ALFWorld Frozen Held-out Eval"
-                )
+        )
+        report_title = (
+            "AtomicSkillGraph v3 ALFWorld Frozen Train-30 Replay (b6a82ed bank)"
+            if source_train_replay
+            else (
+                f"AtomicSkillGraph v3 ALFWorld Frozen Held-out-134 "
+                f"{dict(r7_frozen134='R7', r8_frozen134='R8', r9_frozen134='R9', r92_frozen134='R9.2', r10_frozen134='R10', r1021_frozen134='R10.2.1', r103_frozen134='R10.3')[protocol]} Eval "
+                f"(seed {experiment_seed})"
+                if protocol in {
+                    "r7_frozen134", "r8_frozen134", "r9_frozen134",
+                    "r92_frozen134", "r10_frozen134", "r1021_frozen134", "r103_frozen134",
+                }
+                else "AtomicSkillGraph v3 ALFWorld Frozen Held-out Eval"
             )
-            write_reports(
-                traces, output_dir / "reports", stem=report_stem,
-                title=report_title,
-                auxiliary_usage_traces=attempt_usage_traces,
-                reasoning_effort_audit=formal_reasoning_effort_audit(config),
+        )
+        if config.get('bank_release'):
+            report_stem='bank_release_eval'
+            report_title=f'Authored Bank Frozen Evaluation — seed {experiment_seed}, {expected_total} tasks'
+        write_reports(
+            traces, output_dir / "reports", stem=report_stem,
+            title=report_title,
+            auxiliary_usage_traces=attempt_usage_traces,
+            reasoning_effort_audit=formal_reasoning_effort_audit(config),
+        )
+        if system.knowledge_digest() != digest_before:
+            raise ProtocolError("knowledge digest guard failed after report generation")
+        if config.get('bank_release'):
+            from .release_report import write_release_report
+            write_release_report(output_dir,config,resource_traces=resource_traces,
+                                 digest_after=system.knowledge_digest())
+        run_ended_at = datetime.now(timezone.utc)
+        if resume:
+            parsed_started_at = datetime.fromisoformat(
+                run_started_at.replace("Z", "+00:00")
             )
-            if system.knowledge_digest() != digest_before:
-                raise ProtocolError("knowledge digest guard failed after report generation")
-            run_ended_at = datetime.now(timezone.utc)
-            if resume:
-                parsed_started_at = datetime.fromisoformat(
-                    run_started_at.replace("Z", "+00:00")
-                )
-                run_elapsed_seconds = max(
-                    0.0, (run_ended_at - parsed_started_at).total_seconds()
-                )
-            else:
-                run_elapsed_seconds = time.monotonic() - invocation_started_monotonic
-            timing_path = write_run_observability(
-                output_dir / "reports" / f"{report_stem}_run.json",
-                run_id=run_id,
-                run_started_at=run_started_at,
-                run_ended_at=run_ended_at.isoformat(),
-                run_elapsed_seconds=run_elapsed_seconds,
+            run_elapsed_seconds = max(
+                0.0, (run_ended_at - parsed_started_at).total_seconds()
             )
-            store.mark_run_state(run_id, RunState.COMPLETED)
-            print(json.dumps({
-                "run_id": run_id, "tasks": expected_total,
-                "knowledge_digest_before": digest_before,
-                "knowledge_digest_after": system.knowledge_digest(),
-                "run_started_at": run_started_at,
-                "run_ended_at": run_ended_at.isoformat(),
-                "run_elapsed_seconds": run_elapsed_seconds,
-                "run_observability": str(timing_path),
-            }, ensure_ascii=False, indent=2))
-        finally:
-            state_db.close()
+        else:
+            run_elapsed_seconds = time.monotonic() - invocation_started_monotonic
+        timing_path = write_run_observability(
+            output_dir / "reports" / f"{report_stem}_run.json",
+            run_id=run_id,
+            run_started_at=run_started_at,
+            run_ended_at=run_ended_at.isoformat(),
+            run_elapsed_seconds=run_elapsed_seconds,
+        )
+        store.mark_run_state(run_id, RunState.COMPLETED)
+        release_progress('completed')
+        print(json.dumps({
+            "run_id": run_id, "tasks": expected_total,
+            "knowledge_digest_before": digest_before,
+            "knowledge_digest_after": system.knowledge_digest(),
+            "run_started_at": run_started_at,
+            "run_ended_at": run_ended_at.isoformat(),
+            "run_elapsed_seconds": run_elapsed_seconds,
+            "run_observability": str(timing_path),
+        }, ensure_ascii=False, indent=2))
+    finally:
+        state_db.close()
     return 0
+
 
 
 def main(argv: list[str] | None = None) -> int:

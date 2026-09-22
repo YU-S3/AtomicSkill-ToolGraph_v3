@@ -438,7 +438,15 @@ class ReplayAgentSession:
             try:
                 set_context = getattr(self._provider, "set_request_context", None)
                 if callable(set_context):
-                    set_context(session_id=self._session_id, stage=self._usage_bucket.value)
+                    # Older injected providers retain their two-field API.
+                    # Production/delegating providers accept the optional audit
+                    # fields; attribution never enters the HTTP payload.
+                    import inspect
+                    parameters = inspect.signature(set_context).parameters
+                    extra = {}
+                    if 'request_sequence' in parameters or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+                        extra = {'request_sequence': len(self._runtime_request_context_audits), 'repair': repair_in_progress}
+                    set_context(session_id=self._session_id, stage=self._usage_bucket.value, **extra)
                 self._record_runtime_request_context_audit(
                     tools,
                     repair_in_progress=repair_in_progress,
@@ -1034,6 +1042,8 @@ class ReplayAgentSession:
             "runtime_automation_offered": (
                 "propose_runtime_automation_atomic" in offered_tool_names
             ),
+            "request_entry_offered": 'request_runtime_automation' in offered_tool_names,
+            "draft_entry_offered": 'propose_runtime_automation_atomic' in offered_tool_names,
             "runtime_automation_interface_projected": bool(
                 isinstance(automation_interface, dict)
                 and automation_interface
@@ -1288,6 +1298,9 @@ def _is_protocol_repair_user_message(message: AgentMessage) -> bool:
 def _full_catalog_entry_count(value: Any) -> int | None:
     """Return entry count only for a full policy catalog, never a marker."""
 
+    if isinstance(value, dict) and value.get('format') == 'catalog_rows_v1':
+        from .runtime_expression_codec import unpack_catalog_rows
+        return len(unpack_catalog_rows(value)['actions'])
     if isinstance(value, list):
         return len(value)
     if isinstance(value, dict) and isinstance(value.get("actions"), list):

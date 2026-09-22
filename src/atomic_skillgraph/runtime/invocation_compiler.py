@@ -102,6 +102,8 @@ class InvocationCompiler:
         if policy_mode != "serial":
             raise ValueError("v3 first release supports serial Implementation only")
         atomic_inputs = {item.name: item for item in atomic.inputs}
+        from .input_authorization import validate_declarations
+        input_authorizations = validate_declarations(atomic)
         tool_outputs: set[tuple[str, str]] = set()
         for binding in sorted(implementation.tool_bindings, key=lambda item: item.order):
             tool = by_ref.get(str(binding.tool_ref))
@@ -137,6 +139,10 @@ class InvocationCompiler:
         for parameter in atomic.inputs:
             schema_type = _TYPE_SCHEMA.get(parameter.semantic_type.casefold(), "string")
             schema: dict[str, Any] = {"type": schema_type, "description": parameter.description}
+            authorization = input_authorizations.get(parameter.name, {})
+            if authorization.get('kind') == 'ordered_entity_scope':
+                schema.update(items={'type':'string'},minItems=authorization['min_items'],
+                    maxItems=authorization['max_items'],uniqueItems=authorization['unique_items'])
             properties[parameter.name] = schema
             current = current_bindings.get(parameter.name)
             if parameter.required and (
@@ -452,12 +458,16 @@ class InvocationCompiler:
             if parameter and _TYPE_SCHEMA.get(parameter.semantic_type.casefold(), "string") == "string" and not isinstance(value, str):
                 return fail("runtime_agent", "runtime_agent_schema_error", f"{role} has incompatible semantic type")
         current = binding_store.snapshot_for_node(occurrence)
+        from .input_authorization import validate_declarations, validate_committed
+        control_declarations = validate_declarations(compiled.atomic)
         # 3b. A schema-valid concrete entity may still belong to the wrong
         # semantic family.  Compare before proposal grounding/commit, using
         # immutable Task/DataFlow intent as the anchor.
         if arguments_are_agent_proposals:
             compatibility = getattr(self.harness, "semantic_value_compatible", None)
             for role, value in arguments.items():
+                if role in control_declarations:
+                    continue  # The pure typed control authorizer below owns this port.
                 parameter = by_parameter.get(role)
                 anchor_binding = binding_store.semantic_anchor_for(occurrence, role)
                 if parameter is None or anchor_binding is None:
@@ -499,6 +509,17 @@ class InvocationCompiler:
             for role, proposal in proposals.items():
                 parameter = by_parameter[role]
                 anchor = binding_store.semantic_anchor_for(occurrence, role)
+                if role in control_declarations:
+                    from .input_authorization import authorize
+                    try:
+                        grounded[role] = authorize(compiled.atomic, role, proposal.value,
+                            call_id=call_id, evidence_store=evidence_store, revision=revision,
+                            fixed_anchor=anchor)
+                    except ValueError as exc:
+                        return fail('runtime_binding', 'caller_input_authorization_failed', str(exc))
+                    # Caller provenance is not an effect witness. It stays on
+                    # the pending binding and existing transaction audit.
+                    continue
                 if (str(parameter.required_resolution) == "semantic"
                         and anchor is not None and anchor.value == proposal.value):
                     # A declared semantic input is not a concrete entity.
@@ -524,6 +545,13 @@ class InvocationCompiler:
                     return fail("runtime_binding", "runtime_binding_unresolved", f"autonomous argument is not a certified current binding: {role}")
         merged = dict(current)
         merged.update(grounded)
+        for role in control_declarations:
+            if role in merged:
+                try:
+                    validate_committed(compiled.atomic, role, merged[role],
+                        evidence_store=evidence_store, revision=revision)
+                except ValueError as exc:
+                    return fail('runtime_binding', 'caller_input_authorization_failed', str(exc))
         # Parameter-only evidence is part of argument preparation.  It must
         # be certified before the effect short-circuit, while affordance and
         # current-context relations remain execution-context gates below.

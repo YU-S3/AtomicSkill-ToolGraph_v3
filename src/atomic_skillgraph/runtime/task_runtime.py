@@ -116,7 +116,9 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                 task_progress=executor._task_progress_policy(ctx), exploration_memory=ctx.exploration_memory.policy_view(),
                 recent_failed_learned_invocation=ctx.last_failed_invocation,
                 rescue_method_guidance=executor._rescue_method_guidance(ctx) if rescue else None,
-                projection_audit=audit, task_runtime_frame=frame, native_tool_specs=tools)
+                projection_audit=audit, task_runtime_frame=frame, native_tool_specs=tools,
+                support_summary_lookup=executor.context_builder.selected_support_summaries(
+                    executor.invocation_compiler.skills, candidates))
             session = executor.session_factory(session_kind, '__task__')
             record = executor._record_session_start(session, 'DynamicTaskSession', '', ctx)
             increment(ctx, 'runtime_step_count')

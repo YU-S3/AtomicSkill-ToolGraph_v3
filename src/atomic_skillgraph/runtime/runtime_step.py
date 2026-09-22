@@ -158,6 +158,8 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         current_state_snapshot=state,
         exploration_memory=ctx.exploration_memory.policy_view(),
         support_atomic_candidates=support_candidates,
+        support_summary_lookup=executor.context_builder.selected_support_summaries(
+            executor.invocation_compiler.skills, support_candidates),
         runtime_automation_drafts=list(ctx.runtime_automation_drafts.values()),
         runtime_automation_interface=(build_runtime_automation_interface(
             ctx.harness, occurrence, ctx.binding_store) if draft_request else None),

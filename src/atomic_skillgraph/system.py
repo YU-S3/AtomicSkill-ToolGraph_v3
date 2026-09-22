@@ -654,6 +654,13 @@ class AtomicSkillGraphSystem:
         )
         self.orchestrator.node_executor.runtime_resources = self._runtime_remaining_tokens
         self.orchestrator.node_executor.context_builder.runtime_presentation = self.deployment_intervention.presentation
+        if self.config.get('bank_release'):
+            from .deployment.release_protocol import verify_deployments
+            verify_deployments(self.database, self.data_dir)
+            profile = self.config.get('deployment', {}).get('presentation_profile', 'current')
+            if profile not in {'current', 'lean'}:
+                raise ValueError('unsupported release presentation profile')
+            self.orchestrator.node_executor.context_builder.presentation_profile = profile
         extraction_config = dict(self.config.get("extraction") or {})
         self.extraction_policy = ExtractionPolicy(**{
             key: extraction_config.get(key, default)
@@ -2068,6 +2075,9 @@ class AtomicSkillGraphSystem:
                     payload_fingerprint=str(payload.get("payload_fingerprint", "")),
                     response_diagnostic=dict(payload.get("response_diagnostic") or {}),
                     provider_request_id=str(payload.get("provider_request_id", "")),
+                    request_sequence=payload.get('request_sequence'),
+                    repair_in_progress=payload.get('repair_in_progress'),
+                    final_payload_audit=dict(payload.get('final_payload_audit') or {}),
                 )
                 trace.provider_requests.append(record)
                 existing.add(request_id)

@@ -157,9 +157,11 @@ class OpenAICompatibleProvider:
         with self._records_lock:
             return tuple(copy.deepcopy(self._request_records[start_index:]))
 
-    def set_request_context(self, *, session_id: str, stage: str) -> None:
+    def set_request_context(self, *, session_id: str, stage: str,
+                            request_sequence: int | None = None, repair: bool | None = None) -> None:
         """Set thread-local audit attribution without changing the formal protocol."""
-        self._request_context.value = {"session_id": str(session_id), "stage": str(stage)}
+        self._request_context.value = {"session_id": str(session_id), "stage": str(stage),
+            "request_sequence": request_sequence, "repair": repair}
 
     def _build_payload(
         self, messages: list[AgentMessage], tools: list[NativeToolSpec] | None,
@@ -189,6 +191,27 @@ class OpenAICompatibleProvider:
     ) -> AgentTurn:
         normalized_tools = list(tools or [])
         payload = self._build_payload(messages, normalized_tools)
+        # This observes the final serialized HTTP surface, after all Session
+        # edits. Store only public policy segments, schema and hashes; never
+        # headers or provider-private assistant reasoning/envelopes.
+        policy_segments = []
+        for message in payload['messages']:
+            content = message.get('content', '')
+            if message.get('role') == 'user' and isinstance(content, str) and '\nPOLICY_CONTEXT_JSON\n' in content:
+                public = content.split('\nPOLICY_CONTEXT_JSON\n', 1)[1]
+                try:
+                    policy_segments.append(json.loads(public))
+                except (TypeError, ValueError):
+                    policy_segments.append({'parse_failed': True, 'sha256': hashlib.sha256(public.encode()).hexdigest()})
+        self._request_context.final_payload_audit = {
+            'messages_sha256': _sha256_json(payload['messages']),
+            'tools_sha256': _sha256_json(payload.get('tools', [])),
+            'messages_utf8_bytes': len(json.dumps(payload['messages'], ensure_ascii=False).encode()),
+            'tools_utf8_bytes': len(json.dumps(payload.get('tools', []), ensure_ascii=False).encode()),
+            'policy_contexts': policy_segments,
+            'tools': copy.deepcopy(payload.get('tools', [])),
+            'captured_after_build_payload': True,
+        }
         api_key = self.config.resolve_api_key()
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -504,6 +527,9 @@ class OpenAICompatibleProvider:
             "provider_request_id": provider_request_id,
             "session_id": str(context.get("session_id", "")),
             "stage": str(context.get("stage", "")),
+            "request_sequence": context.get('request_sequence'),
+            "repair_in_progress": context.get('repair'),
+            "final_payload_audit": copy.deepcopy(getattr(self._request_context, 'final_payload_audit', {})),
             "endpoint": self.config.endpoint,
             "started_at": started_at,
             "ended_at": time.time(),

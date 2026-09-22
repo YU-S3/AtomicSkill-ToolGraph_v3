@@ -75,10 +75,12 @@ class _AllUnresolvedC1Provider:
     def request_record_count(self) -> int:
         return len(self._request_records)
 
-    def set_request_context(self, *, session_id: str, stage: str) -> None:
+    def set_request_context(self, *, session_id: str, stage: str, request_sequence=None, repair=None) -> None:
         self._request_context = {
             "session_id": str(session_id),
             "stage": str(stage),
+            "request_sequence": request_sequence,
+            "repair": repair,
         }
 
     def request_records_since(self, index: int) -> tuple[dict[str, Any], ...]:
