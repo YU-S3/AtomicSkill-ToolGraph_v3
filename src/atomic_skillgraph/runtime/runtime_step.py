@@ -34,7 +34,9 @@ def public_step_feedback(call: Any, payload: dict, *, before_revision: int,
             "r0_passed", "static_passed", "r1_passed", "preflight_failure_code",
             "started", "completed", "failure_layer", "cached_rejection", "rollback",
             "draft_id", "r1_outputs", "r1_witness_refs", "support_occurrence_id",
-            "atomic_effect_passed", "validated_outputs", "atomic_witness_refs")
+            "atomic_effect_passed", "validated_outputs", "atomic_witness_refs",
+            "error_code", "argument_path", "expected_constraint", "actual_summary",
+            "allowed_output_mappings", "required_anchor_or_relation", "relevant_revision")
     def project_result(value: dict) -> dict:
         projected = {k: to_primitive(value[k]) for k in keys if k in value}
         if value.get('failure_code') and not projected.get('message'):
@@ -47,6 +49,10 @@ def public_step_feedback(call: Any, payload: dict, *, before_revision: int,
                     and r.get('failure_message')), None)
             if isinstance(message, str):
                 projected['message'] = message
+        scope_diagnostics = [r.get('tool_path_evidence', {}).get('final_effect_result', {}).get('scope_diagnostic')
+                             for r in value.get('tool_results', []) if isinstance(r, dict)]
+        if any(scope_diagnostics):
+            projected['scope_diagnostics'] = [to_primitive(d) for d in scope_diagnostics if d]
         return projected
 
     feedback = {"call_id": call.call_id, "tool": call.name, "arguments": to_primitive(call.arguments),

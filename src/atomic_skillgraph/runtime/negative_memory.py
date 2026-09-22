@@ -131,7 +131,8 @@ def current_rejections(ctx, occurrence):
         selected[key] = value
     return [{"tool": value["tool"], "scope": value.get('payload', {}).get('constraint_scope', 'exact_call_and_authoritative_state'),
              "constraint_feedback": {k: copy.deepcopy(value['payload'][k]) for k in
-                 ('error_code', 'argument_path', 'expected_constraint', 'actual_summary', 'support_atomic_ref')
+                 ('error_code', 'argument_path', 'expected_constraint', 'actual_summary', 'support_atomic_ref',
+                  'allowed_output_mappings', 'required_anchor_or_relation', 'relevant_revision')
                  if k in value.get('payload', {})},
              "candidate_group": [] if value.get('payload', {}).get('constraint_scope') == 'stable_schema'
                  else copy.deepcopy(value["candidate_group"])}

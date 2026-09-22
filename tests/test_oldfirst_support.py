@@ -120,3 +120,20 @@ def test_stable_constraint_reaches_next_request_and_deduplicates_across_sessions
         assert feedback[0]['candidate_group'] == []
     finally:
         system.close()
+
+
+def test_last_step_projection_keeps_actionable_boundaries_not_tool_internals():
+    from atomic_skillgraph.runtime.runtime_step import public_step_feedback
+    from atomic_skillgraph.agents.protocol import NativeToolCall
+    call = NativeToolCall('bad', 'invoke_support_atomic', {'arguments': {}})
+    boundary = {'error_code': 'support_atomic_input_schema_invalid', 'argument_path': '$.arguments.locations',
+        'expected_constraint': {'maxItems': 8}, 'actual_summary': {'length': 9},
+        'allowed_output_mappings': [{'entity': 'object'}], 'required_anchor_or_relation': [], 'relevant_revision': 3}
+    result = public_step_feedback(call, {'accepted': False, **boundary}, before_revision=3, after_revision=3)
+    assert {key: result[key] for key in boundary} == boundary
+    scope = {'outcome': 'scope_exhausted', 'checked_scope': ['place_a'], 'global_absence_claimed': False}
+    result = public_step_feedback(call, {'accepted': True, 'result': {'failure_code': 'tool_ir_execution_error',
+        'tool_results': [{'tool_path_evidence': {'final_effect_result': {'scope_diagnostic': scope}},
+                          'program': 'never replicate program or full path'}]}}, before_revision=3, after_revision=3)
+    assert result['helper_result']['scope_diagnostics'] == [scope]
+    assert 'program' not in str(result)
