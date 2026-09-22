@@ -65,3 +65,5 @@ def test_final_http_audit_observes_packed_payload_once_without_private_data(monk
     assert audit['transforms']['catalog']['applied']
     assert 'fixture-key' not in json.dumps(final)
     assert 'reasoning_content' not in json.dumps(final)
+    restored=json.loads(json.dumps(final,sort_keys=True))
+    assert restored['policy_context_sha256']==[audit['lean_payload_hash']]

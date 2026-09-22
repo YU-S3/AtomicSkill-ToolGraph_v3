@@ -44,10 +44,14 @@ def test_costs_include_failed_attempts_unknown_usage_and_real_digest(tmp_path):
              'llm_usage':[{'event_id':name,'prompt_tokens':10,'completion_tokens':5,'reasoning_tokens':None,'bucket':'tool_builder_runtime'}],
              'provider_requests':[{'request_id':name,'session_id':'s','usage_status':'reported' if success else 'unknown'}]}
             for name,success in [('failed',False),('done',True)]]
+    traces[-1]['metadata']={'runtime_context_projection_audits':[
+        {'session_id':'s','release_expression':{'lean_payload_hash':'sent_hash'}}]}
+    traces[-1]['provider_requests'][0]['final_payload_audit']={'policy_context_sha256':['sent_hash']}
     result=write_release_report(tmp_path,config,resource_traces=traces,digest_after='d')
     assert result['tasks']==1 and result['successes']==1
     assert result['total_recorded_tokens']==30 and result['total_tokens'] is None
     assert result['unknown_usage_requests']==1 and result['programmer_tokens']==30
     assert result['reasoning_tokens'] is None
+    assert json.loads((tmp_path/'runtime_expression_coverage.json').read_text())['matched_lean_requests']==1
     with pytest.raises(ValueError,match='mutated'):
         write_release_report(tmp_path,config,resource_traces=traces,digest_after='changed')

@@ -38,8 +38,8 @@ def write_release_report(output,config,*,resource_traces,digest_after):
             final=request.get('final_payload_audit') or {}
             projections=trace.get('metadata',{}).get('runtime_context_projection_audits',[])
             matches=[p for p in projections if p.get('session_id')==request['session_id']
-                and any(p.get('release_expression',{}).get('lean_payload_hash')==_hash(c)
-                        for c in final.get('policy_contexts',[]))]
+                and p.get('release_expression',{}).get('lean_payload_hash')
+                    in final.get('policy_context_sha256',[])]
             expressions.append({'task_id':task,'trace_id':trace['trace_id'],**request,
                 'profile':config['deployment']['presentation_profile'],
                 'matching_projection_audits':matches,
