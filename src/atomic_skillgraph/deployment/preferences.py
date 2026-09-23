@@ -73,6 +73,8 @@ def verify_preferences(skills):
     expected_graphs = [{'composite_ref': j['target_ref'], 'priority': 100} for j in plan['workflow_targets']]
     if plan.get('derived_revision_jobs'):
         expected_graphs.append({'composite_ref': plan['deployment_preferences_patch']['prefer_workflow_ref'], 'priority': 200})
+        expected_graphs.extend({'composite_ref': ref, 'priority': 300} for ref in
+            plan['deployment_preferences_patch'].get('additional_preferred_workflow_refs', []))
     if prefs['preferred_composites'] != expected_graphs:
         raise ReleaseError('deployment graph preference differs from the edit plan')
     if prefs['blocked_equivalent_groups'] != [[j['alias_tool_ref'], j['canonical_tool_ref']]

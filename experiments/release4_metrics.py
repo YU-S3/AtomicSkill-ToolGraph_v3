@@ -18,7 +18,7 @@ def trace_metrics(trace):
         turns = [t for t in trace.get('agent_turns', []) if t['session_id'] == call['session_id']
                  and call['call_id'] in t['tool_call_ids']]
         event_rows = [e for e in events.values() if any(e['session_id'] == t['session_id']
-            and e['turn_index'] == t['turn_index'] and e.get('provider_metadata', {}).get('request_id')
+            and t.get('provider_metadata', {}).get('request_id') and e.get('provider_metadata', {}).get('request_id')
             == t.get('provider_metadata', {}).get('request_id') for t in turns)]
         request_rows = [r for r in requests.values() if any(r['session_id'] == e['session_id']
             and r.get('provider_request_id') and r['provider_request_id'] == e.get('provider_metadata', {}).get('request_id')

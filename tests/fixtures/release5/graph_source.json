@@ -1,0 +1,284 @@
+{
+  "control_sequence": [
+    "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000",
+    "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_001",
+    "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_002",
+    "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_003",
+    "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_004"
+  ],
+  "data_edges": [
+    {
+      "edge_id": "edge_6dfe7fec861ee00fa5e45c9b",
+      "edge_type": "data_flow",
+      "evidence_refs": [],
+      "existing_edge_id": "edge_6dfe7fec861ee00fa5e45c9b",
+      "origin": "existing_active",
+      "source_role": "object",
+      "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000",
+      "target_role": "object",
+      "target_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_004"
+    },
+    {
+      "edge_id": "edge_c80b27633e41bf5729f722db",
+      "edge_type": "data_flow",
+      "evidence_refs": [],
+      "existing_edge_id": "",
+      "origin": "extractor_validated",
+      "source_role": "location",
+      "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_001",
+      "target_role": "container",
+      "target_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_002"
+    },
+    {
+      "edge_id": "edge_379ed2ebcc6aec1a742f41c8",
+      "edge_type": "data_flow",
+      "evidence_refs": [],
+      "existing_edge_id": "",
+      "origin": "extractor_validated",
+      "source_role": "object",
+      "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000",
+      "target_role": "object",
+      "target_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_003"
+    },
+    {
+      "edge_id": "edge_5b979bf38f4f4dd1db81790d",
+      "edge_type": "data_flow",
+      "evidence_refs": [],
+      "existing_edge_id": "",
+      "origin": "extractor_validated",
+      "source_role": "container",
+      "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_002",
+      "target_role": "station",
+      "target_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_003"
+    }
+  ],
+  "dependency_edges": [],
+  "goal_contract": {
+    "cardinality_constraints": [],
+    "confidence": 1.0,
+    "identity_constraints": [
+      {
+        "left_role": "object",
+        "relation": "same_as",
+        "right_role": "object",
+        "scope": "task"
+      }
+    ],
+    "source": "adapter_derived",
+    "target_effects": [
+      {
+        "args": {
+          "object": "mug"
+        },
+        "cardinality": 1,
+        "distinct_by": "",
+        "effect_domain": "world",
+        "predicate": "object.cooled"
+      },
+      {
+        "args": {
+          "location": "shelf",
+          "object": "mug"
+        },
+        "cardinality": 1,
+        "distinct_by": "",
+        "effect_domain": "world",
+        "predicate": "object.at_location"
+      }
+    ],
+    "validator_id": "alfworld_v3_goal"
+  },
+  "guideline": {
+    "portability": "Applies to any ordered composition of occurrences whose inputs and outputs are related by explicitly shared abstract binding identities.",
+    "principle": "Represent only genuine identity-preserving flows between occurrences, and let the fixed control sequence carry execution order.",
+    "rules": [
+      "Add a flow from a producing output to a consuming input only when both roles denote the same shared binding identity.",
+      "Give each consuming input a single producing source; when an already-active identity edge already supplies that source, reuse it rather than adding another.",
+      "Direct every flow from an earlier occurrence to a later one, following the control order, and never reverse it.",
+      "Do not add ordering or precondition relationships that merely restate position in the fixed sequence.",
+      "Do not derive a mapping from matching role names, lexical similarity, or an assumed task recipe; require an actual shared-identity relationship.",
+      "Leave an input that has no in-sequence producer unlinked instead of fabricating a source."
+    ]
+  },
+  "insight": {
+    "observations": [
+      "A single concrete object identity is produced at acquisition and re-consumed at cooling and at final delivery, forming one continuous object trajectory.",
+      "A single concrete location identity is produced by relocation and reused as the container to open and as the cooling station, so those roles denote the same entity.",
+      "The final placement binds that same held object together with a separate, externally supplied destination identity that has no in-sequence producer, so it stays unlinked.",
+      "Because the shared identities are explicit, only identity-preserving flows are needed; sequence-position relationships are redundant with the fixed ordering, and an already-active flow covering a consuming input is reused rather than duplicated."
+    ]
+  },
+  "metadata": {
+    "artifact_label_concrete_term_violation_count": 0,
+    "binding_origins": {
+      "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000": {
+        "object": {
+          "kind": "task",
+          "source_role": "object"
+        },
+        "source": {
+          "kind": "runtime"
+        }
+      },
+      "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_001": {
+        "destination": {
+          "kind": "runtime"
+        }
+      },
+      "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_002": {
+        "container": {
+          "kind": "data_flow",
+          "source_role": "location",
+          "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_001"
+        }
+      },
+      "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_003": {
+        "object": {
+          "kind": "data_flow",
+          "source_role": "object",
+          "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000"
+        },
+        "station": {
+          "kind": "data_flow",
+          "source_role": "container",
+          "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_002"
+        }
+      },
+      "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_004": {
+        "destination": {
+          "kind": "task",
+          "source_role": "destination"
+        },
+        "object": {
+          "kind": "data_flow",
+          "source_role": "object",
+          "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000"
+        }
+      }
+    },
+    "completion_authority": {
+      "kind": "complete_contract",
+      "source_composite_ref": ""
+    },
+    "guideline_portability_fallback": false,
+    "observed_task_contract_coverage": {},
+    "ordered_canonical_intents": [
+      "pick_up_object_from_its_location",
+      "go_to_location",
+      "open_container",
+      "cool_object_at_station",
+      "deliver_held_object_to_target_location"
+    ],
+    "source_trace_ids": [
+      "trace_3ca42c5e44294e25bcbb9c9ab65bf0a6"
+    ],
+    "summary_portability_fallback": false,
+    "terminal_certificate": {}
+  },
+  "occurrences": [
+    {
+      "binding_specs": {
+        "object": {
+          "constant": null,
+          "kind": "skill_input",
+          "source_role": "object",
+          "source_step": "",
+          "transform_id": ""
+        }
+      },
+      "node_ref": {
+        "logical_id": "atomic_047be20ec7ca6a91bff7d815",
+        "version": "1.0.0"
+      },
+      "occurrence_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000",
+      "step_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000"
+    },
+    {
+      "binding_specs": {},
+      "node_ref": {
+        "logical_id": "atomic_328bbbcd0f331c16c251c0cb",
+        "version": "1.0.0"
+      },
+      "occurrence_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_001",
+      "step_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_001"
+    },
+    {
+      "binding_specs": {
+        "container": {
+          "constant": null,
+          "kind": "data_flow",
+          "source_role": "location",
+          "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_001",
+          "transform_id": ""
+        }
+      },
+      "node_ref": {
+        "logical_id": "atomic_1379e6507862282f8ba51649",
+        "version": "1.0.0"
+      },
+      "occurrence_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_002",
+      "step_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_002"
+    },
+    {
+      "binding_specs": {
+        "object": {
+          "constant": null,
+          "kind": "data_flow",
+          "source_role": "object",
+          "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000",
+          "transform_id": ""
+        },
+        "station": {
+          "constant": null,
+          "kind": "data_flow",
+          "source_role": "container",
+          "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_002",
+          "transform_id": ""
+        }
+      },
+      "node_ref": {
+        "logical_id": "atomic_70439d7754a753c06c129c99",
+        "version": "1.0.0"
+      },
+      "occurrence_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_003",
+      "step_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_003"
+    },
+    {
+      "binding_specs": {
+        "destination": {
+          "constant": null,
+          "kind": "skill_input",
+          "source_role": "destination",
+          "source_step": "",
+          "transform_id": ""
+        },
+        "object": {
+          "constant": null,
+          "kind": "data_flow",
+          "source_role": "object",
+          "source_step": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_000",
+          "transform_id": ""
+        }
+      },
+      "node_ref": {
+        "logical_id": "atomic_e980128e6c866d214cfae3e5",
+        "version": "1.0.0"
+      },
+      "occurrence_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_004",
+      "step_id": "occ_trace_3ca42c5e44294e25bcbb9c9ab65bf0a6_004"
+    }
+  ],
+  "ref": {
+    "logical_id": "composite_ec077ae0a450fd66efdbc8ac",
+    "version": "1.0.0"
+  },
+  "schema_version": 3,
+  "status": "candidate",
+  "summary": "An ordered composition in which an agent acquires a held object, relocates to a destination, opens a container at that destination, cools the held object at that station, and finally delivers the object to a target location. One concrete object identity is carried from acquisition through cooling and delivery, and one concrete location identity is shared between the relocation, the container opening, and the cooling station. Ordering is expressed entirely by the fixed occurrence sequence, so the composition keeps only identity-preserving flows and reuses the already-active object flow; the externally supplied final destination has no in-sequence producer and is left unlinked.",
+  "validator_spec": {
+    "canonical_sequence": true,
+    "completion_authority": "complete_contract",
+    "self_sufficiency_required": true,
+    "task_contract_covered": true
+  }
+}

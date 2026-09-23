@@ -1,0 +1,630 @@
+[
+  {
+    "ref": "skill://atomic_047be20ec7ca6a91bff7d815@1.0.0",
+    "source_path": "seed42/frozen/artifacts/atomic/atomic_047be20ec7ca6a91bff7d815/1.0.0.json",
+    "source_sha256": "7d949be4ab6ecaabaa361ef7e4054bf60d76b028aecb66a8f0c9ed42cf69b086",
+    "asset": {
+      "effects": [
+        {
+          "args": {
+            "object": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "object",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "agent.holds"
+        }
+      ],
+      "failure_modes": [],
+      "guideline": {
+        "notes": [
+          "Co-location with the source is required before taking.",
+          "The taken object keeps its original identity; return it rather than a new one."
+        ],
+        "steps": [
+          "Ensure the agent is standing at the source location of the object.",
+          "Ensure the target object has been observed at that source.",
+          "Perform the take action on the object from the source location.",
+          "Confirm the agent holds the object."
+        ]
+      },
+      "inputs": [
+        {
+          "description": "The concrete object to pick up.",
+          "name": "object",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": true,
+          "semantic_type": "entity"
+        },
+        {
+          "description": "The location currently holding the object.",
+          "name": "source",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": true,
+          "semantic_type": "entity"
+        }
+      ],
+      "metadata": {
+        "canonical_intent": "pick_up_object_from_its_location",
+        "canonical_label_source": "llm_portable",
+        "source_trace_ids": [
+          "trace_d079b7d5b99b461c9277ec64821833d5"
+        ]
+      },
+      "outputs": [
+        {
+          "description": "The same object identity, now held by the agent.",
+          "name": "object",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": false,
+          "semantic_type": "entity"
+        }
+      ],
+      "preconditions": [
+        {
+          "args": {
+            "location": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "source",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "agent.at_location"
+        },
+        {
+          "args": {
+            "entity": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "object",
+              "source_step": "",
+              "transform_id": ""
+            },
+            "location": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "source",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "evidence",
+          "predicate": "entity.discovered_at"
+        }
+      ],
+      "ref": {
+        "logical_id": "atomic_047be20ec7ca6a91bff7d815",
+        "version": "1.0.0"
+      },
+      "schema_version": 3,
+      "status": "candidate",
+      "summary": "pick up object from its location",
+      "validator_spec": {
+        "identity_strict": true,
+        "output_derivations": {
+          "object": {
+            "input_role": "object",
+            "kind": "input_identity"
+          }
+        },
+        "output_identity": [
+          {
+            "input_role": "object",
+            "output_role": "object"
+          }
+        ],
+        "output_semantic_constraints": {
+          "object": {
+            "compatible_with_input": "object"
+          }
+        },
+        "validator_id": "harness_atomic_effect"
+      }
+    }
+  },
+  {
+    "ref": "skill://atomic_328bbbcd0f331c16c251c0cb@1.0.0",
+    "source_path": "seed42/frozen/artifacts/atomic/atomic_328bbbcd0f331c16c251c0cb/1.0.0.json",
+    "source_sha256": "aa4188f6c7380558e371fedd7e07b274252b97710a6afc81a1ffe2f3ff3baf34",
+    "asset": {
+      "effects": [
+        {
+          "args": {
+            "location": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "destination",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "agent.at_location"
+        }
+      ],
+      "failure_modes": [],
+      "guideline": {
+        "notes": [
+          "Navigation has no entry precondition about prior position or held object; any known location may be targeted.",
+          "Arriving at a location can also surface discovery evidence for entities present there."
+        ],
+        "steps": [
+          "Resolve the concrete destination location entity for the current navigation subgoal.",
+          "Issue the navigation action toward that destination.",
+          "Confirm arrival through the emitted at_location effect before continuing."
+        ]
+      },
+      "inputs": [
+        {
+          "description": "Target location entity the agent should move to.",
+          "name": "destination",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": true,
+          "semantic_type": "entity"
+        }
+      ],
+      "metadata": {
+        "canonical_intent": "go_to_location",
+        "canonical_label_source": "llm_portable",
+        "source_trace_ids": [
+          "trace_cf96c18684a74960b6c2d65c8dfa8c6d"
+        ]
+      },
+      "outputs": [
+        {
+          "description": "Location the agent actually reached; identical to the requested destination.",
+          "name": "location",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": false,
+          "semantic_type": "entity"
+        }
+      ],
+      "preconditions": [],
+      "ref": {
+        "logical_id": "atomic_328bbbcd0f331c16c251c0cb",
+        "version": "1.0.0"
+      },
+      "schema_version": 3,
+      "status": "candidate",
+      "summary": "go to location",
+      "validator_spec": {
+        "identity_strict": true,
+        "output_derivations": {
+          "location": {
+            "input_role": "destination",
+            "kind": "input_identity"
+          }
+        },
+        "output_identity": [
+          {
+            "input_role": "destination",
+            "output_role": "location"
+          }
+        ],
+        "output_semantic_constraints": {
+          "location": {
+            "compatible_with_input": "destination"
+          }
+        },
+        "validator_id": "harness_atomic_effect"
+      }
+    }
+  },
+  {
+    "ref": "skill://atomic_1379e6507862282f8ba51649@1.0.0",
+    "source_path": "seed42/frozen/artifacts/atomic/atomic_1379e6507862282f8ba51649/1.0.0.json",
+    "source_sha256": "088d79949fdff22a815215652d2b7cd43a49ffa228faf0e31b3eca45386ffe41",
+    "asset": {
+      "effects": [
+        {
+          "args": {
+            "container": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "container",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "container.open"
+        }
+      ],
+      "failure_modes": [],
+      "guideline": {
+        "notes": [
+          "Opening normally requires the agent to share the container's location, so treat co-location as a precondition supplied by a separate go-to step rather than internal work.",
+          "Pass the container identity straight through to the output; do not invent or substitute a different instance."
+        ],
+        "steps": [
+          "Resolve the target container to one concrete grounded entity before acting.",
+          "Ensure the agent is co-located with that container; navigate there first if the location precondition is unmet.",
+          "Perform the open action on the container and confirm the container.open effect for that exact instance."
+        ]
+      },
+      "inputs": [
+        {
+          "description": "",
+          "name": "container",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": true,
+          "semantic_type": "entity"
+        }
+      ],
+      "metadata": {
+        "canonical_intent": "open_container",
+        "canonical_label_source": "llm_portable",
+        "source_trace_ids": [
+          "trace_e2ecda766f684411a03eea8b9ac932ab"
+        ]
+      },
+      "outputs": [
+        {
+          "description": "",
+          "name": "container",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": false,
+          "semantic_type": "entity"
+        }
+      ],
+      "preconditions": [
+        {
+          "args": {
+            "location": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "container",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "agent.at_location"
+        }
+      ],
+      "ref": {
+        "logical_id": "atomic_1379e6507862282f8ba51649",
+        "version": "1.0.0"
+      },
+      "schema_version": 3,
+      "status": "candidate",
+      "summary": "open container",
+      "validator_spec": {
+        "identity_strict": true,
+        "output_derivations": {
+          "container": {
+            "input_role": "container",
+            "kind": "input_identity"
+          }
+        },
+        "output_identity": [
+          {
+            "input_role": "container",
+            "output_role": "container"
+          }
+        ],
+        "output_semantic_constraints": {
+          "container": {
+            "compatible_with_input": "container"
+          }
+        },
+        "validator_id": "harness_atomic_effect"
+      }
+    }
+  },
+  {
+    "ref": "skill://atomic_70439d7754a753c06c129c99@1.0.0",
+    "source_path": "seed42/frozen/artifacts/atomic/atomic_70439d7754a753c06c129c99/1.0.0.json",
+    "source_sha256": "650c245add6c86977e85e0524cef473e9c884bf04b12f72c6237bddec7494533",
+    "asset": {
+      "effects": [
+        {
+          "args": {
+            "object": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "object",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "object.cooled"
+        }
+      ],
+      "failure_modes": [],
+      "guideline": {
+        "notes": [
+          "Cooling requires an accessible cooling appliance serving as the station.",
+          "Keep the object identity unchanged; publish the same held object."
+        ],
+        "steps": [
+          "Confirm the agent holds the target object and is located at the cooling station.",
+          "Invoke the native cool step with the held object and that station.",
+          "Verify the resulting world fact object.cooled for the same object."
+        ]
+      },
+      "inputs": [
+        {
+          "description": "",
+          "name": "object",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": true,
+          "semantic_type": "entity"
+        },
+        {
+          "description": "",
+          "name": "station",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": true,
+          "semantic_type": "entity"
+        }
+      ],
+      "metadata": {
+        "canonical_intent": "cool_object_at_station",
+        "canonical_label_source": "llm_portable",
+        "source_trace_ids": [
+          "trace_201e204aa6584a9db67cb52262b13985"
+        ]
+      },
+      "outputs": [
+        {
+          "description": "",
+          "name": "object",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": false,
+          "semantic_type": "entity"
+        }
+      ],
+      "preconditions": [
+        {
+          "args": {
+            "object": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "object",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "agent.holds"
+        },
+        {
+          "args": {
+            "location": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "station",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "agent.at_location"
+        }
+      ],
+      "ref": {
+        "logical_id": "atomic_70439d7754a753c06c129c99",
+        "version": "1.0.0"
+      },
+      "schema_version": 3,
+      "status": "candidate",
+      "summary": "cool object at station",
+      "validator_spec": {
+        "identity_strict": true,
+        "output_derivations": {
+          "object": {
+            "input_role": "object",
+            "kind": "input_identity"
+          }
+        },
+        "output_identity": [
+          {
+            "input_role": "object",
+            "output_role": "object"
+          }
+        ],
+        "output_semantic_constraints": {
+          "object": {
+            "compatible_with_input": "object"
+          }
+        },
+        "validator_id": "harness_atomic_effect"
+      }
+    }
+  },
+  {
+    "ref": "skill://atomic_e980128e6c866d214cfae3e5@1.0.0",
+    "source_path": "seed42/frozen/artifacts/atomic/atomic_e980128e6c866d214cfae3e5/1.0.0.json",
+    "source_sha256": "25d3de02d4e10fb86e98f91bef72fe09c7e63886b10089eb042a1ecd1f24f1ec",
+    "asset": {
+      "effects": [
+        {
+          "args": {
+            "location": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "destination",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "agent.at_location"
+        },
+        {
+          "args": {
+            "location": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "destination",
+              "source_step": "",
+              "transform_id": ""
+            },
+            "object": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "object",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "object.at_location"
+        }
+      ],
+      "failure_modes": [],
+      "guideline": {
+        "notes": [
+          "Do not release the object before reaching the destination.",
+          "Success is the object's world location equalling the requested destination."
+        ],
+        "steps": [
+          "Confirm the agent is holding the object to be delivered.",
+          "Navigate to the destination location while still holding it.",
+          "Perform the place action to set the object down at the destination.",
+          "Confirm the object's location now equals the destination."
+        ]
+      },
+      "inputs": [
+        {
+          "description": "The concrete object the agent is holding.",
+          "name": "object",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": true,
+          "semantic_type": "entity"
+        },
+        {
+          "description": "The target location where the object must be placed.",
+          "name": "destination",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": true,
+          "semantic_type": "entity"
+        }
+      ],
+      "metadata": {
+        "canonical_intent": "deliver_held_object_to_target_location",
+        "canonical_label_source": "llm_portable",
+        "source_trace_ids": [
+          "trace_d079b7d5b99b461c9277ec64821833d5"
+        ]
+      },
+      "outputs": [
+        {
+          "description": "The delivered object identity.",
+          "name": "object",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": false,
+          "semantic_type": "entity"
+        },
+        {
+          "description": "The destination location the object was placed at.",
+          "name": "location",
+          "required": true,
+          "required_resolution": "concrete",
+          "runtime_resolvable": false,
+          "semantic_type": "entity"
+        }
+      ],
+      "preconditions": [
+        {
+          "args": {
+            "object": {
+              "constant": null,
+              "kind": "skill_input",
+              "source_role": "object",
+              "source_step": "",
+              "transform_id": ""
+            }
+          },
+          "cardinality": 1,
+          "distinct_by": "",
+          "effect_domain": "world",
+          "predicate": "agent.holds"
+        }
+      ],
+      "ref": {
+        "logical_id": "atomic_e980128e6c866d214cfae3e5",
+        "version": "1.0.0"
+      },
+      "schema_version": 3,
+      "status": "candidate",
+      "summary": "deliver held object to target location",
+      "validator_spec": {
+        "identity_strict": true,
+        "output_derivations": {
+          "location": {
+            "input_role": "destination",
+            "kind": "input_identity"
+          },
+          "object": {
+            "input_role": "object",
+            "kind": "input_identity"
+          }
+        },
+        "output_identity": [
+          {
+            "input_role": "destination",
+            "output_role": "location"
+          },
+          {
+            "input_role": "object",
+            "output_role": "object"
+          }
+        ],
+        "output_semantic_constraints": {
+          "location": {
+            "compatible_with_input": "destination"
+          },
+          "object": {
+            "compatible_with_input": "object"
+          }
+        },
+        "validator_id": "harness_atomic_effect"
+      }
+    }
+  }
+]

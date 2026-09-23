@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..agents.protocol import SchemaValidationError, validate_schema_instance
+from ..agents.native_call_contract import IMPLEMENTATION_HELP
 from ..core.bindings import (
     BindingExprKind, BindingExpression, BindingResolution, BindingSource,
     BindingStatus, GroundingConstraint, GroundingConstraintKind, RuntimeBinding,
@@ -203,9 +204,9 @@ class InvocationCompiler:
         return ImplementationInvocationSpec(
             name=f"invoke_impl_{name_id}_{name_digest}", implementation_ref=implementation.ref,
             atomic_ref=atomic.ref,
-            description=f"Execute learned implementation for: {description}. "
+            description=IMPLEMENTATION_HELP + f"Execute learned implementation for: {description}. "
                 f"Entry: {[(str(t.ref), t.interface['entry_contract']) for t in tools]}. "
-                f"Outputs: {[(p.name, p.semantic_type, p.required) for p in atomic.outputs]}",
+                f"Execution results (not caller inputs): {[(p.name, p.semantic_type, p.required) for p in atomic.outputs]}",
             input_schema={"type": "object", "properties": properties, "required": required, "additionalProperties": False},
             grounding_constraints=list(implementation.grounding_constraints),
             tool_refs=[item.tool_ref for item in sorted(implementation.tool_bindings, key=lambda item: item.order)],

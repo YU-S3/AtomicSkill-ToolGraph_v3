@@ -316,6 +316,8 @@ def prepare_oldfirst(spec, edit_plan):
             patch = plan['deployment_preferences_patch']
             preferences['preferred_composites'].append({'composite_ref': resolved_refs.get(
                 patch['prefer_workflow_ref'], patch['prefer_workflow_ref']), 'priority': 200})
+            for ref in patch.get('additional_preferred_workflow_refs', []):
+                preferences['preferred_composites'].append({'composite_ref': ref, 'priority': 300})
         for job in program_jobs(plan):
             preferences['preferred_implementations'].append({'atomic_ref': job['atomic_ref'],
                 'implementation_ref': job['implementation_ref'],

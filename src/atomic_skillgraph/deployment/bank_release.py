@@ -510,6 +510,10 @@ def load_release_source(path,config):
     if protocol not in {PROTOCOL_VERSION, OLDFIRST_PROTOCOL_VERSION} or manifest.get('seed')!=seed or manifest.get('source_zip_hash') not in sources:
         raise ReleaseError('release source identity mismatch')
     if manifest['files']!=_bank_files(bank):raise ReleaseError('release files missing, modified or unexpected')
+    if (bank/'native_call_contract.json').is_file():
+        from ..agents.native_call_contract import NATIVE_CALL_CONTRACT_VERSION
+        if json.loads((bank/'native_call_contract.json').read_text())['version'] != NATIVE_CALL_CONTRACT_VERSION:
+            raise ReleaseError('native call contract version mismatch')
     if manifest['code_hash']!=hash_code(Path(__file__).resolve().parents[3]):raise ReleaseError('release evaluator code mismatch')
     resources=release_resources(config)
     if manifest['resource_hash']!=hash_config(resources):raise ReleaseError('release model/resource mismatch')

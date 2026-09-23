@@ -77,7 +77,8 @@ class SupportCallSurface:
             'type': 'object', 'required': ['support_call_id', 'arguments'], 'additionalProperties': False,
             'properties': {'support_call_id': {'type': 'string',
                 'enum': [o.support_call_id for o in self.options]},
-                'arguments': public_arguments_schema(self.options)}})
+                'arguments': public_arguments_schema(self.options)}},
+            call_kind='support', scope=self.scope, result_owner='support_executor_and_validator')
 
 
 @dataclass(frozen=True)

@@ -56,6 +56,10 @@ def surface_audit(trace):
     for request in trace.get('provider_requests', []):
         matches = [s for s in surfaces if s['session_id'] == request['session_id']]
         if not matches:
+            payload = request.get('final_payload_audit') or {}
+            offered = [t for t in payload.get('tools', []) if t.get('function', {}).get('name') == 'invoke_support_atomic']
+            if offered:
+                checks.append({'request_id': request['request_id'], 'passed': False, 'reason': 'offered_support_without_surface'})
             continue
         payload = request.get('final_payload_audit') or {}
         native = [t['function']['parameters']['properties']['support_call_id']['enum']
@@ -99,6 +103,13 @@ def verify_coverage(root, *, write=False):
             audit = surface_audit(trace)
             if not audit['passed']:
                 raise ReleaseError(f'HTTP/Support surface mismatch: {output}')
+            if (root/f'seed{seed}/frozen/native_call_contract.json').is_file():
+                from .native_contract_audit import audit_trace
+                native = audit_trace(trace)
+                if not native['passed']:
+                    atomic_write_json(output/'native_contract_failure.json', native)
+                    raise ReleaseError(f'HTTP/Session native schema or usage mismatch: {output}')
+                row['native_contract_audit'] = native
             rows.append({'seed': seed, 'task_id': entry['task_id'], 'surface_audit': audit, **row})
         auto_path = root/'dev'/f'seed{seed}'/'automation/acceptance.json'
         auto = json.loads(read(auto_path))
@@ -109,6 +120,14 @@ def verify_coverage(root, *, write=False):
                 or sha(auto_path.parent/'traces'/f"{auto['trace_id']}.json") != auto['trace_sha256']):
             raise ReleaseError('controlled public discovery/dataflow acceptance failed')
         controlled.append({'seed': seed, 'path': str(auto_path), 'sha256': sha(auto_path)})
+    if (root/'seed42/frozen/native_call_contract.json').is_file():
+        graph_path = root/'dev/seed42/graph_revision/acceptance.json'
+        graph = json.loads(read(graph_path))
+        if (not graph['passed'] or graph['code_hash'] != code
+                or graph['bank_digest'] != json.loads(read(root/'seed42/frozen/release_manifest.json'))['knowledge_digest']
+                or not graph['trace_hashes'] or any(sha(graph_path.parent/p) != h for p, h in graph['trace_hashes'].items())):
+            raise ReleaseError('controlled graph revision acceptance failed')
+        controlled.append({'kind': 'seed42_graph_revision', 'path': str(graph_path), 'sha256': sha(graph_path)})
     result = {'passed': True, 'suite': 'oldfirst-coverage6', 'code_hash': code, 'episodes': rows}
     if write:
         atomic_write_json(root/'dev/coverage_acceptance.json', result)
@@ -123,7 +142,8 @@ def verify_coverage(root, *, write=False):
             measurements.append({'seed': row['seed'], 'task_id': row['task_id'],
                 'task_type': trace['task']['task_type'], 'success': trace['benchmark_success'],
                 'costs': row['costs'], 'selected_route': (trace.get('runtime_plan') or {}).get('source'),
-                'summary': summary, 'interfaces': trace_metrics(trace)})
+                'summary': summary, 'interfaces': trace_metrics(trace),
+                'native_protocol': row.get('native_contract_audit', {'status': 'legacy/not_captured'})})
         report = {'passed': True, 'episode_count': len(rows),
             'successes': sum(m['success'] is True for m in measurements),
             'all_task_token_distribution': distribution(r['costs']['total_tokens'] for r in rows),
@@ -154,6 +174,13 @@ def run_seed(root, seed, entries):
     controlled_entry = next(e for e in entries if e['task_type'] == 'look_at_obj_in_light')
     if not output.exists():
         controlled(config, controlled_entry, output)
+    if seed == 42 and (root/'seed42/frozen/native_call_contract.json').is_file():
+        from .release5_graph_checks import run as graph_checks
+        graph_output = root/'dev/seed42/graph_revision'
+        if not graph_output.exists():
+            entry = next(e for e in entries if e['task_type'] == 'pick_cool_then_place_in_recep')
+            graph_ref = json.loads(read(root/'seed42_graph_revision_audit.json'))['target_ref']
+            graph_checks(episode_config(root, seed, entry), entry, graph_ref, graph_output)
     for entry in entries:
         config = episode_config(root, seed, entry)
         path = root/'dev/configs'/f'seed{seed}_{entry["task_id"]}.json'

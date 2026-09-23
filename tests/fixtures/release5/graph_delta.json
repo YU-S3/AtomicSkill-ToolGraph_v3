@@ -1,0 +1,127 @@
+{
+  "schema": "r103.release5.graph-delta.v1",
+  "status": "design_not_applied",
+  "baseline_commit": "a08ec998e2026e0dc88c021b2b129a8da561c9ac",
+  "seed": 42,
+  "source_archive_name": "seed42.zip",
+  "source_asset_path": "seed42/frozen/artifacts/composite/composite_ec077ae0a450fd66efdbc8ac/1.0.0.json",
+  "source_asset_sha256": "d8e5709d36cb71df34803177411f66fd6e0e9dc2aeaf49a35d31e684259af09a",
+  "source_ref": "skill://composite_ec077ae0a450fd66efdbc8ac@1.0.0",
+  "target_ref": "skill://composite_ec077ae0a450fd66efdbc8ac@1.0.1",
+  "operation": "version_existing_composite",
+  "target_nodes": [
+    {
+      "step_id": "take",
+      "atomic_ref": "skill://atomic_047be20ec7ca6a91bff7d815@1.0.0",
+      "binding_specs": {
+        "object": {
+          "kind": "skill_input",
+          "source_role": "object",
+          "source_step": "",
+          "constant": null,
+          "transform_id": ""
+        }
+      }
+    },
+    {
+      "step_id": "station_nav",
+      "atomic_ref": "skill://atomic_328bbbcd0f331c16c251c0cb@1.0.0",
+      "binding_specs": {}
+    },
+    {
+      "step_id": "station_open",
+      "atomic_ref": "skill://atomic_1379e6507862282f8ba51649@1.0.0",
+      "binding_specs": {
+        "container": {
+          "kind": "data_flow",
+          "source_role": "location",
+          "source_step": "station_nav",
+          "constant": null,
+          "transform_id": ""
+        }
+      }
+    },
+    {
+      "step_id": "cool",
+      "atomic_ref": "skill://atomic_70439d7754a753c06c129c99@1.0.0",
+      "binding_specs": {
+        "object": {
+          "kind": "data_flow",
+          "source_role": "object",
+          "source_step": "take",
+          "constant": null,
+          "transform_id": ""
+        },
+        "station": {
+          "kind": "data_flow",
+          "source_role": "location",
+          "source_step": "station_nav",
+          "constant": null,
+          "transform_id": ""
+        }
+      }
+    },
+    {
+      "step_id": "deliver",
+      "atomic_ref": "skill://atomic_e980128e6c866d214cfae3e5@1.0.0",
+      "binding_specs": {
+        "object": {
+          "kind": "data_flow",
+          "source_role": "object",
+          "source_step": "cool",
+          "constant": null,
+          "transform_id": ""
+        },
+        "destination": {
+          "kind": "skill_input",
+          "source_role": "destination",
+          "source_step": "",
+          "constant": null,
+          "transform_id": ""
+        }
+      }
+    }
+  ],
+  "preserve": {
+    "goal_contract": "byte_equivalent",
+    "atomic_refs": true,
+    "implementation_refs": true,
+    "tool_refs": true,
+    "original_artifact_and_history": true,
+    "other_seed_asset_content": true
+  },
+  "proof_obligations": [
+    {
+      "rewrite": "station_open.container -> cool.station replaced by station_nav.location -> cool.station",
+      "basis": "station_open Atomic validator_spec declares output container as input_identity(container); verify exact role types and existing path"
+    },
+    {
+      "rewrite": "take.object -> deliver.object replaced by cool.object -> deliver.object",
+      "basis": "cool Atomic validator_spec declares output object as input_identity(object); input comes from take.object; verify exact role types"
+    },
+    {
+      "rewrite": "step ID relabel",
+      "basis": "Rebuild every edge, binding_specs, control_sequence and provenance map from target_nodes; do not retain source-scoped edge IDs"
+    }
+  ],
+  "forbidden": [
+    "copy identity values from observed eval games",
+    "force station to task.destination",
+    "hardcode station class/instance or task family in Runtime",
+    "copy old successful deployment count",
+    "release partial dependency closure",
+    "treat this plan as already validated"
+  ],
+  "release_preferences": {
+    "replace_preferred_source_composite": true,
+    "preserve_old_asset_without_default_selection": true
+  },
+  "validation": [
+    "normalization and full goal coverage",
+    "one authoritative source per input",
+    "existing dataflow/identity/Repeat validators",
+    "actual native policy exposes station_nav output to cool.station",
+    "controlled distinct intermediate station and final destination case",
+    "no source or evaluation history overwritten"
+  ]
+}

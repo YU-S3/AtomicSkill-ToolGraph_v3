@@ -221,6 +221,13 @@ class OpenAICompatibleProvider:
             'tools': copy.deepcopy(payload.get('tools', [])),
             'captured_after_build_payload': True,
         }
+        from .native_call_contract import NativeCallContractView, canonical, NATIVE_CALL_CONTRACT_VERSION
+        contracts = [NativeCallContractView.from_tool(t).to_dict() for t in (tools or [])]
+        actual_schemas = {t['function']['name']: canonical(t['function']['parameters']) for t in payload.get('tools', [])}
+        if actual_schemas != {c['tool_name']: c['input_schema_json'] for c in contracts}:
+            raise ValueError('final provider schema differs from request contract')
+        self._request_context.final_payload_audit.update(native_call_contract_version=NATIVE_CALL_CONTRACT_VERSION,
+                                                       native_call_contracts=contracts)
         api_key = self.config.resolve_api_key()
         headers = {
             "Authorization": f"Bearer {api_key}",

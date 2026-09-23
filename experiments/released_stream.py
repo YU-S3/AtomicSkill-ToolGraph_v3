@@ -56,6 +56,7 @@ def verify_gate(root):
 def run_stream(root, seed, *, resume=False, first_only=False):
     import fcntl
     from .run_v3_released_frozen import run
+    from .release_control import check_stop, ReleaseStopRequested
     root = Path(root).resolve()
     with (root/f'seed{seed}.lock').open('a') as lock:
         try:
@@ -65,6 +66,11 @@ def run_stream(root, seed, *, resume=False, first_only=False):
         for row in validate_plan(root):
             if row['seed'] != seed or (first_only and row['rep'] != 1):
                 continue
+            try:
+                check_stop(root, seed)
+            except ReleaseStopRequested as exc:
+                print(str(exc), flush=True)
+                return
             state = run_state(row)
             if state == 'completed':
                 print(f"seed{seed} rep{row['rep']:02} already complete; preserved", flush=True)
@@ -72,7 +78,11 @@ def run_stream(root, seed, *, resume=False, first_only=False):
             if state == 'resume_required' and not resume:
                 raise ReleaseError(f"{row['output']} is unfinished; use explicit --resume")
             print(f"seed{seed} rep{row['rep']:02}: {state}", flush=True)
-            run(Path(row['config']), resume=state == 'resume_required')
+            try:
+                run(Path(row['config']), resume=state == 'resume_required')
+            except ReleaseStopRequested as exc:
+                print(str(exc), flush=True)
+                return
 
 
 def main():

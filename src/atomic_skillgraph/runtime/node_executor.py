@@ -138,6 +138,8 @@ class NodeExecutor:
                 "type": "object", "required": required,
                 "additionalProperties": False, "properties": properties,
             },
+            call_kind='environment_action', scope='node' if atomic is not None else 'task',
+            result_owner='environment_and_validator',
         )
 
     @staticmethod
@@ -174,6 +176,8 @@ class NodeExecutor:
                     },
                 },
             },
+            call_kind='runtime_status', scope='node' if allow_plan_conflict else 'task',
+            result_owner='runtime_dispatcher',
         )
 
     @staticmethod
@@ -557,6 +561,7 @@ class NodeExecutor:
             "are not inferred. Skill guidance is optional; the structured contract is binding.",
             {"type": "object", "properties": NodeExecutor._completion_candidate_schema(atomic),
              "required": [], "additionalProperties": False},
+            call_kind='atomic_validation', scope='node', result_owner='atomic_validator',
         )
 
     @staticmethod
@@ -565,6 +570,7 @@ class NodeExecutor:
             item.spec.name,
             _ONE_NATIVE_CALL + item.spec.description,
             item.spec.input_schema,
+            call_kind='implementation', scope='node', result_owner='implementation_and_validator',
         )
 
     def _record_session_start(self, session: Any, session_type: str, occurrence_id: str, ctx: Any) -> AgentSessionRecord:
@@ -1340,6 +1346,7 @@ class NodeExecutor:
             "when the target is semantic. This is an "
             "Atomic contract draft, never source code and never create_tool.",
             RUNTIME_AUTOMATION_ATOMIC_SCHEMA,
+            call_kind='automation_draft', scope='draft', result_owner='draft_validator',
         )
 
     def _record_control_call(

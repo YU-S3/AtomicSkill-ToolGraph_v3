@@ -212,4 +212,10 @@ def revise_graph(job, source):
     graph.insight = {}
     graph.validator_spec = {'canonical_sequence': True, 'self_sufficiency_required': True, 'task_contract_covered': False}
     graph.status = SkillStatus.DRAFT
+    if job.get('operation') == 'version_existing_composite':
+        # An authored graph delta, not a Runtime route-selection rule.
+        graph.metadata['binding_origins'] = {o.step_id: {r: to_primitive(b)
+            for r, b in o.binding_specs.items()} for o in graph.occurrences}
+        graph.guideline = {'steps': [f'Execute {o.step_id} under its Atomic contract and declared dataflow.'
+            for o in graph.occurrences], 'notes': ['Intermediate inputs are selected using their direct consumers; task anchors bind only where declared.']}
     return graph

@@ -5897,6 +5897,12 @@ class AtomicSkillGraphSystem:
                     dict(turn.provider_metadata),
                     turn.reasoning_content,
                 ))
+        from .agents.native_call_contract import NATIVE_CALL_CONTRACT_VERSION
+        trace.metadata['native_call_contract_version'] = NATIVE_CALL_CONTRACT_VERSION
+        trace.metadata['native_call_contracts'] = [c for s in trace.agent_sessions
+            for c in s.snapshot.get('native_call_contracts', [])]
+        trace.metadata['native_protocol_diagnostics'] = [d for s in trace.agent_sessions
+            for d in s.snapshot.get('native_protocol_diagnostics', [])]
 
     def preflight(
         self,

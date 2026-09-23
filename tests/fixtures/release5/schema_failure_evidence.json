@@ -1,0 +1,2092 @@
+[
+  {
+    "seed": 42,
+    "task_index": 17,
+    "task_id": "alfworld_eval_out_of_distribution_17_pick_two_obj_and_place",
+    "trace_id": "trace_c5aabd8757ee423080bba209b4d73231",
+    "session_id": "session_7814556064a245a69be2727c8ac03b50",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "pillow_2",
+            "source": "armchair_1"
+          },
+          "candidate_outputs": {
+            "object": "pillow_2"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "pillow_2",
+          "source": "armchair_1"
+        },
+        "call_id": "call_00_75iNwZCV9WYiZEItx5Cc6317",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: pick up object from its location. Entry: [('tool://tool_fa4f1d920acf376763763128@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': '', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': '', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('object', 'entity', True)]",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "The concrete object to pick up.",
+              "type": "string"
+            },
+            "source": {
+              "description": "The location currently holding the object.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6092,
+    "task_won": true
+  },
+  {
+    "seed": 42,
+    "task_index": 26,
+    "task_id": "alfworld_eval_out_of_distribution_26_pick_clean_then_place_in_recep",
+    "trace_id": "trace_0274de65ca724949a174c54784055c15",
+    "session_id": "session_278c83c787474f0c9570fcd33fb527de",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "bowl_1",
+            "source": "cabinet_1"
+          },
+          "candidate_outputs": {
+            "object": "bowl_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "bowl_1",
+          "source": "cabinet_1"
+        },
+        "call_id": "call_00_OpGoajcO3yzOWNmiTPJt5451",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: pick up object from its location. Entry: [('tool://tool_fa4f1d920acf376763763128@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': '', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': '', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('object', 'entity', True)]",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "The concrete object to pick up.",
+              "type": "string"
+            },
+            "source": {
+              "description": "The location currently holding the object.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 8986,
+    "task_won": false
+  },
+  {
+    "seed": 42,
+    "task_index": 26,
+    "task_id": "alfworld_eval_out_of_distribution_26_pick_clean_then_place_in_recep",
+    "trace_id": "trace_0274de65ca724949a174c54784055c15",
+    "session_id": "session_278c83c787474f0c9570fcd33fb527de",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.candidate_bindings: additional property is not allowed",
+    "repair_attempted": false,
+    "turn_index": 1,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "bowl_1",
+            "source": "cabinet_1"
+          },
+          "candidate_outputs": {
+            "object": "bowl_1"
+          },
+          "object": "bowl_1",
+          "source": "cabinet_1"
+        },
+        "call_id": "call_00_0AVKGPUhorm5nbTMJPmF1031",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: pick up object from its location. Entry: [('tool://tool_fa4f1d920acf376763763128@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': '', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': '', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('object', 'entity', True)]",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "The concrete object to pick up.",
+              "type": "string"
+            },
+            "source": {
+              "description": "The location currently holding the object.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 9269,
+    "task_won": false
+  },
+  {
+    "seed": 42,
+    "task_index": 52,
+    "task_id": "alfworld_eval_out_of_distribution_52_pick_clean_then_place_in_recep",
+    "trace_id": "trace_dfa3941042d94772a8ad045e94c6b6d4",
+    "session_id": "session_1c1eb84ae4d64856ac871eaa7d975b31",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "cloth_1",
+            "source": "cabinet_1"
+          },
+          "candidate_outputs": {
+            "object": "cloth_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "cloth_1",
+          "source": "cabinet_1"
+        },
+        "call_id": "call_00_urRRFqD0ZzxEx3IrKTb01345",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: pick up object from its location. Entry: [('tool://tool_fa4f1d920acf376763763128@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': '', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': '', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('object', 'entity', True)]",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "The concrete object to pick up.",
+              "type": "string"
+            },
+            "source": {
+              "description": "The location currently holding the object.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 5973,
+    "task_won": true
+  },
+  {
+    "seed": 42,
+    "task_index": 8,
+    "task_id": "alfworld_eval_out_of_distribution_8_pick_two_obj_and_place",
+    "trace_id": "trace_17ccfb795afc42c387aa5d820a138d3b",
+    "session_id": "session_e515392d97a04de6bf87fdbf91b5678d",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "soapbar_2",
+            "source": "toilet_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "soapbar_2",
+          "source": "toilet_1"
+        },
+        "call_id": "call_00_HmmxZnfe6dauX89xV1HA6867",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: pick up object from its location. Entry: [('tool://tool_fa4f1d920acf376763763128@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': '', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': '', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('object', 'entity', True)]",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "The concrete object to pick up.",
+              "type": "string"
+            },
+            "source": {
+              "description": "The location currently holding the object.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6745,
+    "task_won": true
+  },
+  {
+    "seed": 42,
+    "task_index": 30,
+    "task_id": "alfworld_eval_out_of_distribution_30_pick_heat_then_place_in_recep",
+    "trace_id": "trace_5c09e5d3747d4ac5b770502e8a165fc0",
+    "session_id": "session_f1cc7a25aab647e3a759173267922121",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "apple_1",
+            "source": "garbagecan_1"
+          },
+          "candidate_outputs": {
+            "object": "apple_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "apple_1",
+          "source": "garbagecan_1"
+        },
+        "call_id": "call_00_VK4KJFcc7ltWN0PkFek17796",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: pick up object from its location. Entry: [('tool://tool_fa4f1d920acf376763763128@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': '', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': '', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('object', 'entity', True)]",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "The concrete object to pick up.",
+              "type": "string"
+            },
+            "source": {
+              "description": "The location currently holding the object.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6565,
+    "task_won": true
+  },
+  {
+    "seed": 42,
+    "task_index": 33,
+    "task_id": "alfworld_eval_out_of_distribution_33_pick_clean_then_place_in_recep",
+    "trace_id": "trace_0128baff074a469f881983201cb2ab03",
+    "session_id": "session_6c0023d77af34e059ade7cc440482c79",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "mug_1",
+            "source": "countertop_2"
+          },
+          "candidate_outputs": {
+            "object": "mug_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "mug_1",
+          "source": "countertop_2"
+        },
+        "call_id": "call_00_y64SJswPDAcsRtUjpJad6486",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: pick up object from its location. Entry: [('tool://tool_fa4f1d920acf376763763128@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': '', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': '', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('object', 'entity', True)]",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "The concrete object to pick up.",
+              "type": "string"
+            },
+            "source": {
+              "description": "The location currently holding the object.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 8130,
+    "task_won": false
+  },
+  {
+    "seed": 42,
+    "task_index": 33,
+    "task_id": "alfworld_eval_out_of_distribution_33_pick_clean_then_place_in_recep",
+    "trace_id": "trace_0128baff074a469f881983201cb2ab03",
+    "session_id": "session_6c0023d77af34e059ade7cc440482c79",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.candidate_bindings: additional property is not allowed",
+    "repair_attempted": false,
+    "turn_index": 1,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "mug_1",
+            "source": "countertop_2"
+          },
+          "candidate_outputs": {
+            "object": "mug_1"
+          },
+          "object": "mug_1",
+          "source": "countertop_2"
+        },
+        "call_id": "call_00_TvLdCzjgHFHNubovroKi0445",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: pick up object from its location. Entry: [('tool://tool_fa4f1d920acf376763763128@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': '', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': '', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('object', 'entity', True)]",
+        "name": "invoke_impl_pick_up_object_from_its_814e4162ef97",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "The concrete object to pick up.",
+              "type": "string"
+            },
+            "source": {
+              "description": "The location currently holding the object.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 8510,
+    "task_won": false
+  },
+  {
+    "seed": 43,
+    "task_index": 32,
+    "task_id": "alfworld_eval_out_of_distribution_32_pick_clean_then_place_in_recep",
+    "trace_id": "trace_6b80c762b08142fd9f15c780dc1c7c29",
+    "session_id": "session_a60001556e614422afd6746d79974e01",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "plate_3",
+            "source": "countertop_2"
+          },
+          "candidate_outputs": {
+            "held_object": "plate_3"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "plate_3",
+          "source": "countertop_2"
+        },
+        "call_id": "call_00_K3Gy3QGIHF9Hj34y9cFW8204",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_27b49b686c5e0d566bc2fc1c@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6987,
+    "task_won": false
+  },
+  {
+    "seed": 43,
+    "task_index": 32,
+    "task_id": "alfworld_eval_out_of_distribution_32_pick_clean_then_place_in_recep",
+    "trace_id": "trace_6b80c762b08142fd9f15c780dc1c7c29",
+    "session_id": "session_a60001556e614422afd6746d79974e01",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.candidate_bindings: additional property is not allowed",
+    "repair_attempted": false,
+    "turn_index": 1,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "plate_3",
+            "source": "countertop_2"
+          },
+          "candidate_outputs": {
+            "held_object": "plate_3"
+          },
+          "object": "plate_3",
+          "source": "countertop_2"
+        },
+        "call_id": "call_00_MJvtUqnR2EnL2HuALyzt6884",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_27b49b686c5e0d566bc2fc1c@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 7356,
+    "task_won": false
+  },
+  {
+    "seed": 43,
+    "task_index": 27,
+    "task_id": "alfworld_eval_out_of_distribution_27_pick_and_place_simple",
+    "trace_id": "trace_283ae266a0364da79a6e5c0b2cf7da09",
+    "session_id": "session_0371910555b24ca692c161bf82fc38d1",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "vase_2",
+            "source": "shelf_6"
+          },
+          "candidate_outputs": {
+            "held_object": "vase_2"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "vase_2",
+          "source": "shelf_6"
+        },
+        "call_id": "call_00_j5R39nz42MmKNTAgpucs0076",
+        "name": "invoke_impl_take_object_from_locatio_d97e09243e8d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_de9fab4956e055fc67d7c577@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'object_grounding', 'kind': 'argument_exists', 'required_resolution': 'semantic', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'source_grounding', 'kind': 'argument_exists', 'required_resolution': 'semantic', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'relation_verified', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_d97e09243e8d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "Concrete object to pick up.",
+              "type": "string"
+            },
+            "source": {
+              "description": "Concrete location currently containing the object.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 5786,
+    "task_won": true
+  },
+  {
+    "seed": 43,
+    "task_index": 72,
+    "task_id": "alfworld_eval_out_of_distribution_72_pick_cool_then_place_in_recep",
+    "trace_id": "trace_efe3bb1bbc4b488d95ff7f6a03d19e4e",
+    "session_id": "session_21ede3cfd30a4973968cb65d4f7bc36d",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "bread_1",
+            "source": "countertop_3"
+          },
+          "candidate_outputs": {
+            "held_object": "bread_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "bread_1",
+          "source": "countertop_3"
+        },
+        "call_id": "call_00_PwvhNmXloqE5JD7me7lu1704",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_27b49b686c5e0d566bc2fc1c@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 7965,
+    "task_won": true
+  },
+  {
+    "seed": 43,
+    "task_index": 22,
+    "task_id": "alfworld_eval_out_of_distribution_22_look_at_obj_in_light",
+    "trace_id": "trace_05834ba9082048778df60359aff8f0ae",
+    "session_id": "session_8fe081d3534c4d95b711c04e093c51af",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "pencil_1",
+            "source": "desk_2"
+          },
+          "candidate_outputs": {
+            "held_object": "pencil_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "pencil_1",
+          "source": "desk_2"
+        },
+        "call_id": "call_00_JpJ5FDzkCwFcmM6NHA2A4234",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_27b49b686c5e0d566bc2fc1c@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6517,
+    "task_won": true
+  },
+  {
+    "seed": 43,
+    "task_index": 39,
+    "task_id": "alfworld_eval_out_of_distribution_39_pick_and_place_simple",
+    "trace_id": "trace_b1abc0cee58f47dda9668932ce8f3b4b",
+    "session_id": "session_9ce4df60228341c88bc2db8b6f84392c",
+    "code": "runtime_agent_multiple_tool_calls",
+    "message": "an Agent turn may contain at most one native tool call",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "destination": "drawer_1"
+        },
+        "call_id": "call_00_UhpCqtjYVCCfJZB6zT2h8509",
+        "name": "invoke_impl_establish_agent_at_locat_a55814828c06"
+      },
+      {
+        "arguments": {
+          "action_id": "r005_a012",
+          "candidate_bindings": {
+            "destination": "drawer_1"
+          },
+          "candidate_outputs": {
+            "location": "drawer_1"
+          },
+          "intent": "attempt_current_atomic"
+        },
+        "call_id": "call_01_EU7cKJhXa132drO39ACB5822",
+        "name": "environment_action"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute one currently available environment action. Set intent=explore for evidence gathering/preparation, or intent=attempt_current_atomic only when asking the Runtime to validate this action as completion of the current Atomic.",
+        "name": "environment_action",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "action_id": {
+              "enum": [
+                "r005_a001",
+                "r005_a002",
+                "r005_a003",
+                "r005_a004",
+                "r005_a005",
+                "r005_a006",
+                "r005_a007",
+                "r005_a008",
+                "r005_a009",
+                "r005_a010",
+                "r005_a011",
+                "r005_a012",
+                "r005_a013",
+                "r005_a014",
+                "r005_a015",
+                "r005_a016",
+                "r005_a017",
+                "r005_a018",
+                "r005_a019",
+                "r005_a020",
+                "r005_a021",
+                "r005_a022",
+                "r005_a023",
+                "r005_a024",
+                "r005_a025",
+                "r005_a026",
+                "r005_a027",
+                "r005_a028",
+                "r005_a029"
+              ],
+              "type": "string"
+            },
+            "candidate_bindings": {
+              "additionalProperties": false,
+              "properties": {
+                "destination": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "candidate_outputs": {
+              "additionalProperties": false,
+              "properties": {
+                "location": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "intent": {
+              "enum": [
+                "explore",
+                "attempt_current_atomic"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "action_id",
+            "intent"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: establish agent at location. Entry: [('tool://tool_ec482dd4814b220ab4d03137@1.0.0', {'conditions': [], 'grounding_constraints': [{'action_type': 'GO_TO', 'argument_mapping': {'destination': {'constant': None, 'kind': 'skill_input', 'source_role': 'destination', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'destination_grounded', 'kind': 'argument_exists', 'required_resolution': 'semantic', 'verifier_id': ''}]})]. Outputs: [('location', 'entity', True)]",
+        "name": "invoke_impl_establish_agent_at_locat_a55814828c06",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "destination": {
+              "description": "Concrete receptacle or surface to navigate to.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 7460,
+    "task_won": true
+  },
+  {
+    "seed": 43,
+    "task_index": 10,
+    "task_id": "alfworld_eval_out_of_distribution_10_pick_two_obj_and_place",
+    "trace_id": "trace_d4ec0a2a516d42658a83883e94a2bba5",
+    "session_id": "session_3430fe883e794ced8f1cb7dcf6be9f8e",
+    "code": "runtime_agent_multiple_tool_calls",
+    "message": "an Agent turn may contain at most one native tool call",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "object": "toiletpaper_3",
+          "source": "toilet_1"
+        },
+        "call_id": "call_00_WEuxUT70hx5MTCK4Jnrm8640",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680"
+      },
+      {
+        "arguments": {
+          "action_id": "r016_a018",
+          "candidate_bindings": {
+            "object": "toiletpaper_3",
+            "source": "toilet_1"
+          },
+          "candidate_outputs": {
+            "held_object": "toiletpaper_3"
+          },
+          "intent": "attempt_current_atomic"
+        },
+        "call_id": "call_01_ZeQXr1weWdEP0ANzz1m63498",
+        "name": "environment_action"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute one currently available environment action. Set intent=explore for evidence gathering/preparation, or intent=attempt_current_atomic only when asking the Runtime to validate this action as completion of the current Atomic.",
+        "name": "environment_action",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "action_id": {
+              "enum": [
+                "r016_a001",
+                "r016_a002",
+                "r016_a003",
+                "r016_a004",
+                "r016_a005",
+                "r016_a006",
+                "r016_a007",
+                "r016_a008",
+                "r016_a009",
+                "r016_a010",
+                "r016_a011",
+                "r016_a012",
+                "r016_a013",
+                "r016_a014",
+                "r016_a015",
+                "r016_a016",
+                "r016_a017",
+                "r016_a018"
+              ],
+              "type": "string"
+            },
+            "candidate_bindings": {
+              "additionalProperties": false,
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "candidate_outputs": {
+              "additionalProperties": false,
+              "properties": {
+                "held_object": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "intent": {
+              "enum": [
+                "explore",
+                "attempt_current_atomic"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "action_id",
+            "intent"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_27b49b686c5e0d566bc2fc1c@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6829,
+    "task_won": true
+  },
+  {
+    "seed": 43,
+    "task_index": 43,
+    "task_id": "alfworld_eval_out_of_distribution_43_pick_heat_then_place_in_recep",
+    "trace_id": "trace_fd35349c070e4d6788b8b5f8c6fbd800",
+    "session_id": "session_67c17a3e728c4cf68fd1cf894cecf64e",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "tomato_1",
+            "source": "countertop_2"
+          },
+          "candidate_outputs": {
+            "held_object": "tomato_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "tomato_1",
+          "source": "countertop_2"
+        },
+        "call_id": "call_00_0I5bj15LNecCIj565j7k0007",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_27b49b686c5e0d566bc2fc1c@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete_binding', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_ecc120420680",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6956,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 80,
+    "task_id": "alfworld_eval_out_of_distribution_80_pick_and_place_simple",
+    "trace_id": "trace_417da78496a54f36b6cb2f0ed1f4b6fe",
+    "session_id": "session_d54aa567b5474ca1a060c91fd9a40231",
+    "code": "agent_protocol_no_action",
+    "message": "assistant returned no native tool call",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [],
+    "offered_matching_tool": [],
+    "token_total": 8015,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 75,
+    "task_id": "alfworld_eval_out_of_distribution_75_pick_clean_then_place_in_recep",
+    "trace_id": "trace_0c045829bc2545f5bc8b3949951efa36",
+    "session_id": "session_dadea5a6f7ee49dda9a049fe11081c7f",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "cloth_2",
+            "source": "cabinet_1"
+          },
+          "candidate_outputs": {
+            "held_object": "cloth_2"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "cloth_2",
+          "source": "cabinet_1"
+        },
+        "call_id": "call_00_Br2edk5yc4UBMBiQGA1x5309",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 5223,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 18,
+    "task_id": "alfworld_eval_out_of_distribution_18_pick_cool_then_place_in_recep",
+    "trace_id": "trace_1889ecb740a84a99a117a845f869d7f2",
+    "session_id": "session_b3ab3d6cc8864a8ea5abc324ef5a042b",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "destination": "fridge_1"
+          },
+          "candidate_outputs": {
+            "location": "fridge_1"
+          },
+          "destination": "fridge_1",
+          "intent": "attempt_current_atomic"
+        },
+        "call_id": "call_00_nQZfeL55Dx5DeWeW3Ycq8818",
+        "name": "invoke_impl_navigate_to_location_beb685cf0393"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: navigate to location. Entry: [('tool://tool_042b90737991df58c452b602@1.0.0', {'conditions': [], 'grounding_constraints': [{'action_type': 'GO_TO', 'argument_mapping': {'destination': {'constant': None, 'kind': 'skill_input', 'source_role': 'destination', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'destination_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('location', 'entity', True)]",
+        "name": "invoke_impl_navigate_to_location_beb685cf0393",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "destination": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "destination"
+          ],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6604,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 14,
+    "task_id": "alfworld_eval_out_of_distribution_14_pick_heat_then_place_in_recep",
+    "trace_id": "trace_01b97e4f8c7b4942aa84389c73f5042f",
+    "session_id": "session_4ee707d3e48c41c5abc2075f9e439a77",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "potato_1",
+            "source": "countertop_2"
+          },
+          "candidate_outputs": {
+            "held_object": "potato_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "potato_1",
+          "source": "countertop_2"
+        },
+        "call_id": "call_00_w3TiUsBogLwOrr6bKH7I0875",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 7459,
+    "task_won": false
+  },
+  {
+    "seed": 44,
+    "task_index": 14,
+    "task_id": "alfworld_eval_out_of_distribution_14_pick_heat_then_place_in_recep",
+    "trace_id": "trace_01b97e4f8c7b4942aa84389c73f5042f",
+    "session_id": "session_4ee707d3e48c41c5abc2075f9e439a77",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.candidate_bindings: additional property is not allowed",
+    "repair_attempted": false,
+    "turn_index": 1,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "potato_1",
+            "source": "countertop_2"
+          },
+          "candidate_outputs": {
+            "held_object": "potato_1"
+          },
+          "object": "potato_1",
+          "source": "countertop_2"
+        },
+        "call_id": "call_00_Xm0ez95FrRfEaQe1uFok5009",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 7730,
+    "task_won": false
+  },
+  {
+    "seed": 44,
+    "task_index": 78,
+    "task_id": "alfworld_eval_out_of_distribution_78_pick_and_place_simple",
+    "trace_id": "trace_6775af0d53ba435ea5d0c40cabc336c9",
+    "session_id": "session_a21aba91ec72413785474b9cd00507bb",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "soapbottle_1",
+            "source": "cabinet_4"
+          },
+          "candidate_outputs": {
+            "held_object": "soapbottle_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "soapbottle_1",
+          "source": "cabinet_4"
+        },
+        "call_id": "call_00_E0vihx6tLMcsi0gUhTmr7020",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 5940,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 32,
+    "task_id": "alfworld_eval_out_of_distribution_32_pick_clean_then_place_in_recep",
+    "trace_id": "trace_89f254b4c5014fd59358949603f289e4",
+    "session_id": "session_7c027080cf33440391c97e8a80e32c6a",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "plate_3",
+            "source": "countertop_2"
+          },
+          "candidate_outputs": {
+            "held_object": "plate_3"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "plate_3",
+          "source": "countertop_2"
+        },
+        "call_id": "call_00_xJJ5BNg1BhTjKt0IEdXu7587",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 7405,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 61,
+    "task_id": "alfworld_eval_out_of_distribution_61_pick_cool_then_place_in_recep",
+    "trace_id": "trace_49d12f6dde4047d2ac30a7fb1b8ef8e0",
+    "session_id": "session_25af7931a7344474b5b6bf033f64d446",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "bread_1",
+            "source": "countertop_3"
+          },
+          "candidate_outputs": {
+            "held_object": "bread_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "bread_1",
+          "source": "countertop_3"
+        },
+        "call_id": "call_00_GvGk5m95FGU87M948VGY2433",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 8449,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 66,
+    "task_id": "alfworld_eval_out_of_distribution_66_pick_heat_then_place_in_recep",
+    "trace_id": "trace_affd2e29bfdc4d98b1200873aac395be",
+    "session_id": "session_640e433f7959452895c10301eec8abb7",
+    "code": "runtime_agent_multiple_tool_calls",
+    "message": "an Agent turn may contain at most one native tool call",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "object": "cup_2",
+          "source": "countertop_3"
+        },
+        "call_id": "call_00_O6WruDZHXovh8OELcugo2539",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      },
+      {
+        "arguments": {
+          "action_id": "r003_a030",
+          "candidate_bindings": {
+            "object": "cup_2",
+            "source": "countertop_3"
+          },
+          "candidate_outputs": {
+            "held_object": "cup_2"
+          },
+          "intent": "attempt_current_atomic"
+        },
+        "call_id": "call_01_nrmtuDPq8hVvODaMj9ve0896",
+        "name": "environment_action"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute one currently available environment action. Set intent=explore for evidence gathering/preparation, or intent=attempt_current_atomic only when asking the Runtime to validate this action as completion of the current Atomic.",
+        "name": "environment_action",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "action_id": {
+              "enum": [
+                "r003_a001",
+                "r003_a002",
+                "r003_a003",
+                "r003_a004",
+                "r003_a005",
+                "r003_a006",
+                "r003_a007",
+                "r003_a008",
+                "r003_a009",
+                "r003_a010",
+                "r003_a011",
+                "r003_a012",
+                "r003_a013",
+                "r003_a014",
+                "r003_a015",
+                "r003_a016",
+                "r003_a017",
+                "r003_a018",
+                "r003_a019",
+                "r003_a020",
+                "r003_a021",
+                "r003_a022",
+                "r003_a023",
+                "r003_a024",
+                "r003_a025",
+                "r003_a026",
+                "r003_a027",
+                "r003_a028",
+                "r003_a029",
+                "r003_a030",
+                "r003_a031",
+                "r003_a032",
+                "r003_a033",
+                "r003_a034"
+              ],
+              "type": "string"
+            },
+            "candidate_bindings": {
+              "additionalProperties": false,
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "candidate_outputs": {
+              "additionalProperties": false,
+              "properties": {
+                "held_object": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "intent": {
+              "enum": [
+                "explore",
+                "attempt_current_atomic"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "action_id",
+            "intent"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 7849,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 2,
+    "task_id": "alfworld_eval_out_of_distribution_2_pick_two_obj_and_place",
+    "trace_id": "trace_195dcec4e714422f84f82ec5294ce7f8",
+    "session_id": "session_0b9351a50bf0403090e73090000b5ed6",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.candidate_bindings: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "cd_1",
+            "source": "desk_2"
+          },
+          "candidate_outputs": {
+            "held_object": "cd_1"
+          },
+          "object": "cd_1",
+          "source": "desk_2"
+        },
+        "call_id": "call_00_b6aILvA2JTVEjTX0PMin0475",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 8836,
+    "task_won": false
+  },
+  {
+    "seed": 44,
+    "task_index": 2,
+    "task_id": "alfworld_eval_out_of_distribution_2_pick_two_obj_and_place",
+    "trace_id": "trace_195dcec4e714422f84f82ec5294ce7f8",
+    "session_id": "session_0b9351a50bf0403090e73090000b5ed6",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.candidate_outputs: additional property is not allowed",
+    "repair_attempted": false,
+    "turn_index": 1,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_outputs": {
+            "held_object": "cd_1"
+          },
+          "object": "cd_1",
+          "source": "desk_2"
+        },
+        "call_id": "call_00_774jKoSztal2czP7fXWF6968",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 9413,
+    "task_won": false
+  },
+  {
+    "seed": 44,
+    "task_index": 64,
+    "task_id": "alfworld_eval_out_of_distribution_64_pick_clean_then_place_in_recep",
+    "trace_id": "trace_a6ceedeec2b2454eb2956d2d46074494",
+    "session_id": "session_fffd13e770e84478bf1e57ba2494f879",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "pan_1",
+            "source": "countertop_1"
+          },
+          "candidate_outputs": {
+            "held_object": "pan_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "pan_1",
+          "source": "countertop_1"
+        },
+        "call_id": "call_00_OKLENbeXCr5rvGqzvq0n2454",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 5854,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 38,
+    "task_id": "alfworld_eval_out_of_distribution_38_look_at_obj_in_light",
+    "trace_id": "trace_5f34e78e6bad49bba9ae2933e7270d4c",
+    "session_id": "session_802b316cc6534d40ab9cfddaab8fb29c",
+    "code": "runtime_agent_multiple_tool_calls",
+    "message": "an Agent turn may contain at most one native tool call",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "object": "cd_1",
+          "source": "desk_2"
+        },
+        "call_id": "call_00_74DevCBxfndGQPzZxJpd8195",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      },
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "cd_1",
+            "source": "desk_2"
+          },
+          "candidate_outputs": {
+            "held_object": "cd_1"
+          }
+        },
+        "call_id": "call_01_jjMySZIBmGvDK3aM2MKh5685",
+        "name": "validate_current_atomic"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Submit explicit input/output candidates for current node completion. Candidates must match actual evidence and formal identities. Missing fresh outputs are not inferred. Skill guidance is optional; the structured contract is binding.",
+        "name": "validate_current_atomic",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "candidate_bindings": {
+              "additionalProperties": false,
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "candidate_outputs": {
+              "additionalProperties": false,
+              "properties": {
+                "held_object": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6483,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 37,
+    "task_id": "alfworld_eval_out_of_distribution_37_look_at_obj_in_light",
+    "trace_id": "trace_75eea7a89c904c8fb9cfc5654c07c47d",
+    "session_id": "session_05bb2cccbc9646218095a8e4507c43c9",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "alarmclock_1",
+            "source": "desk_1"
+          },
+          "candidate_outputs": {
+            "held_object": "alarmclock_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "alarmclock_1",
+          "source": "desk_1"
+        },
+        "call_id": "call_00_aRRkP7iIq5pYUvaNXQZ32714",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 5879,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 40,
+    "task_id": "alfworld_eval_out_of_distribution_40_pick_and_place_simple",
+    "trace_id": "trace_6d926e3673c44b5b913defc34e426b9b",
+    "session_id": "session_b40e10e20aac4b079734997bfe8674ce",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "watch_1",
+            "source": "drawer_5"
+          },
+          "candidate_outputs": {
+            "held_object": "watch_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "watch_1",
+          "source": "drawer_5"
+        },
+        "call_id": "call_00_wOaPCklWXTLxUocYAKSR9035",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 5505,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 21,
+    "task_id": "alfworld_eval_out_of_distribution_21_look_at_obj_in_light",
+    "trace_id": "trace_cd65b77fab2c49229ca636b59147856d",
+    "session_id": "session_ce2b8282d11d43bfa7fc24ccf184be9e",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "bowl_2",
+            "source": "desk_2"
+          },
+          "candidate_outputs": {
+            "held_object": "bowl_2"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "bowl_2",
+          "source": "desk_2"
+        },
+        "call_id": "call_00_Dl8d6a6mDSLF64lQ70OS9032",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6377,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 59,
+    "task_id": "alfworld_eval_out_of_distribution_59_pick_clean_then_place_in_recep",
+    "trace_id": "trace_d592889a264047449af81ed801b2f049",
+    "session_id": "session_75d2d86dc17e48adb06e9aa6ad0b78d0",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.arguments.locations: array items must be unique",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "arguments": {
+            "allow_open": true,
+            "locations": [
+              "countertop_1",
+              "sinkbasin_1",
+              "sinkbasin_2",
+              "towelholder_1",
+              "handtowelholder_1",
+              "handtowelholder_2",
+              "garbagecan_1",
+              "sinkbasin_1"
+            ],
+            "target": "cloth"
+          },
+          "support_call_id": "sc_af774ca06dd25bba794dd62608e3e0e7"
+        },
+        "call_id": "call_00_EXvoXbh9wcuOlKYsx2Sv5262",
+        "name": "invoke_support_atomic"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Select a support_call_id and supply that option's exact arguments. Its complete parent transfer is fixed; do not submit a producer reference or output_mapping. Choose search scopes and other declared controls explicitly. The helper returns control to you; A semantic category is not a concrete observed identity. A blocked candidate has no callable option. selection is not evidence that inputs are grounded or that execution will succeed.",
+        "name": "invoke_support_atomic",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "arguments": {
+              "additionalProperties": false,
+              "properties": {
+                "allow_open": {
+                  "description": "",
+                  "type": "boolean"
+                },
+                "light_source": {
+                  "description": "",
+                  "type": "string"
+                },
+                "location": {
+                  "description": "",
+                  "type": "string"
+                },
+                "locations": {
+                  "description": "",
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "object": {
+                  "description": "",
+                  "type": "string"
+                },
+                "target": {
+                  "description": "",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "support_call_id": {
+              "enum": [
+                "sc_ed67a68d658713816647398b58bc9beb",
+                "sc_ca537c84a567b7499efdefd648a1a52f",
+                "sc_af774ca06dd25bba794dd62608e3e0e7",
+                "sc_a5c84e1f7cd0ed89ee0d333aa0067af1",
+                "sc_f26ff4b07d88520a738d33dfc1c04ed3"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "support_call_id",
+            "arguments"
+          ],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 7230,
+    "task_won": true
+  },
+  {
+    "seed": 44,
+    "task_index": 3,
+    "task_id": "alfworld_eval_out_of_distribution_3_pick_heat_then_place_in_recep",
+    "trace_id": "trace_b2d1f08933334e90a9d19acb4f7a7e6a",
+    "session_id": "session_df3f6174e7dc43038f2b213eaf049df5",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.intent: additional property is not allowed",
+    "repair_attempted": true,
+    "turn_index": 0,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "apple_1",
+            "source": "garbagecan_1"
+          },
+          "candidate_outputs": {
+            "held_object": "apple_1"
+          },
+          "intent": "attempt_current_atomic",
+          "object": "apple_1",
+          "source": "garbagecan_1"
+        },
+        "call_id": "call_00_3cu9J98eDdwvuUkPEXBs2876",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 6759,
+    "task_won": false
+  },
+  {
+    "seed": 44,
+    "task_index": 3,
+    "task_id": "alfworld_eval_out_of_distribution_3_pick_heat_then_place_in_recep",
+    "trace_id": "trace_b2d1f08933334e90a9d19acb4f7a7e6a",
+    "session_id": "session_df3f6174e7dc43038f2b213eaf049df5",
+    "code": "runtime_agent_schema_error",
+    "message": "native tool arguments failed schema validation: $.candidate_bindings: additional property is not allowed",
+    "repair_attempted": false,
+    "turn_index": 1,
+    "tool_calls": [
+      {
+        "arguments": {
+          "candidate_bindings": {
+            "object": "apple_1",
+            "source": "garbagecan_1"
+          },
+          "candidate_outputs": {
+            "held_object": "apple_1"
+          },
+          "object": "apple_1",
+          "source": "garbagecan_1"
+        },
+        "call_id": "call_00_csJIrKbPwtE9NgDiwAfX2507",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d"
+      }
+    ],
+    "offered_matching_tool": [
+      {
+        "description": "Exactly ONE native ToolCall per turn. Execute learned implementation for: take object from location. Entry: [('tool://tool_7d509c8009fa30f688923176@1.0.0', {'conditions': [{'args': {'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'world', 'predicate': 'agent.at_location'}, {'args': {'entity': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}, 'location': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'cardinality': 1, 'distinct_by': '', 'effect_domain': 'evidence', 'predicate': 'entity.discovered_at'}], 'grounding_constraints': [{'action_type': 'TAKE', 'argument_mapping': {'object': {'constant': None, 'kind': 'skill_input', 'source_role': 'object', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_object_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {'source': {'constant': None, 'kind': 'skill_input', 'source_role': 'source', 'source_step': '', 'transform_id': ''}}, 'constraint_id': 'gc_source_concrete', 'kind': 'argument_concrete', 'required_resolution': 'concrete', 'verifier_id': ''}, {'action_type': 'TAKE', 'argument_mapping': {}, 'constraint_id': 'gc_take_affordance', 'kind': 'harness_affordance', 'required_resolution': 'concrete', 'verifier_id': ''}]})]. Outputs: [('held_object', 'entity', True)]",
+        "name": "invoke_impl_take_object_from_locatio_71f66cae6b9d",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "object": {
+              "description": "",
+              "type": "string"
+            },
+            "source": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      }
+    ],
+    "token_total": 7032,
+    "task_won": false
+  }
+]

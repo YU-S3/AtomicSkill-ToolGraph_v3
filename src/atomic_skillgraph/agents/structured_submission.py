@@ -450,6 +450,11 @@ class StructuredSubmission:
 class StructuredSubmissionClient:
     """Request and acknowledge exactly one schema-validated submit ToolCall."""
 
+    @staticmethod
+    def tool_spec(tool_name, description, schema):
+        return NativeToolSpec(tool_name, description, copy.deepcopy(schema),
+            call_kind='structured_submission', scope='structured', result_owner='structured_consumer')
+
     def request(
         self,
         session: AgentSession,
@@ -461,7 +466,7 @@ class StructuredSubmissionClient:
     ) -> StructuredSubmission:
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("structured submission prompt must be non-empty")
-        tool = NativeToolSpec(tool_name, description, copy.deepcopy(schema))
+        tool = self.tool_spec(tool_name, description, schema)
         turn = session.next_turn(prompt, tools=[tool])
         if len(turn.tool_calls) != 1:
             raise AgentProtocolError(

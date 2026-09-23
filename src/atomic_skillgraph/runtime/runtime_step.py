@@ -122,6 +122,7 @@ def automation_request_tool() -> NativeToolSpec:
             "reason": {"type": "string"},
             "intended_capability": {"type": "string"},
         }, "required": ["reason", "intended_capability"], "additionalProperties": False},
+        call_kind='automation_request', scope='runtime', result_owner='draft_stage',
     )
 
 

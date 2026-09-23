@@ -8,6 +8,7 @@ never an action channel and is deliberately summarized in audit snapshots.
 from __future__ import annotations
 
 import json
+import copy
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -21,11 +22,12 @@ ONE_NATIVE_CALL_PREFIX = "Exactly ONE native ToolCall per turn. "
 class SchemaValidationError(ValueError):
     """Raised when a native tool argument or structured output is invalid."""
 
-    def __init__(self, message, *, path='', constraint=None, actual=None):
+    def __init__(self, message, *, path='', constraint=None, actual=None, details=None):
         super().__init__(message)
         self.path = path or str(message).split(':', 1)[0]
         self.constraint = constraint
         self.actual = actual
+        self.details = details or {}
 
 
 def parse_json_strict(text: str) -> Any:
@@ -56,6 +58,9 @@ class NativeToolSpec:
     name: str
     description: str
     input_schema: dict[str, Any]
+    call_kind: str = 'structured_submission'
+    scope: str = 'structured'
+    result_owner: str = 'structured_consumer'
 
     def __post_init__(self) -> None:
         if not _TOOL_NAME.fullmatch(self.name):
@@ -75,7 +80,7 @@ class NativeToolSpec:
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.input_schema,
+                "parameters": copy.deepcopy(self.input_schema),
             },
         }
 

@@ -970,7 +970,9 @@ def run_frozen_tasks(
                 'completed':completed,'total':len(tasks),'current_task':current,
                 'updated_at':datetime.now(timezone.utc).isoformat()})
         release_progress('running')
+        from .release_control import check_config_stop
         for item in store.tasks_to_run(manifest):
+            check_config_stop(config, output_dir)
             release_progress('running',item.task_id)
             artifact_before = artifact_audit_snapshot(system.database)
             try:
@@ -1055,6 +1057,9 @@ def run_frozen_tasks(
                 )
                 release_progress('infrastructure_failed',item.task_id)
                 raise
+
+            # Outside the task exception handler, after capture, digest and commit.
+            check_config_stop(config, output_dir)
 
         traces = load_task_report_traces(system.traces, state_db, run_id)
         task_trace_ids = {str(trace.get("trace_id", "")) for trace in traces}

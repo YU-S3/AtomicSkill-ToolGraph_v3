@@ -10,6 +10,7 @@ OPERATIONS = {
     'version_existing_discovery_contract': 'atomic',
     'version_existing_bounded_search_implementation': 'program_realization',
     'version_existing_workflow': 'composite',
+    'version_existing_composite': 'composite',
 }
 
 
@@ -18,6 +19,22 @@ def compile_plan(base_path, delta_path, output):
     if output.exists():
         raise FileExistsError(output)
     base, delta = (json.loads(p.read_text(encoding='utf-8')) for p in (base_path, delta_path))
+    if delta.get('schema') == 'r103.release5.graph-delta.v1':
+        if base['seed'] != delta['seed'] or delta['operation'] != 'version_existing_composite':
+            raise ReleaseError('graph delta identity mismatch')
+        if delta['source_ref'].split('@')[0] != delta['target_ref'].split('@')[0]:
+            raise ReleaseError('graph delta may not change logical identity')
+        sources = {j['target_ref']: j for j in workflow_jobs(base)}
+        if delta['source_ref'] not in sources or delta['target_ref'] in sources:
+            raise ReleaseError('graph delta source/target not available')
+        result = copy.deepcopy(base)
+        job = {**copy.deepcopy(sources[delta['source_ref']]), **copy.deepcopy(delta),
+            'job_id': 'release5_existing_graph_revision', 'kind': 'composite', 'action': 'revise'}
+        result.setdefault('derived_revision_jobs', []).append(job)
+        result.setdefault('deployment_preferences_patch', {}).setdefault('additional_preferred_workflow_refs', []).append(delta['target_ref'])
+        result['graph_delta_provenance'] = {'base_sha256': sha(base_path), 'delta_sha256': sha(delta_path)}
+        atomic_write_json(output, result)
+        return result
     if delta.get('schema') != 'r103.oldfirst-preparation-delta.v1' or base['seed'] != delta['seed']:
         raise ReleaseError('base/delta identity mismatch')
     jobs = copy.deepcopy(delta['derived_revision_jobs'])

@@ -173,8 +173,8 @@ class ContextBuilder:
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         rendered = _render(
-            self._runtime_instruction("node", support_call_surface) + lean_instruction + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
-                + OUTPUT_SEMANTIC_CONSTRAINT_RULES if runtime_automation_interface else ""),
+            (self._runtime_instruction("draft") + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES
+             if runtime_automation_interface else self._runtime_instruction("node", support_call_surface)) + lean_instruction,
             projected,
             sort_keys=original_presentation,
         )
@@ -237,8 +237,8 @@ class ContextBuilder:
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         rendered = _render(
-            self._runtime_instruction("dynamic", support_call_surface) + lean_instruction + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
-                + OUTPUT_SEMANTIC_CONSTRAINT_RULES if payload.get("runtime_automation_interface") else ""),
+            (self._runtime_instruction("draft") + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES
+             if payload.get("runtime_automation_interface") else self._runtime_instruction("dynamic", support_call_surface)) + lean_instruction,
             projected,
             sort_keys=original_presentation,
         )

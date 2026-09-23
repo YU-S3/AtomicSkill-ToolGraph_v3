@@ -175,7 +175,8 @@ def test_H14_H15_actual_context_keeps_scope_and_lazy_only(scope,lazy):
         prompt=c.runtime_node(**kw,atomic_contract=atomic(),implementation_invocations=[],runtime_automation_interface=interface if lazy else {})
     else:
         prompt=c.dynamic_task(**kw,task_runtime_frame={'runtime_automation_interface':interface} if lazy else {},rescue_method_guidance={'history':scope} if scope!='initial' else None)
-    assert prompt.count(SEARCH_POLICY)==1
+    # Release5 drafts have only their own submission scope, not node/task action instructions.
+    assert prompt.count(SEARCH_POLICY)==int(not lazy)
     assert (AUTOMATION_DRAFT_PROMPT in prompt)==lazy
     assert prompt.count(OUTPUT_SEMANTIC_CONSTRAINT_RULES)==int(lazy)
     payload=json.loads(prompt.split('POLICY_CONTEXT_JSON\n')[1])

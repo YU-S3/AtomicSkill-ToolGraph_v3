@@ -7,7 +7,7 @@ import hashlib
 import json
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.errors import (
@@ -26,6 +26,7 @@ from .protocol import (
     validate_schema_instance,
 )
 from .usage import AgentBudget, BudgetTracker, LLMUsage, UsageBucket, UsageLedger
+from .native_call_contract import NATIVE_CALL_CONTRACT_VERSION, NativeCallContractView, rejection_diagnostic
 
 
 PROTOCOL_REPAIR_LIMIT = 1
@@ -52,6 +53,7 @@ class ProtocolFailureRecord:
     message: str
     repair_attempted: bool
     rejected_turn: dict[str, Any] | None = None
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 class ReplayAgentSession:
@@ -126,6 +128,7 @@ class ReplayAgentSession:
         self._r3_events: list[dict[str, Any]] = []
         self._runtime_request_context_audits: list[dict[str, Any]] = []
         self._protocol_failures: list[ProtocolFailureRecord] = []
+        self._native_call_contracts: list[dict[str, Any]] = []
         self._terminal_protocol_failure: AgentProtocolError | None = None
         self._finalized = False
         self._lock = threading.RLock()
@@ -407,9 +410,13 @@ class ReplayAgentSession:
                         "message": item.message,
                         "repair_attempted": item.repair_attempted,
                         "rejected_turn": copy.deepcopy(item.rejected_turn),
+                        "diagnostics": copy.deepcopy(item.diagnostics),
                     }
                     for item in self._protocol_failures
                 ],
+                "native_call_contract_version": NATIVE_CALL_CONTRACT_VERSION,
+                "native_call_contracts": copy.deepcopy(self._native_call_contracts),
+                "native_protocol_diagnostics": [copy.deepcopy(item.diagnostics) for item in self._protocol_failures],
                 "terminal_protocol_failure": (
                     {
                         "code": self._terminal_protocol_failure.code,
@@ -425,6 +432,8 @@ class ReplayAgentSession:
         self,
         tools: list[NativeToolSpec],
     ) -> AgentTurn:
+        # Validation and provider projection use one isolated request snapshot.
+        tools = copy.deepcopy(tools)
         while True:
             self._check_budget_before_call()
             if self._last_shared_budget_check:
@@ -435,6 +444,9 @@ class ReplayAgentSession:
                 self._compact_runtime_action_history()
                 self._record_runtime_projection_event()
             accepted_candidate: AgentTurn | None = None
+            contract_record = {'session_id': self._session_id, 'turn_index': self._turn_index,
+                'repair': repair_in_progress, 'contracts': [NativeCallContractView.from_tool(t).to_dict() for t in tools]}
+            self._native_call_contracts.append(contract_record)
             try:
                 set_context = getattr(self._provider, "set_request_context", None)
                 if callable(set_context):
@@ -445,7 +457,7 @@ class ReplayAgentSession:
                     parameters = inspect.signature(set_context).parameters
                     extra = {}
                     if 'request_sequence' in parameters or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
-                        extra = {'request_sequence': len(self._runtime_request_context_audits), 'repair': repair_in_progress}
+                        extra = {'request_sequence': self._turn_index, 'repair': repair_in_progress}
                     set_context(session_id=self._session_id, stage=self._usage_bucket.value, **extra)
                 self._record_runtime_request_context_audit(
                     tools,
@@ -453,7 +465,7 @@ class ReplayAgentSession:
                 )
                 turn = self._provider.complete(
                     copy.deepcopy(self._messages),
-                    tools=list(tools) or None,
+                    tools=copy.deepcopy(tools) or None,
                 )
             except AtomicSkillGraphError as exc:
                 if not isinstance(exc, AgentProtocolError):
@@ -468,6 +480,7 @@ class ReplayAgentSession:
                     # A provider may reject before it can construct AgentTurn.
                     # The call is still represented as unavailable usage.
                     metering_turn = _unavailable_turn(self._provider)
+                contract_record['request_id'] = metering_turn.provider_metadata.get('request_id')
                 self._record_provider_call(metering_turn)
                 failure = exc
                 rejected_turn = (
@@ -476,6 +489,10 @@ class ReplayAgentSession:
                     else None
                 )
             else:
+                contract_record['request_id'] = turn.provider_metadata.get('request_id')
+                contract_record['generated_calls'] = [
+                    {'call_id': call.call_id, 'tool_name': call.name} for call in turn.tool_calls
+                ]
                 self._record_provider_call(turn)
                 accepted_candidate = turn
                 try:
@@ -484,11 +501,18 @@ class ReplayAgentSession:
                     failure = exc
                     rejected_turn = _turn_dict(turn)
                 else:
+                    contract_record['outcome'] = 'accepted'
                     self._append_assistant_turn(turn)
                     self._accepted_turn_count += 1
                     return turn
 
             can_repair = self._protocol_repair_budget["used"] < PROTOCOL_REPAIR_LIMIT
+            contract_record['outcome'] = 'rejected'
+            diagnostics = {**copy.deepcopy(failure.diagnostics),
+                'version': NATIVE_CALL_CONTRACT_VERSION, 'session_id': self._session_id,
+                'turn_index': max(0, self._turn_index - 1),
+                'request_id': contract_record.get('request_id'), 'error_code': failure.code,
+                'repair_attempted': can_repair, 'rejected_turn_reference': max(0, self._turn_index - 1)}
             self._protocol_failures.append(
                 ProtocolFailureRecord(
                     turn_index=max(0, self._turn_index - 1),
@@ -496,6 +520,7 @@ class ReplayAgentSession:
                     message=str(failure),
                     repair_attempted=can_repair,
                     rejected_turn=rejected_turn,
+                    diagnostics=diagnostics,
                 )
             )
             if not can_repair:
@@ -549,6 +574,7 @@ class ReplayAgentSession:
                     "runtime_agent_schema_error",
                     f"native tool arguments failed schema validation: {exc}",
                     layer=FailureLayer.RUNTIME_AGENT,
+                    diagnostics=rejection_diagnostic(offered[call.name], call, exc),
                 ) from exc
             return
 
@@ -1421,6 +1447,8 @@ def _protocol_repair_message(
 def _protocol_failure_detail(failure: AgentProtocolError) -> str:
     """Return bounded deterministic validator detail for the sole repair turn."""
 
+    if failure.diagnostics:
+        return json.dumps(failure.diagnostics, ensure_ascii=False, sort_keys=True, allow_nan=False)
     return " ".join(str(failure).split())[:1200]
 
 

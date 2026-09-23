@@ -76,7 +76,9 @@ class ArtifactIntegrityError(AtomicSkillGraphError):
 
 
 class AgentProtocolError(AtomicSkillGraphError):
-    pass
+    def __init__(self, code, message, *, layer=FailureLayer.INFRASTRUCTURE, diagnostics=None):
+        super().__init__(code, message, layer=layer)
+        self.diagnostics = diagnostics or {}
 
 
 class PlannerProposalError(AtomicSkillGraphError):
