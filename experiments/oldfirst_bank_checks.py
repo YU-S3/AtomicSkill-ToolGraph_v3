@@ -26,22 +26,26 @@ def run(config, entry, output):
         before = system.knowledge_digest()
         task = resolve_tasks(system, [entry])[0]
         roles = edit['existing_roles']
-        search_job = next(j for j in edit['program_realization_jobs'] if j.get('query_input_role'))
-        serial = next(j for j in edit['program_realization_jobs'] if len(j.get('tool_bindings', [])) > 1)
+        from atomic_skillgraph.deployment.oldfirst_plan import program_jobs
+        search_jobs = [j for j in program_jobs(edit) if j.get('query_input_role')]
+        search_job = next((j for j in search_jobs if j.get('selector_policy') == 'current_joint_public_discovery'), search_jobs[0])
+        serial = next((j for j in edit['program_realization_jobs'] if len(j.get('tool_bindings', [])) > 1), None)
         def occurrence(step, ref):
             atomic = system.skills.get_atomic(ref)
             return RuntimeOccurrence(step, step, atomic.ref, [], {},
                 [i.ref for i in system.skills.implementations_for(atomic.ref, mode='frozen')], atomic.effects)
         nav = occurrence('navigate', roles['navigate']); opening = occurrence('open', roles['open'])
         find = occurrence('discover', search_job['atomic_ref']); take = occurrence('take', roles['take'])
-        deliver = occurrence('deliver', serial['atomic_ref'])
+        deliver = occurrence('deliver', serial['atomic_ref']) if serial else None
         taken_role = next(p.name for p in system.skills.get_atomic(take.node_ref).outputs
                           if p.name in {'object', 'held_object'})
-        occurrences = [nav, opening, find, take, deliver]
+        public_find = occurrence('discover_public_fixture', search_job['atomic_ref'])
+        occurrences = [nav, opening, public_find, find, take] + ([deliver] if deliver else [])
         edges = [GraphEdge('found_entity','data_flow','discover','take','entity','object'),
-                 GraphEdge('found_location','data_flow','discover','take','location','source'),
-                 GraphEdge('held_object','data_flow','take','deliver',taken_role,'object'),
-                 GraphEdge('return_location','data_flow','discover','deliver','location','destination')]
+                 GraphEdge('found_location','data_flow','discover','take','location','source')]
+        if deliver:
+            edges += [GraphEdge('held_object','data_flow','take','deliver',taken_role,'object'),
+                      GraphEdge('return_location','data_flow','discover','deliver','location','destination')]
         for edge in edges:
             target = next(o for o in occurrences if o.step_id == edge.target_step)
             target.binding_specs[edge.target_role] = BindingExpression('data_flow',
@@ -72,23 +76,62 @@ def run(config, entry, output):
                 ctx.world_revision, certified_bindings=result.validated_output_bindings)
             ctx.validated_outputs[occ.occurrence_id] = result.validated_outputs
 
-        def explicit(occ, args):
+        def explicit(occ, args, *, expect_failure=False):
             routes = begin(occ)
             preferred = [r for r in routes if r.implementation.quality.get('preferred')]
             selected = preferred if len(preferred) == 1 else routes
-            if len(selected) != 1: raise AssertionError('test route is not unique')
-            compiled = selected[0]
+            if not selected: raise AssertionError('test route is unavailable')
+            # A controlled explicit invocation names one real registered route.
+            # Some old banks legitimately retain multiple non-equivalent I's;
+            # this fixture choice does not change Runtime route preference.
+            compiled = min(selected, key=lambda r: str(r.implementation.ref))
             preflight = system.invocation_compiler.preflight(compiled, call_name=compiled.spec.name,
                 call_id='test_'+occ.step_id, arguments=args, occurrence=occ, binding_store=ctx.binding_store,
                 evidence_store=ctx.evidence_store, revision=ctx.world_revision)
             if not preflight.passed: raise AssertionError(to_primitive(preflight))
             result = execute_invocation(executor.implementation_runner, compiled, preflight, occ, ctx,
                 agent_prepared=True, authorizing_native_call_id='test_'+occ.step_id)
-            publish(occ, result); return result
+            if expect_failure:
+                if not result.failure_code or result.atomic_effect_passed or result.validated_outputs:
+                    raise AssertionError('empty public scope fabricated a successful discovery')
+            else:
+                publish(occ, result)
+            return result
 
         scope = list(dict.fromkeys(a.arguments['destination'] for a in ctx.action_catalog if a.action_type == 'GO_TO'))[:8]
+        public_discovery_checks = []
+        if search_job.get('selector_policy') == 'current_joint_public_discovery':
+            public_scope = list(dict.fromkeys(a.arguments['destination'] for a in ctx.action_catalog if a.action_type == 'GO_TO'))
+            non_takeable = None
+            for destination in public_scope:
+                if not any(a.action_type == 'GO_TO' and a.arguments['destination'] == destination
+                           for a in ctx.action_catalog):
+                    continue
+                explicit(nav, {'destination': destination})
+                offered = next((a for a in ctx.action_catalog if a.action_type == 'OPEN'), None)
+                if offered:
+                    explicit(opening, {'container': offered.arguments['object']})
+                takeable = {a.arguments['object'] for a in ctx.action_catalog if a.action_type == 'TAKE'}
+                non_takeable = next((r for r in ctx.harness.public_discovery_frame().records
+                    if r.source_kind == 'public_observation_relation' and r.entity not in takeable), None)
+                if non_takeable:
+                    break
+            if non_takeable is None:
+                raise AssertionError('declared real public fixture exposes no non-takeable explicit relation')
+            other = next(s for s in public_scope if s != non_takeable.location)
+            unsuccessful = explicit(public_find, {search_job['query_input_role']: non_takeable.entity,
+                'locations': [other], 'allow_open': True}, expect_failure=True)
+            discovered = explicit(public_find, {search_job['query_input_role']: non_takeable.entity,
+                'locations': [other, non_takeable.location], 'allow_open': True})
+            if discovered.validated_outputs != {'entity': non_takeable.entity, 'location': non_takeable.location}:
+                raise AssertionError('joint public discovery outputs differ from their witness')
+            public_discovery_checks.append({'kind': 'non_takeable', 'source': to_primitive(non_takeable),
+                'preceding_no_match': to_primitive(unsuccessful), 'result': to_primitive(discovered)})
         found = None
         for destination in scope:
+            if not any(a.action_type == 'GO_TO' and a.arguments['destination'] == destination
+                       for a in ctx.action_catalog):
+                continue
             explicit(nav, {'destination': destination})
             offered = next((a for a in ctx.action_catalog if a.action_type == 'OPEN'), None)
             if offered:
@@ -99,24 +142,28 @@ def run(config, entry, output):
         source = found.arguments['source']
         public_other = next(a.arguments['destination'] for a in ctx.action_catalog
                             if a.action_type == 'GO_TO' and a.arguments['destination'] != source)
-        explicit(find, {search_job['query_input_role']: found.arguments['object'],
+        discovered = explicit(find, {search_job['query_input_role']: found.arguments['object'],
                         'locations': [public_other, source], 'allow_open': True})
-        explicit(take, {})
-        explicit(nav, {'destination': public_other})
-        routes = begin(deliver); ctx.graph_bootstrap_completed = True
-        with node_window(deliver, ctx):
-            result = executor.try_autonomous(deliver, routes, ctx)
+        public_discovery_checks.append({'kind': 'takeable', 'result': to_primitive(discovered)})
+        if deliver:
+            explicit(take, {})
+            explicit(nav, {'destination': public_other})
+        successor = deliver or take
+        routes = begin(successor); ctx.graph_bootstrap_completed = True
+        with node_window(successor, ctx):
+            result = executor.try_autonomous(successor, routes, ctx)
         if result is None: raise AssertionError('declared serial dataflow successor not ready')
-        publish(deliver, result)
+        publish(successor, result)
         trace = builder.finish(); finalize(trace); system.traces.save_atomic(trace)
         metrics = trace.metadata['compiler_observability']
         multi = [p for p in metrics['program_invocation_links'] if p['complete_success']
                  and len(p['canonical_action_indices'] or []) >= 2 and p['provider_request_refs'] == []]
         auto = [p for p in metrics['program_invocation_links'] if p['complete_success']
                 and p['origin'] == 'graph_entry_auto' and p['provider_request_refs'] == []]
-        flows = [p for p in metrics['dataflow_consumptions'] if p['consumer_occurrence_id'] == deliver.occurrence_id
+        flows = [p for p in metrics['dataflow_consumptions'] if p['consumer_occurrence_id'] == successor.occurrence_id
                  and p['producer_invocation_id']]
         report = {'passed': bool(multi and auto and flows and before == system.knowledge_digest()),
+            'public_discovery_checks': public_discovery_checks,
             'entry_selection': 'fixed public-catalog test, not natural planner', 'trace_id': trace.trace_id,
             'multi_action_intervals': multi, 'automatic_intervals': auto, 'dataflow_consumptions': flows,
             'bank_digest_before': before, 'bank_digest_after': system.knowledge_digest()}

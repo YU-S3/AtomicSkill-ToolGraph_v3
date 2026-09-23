@@ -36,6 +36,24 @@ _TYPE_SCHEMA = {
 }
 
 
+def _binding_diagnostics(atomic, occurrence, store, arguments, revision, roles, constraint):
+    from ..core.serialization import to_primitive
+    parameters = {p.name: p for p in atomic.inputs}
+    missing = []
+    for role in dict.fromkeys(roles):
+        if role not in parameters:
+            continue
+        anchor = store.semantic_anchor_for(occurrence, role)
+        missing.append({'role': role, 'required_resolution': parameters[role].required_resolution,
+            'submitted_value': to_primitive(arguments.get(role)),
+            'semantic_anchor': to_primitive(anchor.value) if anchor else None,
+            'evidence_revision': revision, 'missing': 'current_authorizing_evidence'})
+    if not missing and constraint is None:
+        return {}
+    return {'bindings': missing, 'required_anchor_or_relation': to_primitive(constraint),
+            'relevant_revision': revision}
+
+
 @dataclass
 class CompiledInvocation:
     spec: ImplementationInvocationSpec
@@ -454,8 +472,10 @@ class InvocationCompiler:
         task_contract: TaskContract | None = None,
     ) -> ToolCallPreflightResult:
         ref = str(compiled.implementation.ref)
-        def fail(layer: str, code: str, message: str) -> ToolCallPreflightResult:
-            return ToolCallPreflightResult(False, ref, failure_layer=layer, failure_code=code, message=message)
+        def fail(layer: str, code: str, message: str, *, roles=(), constraint=None) -> ToolCallPreflightResult:
+            return ToolCallPreflightResult(False, ref, failure_layer=layer, failure_code=code, message=message,
+                diagnostics=_binding_diagnostics(compiled.atomic, occurrence, binding_store, arguments,
+                    revision, roles, constraint))
 
         # 1. native name / call id
         if not call_id or call_name != compiled.spec.name:
@@ -549,7 +569,8 @@ class InvocationCompiler:
                 )
                 local, refs = binding_store.ground_from_evidence(occurrence.occurrence_id, {role: proposal}, [entity_constraint], evidence_store)
                 if not local:
-                    return fail("runtime_binding", "runtime_binding_not_concrete", f"Agent proposal {role} has no current concrete evidence")
+                    return fail("runtime_binding", "runtime_binding_not_concrete", f"Agent proposal {role} has no current concrete evidence",
+                        roles=[role], constraint=entity_constraint)
                 grounded.update(local)
                 matched.extend(refs)
         else:
@@ -585,6 +606,7 @@ class InvocationCompiler:
                     "runtime_binding",
                     "runtime_binding_not_concrete",
                     f"argument constraint not grounded: {constraint.constraint_id}",
+                    roles=[e.source_role for e in constraint.argument_mapping.values()], constraint=constraint,
                 )
             if any(not item.valid_at(revision) for item in evidence):
                 return fail(
@@ -660,7 +682,8 @@ class InvocationCompiler:
                     for constraint in compiled.spec.grounding_constraints
                 )
                 if not can_be_certified:
-                    return fail("runtime_binding", "runtime_binding_not_concrete", f"binding resolution insufficient: {parameter.name}")
+                    return fail("runtime_binding", "runtime_binding_not_concrete", f"binding resolution insufficient: {parameter.name}",
+                        roles=[parameter.name], constraint=concrete)
         normalized = {
             role: binding.value
             for role, binding in merged.items()
@@ -688,13 +711,15 @@ class InvocationCompiler:
 
         ref = str(compiled.implementation.ref)
 
-        def fail(layer: str, code: str, message: str) -> ToolCallPreflightResult:
+        def fail(layer: str, code: str, message: str, *, roles=(), constraint=None) -> ToolCallPreflightResult:
             return ToolCallPreflightResult(
                 False,
                 ref,
                 failure_layer=layer,
                 failure_code=code,
                 message=message,
+                diagnostics=_binding_diagnostics(compiled.atomic, occurrence, binding_store,
+                    prepared.normalized_arguments, revision, roles, constraint),
             )
 
         if not prepared.passed:
@@ -735,7 +760,8 @@ class InvocationCompiler:
                 continue
             evidence = evidence_store.match_constraint(constraint, values, revision)
             if not evidence:
-                return fail("runtime_binding", "runtime_relation_not_grounded", f"constraint not grounded: {constraint.constraint_id}")
+                return fail("runtime_binding", "runtime_relation_not_grounded", f"constraint not grounded: {constraint.constraint_id}",
+                    roles=[e.source_role for e in constraint.argument_mapping.values()], constraint=constraint)
             if any(not item.valid_at(revision) for item in evidence):
                 return fail("runtime_binding", "stale_grounding_evidence", f"stale evidence: {constraint.constraint_id}")
             matched.extend(item.evidence_id for item in evidence)
@@ -777,6 +803,7 @@ class InvocationCompiler:
                     "runtime_binding",
                     "runtime_binding_not_concrete",
                     f"binding resolution insufficient after context validation: {parameter.name}",
+                    roles=[parameter.name],
                 )
         incompatible = self._compatibility_failure(compiled)
         if incompatible is not None:

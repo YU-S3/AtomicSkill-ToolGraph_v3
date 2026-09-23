@@ -61,15 +61,19 @@ def verify_preferences(skills):
         proof = match_implementation(left, right, **args)
         if proof.status != 'exact' or not verify_implementation_proof(left, right, proof.proof, **args):
             raise ReleaseError('deployment I alias has no valid proof')
+    from .oldfirst_plan import program_jobs
     expected = [{'atomic_ref': j['atomic_ref'], 'implementation_ref': j['implementation_ref'],
         'applicable_condition': 'ready' if j.get('route_preference') else 'any',
-        'priority': 200 if j.get('route_preference') else 100} for j in plan['program_realization_jobs']]
+        'priority': 200 if j.get('route_preference') else 100} for j in program_jobs(plan)]
     if prefs['preferred_implementations'] != expected:
         raise ReleaseError('deployment I preference differs from the edit plan')
     for item in expected:
         if str(skills.get_implementation(item['implementation_ref']).abstract_ref) != item['atomic_ref']:
             raise ReleaseError('deployment I preference crosses Atomic authority')
-    if prefs['preferred_composites'] != [{'composite_ref': j['target_ref'], 'priority': 100} for j in plan['workflow_targets']]:
+    expected_graphs = [{'composite_ref': j['target_ref'], 'priority': 100} for j in plan['workflow_targets']]
+    if plan.get('derived_revision_jobs'):
+        expected_graphs.append({'composite_ref': plan['deployment_preferences_patch']['prefer_workflow_ref'], 'priority': 200})
+    if prefs['preferred_composites'] != expected_graphs:
         raise ReleaseError('deployment graph preference differs from the edit plan')
     if prefs['blocked_equivalent_groups'] != [[j['alias_tool_ref'], j['canonical_tool_ref']]
             for j in plan['merge_groups'] if j['action'] == 'blocked_equivalence_group']:

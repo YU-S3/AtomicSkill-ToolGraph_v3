@@ -780,6 +780,9 @@ class ToolRunner:
                 state.condition_observations.append({"node_id": node_id,
                     "condition": to_primitive(condition), "result": branch_taken,
                     "locals": to_primitive(state.local), "revision": state.catalog_revision})
+                discovery = getattr(ctx.harness, 'public_discovery_frame', lambda: None)()
+                if discovery is not None and condition.get('match', {}).get('source') == 'semantic_evidence':
+                    state.condition_observations[-1]['public_discovery'] = discovery.to_dict()
                 branch = node.get("then_branch") if branch_taken else node.get("else_branch")
                 state.path_tokens.append(
                     f"{node_id}:{'then' if branch_taken else 'else'}"

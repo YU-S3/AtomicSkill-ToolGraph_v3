@@ -165,6 +165,11 @@ def prepare_oldfirst(spec, edit_plan):
     actual_zip = sha(spec.input_zip)
     if actual_zip not in OLDFIRST_SOURCE_ARCHIVES[spec.seed]:
         raise ReleaseError('unknown original source archive')
+    required = plan.get('required_protocols', {})
+    for field, expected_version in required.items():
+        section = 'harness' if field == 'public_discovery_version' else 'runtime'
+        if spec.base_config.get(section, {}).get(field) != expected_version:
+            raise ReleaseError(f'release config missing {section}.{field}')
     root = Path(spec.output_dir).resolve()
     root.mkdir(parents=True, exist_ok=False)
     identity = {'protocol_version': OLDFIRST_PROTOCOL_VERSION, 'seed': spec.seed,
@@ -190,6 +195,9 @@ def prepare_oldfirst(spec, edit_plan):
     _json(root/'source_inventory.json', original_inventory)
     _stage(root, '01_import_identity', identity, original_inventory)
     bank = root/'work/data_v3'
+    if required:
+        from .bank_release import release_resources
+        _json(bank/'public_discovery_contract.json', release_resources(spec.base_config)['public_discovery_contract'])
     db = StateDatabase(bank/'state.sqlite3', r103=True)
     db.connection.executescript(DDL); db.connection.commit()
     store = ArtifactStore(bank, db); skills = SkillRegistry(store, db)
@@ -224,13 +232,45 @@ def prepare_oldfirst(spec, edit_plan):
         for job in plan['workflow_targets']:
             if job['action'] == 'revise':
                 graph = revise_graph(job, assets[job['source_ref']])
+                assets[str(graph.ref)] = graph
                 additions.append(('composite', graph, job['source_ref'], 'active'))
+        from .oldfirst_plan import program_jobs, workflow_jobs, OPERATIONS
+        resolved_refs = {}
+        for job in plan.get('derived_revision_jobs', []):
+            if OPERATIONS.get(job.get('operation')) != job['kind']:
+                raise ReleaseError('unknown derived revision operation')
+            if job['kind'] == 'atomic':
+                atomic = revise_atomic(job, assets, {})
+                assets[str(atomic.ref)] = atomic
+                additions.append(('atomic', atomic, job['source_ref'], 'active'))
+                resolved_refs[job['target_ref']] = str(atomic.ref)
+            elif job['kind'] == 'program_realization':
+                atomic = assets[resolved_refs.get(job['atomic_ref'], job['atomic_ref'])]
+                tool = author_program(job, atomic)
+                impl = author_implementation(job, atomic, tool)
+                for kind, obj, source_key, target_key in (
+                        ('tool', tool, 'source_tool_ref', 'tool_ref'),
+                        ('implementation', impl, 'source_implementation_ref', 'implementation_ref')):
+                    assets[str(obj.ref)] = obj
+                    additions.append((kind, obj, job[source_key], 'active'))
+                    resolved_refs[job[target_key]] = str(obj.ref)
+            else:
+                effective = copy.deepcopy(job)
+                effective['action'] = 'revise'
+                for node in effective['target_nodes']:
+                    node['atomic_ref'] = resolved_refs.get(node['atomic_ref'], node['atomic_ref'])
+                graph = revise_graph(effective, assets[job['source_ref']])
+                assets[str(graph.ref)] = graph
+                additions.append(('composite', graph, job['source_ref'], 'active'))
+                resolved_refs[job['target_ref']] = str(graph.ref)
+        _json(bank/'resolved_ref_map.json', resolved_refs)
+        comparisons = []
         for kind, obj, source_ref, status in additions:
             if str(obj.ref) in expected:
                 raise ReleaseError('new revision collides with immutable original')
             if kind == 'tool':
                 from ..tooling.validator import ToolStaticValidator
-                job = next(j for j in plan['program_realization_jobs'] if j.get('tool_ref') == str(obj.ref))
+                job = next(j for j in program_jobs(plan) if j.get('tool_ref') == str(obj.ref))
                 report = ToolStaticValidator().validate_tool_asset(obj, assets[job['atomic_ref']], AlfWorldAdapter(split='train'))
                 if not report.passed:
                     raise ReleaseError(f'{obj.ref}: {to_primitive(report)}')
@@ -241,10 +281,25 @@ def prepare_oldfirst(spec, edit_plan):
                 obj.validator_spec['task_contract_covered'] = True
             _import_artifact(store, kind, obj, 'draft')
             assets[str(obj.ref)] = obj
+            source_obj = assets.get(source_ref)
+            if source_obj is not None and source_ref not in source_hashes:
+                source_hashes[source_ref] = raw_hash(json.loads(store.path_for(kind, source_obj.ref).read_text()))
+            if str(obj.ref) in resolved_refs.values() and source_obj is not None:
+                before, after = to_primitive(source_obj), to_primitive(obj)
+                matcher = (to_primitive(match_atomic(source_obj, obj)) if kind == 'atomic' else
+                           to_primitive(match_tool(source_obj, obj)) if kind == 'tool' else None)
+                comparisons.append({'kind': kind, 'source_ref': source_ref, 'target_ref': str(obj.ref),
+                    'source_payload_hash': source_hashes[source_ref],
+                    'changed_fields': {k: {'before': before.get(k), 'after': after.get(k)}
+                        for k in before.keys() | after.keys() if before.get(k) != after.get(k)},
+                    'identity_match': matcher, 'execution_credit_inherited': False,
+                    'decision': 'version existing logical ID; changed guidance/program or declared workflow',
+                    'required_protocols': required})
             changes.append({'kind': kind, 'released_ref': str(obj.ref), 'source_ref': source_ref,
                 'source_payload_hash': source_hashes.get(source_ref, ''),
                 'released_payload_hash': raw_hash(json.loads(store.path_for(kind, obj.ref).read_text())),
                 'effective_status': status, 'basis': 'authored_revision'})
+        _json(bank/'derived_revision_comparisons.json', comparisons)
         for kind, obj, _, _ in additions:
             destinations = ([('implements', str(obj.abstract_ref))] if kind == 'implementation' else
                             [('contains', str(o.node_ref)) for o in obj.occurrences] if kind == 'composite' else [])
@@ -257,7 +312,11 @@ def prepare_oldfirst(spec, edit_plan):
             'canonical_tool_aliases': ta, 'canonical_implementation_aliases': ia,
             'preferred_implementations': [], 'blocked_equivalent_groups': blocked,
             'preferred_composites': [{'composite_ref': j['target_ref'], 'priority': 100} for j in plan['workflow_targets']]}
-        for job in plan['program_realization_jobs']:
+        if plan.get('derived_revision_jobs'):
+            patch = plan['deployment_preferences_patch']
+            preferences['preferred_composites'].append({'composite_ref': resolved_refs.get(
+                patch['prefer_workflow_ref'], patch['prefer_workflow_ref']), 'priority': 200})
+        for job in program_jobs(plan):
             preferences['preferred_implementations'].append({'atomic_ref': job['atomic_ref'],
                 'implementation_ref': job['implementation_ref'],
                 'applicable_condition': 'ready' if job.get('route_preference') else 'any',
@@ -276,6 +335,13 @@ def prepare_oldfirst(spec, edit_plan):
                     (change['effective_status'], change['released_ref']))
             # Real compiler / graph checks happen against this prospective view.
             checked = _check_selected(skills, db, plan)
+            if plan.get('derived_revision_jobs'):
+                from .preparation_coverage import audit_coverage
+                coverage = audit_coverage(skills, required_composites=[j['target_ref'] for j in workflow_jobs(plan)
+                    if j.get('operation') == 'version_existing_workflow'])
+                _json(bank/'preparation_coverage.json', coverage)
+                if not coverage['passed']:
+                    raise ReleaseError(f'preparation coverage failed: {coverage["blocking_gaps"]}')
             for change in changes:
                 ref = change['released_ref']
                 report = {'passed': True, 'protocol_version': OLDFIRST_PROTOCOL_VERSION,
@@ -321,6 +387,7 @@ def prepare_oldfirst(spec, edit_plan):
 
 
 def _check_selected(skills, db, plan):
+    from .oldfirst_plan import program_jobs, workflow_jobs
     from ..runtime.invocation_compiler import InvocationCompiler
     from ..planner.compiler import PlanCompiler
     from ..planner.validator import PlannerValidator
@@ -334,7 +401,7 @@ def _check_selected(skills, db, plan):
     reports = {}
     for impl in skills.implementations():
         selected = str(impl.ref) in plan['manual_publications'] or any(
-            j['implementation_ref'] == str(impl.ref) for j in plan['program_realization_jobs'])
+            j['implementation_ref'] == str(impl.ref) for j in program_jobs(plan))
         if not selected:
             continue
         atomic = skills.get_atomic(impl.abstract_ref)
@@ -363,7 +430,7 @@ def _check_selected(skills, db, plan):
         'cool': ('pick_cool_then_place_in_recep', 'put a cold object in a destination'),
         'look': ('look_at_obj_in_light', 'look at an object under a light'),
         'two': ('pick_two_obj_and_place', 'put two objects in a destination')}
-    for job in plan['workflow_targets']:
+    for job in workflow_jobs(plan):
         graph = skills.get_composite(job['target_ref'])
         family, goal = examples[job['goal_group']]
         task = HarnessTask('publication-contract-check', goal, 'alfworld', family)
@@ -414,6 +481,13 @@ def verify_oldfirst(prepared):
                         continue
                 violations.append({'audit': kind, **violation})
         reports = _check_selected(skills, db, plan)
+        if plan.get('derived_revision_jobs'):
+            from .preparation_coverage import audit_coverage
+            from .oldfirst_plan import workflow_jobs
+            coverage = audit_coverage(skills, required_composites=[j['target_ref'] for j in workflow_jobs(plan)
+                if j.get('operation') == 'version_existing_workflow'])
+            if coverage != json.loads((bank/'preparation_coverage.json').read_text()) or not coverage['passed']:
+                raise ReleaseError('preparation coverage changed since publication')
         _json(root/'release_checks.json', {'passed': not violations, 'violations': violations, 'audits': audits})
         json_lines(root/'workflow_closure.jsonl', [{'ref': ref, **r} for ref, r in reports.items() if 'nodes' in r])
         json_lines(root/'effective_routes.jsonl', [{'ref': ref, **r} for ref, r in reports.items() if 'compiled_interface' in r])

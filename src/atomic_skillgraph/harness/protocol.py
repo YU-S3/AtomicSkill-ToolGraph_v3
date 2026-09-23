@@ -59,6 +59,7 @@ class HarnessRuntimeCheckpoint:
     accepted_prefix: tuple[dict[str, Any], ...]
     revision: int
     state_digest: str
+    public_feedback: dict[str, Any] = field(default_factory=dict)
 
 
 class AtomicEffectResolutionRequest(TypedDict, total=False):

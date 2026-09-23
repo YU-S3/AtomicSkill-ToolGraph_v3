@@ -64,6 +64,23 @@ class GroundingEvidenceStore:
                 stability=EvidenceStability.REVISION_SCOPED, action_id=spec.action_id,
             ))
 
+    def add_public_discovery(self, frame) -> None:
+        """Use existing concrete/identity evidence types, never fabricate affordances."""
+        if frame.revision != self.revision:
+            raise ValueError('public discovery/evidence revision mismatch')
+        for row in frame.records:
+            for role, value in (('entity', row.entity), ('location', row.location)):
+                from ..core.refs import content_hash
+                ref = 'public_discovery:' + content_hash([row.source_ref, role, value])
+                self._add(GroundingEvidence(ref, 'entity_concrete',
+                    {'role': role, 'value': value, 'public_evidence_ref': row.source_ref}, row.source_kind,
+                    frame.revision, frame.revision, stability=EvidenceStability.REVISION_SCOPED))
+                if not any(e.evidence_type == 'observed_value_identity' and json_values_equal(e.payload.get('value'), value)
+                           for e in self._evidence.values()):
+                    self._add(GroundingEvidence('observed_identity:' + content_hash([frame.episode_id, value]),
+                        'observed_value_identity', {'value': value, 'evidence_refs': [ref]}, row.source_kind,
+                        frame.revision, frame.revision, stability=EvidenceStability.PERSISTENT))
+
     def add_task_evidence(self, role: str, value: Any, *, semantic_type: str = "entity") -> GroundingEvidence:
         return self._add(GroundingEvidence(
             evidence_id=f"task:{role}:{uuid.uuid4().hex}", evidence_type="task_binding",

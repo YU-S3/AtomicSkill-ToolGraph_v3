@@ -30,6 +30,9 @@ class ScopeCheck:
     selector_evaluated: bool
     check_node_ids: tuple[str, ...]
     action_indices: tuple[int, ...]
+    public_projection_version: str = ''
+    inspection_status: str = 'unknown'
+    source_refs: tuple[str, ...] = ()
 
 
 @dataclass
@@ -150,7 +153,9 @@ def observe_search(tool, bindings, state, ctx, *, attempt_id, occurrence_id,
         and n['collection_source'].get('where', {}).get('semantic_compatible_with', {}) == {
             'source': 'local_variable', 'field': variable, 'semantic_type': 'entity'}}
     targets = [n for n in nodes if n['op'] == 'IF' and n.get('condition', {}).get('op') == 'exists'
-        and n['condition'].get('match', {}).get('source') == 'action_catalog'
+        and (n['condition'].get('match', {}).get('source') == 'action_catalog' or (
+            n['condition'].get('match', {}).get('source') == 'semantic_evidence'
+            and n['condition']['match'].get('where', {}).get('predicate') == 'entity.discovered_at'))
         and not n.get('else_branch')
         and any(child['op'] == 'RETURN' for child in walk_program_nodes(n.get('then_branch', [])))]
     if not guards or len(targets) != 1:
@@ -168,6 +173,9 @@ def observe_search(tool, bindings, state, ctx, *, attempt_id, occurrence_id,
     method = {'selector': copy.deepcopy(selector), 'query_role': query_role,
         'controls': {k: copy.deepcopy(v) for k, v in bindings.items() if k not in {query_role, scope_role}},
         'meaning': 'public_candidate_check_not_entity_absence'}
+    public_discovery = selector.get('source') == 'semantic_evidence'
+    if public_discovery:
+        method['public_projection_version'] = getattr(ctx.harness, 'public_discovery_version', '')
     program_id = identity([str(tool.ref), tool.artifact])
     checks = []
     turns = iter(r for r in state.iteration_observations if r['node_id'] == loop['node_id'])
@@ -183,10 +191,17 @@ def observe_search(tool, bindings, state, ctx, *, attempt_id, occurrence_id,
             turn['condition_start']:turn['condition_end']] if r['node_id'] == target['node_id']]
         outcome = ('matched_candidate' if evaluated[-1]['result'] else 'no_matching_candidate') if reached and evaluated else (
             'interrupted' if turn is not None else 'unchecked')
+        frame = evaluated[-1].get('public_discovery', {}) if evaluated else {}
+        inspection = [s for s in frame.get('inspected_scopes', []) if s['location'] == value]
+        status = 'complete_listing' if inspection and all(s['status'] == 'complete_listing' for s in inspection) else (
+            inspection[-1]['status'] if inspection else 'unknown')
+        if public_discovery and outcome == 'no_matching_candidate' and status != 'complete_listing':
+            outcome = 'incomplete_inspection'
         checks.append(ScopeCheck(copy.deepcopy(value), outcome,
             evaluated[-1]['revision'] if evaluated else None, bool(reached), bool(evaluated),
             tuple(r['node_id'] for r in evaluated),
-            tuple(range(turn['action_start'], turn['action_end'])) if turn else ()))
+            tuple(range(turn['action_start'], turn['action_end'])) if turn else (),
+            frame.get('version', ''), status, tuple(s['source_ref'] for s in inspection)))
     marker = getattr(ctx, '_compiler_invocation_marker', {}) or {}
     failure = getattr(result, 'failure_code', '') or getattr(error, 'code', '') or state.failure_code
     return SearchAttemptObservation(identity([VERSION, attempt_id]), ctx.trace_builder.trace.trace_id,

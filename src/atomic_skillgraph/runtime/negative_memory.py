@@ -55,8 +55,8 @@ def _semantic_state(value):
     return value
 
 
-def query_key(occurrence, call, ctx=None):
-    arguments = call.arguments
+def query_key(occurrence, call, ctx=None, *, selection=None):
+    arguments = selection.canonical_arguments() if selection is not None else call.arguments
     if call.name == 'environment_action' and ctx is not None:
         # First validate the current action identity. An invalid/stale id may
         # never become legal merely because an older call was cached.
@@ -71,10 +71,10 @@ def query_key(occurrence, call, ctx=None):
                          "tool": call.name, "arguments": arguments})
 
 
-def cached_rejection(ctx, occurrence, call):
+def cached_rejection(ctx, occurrence, call, *, selection=None):
     signature = state_signature(ctx, occurrence)
     try:
-        key = query_key(occurrence, call, ctx)
+        key = query_key(occurrence, call, ctx, selection=selection)
     except (KeyError, ValueError):
         return None  # Ordinary handler reports the original protocol error.
     entry = ctx.rejected_runtime_candidates.get(key + ":" + signature)
@@ -83,7 +83,7 @@ def cached_rejection(ctx, occurrence, call):
     return None
 
 
-def remember_rejection(ctx, occurrence, call, payload):
+def remember_rejection(ctx, occurrence, call, payload, *, selection=None):
     if not isinstance(payload, dict) or payload.get("deterministic_rejection_cache_hit"):
         return
     # Only validator/preflight results, never a provider error, tool execution
@@ -100,8 +100,9 @@ def remember_rejection(ctx, occurrence, call, payload):
         validation = {**payload, 'passed': False, 'failure_code': payload.get('preflight_failure_code') or payload.get('failure_code') or payload.get('error')}
     if not isinstance(validation, dict) or validation.get("passed") is not False or not validation.get("failure_code"):
         return
-    claims = call.arguments.get("candidate_bindings", {}) if call.name == "validate_current_atomic" else call.arguments
-    key = query_key(occurrence, call, ctx)
+    claims = (selection.canonical_arguments() if selection is not None else
+              call.arguments.get("candidate_bindings", {}) if call.name == "validate_current_atomic" else call.arguments)
+    key = query_key(occurrence, call, ctx, selection=selection)
     refs = tuple(validation.get("witness_refs", ()))
     candidates = [RejectedRuntimeCandidate(
         occurrence.occurrence_id, role, copy.deepcopy(value), validation["failure_code"],
@@ -122,7 +123,7 @@ def current_rejections(ctx, occurrence):
         payload = value.get('payload', {})
         stable = payload.get('constraint_scope') == 'stable_schema'
         if not stable and not (value.get('state_signature') == signature and any(
-                item['occurrence_id'] == occurrence.occurrence_id for item in value['candidate_group'])):
+                item['occurrence_id'] == occurrence.occurrence_id for item in value.get('candidate_group', []))):
             continue
         # Stable constraints survive sessions/world revisions, but repeated
         # malformed values do not replicate their large original argument lists.
@@ -131,7 +132,8 @@ def current_rejections(ctx, occurrence):
         selected[key] = value
     return [{"tool": value["tool"], "scope": value.get('payload', {}).get('constraint_scope', 'exact_call_and_authoritative_state'),
              "constraint_feedback": {k: copy.deepcopy(value['payload'][k]) for k in
-                 ('error_code', 'argument_path', 'expected_constraint', 'actual_summary', 'support_atomic_ref',
+                 ('error_code', 'reason_code', 'preflight_failure_code', 'diagnostics', 'support_call_id',
+                  'argument_path', 'expected_constraint', 'actual_summary', 'support_atomic_ref',
                   'allowed_output_mappings', 'required_anchor_or_relation', 'relevant_revision')
                  if k in value.get('payload', {})},
              "candidate_group": [] if value.get('payload', {}).get('constraint_scope') == 'stable_schema'

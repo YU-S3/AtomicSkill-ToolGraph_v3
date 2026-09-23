@@ -157,7 +157,8 @@ def test_support_atomic_rejections_share_final_runtime_projection(
     assert payload['accepted'] is False and payload['error'] == expected_error
     assert payload['error_code'] == expected_error
     assert payload['relevant_revision'] == 7
-    assert set(payload) == {'accepted', 'error', 'error_code', 'argument_path',
+    assert payload['reason_code'] == expected_error
+    assert set(payload) == {'accepted', 'error', 'error_code', 'reason_code', 'argument_path',
         'expected_constraint', 'actual_summary', 'allowed_output_mappings',
         'required_anchor_or_relation', 'relevant_revision'}
     assert len(augmented) == 1

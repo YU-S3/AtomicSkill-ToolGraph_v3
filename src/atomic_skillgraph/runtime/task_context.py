@@ -90,6 +90,9 @@ class TaskRuntimeContext:
         binding_store.seed_task_bindings(task, plan.task_contract, reset.new_revision)
         binding_store.configure_repeat_constraints(plan.repeat_constraints)
         evidence_store.replace_action_catalog(reset.catalog, reset.new_revision)
+        discovery = getattr(harness, 'public_discovery_frame', lambda: None)()
+        if discovery is not None:
+            evidence_store.add_public_discovery(discovery)
         progress = TaskProgressTracker(
             plan.task_contract,
             harness.validator_channel(),
@@ -116,7 +119,10 @@ class TaskRuntimeContext:
             current_facts=normalized_facts(
                 reset_snapshot
             ).values(),
+            public_relation_facts=discovery.relation_facts() if discovery is not None else None,
         )
+        if discovery is not None:
+            trace_builder.trace.metadata.setdefault('public_discovery_frames', []).append(discovery.to_dict())
         progress.record("task_reset")
         from ..traces.compiler_observer import initial_state
         initial_state(context, reset)
@@ -319,6 +325,10 @@ class TaskRuntimeContext:
         )
         self.binding_store.invalidate_revision(self.world_revision)
         self.evidence_store.replace_action_catalog(self.action_catalog, self.world_revision)
+        discovery = getattr(self.harness, 'public_discovery_frame', lambda: None)()
+        if discovery is not None:
+            self.evidence_store.add_public_discovery(discovery)
+            self.trace_builder.trace.metadata.setdefault('public_discovery_frames', []).append(discovery.to_dict())
         self.task_progress.record("environment_action")
         facts = normalized_facts(validator_snapshot).values()
         state = self.occurrence_evidence.get(occurrence_id)
@@ -341,6 +351,7 @@ class TaskRuntimeContext:
             catalog=self.action_catalog,
             revision=self.world_revision,
             current_facts=facts,
+            public_relation_facts=discovery.relation_facts() if discovery is not None else None,
         )
         if bool(result.accepted) and self._after_action_refresh is not None:
             self._after_action_refresh()

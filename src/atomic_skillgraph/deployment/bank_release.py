@@ -434,6 +434,19 @@ def _bank_files(bank):
     return {p.relative_to(bank).as_posix():sha(p) for p in sorted(bank.rglob('*'))
         if p.is_file() and p.name not in {'release_manifest.json','state.sqlite3-wal','state.sqlite3-shm'}}
 
+def release_resources(config):
+    resources = {k: config.get(k) for k in ('llm', 'runtime', 'cold_start', 'r103')}
+    harness = config.get('harness', {})
+    if harness.get('public_discovery_version'):
+        import os
+        from ..harness.public_discovery import resource_contract, VERSION
+        if harness['public_discovery_version'] != VERSION:
+            raise ReleaseError('unsupported public discovery resource version')
+        data = harness.get('alfworld_data') or os.environ.get('ALFWORLD_DATA') or str(Path.home()/'.cache/alfworld')
+        resources['public_discovery_contract'] = resource_contract(Path(data)/'logic/alfred.twl2')
+    return resources
+
+
 def freeze_release(prepared,checks):
     from experiments.protocol import hash_knowledge,hash_code,hash_config,code_file_manifest
     from ..knowledge.r103_protocol import METADATA
@@ -478,7 +491,7 @@ def freeze_release(prepared,checks):
         'source_metadata':provenance,
         'knowledge_digest':digest,'code_hash':hash_code(Path(__file__).resolve().parents[3]),
         'execution_files':code_file_manifest(Path(__file__).resolve().parents[3]),
-        'resource_hash':hash_config({k:source['config'].get(k) for k in ('llm','runtime','cold_start','r103')}),
+        'resource_hash':hash_config(release_resources(source['config'])),
         'protocol_metadata':METADATA,'checks_hash':checks.checks_hash,'input_authorization_version':'r103.caller-input.v1',
         'created_at':datetime.now(timezone.utc).isoformat(),'files':_bank_files(temporary)}
     _json(temporary/'release_manifest.json',manifest)
@@ -498,7 +511,7 @@ def load_release_source(path,config):
         raise ReleaseError('release source identity mismatch')
     if manifest['files']!=_bank_files(bank):raise ReleaseError('release files missing, modified or unexpected')
     if manifest['code_hash']!=hash_code(Path(__file__).resolve().parents[3]):raise ReleaseError('release evaluator code mismatch')
-    resources={k:config.get(k) for k in ('llm','runtime','cold_start','r103')}
+    resources=release_resources(config)
     if manifest['resource_hash']!=hash_config(resources):raise ReleaseError('release model/resource mismatch')
     with StateDatabase(bank/'state.sqlite3',readonly=True,r103=True) as db:
         ArtifactStore(bank,db).verify_all();verify_deployments(db,bank)
@@ -517,13 +530,24 @@ def make_configs(releases,profile,repeats=None):
     output_root=releases[0].root.parent.parent
     comparison=output_root/'dev/comparison/summary.json'
     automatic=output_root/'dev/automation/acceptance.json'
-    if not comparison.is_file() or not automatic.is_file():raise ReleaseError('paired dev and automatic acceptance must finish before formal configs')
-    paired=json.loads(comparison.read_text())
+    preparation = json.loads((releases[0].root.parent/'prepare_manifest.json').read_text())
+    coverage_release = bool(preparation['config'].get('runtime', {}).get('preparation_coverage_version'))
+    if coverage_release:
+        if profile != 'current':
+            raise ReleaseError('Release4 formal matrix must use its declared current profile')
+        from experiments.release4_coverage import verify_coverage
+        verify_coverage(output_root, write=True)
+        comparison = output_root/'dev/coverage_acceptance.json'
+        automatic = output_root/'dev/controlled_acceptance.json'
+        paired = {}
+    else:
+        if not comparison.is_file() or not automatic.is_file():raise ReleaseError('paired dev and automatic acceptance must finish before formal configs')
+        paired=json.loads(comparison.read_text())
     oldfirst = all(json.loads((r.root/'release_manifest.json').read_text())['protocol_version'] == OLDFIRST_PROTOCOL_VERSION for r in releases)
     expected_dev = 3 if oldfirst else 6
-    if len(paired.get('pairs',[]))!=expected_dev or json.loads(automatic.read_text()).get('passed') is not True:
+    if not coverage_release and (len(paired.get('pairs',[]))!=expected_dev or json.loads(automatic.read_text()).get('passed') is not True):
         raise ReleaseError('incomplete paired dev or automatic acceptance')
-    if oldfirst:
+    if oldfirst and not coverage_release:
         from experiments.released_dev_checks import verify_dev
         verify_dev(output_root, write=True)
     plan=[]

@@ -26,7 +26,7 @@ class TaskConsumer:
     binding_specs: dict = field(default_factory=dict)
 
 
-def invoke_task_capability(executor, call, consumer, ctx, candidate):
+def invoke_task_capability(executor, call, consumer, ctx, candidate, *, selection=None):
     """Same compiler, preflight, interpreter and transaction; no parent transfer."""
     if call.arguments.get('output_mapping'):
         return {"accepted": False, "error": "task_consumer_has_no_parent_roles"}
@@ -43,6 +43,8 @@ def invoke_task_capability(executor, call, consumer, ctx, candidate):
     if not choices or (len(choices) > 1 and len(preferred) != 1):
         return {"accepted": False, "error": "runtime_support_no_unambiguous_executable"}
     compiled = preferred[0] if preferred else choices[0]
+    if selection and str(compiled.implementation.ref) != selection.option.public()['route_identity']:
+        return {'accepted': False, 'error': 'support_route_changed'}
     previous, refresh = ctx.active_occurrence_id, ctx._after_action_refresh
     try:
         ctx.begin_occurrence(occurrence)
@@ -55,7 +57,8 @@ def invoke_task_capability(executor, call, consumer, ctx, candidate):
             compiled, prepared, occurrence=occurrence, binding_store=ctx.binding_store,
             evidence_store=ctx.evidence_store, revision=ctx.world_revision) if prepared.passed else prepared
         if not preflight.passed:
-            return {"accepted": False, "error": preflight.failure_code, "message": preflight.message}
+            return {"accepted": False, "error": preflight.failure_code, "message": preflight.message,
+                    'preflight_failure_code': preflight.failure_code, 'diagnostics': preflight.diagnostics}
         result = execute_invocation(executor.implementation_runner, compiled, preflight,
             occurrence, ctx, agent_prepared=True, origin='task_agent_selected_registered', consumer=consumer,
             authorizing_native_call_id=call.call_id)
@@ -91,6 +94,7 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
             pool = list(executor.invocation_compiler.skills.atomics(mode=executor.invocation_compiler.mode))
             candidates = executor.support_retriever.retrieve_for_task(
                 query=ctx.task_goal, atomics=pool,
+                top_k=None if getattr(executor, 'support_interface_version', None) else 5,
                 execution_availability=executor._support_execution_availability(pool, ctx))
             if getattr(executor.invocation_compiler, 'r103', False):
                 from .support_interface import project_candidate
@@ -99,10 +103,18 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                     None, consumer, ctx, executor.invocation_compiler, routes.get(c.atomic_ref, [])) for c in candidates]
             if not intervention.programs:
                 candidates = []
+            session = executor.session_factory(session_kind, '__task__')
+            record = executor._record_session_start(session, 'DynamicTaskSession', '', ctx)
+            surface = executor._build_support_surface(candidates if not request else [],
+                None, consumer, ctx, session.session_id)
             tools = [executor._environment_tool(ctx, node_level=False), executor._status_tool()]
             if intervention.programs:
                 tools.append(automation_request_tool())
-            if candidates:
+            if surface is not None:
+                tool = surface.native_tool()
+                if tool is not None:
+                    tools.append(tool)
+            elif candidates:
                 tools.append(executor._support_tool(candidates))
             if request:
                 tools = [executor._automation_tool()]
@@ -124,10 +136,9 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                 recent_failed_learned_invocation=ctx.last_failed_invocation,
                 rescue_method_guidance=executor._rescue_method_guidance(ctx) if rescue else None,
                 projection_audit=audit, task_runtime_frame=frame, native_tool_specs=tools,
+                support_call_surface=surface,
                 support_summary_lookup=executor.context_builder.selected_support_summaries(
                     executor.invocation_compiler.skills, candidates))
-            session = executor.session_factory(session_kind, '__task__')
-            record = executor._record_session_start(session, 'DynamicTaskSession', '', ctx)
             increment(ctx, 'runtime_step_count')
             increment(ctx, 'runtime_step_dynamic_count')
             if draft_step:
@@ -162,7 +173,8 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                     payload = executor._process_runtime_automation_call(call, ctx, consumer)
                     ctx.clear_active_occurrence()
                 elif call.name == 'invoke_support_atomic':
-                    payload = executor._invoke_support_atomic_call(call, session, consumer, ctx, None, candidates)
+                    payload = executor._invoke_support_atomic_call(call, session, consumer, ctx, None, candidates,
+                        surface=surface)
                 else:
                     payload = {"accepted": True, "status": call.arguments.get('status')}
                     failure_code = 'benchmark_failure'

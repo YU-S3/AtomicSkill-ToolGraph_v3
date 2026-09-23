@@ -107,6 +107,11 @@ def write_release_report(output,config,*,resource_traces,digest_after):
     json_lines(output/'runtime_expression_requests.jsonl',expressions)
     json_lines(output/'compiler_task_metrics.jsonl',scored_compiler)
     json_lines(output/'compiler_attempt_metrics.jsonl',compiler)
+    if config.get('runtime', {}).get('support_interface_version'):
+        from .release4_metrics import trace_metrics as support_metrics
+        json_lines(output/'release4_attempt_metrics.jsonl', [
+            {'trace_id': to_primitive(t)['trace_id'], 'task_id': to_primitive(t)['task']['task_id'],
+             **support_metrics(to_primitive(t))} for t in resource_traces])
     atomic_write_json(output/'runtime_expression_coverage.json',{'physical_requests':len(requests),
         'captured':sum(bool(r.get('final_payload_audit')) for r in requests.values()),
         'matched_lean_requests':sum(r['final_lean_payload_matched'] for r in expressions)})

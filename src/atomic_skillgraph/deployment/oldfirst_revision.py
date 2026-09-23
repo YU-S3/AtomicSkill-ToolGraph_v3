@@ -41,6 +41,19 @@ def metadata(job):
 
 def revise_atomic(job, assets, program_job):
     source = assets.get(job.get('source_ref'))
+    if job.get('operation') == 'version_existing_discovery_contract':
+        if source is None or not job.get('preserve_inputs_outputs_and_effects'):
+            raise ReleaseError('discovery delta requires an immutable source contract')
+        atomic = copy.deepcopy(source)
+        atomic.ref = SkillRef.parse(job['target_ref'])
+        atomic.summary = 'Find a matching entity with a current public location witness in the caller supplied scope'
+        atomic.guideline = {'steps': [
+            'Inspect only the caller supplied ordered locations; open only with authorization.',
+            'Return an entity and location from the same current explicit public relation; takeability is not required.'],
+            'notes': ['A closed or unparsed scope is not a complete inspection. Scope exhaustion is not global absence.']}
+        atomic.metadata = metadata(job)
+        atomic.status = SkillStatus.DRAFT
+        return atomic
     if program_job.get('query_input_role'):
         query = program_job['query_input_role']
         inputs = [parameter(query, resolution='semantic'), parameter('locations', 'list', 'semantic'),
@@ -116,6 +129,13 @@ def author_program(job, atomic):
             'predicate': 'entity.discovered_at', 'argument_role': 'entity',
             'semantic_compatible_with': {**value('found', True), 'semantic_type': 'entity'}},
             'project': {'kind': 'argument', 'role': 'location'}, 'distinct': True}
+        if job.get('selector_policy') == 'current_joint_public_discovery':
+            found = {'source': 'semantic_evidence', 'where': {
+                'predicate': 'entity.discovered_at', 'argument_role': 'entity',
+                'semantic_compatible_with': {**value(query), 'semantic_type': 'entity'},
+                'location': value('searched_location', True)},
+                'project': {'kind': 'argument', 'role': 'entity'}, 'distinct': True}
+            found_source['where']['location'] = value('searched_location', True)
         open_node = conditional('open_when_offered', selector('OPEN', 'object', 'searched_location', True),
             [action('open', 'OPEN', {'object': arg('searched_location', True)},
                 {'predicate': 'container.open', 'args': {'container': arg('searched_location', True)}, 'effect_domain': 'world'})])

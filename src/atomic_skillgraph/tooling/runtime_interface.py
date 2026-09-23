@@ -177,15 +177,15 @@ _TOOL_IR_CONDITION_CONTRACT: dict[str, Any] = {
     "match_shape": {
         "op": "exists or not_exists; defaults to exists",
         "match": {
-            "source": "action_catalog",
-            "where": "required public action_type; direct argument filters and optional semantic_compatible_with",
+            "source": "action_catalog or semantic_evidence",
+            "where": "required public action_type (catalog) or predicate (semantic evidence); direct argument filters and optional semantic_compatible_with. Semantic-evidence direct filters may reference an exact {source: tool_input|local_variable, field: declared_role} for a joint relation match.",
             "project": {"kind": "argument", "role": "an argument of the selected public primitive"},
             "distinct": "optional boolean",
         },
     },
     "match_rules": (
         "Use either match/op or the legacy shape, never both. Match compares "
-        "current public action candidates; semantic comparison source/field "
+        "current public action candidates or current authoritative semantic relations; semantic comparison source/field "
         "must name a declared tool_input or in-scope local_variable and uses "
         "the Harness matcher. Empty matches mean false (not_exists true), not "
         "selector failure or a global absence fact. Querying creates no witness "

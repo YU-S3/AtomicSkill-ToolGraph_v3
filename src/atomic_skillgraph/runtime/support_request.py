@@ -84,7 +84,8 @@ def consumer_relations(request, consumer_atomic, ctx):
         if constraint.kind is not GroundingConstraintKind.HARNESS_AFFORDANCE:
             continue
         for relation in schema():
-            if relation['action_type'] != constraint.action_type:
+            # Non-action public sources describe evidence, not affordance maps.
+            if relation.get('action_type') != constraint.action_type:
                 continue
             for projection in relation['predicates']:
                 mapping = projection['argument_mapping']

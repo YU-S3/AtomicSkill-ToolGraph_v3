@@ -92,6 +92,7 @@ class ContextBuilder:
         execution_frame: Mapping[str, Any] | None = None,
         native_tool_specs: Iterable[NativeToolSpec] | None = None,
         support_summary_lookup: Mapping[str, str] | None = None,
+        support_call_surface: Any = None,
     ) -> str:
         invocations = [
             _project(value, _INVOCATION_FIELDS) for value in implementation_invocations
@@ -162,6 +163,9 @@ class ContextBuilder:
             payload["runtime_step_mode"] = runtime_step_mode
             payload["rejected_candidates"] = _policy_value(list(rejected_candidates))
             payload["execution_frame"] = _policy_value(dict(execution_frame or {}))
+        if support_call_surface is not None:
+            payload['support_atomic_candidates'] = support_call_surface.public_candidates()
+            payload['blocked_support_candidates'] = list(support_call_surface.blocked)
         original_presentation = getattr(self, "runtime_presentation", "new") == "old"
         projected, audit = project_runtime_payload(payload, native_tool_specs=native_tool_specs,
                                                   expression_enabled=not original_presentation)
@@ -169,7 +173,7 @@ class ContextBuilder:
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         rendered = _render(
-            self._runtime_instruction("node") + lean_instruction + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
+            self._runtime_instruction("node", support_call_surface) + lean_instruction + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
                 + OUTPUT_SEMANTIC_CONSTRAINT_RULES if runtime_automation_interface else ""),
             projected,
             sort_keys=original_presentation,
@@ -195,6 +199,7 @@ class ContextBuilder:
         recent_failed_learned_invocation: Mapping[str, Any] | None = None,
         projection_audit: dict[str, Any] | None = None,
         support_summary_lookup: Mapping[str, str] | None = None,
+        support_call_surface: Any = None,
     ) -> str:
         payload = {
             "task_goal": _text(task_goal, "task_goal"),
@@ -223,13 +228,16 @@ class ContextBuilder:
             if task_runtime_frame.get("runtime_automation_interface"):
                 payload["runtime_automation_interface"] = payload["task_runtime_frame"].pop("runtime_automation_interface")
         original_presentation = getattr(self, "runtime_presentation", "new") == "old"
+        if support_call_surface is not None:
+            payload.setdefault('task_runtime_frame', {})['capability_candidates'] = support_call_surface.public_candidates()
+            payload['blocked_support_candidates'] = list(support_call_surface.blocked)
         projected, audit = project_runtime_payload(payload, native_tool_specs=native_tool_specs,
                                                   expression_enabled=not original_presentation)
         projected, lean_instruction = self._release_projection(projected, audit, support_summary_lookup)
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         rendered = _render(
-            self._runtime_instruction("dynamic") + lean_instruction + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
+            self._runtime_instruction("dynamic", support_call_surface) + lean_instruction + ("\n\n" + self._runtime_instruction("draft") + "\n\n"
                 + OUTPUT_SEMANTIC_CONSTRAINT_RULES if payload.get("runtime_automation_interface") else ""),
             projected,
             sort_keys=original_presentation,
@@ -250,11 +258,12 @@ class ContextBuilder:
         explanation = '\n\n' + ROWS_HELP if any(t['applied'] for t in details['transforms'].values()) else ''
         return result, explanation
 
-    def _runtime_instruction(self, scope):
+    def _runtime_instruction(self, scope, support_call_surface=None):
         if getattr(self, 'presentation_profile', 'current') == 'lean' and scope in {'node','dynamic'}:
             from .lean_runtime_prompt_texts import NODE, DYNAMIC
             from ..runtime.search_history import HISTORY_HELP
-            return (NODE if scope == 'node' else DYNAMIC) + '\n\n' + HISTORY_HELP
+            text = (NODE if scope == 'node' else DYNAMIC) + '\n\n' + HISTORY_HELP
+            return self._support_instruction(text, support_call_surface)
         from . import runtime_prompt_texts as current
         from . import baseline_runtime_prompt_texts as original
         source = original if getattr(self, "runtime_presentation", "new") == "old" else current
@@ -263,7 +272,16 @@ class ContextBuilder:
         if scope in {'node', 'dynamic'}:
             from ..runtime.search_history import HISTORY_HELP
             text += '\n\n' + HISTORY_HELP
-        return text
+        return self._support_instruction(text, support_call_surface)
+
+    @staticmethod
+    def _support_instruction(text, surface):
+        if surface is None:
+            return text
+        from ..runtime.support_call_surface import NODE_HELP, TASK_HELP
+        text = text.replace('Map helper results to the intended parent inputs explicitly. ', '')
+        text = text.replace('Map helper outputs explicitly. ', '')
+        return text + '\n\n' + (NODE_HELP if surface.scope == 'node' else TASK_HELP)
 
     def tool_builder(
         self,

@@ -1049,6 +1049,7 @@ class NodeExecutor:
         invocations: list[CompiledInvocation] = (),
         allow_plan_conflict: bool = False,
         support_candidates: list[Any] = (),
+        support_call_surface: Any = None,
     ) -> list[NativeToolSpec]:
         tools = [
             self._environment_tool(ctx, node_level=True, atomic=atomic),
@@ -1057,7 +1058,11 @@ class NodeExecutor:
             self._automation_tool(),
             self._status_tool(allow_plan_conflict=allow_plan_conflict),
         ]
-        if support_candidates:
+        if support_call_surface is not None:
+            tool = support_call_surface.native_tool()
+            if tool is not None:
+                tools.insert(2, tool)
+        elif support_candidates:
             tools.insert(2, self._support_tool(list(support_candidates)))
         return tools
 
@@ -1138,7 +1143,12 @@ class NodeExecutor:
         if not getattr(self.invocation_compiler, "r103", False):
             return
         routes = getattr(self, "_r103_support_display_routes", {})
+        rows = ctx.trace_builder.trace.metadata.get('support_call_surfaces', [])
+        surface = next((row for row in reversed(rows) if row['session_id'] == session_id), None)
+        selected = set(surface['selectable_atomic_refs']) if surface else None
         for candidate in candidates:
+            if selected is not None and candidate.atomic_ref not in selected:
+                continue
             self.invocation_compiler.record_display(ctx, session_id,
                 routes.get(str(candidate.atomic_ref), []), native_tools,
                 native_name="invoke_support_atomic")
@@ -1186,6 +1196,11 @@ class NodeExecutor:
         all_refs = {str(item.atomic_ref) for item in all_compatible}
         mode_refs = {str(item.atomic_ref) for item in mode_compatible}
         executable_refs = {str(item.atomic_ref) for item in executable}
+        if getattr(self, 'support_interface_version', None):
+            for name, value in {'support_related_candidates': len(all_refs),
+                    'support_program_available_candidates': len(executable_refs),
+                    'support_blocked_no_program': len(mode_refs - executable_refs)}.items():
+                self._increment_funnel(ctx, 'runtime_support_funnel', name, value)
         self._increment_funnel(
             ctx,
             "runtime_support_funnel",
@@ -1211,7 +1226,7 @@ class NodeExecutor:
                 blocked_atomic, occurrence, ctx, self.invocation_compiler, routes.get(c.atomic_ref, []))
                 for c in executable]
             executable.sort(key=lambda c: (-c.score, c.atomic_ref))
-        displayed = executable[:3]
+        displayed = executable if getattr(self, 'support_interface_version', None) else executable[:3]
         if displayed:
             metrics = ctx.trace_builder.trace.metadata.setdefault(
                 "v32_metrics", {},
@@ -1223,6 +1238,28 @@ class NodeExecutor:
                 metrics.get("runtime_support_candidate_count", 0)
             ) + len(displayed)
         return displayed
+
+    def _build_support_surface(self, candidates, atomic, occurrence, ctx, session_id):
+        if not getattr(self, 'support_interface_version', None):
+            return None
+        from .support_call_surface import build_surface
+        surface = build_surface(candidates, skills=self.invocation_compiler.skills,
+            routes=getattr(self, '_r103_support_display_routes', {}), consumer=atomic,
+            occurrence=occurrence, ctx=ctx, session_id=session_id)
+        ctx.trace_builder.trace.metadata.setdefault('support_call_surfaces', []).append({
+            'version': surface.version, 'session_id': session_id, 'scope': surface.scope,
+            'consumer_occurrence_id': occurrence.occurrence_id, 'revision': surface.revision,
+            'surface_context_fingerprint': surface.surface_context_fingerprint,
+            'selectable_atomic_refs': list(dict.fromkeys(o.atomic_ref for o in surface.options)),
+            'options': surface.public_candidates(), 'blocked': list(surface.blocked),
+            'retrieved_candidate_audit': to_primitive(candidates)})
+        for key, value in {'related': len(candidates),
+                'selectable': len({o.atomic_ref for o in surface.options}),
+                'options': len(surface.options), 'blocked': len(surface.blocked),
+                'blocked_no_mapping': sum(not any(p['status'] == 'proven' for p in c.mapping_previews)
+                    for c in candidates) if surface.scope == 'node' else 0}.items():
+            self._increment_funnel(ctx, 'runtime_support_funnel', key + '_count', value)
+        return surface
 
     @staticmethod
     def _support_tool(candidates: list[Any]) -> NativeToolSpec:
@@ -1728,7 +1765,60 @@ class NodeExecutor:
                 return None
         return requested
 
-    def _invoke_support_atomic_call(
+    def _invoke_support_atomic_call(self, call, session, occurrence, ctx, atomic, candidates,
+                                   plan_context_plan=None, *, surface=None):
+        if surface is None:
+            if getattr(self, 'support_interface_version', None):
+                raise RuntimeError('versioned Support requires its current request surface')
+            return self._execute_support_atomic_call(call, session, occurrence, ctx, atomic,
+                candidates, plan_context_plan)
+        from .support_call_surface import decode
+        from .negative_memory import cached_rejection, remember_rejection
+        from ..core.refs import content_hash
+        selection, payload = decode(surface, call, session_id=session.session_id,
+            occurrence=occurrence, consumer=atomic, ctx=ctx, skills=self.invocation_compiler.skills)
+        audit = {'version': surface.version, 'session_id': session.session_id, 'call_id': call.call_id,
+            'support_call_id': call.arguments.get('support_call_id'),
+            'surface_context_fingerprint': surface.surface_context_fingerprint,
+            'consumer_occurrence_id': occurrence.occurrence_id, 'revision': ctx.world_revision,
+            'input_hash': content_hash(call.arguments.get('arguments')),
+            'resolution_status': 'resolved' if payload is None else 'rejected'}
+        ctx.trace_builder.trace.metadata.setdefault('support_call_resolutions', []).append(audit)
+        if selection is not None:
+            audit.update(producer_atomic_ref=selection.option.atomic_ref,
+                         resolved_output_mapping=selection.output_mapping,
+                         predicate_input_mapping=selection.input_mapping,
+                         route_identity=selection.option.public()['route_identity'])
+        if payload is not None:
+            audit['reason_code'] = payload['reason_code']
+            self._increment_funnel(ctx, 'runtime_support_funnel', 'decode_rejection_count')
+            if payload['reason_code'] == 'support_atomic_input_schema_invalid':
+                self._increment_funnel(ctx, 'runtime_support_funnel', 'input_schema_rejection_count')
+            self._record_control_call(call, session, occurrence, ctx,
+                call_kind='support_atomic_invocation', result=payload)
+            if selection is not None:
+                remember_rejection(ctx, occurrence, call, payload, selection=selection)
+            return payload
+        audit.update(producer_atomic_ref=selection.option.atomic_ref,
+                     resolved_output_mapping=selection.output_mapping,
+                     predicate_input_mapping=selection.input_mapping,
+                     route_identity=selection.option.public()['route_identity'])
+        self._increment_funnel(ctx, 'runtime_support_funnel', 'decode_passed_count')
+        payload = cached_rejection(ctx, occurrence, call, selection=selection)
+        if payload is not None:
+            payload['support_call_id'] = selection.option.support_call_id
+            self._increment_funnel(ctx, 'runtime_support_funnel', 'negative_cache_hit_count')
+            self._record_control_call(call, session, occurrence, ctx,
+                call_kind='runtime_cached_rejection', result=payload)
+        else:
+            payload = self._execute_support_atomic_call(call, session, occurrence, ctx, atomic,
+                candidates, plan_context_plan, selection=selection)
+            remember_rejection(ctx, occurrence, call, payload, selection=selection)
+        audit['result'] = {k: payload[k] for k in ('accepted', 'passed', 'preflight_failure_code',
+            'error', 'deterministic_rejection_cache_hit') if k in payload}
+        return payload
+
+    def _execute_support_atomic_call(
         self,
         call: Any,
         session: Any,
@@ -1737,16 +1827,31 @@ class NodeExecutor:
         atomic: Any,
         candidates: list[Any],
         plan_context_plan: Any | None = None,
+        *, selection: Any = None,
     ) -> dict[str, Any]:
         def finalize(payload: dict[str, Any]) -> dict[str, Any]:
+            if selection is not None:
+                payload.setdefault('support_call_id', selection.option.support_call_id)
             if payload.get("accepted") is False:
                 candidate = next((c for c in candidates if str(c.atomic_ref) ==
-                    str(call.arguments.get("support_atomic_ref", ""))), None)
+                    (selection.option.atomic_ref if selection else str(call.arguments.get("support_atomic_ref", "")))), None)
                 payload.setdefault("error_code", payload.get("error", payload.get("failure_code", "support_rejected")))
+                payload.setdefault('reason_code', payload.get('preflight_failure_code') or payload['error_code'])
+                diagnostics = payload.get('diagnostics') or {}
+                if diagnostics.get('bindings'):
+                    bindings = diagnostics['bindings']
+                    payload.setdefault('argument_path', '$.arguments.' + bindings[0]['role'] if len(bindings) == 1 else '$.arguments')
+                    payload.setdefault('expected_constraint', {b['role']: {'required_resolution': b['required_resolution'],
+                        'semantic_anchor': b['semantic_anchor']} for b in bindings})
+                    payload.setdefault('actual_summary', {b['role']: b['submitted_value'] for b in bindings})
+                    payload.setdefault('required_anchor_or_relation', diagnostics.get('required_anchor_or_relation'))
                 payload.setdefault("argument_path", "$.output_mapping" if "mapping" in payload["error_code"] else "$.arguments")
-                payload.setdefault("expected_constraint", getattr(candidate, "input_schema", {}))
+                mapping_error = payload['argument_path'] == '$.output_mapping'
+                payload.setdefault("expected_constraint", list(getattr(candidate, 'allowed_output_mappings', ()))
+                    if mapping_error else getattr(candidate, "input_schema", {}))
                 raw_arguments = call.arguments.get("arguments")
-                payload.setdefault("actual_summary", {"argument_roles": sorted(raw_arguments)}
+                payload.setdefault("actual_summary", {'omitted': 'output_mapping' not in call.arguments,
+                    'output_mapping': call.arguments.get('output_mapping')} if mapping_error else {"argument_roles": sorted(raw_arguments)}
                     if isinstance(raw_arguments, dict) else {"type": type(raw_arguments).__name__})
                 payload.setdefault("allowed_output_mappings", list(getattr(candidate, "allowed_output_mappings", ())))
                 payload.setdefault("required_anchor_or_relation", [p for p in getattr(candidate, "mapping_previews", ()) if p["status"] != "proven"])
@@ -1775,7 +1880,7 @@ class NodeExecutor:
         )
         try:
             support_ref = SkillRef.parse(
-                str(call.arguments["support_atomic_ref"])
+                selection.option.atomic_ref if selection else str(call.arguments["support_atomic_ref"])
             )
         except (KeyError, TypeError, ValueError) as exc:
             self._increment_funnel(
@@ -1806,7 +1911,7 @@ class NodeExecutor:
                 "error": "runtime_support_atomic_unavailable",
             }
             return finalize(payload)
-        arguments = call.arguments.get("arguments", {})
+        arguments = selection.arguments if selection else call.arguments.get("arguments", {})
         if not isinstance(arguments, dict):
             return finalize({"accepted": False, "error": "support_atomic_input_schema_invalid",
                 "argument_path": "$.arguments", "expected_constraint": {"type": "object"},
@@ -1824,10 +1929,9 @@ class NodeExecutor:
                     "constraint_scope": "stable_schema", "support_atomic_ref": str(support_ref)})
         if getattr(occurrence, "consumer_scope", "node") == "task":
             from .task_runtime import invoke_task_capability
-            return finalize(invoke_task_capability(self, call, occurrence, ctx, candidate))
-        output_mapping = self._resolve_support_output_mapping(
-            call, candidate,
-        )
+            return finalize(invoke_task_capability(self, call, occurrence, ctx, candidate, selection=selection))
+        output_mapping = (selection.output_mapping if selection else
+                          self._resolve_support_output_mapping(call, candidate))
         if output_mapping is None:
             self._increment_funnel(
                 ctx,
@@ -1880,6 +1984,8 @@ class NodeExecutor:
         if len(invocations) > 1 and len(preferred) != 1:
             return finalize({"accepted": False, "error": "support_implementation_ambiguous"})
         compiled = preferred[0] if preferred else invocations[0]
+        if selection and str(compiled.implementation.ref) != selection.option.public()['route_identity']:
+            return finalize({'accepted': False, 'error': 'support_route_changed'})
         predicate_options = getattr(candidate, "predicate_obligations", ())
         from .support_request import SupportRequest, prove_request, consumer_guard, known_consumer_values, transfer_inputs, consumer_constraints, validate_transfer
         from ..core.support_authority import input_identity_source_role
@@ -1911,7 +2017,7 @@ class NodeExecutor:
                     return finalize({"accepted": False, "error": "support_semantic_anchor_ambiguous"})
                 anchors[source] = replace(anchor, role=source)
             ctx.binding_store.commit_grounded(support_occurrence.occurrence_id, anchors)
-        if predicate_options and not output_mapping:
+        if predicate_options and not output_mapping and selection is None:
             from .support_request import binding_accepts_proposal
             from ..core.refs import canonical_json
             parent = ctx.binding_store.snapshot_for_node(occurrence)
@@ -1933,6 +2039,9 @@ class NodeExecutor:
             })
             input_mapping.update({p: c for p, c in valid[0].items()
                                   if p in {item.name for item in support_atomic.inputs}})
+        if selection is not None:
+            input_mapping = selection.input_mapping
+            anchor_inputs = set(selection.option.public()['anchor_inputs'])
         request = SupportRequest(ctx.budget.current_occurrence_id, occurrence, support_atomic,
                                  input_mapping, dict(output_mapping), anchor_inputs)
         request.grounding_constraints = consumer_constraints(self.invocation_compiler, atomic)
@@ -1941,6 +2050,10 @@ class NodeExecutor:
         if not proof.passed:
             return finalize({"accepted": False, "passed": False, "error": proof.failure_codes[0],
                              "failure_code": proof.failure_codes[0], "message": proof.messages[0]})
+        if selection and (request.input_mapping != selection.input_mapping or request.output_mapping != selection.output_mapping):
+            return finalize({'accepted': False, 'error': 'support_selected_mapping_changed'})
+        if selection:
+            self._increment_funnel(ctx, 'runtime_support_funnel', 'mapping_reproof_passed_count')
         output_mapping = request.output_mapping
         from .support_request import mapped_support_bindings
         seeds = mapped_support_bindings(support_atomic, request.input_mapping,
@@ -2057,6 +2170,7 @@ class NodeExecutor:
                     else "support_not_execution_ready"
                 ),
                 "preflight_failure_code": failure_code,
+                "diagnostics": getattr(preflight, 'diagnostics', {}),
                 "message": str(getattr(preflight, "message", "")),
                 "missing_required_inputs": sorted(
                     set(compiled.spec.input_schema.get("required", ()))

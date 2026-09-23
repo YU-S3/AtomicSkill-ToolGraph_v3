@@ -55,7 +55,8 @@ def public_step_feedback(call: Any, payload: dict, *, before_revision: int,
             "started", "completed", "failure_layer", "cached_rejection", "rollback",
             "draft_id", "r1_outputs", "r1_witness_refs", "support_occurrence_id",
             "atomic_effect_passed", "validated_outputs", "atomic_witness_refs",
-            "error_code", "argument_path", "expected_constraint", "actual_summary",
+            "error_code", "reason_code", "diagnostics", "support_call_id", "deterministic_rejection_cache_hit",
+            "argument_path", "expected_constraint", "actual_summary",
             "allowed_output_mappings", "required_anchor_or_relation", "relevant_revision")
     def project_result(value: dict) -> dict:
         projected = {k: to_primitive(value[k]) for k in keys if k in value}
@@ -162,12 +163,15 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                                      "task_actions": ctx.budget.remaining_global_actions}}
     # Capture the actual allowed surface before projecting its public copy.
     # Spec construction cannot invoke tools or commit argument bindings.
+    surface = executor._build_support_surface(support_candidates if not draft_request else [],
+        atomic, occurrence, ctx, session.session_id)
     if draft_request:
         tools = [executor._automation_tool()]
     else:
         tools = [tool for tool in executor._node_tools(
             ctx, atomic, invocations=invocations, allow_plan_conflict=True,
             support_candidates=support_candidates,
+            support_call_surface=surface,
         ) if tool.name != "propose_runtime_automation_atomic"]
         if intervention.programs:
             tools.append(automation_request_tool())
@@ -185,6 +189,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         current_state_snapshot=state,
         exploration_memory=ctx.exploration_policy_view(),
         support_atomic_candidates=support_candidates,
+        support_call_surface=surface,
         support_summary_lookup=executor.context_builder.selected_support_summaries(
             executor.invocation_compiler.skills, support_candidates),
         runtime_automation_drafts=list(ctx.runtime_automation_drafts.values()),
@@ -231,7 +236,10 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         selected_action = next((item for item in ctx.action_catalog
             if call.name == 'environment_action' and item.action_id == call.arguments.get('action_id')
             and item.revision == ctx.world_revision), None)
-        cached = cached_rejection(ctx, occurrence, call)
+        # New Support calls must decode their request-local option before the
+        # canonical real-call negative cache can be consulted.
+        cached = (None if surface is not None and call.name == 'invoke_support_atomic'
+                  else cached_rejection(ctx, occurrence, call))
         if cached is not None:
             payload = cached
             executor._record_control_call(call, session, occurrence, ctx,
@@ -283,6 +291,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
             increment(ctx, "support_agent_selected_count")
             payload = executor._invoke_support_atomic_call(
                 call, session, occurrence, ctx, atomic, support_candidates, None,
+                surface=surface,
             )
         else:
             compiled = next(item for item in invocations if item.spec.name == call.name)
@@ -332,7 +341,8 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                     implementation_ref=str(compiled.implementation.ref),
                     failure_code=preflight.failure_code, message=preflight.message,
                 )
-        remember_rejection(ctx, occurrence, call, payload)
+        if not (surface is not None and call.name == 'invoke_support_atomic'):
+            remember_rejection(ctx, occurrence, call, payload)
         # Carry finite public feedback, never an assistant conversation or
         # Tool body, to the next fresh decision. Rollback does not erase it.
         ctx.runtime_step_feedback[occurrence.occurrence_id] = public_step_feedback(

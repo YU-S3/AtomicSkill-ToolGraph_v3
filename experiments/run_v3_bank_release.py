@@ -9,6 +9,10 @@ from atomic_skillgraph.deployment.bank_release import prepare_release,verify_rel
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     sub=parser.add_subparsers(dest='command',required=True)
+    compile_command = sub.add_parser('compile-oldfirst-plan')
+    compile_command.add_argument('--base-plan', type=Path, required=True)
+    compile_command.add_argument('--delta', type=Path, required=True)
+    compile_command.add_argument('--output', type=Path, required=True)
     old = sub.add_parser('oldfirst-prepare')
     old.add_argument('--seed', type=int, choices=(42,43,44), required=True)
     old.add_argument('--input', type=Path, required=True)
@@ -32,6 +36,12 @@ def main(argv=None):
             command.add_argument('--profile',choices=('current','lean'),required=True)
             command.add_argument('--repeats',nargs='+',required=True)
     args=parser.parse_args(argv)
+    if args.command == 'compile-oldfirst-plan':
+        from atomic_skillgraph.deployment.oldfirst_plan import compile_plan
+        result = compile_plan(args.base_plan, args.delta, args.output)
+        print(json.dumps({'seed': result['seed'], 'output': str(args.output),
+            'derived_jobs': len(result['derived_revision_jobs'])}), flush=True)
+        return 0
     if args.command.startswith('oldfirst-'):
         from atomic_skillgraph.deployment.oldfirst_release import prepare_oldfirst, verify_oldfirst
         if args.command == 'oldfirst-prepare':

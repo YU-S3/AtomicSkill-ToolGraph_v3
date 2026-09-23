@@ -546,6 +546,7 @@ class AtomicSkillGraphSystem:
             split=str(experiment.get("split", harness_config.get("split", "train"))),
             max_steps=int(harness_config.get("max_steps", 100)),
             alfworld_data=harness_config.get("alfworld_data") or None,
+            public_discovery_version=harness_config.get('public_discovery_version'),
         )
         self._provider_override = provider
         self._provider_cache: dict[str, Any] = {}
@@ -653,6 +654,11 @@ class AtomicSkillGraphSystem:
             failure_knowledge=self.failure_knowledge,
         )
         self.orchestrator.node_executor.runtime_resources = self._runtime_remaining_tokens
+        from .runtime.support_call_surface import VERSION as SUPPORT_INTERFACE_VERSION
+        support_interface = runtime_config.get('support_interface_version')
+        if support_interface not in {None, SUPPORT_INTERFACE_VERSION}:
+            raise ValueError('unsupported runtime.support_interface_version')
+        self.orchestrator.node_executor.support_interface_version = support_interface
         self.orchestrator.node_executor.context_builder.runtime_presentation = self.deployment_intervention.presentation
         if self.config.get('bank_release'):
             from .deployment.release_protocol import verify_deployments

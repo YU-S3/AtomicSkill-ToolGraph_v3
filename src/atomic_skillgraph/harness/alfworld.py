@@ -425,6 +425,10 @@ class AlfWorldValidatorChannel:
                 self._discovered[(entity, location)] = (entity, location)
         self._rebuild_facts()
 
+    def set_public_discovery(self, frame) -> None:
+        self._discovered = {(row.entity, row.location): (row.entity, row.location) for row in frame.records}
+        self._rebuild_facts()
+
     def snapshot(self) -> dict[str, Any]:
         facts: list[dict[str, Any]] = []
         for predicate, argument_items in sorted(self._facts):
@@ -1063,10 +1067,18 @@ class AlfWorldAdapter:
     def __init__(
         self, *, split: str = "eval_out_of_distribution", max_steps: int = 100,
         task_type: str | None = None, alfworld_data: str | None = None,
+        public_discovery_version: str | None = None,
     ) -> None:
         self.split = split
         self.max_steps = max_steps
         self.task_type = task_type
+        from .public_discovery import VERSION
+        if public_discovery_version not in {None, VERSION}:
+            raise ValueError('unsupported harness.public_discovery_version')
+        self.public_discovery_version = public_discovery_version
+        self._public_discovery_frame = None
+        self._public_discovery_signature = None
+        self._public_discovery_accepted = True
         self.alfworld_data = alfworld_data or os.environ.get("ALFWORLD_DATA", str(Path.home() / ".cache" / "alfworld"))
         self._env: Any = None
         self._tw_env: Any = None
@@ -1350,21 +1362,30 @@ class AlfWorldAdapter:
         self._validator.reset()
         catalog = self._replace_action_catalog(admissible, self._revision)
         self._validator.set_catalog(catalog)
+        self._refresh_public_discovery(None, True)
         return HarnessActionResult(True, observation, False, False, self._revision, catalog, {"reset": True})
 
     def action_catalog(self) -> list[HarnessActionSpec]:
         return self._catalog.items()
 
-    def _runtime_state_digest(self) -> str:
+    def _runtime_state_digest(self, *, include_public=True) -> str:
         import hashlib
         import json
         snapshot = self._validator.snapshot()
         facts = [{k: v for k, v in fact.items() if k != "witness_ref"}
                  for fact in snapshot["facts"]]
+        if not include_public:
+            facts = [fact for fact in facts if fact['predicate'] != 'entity.discovered_at']
         facts.sort(key=lambda value: json.dumps(value, sort_keys=True))
         payload = {"facts": facts, "done": self._done, "won": self._won,
                    "catalog": sorted((item.action_type, json.dumps(item.arguments, sort_keys=True))
                                      for item in self.action_catalog())}
+        if include_public and self._public_discovery_frame is not None:
+            frame = self._public_discovery_frame
+            payload['public_discovery'] = {'version': frame.version, 'observation_hash': frame.observation_hash,
+                'relations': sorted((r.entity, r.location, r.relation_kind) for r in frame.records),
+                'inspected_scopes': sorted((s.location, s.status) for s in frame.inspected_scopes),
+                'conflicts': frame.conflicts}
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
     def capture_runtime_checkpoint(self):
@@ -1374,6 +1395,9 @@ class AlfWorldAdapter:
         return HarnessRuntimeCheckpoint(
             copy.deepcopy(self._current_task), tuple(copy.deepcopy(self._runtime_accepted_prefix)),
             self._revision, self._runtime_state_digest(),
+            {'world_digest': self._runtime_state_digest(include_public=False), 'observation': self._observation,
+             'signature': copy.deepcopy(self._public_discovery_signature), 'accepted': self._public_discovery_accepted}
+                if self.public_discovery_version else {},
         )
 
     def restore_runtime_checkpoint(self, checkpoint):
@@ -1393,8 +1417,9 @@ class AlfWorldAdapter:
                 result = self.execute_action(candidates[0].action_id, candidates[0].revision)
                 if not result.accepted or result.done or result.won:
                     raise ValueError("checkpoint replay rejected or reached terminal")
-            digest = self._runtime_state_digest()
-            if digest != checkpoint.state_digest:
+            public_feedback = checkpoint.public_feedback
+            digest = self._runtime_state_digest(include_public=not bool(public_feedback))
+            if digest != (public_feedback['world_digest'] if public_feedback else checkpoint.state_digest):
                 raise ValueError("checkpoint replay state digest mismatch")
             # Rebase the restored catalog to the checkpoint revision, never
             # dispatch an action with a stale pre-reset action id.
@@ -1404,7 +1429,13 @@ class AlfWorldAdapter:
                 [item.raw_action for item in self.action_catalog()], checkpoint.revision,
             )
             self._validator.set_catalog(catalog)
-            return HarnessActionResult(True, result.observation, False, False,
+            if public_feedback:
+                self._observation = public_feedback['observation']
+                self._refresh_public_discovery(public_feedback['signature'], public_feedback['accepted'])
+                digest = self._runtime_state_digest()
+                if digest != checkpoint.state_digest:
+                    raise ValueError('checkpoint public feedback reconstruction mismatch')
+            return HarnessActionResult(True, self._observation, False, False,
                                        self._revision, catalog, {
                 "restore_replay_action_count": len(checkpoint.accepted_prefix),
                 "restored_digest": digest,
@@ -1450,11 +1481,34 @@ class AlfWorldAdapter:
                     "evidence_status": "observed",
                     "public_evidence_ref": public_ref,
                 })
+        if self._public_discovery_frame is not None:
+            public = [p for p in public if p['predicate'] != 'entity.discovered_at']
+            public.extend(self._public_discovery_frame.relation_facts())
         return public
+
+    def _refresh_public_discovery(self, signature, accepted):
+        if self.public_discovery_version is None:
+            return
+        from .public_discovery import project_discovery
+        self._public_discovery_signature = copy.deepcopy(signature)
+        self._public_discovery_accepted = bool(accepted)
+        self._public_discovery_frame = project_discovery(observation=self._observation,
+            action_signature=signature, accepted=accepted, revision=self._revision,
+            catalog=self.action_catalog(), episode_id=self._current_task.task_id)
+        self._validator.set_public_discovery(self._public_discovery_frame)
+
+    def public_discovery_frame(self):
+        return self._public_discovery_frame
 
     def public_catalog_relation_schema(self) -> list[dict[str, Any]]:
         """Static schema for the public projection above; no episode values."""
-        return [copy.deepcopy(_PUBLIC_CATALOG_RELATION_SCHEMA)]
+        result = [copy.deepcopy(_PUBLIC_CATALOG_RELATION_SCHEMA)]
+        if self.public_discovery_version:
+            result.append({'source': self.public_discovery_version, 'predicate': 'entity.discovered_at',
+                'argument_roles': ['entity', 'location'], 'effect_domain': 'evidence',
+                'availability': 'Current explicit flat On/In public listing or TAKE catalog relation. '
+                    'Not inferred from navigation, USE, task goal, closed or ambiguous descriptions.'})
+        return result
 
     def _replace_action_catalog(
         self, admissible: list[Any], revision: int,
@@ -1524,6 +1578,9 @@ class AlfWorldAdapter:
             metadata=metadata,
             catalog=catalog,
         )
+        self._refresh_public_discovery({'action_type': spec.action_type, 'arguments': spec.arguments}, accepted)
+        if self._public_discovery_frame is not None:
+            metadata['public_discovery_frame'] = self._public_discovery_frame.to_dict()
         return HarnessActionResult(
             accepted, observation, done, won, self._revision, catalog,
             metadata,
@@ -1577,6 +1634,10 @@ class AlfWorldAdapter:
         return self._validator
 
     def semantic_predicate_schema(self) -> list[PredicateSpec]:
+        if self.public_discovery_version:
+            from dataclasses import replace
+            return [replace(spec, validation_source='alfworld_public_discovery') if spec.predicate == 'entity.discovered_at'
+                    else spec for spec in _ALFWORLD_PREDICATE_SPECS]
         return list(_ALFWORLD_PREDICATE_SPECS)
 
     def primitive_action_schema(self) -> list[dict[str, Any]]:

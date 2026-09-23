@@ -195,13 +195,16 @@ def validate_match_condition_shape(condition: Any) -> tuple[dict[str, Any], str]
     selector = condition.get("match")
     if not isinstance(selector, Mapping) or set(selector) - {"source", "where", "project", "distinct"}:
         invalid("unexpected selector fields")
-    if selector.get("source") != "action_catalog":
-        invalid("only action_catalog is public for match")
+    if selector.get("source") not in {"action_catalog", "semantic_evidence"}:
+        invalid("match requires a public structured source")
     if "distinct" in selector and not isinstance(selector["distinct"], bool):
         invalid("distinct must be boolean")
     where, project = selector.get("where"), selector.get("project")
-    if not isinstance(where, Mapping) or not isinstance(where.get("action_type"), str) or not where["action_type"]:
-        invalid("where.action_type is required")
+    discriminator = 'action_type' if selector['source'] == 'action_catalog' else 'predicate'
+    if not isinstance(where, Mapping) or not isinstance(where.get(discriminator), str) or not where[discriminator]:
+        invalid(f"where.{discriminator} is required")
+    if ('predicate' if discriminator == 'action_type' else 'action_type') in where:
+        invalid('source discriminator mismatch')
     if (not isinstance(project, Mapping) or set(project) != {"kind", "role"}
             or project.get("kind") != "argument" or not isinstance(project.get("role"), str)
             or not project["role"]):
@@ -219,7 +222,8 @@ def validate_match_condition_shape(condition: Any) -> tuple[dict[str, Any], str]
         invalid("argument_role requires semantic_compatible_with")
     for role, value in where.items():
         if role != "semantic_compatible_with" and isinstance(value, (Mapping, list, tuple)):
-            invalid("direct filters must be scalar")
+            if selector['source'] != 'semantic_evidence' or not is_bound_selector_value(value):
+                invalid("direct filters must be scalar or a semantic-evidence bound value")
     return dict(selector), str(operator)
 
 
@@ -235,7 +239,7 @@ def evaluate_condition(condition: Any, state: ToolExecutionState, *, semantic_co
                 raise ValueError("tool_ir_condition_matcher_unavailable")
         # The runner refreshes this catalog after every accepted action. Never
         # interpret corrupt or stale entries as a negative target observation.
-        for entry in state.catalog:
+        for entry in state.catalog if selector['source'] == 'action_catalog' else []:
             if (not isinstance(entry, Mapping) or not isinstance(entry.get("arguments"), Mapping)
                     or not entry.get("action_id") or not isinstance(entry.get("revision"), int)
                     or isinstance(entry.get("revision"), bool)
@@ -297,6 +301,12 @@ SELECTOR_META_FIELDS = frozenset({
 _SELECTOR_META_FIELDS = SELECTOR_META_FIELDS
 
 
+def is_bound_selector_value(value):
+    return (isinstance(value, Mapping) and set(value) == {'source', 'field'}
+        and value.get('source') in {'tool_input', 'local_variable'}
+        and isinstance(value.get('field'), str) and bool(value['field']))
+
+
 def _selector_entries(
     source: Mapping[str, Any],
     entries: Sequence[Mapping[str, Any]],
@@ -332,6 +342,13 @@ def _selector_entries(
             # the direct ``where`` key.  There is no wrapper or ``*_in``
             # dialect in Tool IR v1.
             actual = arguments.get(str(raw_role))
+            if source_kind == 'semantic_evidence' and isinstance(expected, Mapping):
+                if not is_bound_selector_value(expected):
+                    raise ValueError('tool_ir_selector_invalid_bound_value')
+                values = state.bindings if expected['source'] == 'tool_input' else state.local
+                if expected['field'] not in values or values[expected['field']] in (None, ''):
+                    raise ValueError('tool_ir_condition_reference_unavailable')
+                expected = values[expected['field']]
             if actual != expected:
                 ok = False
                 break

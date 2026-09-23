@@ -80,6 +80,12 @@ def run(config_path,*,resume=False,task_entries=None):
 
 def dev(release_root,seed,suite,profiles):
     """Finite, predeclared six-task paired run; no retries for ordinary failure."""
+    if suite == 'oldfirst-coverage6':
+        if profiles != ['current']:
+            raise ReleaseError('Release4 coverage uses the fixed current profile')
+        from .release4_coverage import run_coverage
+        run_coverage(release_root, seeds=(seed,))
+        return 0
     from atomic_skillgraph.core.serialization import atomic_write_json
     from .run_v3_r103_validation import declared_entries,resolve_tasks
     from .release_report import compare_dev
@@ -130,8 +136,8 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='command',required=True)
     p=sub.add_parser('run');p.add_argument('--config',required=True,type=Path);p.add_argument('--resume',action='store_true')
     p=sub.add_parser('aggregate');p.add_argument('--plan',required=True,type=Path);p.add_argument('--output',required=True,type=Path)
-    p=sub.add_parser('dev');p.add_argument('--release-root',required=True,type=Path);p.add_argument('--seed',required=True,type=int,choices=(42,))
-    p.add_argument('--suite',required=True,choices=('frozen-dev6','oldfirst-dev3'));p.add_argument('--profiles',nargs='+',required=True,choices=('current','lean'))
+    p=sub.add_parser('dev');p.add_argument('--release-root',required=True,type=Path);p.add_argument('--seed',required=True,type=int,choices=(42,43,44))
+    p.add_argument('--suite',required=True,choices=('frozen-dev6','oldfirst-dev3','oldfirst-coverage6'));p.add_argument('--profiles',nargs='+',required=True,choices=('current','lean'))
     args=parser.parse_args(argv)
     if args.command=='run':return run(args.config,resume=args.resume)
     if args.command=='dev':return dev(args.release_root,args.seed,args.suite,args.profiles)

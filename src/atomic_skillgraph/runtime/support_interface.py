@@ -38,20 +38,24 @@ def project_candidate(candidate, producer, consumer, occurrence, ctx, compiler, 
                          for m in predicate_input_mapping(producer, consumer, obligation))
     previews, allowed = [], []
     seen = set()
+    expanded = []
     for mapping in proposals:
-        key = json.dumps(mapping, sort_keys=True)
+        if mapping:
+            expanded.append((mapping, {}))
+        else:
+            expanded.extend((mapping, {p: c for p, c in option['input_mapping'].items() if p not in outputs})
+                for option in candidate.predicate_obligations)
+    for mapping, predicate_inputs in expanded:
+        key = json.dumps([mapping, predicate_inputs], sort_keys=True)
         if key in seen:
             continue
         seen.add(key)
-        inputs = {}
+        inputs = dict(predicate_inputs)
         for out, dest in mapping.items():
             source = input_identity_source_role(producer, out) or producer.validator_spec.get(
                 'output_semantic_constraints', {}).get(out, {}).get('compatible_with_input')
             if source:
                 inputs[source] = dest
-        if not mapping:
-            for option in candidate.predicate_obligations:
-                inputs.update({p: c for p, c in option['input_mapping'].items() if p not in outputs})
         request = SupportRequest('', occurrence, producer, inputs, mapping, grounding_constraints=constraints)
         preview = preview_support_mapping_authority(request, consumer, ctx)
         previews.append(preview)
@@ -77,4 +81,6 @@ def public_arguments_schema(candidates):
             alternatives = [s['properties'][name] for s in schemas if name in s.get('properties', {})]
             properties[name] = copy.deepcopy(value) if all(v == value for v in alternatives) else {
                 'description': 'Use the complete input_schema of the selected candidate.'}
+            if all(v.get('type') == value.get('type') for v in alternatives) and 'type' in value:
+                properties[name]['type'] = copy.deepcopy(value['type'])
     return {'type': 'object', 'properties': properties, 'additionalProperties': False}

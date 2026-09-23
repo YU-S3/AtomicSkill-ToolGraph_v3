@@ -160,6 +160,7 @@ class ToolCallPreflightResult:
     failure_layer: str = ""
     failure_code: str = ""
     message: str = ""
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

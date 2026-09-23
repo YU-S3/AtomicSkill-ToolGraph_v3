@@ -654,8 +654,18 @@ TOOL_IR_MATCH_CONDITION_SCHEMA: dict[str, Any] = {
         },
     },
 }
+TOOL_IR_RELATION_CONDITION_SCHEMA = copy.deepcopy(TOOL_IR_MATCH_CONDITION_SCHEMA)
+_relation_properties = TOOL_IR_RELATION_CONDITION_SCHEMA['properties']['match']['properties']
+_relation_properties['source'] = {'const': 'semantic_evidence'}
+_relation_where = _relation_properties['where']
+_relation_where['required'] = ['predicate']
+_relation_where['properties']['predicate'] = _relation_where['properties'].pop('action_type')
+_relation_where['additionalProperties'] = {'anyOf': [
+    {'type': ['string', 'number', 'boolean', 'null']},
+    {'type': 'object', 'required': ['source', 'field'], 'additionalProperties': False,
+     'properties': {'source': {'enum': ['tool_input', 'local_variable']}, 'field': NONEMPTY_STRING_SCHEMA}}]}
 TOOL_IR_CONDITION_SCHEMA: dict[str, Any] = {
-    "oneOf": [TOOL_IR_LEGACY_CONDITION_SCHEMA, TOOL_IR_MATCH_CONDITION_SCHEMA],
+    "oneOf": [TOOL_IR_LEGACY_CONDITION_SCHEMA, TOOL_IR_MATCH_CONDITION_SCHEMA, TOOL_IR_RELATION_CONDITION_SCHEMA],
     "description": "Legacy field condition or selector_condition_v1: a read-only current action_catalog match query; no match is false, not an execution failure or global absence fact.",
 }
 

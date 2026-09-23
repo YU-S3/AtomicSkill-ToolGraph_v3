@@ -257,6 +257,11 @@ def _validate_selector(
             fail("tool_ir_selector_invalid", f"{node_id}: semantic_compatible_with requires where.argument_role")
 
     if kind != "action_catalog":
+        if kind == 'semantic_evidence':
+            from .ir import is_bound_selector_value
+            for role, value in where.items():
+                if role not in SELECTOR_META_FIELDS and isinstance(value, (Mapping, list, tuple)) and not is_bound_selector_value(value):
+                    fail('tool_ir_selector_invalid', f'{node_id}: invalid bound relation argument {role}')
         return
 
     signatures = {
@@ -400,6 +405,12 @@ def _check_selector_scoped_references(
     where = selector.get("where")
     if not isinstance(where, Mapping):
         return
+    if selector.get('source') == 'semantic_evidence':
+        for role, value in where.items():
+            if role not in SELECTOR_META_FIELDS and isinstance(value, Mapping):
+                _check_scoped_reference(str(value.get('source', '')), str(value.get('field', '')),
+                    available_locals=available_locals, atomic_inputs=atomic_inputs, fail=fail,
+                    node_id=node_id, context=f'{context}.where.{role}')
     semantic = where.get("semantic_compatible_with")
     if not isinstance(semantic, Mapping):
         return
@@ -1758,6 +1769,21 @@ class ToolStaticValidator:
                     else:
                         _validate_selector(selector, str(node.get("node_id", "")),
                                            fail=fail, action_argument_roles=action_argument_roles)
+                        if selector.get('source') == 'semantic_evidence':
+                            declared = known_predicates.get(selector['where']['predicate'])
+                            if declared is None:
+                                fail('tool_ir_condition_match_invalid', 'semantic condition predicate is not in Harness schema')
+                            else:
+                                roles = set(declared['argument_roles'])
+                                where = selector['where']
+                                used = set(where) - SELECTOR_META_FIELDS
+                                if where.get('argument_role'):
+                                    used.add(where['argument_role'])
+                                projection = selector.get('project', {})
+                                if projection.get('kind') == 'argument':
+                                    used.add(projection.get('role'))
+                                if not used <= roles:
+                                    fail('tool_ir_condition_match_invalid', 'semantic condition uses an undeclared relation role')
                     continue
                 if str(condition.get("source", "")).casefold() not in _CONDITION_SOURCES:
                     fail("tool_ir_condition_source_invalid", f"{node['op']} {node.get('node_id')} condition source invalid")

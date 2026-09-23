@@ -27,7 +27,7 @@ def scope_exhaustion(program, state, signal):
             'source': 'local_variable', 'field': variable, 'semantic_type': 'entity'}}
     selectors = {n['node_id'] for n in nodes if n['op'] == 'IF'
         and n.get('condition', {}).get('op') == 'exists'
-        and n['condition'].get('match', {}).get('source') == 'action_catalog'
+        and n['condition'].get('match', {}).get('source') in {'action_catalog', 'semantic_evidence'}
         and not n.get('else_branch')
         and any(child['op'] == 'RETURN' for child in walk_program_nodes(n.get('then_branch', [])))}
     if not guards or not selectors:
@@ -40,6 +40,11 @@ def scope_exhaustion(program, state, signal):
                     and r['locals'].get(variable) == value]
         if not reached or not searched or any(r['result'] for r in searched):
             return None
+        for row in searched:
+            if row['condition'].get('match', {}).get('source') == 'semantic_evidence':
+                scopes = [s for s in row.get('public_discovery', {}).get('inspected_scopes', []) if s['location'] == value]
+                if not scopes or any(s['status'] != 'complete_listing' for s in scopes):
+                    return None
         checked.append({'scope_value': value, 'guard_nodes': [r['node_id'] for r in reached],
                         'no_match_nodes': [r['node_id'] for r in searched],
                         'revision': searched[-1]['revision']})

@@ -188,6 +188,7 @@ class ExplorationMemory:
         *,
         revision: int,
         current_facts: Iterable[Mapping[str, Any]] = (),
+        public_relation_facts: Iterable[Mapping[str, Any]] | None = None,
     ) -> None:
         catalog_items = list(catalog)
         current_values = self._catalog_values(catalog_items)
@@ -197,7 +198,14 @@ class ExplorationMemory:
         locations: dict[
             str, tuple[str, str, dict[str, str], str, str]
         ] = {}
-        for fact in current_facts:
+        public_relations = None if public_relation_facts is None else {
+            (str(f['args']['entity']), str(f['args']['location'])): f
+            for f in public_relation_facts if f.get('predicate') == 'entity.discovered_at'
+            and f.get('observed_at_revision') == revision and f.get('public_evidence_ref')}
+        facts = list(current_facts)
+        if public_relations is not None:
+            facts = [f for f in facts if f.get('predicate') != 'entity.discovered_at'] + list(public_relations.values())
+        for fact in facts:
             arguments = dict(fact.get("args") or {})
             predicate = str(fact.get("predicate", ""))
             if predicate not in {
@@ -216,8 +224,9 @@ class ExplorationMemory:
                 obj, ("", ""),
             )
             if predicate == "entity.discovered_at":
-                source_kind = "public_action_catalog"
-                public_ref = catalog_ref
+                public = (public_relations or {}).get((obj, location))
+                source_kind = public['source_kind'] if public else 'public_action_catalog'
+                public_ref = public['public_evidence_ref'] if public else catalog_ref
             elif catalog_ref:
                 source_kind = "public_action_catalog"
                 public_ref = catalog_ref
@@ -282,8 +291,12 @@ class ExplorationMemory:
         catalog: Iterable[Any],
         revision: int,
         current_facts: Iterable[Mapping[str, Any]],
+        public_relation_facts: Iterable[Mapping[str, Any]] | None = None,
     ) -> None:
         if not bool(record.get("accepted")):
+            if public_relation_facts is not None:
+                self.observe_catalog(catalog, revision=revision, current_facts=current_facts,
+                                     public_relation_facts=public_relation_facts)
             return
         self.accepted_actions_since_grounding_change += 1
         action_type = str(record.get("action_type", "")).upper()
@@ -329,6 +342,7 @@ class ExplorationMemory:
             catalog,
             revision=revision,
             current_facts=current_facts,
+            public_relation_facts=public_relation_facts,
         )
 
     def note_grounding_state(self, signature: Any) -> None:
