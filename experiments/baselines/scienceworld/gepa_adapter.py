@@ -15,14 +15,19 @@ class ScienceWorldGEPAAdapter:
             raise ValueError('Only skill_text may evolve')
         scope = self.output / ('evaluation_' + uuid.uuid4().hex)
         results, trajectories = [], []
-        for entry in batch:
+        from .parallel import ordered_map
+        def evaluate(entry):
             episode = scope / entry['task_id']
             chat = self.chat_factory(episode, entry)
             result = ScienceWorldTextEpisodeRunner(chat, max_actions=self.max_steps).run(entry, candidate['skill_text'], episode)
-            results.append(result)
+            trajectory=None
             if capture_traces:
-                trajectories.append({'task': entry, 'result': result,
-                    'conversation': json.loads((episode / 'conversation.json').read_text())})
+                trajectory={'task': entry, 'result': result,
+                    'conversation': json.loads((episode / 'conversation.json').read_text())}
+            return result,trajectory
+        for result,trajectory in ordered_map(evaluate,batch):
+            results.append(result)
+            if capture_traces: trajectories.append(trajectory)
         return EvaluationBatch(outputs=results, scores=[r['normalized_score'] for r in results],
                                trajectories=trajectories if capture_traces else None)
 

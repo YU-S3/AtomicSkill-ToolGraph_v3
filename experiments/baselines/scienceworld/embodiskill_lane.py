@@ -12,6 +12,7 @@ from experiments.baselines.common.artifact_digest import digest_directory
 from experiments.baselines.b4_embodiskill.state import copy_state, publish_checkpoint, load_checkpoint
 from experiments.baselines.b4_embodiskill.manifest_adapter import train_chunks
 from .report import summarize
+from .parallel import ordered_map
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -59,7 +60,7 @@ def run_embodiskill(root, train, dev, test, model, identity, *, smoke, resume):
                 state, result = operation(f'train_e{epoch}_{i:03d}', 'train', state, epoch=epoch, entry=entry)
                 scores.append(result['normalized_score'])
             state, _ = operation(f'revision_e{epoch}', 'revision', state, epoch=epoch, train_score=sum(scores)/len(scores))
-            rows = [operation(f'dev_e{epoch}_{i:03d}', 'dev', state, epoch=epoch, entry=e)[1] for i,e in enumerate(dev)]
+            rows = ordered_map(lambda pair:operation(f'dev_e{epoch}_{pair[0]:03d}', 'dev', state, epoch=epoch, entry=pair[1])[1], enumerate(dev))
             score = sum(r['normalized_score'] for r in rows)/len(rows)
             selected = score > best_score
             if selected:
@@ -75,7 +76,7 @@ def run_embodiskill(root, train, dev, test, model, identity, *, smoke, resume):
     if digest_directory(frozen/'state') != authority['state_digest']:
         raise RuntimeError('Frozen state digest mismatch')
     for repetition in range(1, (3 if seed == 42 and not smoke else 1) + 1):
-        rows = [operation(f'test_r{repetition}_{i:03d}', 'test', frozen/'state', epoch=0, entry=e)[1] for i,e in enumerate(test)]
+        rows = ordered_map(lambda pair:operation(f'test_r{repetition}_{pair[0]:03d}', 'test', frozen/'state', epoch=0, entry=pair[1])[1], enumerate(test))
         scope = root / f'test_repeat{repetition}'
         atomic_write_json(scope / 'results.json', rows)
         # Operation logs remain immutable alongside their exact copied state.

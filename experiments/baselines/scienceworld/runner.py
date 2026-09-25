@@ -16,6 +16,11 @@ class ScienceWorldTextEpisodeRunner:
         self.chat, self.max_actions, self.harness_factory = chat, max_actions, harness_factory
 
     def run(self, entry, skill_text, output):
+        from .parallel import environment_slot
+        with environment_slot():
+            return self._run(entry, skill_text, output)
+
+    def _run(self, entry, skill_text, output):
         episode = Path(output)
         if (episode / 'result.json').exists():
             raise FileExistsError(episode)

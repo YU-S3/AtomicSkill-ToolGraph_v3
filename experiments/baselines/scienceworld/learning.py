@@ -14,8 +14,9 @@ def train_skillopt(root, train, dev, chat_factory, model, seed, *, smoke=False):
     from skillopt.engine.trainer import ReflACTTrainer
     cfg = yaml.safe_load((ROOT / 'configs/baselines/b3_skillopt.yaml').read_text())
     cfg['evaluation'].update(gate_metric='soft', sel_env_num=len(dev), eval_test=False)
-    cfg['env'].update(name='scienceworld', workers=1, max_api_workers=1)
-    cfg['gradient']['analyst_workers'] = 1
+    from .parallel import workers, provider_gate
+    cfg['env'].update(name='scienceworld', workers=workers(), max_api_workers=workers())
+    cfg['gradient']['analyst_workers'] = workers()
     cfg['train']['train_size'] = len(train)
     if smoke:
         cfg['train'].update(num_epochs=1, batch_size=len(train))
@@ -25,7 +26,7 @@ def train_skillopt(root, train, dev, chat_factory, model, seed, *, smoke=False):
     observer = install_provider_observer(output_path=root / 'provider_calls.jsonl', method='b3_skillopt',
         phase='train', model=identity.model, reasoning_effort=identity.reasoning_effort,
         run_id=root.parent.name, run_seed=seed, application_retry_limit=5,
-        retry_delays_seconds=[2,5,10,20], expected_sdk_max_retries=0)
+        retry_delays_seconds=[2,5,10,20], expected_sdk_max_retries=0,campaign_gate=provider_gate())
     adapter = ScienceWorldSkillOptAdapter(train, dev, chat_factory, seed=seed)
     flat = _flat_train_cfg(config=cfg, model=identity, run_seed=seed, out_root=root,
         skill_init_path=str(ROOT / 'experiments/baselines/assets/scienceworld_initial.md'),

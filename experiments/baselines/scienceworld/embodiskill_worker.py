@@ -32,7 +32,8 @@ def run(job):
     output, state = Path(job['output']), Path(job['state'])
     started = time.monotonic()
     readonly = job['phase'] in ('dev', 'test')
-    client = AuditedChatClient(output=output / 'provider_calls.jsonl', identity=job['identity'], model=job['model'])
+    from .parallel import provider_gate
+    client = AuditedChatClient(output=output / 'provider_calls.jsonl', identity=job['identity'], model=job['model'],gate=provider_gate())
 
     class Transport(MethodTransport):
         env = None
@@ -100,4 +101,6 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--job', required=True)
     args = p.parse_args()
-    run(json.loads(Path(args.job).read_text()))
+    from .parallel import environment_slot
+    with environment_slot():
+        run(json.loads(Path(args.job).read_text()))

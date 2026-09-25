@@ -11,6 +11,7 @@ from experiments.scienceworld_manifest import load
 from experiments.baselines.common.model_client import AuditedChatClient
 from .runner import ScienceWorldTextEpisodeRunner
 from .report import summarize
+from .parallel import provider_gate, ordered_map
 
 ROOT = Path(__file__).resolve().parents[3]
 METHODS = ('b0_dynamic', 'b1_static_skill', 'b3_skillopt', 'b4_embodiskill', 'b5_gepa')
@@ -34,7 +35,7 @@ def run(root, method, seed, *, smoke=False, resume=False):
     atomic_write_json(root / 'identity.json', identity)
     def chat_factory(output, entry):
         client = AuditedChatClient(output=output / 'provider_calls.jsonl',
-            identity={**identity, 'phase': entry['source_split'], 'task_id': entry['task_id']}, model=model)
+            identity={**identity, 'phase': entry['source_split'], 'task_id': entry['task_id']}, model=model,gate=provider_gate())
         def chat(*, messages, repair, task_id):
             return client.chat(messages=messages, role='target',
                 stage='scienceworld_protocol_repair' if repair else 'scienceworld_policy')
@@ -62,7 +63,7 @@ def run(root, method, seed, *, smoke=False, resume=False):
                 skill = train_skillopt(train_root, train, dev, chat_factory, model, seed, smoke=smoke)
             else:
                 evolution = AuditedChatClient(output=train_root / 'provider_calls.jsonl',
-                    identity={**identity, 'phase': 'train'}, model=model)
+                    identity={**identity, 'phase': 'train'}, model=model,gate=provider_gate())
                 skill = train_gepa(train_root, train, dev, chat_factory, evolution, seed, smoke=smoke)
         frozen.mkdir()
         (frozen / 'skill.md').write_text(skill, encoding='utf-8')
@@ -75,7 +76,7 @@ def run(root, method, seed, *, smoke=False, resume=False):
     frozen_bytes = {p.name: p.read_bytes() for p in frozen.iterdir() if p.is_file()}
     for repeat in range(1, (3 if seed == 42 and not smoke else 1) + 1):
         scope, rows = root / f'test_repeat{repeat}', []
-        for entry in test:
+        def evaluate(entry):
             output = scope / entry['task_id']
             print(json.dumps({'method': method, 'seed': seed, 'repeat': repeat, 'task': entry['task_id']}), flush=True)
             if resume and (output / 'result.json').exists():
@@ -84,9 +85,10 @@ def run(root, method, seed, *, smoke=False, resume=False):
                     raise ValueError('Resume episode source mismatch')
             else:
                 result = ScienceWorldTextEpisodeRunner(chat_factory(output, entry)).run(entry, skill, output)
-            rows.append(result)
             if frozen_bytes != {p.name: p.read_bytes() for p in frozen.iterdir() if p.is_file()}:
                 raise RuntimeError('Readonly Test modified the frozen state')
+            return result
+        rows=ordered_map(evaluate,test)
         atomic_write_json(scope / 'summary.json', summarize(rows, scope))
     atomic_write_json(root / 'completion.json', {'completed': True, 'test_tasks': len(test), 'identity': identity})
     return 0

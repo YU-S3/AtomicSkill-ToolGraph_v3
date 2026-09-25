@@ -33,14 +33,16 @@ class ScienceWorldSkillOptAdapter(EnvAdapter):
         return self.build_env_from_batch(self.dataloader.build_eval_batch(env_num=env_num, split=split, seed=seed, **kwargs))
 
     def rollout(self, env_manager, skill_content, out_dir, **kwargs):
+        from .parallel import ordered_map
         output, rows = Path(out_dir), []
-        for entry in env_manager:
+        def evaluate(entry):
             episode = output / 'predictions' / entry['task_id']
             chat = self.chat_factory(episode, entry)
             result = ScienceWorldTextEpisodeRunner(chat, max_actions=self.max_steps).run(entry, skill_content, episode)
             row = {'id': entry['task_id'], 'task_type': entry['task_type'],
                 'hard': int(result['perfect_success']), 'soft': result['normalized_score'],
                 'official_score': result['official_score'], 'conversation_path': str(episode / 'conversation.json')}
-            rows.append(row)
+            return row
+        rows=ordered_map(evaluate,env_manager)
         atomic_write_json(output / 'results.json', rows)
         return rows
