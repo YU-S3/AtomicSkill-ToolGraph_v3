@@ -8,6 +8,42 @@ from ..core.contracts import ToolAsset
 from ..core.results import ValidationResult
 
 
+def is_identity_only_tool(tool):
+    """Narrow effect-free IR boundary: read inputs, branch on presence, RETURN.
+
+    No action, loop, projection, constants or fresh evidence. Atomic R1 separately
+    verifies identity derivations and preserves each input's resolution.
+    """
+    from ..tooling.ir import walk_program_nodes
+    try:
+        nodes = walk_program_nodes(tool.artifact.get('program',[]))
+    except (KeyError,TypeError,ValueError):
+        return False
+    inputs = tool.signature.get('properties',{})
+    output = tool.interface.get('output_schema',{})
+    returns = []
+    for node in nodes:
+        if node['op'] == 'IF':
+            c = node.get('condition',{})
+            if set(c)-{'source','field','op'} or c.get('source')!='tool_input' or c.get('field') not in inputs or c.get('op')!='exists':
+                return False
+        elif node['op'] == 'RETURN':
+            values = node.get('output_sources',{})
+            if not values or not set(output.get('required',[])).issubset(values):
+                return False
+            for role,ref in values.items():
+                if not isinstance(ref,dict) or set(ref)!={'source','field'} or ref['source']!='tool_input':
+                    return False
+                if role not in output.get('properties',{}) or ref['field'] not in inputs:
+                    return False
+                if output['properties'][role].get('type') != inputs[ref['field']].get('type'):
+                    return False
+            returns.append(node)
+        else:
+            return False
+    return bool(returns)
+
+
 def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
     from ..agents.protocol import validate_schema_instance, SchemaValidationError
     try:
@@ -36,7 +72,7 @@ class ToolValidator:
             program = tool.artifact.get("program")
             checks["tool_ir_program"] = isinstance(program, list) and bool(program)
             checks["tool_ir_bounded"] = isinstance(tool.artifact.get("max_actions"), int) and tool.artifact["max_actions"] > 0
-            checks["tool_ir_final_effects"] = bool(tool.artifact.get("final_effects"))
+            checks["tool_ir_final_effects"] = bool(tool.artifact.get("final_effects")) or is_identity_only_tool(tool)
         passed = all(checks.values())
         return ValidationResult(
             "tool", passed, checks,

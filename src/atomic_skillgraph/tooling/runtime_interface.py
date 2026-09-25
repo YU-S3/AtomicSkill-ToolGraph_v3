@@ -81,64 +81,7 @@ _INPUT_BINDING_SOURCE_DEFINITIONS: tuple[dict[str, Any], ...] = (
 )
 
 
-_TOOL_IR_COLLECTION_SOURCE_DEFINITIONS: tuple[dict[str, Any], ...] = (
-    {
-        "source": "action_catalog",
-        "description": (
-            "Enumerate values projected from the current public admissible "
-            "primitive-action catalog at FOR_EACH entry. This exposes "
-            "candidates only; it does not select an action or prove an effect."
-            " A filtered/projected FOR_EACH with zero matches aborts the entire "
-            "Tool with tool_ir_selector_no_match. Optional candidates need an "
-            "IF condition.match guard before enumeration; false skips that "
-            "lookup and permits subsequent work."
-        ),
-        "entry_fields": list(ACTION_CATALOG_ENTRY_FIELDS),
-        "where": {
-            "action_type": (
-                "optional exact action_type from primitive_actions"
-            ),
-            "argument_role": (
-                "required with semantic_compatible_with and names an exact "
-                "argument role from that primitive action"
-            ),
-            "semantic_compatible_with": {
-                "source": list(CONDITION_SOURCES),
-                "field": (
-                    "required field or declared role in the selected source"
-                ),
-                "semantic_type": "optional public semantic type",
-            },
-        },
-        "direct_argument_filter_encoding": (
-            "Put each optional exact portable primitive argument value directly "
-            "at where.<argument_role>. Do not wrap argument filters in another "
-            "object. Every role is checked against the selected action_type's "
-            "public primitive signature."
-        ),
-        "projection": {
-            "field": (
-                "a top-level action_catalog entry field, used instead of project"
-            ),
-            "project": {
-                "kind": ["field", "argument"],
-                "field": "required when kind=field",
-                "role": (
-                    "required when kind=argument and names a primitive "
-                    "argument role"
-                ),
-            },
-        },
-        "distinct": "optional boolean",
-        "refresh_each_iteration": (
-            "Optional boolean, FOR_EACH action_catalog only. False (default) "
-            "uses the entry snapshot. True queries the current revision before "
-            "each iteration and takes the first unseen projected value; vanished "
-            "values are skipped and new values are visible. Empty after progress "
-            "ends the loop; strict empty entry still rejects. Bounds are unchanged."
-        ),
-    },
-)
+from .ir_contract import public_collection_sources
 
 
 RUNTIME_OUTPUT_DERIVATION_RULES = (
@@ -304,10 +247,7 @@ def public_primitive_action_schema(harness: Any) -> list[dict[str, Any]]:
 def public_tool_ir_collection_sources() -> list[dict[str, Any]]:
     """Return code-owned Tool IR selector contracts exposed to ToolBuilder."""
 
-    from .value_reference import BOUNDED_COUNT_SCHEMA, TOOL_VALUE_REFERENCE_HELP
-    return [*to_primitive(_TOOL_IR_COLLECTION_SOURCE_DEFINITIONS),
-        {'source':'bounded_count', 'count':BOUNDED_COUNT_SCHEMA,
-         'description':TOOL_VALUE_REFERENCE_HELP}]
+    return public_collection_sources(CONDITION_SOURCES, ACTION_CATALOG_ENTRY_FIELDS)
 
 
 def public_tool_ir_condition_contract() -> dict[str, Any]:

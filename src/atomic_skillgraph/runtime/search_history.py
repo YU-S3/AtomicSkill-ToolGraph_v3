@@ -134,6 +134,29 @@ def observe_search(tool, bindings, state, ctx, *, attempt_id, occurrence_id,
     """
     from ..tooling.ir import walk_program_nodes
     program = tool.artifact.get('program', [])
+    from .container_search_observer import checked_scopes
+    frame = getattr(ctx.harness, 'public_container_inspection_frame', lambda: {})()
+    container = checked_scopes(program,state,frame.get('containers',[]))
+    if container is not None:
+        loop,target,scope,rows = container
+        selector = target['condition']['match']
+        query_role = selector['where']['semantic_compatible_with']['field']
+        if query_role not in bindings:
+            return None
+        method = {'kind':'container-bounded-search','selector':copy.deepcopy(selector),
+            'query_role':query_role,'meaning':'historical_container_inspection_not_global_absence'}
+        program_id = identity([str(tool.ref),tool.artifact])
+        marker = getattr(ctx,'_compiler_invocation_marker',{}) or {}
+        return SearchAttemptObservation(identity([VERSION,attempt_id]),ctx.trace_builder.trace.trace_id,
+            attempt_id,occurrence_id,marker.get('parent_occurrence_id'),marker.get('native_call_id'),
+            str(tool.ref),program_id,copy.deepcopy(bindings[query_role]),query_role,
+            identity([program_id,method]),method,copy.deepcopy(bindings),tuple(scope),
+            tuple(ScopeCheck(**row) for row in rows),
+            tuple(range(action_start,len(ctx.trace_builder.trace.environment_actions))),
+            bool(result and result.started or error),
+            'interrupted' if error else 'completed' if result and result.completed else 'failed',
+            getattr(result,'failure_code','') or getattr(error,'code','') or state.failure_code,
+            'terminal' if ctx.execution_terminal() else 'applied',before_revision,ctx.world_revision)
     if len(program) != 1:
         return None
     loop = program[0]

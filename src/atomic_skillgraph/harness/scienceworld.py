@@ -153,6 +153,7 @@ class ScienceWorldAdapter:
         self._catalog, self._prefix, self._action_facts = [], [], []
         self._revision = 0
         self._discovery = None
+        self._container_inspections = []
 
     def initialize(self):
         if self._env is None:
@@ -190,6 +191,7 @@ class ScienceWorldAdapter:
         if task.goal and task.goal != info['taskDesc']:
             raise ValueError('Task description differs from manifest')
         self._revision, self._prefix, self._action_facts = 0, [], []
+        self._container_inspections = []
         self._validator = ScienceWorldValidatorChannel()
         return self._refresh(observation, info, done=info['score'] == 100 or info['score'] < 0,
                              reward=info.get('reward', 0), accepted=True)
@@ -229,6 +231,19 @@ class ScienceWorldAdapter:
             self._action_facts = public.retain_action_evidence(self._action_facts, spec)
             self._action_facts.extend(new)
         result = self._refresh(observation, info, done=done, reward=reward, accepted=accepted)
+        if spec.action_type == 'LOOK_IN':
+            new, inspection = public.container_evidence(spec, observation, self._catalog,
+                self._discovery, self._revision, self._task.task_id)
+            self._container_inspections.append(inspection)
+            # A new inspection replaces older claims for this container. The
+            # immutable prefix retains the previous public observation.
+            self._action_facts = [f for f in self._action_facts if not (
+                f.get('source_kind') == public.VERSION + '/container_listing'
+                and f['args'].get('container') == spec.arguments['container'])]
+            self._action_facts.extend(new)
+            facts, _ = public.frame_evidence(self._frame,self._catalog,self._revision,self._task.task_id)
+            self._validator.facts = facts + copy.deepcopy(self._action_facts) + [
+                f for f in self._validator.facts if f.get('source_kind') == 'official_score']
         self._prefix.append({'raw_action': spec.raw_action, 'action_type': spec.action_type,
             'arguments': spec.arguments, 'accepted': accepted, 'score': info['score'],
             'done': bool(done), 'state_digest': self._state_digest(), 'public_frame': self._normalized_frame(),
@@ -271,6 +286,8 @@ class ScienceWorldAdapter:
                 raise RuntimeError('scienceworld_replay_determinism_failure: ' + json.dumps(differences))
         if self._revision != checkpoint.revision or self._state_digest() != checkpoint.state_digest:
             raise RuntimeError('scienceworld_replay_checkpoint_mismatch')
+        result.metadata.update(restore_replay_action_count=len(checkpoint.accepted_prefix),
+                               restored_digest=self._state_digest())
         return result
 
     def action_catalog(self): return list(self._catalog)
@@ -283,6 +300,9 @@ class ScienceWorldAdapter:
             raise ValueError('Expected only action_type and arguments')
         return actions.resolve(self._catalog, arguments['action_type'], arguments['arguments'], self._revision)
     def public_discovery_frame(self): return self._discovery
+    def public_container_inspection_frame(self):
+        return {'version':'scienceworld.container-discovery.v1','revision':self._revision,
+                'containers':copy.deepcopy(self._container_inspections)}
     def public_runtime_relation_facts(self): return self._discovery.relation_facts() if self._discovery else []
     def public_catalog_relation_schema(self): return []
     def validator_channel(self): return self._validator

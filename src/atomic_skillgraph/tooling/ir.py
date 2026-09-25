@@ -13,6 +13,9 @@ from typing import Any, Mapping, Sequence
 
 from .proposal import ToolProgramOp
 from .value_reference import resolve_tool_value_reference, bounded_count_reference
+from .ir_contract import collection_source_names
+
+COLLECTION_SOURCES = frozenset(collection_source_names())
 
 
 CONDITION_OPERATORS = frozenset({
@@ -224,14 +227,19 @@ def validate_match_condition_shape(condition: Any) -> tuple[dict[str, Any], str]
         invalid("argument_role requires semantic_compatible_with")
     for role, value in where.items():
         if role != "semantic_compatible_with" and isinstance(value, (Mapping, list, tuple)):
-            if selector['source'] != 'semantic_evidence' or not is_bound_selector_value(value):
-                invalid("direct filters must be scalar or a semantic-evidence bound value")
+            if not is_bound_selector_value(value):
+                invalid("direct filters must be scalar or an input/local bound value")
     return dict(selector), str(operator)
 
 
 def evaluate_condition(condition: Any, state: ToolExecutionState, *, semantic_compatible: Any = None) -> bool:
     if isinstance(condition, Mapping) and "match" in condition:
         selector, operator = validate_match_condition_shape(condition)
+        for role, reference in selector['where'].items():
+            if role not in SELECTOR_META_FIELDS and isinstance(reference,Mapping):
+                values = state.bindings if reference['source'] == 'tool_input' else state.local
+                if reference['field'] not in values or values[reference['field']] in (None,''):
+                    raise ValueError('tool_ir_condition_reference_unavailable')
         semantic = selector["where"].get("semantic_compatible_with")
         if semantic is not None:
             values = state.bindings if semantic["source"] == "tool_input" else state.local
@@ -344,7 +352,7 @@ def _selector_entries(
             # the direct ``where`` key.  There is no wrapper or ``*_in``
             # dialect in Tool IR v1.
             actual = arguments.get(str(raw_role))
-            if source_kind == 'semantic_evidence' and isinstance(expected, Mapping):
+            if source_kind in {'semantic_evidence','action_catalog'} and isinstance(expected, Mapping):
                 if not is_bound_selector_value(expected):
                     raise ValueError('tool_ir_selector_invalid_bound_value')
                 values = state.bindings if expected['source'] == 'tool_input' else state.local
@@ -403,6 +411,8 @@ def resolve_collection(
 ) -> list[Any]:
     source = _as_mapping(collection_source)
     kind = str(source.get("source", "")).casefold()
+    if kind not in COLLECTION_SOURCES:
+        raise ValueError('tool_ir_collection_source_unsupported')
     if kind == 'bounded_count':
         ref = bounded_count_reference(source)
         count = resolve_tool_value_reference(ref, state)

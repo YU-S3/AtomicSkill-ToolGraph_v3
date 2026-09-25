@@ -89,6 +89,7 @@ def run(config_path, *, resume=False):
                 manifest = RunManifest.create(run_id=run_id, phase=phase, config_hash=config_hash,
                     code_commit=code_hash, knowledge_digest=initial, tasks=items,
                     metadata={'environment': protocol.manifest['resource_identity'], 'seed': experiment['seed'],
+                        'benchmark':'scienceworld', 'adapter':'scienceworld_v1',
                         'reference_manifest_digest': protocol.manifest['digest'],
                         'run_started_at': datetime.now(timezone.utc).isoformat(),
                         'experiment_kind': 'diagnostic' if diagnostic else 'formal',

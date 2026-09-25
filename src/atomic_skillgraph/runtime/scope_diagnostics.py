@@ -7,7 +7,19 @@ from ..tooling.ir import walk_program_nodes
 
 
 def scope_exhaustion(program, state, signal):
-    if signal or state.failure_code or state.outputs or len(program) != 1:
+    if signal or state.failure_code or state.outputs:
+        return None
+    from .container_search_observer import checked_scopes
+    container = checked_scopes(program,state)
+    if container is not None:
+        loop,_,scope,checks = container
+        outer = [r for r in state.collection_observations if r['node_id'] == loop['node_id']]
+        if (scope and len(outer) == 1 and outer[0].get('completed') and outer[0]['values'] == scope
+            and all(c['outcome'] == 'no_matching_candidate' for c in checks)):
+            return {'outcome':'scope_exhausted','checked_scope':checks,
+                    'global_absence_claimed':False,'outputs_authorized':False}
+        return None
+    if len(program) != 1:
         return None
     loop = program[0]
     source = loop.get('collection_source', {})

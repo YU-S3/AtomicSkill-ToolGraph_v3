@@ -22,7 +22,7 @@ def make_config(root, *, seed=42, phase='train', repetition=1, frozen=None, diag
         raise ValueError('Readonly evaluation requires an explicit frozen bank')
     config['data_dir'] = str(output / 'data_v3' if phase == 'train' else Path(frozen).resolve())
     config['trace_data_dir'] = str(output)
-    config['experiment'] = {'name': f'scienceworld_seed{seed}_{phase}_repeat{repetition}',
+    config['experiment'] = {'name': f'scienceworld_seed{seed}_{phase}_repeat{repetition}', 'benchmark':'scienceworld',
         'phase': phase, 'condition': 'full', 'runtime_mode': 'online' if phase == 'train' else 'frozen',
         'freeze_skills': phase != 'train', 'seed': seed, 'output_dir': str(output),
         'task_manifest_path': str(output / 'task_manifest.json'), 'max_task_attempts': 3,

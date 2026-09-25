@@ -41,7 +41,7 @@ def action(kind, arguments, effects, node=None):
 
 
 def author(intent, input_roles, output_roles, effects, program, *, output_sources=None, max_actions=1,
-           input_types=None, preconditions=(), notes=()):
+           input_types=None, preconditions=(), notes=(), input_constraints=None):
     types = input_types or {}
     inputs = [ParameterSpec(r, types.get(r, 'entity'), runtime_resolvable=True,
         required_resolution='concrete' if types.get(r, 'entity') == 'entity' else 'semantic') for r in input_roles]
@@ -79,6 +79,10 @@ def author(intent, input_roles, output_roles, effects, program, *, output_source
         'evidence_outputs':[{'role':r, **s} for r,s in sources.items()]}, [],
         {'allowed_action_types':sorted({n['action_type'] for n in walk_program_nodes(body) if n['op']=='ACTION'}),
          'reviewed':True,'zero_llm':True,'terminal_interruptible':True}, metadata, metadata)
+    if input_constraints:
+        for role, constraints in input_constraints.items():
+            tool.signature['properties'][role].update(constraints)
+        tool.artifact['value_contract_version'] = 2
     implementation = ImplementationAtom(SkillRef('impl_scienceworld_'+intent,'1.0.0'), atomic.ref,
         [ToolBinding(tool.ref,'primary',{p.name:binding(p.name) for p in inputs},0)], [],
         {'mode':'serial','output_mapping':{p.name:BindingExpression('tool_output',source_role=p.name,source_step='primary') for p in outputs}},
@@ -105,7 +109,6 @@ def basic_assets():
         ('mix_container_contents','MIX', {'container':'container'}, 'container.mixed', {'container':'container'}, {}),
         ('wait_one_step','WAIT1', {}, 'time.progressed', {}, {}),
         ('measure_temperature','USE', {'instrument':'thermometer','target':'target'}, 'measurement.observed', {'subject':'target','instrument':'thermometer'}, {'target':'target'}),
-        ('power_target_device','ACTIVATE', {'device':'device'}, 'device.active', {'device':'device'}, {'device':'device'}),
     ]
     result = []
     for intent, kind, args, pred, roles, outs in rows:
@@ -123,36 +126,83 @@ def preparation_assets():
         {'evidence_ref':('scope.inspected','evidence',{'location':'location'})}, inspect_effects, [], max_actions=1,
         preconditions=[predicate('agent.at_location', location='location')],
         notes=['Uses the already exposed current public frame; it does not call a private observation API.'])
+    return [inspected, room_search(), container_search()]
+
+
+def _guard(selector, body, node_id):
+    return {'op':'IF','node_id':node_id,'condition':{'op':'exists','match':selector},
+            'then_branch':body}
+
+
+def room_search():
     found = {'source':'semantic_evidence','where':{'predicate':'entity.discovered_at',
         'argument_role':'entity','semantic_compatible_with':{**value('query'),'semantic_type':'entity'},
-        'location':value('scope',True)}, 'project':{'kind':'argument','role':'entity'}, 'distinct':True}
-    location = {'source':'semantic_evidence','where':{'predicate':'entity.discovered_at',
-        'entity':value('found',True),'location':value('scope',True)},
-        'project':{'kind':'argument','role':'location'},'distinct':True}
-    sources = {'entity':value('found',True),'location':location}
-    effects = [predicate('entity.discovered_at',entity='entity',location='location')]
-    body = [{'op':'ACTION','node_id':'visit_scope','action_type':'TELEPORT',
-             'argument_mapping':{'destination':argument('scope',True)},'expected_effects':[
-                 {'predicate':'agent.at_location','args':{'location':argument('scope',True)},'effect_domain':'world'}]},
-        {'op':'FOR_EACH','node_id':'joint_matches','collection_source':found,'iteration_variable':'found',
-         'max_iterations':1,'body':[{'op':'RETURN','node_id':'joint_result','output_sources':sources}]}]
+        'location':value('scope',True)},'project':{'kind':'argument','role':'entity'},'distinct':True}
+    sources = {'entity':value('found',True),'location':value('scope',True)}
+    matches = {'op':'FOR_EACH','node_id':'joint_matches','collection_source':found,
+        'iteration_variable':'found','max_iterations':1,
+        'body':[{'op':'RETURN','node_id':'joint_result','output_sources':sources}]}
+    reached = {'op':'FOR_EACH','node_id':'reached_scope','iteration_variable':'reached',
+        'max_iterations':1,'collection_source':{'source':'semantic_evidence','where':{
+            'predicate':'agent.at_location','argument_role':'location',
+            'semantic_compatible_with':{**value('scope',True),'semantic_type':'entity'}},
+            'project':{'kind':'argument','role':'location'},'distinct':True},
+        'body':[_guard(found,[matches],'target_exists')]}
     program = [{'op':'FOR_EACH','node_id':'authorized_rooms','collection_source':value('locations'),
-                'iteration_variable':'scope','max_iterations':8,'body':body}]
-    discovery = author('discover_entity_in_authorized_scopes', ['query','locations','allow_open'],
-        {'entity':('entity.discovered_at','entity',{}),'location':('entity.discovered_at','location',{})}, effects,
-        program, output_sources=sources, max_actions=8, input_types={'locations':'list','allow_open':'bool'},
-        notes=['Visit only caller-supplied locations. A room with unparsed descriptions is not an empty scope.',
-               'Do not acquire or select an answer. Return only a jointly witnessed entity and location.'])
-    atomic, _, tool = discovery
-    # Exhausting authorized scopes has no successful RETURN. Loop locals must
-    # not escape as invented outputs when no joint witness was found.
+        'iteration_variable':'scope','max_iterations':16,'body':[
+            {'op':'ACTION','node_id':'visit_scope','action_type':'TELEPORT',
+             'argument_mapping':{'destination':argument('scope',True)},'expected_effects':[
+                {'predicate':'agent.at_location','args':{'location':argument('scope',True)},'effect_domain':'world'}]},
+            reached]}]
+    result = author('discover_entity_in_authorized_rooms',['query','locations'],
+        {'entity':('entity.discovered_at','entity',{}),'location':('entity.discovered_at','location',{})},
+        [predicate('entity.discovered_at',entity='entity',location='location')],program,max_actions=16,
+        input_types={'locations':'list'},input_constraints={'locations':{
+            'items':{'type':'string'},'minItems':1,'maxItems':16,'uniqueItems':True}})
+    atomic,_,tool = result
+    tool.artifact['program'].pop()  # Exhausted scopes cannot invent a RETURN.
+    atomic.inputs[0].required_resolution = 'semantic'
+    atomic.validator_spec.update(output_semantic_constraints={'entity':{'compatible_with_input':'query'}},
+        input_authorization={'locations':{'kind':'ordered_entity_scope','element_semantic_type':'entity',
+            'min_items':1,'max_items':16,'unique_items':True}})
+    return result
+
+
+def container_search():
+    found = {'source':'semantic_evidence','where':{'predicate':'entity.in_container',
+        'argument_role':'entity','semantic_compatible_with':{**value('query'),'semantic_type':'entity'},
+        'container':value('scope',True)},'project':{'kind':'argument','role':'entity'},'distinct':True}
+    sources = {'entity':value('found',True),'container':value('scope',True),'location':value('location')}
+    returned = {'op':'FOR_EACH','node_id':'contained_matches','collection_source':found,
+        'iteration_variable':'found','max_iterations':1,
+        'body':[{'op':'RETURN','node_id':'contained_result','output_sources':sources}]}
+    def exact(kind):
+        return {'source':'action_catalog','where':{'action_type':kind,'container':value('scope',True)},
+                'project':{'kind':'argument','role':'container'},'distinct':True}
+    def operate(kind,effect):
+        return {'op':'ACTION','node_id':kind.lower(),'action_type':kind,
+            'argument_mapping':{'container':argument('scope',True)},'expected_effects':[
+                {'predicate':effect,'args':{'container':argument('scope',True),
+                    **({'evidence':None} if effect in EVIDENCE else {})},
+                 'effect_domain':'evidence' if effect in EVIDENCE else 'world'}]}
+    program = [action('TELEPORT',{'destination':'location'},[predicate('agent.at_location',location='location')]),
+        {'op':'FOR_EACH','node_id':'authorized_containers','collection_source':value('containers'),
+         'iteration_variable':'scope','max_iterations':8,'body':[
+             _guard(exact('OPEN'),[operate('OPEN','container.open')],'can_open'),
+             _guard(exact('LOOK_IN'),[operate('LOOK_IN','container.inspected'),
+                 _guard(found,[returned],'target_exists')],'can_inspect')]}]
+    result = author('discover_entity_in_authorized_containers',['query','location','containers'],
+        {'entity':('entity.in_container','entity',{}),'container':('entity.in_container','container',{}),
+         'location':'location'},[predicate('entity.in_container',entity='entity',container='container')],
+        program,max_actions=17,input_types={'containers':'list'},input_constraints={'containers':{
+            'items':{'type':'string'},'minItems':1,'maxItems':8,'uniqueItems':True}})
+    atomic,_,tool = result
     tool.artifact['program'].pop()
     atomic.inputs[0].required_resolution = 'semantic'
     atomic.validator_spec.update(output_semantic_constraints={'entity':{'compatible_with_input':'query'}},
-        input_authorization={'allow_open':{'kind':'caller_boolean'},'locations':{
-        'kind':'ordered_entity_scope','element_semantic_type':'entity','min_items':1,'max_items':8,'unique_items':True}})
-    tool.signature['properties']['locations'].update(items={'type':'string'},minItems=1,maxItems=8,uniqueItems=True)
-    return [inspected, discovery]
+        input_authorization={'containers':{'kind':'ordered_entity_scope','element_semantic_type':'entity',
+            'min_items':1,'max_items':8,'unique_items':True}})
+    return result
 
 
 def authority(harness):
@@ -162,3 +212,123 @@ def authority(harness):
         'tool_ir_opcodes':['ACTION','IF','FOR_EACH','STOP_WHEN','RETURN'],
         'output_derivation_kinds':['input_identity','effect_witness'],
         **{kind+'_schema_version':3 for kind in ('atomic','implementation','tool','composite')}}
+
+
+def workflow_entry(count):
+    """Explicit caller intent transfer, never an entity-grounding shortcut."""
+    import copy
+    queries = ['query'] if count == 1 else [f'query_{c}' for c in 'abc'[:count]]
+    optional = ['location','containers','wait_steps']
+    roles = queries + ['locations'] + optional
+    intent = 'bind_' + {1:'single',2:'dual',3:'triple'}[count] + '_query_workflow_entry'
+    row = author(intent,roles,{r:r for r in roles},[],[],input_types={
+        **{r:'entity' for r in queries},'locations':'list','containers':'list','wait_steps':'integer'},
+        input_constraints={'locations':{'items':{'type':'string'},'minItems':1,'maxItems':16,'uniqueItems':True},
+            'containers':{'items':{'type':'string'},'minItems':1,'maxItems':8,'uniqueItems':True},
+            'wait_steps':{'minimum':0,'maximum':8}})
+    atomic,impl,tool = row
+    for spec in atomic.inputs + atomic.outputs:
+        if spec.name in queries:
+            spec.required_resolution = 'semantic'
+        if spec.name in optional:
+            spec.required = False
+    for spec in (tool.signature,tool.interface['output_schema']):
+        spec['required'] = [r for r in spec['required'] if r not in optional]
+    # Optional values are never invented as defaults or returned as null.
+    def branch(index, selected, suffix):
+        if index == len(optional):
+            return [{'op':'RETURN','node_id':'publish_entry_'+suffix,
+                'output_sources':{r:value(r) for r in queries+['locations']+selected}}]
+        role = optional[index]
+        return [{'op':'IF','node_id':'has_'+role+'_'+suffix,
+            'condition':{'source':'tool_input','field':role,'op':'exists'},
+            'then_branch':branch(index+1,selected+[role],suffix+'t'),
+            'else_branch':branch(index+1,selected,suffix+'f')}]
+    tool.artifact['program'] = branch(0,[],'root')
+    tool.artifact['evidence_outputs'] = []
+    atomic.validator_spec['input_authorization'] = {
+        'locations':{'kind':'ordered_entity_scope','element_semantic_type':'entity','min_items':1,'max_items':16,'unique_items':True},
+        'containers':{'kind':'ordered_entity_scope','element_semantic_type':'entity','min_items':1,'max_items':8,'unique_items':True}}
+    return row
+
+
+def bounded_wait():
+    effects = [predicate('time.progressed',evidence=None)]
+    program = [{'op':'FOR_EACH','node_id':'wait_steps','iteration_variable':'step',
+        'collection_source':{'source':'bounded_count','count':value('wait_steps')},'max_iterations':8,
+        'body':[action('WAIT1',{},effects)]}]
+    return author('wait_bounded_steps',['wait_steps'],{'evidence_ref':('time.progressed','evidence',{})},
+        effects,program,max_actions=8,input_types={'wait_steps':'integer'},
+        input_constraints={'wait_steps':{'minimum':0,'maximum':8}})
+
+
+def compound_assets():
+    """Compose public procedures; stop immediately when the environment is terminal."""
+    import copy
+    result = []
+    for intent,base,action_type in (
+        ('discover_and_acquire_in_rooms',room_search,'PICK_UP'),
+        ('discover_and_acquire_in_containers',container_search,'PICK_UP'),
+        ('discover_and_examine_in_rooms',room_search,'EXAMINE'),
+        ('discover_and_read_in_rooms',room_search,'READ')):
+        a,i,t = base()
+        effect_name = {'PICK_UP':'agent.holds','EXAMINE':'entity.examined','READ':'entity.read'}[action_type]
+        args = {'entity':argument('found',True),**({'evidence':None} if effect_name in EVIDENCE else {})}
+        final = predicate(effect_name,entity='entity',**({'evidence':None} if effect_name in EVIDENCE else {}))
+        a.effects.append(final)
+        if effect_name in EVIDENCE:
+            a.outputs.append(ParameterSpec('evidence_ref','evidence_ref'))
+            a.validator_spec['output_derivations']['evidence_ref'] = {'kind':'effect_witness','predicate':effect_name,'argument_role':'evidence'}
+        def append_action(nodes):
+            rewritten = []
+            for n in nodes:
+                if n['op'] == 'RETURN':
+                    rewritten.append({'op':'ACTION','node_id':'act_on_found','action_type':action_type,
+                        'argument_mapping':{'entity':argument('found',True)},'expected_effects':[
+                            {'predicate':effect_name,'args':args,'effect_domain':'evidence' if effect_name in EVIDENCE else 'world'}]})
+                    if effect_name in EVIDENCE:
+                        n['output_sources']['evidence_ref'] = {'source':'semantic_evidence','where':{
+                            'predicate':effect_name,'entity':value('found',True)},'project':{'kind':'argument','role':'evidence'},'distinct':True}
+                for branch_name in ('body','then_branch','else_branch'):
+                    if branch_name in n: n[branch_name] = append_action(n[branch_name])
+                rewritten.append(n)
+            return rewritten
+        t.artifact['program'] = append_action(t.artifact['program'])
+        # Conservative bounds include the action even though RETURN ends search.
+        from ..tooling.value_reference import worst_case_actions
+        t.artifact['max_actions'] = worst_case_actions(t.artifact['program'])
+        t.artifact['final_effects'] = to_primitive(a.effects)
+        t.safety['allowed_action_types'].append(action_type)
+        t.interface['output_schema'] = parameter_schema(a.outputs)
+        a.ref = SkillRef('atomic_scienceworld_'+intent,'1.0.0')
+        t.ref = ToolRef('tool_scienceworld_'+intent,'1.0.0')
+        i.ref = SkillRef('impl_scienceworld_'+intent,'1.0.0')
+        i.abstract_ref = a.ref
+        i.tool_bindings = [ToolBinding(t.ref,'primary',{p.name:binding(p.name) for p in a.inputs},0)]
+        i.execution_policy['output_mapping'] = {p.name:BindingExpression('tool_output',source_role=p.name,source_step='primary') for p in a.outputs}
+        for asset in (a,i,t):
+            asset.metadata = {**asset.metadata,'canonical_intent':intent}
+        result.append((a,i,t))
+    connect = [predicate('electrical.connected',left='left',right='right'),predicate('device.active',device='device')]
+    result.append(author('connect_then_activate',['left','right','device'],{r:r for r in ('left','right','device')},connect,
+        [action('CONNECT',{'left':'left','right':'right'},connect[:1]),action('ACTIVATE',{'device':'device'},connect[1:])],max_actions=2))
+    pour = predicate('liquid.poured',source='source',destination='destination',evidence=None)
+    mixed = predicate('container.mixed',container='destination',evidence=None)
+    result.append(author('pour_then_mix',['source','destination'],{'evidence_ref':('container.mixed','evidence',{'container':'destination'})},[mixed],
+        [action('POUR',{'source':'source','destination':'destination'},[pour]),action('MIX',{'container':'destination'},[mixed])],max_actions=2))
+    measured = predicate('measurement.observed',subject='target',instrument='thermometer',evidence=None)
+    wait_program = copy.deepcopy(bounded_wait()[2].artifact['program'][:-1])
+    result.append(author('wait_then_measure_temperature',['wait_steps','thermometer','target'],
+        {'evidence_ref':('measurement.observed','evidence',{'subject':'target','instrument':'thermometer'})},[measured],
+        wait_program+[action('USE',{'instrument':'thermometer','target':'target'},[measured])],max_actions=9,
+        input_types={'wait_steps':'integer'},input_constraints={'wait_steps':{'minimum':0,'maximum':8}}))
+    return result
+
+
+def reference_atomics():
+    rows = basic_assets()+preparation_assets()+[bounded_wait()]+[workflow_entry(n) for n in (1,2,3)]+compound_assets()
+    assert len(rows) == 30
+    for index,row in enumerate(rows,1):
+        for asset in row:
+            asset.metadata['reference_inventory_id'] = f'A{index:02d}'
+    return rows

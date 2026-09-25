@@ -809,6 +809,9 @@ class ToolRunner:
                 discovery = getattr(ctx.harness, 'public_discovery_frame', lambda: None)()
                 if discovery is not None and condition.get('match', {}).get('source') == 'semantic_evidence':
                     state.condition_observations[-1]['public_discovery'] = discovery.to_dict()
+                container_frame = getattr(ctx.harness, 'public_container_inspection_frame', lambda: None)()
+                if container_frame is not None:
+                    state.condition_observations[-1]['public_container_inspection'] = container_frame
                 branch = node.get("then_branch") if branch_taken else node.get("else_branch")
                 state.path_tokens.append(
                     f"{node_id}:{'then' if branch_taken else 'else'}"
@@ -892,6 +895,7 @@ class ToolRunner:
                             return len(builder.trace.environment_actions) if builder is not None else state.executed_action_count
                         observation = {'node_id': node_id, 'value': to_primitive(value),
                             'action_start': action_index(),
+                            'revision_start': getattr(ctx, 'world_revision', None),
                             'condition_start': len(state.condition_observations),
                             'collection_start': len(state.collection_observations)}
                         state.iteration_observations.append(observation)
@@ -903,6 +907,7 @@ class ToolRunner:
                             )
                         finally:
                             observation.update(action_end=action_index(),
+                                revision_end=getattr(ctx, 'world_revision', None),
                                 condition_end=len(state.condition_observations),
                                 collection_end=len(state.collection_observations))
                         count += 1

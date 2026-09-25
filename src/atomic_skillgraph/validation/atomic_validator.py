@@ -112,7 +112,8 @@ class AtomicValidator:
                         ["atomic_output_identity_mismatch"],
                         ["Tool output conflicts with input_identity derivation"],
                     )
-                candidate_outputs[role] = plain.get(input_role)
+                if input_role in plain:
+                    candidate_outputs[role] = plain[input_role]
         # Pin fresh output variables. Declared input-identity aliases are
         # checked above and pin their source input, not an invented effect
         # variable with the output's name.
@@ -124,6 +125,47 @@ class AtomicValidator:
         missing_inputs = [p.name for p in atomic.inputs if p.required and p.name not in plain]
         if missing_inputs:
             return ValidationResult("atomic", False, {}, ["missing_inputs"], [repr(missing_inputs)])
+        if not atomic.effects:
+            # An effect-free bundle may only transfer explicitly declared input
+            # identities. It certifies values, not a new environment fact, and
+            # therefore must neither ask the Harness for a synthetic witness nor
+            # upgrade a semantic query into a concrete entity.
+            input_specs = {p.name:p for p in atomic.inputs}
+            outputs = {}
+            certified = {}
+            for spec in atomic.outputs:
+                derivation = derivations.get(spec.name,{})
+                source_role = derivation.get('input_role')
+                source_spec = input_specs.get(source_role)
+                if derivation.get('kind') != 'input_identity' or source_spec is None:
+                    return ValidationResult.fail('atomic','atomic_output_witness_missing',spec.name)
+                if not semantic_types_compatible(source_spec.semantic_type,spec.semantic_type):
+                    return ValidationResult.fail('atomic','atomic_output_type_mismatch',spec.name)
+                if spec.name not in candidate_outputs:
+                    continue
+                original = bindings.get(source_role)
+                if isinstance(original,RuntimeBinding):
+                    source = copy.deepcopy(original)
+                else:
+                    source = RuntimeBinding(source_role,copy.deepcopy(plain[source_role]),source_spec.semantic_type,
+                        BindingSource.AGENT_PROPOSED,BindingStatus.PROPOSED,BindingResolution.SEMANTIC,[],current_revision)
+                if not resolution_satisfies(source.resolution,spec.required_resolution):
+                    return ValidationResult.fail('atomic','atomic_output_resolution_insufficient',spec.name)
+                if source.resolution is not BindingResolution.SEMANTIC and source.status is not BindingStatus.GROUNDED:
+                    return ValidationResult.fail('atomic','atomic_output_witness_missing',spec.name)
+                source = replace(source,status=BindingStatus.GROUNDED)
+                certified[source_role] = source
+                outputs[spec.name] = replace(source,role=spec.name,source=BindingSource.TOOL_OUTPUT)
+            if not outputs:
+                return ValidationResult.fail('atomic','atomic_output_witness_missing','No identity bundle outputs')
+            result = ValidationResult.ok('atomic',input_identity_bundle=True,generated_outputs_validated=True)
+            from ..core.refs import content_hash
+            result.witness_refs = ['input_identity_validation:' + content_hash({
+                'atomic_ref':str(atomic.ref),'occurrence_id':occurrence.occurrence_id,
+                'revision':current_revision,'inputs':plain,'outputs':candidate_outputs})]
+            result.validated_output_bindings = outputs
+            result.certified_input_bindings = certified
+            return result
         try:
             resolution = validator_channel.resolve_atomic_effect({
                 "atomic_ref": str(atomic.ref),

@@ -42,7 +42,7 @@ def run(output):
             a.arguments['instrument']=='thermometer' and a.arguments['target']=='air')
         for _ in range(2):
             invoke('measure_temperature',{'thermometer':measure.arguments['instrument'],'target':measure.arguments['target']})
-        invoke('discover_entity_in_authorized_scopes',{'query':'air','locations':['kitchen'],'allow_open':False})
+        invoke('discover_entity_in_authorized_rooms',{'query':'air','locations':['kitchen']})
         before=len(harness._prefix)
         invoke('relocate_to_location',{'destination':'unlisted location'},expected=False)
         assert len(harness._prefix)==before

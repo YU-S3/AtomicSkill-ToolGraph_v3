@@ -47,10 +47,8 @@ from .runtime_interface import (
 
 _OPCODES = {"ACTION", "IF", "FOR_EACH", "STOP_WHEN", "RETURN"}
 _CONDITION_SOURCES = CONDITION_SOURCES
-_COLLECTION_SOURCES = {
-    "tool_input", "local_variable", "action_catalog",
-    "semantic_evidence", "binding_evidence", "local_deterministic", "bounded_count",
-}
+from .ir_contract import collection_source_names
+_COLLECTION_SOURCES = frozenset(collection_source_names())
 _RETURN_SOURCES = {
     "tool_input", "local_variable", "semantic_evidence",
     "binding_evidence", "constant",
@@ -413,7 +411,7 @@ def _check_selector_scoped_references(
     where = selector.get("where")
     if not isinstance(where, Mapping):
         return
-    if selector.get('source') == 'semantic_evidence':
+    if selector.get('source') in {'semantic_evidence','action_catalog'}:
         for role, value in where.items():
             if role not in SELECTOR_META_FIELDS and isinstance(value, Mapping):
                 _check_scoped_reference(str(value.get('source', '')), str(value.get('field', '')),

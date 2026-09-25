@@ -290,9 +290,8 @@ def load_config(source: str | Path | Mapping[str, Any]) -> dict[str, Any]:
     )
     if condition != "full":
         raise ValueError("this experiment implements exactly the full condition; ablations are out of scope")
-    benchmark = str((config.get("experiment") or {}).get("benchmark", "alfworld"))
-    if benchmark != "alfworld":
-        raise ValueError("this v3 experiment is scoped to ALFWorld only")
+    from .harness.registry import resolve_benchmark_identity
+    resolve_benchmark_identity(config)
     planner = dict(config.get("planner") or {})
     if int(planner.get("requirement_repair_limit", 1)) != 1:
         raise ValueError("v3 permits exactly one P1R requirement repair")

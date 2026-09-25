@@ -502,88 +502,8 @@ class StructuredSubmissionClient:
         )
 
 
-TOOL_IR_COLLECTION_SOURCE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "required": ["source"],
-    "allOf": [{"anyOf": [
-        {"properties": {"source": {"not": {"const": "bounded_count"}}}},
-        {"required": ["count"], "additionalProperties": False,
-         "properties": {"source": {"const":"bounded_count"}, "count": BOUNDED_COUNT_SCHEMA}}
-    ]}],
-    "anyOf": [
-        {"not": {"required": ["refresh_each_iteration"]}},
-        {"properties": {"source": {"const": "action_catalog"}}},
-    ],
-    "properties": {
-        "refresh_each_iteration": {"type": "boolean", "description": "Only for action_catalog FOR_EACH: re-query current catalog before each iteration, selecting the first unseen value; default false preserves the entry snapshot."},
-        "source": {
-            "type": "string",
-            "enum": [
-                "tool_input", "local_variable", "action_catalog",
-                "semantic_evidence", "binding_evidence",
-                "local_deterministic", "bounded_count",
-            ],
-        },
-        "field": NONEMPTY_STRING_SCHEMA,
-        "count": BOUNDED_COUNT_SCHEMA,
-        "values": {"type": "array", "minItems": 1},
-        "where": {
-            "type": "object",
-            "description": (
-                "Filter action_catalog with optional where.action_type and "
-                "direct where.<primitive_argument_role>=<exact portable value> "
-                "entries. There is no primitive_argument_filters wrapper. "
-                "Static validation closes every direct role against the public "
-                "Harness primitive signature."
-            ),
-            "properties": {
-                "action_type": {"type": "string"},
-                "predicate": {"type": "string"},
-                "argument_role": {"type": "string"},
-                "semantic_compatible_with": {
-                    "type": "object",
-                    "required": ["source", "field"],
-                    "properties": {
-                        "source": {
-                            "type": "string",
-                            "enum": list(CONDITION_SOURCES),
-                        },
-                        "field": NONEMPTY_STRING_SCHEMA,
-                        "semantic_type": {"type": "string"},
-                    },
-                },
-            },
-        },
-        "project": {
-            "type": "object",
-            "properties": {
-                "kind": {"type": "string", "enum": ["field", "argument"]},
-                "field": NONEMPTY_STRING_SCHEMA,
-                "role": NONEMPTY_STRING_SCHEMA,
-            },
-        },
-        "distinct": {"type": "boolean"},
-    },
-    "description": (
-        "FOR_EACH selector over an existing Tool IR source. For source="
-        "action_catalog or semantic_evidence, a filtered/projected selector "
-        "with ZERO matching entries aborts the ENTIRE Tool with "
-        "tool_ir_selector_no_match; it does not mean zero harmless iterations. "
-        "For optional action candidates, first guard the lookup using IF with "
-        "the matching action_catalog condition.match, then enumerate only in "
-        "that true branch. Query false permits continued execution. For source="
-        "action_catalog, each current public entry has action_id, revision, "
-        "action_type, and arguments. Filter with where.action_type and optional "
-        "exact primitive-argument values directly as where.<argument_role>; "
-        "do not use a primitive_argument_filters wrapper. When "
-        "semantic_compatible_with is used, "
-        "where.argument_role names the action argument and the nested "
-        "source/field names the comparison authority. Project a top-level entry "
-        "field with field or use project.kind=argument plus project.role to put "
-        "that primitive argument value into the loop variable. distinct is an "
-        "optional boolean. The catalog supplies candidates, not effect evidence."
-    ),
-}
+from ..tooling.ir_contract import collection_source_schema
+TOOL_IR_COLLECTION_SOURCE_SCHEMA = collection_source_schema(CONDITION_SOURCES)
 
 
 TOOL_IR_LEGACY_CONDITION_SCHEMA: dict[str, Any] = {
@@ -676,6 +596,8 @@ _relation_where['additionalProperties'] = {'anyOf': [
     {'type': ['string', 'number', 'boolean', 'null']},
     {'type': 'object', 'required': ['source', 'field'], 'additionalProperties': False,
      'properties': {'source': {'enum': ['tool_input', 'local_variable']}, 'field': NONEMPTY_STRING_SCHEMA}}]}
+TOOL_IR_MATCH_CONDITION_SCHEMA['properties']['match']['properties']['where']['additionalProperties'] = copy.deepcopy(
+    _relation_where['additionalProperties'])
 TOOL_IR_CONDITION_SCHEMA: dict[str, Any] = {
     "oneOf": [TOOL_IR_LEGACY_CONDITION_SCHEMA, TOOL_IR_MATCH_CONDITION_SCHEMA, TOOL_IR_RELATION_CONDITION_SCHEMA],
     "description": "Legacy field condition or selector_condition_v1: a read-only current action_catalog match query; no match is false, not an execution failure or global absence fact.",

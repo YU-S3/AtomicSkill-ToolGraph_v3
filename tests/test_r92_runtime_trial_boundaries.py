@@ -899,10 +899,11 @@ def test_runtime_builder_does_not_read_validator_only_semantic_snapshot(
         "tool_ir_collection_sources"
     ]
     assert [item["source"] for item in collection_sources] == [
-        "action_catalog", "bounded_count"
+        "tool_input", "local_variable", "action_catalog", "semantic_evidence",
+        "binding_evidence", "local_deterministic", "bounded_count"
     ]
-    assert collection_sources[1]['count']['properties']['source'] == {'const':'tool_input'}
-    selector = collection_sources[0]
+    assert collection_sources[-1]['count']['properties']['source'] == {'const':'tool_input'}
+    selector = collection_sources[2]
     assert selector["entry_fields"] == [
         "action_id", "revision", "action_type", "arguments",
     ]
