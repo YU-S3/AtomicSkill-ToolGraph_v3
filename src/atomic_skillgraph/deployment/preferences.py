@@ -8,6 +8,11 @@ def load_preferences(store):
     if not path.is_file():
         return {}
     value = json.loads(path.read_text())
+    from .train_bank_compiler import VERSION
+    if value.get('protocol_version') == VERSION:
+        if value.get('source_lock_hash') != sha(store.data_dir / 'edit_plan.lock.json'):
+            raise ReleaseError('Train compiler source lock mismatch')
+        return value
     plan = store.data_dir / 'edit_plan.lock.json'
     if value.get('protocol_version') != OLDFIRST_PROTOCOL_VERSION or value.get('edit_plan_hash') != sha(plan):
         raise ReleaseError('deployment preferences do not match the locked edit plan')
@@ -38,6 +43,10 @@ def verify_preferences(skills):
     from ..knowledge.tool_registry import ToolRegistry
     prefs = load_preferences(skills.store)
     if not prefs:
+        return
+    from .train_bank_compiler import VERSION, verify_compiler_preferences
+    if prefs.get('protocol_version') == VERSION:
+        verify_compiler_preferences(skills,prefs)
         return
     plan = json.loads((skills.store.data_dir / 'edit_plan.lock.json').read_text())
     tools = ToolRegistry(skills.store, skills.database)

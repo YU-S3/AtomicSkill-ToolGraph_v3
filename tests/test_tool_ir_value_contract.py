@@ -61,6 +61,26 @@ def test_full_static_and_runtime_value_contract(kind):
         assert [v['value'] for v in result.tool_path_evidence['value_reference_observations']] == ['drawer_2','desk_1']
 
 
+def test_canonical_numeric_role_allows_integer_tool_narrowing_only():
+    from atomic_skillgraph.tooling.value_reference import tool_input_schema
+    _, ctx, _ = _runtime_context()
+    atomic, proposal, tool = fixture('count')
+    atomic.inputs[-1].semantic_type = 'number'
+    proposal.inputs = list(atomic.inputs)
+    assert ToolStaticValidator().validate_proposal(proposal, atomic, ctx.harness).passed
+    assert ToolStaticValidator().validate_tool_asset(tool, atomic, ctx.harness).passed
+    narrowed = tool_input_schema(atomic.inputs, tool.signature)
+    assert narrowed['properties']['steps']['type'] == 'integer'
+    for bad in (True, 1.5, 3):
+        with pytest.raises(ValueError):
+            validate_schema_instance({'destination':'desk_1', 'steps':bad}, narrowed)
+    atomic.inputs[-1].semantic_type = 'integer'
+    widened = copy.deepcopy(tool.signature)
+    widened['properties']['steps']['type'] = 'number'
+    with pytest.raises(ValueError, match='Atomic input type'):
+        tool_input_schema(atomic.inputs, widened)
+
+
 @pytest.mark.parametrize('kind,value', [('count',3),('count',100000),('count',-1),('count',True),
     ('count',1.5),('jobs',[{'to':'cabinet_1'}]*3),('jobs',[{'missing':'x'}])])
 def test_invalid_inputs_rejected_before_any_environment_action(kind,value):

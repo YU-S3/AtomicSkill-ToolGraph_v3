@@ -19,8 +19,9 @@ TOOL_VALUE_REFERENCE_HELP = (
     'the input_schema must declare an integer with minimum>=0 and finite maximum '
     '<=max_iterations. Array input collections require maxItems<=max_iterations. '
     'Counts and collections are rejected above their bounds, never clamped. '
-    'Declare input_schema with exactly the original input roles/types/required '
-    'set; only narrow validation, never change the Atomic boundary. '
+    'Declare input_schema with exactly the original input roles/required set; '
+    'preserve types except numeric number may narrow to integer (never the reverse). '
+    'Only narrow validation, never widen the Atomic boundary. '
     'Worst-case ACTION bound is sum(sequence), max(IF branches), and '
     'max_iterations*body_bound(FOR_EACH), and must fit max_actions.')
 
@@ -95,7 +96,14 @@ def tool_input_schema(parameters, declared=None):
     if set(declared.get('properties',{})) != set(base['properties']) or set(declared.get('required',[])) != set(base['required']):
         raise ValueError('tool_ir_input_schema_invalid: Atomic input roles/required set must not change')
     for role, shape in base['properties'].items():
-        if not isinstance(declared['properties'][role],Mapping) or declared['properties'][role].get('type') != shape['type']:
+        physical = declared['properties'][role]
+        if not isinstance(physical, Mapping):
+            raise ValueError('tool_ir_input_schema_invalid: Atomic input type must not change')
+        # Canonical semantic numeric roles use ``number``. JSON Schema integer
+        # is its subset: a bounded-count Tool may narrow it, never widen an
+        # integer contract to arbitrary numbers or coerce values at invocation.
+        types = (shape['type'], physical.get('type'))
+        if types[0] != types[1] and types != ('number', 'integer'):
             raise ValueError('tool_ir_input_schema_invalid: Atomic input type must not change')
     return copy.deepcopy(dict(declared))
 

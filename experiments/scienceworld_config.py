@@ -7,7 +7,7 @@ from atomic_skillgraph.system import load_config
 
 ROOT = Path(__file__).resolve().parents[1]
 
-def make_config(root, *, seed=42, phase='train', repetition=1, frozen=None, diagnostic=False):
+def make_config(root, *, seed=42, phase='train', repetition=1, frozen=None, diagnostic=False, authored_reference=False):
     if seed not in (42, 43, 44) or phase not in ('train', 'dev', 'test'):
         raise ValueError('Unsupported seed/phase')
     root = Path(root).expanduser().resolve()
@@ -20,6 +20,8 @@ def make_config(root, *, seed=42, phase='train', repetition=1, frozen=None, diag
         {'train': 'train_120.json', 'dev': 'dev_10.json', 'test': 'test_90.json'}[phase])}
     if phase != 'train' and frozen is None:
         raise ValueError('Readonly evaluation requires an explicit frozen bank')
+    if authored_reference and (phase=='train' or diagnostic):
+        raise ValueError('Authored reference is an isolated readonly evaluation, never learned Train')
     config['data_dir'] = str(output / 'data_v3' if phase == 'train' else Path(frozen).resolve())
     config['trace_data_dir'] = str(output)
     config['experiment'] = {'name': f'scienceworld_seed{seed}_{phase}_repeat{repetition}', 'benchmark':'scienceworld',
@@ -27,9 +29,10 @@ def make_config(root, *, seed=42, phase='train', repetition=1, frozen=None, diag
         'freeze_skills': phase != 'train', 'seed': seed, 'output_dir': str(output),
         'task_manifest_path': str(output / 'task_manifest.json'), 'max_task_attempts': 3,
         'initialize_v3_bank': 'empty' if phase == 'train' else 'frozen',
-        'experiment_kind': 'diagnostic' if diagnostic else 'formal'}
+        'experiment_kind': 'authored_reference' if authored_reference else ('diagnostic' if diagnostic else 'formal')}
     if phase != 'train':
         config['cold_start']['enabled'] = False
+        config['bank_release'] = {'source_seed': seed, 'compiler': 'authored_reference' if authored_reference else 'train_only'}
     config['lifecycle']['candidate_exploration_seed'] = seed
     destination = root / 'configs' / f'seed{seed}_{phase}_{repetition}.yaml'
     if destination.exists():
@@ -48,4 +51,5 @@ if __name__ == '__main__':
     p.add_argument('--repetition', type=int, default=1)
     p.add_argument('--frozen')
     p.add_argument('--diagnostic', action='store_true')
+    p.add_argument('--authored-reference', action='store_true')
     print(make_config(**vars(p.parse_args())))

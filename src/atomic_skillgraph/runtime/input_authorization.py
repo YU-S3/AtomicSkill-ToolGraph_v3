@@ -24,7 +24,7 @@ def validate_declarations(atomic):
             and set(declaration) == {'kind','element_semantic_type','min_items','max_items','unique_items'}
             and declaration['element_semantic_type'] == 'entity'
             and type(declaration['min_items']) is int and type(declaration['max_items']) is int
-            and 1 <= declaration['min_items'] <= declaration['max_items'] <= 8
+            and 1 <= declaration['min_items'] <= declaration['max_items'] <= 16
             and declaration['unique_items'] is True):
             continue
         raise ValueError(f'invalid caller-control declaration: {role}')

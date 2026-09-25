@@ -24,6 +24,35 @@ def atomic(inputs=("a", "b"), outputs=("x", "y"), *, crossed=False):
         failure_modes=[], guideline={}, metadata={}, status=SkillStatus.CANDIDATE)
 
 
+def test_bounded_count_reference_survives_canonical_promotion():
+    from atomic_skillgraph.deployment.scienceworld_reference import bounded_wait
+    a,i,t=bounded_wait()
+    canonical=AtomicContractCanonicalizer().canonicalize(a,t,i,
+        input_role_map={'wait_steps':'count'},output_role_map={'evidence_ref':'witness'})
+    result=match_implementation(i,canonical.implementation,source_atomic=a,target_atomic=canonical.atomic,
+        source_tools={str(t.ref):t},target_tools={str(canonical.tool.ref):canonical.tool})
+    assert result.status=='exact',result
+    bad=deepcopy(canonical.tool)
+    bad.artifact['program'][0]['collection_source']['count']={'source':'constant','value':3}
+    assert match_tool(t,bad).status!='exact'
+
+
+def test_tool_field_projection_survives_role_renaming_without_renaming_keys():
+    from atomic_skillgraph.evolution.contract_canonicalizer import _rewrite_tool_ir
+    reference={'kind':'skill_input','source_role':'pair','field_path':['pair','left']}
+    rewritten=_rewrite_tool_ir(reference,{'pair':'input_000'}, {})
+    assert rewritten['source_role']=='input_000'
+    assert rewritten['field_path']==['pair','left']
+    projected_effect={'predicate':'seen','args':{'entity':reference}}
+    projected=_rewrite_tool_ir(projected_effect,{'pair':'input_000'}, {})
+    assert projected['args']['entity']['source_role']=='input_000'
+    assert projected['args']['entity']['field_path']==['pair','left']
+    local={**reference,'kind':'local_variable'}
+    assert _rewrite_tool_ir(local,{'pair':'input_000'}, {})['source_role']=='pair'
+    predicate={'predicate':'seen','args':{'entity':{'kind':'local_variable','source_role':'pair'}}}
+    assert _rewrite_tool_ir(predicate,{'pair':'input_000'}, {})['args']['entity']['source_role']=='pair'
+
+
 def test_full_relation_renaming_and_proof_without_mutation():
     a = atomic()
     b = atomic(("z", "c"), ("q", "p"))

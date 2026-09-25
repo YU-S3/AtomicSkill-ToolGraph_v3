@@ -59,6 +59,18 @@ def author(intent, input_roles, output_roles, effects, program, *, output_source
             derivations[role] = {'kind': 'effect_witness', 'predicate': pred, 'argument_role': arg}
             sources[role] = evidence_source(pred, arg, **restrictions)
     sources.update(output_sources or {})
+    # A wildcard can prove an event happened, but cannot bind a fresh output.
+    # Name each effect-witness output explicitly in the Atomic final contract;
+    # intermediate ACTION expectations remain ordinary wildcard observations.
+    effects = list(effects)
+    for role, derivation in derivations.items():
+        if derivation['kind'] != 'effect_witness':
+            continue
+        for index, effect in enumerate(effects):
+            arg = derivation['argument_role']
+            if effect.predicate == derivation['predicate'] and effect.args.get(arg) is None:
+                effects[index] = SemanticPredicate(effect.predicate,
+                    {**effect.args, arg: binding(role)}, effect.cardinality, effect.distinct_by, effect.effect_domain)
     metadata = {'canonical_intent': intent, 'authoring_source': 'scienceworld_reference_v1',
         'historical_execution_claimed': False, 'experiment_kind': 'authored_reference',
         'tool_builder_rationale': 'Caller-controlled procedure using exact public actions and witnessed outputs.'}
@@ -279,6 +291,8 @@ def compound_assets():
         if effect_name in EVIDENCE:
             a.outputs.append(ParameterSpec('evidence_ref','evidence_ref'))
             a.validator_spec['output_derivations']['evidence_ref'] = {'kind':'effect_witness','predicate':effect_name,'argument_role':'evidence'}
+            a.effects[-1] = SemanticPredicate(final.predicate,
+                {**final.args, 'evidence': binding('evidence_ref')}, effect_domain=final.effect_domain)
         def append_action(nodes):
             rewritten = []
             for n in nodes:

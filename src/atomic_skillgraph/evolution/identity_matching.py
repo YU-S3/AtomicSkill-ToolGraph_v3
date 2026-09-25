@@ -460,6 +460,8 @@ def tool_view(tool: ToolAsset, inputs: dict[str, str] | None = None,
                 effective_kind = "local_variable" if name in scope else "tool_output"
             result["source_role"] = ref(effective_kind, name, scope)
         source = value.get("source")
+        if source == "bounded_count" and "count" in value:
+            result["count"] = rewrite(value["count"], scope)
         if source in {"tool_input", "tool_output", "local_variable"} and "field" in value:
             result["field"] = ref(source, value["field"], scope)
         if "predicate" in value and isinstance(value.get("args"), dict):

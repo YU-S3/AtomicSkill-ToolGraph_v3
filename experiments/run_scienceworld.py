@@ -23,8 +23,14 @@ from .report import validate_formal_usage, validate_usage_event_persistence, wri
 
 ROOT = Path(__file__).resolve().parents[1]
 
-def run(config_path, *, resume=False):
+def artifact_report_fields(before, after):
+    """Use the common immutable-Trace report overlay protocol verbatim."""
+    return {'artifact_growth': artifact_growth_audit(before, after),
+            'artifact_lifecycle': after}
+
+def run(config_path, *, resume=False, stop_file=None, stop_after_tasks=None):
     started = time.monotonic()
+    returned = 0
     config_path = Path(config_path).resolve()
     config = load_config(config_path)
     validate_deepseek_formal_llm(config)
@@ -73,8 +79,13 @@ def run(config_path, *, resume=False):
                 frozen_manifest = Path(config['data_dir']) / 'freeze_manifest.json'
                 if not frozen_manifest.is_file():
                     raise ValueError('Readonly evaluation requires an authenticated frozen snapshot')
-                if json.loads(frozen_manifest.read_text())['knowledge_digest'] != before:
+                frozen_metadata=json.loads(frozen_manifest.read_text())
+                if (frozen_metadata.get('experiment_kind')=='authored_reference') != (experiment.get('experiment_kind')=='authored_reference'):
+                    raise ValueError('Authored reference and learned evaluation identities must not be mixed')
+                if frozen_metadata['knowledge_digest'] != before:
                     raise ValueError('Frozen manifest digest does not match actual bank')
+                from atomic_skillgraph.deployment.preferences import verify_preferences
+                verify_preferences(system.skills)
             initial = store.load(run_id).knowledge_digest if resume else before
             items = [TaskManifest(i, row['task_id'], row['task_signature'], initial,
                 'scienceworld', phase, json.dumps(row)) for i, row in enumerate(entries)]
@@ -92,7 +103,7 @@ def run(config_path, *, resume=False):
                         'benchmark':'scienceworld', 'adapter':'scienceworld_v1',
                         'reference_manifest_digest': protocol.manifest['digest'],
                         'run_started_at': datetime.now(timezone.utc).isoformat(),
-                        'experiment_kind': 'diagnostic' if diagnostic else 'formal',
+                        'experiment_kind': experiment.get('experiment_kind','formal'),
                         'initial_artifact_snapshot': initial_artifacts,
                         'initial_artifact_snapshot_digest': initial_artifacts['snapshot_digest'],
                         'final_batch_maintenance_milestone': 'scienceworld_train_final_batch'})
@@ -101,6 +112,12 @@ def run(config_path, *, resume=False):
             store.mark_run_state(run_id, RunState.RUNNING)
             by_id = {e['task_id']: e for e in entries}
             for item in store.tasks_to_run(manifest):
+                if ((stop_file and Path(stop_file).exists()) or
+                    (stop_after_tasks is not None and returned >= stop_after_tasks)):
+                    store.mark_run_state(run_id, RunState.PENDING)
+                    atomic_write_json(output / 'progress.json', {'state':'paused_at_task_boundary',
+                        'next_task_id':item.task_id,'total':len(items)})
+                    return 75
                 atomic_write_json(output / 'progress.json', {'state': 'running', 'task_id': item.task_id,
                     'ordinal': item.ordinal, 'total': len(items), 'updated_at': datetime.now(timezone.utc).isoformat()})
                 print(json.dumps({'starting_task': item.task_id, 'ordinal': item.ordinal + 1, 'total': len(items)}), flush=True)
@@ -120,13 +137,13 @@ def run(config_path, *, resume=False):
                     result = {**protocol.result(trace), 'knowledge_digest_before': before,
                         'knowledge_digest_after': system.knowledge_digest(), 'attempt_capture': capture}
                     artifacts_after = artifact_audit_snapshot(system.database)
-                    result['artifact_growth'] = artifact_growth_audit(artifacts_before, artifacts_after)
-                    result['artifact_lifecycle_after'] = artifacts_after
+                    result.update(artifact_report_fields(artifacts_before, artifacts_after))
                     if not online and result['knowledge_digest_after'] != before:
                         raise RuntimeError('Frozen evaluation mutated its source bank')
                     if trace.infrastructure_failure:
                         raise RuntimeError(f'Infrastructure failure: {trace.trace_id}')
                     store.mark_task_completed(run_id, item.task_id, trace_id=trace.trace_id, result=result)
+                    returned += 1
                     if checkpoint:
                         checkpoint.clear()
                     print(json.dumps({'completed_task': item.task_id, **protocol.result(trace)}), flush=True)
@@ -169,5 +186,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True)
     parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--stop-file', help='Stop before the next task when this file exists; resume after removing it')
+    parser.add_argument('--stop-after-tasks', type=int, help='Task-boundary acceptance control, does not change dataset identity')
     args = parser.parse_args()
-    raise SystemExit(run(args.config, resume=args.resume))
+    raise SystemExit(run(args.config, resume=args.resume, stop_file=args.stop_file, stop_after_tasks=args.stop_after_tasks))

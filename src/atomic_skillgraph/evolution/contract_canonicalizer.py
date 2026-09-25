@@ -164,7 +164,14 @@ def _rewrite_tool_ir(value: Any, inputs: Mapping[str, str], outputs: Mapping[str
             rewritten = _rewrite_expression(expression, outputs)
         else:
             rewritten = expression
-        return to_primitive(rewritten) if isinstance(value, dict) else rewritten
+        if isinstance(value, dict):
+            result = to_primitive(rewritten)
+            if 'field_path' in value:
+                # Tool-local structured projection is not a BindingExpression
+                # field. Preserve its literal object keys across alpha-renaming.
+                result['field_path'] = copy.deepcopy(value['field_path'])
+            return result
+        return rewritten
     if isinstance(value, list):
         return [_rewrite_tool_ir(item, inputs, outputs) for item in value]
     if not isinstance(value, dict):
@@ -174,10 +181,16 @@ def _rewrite_tool_ir(value: Any, inputs: Mapping[str, str], outputs: Mapping[str
         mapping = inputs if value["source"] == "tool_input" else outputs
         result["field"] = mapping.get(value["field"], value["field"])
     if "predicate" in value and isinstance(value.get("args"), dict):
-        result["args"] = {key: (
-            "$" + roles.get(item[1:], item[1:]) if isinstance(item, str) and item.startswith("$")
-            else _rewrite_tool_ir(item, inputs, outputs)
-        ) for key, item in value["args"].items()}
+        # Effect arguments share the input/output namespace: fresh-output
+        # references use skill_input syntax but must map through output roles.
+        def effect_argument(item):
+            expression = _as_expression(item)
+            if expression is not None and expression.kind is BindingExprKind.SKILL_INPUT:
+                return _rewrite_tool_ir(item, roles, outputs)
+            if isinstance(item, str) and item.startswith('$'):
+                return '$' + roles.get(item[1:], item[1:])
+            return _rewrite_tool_ir(item, inputs, outputs)
+        result["args"] = {key:effect_argument(item) for key,item in value["args"].items()}
     if isinstance(value.get("output_sources"), dict):
         result["output_sources"] = {outputs.get(key, key): item for key, item in result["output_sources"].items()}
     return result

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from atomic_skillgraph.core.serialization import atomic_write_json, to_primitive
 from atomic_skillgraph.deployment.scienceworld_reference import reference_atomics
+from atomic_skillgraph.deployment.scienceworld_workflows import reference_workflows
 from atomic_skillgraph.harness.scienceworld import ScienceWorldAdapter
 from atomic_skillgraph.tooling.validator import ToolStaticValidator
 
@@ -31,11 +32,14 @@ def export(output):
             atomic_write_json(output/'bank'/kind/f'A{number:02d}.json',to_primitive(asset))
     atomic_write_json(output/'audit'/'reference_inventory.json',inventory)
     atomic_write_json(output/'audit'/'static_validation.json',validation)
+    graphs=reference_workflows()
+    for graph in graphs:
+        atomic_write_json(output/'bank'/'composite'/(graph.metadata['inventory_id']+'.json'),to_primitive(graph))
     atomic_write_json(output/'audit'/'release_checks.json',{
         'go':False,'experiment_kind':'authored_reference','deployable_frozen_bank':False,
-        'atomic_implementation_tool_triples':len(assets),'composites':0,
-        'blockers':['G01-G18 official task-contract/publication boundary awaits clarification',
-                    'Independent real executions and SW-WF01 qualification not complete'],
+        'atomic_implementation_tool_triples':len(assets),'composites':len(graphs),
+        'blockers':['Independent real executions and partial workflow qualification required for reference publication'],
+        'blocks_formal_learned_campaign':False,
         'limitations':['A20 count=0 supplies no new time.progressed witness and must not fabricate one'],
         'learned_train_asset_source':False})
     return inventory
