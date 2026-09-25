@@ -2,7 +2,7 @@
 
 所有命令在 **WSL Ubuntu** 执行。输出必须放在 Linux home，不放 `/mnt/d`。
 复用本机已配置好的 `/home/yangchengyu/asg_scienceworld_venv`，不需要重装环境。
-以下命令只供用户启动；交付验证没有启动正式 Train120/Test90。
+以下命令用于新实验；2026-09-25 已按用户要求启动三组正式实验，正在运行时不要重复执行新建 root 的命令。
 
 ## 1. Learned Ours：三个 seed 并行
 
@@ -92,17 +92,21 @@ echo "PID=$!  ROOT=$SW_REFERENCE"
 ## 3. Baseline 五条线路
 
 继续使用本机 baseline 代码目录。B0/B1 无学习阶段；B3/B4/B5 保留各自原算法的训练/选择/冻结流程。
-所有方法 seed42 Test 三轮、seed43/44 各一轮。最多并发三个 method/seed lane，不是同时开十五个 JVM。
+所有方法 seed42 Test 三轮、seed43/44 各一轮。支持同时调度十五个 method/seed lane，内部独立 episode 并发为 2。
+Baseline 共享最多 12 个在途 API 请求、18 个环境槽。Ours 和手工 Frozen 各三个 lane 独立运行，另预留六路资源，不受 baseline 的锁控制。
+SkillOpt 并行 rollout/analyst，GEPA 并行固定 candidate 的评测；选择、更新顺序不变。EmbodiSkill 有状态 Train/revision 保持串行，只并行只读 Dev/Test。
 
 ```bash
 cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3_baseline
-set -a; source .env; set +a
+set -a; source /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env; set +a
 export PYTHONPATH="$PWD/src:$PWD:$PWD/.external/skillopt:$PWD/.external/gepa/src" PYTHONUNBUFFERED=1
 SW_BASELINES="$HOME/sw_baselines_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$SW_BASELINES"
 nohup /home/yangchengyu/asg_scienceworld_venv/bin/python \
   -m experiments.baselines.scienceworld.campaign \
-  --root "$SW_BASELINES" --seeds 42 43 44 --workers 3 \
+  --root "$SW_BASELINES" --seeds 42 43 44 --workers 15 \
+  --env-file /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env \
+  --episode-workers 2 --provider-slots 12 --environment-slots 18 \
   > "$SW_BASELINES/supervisor.log" 2>&1 &
 echo "PID=$!  ROOT=$SW_BASELINES"
 ```
@@ -110,5 +114,6 @@ echo "PID=$!  ROOT=$SW_BASELINES"
 每条线路日志为 `$SW_BASELINES/b3_skillopt_seed42.log` 等；完整结果在对应 method/seed 目录。
 续跑用同一路径加 `--resume`，不能换 root。只选部分线路可加 `--methods b3_skillopt b5_gepa`。
 
-建议三个实验组分别启动，不要一次同时打开三组的九个 lane；三组之间互不依赖。
-如机器资源或 API 并发受限，把 `--workers 3` 改为 `--workers 1`，实验定义不变。
+三组可同时运行，输出、Bank 与随机种子独立。Baseline 从 Ours 的 `.env` 读取同一密钥，不需要另建 baseline `.env`。
+上述并发配置已在本机通过 18 个同时加载的真实 JVM 和 12 路 API 探测，但不保证长时间服务无波动。
+续跑必须保持同一 root 和原并发参数；降低资源上限应在新实验启动前设置，不要在运行中修改 gate 身份。
