@@ -60,6 +60,15 @@ class CommonEpisodeRecord:
     artifact_digest_before: str = ""
     artifact_digest_after: str = ""
     method_metrics: dict[str, Any] = field(default_factory=dict)
+    benchmark: str = "alfworld"
+    macro_type: str = ""
+    variation_idx: int | None = None
+    official_score: float | None = None
+    normalized_score: float | None = None
+    perfect_success: bool | None = None
+    environment_done: bool | None = None
+    environment_moves: int | None = None
+    protocol_rejections: int | None = None
 
     infrastructure_failure: bool = False
     infrastructure_error: str = ""

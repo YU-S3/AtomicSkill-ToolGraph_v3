@@ -49,6 +49,17 @@ class HarnessActionResult:
     new_revision: int
     catalog: list[HarnessActionSpec]
     metadata: dict[str, Any] = field(default_factory=dict)
+    benchmark_score: float | None = None
+    benchmark_reward: float | None = None
+
+
+@dataclass(frozen=True)
+class HarnessRuntimeCheckpoint:
+    task: HarnessTask
+    accepted_prefix: tuple[dict[str, Any], ...]
+    revision: int
+    state_digest: str
+    public_feedback: dict[str, Any] = field(default_factory=dict)
 
 
 class AtomicEffectResolutionRequest(TypedDict, total=False):
