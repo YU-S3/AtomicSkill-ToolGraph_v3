@@ -215,6 +215,7 @@ class _Compiler:
         atomic: object,
         _proposal: object,
         _provenance: object,
+        *, harness_profile: str | None = None,
     ) -> SimpleNamespace:
         return SimpleNamespace(
             atomic=atomic,

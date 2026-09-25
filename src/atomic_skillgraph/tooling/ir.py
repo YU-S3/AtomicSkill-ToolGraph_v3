@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from .proposal import ToolProgramOp
+from .value_reference import resolve_tool_value_reference, bounded_count_reference
 
 
 CONDITION_OPERATORS = frozenset({
@@ -56,6 +57,7 @@ class ToolExecutionState:
     collection_observations: list[dict[str, Any]] = field(default_factory=list)
     condition_observations: list[dict[str, Any]] = field(default_factory=list)
     iteration_observations: list[dict[str, Any]] = field(default_factory=list)
+    value_reference_observations: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:
@@ -401,7 +403,13 @@ def resolve_collection(
 ) -> list[Any]:
     source = _as_mapping(collection_source)
     kind = str(source.get("source", "")).casefold()
-    if kind in {"tool_input", "local_variable"}:
+    if kind == 'bounded_count':
+        ref = bounded_count_reference(source)
+        count = resolve_tool_value_reference(ref, state)
+        if type(count) is not int or count < 0 or count > state.max_actions:
+            raise ValueError('tool_ir_bounded_count_invalid: count outside finite Tool bound')
+        values = list(range(count))
+    elif kind in {"tool_input", "local_variable"}:
         value = (
             state.bindings.get(str(source.get("field", "")))
             if kind == "tool_input"
@@ -531,10 +539,10 @@ def resolve_return_sources(
                 evidence_refs.append(f"{source}:{field_name}")
             continue
         if source == "tool_input":
-            outputs[role] = state.bindings.get(field_name)
+            outputs[role] = resolve_tool_value_reference(spec, state)
             evidence_refs.append(f"tool_input:{field_name}")
         elif source == "local_variable":
-            outputs[role] = state.local.get(field_name)
+            outputs[role] = resolve_tool_value_reference(spec, state)
             evidence_refs.append(f"tool_local:{field_name}")
         elif source == "semantic_evidence":
             values = [

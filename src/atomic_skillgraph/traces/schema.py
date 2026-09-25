@@ -232,6 +232,10 @@ class TraceRecord:
     cold_start_assisted_success: bool = False
     resource_usage_complete: bool = True
     benchmark_success: bool = False
+    official_score: float | None = None
+    normalized_score: float | None = None
+    perfect_success: bool | None = None
+    environment_done: bool | None = None
     task_contract_success: bool = False
     strict_task_success: bool = False
     node_contract_success: bool = False

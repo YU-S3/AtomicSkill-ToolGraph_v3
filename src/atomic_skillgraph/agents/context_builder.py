@@ -14,6 +14,7 @@ from typing import Any, Iterable, Mapping
 
 from ..core.serialization import to_primitive
 from ..tooling.capability_boundary import CAPABILITY_BOUNDARY_RULES
+from ..tooling.value_reference import TOOL_VALUE_REFERENCE_HELP, FIELD_PATH_SCHEMA, BOUNDED_COUNT_SCHEMA
 from ..tooling.runtime_interface import public_tool_ir_condition_contract, public_tool_ir_collection_sources, OUTPUT_SEMANTIC_CONSTRAINT_RULES
 from .runtime_policy_projection import project_runtime_payload
 from .protocol import NativeToolSpec
@@ -174,7 +175,7 @@ class ContextBuilder:
             projection_audit.update(copy.deepcopy(audit))
         rendered = _render(
             (self._runtime_instruction("draft") + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES
-             if runtime_automation_interface else self._runtime_instruction("node", support_call_surface)) + lean_instruction,
+             if runtime_automation_interface else self._runtime_instruction("node", support_call_surface, native_tool_specs)) + lean_instruction,
             projected,
             sort_keys=original_presentation,
         )
@@ -238,7 +239,7 @@ class ContextBuilder:
             projection_audit.update(copy.deepcopy(audit))
         rendered = _render(
             (self._runtime_instruction("draft") + "\n\n" + OUTPUT_SEMANTIC_CONSTRAINT_RULES
-             if payload.get("runtime_automation_interface") else self._runtime_instruction("dynamic", support_call_surface)) + lean_instruction,
+             if payload.get("runtime_automation_interface") else self._runtime_instruction("dynamic", support_call_surface, native_tool_specs)) + lean_instruction,
             projected,
             sort_keys=original_presentation,
         )
@@ -258,7 +259,15 @@ class ContextBuilder:
         explanation = '\n\n' + ROWS_HELP if any(t['applied'] for t in details['transforms'].values()) else ''
         return result, explanation
 
-    def _runtime_instruction(self, scope, support_call_surface=None):
+    def _runtime_instruction(self, scope, support_call_surface=None, native_tool_specs=None):
+        environment = next((t for t in (native_tool_specs or ()) if t.name == 'environment_action'), None)
+        if environment is not None and 'oneOf' in environment.input_schema:
+            from .runtime_prompt_texts import SEARCH_POLICY, DYNAMIC_ONLY
+            prefix = (DYNAMIC_ONLY if scope == 'dynamic' else
+                'Work on the current Atomic. Use validate_current_atomic for completion; '
+                'learned implementations receive only their declared inputs. Preparation does not complete the Atomic.')
+            return self._support_instruction(prefix + '\n\n' + environment.description + '\n\n' + SEARCH_POLICY,
+                                             support_call_surface)
         if getattr(self, 'presentation_profile', 'current') == 'lean' and scope in {'node','dynamic'}:
             from .lean_runtime_prompt_texts import NODE, DYNAMIC
             from ..runtime.search_history import HISTORY_HELP
@@ -344,6 +353,9 @@ class ContextBuilder:
                 "opcodes": ["ACTION", "IF", "FOR_EACH", "STOP_WHEN", "RETURN"],
                 "condition_contract": public_tool_ir_condition_contract(),
                 "collection_sources": public_tool_ir_collection_sources(),
+                "value_reference_contract": TOOL_VALUE_REFERENCE_HELP,
+                "field_path_schema": FIELD_PATH_SCHEMA,
+                "bounded_count_reference_schema": BOUNDED_COUNT_SCHEMA,
                 "evidence_selector_contract": {
                     "source": "semantic_evidence",
                     "where": {
@@ -645,6 +657,10 @@ def _reject_forbidden_keys(value: Any, *, path: str = "$") -> None:
 
 
 def _compact_catalog(values: Iterable[Any]) -> dict[str, Any]:
+    values = list(values)
+    if values and all(getattr(v, 'metadata', {}).get('policy_surface') == 'exact_tuple' for v in values):
+        from ..harness.scienceworld_actions import compact
+        return {'revision': values[0].revision, 'valid_actions_compact': compact(values)}
     catalog: list[dict[str, Any]] = []
     seen: set[str] = set()
     revision: Any = None

@@ -1073,7 +1073,7 @@ class AlfWorldAdapter:
         self.max_steps = max_steps
         self.task_type = task_type
         from .public_discovery import VERSION
-        if public_discovery_version not in {None, VERSION}:
+        if public_discovery_version not in {None, VERSION, 'alfworld.public-discovery.v1'}:
             raise ValueError('unsupported harness.public_discovery_version')
         self.public_discovery_version = public_discovery_version
         self._public_discovery_frame = None
@@ -1494,7 +1494,8 @@ class AlfWorldAdapter:
         self._public_discovery_accepted = bool(accepted)
         self._public_discovery_frame = project_discovery(observation=self._observation,
             action_signature=signature, accepted=accepted, revision=self._revision,
-            catalog=self.action_catalog(), episode_id=self._current_task.task_id)
+            catalog=self.action_catalog(), episode_id=self._current_task.task_id,
+            version=self.public_discovery_version)
         self._validator.set_public_discovery(self._public_discovery_frame)
 
     def public_discovery_frame(self):

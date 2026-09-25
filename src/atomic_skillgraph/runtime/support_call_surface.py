@@ -15,7 +15,7 @@ from ..core.serialization import to_primitive
 from .negative_memory import state_signature
 from .support_interface import public_arguments_schema
 
-VERSION = 'r103.support-call-options.v1'
+VERSION = 'r103.support-call-options.v2'
 NODE_HELP = ('Select a support_call_id and supply that option\'s exact arguments. '
     'Its complete parent transfer is fixed; do not submit a producer reference or output_mapping. '
     'Choose search scopes and other declared controls explicitly. The helper returns control to you; '
@@ -136,11 +136,19 @@ def build_surface(candidates, *, skills, routes, consumer, occurrence, ctx, sess
                 'atomic_ref': candidate.atomic_ref, 'input_schema': candidate.input_schema,
                 'output_mapping': preview['output_mapping'],
                 'predicate_input_mapping': preview['input_mapping'],
-                'mapping_evidence': preview.get('mapping_evidence', [])}
+                'route_identity': str(compiled[0].implementation.ref),
+                'anchor_inputs': preview.get('anchor_inputs', [])}
             option_id = 'sc_' + content_hash(identity)[:32]
-            if any(o.support_call_id == option_id for o in options):
+            existing = next((i for i, o in enumerate(options) if o.support_call_id == option_id), None)
+            proof = preview.get('mapping_evidence', [])
+            if existing is not None:
+                details = json.loads(options[existing]._json)
+                if proof not in details['proof_alternatives']:
+                    details['proof_alternatives'].append(proof)
+                options[existing] = SupportCallOption(option_id, canonical_json(to_primitive(details)))
                 continue
             details = {**identity, 'summary': producer.summary,
+                'proof_alternatives': [proof],
                 'program_available': True, 'execution_readiness': 'validate_after_arguments',
                 'anchor_inputs': preview.get('anchor_inputs', []),
                 'input_requirements': {p.name: {'required': p.required, 'semantic_type': p.semantic_type,

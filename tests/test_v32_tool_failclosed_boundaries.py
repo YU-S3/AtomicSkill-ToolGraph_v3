@@ -439,7 +439,7 @@ def test_runtime_automation_admission_requires_executed_path_effects(
             return proposal
 
     class Compiler:
-        def compile_proposal(self, _occ, atomic, _proposal, _provenance):
+        def compile_proposal(self, _occ, atomic, _proposal, _provenance, *, harness_profile=None):
             return SimpleNamespace(
                 atomic=atomic,
                 tool=SimpleNamespace(ref="tool://draft@1.0.0", status="draft", signature={}, interface={}, artifact_kind="fixture", artifact={}, safety={}),

@@ -15,6 +15,7 @@ from typing import Any
 from ..core.errors import AgentProtocolError, FailureLayer
 from ..tooling.capability_boundary import OUTPUT_IDENTITY_RULE, ENTRY_BOUNDARY_RULE
 from ..tooling.ir import CONDITION_OPERATORS, CONDITION_SOURCES
+from ..tooling.value_reference import FIELD_PATH_SCHEMA, BOUNDED_COUNT_SCHEMA, TOOL_VALUE_REFERENCE_HELP
 from ..tooling.runtime_interface import RUNTIME_INPUT_BINDING_KINDS, OUTPUT_SEMANTIC_CONSTRAINT_RULES
 from .protocol import (
     AgentSession,
@@ -504,6 +505,11 @@ class StructuredSubmissionClient:
 TOOL_IR_COLLECTION_SOURCE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["source"],
+    "allOf": [{"anyOf": [
+        {"properties": {"source": {"not": {"const": "bounded_count"}}}},
+        {"required": ["count"], "additionalProperties": False,
+         "properties": {"source": {"const":"bounded_count"}, "count": BOUNDED_COUNT_SCHEMA}}
+    ]}],
     "anyOf": [
         {"not": {"required": ["refresh_each_iteration"]}},
         {"properties": {"source": {"const": "action_catalog"}}},
@@ -515,10 +521,11 @@ TOOL_IR_COLLECTION_SOURCE_SCHEMA: dict[str, Any] = {
             "enum": [
                 "tool_input", "local_variable", "action_catalog",
                 "semantic_evidence", "binding_evidence",
-                "local_deterministic",
+                "local_deterministic", "bounded_count",
             ],
         },
         "field": NONEMPTY_STRING_SCHEMA,
+        "count": BOUNDED_COUNT_SCHEMA,
         "values": {"type": "array", "minItems": 1},
         "where": {
             "type": "object",
@@ -685,11 +692,18 @@ TOOL_ACTION_BINDING_SCHEMA: dict[str, Any] = {
         # these do not grant graph binding semantics to Tool operands.
         "source_step": {"type": "string"},
         "transform_id": {"type": "string"},
+        "field_path": FIELD_PATH_SCHEMA,
     },
+    "allOf": [{"anyOf": [
+        {"not": {"required": ["field_path"]}},
+        {"properties": {"source_step": {"const": ""},
+                        "transform_id": {"const": ""}, "constant": {"type": "null"}}}
+    ]}],
     "oneOf": [
         {"properties": {"kind": {"enum": ["skill_input", "local_variable"]},
                         "source_role": NONEMPTY_STRING_SCHEMA}, "required": ["source_role"]},
-        {"properties": {"kind": {"const": "constant"}}, "required": ["constant"]},
+        {"properties": {"kind": {"const": "constant"}}, "required": ["constant"],
+         "not": {"required": ["field_path"]}},
     ],
 }
 
@@ -752,6 +766,7 @@ TOOL_PROPOSAL_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
     "properties": {
+        "input_schema": {"type":["object","null"], "description":TOOL_VALUE_REFERENCE_HELP},
         "proposal_version": {"type": "string", "enum": ["2"]},
         "entry_contract": {
             "description": ENTRY_BOUNDARY_RULE,

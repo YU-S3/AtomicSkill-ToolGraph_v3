@@ -108,6 +108,9 @@ class NodeExecutor:
     def _environment_tool(
         self, ctx: Any, *, node_level: bool = True, atomic: Any = None,
     ) -> NativeToolSpec:
+        surface = getattr(getattr(ctx, 'harness', None), 'policy_surface', None)
+        if callable(surface):
+            return surface().tool
         properties: dict[str, Any] = {
             "action_id": {
                 "type": "string",
@@ -184,6 +187,9 @@ class NodeExecutor:
     def _policy_catalog(catalog: Any, revision: Any) -> dict[str, Any]:
         """Return the frozen compact policy representation of one catalog."""
 
+        if catalog and all(item.metadata.get('policy_surface') == 'exact_tuple' for item in catalog):
+            from ..harness.scienceworld_actions import compact
+            return {'revision': revision, 'valid_actions_compact': compact(catalog)}
         return {
             "revision": revision,
             "actions": [
@@ -630,18 +636,23 @@ class NodeExecutor:
                 and (call.arguments.get("candidate_bindings") or call.arguments.get("candidate_outputs"))):
             return {"accepted": False, "failure_code": "explore_cannot_submit_completion",
                     "message": "Completion candidates require attempt_current_atomic or validate_current_atomic"}, None
-        action_id = str(call.arguments["action_id"])
-        spec = next(
-            (item for item in ctx.action_catalog if item.action_id == action_id),
-            None,
-        )
+        resolve = getattr(ctx.harness, 'resolve_policy_action', None)
+        if callable(resolve):
+            try:
+                spec = resolve(call.arguments)
+            except ValueError as exc:
+                return {'accepted': False, 'failure_code': 'illegal_action_tuple', 'message': str(exc)}, None
+            action_id = spec.action_id
+        else:
+            action_id = str(call.arguments["action_id"])
+            spec = next((item for item in ctx.action_catalog if item.action_id == action_id), None)
         if spec is None or int(spec.revision) != int(ctx.world_revision):
             raise AtomicSkillGraphError(
                 "runtime_agent_schema_error",
                 f"stale or unknown environment action_id: {action_id}",
                 layer=FailureLayer.RUNTIME_AGENT,
             )
-        intent = str(call.arguments.get("intent", ""))
+        intent = 'explore' if callable(resolve) else str(call.arguments.get("intent", ""))
         if occurrence is not None and intent not in {
             "explore", "attempt_current_atomic",
         }:

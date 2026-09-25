@@ -68,6 +68,11 @@ def apply_terminal_outcome(
     """
 
     trace.benchmark_success = bool(getattr(validator_channel, "won", False))
+    if hasattr(validator_channel, 'score'):
+        trace.official_score = float(validator_channel.score)
+        trace.normalized_score = trace.official_score / 100.0
+        trace.perfect_success = trace.official_score == 100.0
+        trace.environment_done = bool(validator_channel.done)
     trace.task_contract_success = bool(
         dict(getattr(terminal_result, "checks", {}) or {}).get(
             "task_contract", False,

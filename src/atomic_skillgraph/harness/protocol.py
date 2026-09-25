@@ -20,6 +20,7 @@ class HarnessTask:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+
 @dataclass(frozen=True)
 class HarnessActionSpec:
     action_id: str
@@ -49,6 +50,8 @@ class HarnessActionResult:
     new_revision: int
     catalog: list[HarnessActionSpec]
     metadata: dict[str, Any] = field(default_factory=dict)
+    benchmark_score: float | None = None
+    benchmark_reward: float | None = None
 
 
 @dataclass(frozen=True)

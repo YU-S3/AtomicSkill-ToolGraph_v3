@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import inspect
+import importlib.metadata
 import json
 import os
 import shutil
@@ -542,12 +543,8 @@ class AtomicSkillGraphSystem:
         harness_config = dict(self.config.get("harness") or {})
         experiment = experiment_config
         self._owns_harness = harness is None
-        self.harness = harness or AlfWorldAdapter(
-            split=str(experiment.get("split", harness_config.get("split", "train"))),
-            max_steps=int(harness_config.get("max_steps", 100)),
-            alfworld_data=harness_config.get("alfworld_data") or None,
-            public_discovery_version=harness_config.get('public_discovery_version'),
-        )
+        from .harness.registry import create_harness
+        self.harness = harness or create_harness(self.config)
         self._provider_override = provider
         self._provider_cache: dict[str, Any] = {}
         self._observed_sessions: list[_ObservedSession] = []
@@ -1341,9 +1338,12 @@ class AtomicSkillGraphSystem:
                 self.invocation_compiler.independent_task_key = execution_identity(source, trace_builder.trace.trace_id, "route_key", 0)["source_independent_task_key"]
             if self.runtime_support_store is not None:
                 self._committed_execution_sources = self.runtime_support_store.committed()
-        trace_builder.trace.metadata.setdefault("environment", {}).update({
-            "alfworld_version": installed_alfworld_version(),
-        })
+        if getattr(self.harness, 'profile_name', '') == 'scienceworld_v1':
+            from .harness.scienceworld_resource import resource_contract
+            environment_identity = dict(resource_contract())
+        else:
+            environment_identity = {"alfworld_version": installed_alfworld_version()}
+        trace_builder.trace.metadata.setdefault("environment", {}).update(environment_identity)
         provider_offsets = self._provider_request_offsets()
         if self.r103:
             from .traces.compiler_observer import initialize, admission_sources
@@ -3296,6 +3296,7 @@ class AtomicSkillGraphSystem:
                 proposal,
                 provenance,
                 source_task=source_task or occurrence.source_task,
+                harness_profile=self.harness.profile_name,
             )
             record["outcome"] = "created"
             return item, self._r4_builder_return_metrics(record)
@@ -5945,7 +5946,10 @@ class AtomicSkillGraphSystem:
             provider_adapter_interface = False
         checks: dict[str, Any] = {
             "schema_version": int(self.config.get("schema_version", 0)) == 3,
-            "alfworld_version": installed_alfworld_version() == "0.4.2",
+            ("scienceworld_version" if getattr(self.harness, 'profile_name', '') == 'scienceworld_v1' else "alfworld_version"): (
+                importlib.metadata.version('scienceworld') == '1.2.3'
+                if getattr(self.harness, 'profile_name', '') == 'scienceworld_v1'
+                else installed_alfworld_version() == "0.4.2"),
             "method_patch": str(self.config.get("method_patch", "")) in {"3.1", "3.2"},
             "state_patch_level": (
                 database_schema

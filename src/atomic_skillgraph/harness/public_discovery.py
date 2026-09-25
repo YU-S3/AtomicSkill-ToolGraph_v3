@@ -10,8 +10,8 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-VERSION = 'alfworld.public-discovery.v1'
-PARSER_VERSION = 'flat-listing.v1'
+VERSION = 'alfworld.public-discovery.v2'
+PARSER_VERSION = 'flat-listing.v2'
 _ENTITY = r'[A-Za-z][A-Za-z0-9_-]*(?: [A-Za-z][A-Za-z0-9_-]*)* [0-9]+'
 _LISTING = re.compile(r'(?:^|(?<=\.)\s+)(?:On the (?P<on>' + _ENTITY + r'), you see '
     r'|The (?P<inside>' + _ENTITY + r') is open\. In it, you see )(?P<items>[^.]+)\.')
@@ -47,6 +47,8 @@ class PublicDiscoveryFrame:
     records: tuple[DiscoveryRecord, ...]
     inspected_scopes: tuple[InspectedScope, ...]
     conflicts: tuple[tuple[str, tuple[str, ...]], ...]
+    resolution_audit: tuple[dict, ...] = ()
+    unresolved_relations: tuple[dict, ...] = ()
 
     def to_dict(self):
         return asdict(self)
@@ -61,7 +63,9 @@ class PublicDiscoveryFrame:
             'public_evidence_ref': r.source_ref, 'evidence_status': 'observed'} for r in unique.values()]
 
 
-def project_discovery(*, observation, action_signature, accepted, revision, catalog, episode_id):
+def project_discovery(*, observation, action_signature, accepted, revision, catalog, episode_id, version=VERSION):
+    if version not in {VERSION, 'alfworld.public-discovery.v1'}:
+        raise ValueError('Unsupported public discovery projection')
     from .alfworld import normalize_entity
     observation_hash = hashlib.sha256(observation.encode()).hexdigest()
     episode_hash = hashlib.sha256(episode_id.encode()).hexdigest()[:16]
@@ -93,22 +97,38 @@ def project_discovery(*, observation, action_signature, accepted, revision, cata
             records.append(DiscoveryRecord(normalize_entity(entity), normalize_entity(location),
                 'public_action_catalog', f'action_catalog:{episode_hash}:{spec.action_id}:revision:{revision}',
                 'catalog_take', revision, action_id=spec.action_id))
-    # Multiple locations for one identity are ambiguity, not an invitation to
-    # pick whichever source happened to be last in the iteration.
-    locations = {}
+    locations, observed, offered = {}, {}, {}
     for row in records:
         locations.setdefault(row.entity, set()).add(row.location)
+        target = observed if row.source_kind == 'public_observation_relation' else offered
+        target.setdefault(row.entity, set()).add(row.location)
     conflicts = tuple(sorted((entity, tuple(sorted(values))) for entity, values in locations.items() if len(values) > 1))
-    ambiguous = {entity for entity, _ in conflicts}
-    records = list(dict.fromkeys(row for row in records if row.entity not in ambiguous))
+    resolved, audit, unresolved = {}, [], []
+    for entity, values in sorted(locations.items()):
+        obs, cat = observed.get(entity, set()), offered.get(entity, set())
+        chosen = (next(iter(obs)) if len(obs) == 1 and (not cat or obs <= cat)
+                  else next(iter(cat)) if not obs and len(cat) == 1 else None)
+        if version == 'alfworld.public-discovery.v1':
+            chosen = next(iter(values)) if len(values) == 1 else None
+        detail = {'entity': entity, 'observation_locations': sorted(obs),
+                  'catalog_locations': sorted(cat), 'resolved_location': chosen}
+        audit.append(detail)
+        if chosen is None:
+            unresolved.append({**detail, 'locations': sorted(values)})
+        else:
+            resolved[entity] = chosen
+    records = list(dict.fromkeys(row for row in records if resolved.get(row.entity) == row.location))
+    unresolved_scopes = {loc for item in unresolved for loc in item['locations']}
+    scopes = [InspectedScope(s.location, 'ambiguous' if version == VERSION and s.location in unresolved_scopes else s.status,
+                             s.source_ref) for s in scopes]
     signature = action_signature or {}
     # Identity-only scope is useful diagnostics, never a complete inspection.
     if signature.get('action_type') == 'GO_TO':
         location = normalize_entity(signature.get('arguments', {}).get('destination', ''))
         if location and not any(s.location == location for s in scopes):
             scopes.append(InspectedScope(location, 'identity_only' if accepted else 'inaccessible', source))
-    return PublicDiscoveryFrame(VERSION, episode_id, revision, observation_hash,
-        tuple(records), tuple(dict.fromkeys(scopes)), conflicts)
+    return PublicDiscoveryFrame(version, episode_id, revision, observation_hash,
+        tuple(records), tuple(dict.fromkeys(scopes)), conflicts, tuple(audit), tuple(unresolved))
 
 
 def resource_contract(grammar_path):

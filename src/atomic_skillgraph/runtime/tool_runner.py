@@ -23,7 +23,9 @@ from ..tooling.ir import (
     resolve_collection,
     resolve_return_sources,
     walk_program_nodes,
+    resolve_tool_value_reference,
 )
+from ..tooling.value_reference import validate_value_contract, uses_value_extensions
 
 
 class _ToolActionUnavailable(Exception):
@@ -54,6 +56,20 @@ class ToolRunner:
                 before_revision, before_revision, "runtime_agent", "benchmark_terminal", "No new Tool after terminal",
                 official_terminal_observed=True)
         attempt_id = f"tool_attempt_{uuid.uuid4().hex}"
+        if tool.artifact_kind == 'tool_ir_v1':
+            program = tool.artifact.get('program', [])
+            strict_values = tool.artifact.get('value_contract_version') == 2 or uses_value_extensions(program)
+            if strict_values:
+                from ..agents.protocol import validate_schema_instance
+                try:
+                    walk_program_nodes(program)
+                    validate_schema_instance(bindings, tool.signature)
+                    validate_value_contract(program, tool.signature, tool.artifact.get('max_actions', 0), strict=True)
+                    if tool.artifact['max_actions'] > ctx.budget.global_action_budget:
+                        raise ValueError('Tool max_actions exceeds the Runtime global action ceiling')
+                except (TypeError, ValueError) as exc:
+                    return ToolExecutionResult(str(tool.ref), False, False, False, False, 0, None, [], {},
+                        before_revision, before_revision, 'tool', 'tool_input_schema_invalid', str(exc))
         from ..tooling.entry_contract import check_tool_entry
         entry = check_tool_entry(tool, bindings, ctx.harness, ctx.evidence_store, ctx.world_revision)
         if not entry.passed:
@@ -326,6 +342,7 @@ class ToolRunner:
             "collection_observations": list(state.collection_observations),
             "condition_observations": list(state.condition_observations),
             "iteration_observations": list(state.iteration_observations),
+            "value_reference_observations": list(state.value_reference_observations),
             "stop_condition_witnesses": list(
                 state.stop_condition_witnesses
             ),
@@ -347,6 +364,12 @@ class ToolRunner:
         for role, raw in dict(node.get("argument_mapping") or {}).items():
             expression = dict(raw) if isinstance(raw, dict) else raw
             kind = str(expression.get("kind", ""))
+            if 'field_path' in expression:
+                concrete = resolve_tool_value_reference(expression, state)
+                state.value_reference_observations.append({'node_id':node.get('node_id'), 'role':role,
+                    'reference':to_primitive(expression), 'value':to_primitive(concrete)})
+                mapping[role] = BindingExpression(BindingExprKind.CONSTANT, constant=concrete)
+                continue
             if kind == "constant":
                 mapping[role] = BindingExpression(BindingExprKind.CONSTANT, constant=expression.get("constant"))
             elif kind == "local_variable":
@@ -482,6 +505,9 @@ class ToolRunner:
                 source_role = str(raw.source_role)
                 source_kind = str(raw.kind.value)
             elif isinstance(raw, dict) and "kind" in raw:
+                if 'field_path' in raw:
+                    resolved['args'][argument_role] = resolve_tool_value_reference(raw, state)
+                    continue
                 source_kind = str(raw.get("kind", "")).casefold()
                 if source_kind == "constant":
                     resolved["args"][argument_role] = raw.get("constant")
@@ -822,6 +848,11 @@ class ToolRunner:
                     )
                     return "FAIL_TOOL"
                 max_iterations = int(node.get("max_iterations", len(values)) or 0)
+                source_kind = collection_source.get('source')
+                if source_kind == 'bounded_count' or (source_kind in {'tool_input', 'local_variable'}
+                        and getattr(tool,'artifact',{}).get('value_contract_version') == 2):
+                    if len(values) > max_iterations:
+                        raise ValueError('tool_ir_collection_bound_invalid: collection exceeds static limit; truncation forbidden')
                 variable = str(node.get("iteration_variable", ""))
                 count = 0
                 missing = object()

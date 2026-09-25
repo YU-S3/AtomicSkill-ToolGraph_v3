@@ -36,6 +36,8 @@ from .ir import (
 )
 from .proposal import RuntimeAutomationAtomicDraft, ToolProposal, validate_output_semantic_constraints
 from .entry_contract import normalize_entry_contract
+from .value_reference import (bounded_count_reference, tool_input_schema,
+    validate_value_contract, uses_value_extensions)
 from .runtime_interface import (
     RuntimeAutomationInputResolution,
     public_predicate_schema,
@@ -47,7 +49,7 @@ _OPCODES = {"ACTION", "IF", "FOR_EACH", "STOP_WHEN", "RETURN"}
 _CONDITION_SOURCES = CONDITION_SOURCES
 _COLLECTION_SOURCES = {
     "tool_input", "local_variable", "action_catalog",
-    "semantic_evidence", "binding_evidence", "local_deterministic",
+    "semantic_evidence", "binding_evidence", "local_deterministic", "bounded_count",
 }
 _RETURN_SOURCES = {
     "tool_input", "local_variable", "semantic_evidence",
@@ -220,6 +222,12 @@ def _validate_selector(
         fail("tool_ir_selector_invalid", f"{node_id}: refresh_each_iteration requires action_catalog and a boolean")
     if kind not in _COLLECTION_SOURCES:
         fail("tool_ir_selector_invalid", f"{node_id}: unknown collection source {kind}")
+        return
+    if kind == 'bounded_count':
+        try:
+            bounded_count_reference(source)
+        except ValueError as exc:
+            fail('tool_ir_bounded_count_invalid', str(exc))
         return
     if kind == "local_deterministic":
         values = source.get("values")
@@ -1571,6 +1579,10 @@ class ToolStaticValidator:
             )
             walked_nodes = [node for node, _depth, _path in walked_entries]
             _validate_program_node_shapes(walked_nodes)
+            signature = tool_input_schema(atomic.inputs, proposal.input_schema)
+            strict_values = proposal.input_schema is not None or uses_value_extensions(program)
+            action_bound = validate_value_contract(program, signature, proposal.max_actions, strict=strict_values)
+            checks['tool_ir_value_contract'] = True
             all_nodes = [
                 (node, depth) for node, depth, _path in walked_entries
             ]
@@ -1585,6 +1597,7 @@ class ToolStaticValidator:
                         node, output_roles_for_return,
                     )
             paths = program_paths(program)
+            paths['worst_case_actions'] = action_bound
             checks["program_schema"] = True
             checks["program_paths_computable"] = bool(paths["path_ids"])
         except (KeyError, TypeError, ValueError, RecursionError) as exc:
@@ -2030,6 +2043,7 @@ class ToolStaticValidator:
             path_expectations=[dict(item) for item in artifact.get("path_expectations", [])],
             rationale=str(tool.metadata.get("tool_builder_rationale", "")),
             entry_contract=tool.interface.get("entry_contract"),
+            input_schema=input_schema if artifact.get('value_contract_version') == 2 or uses_value_extensions(program) else None,
         )
         return self.validate_proposal(proposal, atomic, harness)
 

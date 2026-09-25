@@ -364,7 +364,7 @@ def _install_real_trial_coordinator(
             return ValidationResult.ok("tool_static")
 
     class Compiler:
-        def compile_proposal(self, _occurrence, atomic, _proposal, _provenance):
+        def compile_proposal(self, _occurrence, atomic, _proposal, _provenance, *, harness_profile=None):
             calls["compiler"] += 1
             implementation = ImplementationAtom(
                 SkillRef("impl_r92_runtime_trial", "1.0.0"),
@@ -899,8 +899,9 @@ def test_runtime_builder_does_not_read_validator_only_semantic_snapshot(
         "tool_ir_collection_sources"
     ]
     assert [item["source"] for item in collection_sources] == [
-        "action_catalog"
+        "action_catalog", "bounded_count"
     ]
+    assert collection_sources[1]['count']['properties']['source'] == {'const':'tool_input'}
     selector = collection_sources[0]
     assert selector["entry_fields"] == [
         "action_id", "revision", "action_type", "arguments",

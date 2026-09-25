@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import hashlib
+import copy
 from dataclasses import dataclass
 from typing import Any
 
@@ -163,6 +164,16 @@ class InvocationCompiler:
                 schema.update(items={'type':'string'},minItems=authorization['min_items'],
                     maxItems=authorization['max_items'],uniqueItems=authorization['unique_items'])
             properties[parameter.name] = schema
+            for binding in implementation.tool_bindings:
+                tool = by_ref[str(binding.tool_ref)]
+                if tool.artifact.get('value_contract_version') != 2:
+                    continue
+                for target, raw in binding.parameter_mapping.items():
+                    expression = BindingExpression.from_dict(raw)
+                    if expression.kind is BindingExprKind.SKILL_INPUT and expression.source_role == parameter.name:
+                        constraint = tool.signature.get('properties', {}).get(target)
+                        if constraint is not None:
+                            schema.setdefault('allOf', []).append(copy.deepcopy(constraint))
             current = current_bindings.get(parameter.name)
             if parameter.required and (
                 current is None or current.status is not BindingStatus.GROUNDED

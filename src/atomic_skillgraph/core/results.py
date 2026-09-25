@@ -248,3 +248,7 @@ class TaskOutcome:
     learning_eligible: bool
     failure_code: str = ""
     metrics: dict[str, Any] = field(default_factory=dict)
+    official_score: float | None = None
+    normalized_score: float | None = None
+    perfect_success: bool | None = None
+    environment_done: bool | None = None

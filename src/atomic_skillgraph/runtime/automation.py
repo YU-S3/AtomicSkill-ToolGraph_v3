@@ -390,6 +390,7 @@ class RuntimeAutomationCoordinator:
                 atomic,
                 proposal,
                 provenance,
+                harness_profile=ctx.harness.profile_name,
             )
             compiled.tool.status = ToolStatus.CANDIDATE
             compiled.implementation.status = SkillStatus.CANDIDATE

@@ -70,6 +70,7 @@ class ToolProposal:
     rationale: str
     entry_contract: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    input_schema: dict[str, Any] | None = None
 
     @property
     def creates_tool(self) -> bool:
@@ -182,6 +183,7 @@ def tool_proposal_from_dict(value: Mapping[str, Any]) -> ToolProposal:
         path_expectations=[dict(item) for item in value.get("path_expectations", [])],
         rationale=str(value.get("rationale", "")),
         entry_contract=value.get("entry_contract"),
+        input_schema=value.get("input_schema"),
         metadata=dict(value.get("metadata", {})),
     )
 

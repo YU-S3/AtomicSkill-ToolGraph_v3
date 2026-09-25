@@ -289,6 +289,7 @@ class ToolCompiler:
         provenance: ToolProvenance,
         *,
         source_task: HarnessTask | Mapping[str, Any] | None = None,
+        harness_profile: str | None = None,
     ) -> CompiledKnowledge:
         """Compile an Agent-authored ToolProposal into ToolAsset/ImplementationAtom.
 
@@ -322,6 +323,10 @@ class ToolCompiler:
         if proposal.proposal_version != "2":
             raise ValueError("R10.2 requires ToolProposal version 2")
         entry = normalize_entry_contract(proposal.entry_contract, (p.name for p in atomic.inputs))
+        from ..tooling.value_reference import tool_input_schema, uses_value_extensions, validate_value_contract
+        signature = tool_input_schema(atomic.inputs, proposal.input_schema)
+        strict_values = proposal.input_schema is not None or uses_value_extensions(program)
+        validate_value_contract(program, signature, proposal.max_actions, strict=strict_values)
         output_mapping: dict[str, Any] = {}
         implementation_output_mapping: dict[str, Any] = {}
         for output in atomic.outputs:
@@ -350,11 +355,12 @@ class ToolCompiler:
         tool = ToolAsset(
             tool_ref,
             f"IR implementation of {atomic.summary}",
-            parameter_schema(atomic.inputs),
+            signature,
             {"output_schema": parameter_schema(atomic.outputs), "entry_contract": entry},
             "tool_ir_v1",
             {
                 "schema_version": 1,
+                **({'value_contract_version': 2} if strict_values else {}),
                 "max_actions": int(proposal.max_actions),
                 "program": program,
                 "final_effects": proposal.final_effects,
@@ -407,7 +413,7 @@ class ToolCompiler:
             [ToolBinding(tool.ref, "primary", tool_binding_mapping, 0)],
             [],  # Tool entry requirements stay in its authored interface.
             {"mode": "serial", "output_mapping": implementation_output_mapping},
-            {"harness_profiles": ["alfworld_v3", "fake_v3"]},
+            {"harness_profiles": [harness_profile] if harness_profile else ["alfworld_v3", "fake_v3"]},
             {},
             SkillStatus.DRAFT,
         )

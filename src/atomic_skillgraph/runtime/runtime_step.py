@@ -237,6 +237,12 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
         selected_action = next((item for item in ctx.action_catalog
             if call.name == 'environment_action' and item.action_id == call.arguments.get('action_id')
             and item.revision == ctx.world_revision), None)
+        resolver = getattr(ctx.harness, 'resolve_policy_action', None)
+        if call.name == 'environment_action' and callable(resolver):
+            try:
+                selected_action = resolver(call.arguments)
+            except ValueError:
+                pass  # Dispatcher records the exact rejection; this is audit only.
         # New Support calls must decode their request-local option before the
         # canonical real-call negative cache can be consulted.
         cached = (None if surface is not None and call.name == 'invoke_support_atomic'
@@ -274,7 +280,7 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                 origin=f"runtime_{mode}", loop_guard=guard, atomic=atomic,
                 plan_context_plan=plan_context_plan,
             )
-            if call.arguments["intent"] == "attempt_current_atomic" and payload.get("accepted"):
+            if call.arguments.get("intent") == "attempt_current_atomic" and payload.get("accepted"):
                 resolutions = []
                 outcome.result = executor._complete_from_current_effect(
                     occurrence, ctx, mode=mode,

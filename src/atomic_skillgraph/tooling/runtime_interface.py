@@ -304,7 +304,10 @@ def public_primitive_action_schema(harness: Any) -> list[dict[str, Any]]:
 def public_tool_ir_collection_sources() -> list[dict[str, Any]]:
     """Return code-owned Tool IR selector contracts exposed to ToolBuilder."""
 
-    return to_primitive(_TOOL_IR_COLLECTION_SOURCE_DEFINITIONS)
+    from .value_reference import BOUNDED_COUNT_SCHEMA, TOOL_VALUE_REFERENCE_HELP
+    return [*to_primitive(_TOOL_IR_COLLECTION_SOURCE_DEFINITIONS),
+        {'source':'bounded_count', 'count':BOUNDED_COUNT_SCHEMA,
+         'description':TOOL_VALUE_REFERENCE_HELP}]
 
 
 def public_tool_ir_condition_contract() -> dict[str, Any]:
