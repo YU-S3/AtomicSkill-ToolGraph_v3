@@ -129,6 +129,22 @@ class _TraceStore:
         return copy.deepcopy(self.payloads[trace_id])
 
 
+def test_scienceworld_replay_restores_only_authoritative_reset_identity():
+    source = _source('task-a', 'trace-a', 'object', 'apple_1').source_task
+    record = _trace_task('task-a', 'apple_1')
+    record['metadata'].update(task_name='boil', variation_idx=0, source_split='train')
+    authority = ReplaySourceAuthority(_TraceStore({'trace-a': {'task': record}}), allowed_split='train')
+    case = {'trace_id': 'trace-a', 'source_task': source}
+    resolved = authority.resolve(case, current_task=None, current_trace=None)
+    assert resolved.context['task_name'] == 'boil'
+    assert resolved.context['variation_idx'] == 0
+    assert resolved.context['source_split'] == 'train'
+    assert 'task_name' not in source['context']
+    source['context']['variation_idx'] = 9
+    with pytest.raises(ReplaySourceAuthorityError, match='variation_idx'):
+        authority.resolve(case, current_task=None, current_trace=None)
+
+
 def test_c01_exact_reuse_builds_current_canonical_case_without_mutating_old_tool(
     tmp_path,
 ) -> None:

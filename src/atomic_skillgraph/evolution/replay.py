@@ -168,6 +168,11 @@ class ReplaySourceAuthority:
             supplied = source_metadata.get(field)
             if expected not in {None, ""} and supplied not in {None, "", expected}:
                 return f"metadata.{field}"
+        for field in ("task_name", "variation_idx", "source_split"):
+            expected = record_metadata.get(field)
+            for supplied in (source_context.get(field), source_metadata.get(field)):
+                if expected not in (None, "") and supplied not in (None, "", expected):
+                    return f"context.{field}"
         return ""
 
     def _check_manifest(
@@ -360,7 +365,7 @@ class ReplaySourceAuthority:
                 ),
             )
         context = _mapping(source.get("context"))
-        for field in ("env_index", "game_file"):
+        for field in ("env_index", "game_file", "task_name", "variation_idx", "source_split"):
             if record_metadata.get(field) not in {None, ""}:
                 context[field] = record_metadata[field]
         metadata = {**_mapping(source.get("metadata")), **record_metadata}

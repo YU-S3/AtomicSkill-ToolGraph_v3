@@ -55,9 +55,16 @@ def run(config_path, *, resume=False, stop_file=None, stop_after_tasks=None):
         raise FileExistsError(f'Run already exists; use --resume: {output}')
     output.mkdir(parents=True, exist_ok=True)
     config_hash, code_hash = hash_config(config_path), hash_code(ROOT)
+    from .scienceworld_recovery import read as read_recovery
+    recovery = read_recovery(config, config_hash, code_hash) if resume else None
+    execution_code_hash = code_hash
+    if recovery:
+        config['execution_provenance'] = recovery
+        code_hash = recovery['original_code_hash']
     atomic_write_json(output / 'actual_config.json', config)
-    ensure_provider_capability(config, output_dir=output, config_hash=config_hash,
-                              code_hash=code_hash, run_if_missing=not resume)
+    ensure_provider_capability(config, output_dir=output/'recovery_provider_probe' if recovery else output,
+                              config_hash=config_hash, code_hash=execution_code_hash,
+                              run_if_missing=not resume or bool(recovery))
     ledger = AttemptTraceLedger(output / 'attempt_history', output / 'traces')
     if resume:
         ledger.recover_pending(run_id=run_id)
@@ -161,10 +168,12 @@ def run(config_path, *, resume=False, stop_file=None, stop_after_tasks=None):
                     config_digest=config_hash, code_digest=code_hash)
             traces = load_task_report_traces(system.traces, db, run_id)
             other = ledger.auxiliary_traces(manifest=manifest, excluded_trace_ids={t['trace_id'] for t in traces})
+            from .scienceworld_recovery import recovery_usage_traces
+            other += recovery_usage_traces(output, recovery)
             validate_formal_usage([*traces, *other])
             coverage = validate_usage_event_persistence(system.usage.events, [*traces, *other])
             from .scienceworld_report import write_scienceworld_reports
-            score_report = write_scienceworld_reports(traces, output, auxiliary=other)
+            score_report = write_scienceworld_reports(traces, output, auxiliary=other, recovery=recovery)
             results = [json.loads(r['result_json']) for r in db.rows(
                 'SELECT result_json FROM run_tasks WHERE run_id=? ORDER BY rowid', (run_id,))]
             summary = {'benchmark': 'scienceworld', 'phase': phase, 'seed': experiment['seed'],
@@ -174,6 +183,8 @@ def run(config_path, *, resume=False, stop_file=None, stop_after_tasks=None):
                 'knowledge_digest': system.knowledge_digest(), 'usage_coverage': coverage,
                 'benchmark_scores': {k:v for k,v in score_report.items() if k != 'per_task'},
                 'invocation_wall_seconds': time.monotonic() - started, 'manifest': manifest.to_dict()}
+            if recovery:
+                summary.update(recovery=recovery, interrupted_usage_complete=not recovery['unknown_interrupted_attempts'])
             atomic_write_json(output / 'summary.json', summary)
             store.mark_run_state(run_id, RunState.COMPLETED)
             atomic_write_json(output / 'progress.json', {'state': 'completed', 'completed': len(items), 'total': len(items)})

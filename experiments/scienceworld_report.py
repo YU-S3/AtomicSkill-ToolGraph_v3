@@ -31,8 +31,14 @@ def score_summary(traces):
     return summary
 
 
-def write_scienceworld_reports(traces, output, *, auxiliary=()):
+def write_scienceworld_reports(traces, output, *, auxiliary=(), recovery=None):
     summary = score_summary(traces)
+    if recovery:
+        summary['interrupted_usage_complete'] = not recovery['unknown_interrupted_attempts']
+        summary['usage_policy'] = recovery['usage_policy']
     atomic_write_json(output/'scienceworld_scores.json',summary)
-    write_reports(traces,output,title='ScienceWorld execution, learning and recorded usage',auxiliary_usage_traces=auxiliary)
+    title = 'ScienceWorld execution, learning and recorded usage'
+    if recovery and recovery['unknown_interrupted_attempts']:
+        title += ' (interrupted usage unknown; recorded totals only)'
+    write_reports(traces,output,title=title,auxiliary_usage_traces=auxiliary)
     return summary
