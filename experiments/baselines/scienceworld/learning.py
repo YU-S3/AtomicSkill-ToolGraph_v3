@@ -6,6 +6,16 @@ from atomic_skillgraph.core.serialization import atomic_write_json
 
 ROOT = Path(__file__).resolve().parents[3]
 
+
+def skillopt_observer_path(root):
+    """Keep each observer lifetime separate; reports recursively include all files."""
+    root = Path(root)
+    original = root / 'provider_calls.jsonl'
+    if not original.exists():
+        return original
+    from uuid import uuid4
+    return root / 'provider_sessions' / uuid4().hex / 'provider_calls.jsonl'
+
 def train_skillopt(root, train, dev, chat_factory, model, seed, *, smoke=False):
     from experiments.baselines.b3_skillopt.worker import _flat_train_cfg, _configure_model
     from experiments.baselines.common.model_config import ModelConfig
@@ -23,7 +33,7 @@ def train_skillopt(root, train, dev, chat_factory, model, seed, *, smoke=False):
         cfg['optimizer']['slow_update_samples'] = len(train)
     identity = ModelConfig.from_mapping(model)
     _configure_model(identity, sdk_max_retries=0)
-    observer = install_provider_observer(output_path=root / 'provider_calls.jsonl', method='b3_skillopt',
+    observer = install_provider_observer(output_path=skillopt_observer_path(root), method='b3_skillopt',
         phase='train', model=identity.model, reasoning_effort=identity.reasoning_effort,
         run_id=root.parent.name, run_seed=seed, application_retry_limit=5,
         retry_delays_seconds=[2,5,10,20], expected_sdk_max_retries=0,campaign_gate=provider_gate())

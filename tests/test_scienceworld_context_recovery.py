@@ -2,6 +2,18 @@ import json
 from experiments.baselines.scienceworld.protocol import ScienceWorldTextPolicyProtocol as Protocol
 
 
+def test_skillopt_recovery_preserves_prior_provider_evidence(tmp_path):
+    from experiments.baselines.scienceworld.learning import skillopt_observer_path
+    original = skillopt_observer_path(tmp_path)
+    assert original == tmp_path / 'provider_calls.jsonl'
+    original.write_text('{"old": true}\n')
+    resumed = skillopt_observer_path(tmp_path)
+    assert resumed != original and resumed.name == 'provider_calls.jsonl'
+    assert resumed.is_relative_to(tmp_path)
+    assert resumed != skillopt_observer_path(tmp_path)
+    assert original.read_text() == '{"old": true}\n'
+
+
 def test_retired_catalog_preserves_observations_actions_and_current_choices():
     old = {'task': 'goal', 'observation': 'important fact', 'look': 'room',
            'inventory': 'object', 'valid_actions_compact': {'MOVE': ['a']}}
