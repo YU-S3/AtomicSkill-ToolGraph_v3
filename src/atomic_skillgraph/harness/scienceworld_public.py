@@ -14,6 +14,7 @@ WORLD = {
     'entity.focused': ('entity',), 'matter.state_changed': ('entity', 'target_state'),
 }
 EVIDENCE = {
+    'container.inspected': ('container', 'evidence'),
     'entity.discovered_at': ('entity', 'location'), 'scope.inspected': ('location', 'evidence'),
     'entity.examined': ('entity', 'evidence'), 'entity.read': ('entity', 'evidence'),
     'instrument.used_on': ('instrument', 'target', 'evidence'),
@@ -151,6 +152,56 @@ def action_evidence(action, observation, revision, episode):
                                                   'evidence': reference}, revision))
     return items, {'reference': reference, 'observation': observation, 'revision': revision,
                    'action_type': name, 'arguments': a}
+
+
+def container_evidence(action, observation, catalog, room_frame, revision, episode):
+    """Parse only this LOOK_IN response, aligned to the *new* public catalog.
+
+    A partial listing may expose definite relations, but never proves absence.
+    Container scopes are not represented as room InspectedScope objects.
+    """
+    container = action.arguments['container']
+    source = 'sw_container:' + content_hash([episode, revision, container, observation])
+    location = next((r.location for r in room_frame.records if r.entity == container), None)
+    row = {'container':container, 'status':'unparsed', 'source_ref':source,
+           'entities':[], 'unresolved':[], 'revision':revision, 'location':location}
+    facts = []
+    if re.search(r'^(?:Ambiguous request|Which one)', observation, re.I):
+        row['status'] = 'ambiguous'
+    elif re.search(r"(?:closed|can.t see inside|cannot see inside|not accessible)", observation, re.I):
+        row['status'] = 'inaccessible'
+    elif observation.strip() == f'There is nothing in the {container}.':
+        row['status'] = 'empty_listing'
+    elif observation.startswith(f'Inside the {container} is:'):
+        body = observation[len(f'Inside the {container} is:'):]
+        lines = [s.strip() for s in body.splitlines() if s.strip()]
+        entities = {v for a in catalog for k,v in a.arguments.items() if k != 'destination'}
+        # Official 1.2.3 LOOK_IN uses this exact empty-list body.  An empty
+        # response or prose merely containing "nothing" does not prove absence.
+        if lines == ['nothing']:
+            row['status'] = 'empty_listing'
+            lines = []
+        else:
+            row['status'] = 'complete_listing' if lines else 'unparsed'
+        for line in lines:
+            clean = re.sub(r'^(?:a substance called |an |a |the )', '', line)
+            candidates = {e for e in entities if clean == e or any(clean.startswith(e+s) for s in (', ', '. ', ' ('))}
+            if len(candidates) != 1:
+                row['unresolved'].append(line)
+                row['status'] = 'ambiguous' if len(candidates) > 1 else (
+                    'ambiguous' if row['status'] == 'ambiguous' else 'unparsed')
+                continue
+            entity = next(iter(candidates))
+            row['entities'].append(entity)
+            facts.append(fact('entity.in_container', {'entity':entity,'container':container}, revision))
+            if location:
+                facts.append(fact('entity.discovered_at', {'entity':entity,'location':location}, revision))
+    if row['status'] in {'complete_listing','empty_listing'}:
+        facts.append(fact('container.inspected', {'container':container,'evidence':source}, revision))
+    for item in facts:
+        item['source_kind'] = VERSION + '/container_listing'
+        item['witness_ref'] = source + ':' + content_hash([item['predicate'],item['args']])
+    return facts, row
 
 def retain_action_evidence(facts, action):
     """Invalidate affected relations, not every relation after every action.
