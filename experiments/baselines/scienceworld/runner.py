@@ -43,6 +43,7 @@ class ScienceWorldTextEpisodeRunner:
             termination = 'action_budget'
             while not harness.validator_channel().done and len(actions) < self.max_actions:
                 frame = Protocol.frame(harness)
+                Protocol.retire_action_catalogs(messages)
                 messages.append({'role': 'user', 'content': json.dumps(frame, ensure_ascii=False)})
                 revision = harness.validator_channel().revision
                 selected = None

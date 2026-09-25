@@ -37,8 +37,22 @@ class ScienceWorldSkillOptAdapter(EnvAdapter):
         output, rows = Path(out_dir), []
         def evaluate(entry):
             episode = output / 'predictions' / entry['task_id']
-            chat = self.chat_factory(episode, entry)
-            result = ScienceWorldTextEpisodeRunner(chat, max_actions=self.max_steps).run(entry, skill_content, episode)
+            cached = episode / 'result.json'
+            if cached.exists():
+                result = json.loads(cached.read_text())
+                if result['source_identity'] != entry:
+                    raise ValueError('Resume rollout source mismatch')
+                attempt = episode / 'attempts' / result['selected_attempt_id']
+                messages = json.loads((attempt / 'messages.json').read_text())
+                from .protocol import ScienceWorldTextPolicyProtocol
+                expected = ScienceWorldTextPolicyProtocol.instruction
+                if skill_content:
+                    expected += '\n\nReusable skill knowledge:\n' + skill_content
+                if not messages or messages[0] != {'role': 'system', 'content': expected}:
+                    raise ValueError('Resume rollout skill mismatch')
+            else:
+                chat = self.chat_factory(episode, entry)
+                result = ScienceWorldTextEpisodeRunner(chat, max_actions=self.max_steps).run(entry, skill_content, episode)
             row = {'id': entry['task_id'], 'task_type': entry['task_type'],
                 'hard': int(result['perfect_success']), 'soft': result['normalized_score'],
                 'official_score': result['official_score'], 'conversation_path': str(episode / 'conversation.json')}

@@ -17,6 +17,26 @@ class ScienceWorldTextPolicyProtocol:
         'do not infer scientific answers from names or use hidden state. Complete the stated task within the action budget.')
 
     @staticmethod
+    def retire_action_catalogs(messages):
+        """Catalog tuples are revision-local, not historical task evidence.
+
+        Preserve every observation and submitted action. Only the latest user
+        frame supplied next retains its full executable action catalog.
+        """
+        for message in messages:
+            if message.get('role') != 'user':
+                continue
+            try:
+                frame = json.loads(message.get('content', ''))
+            except (TypeError, ValueError):
+                continue
+            if isinstance(frame, dict) and 'valid_actions_compact' in frame:
+                frame = dict(frame)
+                del frame['valid_actions_compact']
+                frame['historical_catalog_retired'] = True
+                message['content'] = json.dumps(frame, ensure_ascii=False)
+
+    @staticmethod
     def frame(harness):
         f = harness._frame
         return {'task': f['task_description'], 'observation': f['observation'],
