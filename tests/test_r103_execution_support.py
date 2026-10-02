@@ -155,6 +155,33 @@ def test_two_committed_real_trials_admit_and_attribute_without_fake_direct(tmp_p
         assert frozen.knowledge_digest() == digest
         assert frozen.tools.get(refs[2]).status.value == "active"
         assert len(frozen.runtime_support_store.committed()) == 2
+        # M-T09: actually use the promoted route on a third public fixture.
+        # No status patch, fake preflight, output publisher or Provider reply.
+        from atomic_skillgraph.core.bindings import BindingExpression, BindingExprKind
+        from atomic_skillgraph.runtime.task_context import TaskRuntimeContext
+        from atomic_skillgraph.runtime.budget import RuntimeBudget
+        learned = frozen.skills.get_atomic(refs[0])
+        learned_impl = frozen.skills.get_implementation(refs[1])
+        case = route.RouteCase('frozen')
+        task = route.fixture_task(case)
+        plan = route.make_plan(task, learned, [learned_impl.ref], frozen.harness)
+        occurrence = plan.occurrences[0]
+        occurrence.binding_specs = {learned.inputs[0].name: BindingExpression(
+            BindingExprKind.SKILL_INPUT, source_role=case.parent_role)}
+        ctx = TaskRuntimeContext.create(task, plan, frozen.harness,
+            frozen.orchestrator.create_trace_builder(task), RuntimeBudget())
+        ctx.budget.begin_node(occurrence.occurrence_id)
+        ctx.binding_store.resolve_occurrence_specs(occurrence, ctx.world_revision)
+        ctx.begin_occurrence(occurrence)
+        calls = frozen.invocation_compiler.compile_candidates(occurrence, ctx.binding_store,
+            task_id=task.task_id, evidence_store=ctx.evidence_store,
+            revision=ctx.world_revision, task_contract=ctx.task_contract)
+        assert len(calls) == 1
+        result = frozen.orchestrator.node_executor.try_autonomous(occurrence, calls, ctx)
+        assert result is not None and result.atomic_effect_passed
+        assert any(t.result['started'] and t.result['completed'] for t in ctx.trace_builder.trace.tool_executions)
+        assert not ctx.trace_builder.trace.provider_requests and not frozen.usage.events
+        assert frozen.knowledge_digest() == digest
     assert bank.knowledge_digest() == digest
     for system in (first, second, bank): system.close()
 
