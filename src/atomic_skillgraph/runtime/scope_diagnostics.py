@@ -1,9 +1,48 @@
-"""Conservative, observational diagnostics for completed bounded search paths.
+"""Conservative diagnostics and typed exits for bounded public searches.
 
-This never changes a Tool outcome, authorizes an output, or chooses a next scope.
+This returns evidence for the runner's outcome; it never authorizes an output
+or chooses a next scope.
 It uses the executed IR, not an asset name or benchmark family.
 """
 from ..tooling.ir import walk_program_nodes
+
+SEARCH_OUTCOMES = frozenset({'scope_no_match', 'scope_incomplete'})
+OUTCOME_VERSION = 'skillcompiler.search-outcome.v1'
+
+
+def search_exit(program, state, signal, observation):
+    """Classify only a recognized search that actually exhausted its input loop.
+
+    Receipts come from the same production search observer used by history.
+    A missing RETURN alone is never evidence of a successful search or absence.
+    Runtime errors, matched selectors with invalid outputs and early interruption
+    retain their original failure classification.
+    """
+    if signal or state.failure_code or state.outputs or observation is None:
+        return None
+    if len(program) != 1 or program[0].get('op') != 'FOR_EACH':
+        return None
+    loop = program[0]
+    scope = list(observation.authorized_scope)
+    outer = [r for r in state.collection_observations if r['node_id'] == loop['node_id']]
+    if (not scope or len(scope) > loop['max_iterations'] or len(outer) != 1
+        or not outer[0].get('completed') or outer[0]['values'] != scope):
+        return None
+    checks = observation.checks
+    if len(checks) != len(scope) or any(c.outcome == 'matched_candidate' for c in checks):
+        return None
+    from .search_history import identity
+    if any(identity(c.scope_value) != identity(v) for c, v in zip(checks, scope)):
+        return None
+    complete = all(c.reached and c.selector_evaluated
+        and c.outcome == 'no_matching_candidate'
+        and c.inspection_status in {'complete_listing', 'empty_listing'}
+        and c.source_refs for c in checks)
+    from dataclasses import asdict
+    return {'version': OUTCOME_VERSION,
+            'outcome': 'scope_no_match' if complete else 'scope_incomplete',
+            'checked_scope': [asdict(c) for c in checks],
+            'global_absence_claimed': False, 'outputs_authorized': False}
 
 
 def scope_exhaustion(program, state, signal):

@@ -134,6 +134,13 @@ def test_two_committed_real_trials_admit_and_attribute_without_fake_direct(tmp_p
     assert bank.skills.get_implementation(refs[1]).status.value == "active"
     assert bank.tools.get(refs[2]).status.value == "active"
     assert prepare_attributions(bank, publisher, None, bank.runtime_support_store.committed()) == []
+    from atomic_skillgraph.deployment.train_review import review_train_deployment
+    before_review = bank.knowledge_digest()
+    review = review_train_deployment(bank)
+    assert review['source_bank_digest'] == before_review == bank.knowledge_digest()
+    assert len(review['source_execution_keys']) == 2
+    assert any(r['implementation_ref'] == refs[1] and r['frozen_compilable'] for r in review['routes'])
+    assert not review['preferred_implementations']  # Two supports do not imply preferred cost utility.
     # Exercise the actual freeze/read-only path with execution capsules,
     # attributed Ledger rows, identity proofs and rebuilt lifecycle projections.
     digest = bank.knowledge_digest()

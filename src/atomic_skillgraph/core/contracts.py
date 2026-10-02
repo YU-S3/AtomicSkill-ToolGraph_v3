@@ -221,6 +221,7 @@ class AtomicCandidate:
     score: float
     reasons: list[str] = field(default_factory=list)
     contract_match: bool = True
+    execution_information: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

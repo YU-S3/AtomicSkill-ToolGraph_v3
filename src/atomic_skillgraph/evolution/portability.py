@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
 from ..core.serialization import to_primitive
@@ -101,6 +101,8 @@ class KnownAtomicContractView:
     outputs: list[dict[str, Any]]
     preconditions: list[dict[str, Any]]
     effects: list[dict[str, Any]]
+    validator_spec: dict[str, Any] = field(default_factory=dict)
+    guideline: dict[str, Any] = field(default_factory=dict)
 
 
 def normalize_portable_text(value: Any) -> str:
@@ -478,6 +480,8 @@ def relevant_known_atomic_contracts(
             outputs=[parameter(item) for item in atomic.outputs],
             preconditions=[to_primitive(item) for item in atomic.preconditions],
             effects=[to_primitive(item) for item in atomic.effects],
+            validator_spec=to_primitive(atomic.validator_spec),
+            guideline=to_primitive(atomic.guideline),
         )
         for _, _, _, _, atomic, canonical_intent in candidates[: int(limit)]
     ]

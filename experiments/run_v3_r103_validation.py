@@ -121,7 +121,7 @@ def capability(config, output, code):
     return result
 
 
-def train_dev16(config_path, output, learning_condition="Full"):
+def train_dev16(config_path, output, learning_condition="Full", *, fixed_entries=None, selection_identity=None):
     started = time.monotonic()
     config, output = prepare(config_path, output)
     run_id = "r103_dev16_" + output.name.replace("-", "_")
@@ -135,11 +135,13 @@ def train_dev16(config_path, output, learning_condition="Full"):
     if learning_condition != "Full":
         config["r103_learning_intervention"] = learning_condition
         config["experiment"]["experiment_kind"] = "learning_ablation"
-    code, entries = hash_code(REPO), declared_entries()
+    code, entries = hash_code(REPO), declared_entries() if fixed_entries is None else fixed_entries
     declared = {"kind":"finite_training_validation", "formal_experiment":False, "empty_bank":True,
         "declared_before_execution":True, "entries":entries, "code_hash":code, "config_hash":hash_config(config),
         "source_manifest":"data/baseline_manifests/train_120.json", "protocol":METADATA,
         "learning_condition":learning_condition}
+    if selection_identity is not None:
+        declared['selection_identity'] = selection_identity
     atomic_create_json(output / "declared_manifest.json", declared)
     atomic_create_json(output / "config.json", config)
     capability(config, output, code)
@@ -187,7 +189,7 @@ def train_dev16(config_path, output, learning_condition="Full"):
                 atomic_write_json(output / "progress.json",rows)
                 from experiments.compiler_metrics import write_reports as write_compiler_reports
                 write_compiler_reports(rows, output)
-                print(json.dumps({"completed":len(rows),"total":16,"task_id":task.task_id,
+                print(json.dumps({"completed":len(rows),"total":len(entries),"task_id":task.task_id,
                     "official_won":row["official_won"],"total_tokens":row["total_tokens"],
                     "duration_seconds":row["duration_seconds"]}),flush=True)
             except Exception as exc:
@@ -202,6 +204,9 @@ def train_dev16(config_path, output, learning_condition="Full"):
             raise RuntimeError("finite training maintenance left pending repairs")
         artifact_audit_snapshot(system.database)
         final_digest = system.knowledge_digest()
+        if selection_identity is not None:
+            from atomic_skillgraph.deployment.train_review import review_train_deployment
+            atomic_create_json(output / 'train_deployment_review.json', review_train_deployment(system))
         source = {"source_run_id":run_id,"source_code_commit":code,"source_config_hash":manifest.config_hash,
             "source_task_manifest_hash":manifest.task_manifest_hash,"source_final_knowledge_digest":final_digest,
             "source_llm_config_hash":hash_config(config["llm"]),"experiment_role":"finite_training_validation",
@@ -221,7 +226,7 @@ def train_dev16(config_path, output, learning_condition="Full"):
     return result
 
 
-def deploy(config_path, output, source_run, condition, diagnostic_tasks=None):
+def deploy(config_path, output, source_run, condition, diagnostic_tasks=None, *, validation_entries=None):
     config, output = prepare(config_path, output)
     source_run = Path(source_run).expanduser().resolve()
     source = json.loads((source_run / "declared_manifest.json").read_text(encoding="utf-8"))
@@ -237,6 +242,16 @@ def deploy(config_path, output, source_run, condition, diagnostic_tasks=None):
     if source.get("learning_condition", "Full") != "Full":
         raise RuntimeError("paired Full deployment conditions cannot import a learning-ablation bank")
     entries = source["entries"]
+    if validation_entries is not None:
+        if condition != 'C11' or diagnostic_tasks is not None:
+            raise ValueError('held-out validation uses the unchanged Full mechanism only')
+        if not validation_entries or any(e['source_split'] != 'valid_seen' for e in validation_entries):
+            raise ValueError('held-out validation requires explicit valid_seen entries')
+        entries = validation_entries
+        # The source manifest uses dataset split names; the existing ALFWorld
+        # adapter uses evaluation-mode names in task IDs and environment init.
+        config['harness']['split'] = 'eval_in_distribution'
+        config['harness'].pop('task_selection', None)
     if diagnostic_tasks is not None:
         if not 1 <= diagnostic_tasks <= len(entries):
             raise ValueError("diagnostic task count must be a nonempty prefix of the declared dev set")
@@ -251,7 +266,8 @@ def deploy(config_path, output, source_run, condition, diagnostic_tasks=None):
     manifest = {"experiment_kind":"diagnostic","formal_experiment":False,"condition":mask.to_dict(),
         "source_run":str(source_run),"bank_digest":frozen["knowledge_digest"],"source_provenance":frozen["provenance"],
         "code_hash":code,"config_hash":hash_config(config),"task_entries":entries,
-        "selection":"fixed declared dev prefix; never selected by observed outcome",
+        "selection":"fixed held-out valid_seen" if validation_entries is not None else "fixed declared dev prefix; never selected by observed outcome",
+        "selected_entries_hash":hash_config(entries),
         "task_manifest_hash":frozen["provenance"]["source_task_manifest_hash"]}
     atomic_create_json(output / "intervention_manifest.json",manifest)
     atomic_create_json(output / "config.json",config)

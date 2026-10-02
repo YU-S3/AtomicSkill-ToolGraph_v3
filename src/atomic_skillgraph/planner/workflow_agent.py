@@ -102,7 +102,7 @@ def _candidate_projection(value: Any) -> Any:
         projected[str(instance_id)] = [
             {
                 key: candidate[key]
-                for key in ("atomic_ref", "score", "reasons", "contract_match")
+                for key in ("atomic_ref", "score", "reasons", "contract_match", "execution_information")
                 if isinstance(candidate, Mapping) and key in candidate
             }
             if isinstance(candidate, Mapping)

@@ -7,10 +7,12 @@ from atomic_skillgraph.harness.alfworld import AlfWorldAdapter
 from test_r10_runtime import setup
 
 
-def search():
+def search(*, public_selector=False):
     job = {'job_id': 'scope_test', 'target_ref': 'skill://scope_test@1.0.0',
            'source_ref': None, 'query_input_role': 'query', 'output_roles': ['entity', 'location'],
            'tool_ref': 'tool://scope_test@1.0.0'}
+    if public_selector:
+        job['selector_policy'] = 'current_joint_public_discovery'
     atomic = revise_atomic(job, {}, job)
     tool = author_program(job, atomic)
     report = ToolStaticValidator().validate_tool_asset(tool, atomic, AlfWorldAdapter(split='train'))
@@ -38,7 +40,10 @@ def test_bounded_search_continues_past_no_match_and_never_takes(tmp_path, query,
             assert not result.tool_path_evidence['final_effect_result'].get('scope_diagnostic')
         else:
             assert not result.output_candidates
-            assert result.failure_code == 'tool_ir_execution_error'
+            # The catalog proves only which actions are offered, not that the
+            # environment gave a complete inspection receipt.
+            assert result.failure_code == result.outcome == 'scope_incomplete'
+            assert not result.intrinsic_failure
             diagnostic = result.tool_path_evidence['final_effect_result']['scope_diagnostic']
             assert diagnostic['outcome'] == 'scope_exhausted'
             assert [r['scope_value'] for r in diagnostic['checked_scope']] == list(ctx.harness.case.locations)

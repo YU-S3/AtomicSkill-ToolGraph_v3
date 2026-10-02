@@ -38,8 +38,10 @@ class ExtractionBatch:
     generalizations: list[dict[str, Any]]
 
 
-def e1_schema(groups=()):
+def e1_schema(groups=(), known=()):
     schema = copy.deepcopy(E1_SCHEMA)
+    from .extraction_view import reuse_schema
+    schema['properties']['reuse_existing'] = reuse_schema(known, ATOMIC_EXTRACTION_SCHEMA)
     schema["properties"]["generalizations"] = {"type": "array", "maxItems": 1 if groups else 0,
         "items": {"type": "object", "required": ["group_id", "source_proposals", "rationale"], "additionalProperties": False,
             "properties": {"group_id": {"type": "string", "enum": [g["group_id"] for g in groups] or ["no_group_available"]},
@@ -353,10 +355,12 @@ class ExtractorSession:
         if hasattr(self.session, "set_usage_bucket"):
             self.session.set_usage_bucket("extractor_e1")
         try:
+            from .extraction_view import REUSE_INSTRUCTION, source_reference_view, expand_source_references
+            source_view, reference_expansion = source_reference_view(normalized_trace)
             payload = self.submissions.request(
                 self.session,
                 prompt=self.context.extractor_e1(
-                    canonical_trace=normalized_trace,
+                    canonical_trace=source_view,
                     known_atomic_contracts=known_atomic_contracts,
                     required_task_contract_witnesses=(
                         required_task_contract_witnesses
@@ -364,13 +368,21 @@ class ExtractorSession:
                     runtime_automation_drafts=runtime_automation_drafts,
                     runtime_tool_trials=runtime_tool_trials,
                     generalization_groups=generalization_groups,
-                ),
+                ).replace('POLICY_CONTEXT_JSON\n', REUSE_INSTRUCTION +
+                    '\nYou may select reference_id from canonical_trace.source_reference_choices '
+                    'instead of spelling its original_ref in authority_ref and witness/local reference lists. '
+                    'These aliases expand to the original supplied refs before unchanged validation; '
+                    'they do not relax entry time, ownership or resolution. Historical generalization '
+                    'sources keep their own original refs.\n\nPOLICY_CONTEXT_JSON\n', 1),
                 tool_name="submit_extractor_atomics",
                 description=(
                     "Submit the complete Atomic occurrence extraction proposal."
                 ),
-                schema=e1_schema(generalization_groups),
+                schema=e1_schema(generalization_groups, known_atomic_contracts),
             ).value
+            # Aliases belong solely to the current source, not history sidecars.
+            payload['occurrences'] = expand_source_references(payload['occurrences'], reference_expansion)
+            payload['reuse_existing'] = expand_source_references(payload.get('reuse_existing', []), reference_expansion)
         except AgentProtocolError as exc:
             raise ExtractionContentError(
                 "e1",
@@ -378,7 +390,16 @@ class ExtractorSession:
                 str(exc),
             ) from exc
         self._e1_complete = True
-        return ExtractionBatch([parse_occurrence_payload(item) for item in payload["occurrences"]],
+        from .extraction_view import expand_reuse
+        proposals = [parse_occurrence_payload(item) for item in payload['occurrences']]
+        try:
+            for item in payload.get('reuse_existing', []):
+                proposal = parse_occurrence_payload(expand_reuse(item, known_atomic_contracts))
+                proposal.reuse_existing_ref = item['atomic_ref']
+                proposals.append(proposal)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ExtractionContentError('e1', 'extractor_reuse_contract_rejected', str(exc)) from exc
+        return ExtractionBatch(proposals,
                                copy.deepcopy(payload.get("generalizations", [])))
 
     def propose_atomics(self, *args, **kwargs) -> list[AtomicOccurrenceProposal]:

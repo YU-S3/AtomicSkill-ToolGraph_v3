@@ -613,6 +613,8 @@ class AtomicSkillGraphSystem:
             candidate_policy=self.candidate_policy,
         )
         self.invocation_compiler.r103 = self.r103
+        if self.r103:
+            self.planner.atomic_retriever.execution_lookup = self.invocation_compiler.planner_execution_information
         runtime_config = dict(self.config.get("runtime") or {})
         from .runtime.interventions import DeploymentIntervention
         self.deployment_intervention = DeploymentIntervention.from_config(self.config)
@@ -3078,6 +3080,8 @@ class AtomicSkillGraphSystem:
         """Success Evolution Tool path: exact reuse else ToolBuilder + static gate."""
 
         record = self._new_r4_tool_build_record(trace, occurrence, atomic_view)
+        realization_key = None
+        realization_queue = None
         stage = "exact_reuse"
         try:
             stage = "exact_reuse"
@@ -3152,6 +3156,38 @@ class AtomicSkillGraphSystem:
                 if callable(action_schema)
                 else []
             )
+
+            # Only current qualified Train evidence can schedule realization.
+            # Known Atomics without an executable route reach this same path.
+            from .evolution.learning_interventions import training_source
+            if (self.r103 and not self.readonly and trace.learning_eligible
+                and trace.metadata.get('execution_source', {}).get('split') == 'train'
+                and training_source(trace.metadata.get('execution_source', {}))):
+                from .evolution.realization_queue import RealizationQueue
+                from .evolution.contract_canonicalizer import atomic_contract_signature
+                from .core.refs import content_hash
+                realization_queue = RealizationQueue(self.database)
+                identity = {
+                    'contract_hash': atomic_contract_signature(atomic_view),
+                    'source_trace_id': occurrence.source_trace_id,
+                    'source_events': list(occurrence.support_event_ids),
+                    'source_capsules': [ref['capsule_hash'] for ref, _ in getattr(self, '_staged_learning_sources', [])
+                        if ref['source_occurrence_id'] == occurrence.occurrence_id],
+                    'profile': self.harness.profile_name,
+                    'known_implementation_refs': sorted(str(i.ref) for i in self.skills.implementations()
+                        if i.abstract_ref == atomic_view.ref),
+                    'builder_input_hash': content_hash(to_primitive({
+                        'atomic': atomic_view, 'evidence': evidence_support,
+                        'source': semantic_delta, 'primitive_actions': primitive_actions,
+                        'additional_sources': additional_evidence_sources or []})),
+                }
+                key, claimed, previous = realization_queue.claim(identity)
+                record['realization_key'] = key
+                if not claimed:
+                    record.update(outcome='duplicate_evidence_skipped',
+                                  prior_realization_status=previous['status'])
+                    return None, self._r4_builder_return_metrics(record)
+                realization_key = key
 
             stage = "tool_builder_session"
             try:
@@ -3298,6 +3334,7 @@ class AtomicSkillGraphSystem:
                 harness_profile=self.harness.profile_name,
             )
             record["outcome"] = "created"
+            record['result_refs'] = [str(item.atomic.ref), str(item.implementation.ref), str(item.tool.ref)]
             return item, self._r4_builder_return_metrics(record)
         except (_ToolBuildContentRejected, _ToolBuildBudgetExhausted):
             raise
@@ -3313,6 +3350,10 @@ class AtomicSkillGraphSystem:
                 })
             raise
         finally:
+            if realization_key is not None:
+                realization_queue.finish(realization_key,
+                    status=record['outcome'] if record['outcome'] != 'pending' else 'interrupted',
+                    failure_codes=record.get('failure_codes', []), result_refs=record.get('result_refs', []))
             self._finalize_r4_learning_metrics(trace)
 
     @staticmethod
@@ -3986,6 +4027,20 @@ class AtomicSkillGraphSystem:
                     proposals, normalized,
                 )
             )
+            from .evolution.extraction_view import exact_reuse_contract
+            checked = []
+            for occurrence in canonical:
+                ref = getattr(occurrence, 'reuse_existing_ref', '')
+                if ref:
+                    candidate = self._canonical_atomic_for_occurrence(occurrence)
+                    existing = self.skills.get_atomic(ref)
+                    if candidate is None or not exact_reuse_contract(candidate, existing):
+                        raw_atomicizer_rejections.append({'phase_id': occurrence.phase_id,
+                            'reason': 'reuse_contract_not_equivalent',
+                            'error': 'Validated source contract differs from the explicitly selected Atomic'})
+                        continue
+                checked.append(occurrence)
+            canonical = checked
         except AtomicProposalBatchRejected as exc:
             atomicizer_rejections = [
                 {
@@ -5154,6 +5209,9 @@ class AtomicSkillGraphSystem:
             context = getattr(self, "_active_maintenance_trace_context", None)
             if not isinstance(context, dict):
                 raise RuntimeError("maintenance Trace context was not established")
+            if finalize_pending and self.r103 and not self.readonly:
+                from .evolution.realization_queue import RealizationQueue
+                RealizationQueue(self.database).finish_interrupted()
             self._finalize_maintenance_trace(
                 context["trace"],
                 sessions_start=context["sessions_start"],

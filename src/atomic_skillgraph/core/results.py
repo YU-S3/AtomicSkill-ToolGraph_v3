@@ -195,6 +195,16 @@ class ToolExecutionResult:
     atomic_effect_passed: bool = False
     tool_path_evidence: dict[str, Any] = field(default_factory=dict)
     official_terminal_observed: bool = False
+    outcome: str = ""
+
+    def __post_init__(self):
+        if not self.outcome:
+            self.outcome = (self.failure_code if self.failure_code in {'scope_no_match', 'scope_incomplete'}
+                else 'completed' if self.completed else 'blocked_input_or_state' if not self.preflight_passed
+                else 'program_error' if self.intrinsic_failure else 'interrupted')
+        if self.outcome in {'scope_no_match', 'scope_incomplete'} and (
+            self.completed or self.intrinsic_failure or self.output_candidates):
+            raise ValueError('Search non-match cannot publish outputs, success or intrinsic failure')
 
     @property
     def executed_action_count(self) -> int:

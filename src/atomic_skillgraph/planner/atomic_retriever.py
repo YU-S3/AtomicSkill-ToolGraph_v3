@@ -84,6 +84,7 @@ class AtomicRetriever:
         self.skills, self.top_k, self.max_top_k = skills, top_k, max_top_k
         self.utility_lookup = utility_lookup or (lambda _ref: 0.0)
         self.candidate_policy = candidate_policy
+        self.execution_lookup = None
 
     @staticmethod
     def _compatibility_view(
@@ -234,6 +235,9 @@ class AtomicRetriever:
             recalled.sort(key=lambda item: (-item[0], item[1]))
             repair_candidates.sort(key=lambda item: item[:4])
             candidates = [AtomicCandidate(item.ref, score, ["contract_compatible"], True) for score, _, item in recalled[: self.top_k]]
+            if self.execution_lookup is not None:
+                for candidate in candidates:
+                    candidate.execution_information = self.execution_lookup(candidate.atomic_ref)
             results.append(RequirementSearchResult(
                 requirement=requirement,
                 candidates=candidates,

@@ -154,7 +154,7 @@ def observe_search(tool, bindings, state, ctx, *, attempt_id, occurrence_id,
             tuple(ScopeCheck(**row) for row in rows),
             tuple(range(action_start,len(ctx.trace_builder.trace.environment_actions))),
             bool(result and result.started or error),
-            'interrupted' if error else 'completed' if result and result.completed else 'failed',
+            'interrupted' if error else getattr(result, 'outcome', '') or 'failed',
             getattr(result,'failure_code','') or getattr(error,'code','') or state.failure_code,
             'terminal' if ctx.execution_terminal() else 'applied',before_revision,ctx.world_revision)
     if len(program) != 1:
@@ -232,6 +232,6 @@ def observe_search(tool, bindings, state, ctx, *, attempt_id, occurrence_id,
         str(tool.ref), program_id, copy.deepcopy(bindings[query_role]), query_role,
         identity([program_id, method]), method, copy.deepcopy(bindings), tuple(copy.deepcopy(scope)), tuple(checks),
         tuple(range(action_start, len(ctx.trace_builder.trace.environment_actions))), True,
-        'interrupted' if error else ('completed' if result and result.completed else 'failed'), failure,
+        'interrupted' if error else getattr(result, 'outcome', '') or 'failed', failure,
         'terminal' if ctx.execution_terminal() else ('unknown' if error and not getattr(error, 'code', '') else 'applied'),
         before_revision, ctx.world_revision)

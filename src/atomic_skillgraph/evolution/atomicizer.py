@@ -68,6 +68,7 @@ class AtomicOccurrenceProposal:
     output_specs: list[ParameterSpec] = field(default_factory=list)
     output_semantic_constraints: dict[str, Any] = field(default_factory=dict)
     local_value_authority_refs: list[str] = field(default_factory=list)
+    reuse_existing_ref: str = ""
 
 
 @dataclass
@@ -101,6 +102,7 @@ class CanonicalAtomicOccurrence:
     boundary_schema_version: str = ""
     output_semantic_constraints: dict[str, Any] = field(default_factory=dict)
     local_value_authority_refs: list[str] = field(default_factory=list)
+    reuse_existing_ref: str = ""
 
 
 _ACTION_EFFECTS: dict[str, tuple[tuple[str, dict[str, tuple[str, ...]]], ...]] = {
@@ -1644,6 +1646,7 @@ class Atomicizer:
                 boundary_schema_version=proposal.boundary_schema_version,
                 output_semantic_constraints=copy.deepcopy(proposal.output_semantic_constraints),
                 local_value_authority_refs=list(proposal.local_value_authority_refs),
+                reuse_existing_ref=proposal.reuse_existing_ref,
             ))
             used_support_events.update(owned_support_events)
             used_effect_events.update(effect_event_ids)

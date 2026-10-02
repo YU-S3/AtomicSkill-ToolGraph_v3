@@ -1176,10 +1176,18 @@ class ToolRunner:
             "missing_effects": [dict(item) for item in missing_effects],
             "failure_code": "" if atomic_effect_passed else "tool_ir_final_effect_failed",
         }
-        from .scope_diagnostics import scope_exhaustion
+        from .scope_diagnostics import scope_exhaustion, search_exit, SEARCH_OUTCOMES
         diagnostic = scope_exhaustion(program, state, control_signal)
         if diagnostic:
             final_effect_result['scope_diagnostic'] = diagnostic
+        from .search_history import observe_search
+        observed_search = observe_search(tool, bindings, state, ctx,
+            attempt_id=attempt_id, occurrence_id=occurrence_id,
+            action_start=len(ctx.trace_builder.trace.environment_actions) - state.executed_action_count,
+            before_revision=before_revision)
+        typed_exit = search_exit(program, state, control_signal, observed_search)
+        if typed_exit:
+            final_effect_result['search_exit'] = typed_exit
         if completed and not atomic_effect_passed:
             completed = False
             if not state.failure_code:
@@ -1191,8 +1199,12 @@ class ToolRunner:
         failure_message = state.failure_message
         if not completed and not terminal_interrupted and not failure_code:
             failure_layer = "tool"
-            failure_code = "tool_ir_execution_error"
-            failure_message = "Tool IR ended without RETURN or benchmark terminal"
+            failure_code = typed_exit['outcome'] if typed_exit else "tool_ir_execution_error"
+            failure_message = ("Authorized scopes were inspected without a matching candidate"
+                if failure_code == 'scope_no_match' else
+                "Authorized search ended without complete public inspection receipts"
+                if failure_code == 'scope_incomplete' else
+                "Tool IR ended without RETURN or benchmark terminal")
         elif failure_code:
             failure_layer = "tool"
         state.failure_code = failure_code
@@ -1206,7 +1218,7 @@ class ToolRunner:
             state.bindings, outputs, before_revision, ctx.world_revision,
             failure_layer, failure_code, failure_message,
             terminal_interrupted=terminal_interrupted,
-            intrinsic_failure=bool(failure_code and not terminal_interrupted),
+            intrinsic_failure=bool(failure_code and not terminal_interrupted and failure_code not in SEARCH_OUTCOMES),
             executed_node_count=len(state.executed_nodes),
             remaining_node_count=max(
                 0, total_nodes - len(set(state.executed_nodes))

@@ -162,13 +162,17 @@ def test_S12_all_attempt_costs_are_unique_and_unknown_is_not_zero():
         task_attempt_costs([failed,conflict])
 
 
-def test_S06_S09_real_invocation_cache_and_budget_audit(tmp_path):
+@pytest.mark.parametrize('complete_receipts', [False, True])
+def test_S06_S09_real_invocation_cache_and_budget_audit(tmp_path, complete_receipts):
     from atomic_skillgraph.deployment.oldfirst_revision import author_implementation
     from atomic_skillgraph.core.status import SkillStatus, ToolStatus
     from atomic_skillgraph.core.results import RuntimeOccurrence
     system, ctx, parent, _, provider = setup(tmp_path, lambda *a: pytest.fail('not configured'))
     try:
-        atomic, tool = search()
+        if complete_receipts:
+            from test_search_outcomes import enable_public_receipts
+            enable_public_receipts(ctx.harness)
+        atomic, tool = search(public_selector=complete_receipts)
         impl = author_implementation({'job_id':'history_test','implementation_ref':'skill://scope_impl@1.0.0'}, atomic, tool)
         atomic.status = impl.status = SkillStatus.ACTIVE
         tool.status = ToolStatus.ACTIVE
@@ -190,9 +194,14 @@ def test_S06_S09_real_invocation_cache_and_budget_audit(tmp_path):
         assert len(ctx.search_history.attempts)==1, str(ctx.trace_builder.trace.native_tool_calls[-1].preflight_result)
         before = len(ctx.trace_builder.trace.environment_actions)
         run_runtime_step(ex,'preparation',occ,ctx,inv,[])
-        assert len(ctx.search_history.attempts)==1 and len(ctx.trace_builder.trace.environment_actions)==before
-        assert ctx.search_history.cache_hits[-1]['observation_ids']==list(ctx.search_history.attempts)
-        assert ctx.runtime_step_feedback[occ.occurrence_id]['cached_rejection']
+        if complete_receipts:
+            assert len(ctx.search_history.attempts)==1 and len(ctx.trace_builder.trace.environment_actions)==before
+            assert ctx.search_history.cache_hits[-1]['observation_ids']==list(ctx.search_history.attempts)
+            assert ctx.runtime_step_feedback[occ.occurrence_id]['cached_rejection']
+        else:
+            assert len(ctx.search_history.attempts)==2
+            assert len(ctx.trace_builder.trace.environment_actions)>before
+            assert not ctx.search_history.cache_hits
         provider.choose = lambda r,n: (inv[0].spec.name, {'query':'egg',
             'locations':list(ctx.harness.case.locations), 'allow_open':True})
         ctx.budget.global_action_budget = ctx.budget.used_global_actions+1

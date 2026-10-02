@@ -485,7 +485,9 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         failure_layer = _result_failure_layer(result, preflight)
         outcome: CreditOutcome | None = None
         if started:
-            if terminal_interrupted and not _field(result, "failure_code", ""):
+            if _neutral_search_result(result):
+                outcome = None
+            elif terminal_interrupted and not _field(result, "failure_code", ""):
                 # Benchmark terminal authority interrupts Tool IR.  The current
                 # occurrence is not evidence for a completed Implementation, and
                 # it must not be recorded as an intrinsic failure either.
@@ -529,7 +531,9 @@ def _derive_standard_trace_attempts(trace: Mapping[str, Any] | Any) -> tuple[Cre
         completed = bool(_field(result, "completed", False))
         failure_layer = _result_failure_layer(result)
         outcome = None
-        if started and failure_layer == FailureLayer.TOOL.value:
+        if _neutral_search_result(result):
+            outcome = None
+        elif started and failure_layer == FailureLayer.TOOL.value:
             outcome = CreditOutcome.DIRECT_FAILURE
         elif started and completed:
             outcome = CreditOutcome.DIRECT_SUCCESS
@@ -824,6 +828,13 @@ def _result_failure_layer(*payloads: Any) -> str:
 
 def _enum_value(value: Any) -> str:
     return str(getattr(value, "value", value))
+
+
+def _neutral_search_result(result) -> bool:
+    from ..runtime.scope_diagnostics import SEARCH_OUTCOMES
+    return (_field(result, 'failure_code', '') in SEARCH_OUTCOMES
+            and not _field(result, 'completed', False)
+            and not _field(result, 'intrinsic_failure', False))
 
 
 def _intrinsic_failure(attempt: CreditAttempt) -> bool:

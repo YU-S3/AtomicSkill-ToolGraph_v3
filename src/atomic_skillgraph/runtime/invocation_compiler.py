@@ -330,6 +330,36 @@ class InvocationCompiler:
             "runtime_semantic_anchor_mismatch", "runtime_identity_constraint_mismatch"}
         return {"state": "unusable" if conflict else "preparable", "gaps": [checked.failure_code], "message": checked.message}
 
+    def planner_execution_information(self, atomic_ref):
+        """Read-only compile facts, not a claim of runtime readiness or support.
+
+        Planner has not grounded this occurrence yet. Report required arguments
+        and authored entry contracts; actual ready/preparable/unusable remains
+        the sole route_availability/preflight decision at runtime.
+        """
+        from ..core.serialization import to_primitive
+        atomic = self.skills.get_atomic(atomic_ref)
+        routes, rejected = [], []
+        for implementation in self.skills.implementations_for(atomic.ref, mode=self.mode):
+            try:
+                tools = [self.tools.get(b.tool_ref) for b in implementation.tool_bindings]
+                compiled = CompiledInvocation(self.compile(atomic, implementation, tools, {}), atomic, implementation, tools)
+                conflict = self._compatibility_failure(compiled)
+                if conflict is not None:
+                    rejected.append({'implementation_ref': str(implementation.ref), 'reason': conflict.failure_code})
+                    continue
+                routes.append({'implementation_ref': str(implementation.ref),
+                    'active_program_available': all(str(item.status.value) == 'active'
+                        for item in (implementation, *tools)),
+                    'required_input_roles': list(compiled.spec.input_schema.get('required', [])),
+                    'entry_requirements': [to_primitive(t.interface['entry_contract']) for t in tools],
+                    'availability': 'requires_runtime_preflight'})
+            except (KeyError, ValueError, TypeError) as exc:
+                rejected.append({'implementation_ref': str(implementation.ref), 'reason': str(exc)})
+        return {'active_program_available': any(r['active_program_available'] for r in routes),
+                'routes': routes, 'unusable_routes': rejected,
+                'required_upstream_outputs': 'determined_by_explicit_plan_bindings'}
+
     def _compatibility_failure(self, compiled):
         reason = ""
         profiles = compiled.implementation.compatibility.get("harness_profiles") or []

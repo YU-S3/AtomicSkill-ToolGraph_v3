@@ -36,6 +36,20 @@ def compile_routes(system, ctx, occurrence):
         task_contract=ctx.task_contract)
 
 
+def test_planner_execution_information_is_not_runtime_readiness(tmp_path):
+    system, ctx, occ, _ = setup(tmp_path)
+    try:
+        before = system.knowledge_digest()
+        hint = system.invocation_compiler.planner_execution_information(occ.node_ref)
+        assert hint['active_program_available']
+        assert hint['routes'] and all(r['availability'] == 'requires_runtime_preflight' for r in hint['routes'])
+        assert any(r['required_input_roles'] for r in hint['routes'])
+        assert system.knowledge_digest() == before
+        assert not ctx.trace_builder.trace.environment_actions
+    finally:
+        system.close()
+
+
 def test_active_representative_uses_its_own_history_not_candidate_alias(tmp_path):
     import json
     from atomic_skillgraph.core.refs import ToolRef

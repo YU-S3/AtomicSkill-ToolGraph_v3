@@ -26,14 +26,26 @@ def consumer_step_identity(occurrence):
     return "support" if occurrence.step_id.startswith("support::") else occurrence.step_id
 
 
-def state_signature(ctx, occurrence):
+def state_signature(ctx, occurrence, *, semantic_only=False):
     # Revision alone is insufficient after rollback/replay. Include the
     # authoritative world, current role bindings, and committed Repeat state.
+    world = ctx.harness.validator_channel().snapshot()
+    if semantic_only:
+        # Strip only the validator envelope clock and fact witness addresses.
+        # Unknown fields stay in the key; no arbitrary nested 'revision' drops.
+        world = copy.deepcopy(world)
+        world.pop('revision', None)
+        if isinstance(world.get('facts'), list):
+            world['facts'] = [{k: v for k, v in fact.items() if k != 'witness_ref'}
+                              for fact in world['facts']]
     return content_hash(to_primitive({
-        "revision": ctx.world_revision,
+        "revision": None if semantic_only else ctx.world_revision,
         "atomic_ref": str(occurrence.node_ref),
         "step_id": consumer_step_identity(occurrence),
-        "world": _semantic_state(ctx.harness.validator_channel().snapshot()),
+        "world": _semantic_state(world),
+        "public_observation": ctx.observation if semantic_only else None,
+        "public_actions": sorted(({'action_type': a.action_type, 'arguments': a.arguments}
+            for a in ctx.action_catalog), key=content_hash) if semantic_only else None,
         "bindings": {k: _binding(v) for k, v in ctx.binding_store.snapshot_for_node(occurrence).items()},
         "semantic_anchors": {role: _binding(value) for (owner, role), value in ctx.binding_store._semantic_anchors.items()
                              if owner in {occurrence.occurrence_id, "task"}},

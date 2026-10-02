@@ -168,8 +168,14 @@ class ContextBuilder:
             payload['support_atomic_candidates'] = support_call_surface.public_candidates()
             payload['blocked_support_candidates'] = list(support_call_surface.blocked)
         original_presentation = getattr(self, "runtime_presentation", "new") == "old"
+        from .node_context import project_node_context
+        node_audit = None
+        if not original_presentation:
+            payload, node_audit = project_node_context(payload, native_tool_specs=native_tool_specs)
         projected, audit = project_runtime_payload(payload, native_tool_specs=native_tool_specs,
                                                   expression_enabled=not original_presentation)
+        if node_audit is not None:
+            audit['node_context'] = node_audit
         projected, lean_instruction = self._release_projection(projected, audit, support_summary_lookup)
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))

@@ -40,7 +40,11 @@ class InvocationTransaction:
         return False
 
 
-def execution_cache_key(compiled, arguments, consumer, ctx):
+def execution_cache_key(compiled, arguments, consumer, ctx, *, semantic_only=False):
+    if semantic_only and (not hasattr(ctx, 'observation') or not hasattr(ctx, 'action_catalog')):
+        # An incomplete context cannot prove unchanged public state. Preserve
+        # the ordinary exact-revision cache, but disable no-match reuse.
+        return ''
     from ..core.refs import content_hash
     from ..core.serialization import to_primitive
     from ..evolution.aligner import _tool_signature
@@ -50,14 +54,15 @@ def execution_cache_key(compiled, arguments, consumer, ctx):
     # Ephemeral draft/Tool/Implementation IDs and source descriptions are not
     # executable identity. Preserve the actual program, parameter wiring,
     # validation contract and the consumer's authoritative obligation/state.
-    return 'execution:' + content_hash({'tools': [_tool_signature(t) for t in compiled.tools],
+    return ('search-no-match:' if semantic_only else 'execution:') + content_hash({'tools': [_tool_signature(t) for t in compiled.tools],
         'contract': canonical_atomic_contract(compiled.atomic),
         'wiring': [{'role': b.role, 'order': b.order, 'parameters': to_primitive(b.parameter_mapping)}
                    for b in implementation.tool_bindings],
         'policy': to_primitive(implementation.execution_policy),
         'grounding': to_primitive(implementation.grounding_constraints),
         'arguments': arguments, 'consumer': str(consumer.node_ref),
-        'step': consumer_step_identity(consumer), 'state': state_signature(ctx, consumer)})
+        'step': consumer_step_identity(consumer),
+        'state': state_signature(ctx, consumer, semantic_only=semantic_only)})
 
 
 def cache_lookup(ctx, key, occurrence, call_id=None):
@@ -78,7 +83,10 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
     from ..core.results import ImplementationExecutionResult, NodeExecutionStatus
     consumer = consumer or occurrence
     cache_key = execution_cache_key(compiled, preflight.normalized_arguments, consumer, ctx)
+    search_key = execution_cache_key(compiled, preflight.normalized_arguments, consumer, ctx, semantic_only=True)
     entry = cache_lookup(ctx, cache_key, occurrence, authorizing_native_call_id)
+    if entry is None:
+        entry = cache_lookup(ctx, search_key, occurrence, authorizing_native_call_id)
     if entry is not None:
         return ImplementationExecutionResult(str(compiled.implementation.ref), str(compiled.atomic.ref),
             True, False, False, False, failure_layer=entry['failure_layer'], failure_code=entry['failure_code'],
@@ -122,8 +130,12 @@ def execute_invocation(runner, compiled, preflight, occurrence, ctx, *, agent_pr
                     if link['occurrence_id'] == occurrence.occurrence_id and link['implementation_ref'] == str(compiled.implementation.ref):
                         link.update(complete_success=False, outputs_valid=False)
         transaction.failure_code = result.failure_code or 'invocation_rejected'
-    if cache_key and not result.atomic_effect_passed and result.failure_layer in {'tool', 'atomic', 'runtime_binding', 'implementation'}:
-        ctx.rejected_runtime_candidates[cache_key] = {'failure_code': result.failure_code, 'failure_layer': result.failure_layer,
+    if (cache_key and not result.atomic_effect_passed and result.failure_code != 'scope_incomplete'
+        and result.failure_layer in {'tool', 'atomic', 'runtime_binding', 'implementation'}):
+        # Semantic-state cache applies only to receipt-proven, complete searches;
+        # ordinary errors keep their original exact-revision cache behavior.
+        target_key = (search_key or cache_key) if result.failure_code == 'scope_no_match' else cache_key
+        ctx.rejected_runtime_candidates[target_key] = {'failure_code': result.failure_code, 'failure_layer': result.failure_layer,
             'search_observation_ids': [i for i in ctx.search_history.attempts if i not in history_start]
                 if getattr(ctx, 'search_history', None) is not None else []}
     return result
