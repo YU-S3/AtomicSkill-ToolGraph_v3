@@ -216,6 +216,14 @@ def test_progress_clock_no_credit_and_novel_discovery_unblocks_loop():
     before = _loop_progress(ctx, {'completed': False, 'revision': 1})
     ctx.exploration_policy_view = lambda: {'found': 'cloth_1', 'revision': 5}
     assert before == _loop_progress(ctx, {'completed': False, 'revision': 5})
+    ctx.exploration_policy_view = lambda: {'found': 'cloth_1', 'observed_at_revision': 6,
+        'public_evidence_ref': 'observation:revision:6', 'progress_since_last_grounding_change': {'accepted_actions': 9}}
+    counter_only = _loop_progress(ctx, {'completed': False})
+    ctx.exploration_policy_view = lambda: {'found': 'cloth_1', 'observed_at_revision': 9,
+        'public_evidence_ref': 'observation:revision:9', 'progress_since_last_grounding_change': {'accepted_actions': 12}}
+    assert counter_only == _loop_progress(ctx, {'completed': False})
+    ctx.exploration_policy_view = lambda: {'found': 'cloth_2', 'progress_since_last_grounding_change': {'accepted_actions': 12}}
+    assert counter_only != _loop_progress(ctx, {'completed': False})
     for _ in range(2):
         assert not guard.inspect(action_type='X', arguments={}, observation='same', catalog=[], progress=before).blocked
     assert guard.inspect(action_type='X', arguments={}, observation='same', catalog=[], progress=before).blocked

@@ -48,10 +48,12 @@ def _loop_progress(ctx, task_progress):
     clocks = {'revision', 'world_revision', 'checked_revision', 'last_checked_revision',
         'first_seen_revision', 'last_seen_revision', 'observed_at', 'timestamp',
         'source_ref', 'source_refs', 'witness_ref', 'witness_refs', 'evidence_ref', 'evidence_refs',
-        'event_id', 'action_id', 'session_id', 'inspection_count', 'attempt_count'}
+        'public_evidence_ref', 'event_id', 'action_id', 'session_id', 'inspection_count', 'attempt_count'}
     def stable(value):
         if isinstance(value, dict):
-            return {k: stable(v) for k, v in value.items() if k not in clocks}
+            return {k: stable(v) for k, v in value.items()
+                    if k not in clocks and not k.endswith('_revision')
+                    and not (k == 'accepted_actions' and type(v) is int)}
         if isinstance(value, (tuple, list)):
             return [stable(v) for v in value]
         return copy.deepcopy(value)
