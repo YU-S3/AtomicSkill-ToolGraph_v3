@@ -157,6 +157,17 @@ class LearningSourceStore:
             for key in ("input_specs", "output_specs"):
                 value[key] = sorted(({k:v for k,v in p.items() if k != "description"}
                                      for p in value[key]), key=typed_json)
+            # E1 may redundantly list a validated input authority as local.
+            # Operand validation already admits that authority through the
+            # explicit input mapping. It does not add a source fact or a new
+            # execution. Keep genuine local authorities in the comparison;
+            # their identity and scope must still match exactly.
+            input_authorities = {
+                item["authority_ref"] for item in value["input_provenance_refs"].values()
+            }
+            value["local_value_authority_refs"] = sorted(
+                set(value["local_value_authority_refs"]) - input_authorities
+            )
             return value
         return typed_json(evidence(mapped)) == typed_json(evidence(old["occurrence"]))
 

@@ -16,7 +16,7 @@ from test_r10_runtime import CheckpointHarness, StepProvider, route
 from fixtures.r921_self_tooling_cases import fixture_config
 
 
-def sources(tmp_path, monkeypatch):
+def sources(tmp_path, monkeypatch, *, historical_index=0):
     config = fixture_config(tmp_path / "bank")
     config["repair_revision"] = "R10.3"
     config["runtime"]["persistent_runtime_support_promotion"] = True
@@ -45,6 +45,8 @@ def sources(tmp_path, monkeypatch):
             proposal.local_value_authority_refs = [authority["authority_ref"] if x == old else x
                                                     for x in proposal.local_value_authority_refs]
         canonical, = bank.atomicizer.validate_and_canonicalize([proposal], normalized)
+        if number == 1:
+            canonical.occurrence_id = f"occ_{trace.trace_id}_{historical_index:03d}"
         atomic = bank._canonical_atomic_for_occurrence(canonical)
         records.append((trace, proposal, normalized, canonical, atomic))
         origin.close()
@@ -191,5 +193,44 @@ def test_G_source_capsule_revalidation_and_final_commit_conflict(tmp_path, monke
         with pytest.raises(RuntimeError, match="conflicting"):
             bank.ledger.append_transaction([], companion_write=lambda connection:
                 bank.learning_source_store.commit(connection, row, "corrupted"))
+    finally:
+        bank.close()
+
+
+def test_G_reextracted_history_with_redundant_input_authority_commits_once(tmp_path, monkeypatch):
+    """Ordinary/sidecar extraction of one source never creates two credits."""
+    from atomic_skillgraph.core.serialization import dataclass_from_dict
+    from atomic_skillgraph.evolution.atomicizer import AtomicOccurrenceProposal
+    bank, trace, context = sources(tmp_path, monkeypatch, historical_index=3)
+    try:
+        row = context["groups"][0]["history_reference"]
+        old = bank.learning_source_store.verified(bank, row)
+        proposal = dataclass_from_dict(AtomicOccurrenceProposal, old["proposal"])
+        proposal.phase_id = "reextracted_history"
+        proposal.local_value_authority_refs.extend(
+            ref["authority_ref"] for ref in proposal.input_provenance_refs.values()
+        )
+        occurrence, = bank.atomicizer.validate_and_canonicalize([proposal], old["normalized"])
+        atomic = bank._canonical_atomic_for_occurrence(occurrence)
+        historical = bank.traces.load(row["source_trace_id"])
+        reference = bank.learning_source_store.stage(historical, old["normalized"], occurrence,
+            atomic, bank.harness.profile_name, proposal=proposal)
+        assert reference["sample_key"] == row["sample_key"]
+        assert reference["source_occurrence_id"] != row["source_occurrence_id"]
+        assert reference["capsule_hash"] != row["capsule_hash"]
+        bank.ledger.append_transaction([], companion_write=lambda connection:
+            bank.learning_source_store.commit(connection, reference, row["source_trace_hash"]))
+        assert len(bank.database.rows("SELECT * FROM learning_source_index")) == 1
+        assert dict(bank.database.rows("SELECT * FROM learning_source_index")[0]) == row
+        assert bank.learning_source_store.verified(bank, row) == old
+
+        # A real local authority change is not equivalent to input redundancy.
+        payload = bank.learning_source_store.read(reference)
+        payload["occurrence"]["local_value_authority_refs"].append("foreign:authority")
+        forged = {**reference, **bank.learning_source_store._write(payload)}
+        with pytest.raises(RuntimeError, match="conflicting"):
+            bank.ledger.append_transaction([], companion_write=lambda connection:
+                bank.learning_source_store.commit(connection, forged, row["source_trace_hash"]))
+        assert dict(bank.database.rows("SELECT * FROM learning_source_index")[0]) == row
     finally:
         bank.close()
