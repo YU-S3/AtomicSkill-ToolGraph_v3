@@ -5,6 +5,7 @@ from dataclasses import replace
 from ..core.serialization import to_primitive
 from ..core.status import SkillStatus, ToolStatus
 from ..core.edges import GlobalRelationType
+from ..core.errors import AgentProtocolError
 from ..knowledge.r103_protocol import METADATA
 from .extractor_session import parse_occurrence_payload
 from .identity_matching import match_atomic, raw_hash
@@ -24,8 +25,10 @@ def prepare_sidecar(system, trace, task, context):
         audit.update(status="rejected", reason="unoffered_group")
         return state
     pair = sorted([raw_hash(normalized), group["history_reference"]["canonical_snapshot_hash"]])
-    attempt = {"attempt_key": "generalize_" + raw_hash([pair, submitted, METADATA]),
-        "source_pair_key": raw_hash(pair), "protocol_version": METADATA["generalization_schema_version"],
+    protocol = system.mechanism_profile['generalization'] if system.mechanism_profile else METADATA["generalization_schema_version"]
+    policy = {**METADATA, 'mechanism_effective_profile': system.mechanism_profile} if system.mechanism_profile else METADATA
+    attempt = {"attempt_key": "generalize_" + raw_hash([pair, submitted, policy]),
+        "source_pair_key": raw_hash(pair), "protocol_version": protocol,
         "group_id": group["group_id"], "source_snapshot_hashes_json": json.dumps(pair),
         "result_status": "rejected", "result_refs_json": "[]", "publishing_trace_id": trace.trace_id}
     state["attempt"] = attempt
@@ -34,11 +37,23 @@ def prepare_sidecar(system, trace, task, context):
         state["attempt"] = None
         return state
     try:
-        rows = submitted["source_proposals"]
+        if submitted.get('_transport_error'):
+            raise ValueError(submitted['_transport_error'])
+        historical = system.learning_source_store.verified(system, group["history_reference"])
+        if 'candidate_contract' in submitted:
+            from .shared_contract import instantiate
+            rows = instantiate(submitted, {'current': normalized['trace_id'], 'history': historical['normalized']['trace_id']})
+        else:
+            rows = submitted["source_proposals"]
         if len(rows) != 2 or sorted(r["source_slot"] for r in rows) != ["current", "history"]:
             raise ValueError("one current and one history source are required")
         parsed = {row["source_slot"]: parse_occurrence_payload(row["proposal"]) for row in rows}
-        historical = system.learning_source_store.verified(system, group["history_reference"])
+        if group.get('preparation_spans'):
+            for slot, span in group['preparation_spans'].items():
+                proposed = parsed[slot]
+                if (proposed.event_start != span['event_start'] or proposed.event_end + 1 != span['event_end']
+                        or not set(span['support_event_ids']) <= set(proposed.support_event_ids)):
+                    raise ValueError(slot + ' preparation must preserve the complete offered causal interval')
         from ..knowledge.execution_observations import execution_identity
         current_source = trace.metadata.get("execution_source", {})
         current_task_key = execution_identity(current_source, trace.trace_id, "generalization", 0)["source_independent_task_key"]
@@ -49,7 +64,7 @@ def prepare_sidecar(system, trace, task, context):
         for slot in ("current", "history"):
             validated, rejected = system.atomicizer.validate_proposed_subset([parsed[slot]], normals[slot])
             if rejected or len(validated) != 1:
-                raise ValueError(f"{slot} source does not validate independently")
+                raise ValueError(f"{slot} source does not validate independently: " + json.dumps(to_primitive(rejected)))
             canonical[slot] = validated[0]
             atomics[slot] = system._canonical_atomic_for_occurrence(validated[0])
             if atomics[slot] is None:
@@ -58,7 +73,7 @@ def prepare_sidecar(system, trace, task, context):
         if proof.status != "exact":
             raise ValueError("two source proposals do not establish one identical contract")
         # Canonical target identity, not author wording, determines repeat work.
-        attempt["attempt_key"] = "generalize_" + raw_hash([pair, atomic_contract_signature(atomics["current"]), METADATA])
+        attempt["attempt_key"] = "generalize_" + raw_hash([pair, atomic_contract_signature(atomics["current"]), policy])
         if system.database.execute("SELECT 1 FROM generalization_attempts WHERE attempt_key=?", (attempt["attempt_key"],)).fetchone():
             state["attempt"] = None
             audit.update(status="already_attempted")
@@ -72,6 +87,15 @@ def prepare_sidecar(system, trace, task, context):
             if reference is None:
                 raise ValueError("sidecar source lacks committed training identity")
             state["sources"].append((reference, source_trace))
+        if 'candidate_contract' in submitted:
+            from .shared_contract import add_program_controls
+            declarations = submitted['candidate_contract'].get('program_controls', [])
+            for instance in submitted['source_instances']:
+                slot = instance['source_slot']
+                atomics[slot], canonical[slot] = add_program_controls(atomics[slot], canonical[slot], declarations,
+                    instance.get('caller_arguments', {}), normals[slot])
+            audit['protocol'] = 'skillcompiler.shared-contract.v2'
+            audit['observed_occurrences_separate_from_program_controls'] = True
         extra = {"source_slot": "history", "role_mapping_to_primary": to_primitive(proof.proof),
             "source_boundary": system._build_builder_source_context(canonical["history"], normals["history"]),
             "evidence_support": canonical["history"].action_events}
@@ -118,6 +142,20 @@ def prepare_sidecar(system, trace, task, context):
             state["item"] = None
             state["sources"] = []
         attempt["result_status"] = "source_rejected" if state["item"] is None else "atomic_only"
+        extractor = context.get('extractor')
+        if (extractor is not None and group.get('preparation_spans') and state['item'] is None
+                and not context.get('content_repair_used')):
+            context['content_repair_used'] = True
+            audit['initial_rejection'] = str(exc)
+            audit['content_repairs'] = 1
+            try:
+                repaired = extractor.repair_generalization(submitted, str(exc))
+            except (KeyError, TypeError, ValueError, AgentProtocolError) as failure:
+                audit['repair_rejection'] = str(failure)
+            else:
+                if repaired:
+                    from .extractor_session import ExtractionBatch
+                    return prepare_sidecar(system, trace, task, {**context, 'batch': ExtractionBatch([], [repaired])})
     return state
 
 

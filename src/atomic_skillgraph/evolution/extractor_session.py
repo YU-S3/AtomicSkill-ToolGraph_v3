@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from ..agents.context_builder import ContextBuilder, EXTRACTOR_COMPOSITE_PROMPT
@@ -36,9 +36,10 @@ E2_SCHEMA = COMPOSITE_EXTRACTION_SCHEMA
 class ExtractionBatch:
     occurrences: list[AtomicOccurrenceProposal]
     generalizations: list[dict[str, Any]]
+    transport_rejections: list[dict[str, Any]] = field(default_factory=list)
 
 
-def e1_schema(groups=(), known=()):
+def e1_schema(groups=(), known=(), *, shared=False):
     schema = copy.deepcopy(E1_SCHEMA)
     from .extraction_view import reuse_schema
     schema['properties']['reuse_existing'] = reuse_schema(known, ATOMIC_EXTRACTION_SCHEMA)
@@ -50,6 +51,9 @@ def e1_schema(groups=(), known=()):
                     "items": {"type": "object", "required": ["source_slot", "proposal"], "additionalProperties": False,
                         "properties": {"source_slot": {"type": "string", "enum": ["current", "history"]},
                                        "proposal": copy.deepcopy(ATOMIC_EXTRACTION_SCHEMA)}}}}}}
+    if shared:
+        from .shared_contract import schema as shared_schema
+        schema['properties']['generalizations'] = shared_schema(groups)
     return schema
 
 
@@ -294,7 +298,7 @@ def _e2_repair_prompt(
 
 
 class ExtractorSession:
-    def __init__(self, session: Any = None, *, session_factory: Any = None) -> None:
+    def __init__(self, session: Any = None, *, session_factory: Any = None, mechanism_profile=None) -> None:
         if session is None and session_factory is None:
             raise ValueError('Extractor needs an E1 session or a stage session factory')
         self.session = session
@@ -303,6 +307,7 @@ class ExtractorSession:
         self._protocol_repair_budget = {'used': 0}
         self.context = ContextBuilder()
         self.submissions = StructuredSubmissionClient()
+        self.mechanism_profile = mechanism_profile
         self._e1_complete = False
         self._e2_complete = False
         self._e2_repair_complete = False
@@ -356,7 +361,17 @@ class ExtractorSession:
             self.session.set_usage_bucket("extractor_e1")
         try:
             from .extraction_view import REUSE_INSTRUCTION, source_reference_view, expand_source_references
+            if self.mechanism_profile:
+                from .shared_contract import HELP as shared_help
+                instruction = REUSE_INSTRUCTION + '\n' + shared_help
+            else:
+                instruction = REUSE_INSTRUCTION
             source_view, reference_expansion = source_reference_view(normalized_trace)
+            if self.mechanism_profile:
+                from .preparation_realizer import learning_view
+                source_view = learning_view(source_view)
+                generalization_groups = [{**g, 'history': learning_view(g['history'])} for g in generalization_groups]
+            self._generalization_repair_authority = (source_view, reference_expansion, generalization_groups)
             payload = self.submissions.request(
                 self.session,
                 prompt=self.context.extractor_e1(
@@ -368,7 +383,7 @@ class ExtractorSession:
                     runtime_automation_drafts=runtime_automation_drafts,
                     runtime_tool_trials=runtime_tool_trials,
                     generalization_groups=generalization_groups,
-                ).replace('POLICY_CONTEXT_JSON\n', REUSE_INSTRUCTION +
+                ).replace('POLICY_CONTEXT_JSON\n', instruction +
                     '\nYou may select reference_id from canonical_trace.source_reference_choices '
                     'instead of spelling its original_ref in authority_ref and witness/local reference lists. '
                     'These aliases expand to the original supplied refs before unchanged validation; '
@@ -378,11 +393,28 @@ class ExtractorSession:
                 description=(
                     "Submit the complete Atomic occurrence extraction proposal."
                 ),
-                schema=e1_schema(generalization_groups, known_atomic_contracts),
+                schema=e1_schema(generalization_groups, known_atomic_contracts, shared=bool(self.mechanism_profile)),
             ).value
             # Aliases belong solely to the current source, not history sidecars.
             payload['occurrences'] = expand_source_references(payload['occurrences'], reference_expansion)
             payload['reuse_existing'] = expand_source_references(payload.get('reuse_existing', []), reference_expansion)
+            for group in payload.get('generalizations', []):
+                from .extraction_view import unresolved_aliases
+                for row in group.get('source_proposals', []) + group.get('source_instances', []):
+                    field = 'proposal' if 'proposal' in row else None
+                    evidence = row[field] if field else row
+                    if row.get('source_slot') == 'current':
+                        expanded = expand_source_references(evidence, reference_expansion)
+                        if field:
+                            row[field] = expanded
+                        else:
+                            row.update(expanded)
+                        if unresolved_aliases(expanded):
+                            group['_transport_error'] = 'extractor_current_reference_namespace_invalid'
+                    # Historical aliases never borrow authority from the
+                    # current episode, even when their spelling coincides.
+                    elif unresolved_aliases(evidence):
+                        group['_transport_error'] = 'extractor_history_reference_namespace_invalid'
         except AgentProtocolError as exc:
             raise ExtractionContentError(
                 "e1",
@@ -391,16 +423,60 @@ class ExtractorSession:
             ) from exc
         self._e1_complete = True
         from .extraction_view import expand_reuse
-        proposals = [parse_occurrence_payload(item) for item in payload['occurrences']]
+        proposals, rejected = [], []
+        from .extraction_view import unresolved_aliases
+        for item in payload['occurrences']:
+            if self.mechanism_profile and unresolved_aliases(item):
+                rejected.append({'phase_id': item.get('phase_id'), 'stage': 'transport',
+                    'error_code': 'extractor_current_reference_namespace_invalid',
+                    'unresolved_refs': unresolved_aliases(item)})
+                continue
+            proposals.append(parse_occurrence_payload(item))
         try:
             for item in payload.get('reuse_existing', []):
-                proposal = parse_occurrence_payload(expand_reuse(item, known_atomic_contracts))
+                try:
+                    if self.mechanism_profile and unresolved_aliases(item):
+                        raise ValueError('extractor_current_reference_namespace_invalid')
+                    proposal = parse_occurrence_payload(expand_reuse(item, known_atomic_contracts))
+                except (KeyError, TypeError, ValueError) as exc:
+                    if not self.mechanism_profile:
+                        raise
+                    rejected.append({'phase_id': item.get('source', {}).get('phase_id'), 'stage': 'reuse_transport',
+                        'error_code': 'extractor_reuse_contract_rejected', 'error': str(exc)})
+                    continue
                 proposal.reuse_existing_ref = item['atomic_ref']
                 proposals.append(proposal)
         except (KeyError, TypeError, ValueError) as exc:
             raise ExtractionContentError('e1', 'extractor_reuse_contract_rejected', str(exc)) from exc
-        return ExtractionBatch(proposals,
-                               copy.deepcopy(payload.get("generalizations", [])))
+        return ExtractionBatch(proposals, copy.deepcopy(payload.get("generalizations", [])), rejected)
+
+    def repair_generalization(self, submitted, reason):
+        """One content repair of one offered preparation candidate, not a new E1 batch."""
+        if not self.mechanism_profile or getattr(self, '_preparation_repair_used', False):
+            return None
+        self._preparation_repair_used = True
+        self._begin_phase('e1_preparation_repair')
+        if hasattr(self.session, 'set_usage_bucket'):
+            self.session.set_usage_bucket('extractor_e1')
+        view, expansion, groups = self._generalization_repair_authority
+        from .shared_contract import HELP, schema
+        result = self.submissions.request(self.session,
+            prompt=HELP + '\nRepair only the deterministic rejection below. No new candidate, group or source task.\n'
+                + json.dumps({'rejection': reason, 'submitted': submitted,
+                    'current': view, 'offered_groups': groups}, ensure_ascii=False),
+            tool_name='submit_preparation_repair', description='Repair the single offered shared-contract candidate.',
+            schema={'type': 'object', 'required': ['generalizations'], 'additionalProperties': False,
+                'properties': {'generalizations': schema(groups)}}).value
+        from .extraction_view import expand_source_references, unresolved_aliases
+        if not result['generalizations']:
+            return None
+        item = result['generalizations'][0]
+        for row in item['source_instances']:
+            if row['source_slot'] == 'current':
+                row.update(expand_source_references(row, expansion))
+            if unresolved_aliases(row):
+                item['_transport_error'] = 'extractor_' + row['source_slot'] + '_reference_namespace_invalid'
+        return item
 
     def propose_atomics(self, *args, **kwargs) -> list[AtomicOccurrenceProposal]:
         """Legacy list consumer; delegates once, never makes a second request."""

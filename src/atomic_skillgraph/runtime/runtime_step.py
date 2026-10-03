@@ -149,6 +149,9 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
     state = executor._activate_occurrence_state(occurrence, atomic, invocations, ctx,
         plan_context_plan=plan_context_plan)
     state = {**state, "last_step_feedback": ctx.runtime_step_feedback.get(occurrence.occurrence_id, {})}
+    ctx.mechanism_profile = getattr(executor, 'mechanism_profile', None)
+    if ctx.mechanism_profile:
+        state['primitive_semantics'] = ctx.harness.primitive_action_schema()
     bindings = ctx.binding_store.runtime_prompt_projection(occurrence, atomic.inputs)
     audit: dict[str, Any] = {}
     query = getattr(executor, "runtime_resources", None)
@@ -350,6 +353,13 @@ def run_runtime_step(executor: Any, mode: str, occurrence: Any, ctx: Any,
                 )
         if not (surface is not None and call.name == 'invoke_support_atomic'):
             remember_rejection(ctx, occurrence, call, payload)
+        if getattr(ctx, 'mechanism_profile', None):
+            blocks = getattr(ctx, '_unchanged_node_blocks', {})
+            count = blocks.get(occurrence.occurrence_id, 0) + 1 if payload.get('deterministic_rejection_cache_hit') else 0
+            blocks[occurrence.occurrence_id] = count
+            ctx._unchanged_node_blocks = blocks
+            if count >= 2:
+                outcome.failure_code = 'runtime_unchanged_dependency_blocked'
         # Carry finite public feedback, never an assistant conversation or
         # Tool body, to the next fresh decision. Rollback does not erase it.
         ctx.runtime_step_feedback[occurrence.occurrence_id] = public_step_feedback(

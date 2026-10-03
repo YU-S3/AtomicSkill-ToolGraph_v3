@@ -245,6 +245,8 @@ def load_config(source: str | Path | Mapping[str, Any]) -> dict[str, Any]:
         config["_config_path"] = str(config_path)
     if int(config.get("schema_version", 0)) != 3:
         raise ValueError("AtomicSkillGraph v3 requires schema_version: 3")
+    from .mechanism_profile import resolve as resolve_mechanism_profile
+    resolve_mechanism_profile(config)
     method_patch = str(config.get("method_patch", "3.1"))
     if method_patch not in {"3.1", "3.2"}:
         raise ValueError("AtomicSkillGraph v3 requires method_patch: \"3.1\" or \"3.2\"")
@@ -491,6 +493,12 @@ class AtomicSkillGraphSystem:
             raise
         self.skills = SkillRegistry(self.artifacts, self.database)
         self.tools = ToolRegistry(self.artifacts, self.database)
+        from .mechanism_profile import bind as bind_mechanism_profile
+        try:
+            self.mechanism_profile = bind_mechanism_profile(self)
+        except Exception:
+            self.database.close()
+            raise
         if self.r103:
             from .evolution.learning_interventions import bind_bank
             try:
@@ -555,9 +563,12 @@ class AtomicSkillGraphSystem:
         thresholds = LifecycleThresholds(**{
             key: value for key, value in lifecycle_config.items() if key in threshold_names
         })
+        from .deployment.qualification import qualified
         self.candidate_policy = CandidateUsePolicy(
             exploration_quota=float(lifecycle_config.get("candidate_exploration_quota", 0.15)),
             seed=lifecycle_config.get("candidate_exploration_seed", 0),
+            qualification_lookup=(lambda ref: qualified(self.database, ref))
+                if self.mechanism_profile else None,
         )
         self.maintenance_interval = max(
             1, int(lifecycle_config.get("maintenance_interval_successes", 5))
@@ -657,6 +668,9 @@ class AtomicSkillGraphSystem:
         if support_interface not in {None, SUPPORT_INTERFACE_VERSION}:
             raise ValueError('unsupported runtime.support_interface_version')
         self.orchestrator.node_executor.support_interface_version = support_interface
+        self.orchestrator.node_executor.context_builder.mechanism_profile = self.mechanism_profile
+        self.orchestrator.node_executor.mechanism_profile = self.mechanism_profile
+        self.planner.mechanism_profile = self.mechanism_profile
         self.orchestrator.node_executor.context_builder.runtime_presentation = self.deployment_intervention.presentation
         if self.config.get('bank_release'):
             from .deployment.release_protocol import verify_deployments
@@ -940,7 +954,7 @@ class AtomicSkillGraphSystem:
 
     def _extractor_session(self, task_id: str, phase: str = "e1") -> _SessionProxy:
         return self._new_session(
-            stage="extractor", bucket=UsageBucket.EXTRACTOR_E1 if phase == "e1" else UsageBucket.EXTRACTOR_E2,
+            stage="extractor", bucket=UsageBucket.EXTRACTOR_E1 if phase in {"e1", "e1_preparation_repair"} else UsageBucket.EXTRACTOR_E2,
             session_type="ExtractorSession", occurrence_id="", task_id=task_id,
             max_turns=structured_provider_turn_cap(1),
             max_tokens=self._shared_tool_builder_tokens("evolution"),
@@ -1321,6 +1335,8 @@ class AtomicSkillGraphSystem:
             task, attempt_id=attempt_id,
         )
         trace_builder.trace.metadata.update(_trace_release_metadata(self.config))
+        if self.mechanism_profile:
+            trace_builder.trace.metadata['mechanism_effective_profile'] = dict(self.mechanism_profile)
         if learning_condition(self.config) != "Full":
             trace_builder.trace.metadata["r103_learning_intervention"] = learning_condition(self.config)
         if self.config.get("r103_interventions"):
@@ -1699,6 +1715,9 @@ class AtomicSkillGraphSystem:
         finalize_r10_metrics(trace, getattr(self, "config", {}))
         from .evolution.replay_publication import resolve as resolve_replay_publication
         resolve_replay_publication(self, trace)
+        if getattr(self, 'mechanism_profile', None) and run_mode is RuntimeMode.ONLINE:
+            from .evolution.preparation_realizer import finish
+            finish(self, trace)
         if self.r103:
             from .evolution.identity_audit import snapshot
             trace.metadata["identity_audit"] = snapshot()
@@ -1749,6 +1768,11 @@ class AtomicSkillGraphSystem:
                 self._review_task_deployments(runtime_events)
             self._maybe_run_maintenance()
             self._persist_maintenance_state()
+            if getattr(self, 'mechanism_profile', None):
+                from .deployment.qualification import qualify_routes
+                outcomes = qualify_routes(self)
+                if outcomes:
+                    atomic_write_json(self.trace_data_dir / ('qualification_after_' + trace.trace_id + '.json'), outcomes)
         return trace
 
     def _apply_prepared_promotion(
@@ -2488,6 +2512,9 @@ class AtomicSkillGraphSystem:
             task, plan, self.harness, TraceBuilder(trace_record),
             RuntimeBudget(global_action_budget=100),
         )
+        if getattr(self, '_qualification_capture', False):
+            self._qualification_initial_digest = self.harness.capture_runtime_checkpoint().state_digest
+            self._qualification_trace = trace_record
         stage = "prefix"
         try:
             for event in list(case.get("prefix") or []):
@@ -2535,6 +2562,22 @@ class AtomicSkillGraphSystem:
                         terminal_interrupted=bool(action_result.won),
                     )
             bindings = dict(case.get("bindings") or {})
+            if getattr(self, '_qualification_capture', False):
+                impl = self._qualification_implementation
+                atomic = self.skills.get_atomic(impl.abstract_ref)
+                from .runtime.input_authorization import validate_declarations, authorize
+                declarations = validate_declarations(atomic)
+                control_checks = []
+                for role in declarations:
+                    matches = [formal for b in impl.tool_bindings for formal, raw in b.parameter_mapping.items()
+                        if BindingExpression.from_dict(raw).kind is BindingExprKind.SKILL_INPUT
+                        and BindingExpression.from_dict(raw).source_role == role]
+                    if len(matches) != 1 or matches[0] not in bindings:
+                        raise ValueError('qualification control mapping is not unique and complete')
+                    checked = authorize(atomic, role, bindings[matches[0]], call_id='qualification_' + case_identity,
+                        evidence_store=ctx.evidence_store, revision=ctx.world_revision)
+                    control_checks.append({'role': role, 'binding': to_primitive(checked)})
+                trace_record.metadata['qualification_control_checks'] = control_checks
             stage = "tool"
             execution = ToolRunner(self.validation.tool).run(
                 tool, bindings, ctx, occurrence_id="tool_ir_replay",
@@ -3957,6 +4000,9 @@ class AtomicSkillGraphSystem:
             "inputs": boundary_inputs,
             "effects": deduplicated_effects,
         }
+        if getattr(self, 'mechanism_profile', None):
+            from .evolution.preparation_realizer import covered_program_events
+            normalized['covered_program_event_indices'] = covered_program_events(trace)
         return normalized
 
     def _prepare_evolution(self, trace: TraceRecord, task: HarnessTask) -> _PreparedEvolution:
@@ -3977,7 +4023,9 @@ class AtomicSkillGraphSystem:
         self._initialize_r4_learning_diagnostics(trace)
         normalized = self._normalized_learning_source(trace)
         trace.metadata["semantic_authority_source"] = str(normalized.get("semantic_authority_source", ""))
-        extractor = ExtractorSession(session_factory=lambda phase: self._extractor_session(task.task_id, phase))
+        profile = getattr(self, 'mechanism_profile', None)
+        extractor = ExtractorSession(session_factory=lambda phase: self._extractor_session(task.task_id, phase),
+                                     **({'mechanism_profile': profile} if profile else {}))
         contract = self.harness.task_contract(task)
         matcher_factory = getattr(self.harness, "contract_matcher", None)
         matcher = (
@@ -4002,6 +4050,9 @@ class AtomicSkillGraphSystem:
         if self.r103 and learning_condition(self.config) != "L-generalization":
             summaries, groups = self.learning_source_store.recall(self, trace, normalized)
             trace.metadata["generalization_recall_summaries"] = summaries
+        if getattr(self, 'mechanism_profile', None):
+            from .evolution.preparation_realizer import offer
+            groups = offer(self, trace, normalized, groups)
         request_e1 = extractor.propose_batch if self.r103 else extractor.propose_atomics
         response = request_e1(
             normalized,
@@ -4013,11 +4064,16 @@ class AtomicSkillGraphSystem:
             runtime_tool_trials=list(
                 trace.metadata.get("runtime_tool_trials", {}).values()
             ),
-            **({"generalization_groups": [{"group_id": g["group_id"], "history": g["history"]} for g in groups]} if self.r103 else {}),
+            **({"generalization_groups": [{"group_id": g["group_id"], "history": g["history"],
+                **({'preparation_spans': g['preparation_spans']} if 'preparation_spans' in g else {})}
+                for g in groups]} if self.r103 else {}),
         )
         proposals = response.occurrences if self.r103 else response
         if self.r103:
-            self._generalization_context = {"groups": groups, "normalized": normalized, "batch": response}
+            self._generalization_context = {"groups": groups, "normalized": normalized, "batch": response,
+                **({'extractor': extractor} if profile else {})}
+            if profile:
+                trace.metadata.setdefault('extraction_occurrence_rejections', []).extend(response.transport_rejections)
         if not proposals:
             trace.metadata["extraction"].update({"e1_proposed": 0, "e1_validated": 0, "reviewed_no_proposal": True})
             return _PreparedEvolution([], None, {}, str(trace.runtime_plan.get("source_composite_ref") or ""))
@@ -6262,6 +6318,10 @@ class AtomicSkillGraphSystem:
         # already live in immutable history; the empty mutable queue key does
         # not cross the snapshot boundary.
         self.repair_store.remove_queue_metadata()
+        if getattr(self, 'mechanism_profile', None):
+            from .deployment.freeze_consistency import converge
+            consistency = converge(self)
+            atomic_write_json(self.trace_data_dir / 'freeze_consistency.json', consistency)
         destination = Path(destination).expanduser().resolve()
         if destination.exists():
             raise FileExistsError(destination)
@@ -6334,6 +6394,7 @@ class AtomicSkillGraphSystem:
                 "source_data_dir": str(self.data_dir),
                 "provenance": to_primitive(dict(provenance or {})),
                 **(R103_METADATA if self.r103 else {}),
+                **({'mechanism_effective_profile': self.mechanism_profile} if self.mechanism_profile else {}),
             })
             os.replace(temporary, destination)
             with StateDatabase(destination / "state.sqlite3", readonly=True, r103=self.r103) as frozen_db:

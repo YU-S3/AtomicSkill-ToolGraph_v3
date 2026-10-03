@@ -75,6 +75,18 @@ def expand_source_references(payload, expansion):
     return visit(copy.deepcopy(payload))
 
 
+def unresolved_aliases(payload):
+    """Inspect reference slots only; episode strings containing e1ref are not refs."""
+    aliases = set()
+    class Probe(dict):
+        def get(self, key, default=None):
+            if isinstance(key, str) and key.startswith('e1ref:'):
+                aliases.add(key)
+            return default
+    expand_source_references(payload, Probe())
+    return sorted(aliases)
+
+
 def reuse_contracts(known):
     result = {}
     for item in known:

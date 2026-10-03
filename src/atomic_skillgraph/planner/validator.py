@@ -1304,7 +1304,8 @@ class PlannerValidator:
         for occurrence in plan.occurrences:
             atomic = self.skills.get_atomic(occurrence.node_ref)
             atomics[occurrence.step_id] = atomic
-            refs_ok &= skill_status_usable(atomic.status, mode)
+            from ..deployment.qualification import registry_usable
+            refs_ok &= registry_usable(self.skills, atomic.ref, atomic.status, mode)
             profiles = atomic.metadata.get("harness_profiles") or []
             harness_ok &= not profiles or harness_profile in profiles
         checks["node_refs_exist_and_usable"] = refs_ok

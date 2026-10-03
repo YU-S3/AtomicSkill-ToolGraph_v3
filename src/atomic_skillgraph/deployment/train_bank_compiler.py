@@ -26,6 +26,31 @@ from .workflow_entry_closure import audit_workflow
 VERSION='scienceworld.train-bank-compiler.v1'
 
 
+def qualification_inventory(system):
+    """Common Train deployment evidence; no generation or new success credit."""
+    from ..governance.ledger import EvidenceEvent, EvidenceEventType
+    from .qualification import verify, VERSION as qualification_version
+    if not system.mechanism_profile:
+        return None
+    certificates = {}
+    for row in system.database.rows('SELECT * FROM evidence_events WHERE event_type=? ORDER BY rowid',
+                                   (EvidenceEventType.DEPLOYMENT_QUALIFIED.value,)):
+        event = EvidenceEvent.from_row(row)
+        certificate = verify(event, system.database)
+        digest = event.metadata['certificate_hash']
+        certificates.setdefault(digest, {
+            'certificate_hash': digest,
+            'capsule_path': 'artifacts/deployment_qualification/' + digest + '.json',
+            'kind': certificate.get('kind', 'production_program'),
+            'artifact_hashes': certificate['artifact_hashes'],
+            'harness_profile': certificate['harness_profile'],
+            'sources': [{key: case[key] for key in ('sample_key', 'source_trace_hash',
+                        'independent_task_key', 'initial_state_digest')} for case in certificate.get('cases', [])],
+            'online_direct_success_credit': False})
+    return {'version': qualification_version, 'certificates': list(certificates.values()),
+            'current_preflight_required': True, 'new_credit': False}
+
+
 def bank_digest(bank):
     from ..system import AtomicSkillGraphSystem
     with StateDatabase(Path(bank)/'state.sqlite3',readonly=True,r103=True) as db:

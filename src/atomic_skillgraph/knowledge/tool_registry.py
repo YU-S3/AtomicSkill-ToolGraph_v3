@@ -62,8 +62,12 @@ class ToolRegistry:
         )
         return [
             ToolRef(row["logical_id"], row["version"]) for row in rows
-            if mode is None or tool_status_usable(row["status"], mode)
+            if mode is None or self.usable(ToolRef(row['logical_id'], row['version']), row['status'], mode)
         ]
+
+    def usable(self, ref, status, mode):
+        from ..deployment.qualification import usable
+        return usable(self.database, str(ref), status, mode, 'tool')
 
     def tools(self, *, mode: RuntimeMode | str | None = None) -> list[ToolAsset]:
         return [self.get(ref) for ref in self.list_refs(mode=mode)]

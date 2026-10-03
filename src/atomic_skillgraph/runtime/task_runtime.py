@@ -82,11 +82,13 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
     from .interventions import policy
     intervention = policy(ctx)
     consumer = TaskConsumer()
+    ctx.mechanism_profile = getattr(executor, 'mechanism_profile', None)
     ctx.clear_active_occurrence()
     kind = 'cold_start_dynamic_continuation' if cold_start_continuation else 'task_rescue' if rescue else 'full_dynamic'
     session_kind = 'runtime_step_dynamic_cold_start_continuation' if cold_start_continuation else 'runtime_step_dynamic'
     span = ctx.trace_builder.start_span(kind, '', learnable=True)
     guard, failure_code, request, feedback = ActionLoopGuard(), '', None, {}
+    cached_blocks = 0
     try:
         while not ctx.execution_terminal():
             # New decision sessions do not create a resource pool. System's
@@ -123,6 +125,9 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                      "capability_candidates": to_primitive(candidates), "last_step": feedback,
                      "continuation_context": continuation_context or {},
                      "automation_request": request}
+            if getattr(executor, 'mechanism_profile', None):
+                frame['task_contract'] = to_primitive(ctx.task_contract)
+                frame['primitive_semantics'] = ctx.harness.primitive_action_schema()
             resources = getattr(executor, 'runtime_resources', None)
             frame['remaining_resources'] = resources(consumer.occurrence_id) if resources else {}
             draft_step = request is not None
@@ -175,6 +180,11 @@ def run_dynamic(executor, ctx, *, rescue=False, cold_start_continuation=False, c
                 elif call.name == 'invoke_support_atomic':
                     payload = executor._invoke_support_atomic_call(call, session, consumer, ctx, None, candidates,
                         surface=surface)
+                    if ctx.mechanism_profile:
+                        cached_blocks = cached_blocks + 1 if payload.get('deterministic_rejection_cache_hit') else 0
+                        if cached_blocks >= 2:
+                            failure_code = 'runtime_unchanged_dependency_blocked'
+                            payload['unresolved_dependency'] = payload.get('preflight_failure_code') or payload.get('error')
                 else:
                     payload = {"accepted": True, "status": call.arguments.get('status')}
                     failure_code = 'benchmark_failure'

@@ -73,7 +73,7 @@ def provisional_atomic_view(record: Any) -> AbstractAtomicSkill:
         failure_modes=[],
         guideline=dict(record.seeded_guideline),
         metadata={
-            "origin": "failure_side_provisional",
+            "origin": getattr(record, 'origin', 'failure_side_provisional'),
             "harness_profiles": [record.harness_profile],
         },
         status=SkillStatus.DRAFT,
@@ -115,6 +115,14 @@ class ProvisionalNodeExecutor:
             effect = self.node_executor.run_agent_node(occurrence, ctx, mode="seeded", atomic_override=atomic)
             if effect.atomic_effect_passed:
                 resolved, witness_refs = self._record_success(effect, occurrence, ctx)
+                sessions = {s.session_id for s in ctx.trace_builder.trace.agent_sessions
+                            if s.occurrence_id == occurrence.occurrence_id}
+                if (getattr(provisional, 'origin', '') == 'dynamic_gap' and any(
+                        turn.session_id in sessions for turn in ctx.trace_builder.trace.agent_turns)):
+                    # A real Agent step already bootstrapped this mixed graph.
+                    # Validated dataflow may now enter ordinary ready programs;
+                    # no second, artificial bootstrap decision is required.
+                    ctx.graph_bootstrap_completed = True
             else:
                 failure_code = effect.failure_code or "provisional_atomic_effect_failed"
         except AtomicSkillGraphError as exc:

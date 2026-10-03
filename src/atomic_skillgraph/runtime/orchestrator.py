@@ -299,7 +299,7 @@ class RuntimeOrchestrator:
             self._persist_v32_task_local_assets(ctx)
             return ctx.trace_builder.finish()
 
-        if plan.source == "cold_start":
+        if plan.source in {"cold_start", "mixed_execution"}:
             return self._run_cold_start(ctx, mode=mode)
 
         if _task_terminal(ctx):
@@ -578,6 +578,14 @@ class RuntimeOrchestrator:
                     mode=mode,
                 )
                 implementation_refs = [item.ref for item in implementations]
+            elif step.candidate_source is ColdStartCandidateSource.DYNAMIC_GAP:
+                from ..planner.dynamic_gaps import runtime_record
+                value = ctx.plan.planner_audit['dynamic_gaps'][step.candidate_ref]
+                provisional = runtime_record(value)
+                provisionals[step.step_id] = provisional
+                atomic = provisional_atomic_view(provisional)
+                atomic_ref = atomic.ref
+                implementation_refs = []
             else:
                 if self.failure_knowledge is None:
                     raise RuntimeError(
@@ -861,7 +869,7 @@ class RuntimeOrchestrator:
                         occurrence,
                     )
                 )
-            elif step.candidate_source is ColdStartCandidateSource.PROVISIONAL:
+            elif step.candidate_source in {ColdStartCandidateSource.PROVISIONAL, ColdStartCandidateSource.DYNAMIC_GAP}:
                 ctx.binding_store.apply_data_flow(
                     execution_plan,
                     step_id,

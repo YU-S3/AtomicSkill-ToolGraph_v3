@@ -1653,6 +1653,20 @@ class AlfWorldAdapter:
             schema.append({
                 "action_type": action_type,
                 "argument_roles": list(roles),
+                "public_semantics": {
+                    "HEAT": "Environment abstract heating action on an object at the named heat source; not a simulation of appliance assembly.",
+                    "COOL": "Environment abstract cooling action at the named cooling source.",
+                    "CLEAN": "Environment abstract cleaning action at the named cleaning source.",
+                    "TAKE": "Pick up the specified currently accessible object from its named source.",
+                    "PUT": "Place the held object into or onto the named destination.",
+                    "MOVE": "Place the held object into or onto the named destination.",
+                    "GO_TO": "Navigate to the named currently available location.",
+                    "OPEN": "Open the named accessible container.",
+                    "CLOSE": "Close the named accessible container.",
+                    "EXAMINE": "Inspect the named accessible entity.",
+                    "USE": "Use the named available entity according to the public action catalog.",
+                }.get(action_type, "Execute this primitive only when its exact arguments appear in the current public action catalog."),
+                "applicability": "The current public action catalog is authoritative; description alone grants no action or effect.",
             })
         schema.extend([
             {"action_type": "LOOK", "argument_roles": []},

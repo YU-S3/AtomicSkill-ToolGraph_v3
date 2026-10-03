@@ -110,7 +110,8 @@ class InvocationCompiler:
     ) -> ImplementationInvocationSpec:
         if implementation.abstract_ref != atomic.ref:
             raise ValueError("implementation abstract_ref does not match Atomic")
-        if not skill_status_usable(implementation.status, self.mode):
+        from ..deployment.qualification import registry_usable
+        if not registry_usable(self.skills, implementation.ref, implementation.status, self.mode, 'implementation'):
             raise ValueError("implementation lifecycle status is not usable")
         by_ref = {str(tool.ref): tool for tool in tools}
         if len(by_ref) != len(implementation.tool_bindings):
@@ -127,7 +128,7 @@ class InvocationCompiler:
         tool_outputs: set[tuple[str, str]] = set()
         for binding in sorted(implementation.tool_bindings, key=lambda item: item.order):
             tool = by_ref.get(str(binding.tool_ref))
-            if tool is None or not tool_status_usable(tool.status, self.mode):
+            if tool is None or not registry_usable(self.tools, tool.ref, tool.status, self.mode, 'tool'):
                 raise ValueError(f"Tool ref unavailable or unusable: {binding.tool_ref}")
             normalize_entry_contract(tool.interface.get('entry_contract'), tool.signature.get('properties', {}))
             required = required_tool_parameters(tool.signature)
@@ -354,6 +355,15 @@ class InvocationCompiler:
                     'required_input_roles': list(compiled.spec.input_schema.get('required', [])),
                     'entry_requirements': [to_primitive(t.interface['entry_contract']) for t in tools],
                     'availability': 'requires_runtime_preflight'})
+                from ..deployment.qualification import profile_enabled, qualified
+                database = getattr(self.skills, 'database', None)
+                if database is not None and profile_enabled(database):
+                    routes[-1]['deployable_program_available'] = all(
+                        getattr(item.status, 'value', item.status) in {'active', 'preferred'}
+                        or qualified(database, str(item.ref)) for item in (implementation, *tools))
+                    routes[-1]['availability'] = {'state': 'preparable',
+                        'gaps': ['input:' + role for role in compiled.spec.input_schema.get('required', [])]
+                            + ['current entry conditions require production preflight']}
             except (KeyError, ValueError, TypeError) as exc:
                 rejected.append({'implementation_ref': str(implementation.ref), 'reason': str(exc)})
         return {'active_program_available': any(r['active_program_available'] for r in routes),
@@ -361,13 +371,14 @@ class InvocationCompiler:
                 'required_upstream_outputs': 'determined_by_explicit_plan_bindings'}
 
     def _compatibility_failure(self, compiled):
+        from ..deployment.qualification import registry_usable
         reason = ""
         profiles = compiled.implementation.compatibility.get("harness_profiles") or []
         if profiles and self.harness.profile_name not in profiles:
             reason = "Harness profile incompatible"
-        elif not skill_status_usable(compiled.implementation.status, self.mode):
+        elif not registry_usable(self.skills, compiled.implementation.ref, compiled.implementation.status, self.mode, 'implementation'):
             reason = "Implementation status unusable"
-        elif any(not tool_status_usable(tool.status, self.mode) or tool.safety.get("blocked") for tool in compiled.tools):
+        elif any(not registry_usable(self.tools, tool.ref, tool.status, self.mode, 'tool') or tool.safety.get("blocked") for tool in compiled.tools):
             reason = "Tool unavailable or unsafe"
         if reason:
             return ToolCallPreflightResult(False, str(compiled.implementation.ref), failure_layer="implementation",
@@ -380,7 +391,8 @@ class InvocationCompiler:
         from ..knowledge.identity_index import IdentityIndex
         import json
         atomic = self.skills.get_atomic(occurrence.node_ref)
-        if not skill_status_usable(atomic.status, self.mode):
+        from ..deployment.qualification import registry_usable
+        if not registry_usable(self.skills, atomic.ref, atomic.status, self.mode):
             return []
         current = binding_store.snapshot_for_node(occurrence)
         routes = []

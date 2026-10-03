@@ -281,6 +281,9 @@ def train_dev16(config_path, output, learning_condition="Full", *, fixed_entries
         if maintenance.pending_count:
             raise RuntimeError("finite training maintenance left pending repairs")
         artifact_audit_snapshot(system.database)
+        if system.mechanism_profile:
+            from atomic_skillgraph.deployment.freeze_consistency import converge
+            atomic_create_json(output / 'freeze_consistency.json', converge(system))
         final_digest = system.knowledge_digest()
         if selection_identity is not None:
             from atomic_skillgraph.deployment.train_review import review_train_deployment
@@ -289,6 +292,8 @@ def train_dev16(config_path, output, learning_condition="Full", *, fixed_entries
             "source_task_manifest_hash":manifest.task_manifest_hash,"source_final_knowledge_digest":final_digest,
             "source_llm_config_hash":hash_config(config["llm"]),"experiment_role":"finite_training_validation",
             "learning_condition":learning_condition,**METADATA}
+        if system.mechanism_profile:
+            source['mechanism_effective_profile'] = system.mechanism_profile
         system.freeze(output / "frozen_bank",provenance=source)
         if system.knowledge_digest() != final_digest:
             raise RuntimeError("freeze mutated source knowledge")
@@ -297,6 +302,8 @@ def train_dev16(config_path, output, learning_condition="Full", *, fixed_entries
             "official_successes":sum(r["official_won"] for r in rows),"cases":rows,
             "wall_seconds":time.monotonic()-started,"code_hash":code,"knowledge_digest":final_digest,
             "maintenance":to_primitive(maintenance),"total_tokens":sum(e.usage.total_tokens for e in system.usage.events)}
+        if system.mechanism_profile:
+            result['mechanism_effective_profile'] = system.mechanism_profile
         from experiments.r103_metrics import bank_metrics, aggregate
         result["bank_execution_support"] = bank_metrics(system.database)
         result["r103_diagnostics"] = aggregate(rows)

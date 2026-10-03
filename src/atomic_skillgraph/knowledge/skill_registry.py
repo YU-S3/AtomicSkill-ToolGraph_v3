@@ -190,8 +190,12 @@ class SkillRegistry:
         )
         return [
             SkillRef(row["logical_id"], row["version"]) for row in rows
-            if mode is None or skill_status_usable(row["status"], mode)
+            if mode is None or self.usable(SkillRef(row['logical_id'], row['version']), row['status'], mode, kind)
         ]
+
+    def usable(self, ref, status, mode, kind='atomic'):
+        from ..deployment.qualification import usable
+        return usable(self.database, str(ref), status, mode, kind)
 
     def atomics(self, *, mode: RuntimeMode | str | None = None) -> list[AbstractAtomicSkill]:
         return [self.get_atomic(ref) for ref in self.list_refs("atomic", mode=mode)]
@@ -212,7 +216,7 @@ class SkillRegistry:
         result = {}
         for item in items:
             item = resolve_implementation(self, item.ref, abstract_ref)
-            if not skill_status_usable(item.status, mode):
+            if not self.usable(item.ref, item.status, mode, 'implementation'):
                 continue
             if str(item.ref) in blocked or any(str(b.tool_ref) in blocked for b in item.tool_bindings):
                 continue

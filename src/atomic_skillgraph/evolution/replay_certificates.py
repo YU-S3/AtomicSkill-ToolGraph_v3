@@ -147,3 +147,29 @@ class ReplayCertificates:
             case = event.metadata["case"]
             cases.setdefault(content_hash(case), case)
         return list(cases.values())
+
+    def cases_for(self, tool: ToolAsset, semantic_profile: str) -> list[dict[str, Any]]:
+        """Case *inputs*, not execution credit, under a verified alpha mapping."""
+        from ..core.serialization import dataclass_from_dict
+        from .identity_matching import match_tool, raw_hash, MAX_SEARCH_STATES
+        cases, remaining = {}, MAX_SEARCH_STATES
+        rows = self.ledger.database.rows('SELECT * FROM evidence_events WHERE event_type=? '
+            "AND json_extract(metadata_json,'$.execution_semantic_profile')=? ORDER BY rowid",
+            (EvidenceEventType.REPLAY_VALIDATED.value, semantic_profile))
+        for row in rows:
+            metadata = EvidenceEvent.from_row(row).metadata
+            if (metadata.get('replay_authority_version') != self.authority_version
+                    or metadata.get('case_hash') != content_hash(metadata.get('case'))
+                    or not isinstance(metadata.get('source_executable_payload'), dict)):
+                continue
+            original = dataclass_from_dict(ToolAsset, metadata['source_executable_payload'])
+            if raw_hash(original) != metadata.get('source_executable_raw_hash'):
+                continue
+            identity = match_tool(original, tool, max_states=remaining)
+            remaining -= identity.search_states
+            if identity.status == 'exact':
+                case = mapped_case_body(metadata['case'], identity.proof)
+                cases.setdefault(content_hash(case), case)
+            if remaining <= 0:
+                break
+        return list(cases.values())

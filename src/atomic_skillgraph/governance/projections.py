@@ -76,6 +76,7 @@ class ArtifactStats:
     last_event_rowid: int = 0
     last_event_id: str = ""
     execution_support: dict[str, Any] = field(default_factory=dict)
+    deployment_qualification: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.artifact_kind = str(self.artifact_kind).casefold()
@@ -281,6 +282,15 @@ class ArtifactStats:
         self._apply_canonical_support(event)
 
         name = event.event.value
+        if event.event is EvidenceEventType.DEPLOYMENT_QUALIFIED:
+            from ..deployment.qualification import VERSION
+            if event.metadata.get('version') != VERSION:
+                raise ProjectionCorruptionError('unknown deployment qualification protocol')
+            self.deployment_qualification[event.metadata['certificate_hash']] = {
+                'event_id': event.event_id, 'ledger_rowid': rowid,
+                'independent_task_keys': sorted(c['independent_task_key'] for c in event.metadata['certificate'].get('cases', [])),
+                'kind': event.metadata['certificate'].get('kind', 'program_execution'),
+                'online_credit': False}
         self.event_counts[name] = self.event_counts.get(name, 0) + 1
         _add_unique(self.task_ids, event.task_id)
         event_tasks = self.event_task_ids.setdefault(name, [])
@@ -429,6 +439,7 @@ class ArtifactStats:
             "last_event_rowid": self.last_event_rowid,
             "last_event_id": self.last_event_id,
             "execution_support": self.execution_support,
+            **({'deployment_qualification': self.deployment_qualification} if self.deployment_qualification else {}),
         }
 
     @classmethod

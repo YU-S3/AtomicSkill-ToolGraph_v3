@@ -42,6 +42,22 @@ SessionFactory = Callable[[str, str], Any]
 from ..agents.protocol import ONE_NATIVE_CALL_PREFIX as _ONE_NATIVE_CALL
 
 
+def _loop_progress(ctx, task_progress):
+    """Goal/public discovery progress, not another clock tick or opaque witness id."""
+    import copy
+    clocks = {'revision', 'world_revision', 'checked_revision', 'last_checked_revision',
+        'first_seen_revision', 'last_seen_revision', 'observed_at', 'timestamp',
+        'source_ref', 'source_refs', 'witness_ref', 'witness_refs', 'evidence_ref', 'evidence_refs',
+        'event_id', 'action_id', 'session_id', 'inspection_count', 'attempt_count'}
+    def stable(value):
+        if isinstance(value, dict):
+            return {k: stable(v) for k, v in value.items() if k not in clocks}
+        if isinstance(value, (tuple, list)):
+            return [stable(v) for v in value]
+        return copy.deepcopy(value)
+    return stable({'task_progress': task_progress, 'public_search': ctx.exploration_policy_view()})
+
+
 class NodeExecutor:
     def __init__(
         self, invocation_compiler: InvocationCompiler, validation: ValidationEngine,
@@ -75,7 +91,13 @@ class NodeExecutor:
         ready, reasons = [], []
         for compiled in invocations:
             statuses = [compiled.implementation.status, *(t.status for t in compiled.tools)]
-            if any(getattr(status, "value", status) not in {"active", "preferred"} for status in statuses):
+            from ..deployment.qualification import qualified
+            refs = [str(compiled.implementation.ref), *(str(t.ref) for t in compiled.tools)]
+            database = getattr(self.invocation_compiler.skills, 'database', None)
+            if any(getattr(status, "value", status) not in {"active", "preferred"}
+                    and not (database is not None and getattr(ctx, 'mechanism_profile', None)
+                             and getattr(status, 'value', status) == 'candidate' and qualified(database, ref))
+                    for ref, status in zip(refs, statuses)):
                 reasons.append({"implementation_ref": str(compiled.implementation.ref), "reason": "candidate_not_automatic"})
                 continue
             checked = self.invocation_compiler.autonomous_preflight(
@@ -734,6 +756,8 @@ class NodeExecutor:
             arguments=spec.arguments,
             observation=ctx.observation,
             catalog=ctx.action_catalog,
+            **({'progress': _loop_progress(ctx, self._task_progress_policy(ctx))}
+               if getattr(ctx, 'mechanism_profile', None) else {}),
         )
         if loop.blocked:
             payload = {

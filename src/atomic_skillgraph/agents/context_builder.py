@@ -170,13 +170,18 @@ class ContextBuilder:
         original_presentation = getattr(self, "runtime_presentation", "new") == "old"
         from .node_context import project_node_context
         node_audit = None
-        if not original_presentation:
+        if not original_presentation and not getattr(self, 'mechanism_profile', None):
             payload, node_audit = project_node_context(payload, native_tool_specs=native_tool_specs)
         projected, audit = project_runtime_payload(payload, native_tool_specs=native_tool_specs,
                                                   expression_enabled=not original_presentation)
         if node_audit is not None:
             audit['node_context'] = node_audit
         projected, lean_instruction = self._release_projection(projected, audit, support_summary_lookup)
+        if getattr(self, 'mechanism_profile', None) and not runtime_automation_interface:
+            from .decision_frame import project_decision_frame, HELP
+            projected, audit['decision_frame'] = project_decision_frame(
+                projected, scope='node', native_tool_specs=native_tool_specs)
+            lean_instruction += '\n\n' + HELP
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         rendered = _render(
@@ -241,6 +246,11 @@ class ContextBuilder:
         projected, audit = project_runtime_payload(payload, native_tool_specs=native_tool_specs,
                                                   expression_enabled=not original_presentation)
         projected, lean_instruction = self._release_projection(projected, audit, support_summary_lookup)
+        if getattr(self, 'mechanism_profile', None) and not payload.get('runtime_automation_interface'):
+            from .decision_frame import project_decision_frame, HELP
+            projected, audit['decision_frame'] = project_decision_frame(
+                projected, scope='task', native_tool_specs=native_tool_specs)
+            lean_instruction += '\n\n' + HELP
         if projection_audit is not None:
             projection_audit.update(copy.deepcopy(audit))
         rendered = _render(
@@ -339,6 +349,8 @@ class ContextBuilder:
         # full trace, full planner history, full skill bank, or old Tool bodies.
         payload = {
             "canonical_atomic": atomic_view,
+            **({'program_control_authorization': dict(atomic_mapping.get('validator_spec') or {}).get('input_authorization')}
+               if dict(atomic_mapping.get('validator_spec') or {}).get('control_input_protocol') == 'skillcompiler.shared-contract.v2' else {}),
             **({"additional_evidence_sources": _policy_value(list(additional_evidence_sources))}
                if additional_evidence_sources else {}),
             "output_semantic_constraints": _policy_value(dict(

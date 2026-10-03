@@ -24,6 +24,7 @@ class EvidenceEventType(str, Enum):
     VALIDATED = "validated"
     REPLAY_VALIDATED = "replay_validated"
     REPLAY_REJECTED = "replay_rejected"
+    DEPLOYMENT_QUALIFIED = "deployment_qualified"
     EXECUTION_ATTRIBUTED = "execution_attributed"
     CANONICAL_SUPPORT_ATTESTED = "canonical_support_attested"
     SELECTED = "selected"
@@ -261,6 +262,9 @@ class EvidenceLedger:
         existing_duplicates = 0
         with self.database.transaction() as connection:
             for event in unique:
+                if event.event is EvidenceEventType.DEPLOYMENT_QUALIFIED:
+                    from ..deployment.qualification import verify
+                    verify(event, self.database)
                 id_row = connection.execute(
                     "SELECT rowid,* FROM evidence_events WHERE event_id=?", (event.event_id,)
                 ).fetchone()

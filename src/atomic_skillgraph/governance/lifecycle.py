@@ -21,6 +21,15 @@ from ..knowledge.database import StateDatabase
 from .projections import ArtifactStats, LifecycleProjection
 
 
+def _frozen_child_usable(database, row, projected_statuses):
+    from ..deployment.qualification import usable
+    current = str(row['status'])
+    projected = (projected_statuses or {}).get(str(row['artifact_ref']), current)
+    # A not-yet-committed promotion remains ineligible until the next bounded
+    # convergence review. Suppression always overrides any qualification.
+    return projected == current and usable(database, str(row['artifact_ref']), current, 'frozen', 'atomic')
+
+
 @dataclass(frozen=True)
 class LifecycleThresholds:
     atomic_active_independent_support: int = 2
@@ -661,11 +670,7 @@ class LifecycleController:
                 str(row["artifact_ref"])
                 for row in rows
                 if str(row["artifact_kind"]) == "atomic"
-                and str(row["status"]) == SkillStatus.ACTIVE.value
-                and (
-                    projected_statuses or {}
-                ).get(str(row["artifact_ref"]), str(row["status"]))
-                == SkillStatus.ACTIVE.value
+                and _frozen_child_usable(self.database, row, projected_statuses)
             }
             blocked.update(child_refs - frozen_usable)
         return not blocked, tuple(sorted(blocked))
@@ -805,6 +810,7 @@ class CandidateUsePolicy:
 
     exploration_quota: float = 0.15
     seed: int | str = 0
+    qualification_lookup: Any = None
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.exploration_quota <= 1.0:
@@ -823,6 +829,9 @@ class CandidateUsePolicy:
         explicit_exploration: bool = False,
     ) -> bool:
         mode = RuntimeMode(mode)
+        if (mode is RuntimeMode.FROZEN and str(getattr(status, 'value', status)) == 'candidate'
+                and self.qualification_lookup is not None and self.qualification_lookup(artifact_ref)):
+            return True
         if not status_usable(artifact_kind, status, mode):
             return False
         value = str(getattr(status, "value", status))

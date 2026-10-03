@@ -346,7 +346,22 @@ class PlannerPipeline:
             )
 
         session = self.session_factory(task, contract)
-        requirement_agent = RequirementAgent(session)
+        known_contracts = []
+        if getattr(self, 'mechanism_profile', None):
+            # Bounded interfaces, never implementations or private environment facts.
+            refs = self.skills.list_refs('atomic', mode=mode)
+            scored = []
+            goal_words = set(task.goal.casefold().split())
+            for ref in refs:
+                atomic = self.skills.get_atomic(ref)
+                score = len(goal_words & set(atomic.summary.casefold().split()))
+                scored.append((score, str(ref), atomic))
+            for _, _, atomic in sorted(scored, key=lambda row: (-row[0], row[1]))[:8]:
+                known_contracts.append({'ref': str(atomic.ref), 'summary': atomic.summary,
+                    'inputs': to_primitive(atomic.inputs), 'outputs': to_primitive(atomic.outputs),
+                    'preconditions': to_primitive(atomic.preconditions), 'effects': to_primitive(atomic.effects)})
+        requirement_agent = RequirementAgent(session, **({'predicate_specs': harness.semantic_predicate_schema(),
+            'known_contracts': known_contracts} if getattr(self, 'mechanism_profile', None) else {}))
         workflow_agent = WorkflowAgent(session)
         try:
             bundle = requirement_agent.propose(task, contract, initial_observation, harness.profile_name)
@@ -438,20 +453,21 @@ class PlannerPipeline:
             audit.atomic_search_p1r = to_primitive(search.template_results)
 
         if not search.full_coverage:
-            if mode is RuntimeMode.FROZEN or not self.cold_start_enabled:
+            mixed = bool(getattr(self, 'mechanism_profile', None))
+            if (mode is RuntimeMode.FROZEN or not self.cold_start_enabled) and not mixed:
                 audit.final_outcome = "full_dynamic"
                 audit.fallback_reason = "planner_requirement_uncovered"
                 return RuntimeLinearPlan.full_dynamic(
                     task.task_id, contract, reason=audit.fallback_reason,
                     audit=_planner_audit_payload(audit),
                 )
-            if self.provisional_retriever is None or self.failure_experience_retriever is None:
+            if not mixed and (self.provisional_retriever is None or self.failure_experience_retriever is None):
                 raise RuntimeError("online cold start is enabled but failure-side retrievers are not constructed")
-            provisional = self.provisional_retriever.retrieve(
+            provisional = {} if mixed else self.provisional_retriever.retrieve(
                 search.missing_instances,
                 harness_profile=harness.profile_name,
             )
-            experiences = self.failure_experience_retriever.retrieve(
+            experiences = [] if mixed else self.failure_experience_retriever.retrieve(
                 contract, expansion, harness_profile=harness.profile_name,
             )
             audit.cold_start_retrieval = {
@@ -460,7 +476,11 @@ class PlannerPipeline:
                 "failure_experiences": to_primitive(experiences),
             }
             c1_session = self.cold_start_session_factory(task, contract)
-            cold_agent = ColdStartPlanner(c1_session)
+            gaps = None
+            if mixed:
+                from .dynamic_gaps import contracts_for
+                gaps = contracts_for(expansion, search, harness.profile_name)
+            cold_agent = ColdStartPlanner(c1_session, **({'dynamic_gaps': gaps} if mixed else {}))
             verified_candidates = search.instance_candidates
             try:
                 cold_proposal = cold_agent.propose(
@@ -481,6 +501,7 @@ class PlannerPipeline:
                     key: {str(item.provisional_ref) for item in values}
                     for key, values in provisional.items()
                 }
+                gap_refs = {value['instance_id']: {key} for key, value in (gaps or {}).items()}
                 candidate_roles: dict[str, set[str]] = {}
                 candidate_required_inputs: dict[str, set[str]] = {}
                 candidate_runtime_resolvable_roles: dict[str, set[str]] = {}
@@ -537,6 +558,12 @@ class PlannerPipeline:
                             for value in outputs
                             if str(value.get("name", ""))
                         }
+                for ref, value in (gaps or {}).items():
+                    inputs, outputs = value['atomic_contract']['inputs'], value['atomic_contract']['outputs']
+                    candidate_roles[ref] = {p['name'] for p in [*inputs, *outputs]}
+                    candidate_required_inputs[ref] = {p['name'] for p in inputs if p.get('required', True)}
+                    candidate_runtime_resolvable_roles[ref] = {p['name'] for p in inputs if p.get('runtime_resolvable', False)}
+                    candidate_output_roles[ref] = {p['name'] for p in outputs}
                 cold_validation = self.cold_start_validator.validate(
                     cold_proposal, expansion,
                     verified_candidates=verified_refs,
@@ -550,6 +577,7 @@ class PlannerPipeline:
                     candidate_output_roles=candidate_output_roles,
                     task_roles=task_binding_roles,
                     scaffold_max_steps=self.scaffold_max_steps,
+                    dynamic_gap_candidates=gap_refs,
                 )
                 audit.cold_start_validation = to_primitive(cold_validation)
                 if not cold_validation.passed:
@@ -574,6 +602,7 @@ class PlannerPipeline:
                         candidate_output_roles=candidate_output_roles,
                         task_roles=task_binding_roles,
                         scaffold_max_steps=self.scaffold_max_steps,
+                        dynamic_gap_candidates=gap_refs,
                     )
                     audit.cold_start_repair_validation = to_primitive(cold_validation)
             except Exception as exc:
@@ -602,7 +631,7 @@ class PlannerPipeline:
                 candidate_output_roles=candidate_output_roles,
                 task_roles=task_binding_roles,
             )
-            if not scaffold.executable_step_ids:
+            if not scaffold.executable_step_ids and not mixed:
                 audit.final_outcome = "full_dynamic"
                 audit.fallback_reason = "cold_start_executable_prefix_empty"
                 plan = RuntimeLinearPlan.full_dynamic(
@@ -621,6 +650,12 @@ class PlannerPipeline:
                 cold_proposal, expansion,
                 )
             )
+            if mixed:
+                plan.source = 'mixed_execution'
+                plan.planner_audit['final_outcome'] = 'mixed_execution'
+                plan.planner_audit['dynamic_gaps'] = gaps
+                plan.planner_audit['complete_graph_coverage'] = False
+                plan.cold_start_scaffold['executable_step_ids'] = list(cold_proposal.control_sequence)
             return plan
 
         support_candidates = self.support_retriever.retrieve(

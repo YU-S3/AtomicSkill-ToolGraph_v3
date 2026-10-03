@@ -79,6 +79,7 @@ class ActionLoopGuard:
         self._history: list[tuple[str, str]] = []
         self._locked: set[tuple[str, str]] = set()
         self._consecutive_blocks = 0
+        self._progress = None
 
     @property
     def consecutive_loop_blocks(self) -> int:
@@ -91,7 +92,15 @@ class ActionLoopGuard:
         arguments: Mapping[str, Any],
         observation: str,
         catalog: Iterable[Any],
+        progress: Any = None,
     ) -> ActionLoopDecision:
+        if progress is not None:
+            signature_progress = _canonical(progress)
+            if self._progress is not None and self._progress != signature_progress:
+                self._history.clear()
+                self._locked.clear()
+                self._consecutive_blocks = 0
+            self._progress = signature_progress
         signature = action_signature(action_type, arguments)
         state = catalog_state_signature(observation, catalog)
         event = (signature, state)

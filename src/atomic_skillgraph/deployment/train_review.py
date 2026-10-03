@@ -8,7 +8,7 @@ from ..core.serialization import to_primitive
 from ..core.status import RuntimeMode
 from ..evolution.learning_interventions import training_source
 from ..runtime.invocation_compiler import InvocationCompiler
-from .train_bank_compiler import _proof_aliases
+from .train_bank_compiler import _proof_aliases, qualification_inventory
 
 VERSION = 'skillcompiler.train-deployment-review.v1'
 
@@ -52,6 +52,9 @@ def review_train_deployment(system):
             'frozen_compilable': not failures, 'failure_codes': failures,
             'ledger_backed_preferred': bool(preferred), 'current_ready': None,
             'required_input_roles': [p.name for p in system.skills.get_atomic(impl.abstract_ref).inputs if p.required]})
+        if system.mechanism_profile:
+            from .qualification import qualified
+            routes[-1]['deployment_qualified'] = qualified(system.database, str(impl.ref))
     preferences = []
     for atomic_ref in sorted({r['atomic_ref'] for r in routes}):
         eligible = {r['canonical_implementation_ref'] for r in routes
@@ -62,7 +65,12 @@ def review_train_deployment(system):
                 'reason': 'unique exact route with existing ledger-backed Preferred Tool(s)'})
     if system.knowledge_digest() != digest:
         raise RuntimeError('Read-only Train review changed raw Bank')
-    return {'version': VERSION, 'source_bank_digest': digest,
+    return {'version': 'skillcompiler.train-deployment-review.v2' if system.mechanism_profile else VERSION,
+        'source_bank_digest': digest,
+        **({'mechanism_effective_profile': system.mechanism_profile,
+            'deployment_certificates': qualification_inventory(system),
+            'qualification_policy': 'old Active OR immutable two-Train production qualification; current preflight always required'}
+           if system.mechanism_profile else {}),
         'source_execution_keys': [r['observation']['execution_key'] for r in sources],
         'canonical_tool_aliases': tools, 'canonical_implementation_aliases': aliases,
         'identity_proofs': proofs, 'assets': assets, 'routes': routes,

@@ -211,6 +211,9 @@ def _rewrite_validator_spec(
     # and the three supported output-constraint schemas are alpha-renamed.
     # In particular "$role" inside an opaque string is not a reference.
     rewritten = copy.deepcopy(payload)
+    if payload.get('control_input_protocol') == 'skillcompiler.shared-contract.v2':
+        rewritten['input_authorization'] = {input_role_map.get(role, role): copy.deepcopy(value)
+            for role, value in payload.get('input_authorization', {}).items()}
     # These are validator role-reference fields, unlike an arbitrary string
     # constant that happens to have the same spelling as a role.
     for field, mapping in (("input_role", input_role_map), ("output_role", output_role_map)):

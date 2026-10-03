@@ -150,9 +150,13 @@ def _p1r_search_context(search: list[Any]) -> list[dict[str, Any]]:
 
 
 class RequirementAgent:
-    def __init__(self, session: Any) -> None:
+    def __init__(self, session: Any, *, predicate_specs=(), known_contracts=()) -> None:
         self.session = session
         self.submissions = StructuredSubmissionClient()
+        self.predicate_specs = tuple(predicate_specs)
+        self.known_contracts = list(known_contracts)
+        from .semantic_vocabulary import requirement_schema
+        self.schema = requirement_schema(REQUIREMENT_SCHEMA, self.predicate_specs) if self.predicate_specs else REQUIREMENT_SCHEMA
 
     def propose(
         self, task: Any, contract: TaskContract, observation: str,
@@ -238,13 +242,20 @@ class RequirementAgent:
         error_code: str,
         description: str,
     ) -> PlannerRequirementBundle:
+        if self.predicate_specs:
+            from .semantic_vocabulary import vocabulary_view
+            prompt += ('\nHarness semantic vocabulary (the only legal predicates, argument names and domains): '
+                       + json.dumps(vocabulary_view(self.predicate_specs), ensure_ascii=False)
+                       + '\nRelevant existing contracts: ' + json.dumps(self.known_contracts, ensure_ascii=False)
+                       + '\nSelect/reuse the supplied TaskContract effects; do not invent synonyms. '
+                       'Native schema rejection permits only the existing single bounded protocol repair.')
         try:
             submission = self.submissions.request(
                 self.session,
                 prompt=prompt,
                 tool_name="submit_planner_requirements",
                 description=description,
-                schema=REQUIREMENT_SCHEMA,
+                schema=self.schema,
             )
         except AgentProtocolError as exc:
             raise PlannerProposalError(
@@ -253,7 +264,11 @@ class RequirementAgent:
                 layer=FailureLayer.PLANNER_REQUIREMENT,
             ) from exc
         try:
-            return requirement_bundle_from_dict(submission.value)
+            bundle = requirement_bundle_from_dict(submission.value)
+            if self.predicate_specs:
+                from .semantic_vocabulary import check_bundle
+                check_bundle(bundle, self.schema)
+            return bundle
         except (KeyError, TypeError, ValueError) as exc:
             raise PlannerProposalError(
                 error_code,

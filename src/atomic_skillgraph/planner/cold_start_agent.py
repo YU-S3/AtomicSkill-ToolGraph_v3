@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 from typing import Any
 
 from ..agents.structured_submission import (
@@ -161,9 +162,13 @@ def cold_start_plan_from_dict(value: dict[str, Any]) -> ColdStartPlanProposal:
 
 
 class ColdStartPlanner:
-    def __init__(self, session: Any) -> None:
+    def __init__(self, session: Any, *, dynamic_gaps=None) -> None:
         self.session = session
         self.submissions = StructuredSubmissionClient()
+        self.dynamic_gaps = dict(dynamic_gaps or {})
+        self.schema = copy.deepcopy(COLD_START_PLAN_SCHEMA)
+        if dynamic_gaps is not None:
+            self.schema['properties']['steps']['items']['properties']['candidate_source']['enum'] = ['verified', 'dynamic_gap']
 
     def propose(
         self,
@@ -216,13 +221,19 @@ class ColdStartPlanner:
         return self._request(prompt)
 
     def _request(self, prompt: str) -> ColdStartPlanProposal:
+        if self.dynamic_gaps:
+            prompt += ('\nThis is an explicit mixed execution graph, not a complete P0. Preserve all '
+                       'matched Verified requirements. Select dynamic_gap/dynamic only for the supplied '
+                       'gap refs, using their code-derived contract/role namespace. Validated gap outputs '
+                       'may feed forward DATA_FLOW; execution resumes the same graph.\nDynamic gaps: '
+                       + json.dumps(self.dynamic_gaps, ensure_ascii=False))
         try:
             submission = self.submissions.request(
                 self.session,
                 prompt=prompt,
                 tool_name="submit_cold_start_plan",
                 description="Submit one complete high-level cold-start plan.",
-                schema=COLD_START_PLAN_SCHEMA,
+                schema=self.schema,
             )
         except AgentProtocolError as exc:
             raise PlannerProposalError(

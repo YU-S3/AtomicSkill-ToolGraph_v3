@@ -36,7 +36,7 @@ def state_signature(ctx, occurrence, *, semantic_only=False):
         world = copy.deepcopy(world)
         world.pop('revision', None)
         if isinstance(world.get('facts'), list):
-            world['facts'] = [{k: v for k, v in fact.items() if k != 'witness_ref'}
+            world['facts'] = [{k: v for k, v in fact.items() if k not in {'witness_ref', 'revision'}}
                               for fact in world['facts']]
     return content_hash(to_primitive({
         "revision": None if semantic_only else ctx.world_revision,
@@ -84,7 +84,7 @@ def query_key(occurrence, call, ctx=None, *, selection=None):
 
 
 def cached_rejection(ctx, occurrence, call, *, selection=None):
-    signature = state_signature(ctx, occurrence)
+    signature = state_signature(ctx, occurrence, semantic_only=bool(getattr(ctx, 'mechanism_profile', None)))
     try:
         key = query_key(occurrence, call, ctx, selection=selection)
     except (KeyError, ValueError):
@@ -120,7 +120,8 @@ def remember_rejection(ctx, occurrence, call, payload, *, selection=None):
         occurrence.occurrence_id, role, copy.deepcopy(value), validation["failure_code"],
         ctx.world_revision, "exact_call_and_authoritative_state", refs,
     ) for role, value in claims.items()]
-    entry = {"query_key": key, "state_signature": state_signature(ctx, occurrence),
+    entry = {"query_key": key, "state_signature": state_signature(ctx, occurrence,
+             semantic_only=bool(getattr(ctx, 'mechanism_profile', None))),
              "tool": call.name, "candidate_group": to_primitive(candidates),
              "payload": copy.deepcopy(payload)}
     ctx.rejected_runtime_candidates[key + ":" + entry["state_signature"]] = entry
@@ -129,7 +130,7 @@ def remember_rejection(ctx, occurrence, call, payload, *, selection=None):
 
 
 def current_rejections(ctx, occurrence):
-    signature = state_signature(ctx, occurrence)
+    signature = state_signature(ctx, occurrence, semantic_only=bool(getattr(ctx, 'mechanism_profile', None)))
     selected = {}
     for value in ctx.rejected_runtime_candidates.values():
         payload = value.get('payload', {})

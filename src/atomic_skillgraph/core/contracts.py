@@ -303,6 +303,7 @@ class ColdStartCandidateSource(str, Enum):
     VERIFIED = "verified"
     PROVISIONAL = "provisional"
     UNRESOLVED = "unresolved"
+    DYNAMIC_GAP = "dynamic_gap"
 
 
 class ColdStartExecutionMode(str, Enum):

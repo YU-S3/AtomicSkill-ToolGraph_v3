@@ -1251,7 +1251,11 @@ def _latest_runtime_projection(
 
 
 def _runtime_projection_identity(payload: dict[str, Any]) -> tuple[int, str]:
-    snapshot = payload.get("current_state_snapshot")
+    if 'decision_frame' in payload:
+        from .decision_frame import expand_frame
+        snapshot = expand_frame(payload).get('state', {})
+    else:
+        snapshot = payload.get("current_state_snapshot")
     if not isinstance(snapshot, dict):
         snapshot = {}
     revision = snapshot.get("revision", payload.get("new_revision", 0))

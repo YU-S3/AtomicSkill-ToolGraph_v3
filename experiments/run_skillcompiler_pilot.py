@@ -64,9 +64,20 @@ def main():
     from atomic_skillgraph.runtime.scope_diagnostics import OUTCOME_VERSION
     selection['protocol_versions'] = {'node_context': node_version, 'e1': extraction_version,
         'realization': realization_version, 'search_outcome': OUTCOME_VERSION}
+    from atomic_skillgraph.system import load_config
+    from atomic_skillgraph.mechanism_profile import resolve
+    profile = resolve(load_config(args.config))
+    if profile:
+        selection['protocol'] = 'skillcompiler.mechanism-pilot.v2'
+        selection['mechanism_effective_profile'] = profile
+        selection['protocol_versions'].update(node_context=profile['decision_frame'],
+            generalization=profile['generalization'], qualification=profile['qualification'],
+            support=profile['support_interface_version'], discovery=profile['public_discovery_version'],
+            preparation='skillcompiler.preparation-realizer.v2')
     if args.validation_only:
         original = json.loads((output / 'selection.json').read_text(encoding='utf-8'))
         if (original['train'] != train or original['valid_seen'] != val
+                or original.get('mechanism_effective_profile') != profile
                 or original['protocol_versions'] != selection['protocol_versions']
                 or any(original['sources'][split]['sha256'] != selection['sources'][split]['sha256']
                        for split in ('train', 'valid_seen'))):

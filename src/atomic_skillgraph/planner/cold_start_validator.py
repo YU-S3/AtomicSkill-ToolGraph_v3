@@ -129,6 +129,7 @@ class ColdStartPlanValidator:
         candidate_output_roles: Mapping[str, set[str]] | None = None,
         task_roles: set[str] | None = None,
         scaffold_max_steps: int = 8,
+        dynamic_gap_candidates: Mapping[str, set[str]] | None = None,
     ) -> ValidationResult:
         checks: dict[str, bool] = {}
         errors: list[str] = []
@@ -205,6 +206,10 @@ class ColdStartPlanValidator:
                     step.candidate_ref.startswith("provisional://")
                     and not step.candidate_ref.startswith(("skill://implementation", "tool:"))
                 )
+            elif step.candidate_source is ColdStartCandidateSource.DYNAMIC_GAP:
+                source_mode_valid &= step.execution_mode is ColdStartExecutionMode.DYNAMIC
+                candidates_valid &= bool(dynamic_gap_candidates) and all(
+                    step.candidate_ref in set((dynamic_gap_candidates or {}).get(item, ())) for item in ids)
             else:
                 source_mode_valid &= (
                     step.execution_mode is ColdStartExecutionMode.DYNAMIC
