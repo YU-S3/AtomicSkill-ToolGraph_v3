@@ -955,6 +955,38 @@ def _validate_effect_witness_derivations(
     return validated, list(dict.fromkeys(extra_refs))
 
 
+def source_span_lineage(span_by_id, span_id: str, event_index: int, event_count: int) -> frozenset[str]:
+    """Original source-owner authority shared by validation and scheduling.
+
+    Provider-step spans may differ, but owners, parent ranges and action
+    coordinates must remain identical to the immutable execution evidence.
+    """
+    occurrences: set[str] = set()
+    seen: set[str] = set()
+    child = None
+    while span_id:
+        if span_id in seen:
+            raise ValueError("noncontiguous_evidence_lineage_invalid: cyclic RuntimeSpan")
+        seen.add(span_id)
+        span = span_by_id.get(span_id)
+        if span is None:
+            raise ValueError("noncontiguous_evidence_lineage_invalid: orphan RuntimeSpan")
+        start, end = span.get("action_start"), span.get("action_end")
+        if (type(start) is not int or type(end) is not int
+                or not 0 <= start <= event_index < end <= event_count
+                or span.get("learnable", True) is not True):
+            raise ValueError("noncontiguous_evidence_lineage_invalid: invalid RuntimeSpan range/authority")
+        if child and not (start <= child['action_start'] and end >= child['action_end']):
+            raise ValueError("noncontiguous_evidence_lineage_invalid: invalid parent range")
+        occurrence_id = str(span.get("occurrence_id", ""))
+        if occurrence_id:
+            occurrences.add(occurrence_id)
+        parent_id = str(span.get("parent_span_id", "") or "")
+        child = span
+        span_id = parent_id
+    return frozenset(occurrences)
+
+
 class Atomicizer:
     def __init__(self, *, semantic_value_compatible=None, legacy_source_replay=False):
         self.semantic_value_compatible = semantic_value_compatible
@@ -1027,30 +1059,7 @@ class Atomicizer:
         }
 
         def span_lineage(span_id: str, event_index: int) -> frozenset[str]:
-            occurrences: set[str] = set()
-            seen: set[str] = set()
-            child = None
-            while span_id:
-                if span_id in seen:
-                    raise ValueError("noncontiguous_evidence_lineage_invalid: cyclic RuntimeSpan")
-                seen.add(span_id)
-                span = span_by_id.get(span_id)
-                if span is None:
-                    raise ValueError("noncontiguous_evidence_lineage_invalid: orphan RuntimeSpan")
-                start, end = span.get("action_start"), span.get("action_end")
-                if (type(start) is not int or type(end) is not int
-                        or not 0 <= start <= event_index < end <= len(events)
-                        or span.get("learnable", True) is not True):
-                    raise ValueError("noncontiguous_evidence_lineage_invalid: invalid RuntimeSpan range/authority")
-                if child and not (start <= child['action_start'] and end >= child['action_end']):
-                    raise ValueError("noncontiguous_evidence_lineage_invalid: invalid parent range")
-                occurrence_id = str(span.get("occurrence_id", ""))
-                if occurrence_id:
-                    occurrences.add(occurrence_id)
-                parent_id = str(span.get("parent_span_id", "") or "")
-                child = span
-                span_id = parent_id
-            return frozenset(occurrences)
+            return source_span_lineage(span_by_id, span_id, event_index, len(events))
 
         result: list[CanonicalAtomicOccurrence] = []
         used_support_events: set[str] = set()

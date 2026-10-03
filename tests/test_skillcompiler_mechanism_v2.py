@@ -150,9 +150,11 @@ def test_alias_ordinary_reuse_sidecar_namespace_transport_and_independent_candid
 
 
 def test_preparation_intervals_exclude_covered_and_terminal_not_last_primitive_only():
-    actions = [{'event_index': i, 'event_id': 'a' + str(i), 'accepted': True, 'done': i == 6}
+    actions = [{'event_index': i, 'event_id': 'a' + str(i), 'accepted': True, 'done': i == 6,
+                'span_id': 'owner', 'before_revision': i, 'after_revision': i + 1}
         for i in range(7)]
-    source = {'actions': actions, 'covered_program_event_indices': [3, 4]}
+    source = {'actions': actions, 'covered_program_event_indices': [3, 4], 'runtime_spans': [
+        {'span_id': 'owner', 'occurrence_id': 'one', 'action_start': 0, 'action_end': 7}]}
     assert [[a['event_index'] for a in span] for span in uncovered_intervals(source)] == [[0, 1, 2]]
     view = learning_view(source)
     assert view['actions'][3]['learning_responsibility'].startswith('existing successful Program')
@@ -189,7 +191,7 @@ def test_preparation_offer_production_normalizer_and_immutable_source_readback(t
     from atomic_skillgraph.evolution.preparation_realizer import offer, finish
     from atomic_skillgraph.evolution.trace_normalizer import TraceNormalizer
     from atomic_skillgraph.evolution.realization_queue import PREFIX
-    from atomic_skillgraph.traces.schema import TraceRecord, TaskRecord, EnvironmentActionRecord
+    from atomic_skillgraph.traces.schema import TraceRecord, TaskRecord, EnvironmentActionRecord, RuntimeSpan
     from atomic_skillgraph.traces.store import TraceStore
     from atomic_skillgraph.core.refs import content_hash
     from atomic_skillgraph.core.serialization import to_primitive
@@ -199,7 +201,8 @@ def test_preparation_offer_production_normalizer_and_immutable_source_readback(t
         trace = TraceRecord('trace_' + slot, 3, TaskRecord(slot, 'fixture', 'inspect public scope', '', slot),
                             {}, {}, {}, 0.0)
         trace.environment_actions = [EnvironmentActionRecord(slot + str(i), i, 'LOOK', {}, True,
-                                     'public observation', False, False, i + 1, '') for i in range(3)]
+                                     'public observation', False, False, i + 1, slot) for i in range(3)]
+        trace.runtime_spans = [RuntimeSpan(slot, 'runtime_preparation', slot, 0, 3, None, True)]
         trace.metadata = {'method_patch': '3.2', 'semantic_state_snapshots': [
             {'revision': i, 'done': False, 'won': False, 'facts': [], 'origin': 'reset' if i == 0 else 'action'}
             for i in range(4)]}
@@ -241,6 +244,29 @@ def test_preparation_offer_production_normalizer_and_immutable_source_readback(t
     del current['covered_program_event_indices']
     assert normalized == original
     assert store.load_payload(traces[1].trace_id) == to_primitive(traces[1])
+
+
+def test_preparation_intervals_respect_original_lineage_not_provider_step_boundaries():
+    actions = [{'event_index': i, 'action_id': 'a' + str(i), 'accepted': True,
+                'span_id': 's' + str(i), 'before_revision': i, 'after_revision': i + 1}
+               for i in range(5)]
+    source = {'actions': actions, 'raw_action_count': 5, 'runtime_spans': [
+        {'span_id': 's' + str(i), 'occurrence_id': 'one' if i < 2 else 'two',
+         'action_start': i, 'action_end': i + 1, 'learnable': True} for i in range(5)]}
+    assert [[a['event_index'] for a in group] for group in uncovered_intervals(source)] == [[2, 3, 4], [0, 1]]
+    # No ID/owner mutation, no stitching over rejected/rollback/revision gaps.
+    changed = copy.deepcopy(source)
+    changed['actions'][3]['accepted'] = False
+    assert [[a['event_index'] for a in group] for group in uncovered_intervals(changed)] == [[0, 1]]
+    changed = copy.deepcopy(source)
+    changed['actions'][3]['before_revision'] = 9
+    assert [[a['event_index'] for a in group] for group in uncovered_intervals(changed)] == [[0, 1]]
+    changed = copy.deepcopy(source)
+    changed['runtime_spans'][3]['parent_span_id'] = 's0'
+    assert [[a['event_index'] for a in group] for group in uncovered_intervals(changed)] == [[0, 1]]
+    changed = copy.deepcopy(source)
+    changed['actions'] = [a for a in changed['actions'] if a['event_index'] != 3]
+    assert [[a['event_index'] for a in group] for group in uncovered_intervals(changed)] == [[0, 1]]
 
 
 def test_new_control_scope_public_entry_not_backfilled_historical_authority():

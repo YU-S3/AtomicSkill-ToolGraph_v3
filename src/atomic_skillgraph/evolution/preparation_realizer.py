@@ -5,19 +5,43 @@ VERSION = 'skillcompiler.preparation-realizer.v2'
 
 
 def uncovered_intervals(normalized):
+    from .atomicizer import source_span_lineage
     actions = sorted(normalized.get('actions', ()), key=lambda event: event['event_index'])
     intervals, current = [], []
     covered = set(normalized.get('covered_program_event_indices', []))
+    spans = {s['span_id']: s for s in normalized.get('runtime_spans', ())}
+    event_count = normalized.get('raw_action_count') or max((a['event_index'] for a in actions), default=-1) + 1
+    owner = None
+
+    def flush():
+        nonlocal current
+        if len(current) >= 2:
+            intervals.append(current)
+        current = []
+
     for event in actions:
-        if event.get('accepted') and not event.get('canonical_discarded'):
-            if event['event_index'] in covered or event.get('done') or event.get('won'):
-                if len(current) >= 2:
-                    intervals.append(current)
-                current = []
-            else:
-                current.append(event)
-    if len(current) >= 2:
-        intervals.append(current)
+        span_id = str(event.get('span_id', ''))
+        try:
+            lineage = source_span_lineage(spans, span_id, event['event_index'], event_count)
+        except ValueError:
+            # A scheduler never sends a known-invalid envelope to E1, nor
+            # invents a parent/owner to make the original validator accept it.
+            flush()
+            continue
+        if (not event.get('accepted') or event.get('canonical_discarded') or not span_id
+                or event['event_index'] in covered or event.get('done') or event.get('won')
+                or len(lineage) > 1 or type(event.get('before_revision')) is not int
+                or type(event.get('after_revision')) is not int
+                or event['after_revision'] <= event['before_revision']):
+            flush()
+            continue
+        event_owner = ('occurrence', lineage) if lineage else ('span', span_id)
+        if current and (owner != event_owner or event['event_index'] != current[-1]['event_index'] + 1
+                or event['before_revision'] != current[-1]['after_revision']):
+            flush()
+        current.append(event)
+        owner = event_owner
+    flush()
     return sorted(intervals, key=lambda group: (-len(group), group[0]['event_index']))
 
 
@@ -55,6 +79,7 @@ def offer(system, trace, normalized, groups):
     audit = trace.metadata.setdefault('preparation_realizer', {'version': VERSION,
         'candidate_limit': 1, 'independent_source_limit': 2,
         'initial_generation_limit': 1, 'content_repair_limit': 1, 'online_credit': False})
+    audit['selection_rule'] = 'complete_uncovered_contiguous_single_occurrence_lineage'
     if not groups or not intervals:
         audit.update(status='no_independent_uncovered_pair')
         return []
