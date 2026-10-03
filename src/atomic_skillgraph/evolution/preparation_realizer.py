@@ -44,7 +44,7 @@ def learning_view(view):
     covered = set(view.get('covered_program_event_indices', []))
     for i, action in enumerate(result.get('actions', [])):
         if action['event_index'] in covered:
-            result['actions'][i] = {k: action[k] for k in ('event_id', 'event_index', 'action_type', 'arguments',
+            result['actions'][i] = {k: action[k] for k in ('event_id', 'action_id', 'event_index', 'action_type', 'arguments',
                 'accepted', 'before_revision', 'after_revision', 'extractor_event_start', 'extractor_event_end_exclusive') if k in action}
             result['actions'][i]['learning_responsibility'] = 'existing successful Program; use source attribution/reuse only'
     return result
@@ -67,8 +67,14 @@ def offer(system, trace, normalized, groups):
         return []
     spans = {}
     for slot, actions in [('current', intervals[0]), ('history', history_intervals[0])]:
+        # TraceNormalizer's production actions carry action_id. Legacy E1
+        # views may carry event_id; use the same reference convention as the
+        # Atomicizer, without rewriting either immutable source namespace.
+        event_ids = [str(a.get('event_id', a.get('action_id', ''))) for a in actions]
+        if not all(event_ids) or len(set(event_ids)) != len(event_ids):
+            raise ValueError('preparation source interval requires distinct nonempty action references')
         spans[slot] = {'event_start': actions[0]['event_index'], 'event_end': actions[-1]['event_index'] + 1,
-            'support_event_ids': [a['event_id'] for a in actions], 'source_id': normalized['trace_id']
+            'support_event_ids': event_ids, 'source_id': normalized['trace_id']
             if slot == 'current' else group['history']['trace_id'],
             'status': 'observed_candidate_interval_not_validated_contract'}
     from .realization_queue import RealizationQueue

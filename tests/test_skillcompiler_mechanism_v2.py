@@ -185,6 +185,64 @@ def test_covered_program_events_identical_after_immutable_trace_readback(tmp_pat
     assert to_primitive(trace) == before == store.load_payload(trace.trace_id)
 
 
+def test_preparation_offer_production_normalizer_and_immutable_source_readback(tmp_path):
+    from atomic_skillgraph.evolution.preparation_realizer import offer, finish
+    from atomic_skillgraph.evolution.trace_normalizer import TraceNormalizer
+    from atomic_skillgraph.evolution.realization_queue import PREFIX
+    from atomic_skillgraph.traces.schema import TraceRecord, TaskRecord, EnvironmentActionRecord
+    from atomic_skillgraph.traces.store import TraceStore
+    from atomic_skillgraph.core.refs import content_hash
+    from atomic_skillgraph.core.serialization import to_primitive
+    store = TraceStore(tmp_path / 'traces')
+    traces, normalized = [], []
+    for slot in ('current', 'history'):
+        trace = TraceRecord('trace_' + slot, 3, TaskRecord(slot, 'fixture', 'inspect public scope', '', slot),
+                            {}, {}, {}, 0.0)
+        trace.environment_actions = [EnvironmentActionRecord(slot + str(i), i, 'LOOK', {}, True,
+                                     'public observation', False, False, i + 1, '') for i in range(3)]
+        trace.metadata = {'method_patch': '3.2', 'semantic_state_snapshots': [
+            {'revision': i, 'done': False, 'won': False, 'facts': [], 'origin': 'reset' if i == 0 else 'action'}
+            for i in range(4)]}
+        store.save_atomic(trace)
+        loaded = store.load(trace.trace_id)
+        live, readback = TraceNormalizer().build(trace), TraceNormalizer().build(loaded)
+        assert live == readback
+        assert all('action_id' in a and 'event_id' not in a for a in readback['actions'])
+        traces.append(trace)
+        normalized.append(readback)
+    current, history = normalized
+    original = copy.deepcopy(normalized)
+    group = {'group_id': 'independent_pair', 'history': history,
+             'history_reference': {'canonical_snapshot_hash': content_hash(history)}}
+    with StateDatabase(tmp_path / 'state.sqlite3', r103=True) as db:
+        system = SimpleNamespace(database=db)
+        offered = offer(system, traces[0], current, [group])
+        assert len(offered) == 1
+        for slot in ('current', 'history'):
+            span = offered[0]['preparation_spans'][slot]
+            assert span['support_event_ids'] == [slot + str(i) for i in range(3)]
+            assert (span['event_start'], span['event_end'], span['source_id']) == (0, 3, 'trace_' + slot)
+        assert not db.rows('SELECT * FROM evidence_events')
+        traces[0].metadata['generalization'] = {'status': 'no_candidate_submitted'}
+        finish(system, traces[0])
+        assert offer(system, traces[0], current, [group]) == []
+        for damage in ('missing', 'duplicate'):
+            bad = copy.deepcopy(current)
+            if damage == 'missing':
+                del bad['actions'][0]['action_id']
+            else:
+                bad['actions'][0]['action_id'] = bad['actions'][1]['action_id']
+            with pytest.raises(ValueError, match='action references'):
+                offer(system, traces[0], bad, [group])
+        assert len(db.rows('SELECT * FROM metadata WHERE key LIKE ?', (PREFIX + '%',))) == 1
+    current['covered_program_event_indices'] = [0]
+    compact = learning_view(current)
+    assert compact['actions'][0]['action_id'] == current['actions'][0]['action_id']
+    del current['covered_program_event_indices']
+    assert normalized == original
+    assert store.load_payload(traces[1].trace_id) == to_primitive(traces[1])
+
+
 def test_new_control_scope_public_entry_not_backfilled_historical_authority():
     from test_r1021_boundaries import typed_preparation_example, typed_atomicizer
     from atomic_skillgraph.system import AtomicSkillGraphSystem
