@@ -64,6 +64,84 @@ def resolve_tasks(system, entries):
     return selected
 
 
+def resolve_validation_tasks(system, entries, *, audit_path):
+    """Resolve the baseline's physical manifest, not its old discovery indices.
+
+    Baseline manifest signatures hash split/type/relative file/content. Main
+    harness signatures hash split/absolute file/goal. Validate each in its own
+    protocol and retain the real discovered task identity for reset guards.
+    """
+    root = Path(system.harness.alfworld_data).resolve(strict=True)
+    if system.harness.split != 'eval_in_distribution':
+        raise ValueError('valid_seen manifest requires the corresponding harness split')
+    by_file = {}
+    for task in system.harness.load_tasks(limit=0):
+        relative = Path(task.context['game_file']).resolve(strict=True).relative_to(root).as_posix()
+        if relative in by_file:
+            raise RuntimeError('duplicate physical game in validation discovery')
+        by_file[relative] = task
+    selected, mappings, identities = [], [], set()
+    for entry in entries:
+        relative = entry['gamefile_rel']
+        if entry['source_split'] != 'valid_seen' or relative in identities:
+            raise ValueError('invalid/duplicate validation source identity')
+        identities.add(relative)
+        path = (root / relative).resolve(strict=True)
+        if (not path.is_relative_to(root) or Path(relative).is_absolute()
+                or Path(relative).parts[:2] != ('json_2.1.1', 'valid_seen')):
+            raise ValueError('validation game file is outside the declared split')
+        task = by_file.get(relative)
+        if task is None:
+            raise RuntimeError(f'declared validation game was not discovered: {relative}')
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        signature = hashlib.sha256('\x1f'.join(('alfworld', entry['source_split'],
+            task.task_type, relative, digest)).encode('utf-8')).hexdigest()
+        if (task.task_type != entry['task_type'] or digest != entry['gamefile_sha256']
+                or signature != entry['task_signature']):
+            raise RuntimeError('fixed validation physical identity differs from declared source')
+        harness_signature = hashlib.sha256('\x1f'.join((system.harness.split,
+            task.context['game_file'], task.goal)).encode('utf-8')).hexdigest()
+        if task_signature(task) != harness_signature:
+            raise RuntimeError('validation harness task signature is inconsistent')
+        mapping = {'manifest_task_id': entry['task_id'], 'manifest_env_index': entry['env_index'],
+            'manifest_task_signature': signature, 'harness_task_id': task.task_id,
+            'harness_env_index': task.context['env_index'], 'harness_task_signature': harness_signature,
+            'gamefile_rel': relative, 'gamefile_sha256': digest}
+        task.metadata['fixed_validation_identity'] = mapping
+        mappings.append(mapping)
+        selected.append(task)
+    atomic_create_json(audit_path, {'source_protocol': 'baseline_physical_identity_v1',
+        'selection_unchanged': True, 'tasks': mappings})
+    return selected
+
+
+def verify_runner_recovery(source, frozen, source_config, current_code):
+    """Allow only this finite pilot's runner repair; attest identical runtime."""
+    from experiments.protocol import code_file_manifest
+    source_root = Path(source_config['_config_path']).resolve().parents[1]
+    original_code = hash_code(source_root)
+    if (original_code != source['code_hash']
+            or frozen['provenance']['source_code_commit'] != original_code):
+        raise RuntimeError('runner recovery source checkout does not match training provenance')
+    old = {row['path']: row['sha256'] for row in code_file_manifest(source_root)}
+    new = {row['path']: row['sha256'] for row in code_file_manifest(REPO)}
+    changed = sorted(path for path in old.keys() | new.keys() if old.get(path) != new.get(path))
+    allowed = {'experiments/run_skillcompiler_pilot.py', 'experiments/run_v3_r103_validation.py',
+               'tests/test_skillcompiler_pilot.py'}
+    if not changed or set(changed) - allowed:
+        raise RuntimeError(f'runner recovery includes non-runner changes: {changed}')
+    # hash_code historically excludes directories named traces. Compare the
+    # complete production package too, including the actual Trace writers.
+    def package(root):
+        return {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in (root / 'src').rglob('*.py')}
+    if package(source_root) != package(REPO):
+        raise RuntimeError('runner recovery changed the production execution package')
+    return {'kind': 'finite_pilot_runner_recovery', 'source_code_hash': original_code,
+        'evaluation_code_hash': current_code, 'changed_files': changed,
+        'production_execution_package_identical': True}
+
+
 def capture_usage(system, output):
     append = system.usage.append
     def persist(event):
@@ -226,14 +304,20 @@ def train_dev16(config_path, output, learning_condition="Full", *, fixed_entries
     return result
 
 
-def deploy(config_path, output, source_run, condition, diagnostic_tasks=None, *, validation_entries=None):
+def deploy(config_path, output, source_run, condition, diagnostic_tasks=None, *, validation_entries=None,
+           runner_recovery=False):
     config, output = prepare(config_path, output)
     source_run = Path(source_run).expanduser().resolve()
     source = json.loads((source_run / "declared_manifest.json").read_text(encoding="utf-8"))
     frozen = json.loads((source_run / "frozen_bank/freeze_manifest.json").read_text(encoding="utf-8"))
     source_config = json.loads((source_run / "config.json").read_text(encoding="utf-8"))
     code = hash_code(REPO)
-    if source["code_hash"] != code or frozen["provenance"]["source_code_commit"] != code:
+    recovery = None
+    if runner_recovery:
+        if validation_entries is None or source.get('selection_identity') is None:
+            raise ValueError('runner recovery is limited to a fixed held-out pilot')
+        recovery = verify_runner_recovery(source, frozen, source_config, code)
+    elif source["code_hash"] != code or frozen["provenance"]["source_code_commit"] != code:
         raise RuntimeError("diagnostic code must match source training code")
     if hash_config(source_config["llm"]) != hash_config(config["llm"]):
         raise RuntimeError("deployment diagnosis cannot change source provider/resources")
@@ -269,6 +353,8 @@ def deploy(config_path, output, source_run, condition, diagnostic_tasks=None, *,
         "selection":"fixed held-out valid_seen" if validation_entries is not None else "fixed declared dev prefix; never selected by observed outcome",
         "selected_entries_hash":hash_config(entries),
         "task_manifest_hash":frozen["provenance"]["source_task_manifest_hash"]}
+    if recovery:
+        manifest['runner_recovery'] = recovery
     atomic_create_json(output / "intervention_manifest.json",manifest)
     atomic_create_json(output / "config.json",config)
     capability(config,output,code)
@@ -278,7 +364,10 @@ def deploy(config_path, output, source_run, condition, diagnostic_tasks=None, *,
         capture_requests(system,output)
         if system.knowledge_digest() != frozen["knowledge_digest"]:
             raise RuntimeError("diagnostic source bank digest mismatch")
-        for task in resolve_tasks(system,entries):
+        tasks = (resolve_tasks(system,entries) if validation_entries is None else
+                 resolve_validation_tasks(system,entries,audit_path=output / 'task_identity_resolution.json'))
+        print(json.dumps({'resolved_tasks': len(tasks), 'selection_unchanged': True}), flush=True)
+        for task in tasks:
             if hash_code(REPO) != code:
                 raise RuntimeError("code changed during paired deployment")
             tick = time.monotonic()

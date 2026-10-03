@@ -40,11 +40,21 @@ def main():
     parser.add_argument('--train-manifest', default=str(REPO / 'data/baseline_manifests/train_120.json'))
     parser.add_argument('--val-manifest', required=True)
     parser.add_argument('--output', required=True)
+    parser.add_argument('--validation-only', action='store_true',
+                        help='Use this pilot\'s completed Train/frozen Bank; do not repeat learning.')
+    parser.add_argument('--validation-output', help='New empty output directory for recovered validation.')
+    parser.add_argument('--runner-recovery', action='store_true',
+                        help='Verify a runner-only repair against the unchanged training execution package.')
     args = parser.parse_args()
     train, train_source = select(args.train_manifest, 'train', 2)
     val, val_source = select(args.val_manifest, 'valid_seen', 1)
     output = Path(args.output).expanduser().resolve()
-    output.mkdir(parents=True, exist_ok=False)
+    if args.runner_recovery and not args.validation_only:
+        parser.error('--runner-recovery requires --validation-only')
+    if args.validation_only and not args.validation_output:
+        parser.error('--validation-only requires --validation-output')
+    if not args.validation_only:
+        output.mkdir(parents=True, exist_ok=False)
     selection = {'protocol': 'skillcompiler.mechanism-pilot.v1', 'train': train, 'valid_seen': val,
                  'sources': {'train': train_source, 'valid_seen': val_source},
                  'formal_score': False, 'test_tuning': False}
@@ -54,12 +64,26 @@ def main():
     from atomic_skillgraph.runtime.scope_diagnostics import OUTCOME_VERSION
     selection['protocol_versions'] = {'node_context': node_version, 'e1': extraction_version,
         'realization': realization_version, 'search_outcome': OUTCOME_VERSION}
-    atomic_create_json(output / 'selection.json', selection)
-    training = train_dev16(args.config, output / 'train12', fixed_entries=train,
-                          selection_identity=selection['sources'])
-    validation = deploy(args.config, output / 'valid6', output / 'train12', 'C11', validation_entries=val)
+    if args.validation_only:
+        original = json.loads((output / 'selection.json').read_text(encoding='utf-8'))
+        if (original['train'] != train or original['valid_seen'] != val
+                or original['protocol_versions'] != selection['protocol_versions']
+                or any(original['sources'][split]['sha256'] != selection['sources'][split]['sha256']
+                       for split in ('train', 'valid_seen'))):
+            raise ValueError('recovered pilot selection differs from its original declaration')
+        selection = original
+        training = json.loads((output / 'train12/summary.json').read_text(encoding='utf-8'))
+        if not training.get('complete') or training.get('tasks') != 12:
+            raise ValueError('validation-only requires this pilot\'s completed twelve training tasks')
+    else:
+        atomic_create_json(output / 'selection.json', selection)
+        training = train_dev16(args.config, output / 'train12', fixed_entries=train,
+                              selection_identity=selection['sources'])
+    validation_output = Path(args.validation_output) if args.validation_only else output / 'valid6'
+    validation = deploy(args.config, validation_output, output / 'train12', 'C11',
+                        validation_entries=val, runner_recovery=args.runner_recovery)
     atomic_create_json(output / 'pilot_result.json', {'completed': True, 'selection': selection,
-        'train': training, 'valid_seen': validation})
+        'train': training, 'valid_seen': validation, 'validation_output': str(validation_output)})
 
 
 if __name__ == '__main__':
