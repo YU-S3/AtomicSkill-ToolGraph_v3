@@ -24,15 +24,16 @@ def uncovered_intervals(normalized):
 def covered_program_events(trace):
     """Deduplicated canonical actions inside actually successful Tool spans."""
     from ..traces.canonical import canonical_action_indices
+    from ..traces.compiler_observer import field
     canonical = set(canonical_action_indices(trace))
-    spans = {s.span_id: s for s in trace.runtime_spans}
+    spans = {field(s, 'span_id'): s for s in field(trace, 'runtime_spans', [])}
     result = set()
-    for execution in trace.tool_executions:
-        r = execution.result
+    for execution in field(trace, 'tool_executions', []):
+        r = field(execution, 'result')
         if r.get('started') and r.get('completed') and r.get('atomic_effect_passed') and not r.get('failure_code'):
-            span = spans.get(execution.span_id)
+            span = spans.get(field(execution, 'span_id'))
             if span:
-                result.update(range(span.action_start, span.action_end))
+                result.update(range(field(span, 'action_start'), field(span, 'action_end')))
     return sorted(result & canonical)
 
 

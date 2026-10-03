@@ -159,6 +159,32 @@ def test_preparation_intervals_exclude_covered_and_terminal_not_last_primitive_o
     assert source['actions'][3] == actions[3] and 'learning_responsibility' not in actions[3]
 
 
+def test_covered_program_events_identical_after_immutable_trace_readback(tmp_path):
+    from atomic_skillgraph.evolution.preparation_realizer import covered_program_events
+    from atomic_skillgraph.traces.schema import TraceRecord, TaskRecord, RuntimeSpan, ToolExecutionRecord
+    from atomic_skillgraph.traces.store import TraceStore
+    from atomic_skillgraph.core.serialization import to_primitive
+    trace = TraceRecord('trace_span_roundtrip', 3, TaskRecord('generic_task', 'fixture', 'generic goal', '', 'sig'),
+        {}, {}, {}, 0.0)
+    trace.environment_actions = [{} for _ in range(4)]
+    trace.runtime_spans = [RuntimeSpan('ok', 'program', 'node', 0, 3, None, True),
+                           RuntimeSpan('failed', 'program', 'other', 3, 4, None, True)]
+    trace.tool_executions = [ToolExecutionRecord('attempt', 'node', 'tool://generic@1',
+        {'started': True, 'completed': True, 'atomic_effect_passed': True, 'failure_code': ''}, 'ok'),
+        ToolExecutionRecord('failed_attempt', 'other', 'tool://other@1',
+        {'started': True, 'completed': False, 'atomic_effect_passed': False, 'failure_code': 'failed'}, 'failed')]
+    trace.metadata['runtime_rollbacks'] = [{'discarded_action_start': 1, 'discarded_action_end': 2}]
+    before = to_primitive(trace)
+    assert covered_program_events(trace) == [0, 2]
+    store = TraceStore(tmp_path)
+    store.save_atomic(trace)
+    loaded = store.load(trace.trace_id)
+    assert isinstance(loaded.runtime_spans[0], dict)
+    assert isinstance(loaded.tool_executions[0], dict)
+    assert covered_program_events(loaded) == covered_program_events(before) == [0, 2]
+    assert to_primitive(trace) == before == store.load_payload(trace.trace_id)
+
+
 def test_new_control_scope_public_entry_not_backfilled_historical_authority():
     from test_r1021_boundaries import typed_preparation_example, typed_atomicizer
     from atomic_skillgraph.system import AtomicSkillGraphSystem
