@@ -1,0 +1,20 @@
+{
+  "git_sha": "15ede6bac159a589dbbb2d6f46ae9bbc60f5d8e6",
+  "python": "3.12.3",
+  "pytest": {
+    "passed": 37,
+    "skipped": 0,
+    "failed": 0,
+    "seconds": 18.57,
+    "real_docker": true
+  },
+  "installed_wheel": {
+    "sha256": "7ffacb7018181b166c0046c5a21be22ed64350dfe2643b1e5a4adb92dd801716",
+    "outside_repository": true,
+    "pythonpath_unset": true,
+    "five_cli_help_passed": true,
+    "create_system_passed": true,
+    "retired_modules_imported": []
+  },
+  "program_image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+}

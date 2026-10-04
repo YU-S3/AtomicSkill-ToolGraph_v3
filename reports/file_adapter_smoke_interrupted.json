@@ -1,0 +1,138 @@
+{
+  "schema": "empirical.adapter_smoke_interrupted.v1",
+  "source_commit": "4188a7fc710e9cff219e3479a5d025fe4e628bee",
+  "raw_run_root": "/home/yangchengyu/asg_empirical_v31_20261004/adapter_smoke_4188a7f",
+  "diagnostic_only": true,
+  "formal_score": false,
+  "stop": {
+    "exit_code": 75,
+    "mode": "STOP_AFTER_TASK",
+    "reason": "User authorized FileAdapter tool definitions fix and fresh file adapter smoke"
+  },
+  "runs": {
+    "searchqa/train": {
+      "complete": true,
+      "tasks": 2,
+      "successes": 0,
+      "known_total_tokens": 62378,
+      "unknown_billing_attempts": 0,
+      "program_invocations": 0,
+      "completed_task_ids": [
+        "searchqa:0d6855b36a0a49229d38e4a376b6ee09",
+        "searchqa:224665d37d03421895cf8e7b05863144"
+      ],
+      "known_usage_tokens": 62378
+    },
+    "searchqa/val": {
+      "complete": true,
+      "tasks": 1,
+      "successes": 0,
+      "known_total_tokens": 1873,
+      "unknown_billing_attempts": 0,
+      "program_invocations": 0,
+      "completed_task_ids": [
+        "searchqa:d66f1f0158054f638ff1b8acf3e18a8a"
+      ],
+      "known_usage_tokens": 1873
+    },
+    "officeqa/train": {
+      "complete": true,
+      "tasks": 2,
+      "successes": 0,
+      "known_total_tokens": 1581657,
+      "unknown_billing_attempts": 0,
+      "program_invocations": 0,
+      "completed_task_ids": [
+        "officeqa:UID0187",
+        "officeqa:UID0220"
+      ],
+      "known_usage_tokens": 1581657
+    },
+    "officeqa/val": {
+      "complete": true,
+      "tasks": 1,
+      "successes": 0,
+      "known_total_tokens": 76340,
+      "unknown_billing_attempts": 0,
+      "program_invocations": 0,
+      "completed_task_ids": [
+        "officeqa:UID0095"
+      ],
+      "known_usage_tokens": 76340
+    },
+    "livemath/train": {
+      "complete": true,
+      "tasks": 2,
+      "successes": 0,
+      "known_total_tokens": 249978,
+      "unknown_billing_attempts": 0,
+      "program_invocations": 0,
+      "completed_task_ids": [
+        "livemath:202512:18",
+        "livemath:202512:51"
+      ],
+      "known_usage_tokens": 249978
+    },
+    "livemath/val": {
+      "complete": false,
+      "completed_tasks": 0,
+      "completed_task_ids": [],
+      "known_usage_tokens": 0
+    },
+    "spreadsheet/train": {
+      "complete": false,
+      "completed_tasks": 0,
+      "completed_task_ids": [],
+      "known_usage_tokens": 0
+    },
+    "spreadsheet/val": {
+      "complete": false,
+      "completed_tasks": 0,
+      "completed_task_ids": [],
+      "known_usage_tokens": 0
+    }
+  },
+  "confirmed_issue": {
+    "class": "FileAdapter",
+    "cause": "Inherited AnswerAdapter.tool_definitions returns [], while Runtime available_tools is populated",
+    "authorized_fix": "tool_definitions returns self.available_tools()",
+    "request_evidence": [
+      {
+        "file": "/home/yangchengyu/asg_empirical_v31_20261004/adapter_smoke_4188a7f/officeqa/train/requests/officeqa:UID0187_attempt1.json",
+        "request_id": "3041fdfb459341c9bdfb30e3d7f7e01b",
+        "stage": "extractor",
+        "public_tool_names": []
+      },
+      {
+        "file": "/home/yangchengyu/asg_empirical_v31_20261004/adapter_smoke_4188a7f/officeqa/train/requests/officeqa:UID0187_attempt1.json",
+        "request_id": "c0af4e08fcb3412e921141225e798c8a",
+        "stage": "extractor",
+        "public_tool_names": []
+      },
+      {
+        "file": "/home/yangchengyu/asg_empirical_v31_20261004/adapter_smoke_4188a7f/officeqa/train/requests/officeqa:UID0220_attempt1.json",
+        "request_id": "acee798f0cdc4e91933dd95212e9308c",
+        "stage": "extractor",
+        "public_tool_names": []
+      },
+      {
+        "file": "/home/yangchengyu/asg_empirical_v31_20261004/adapter_smoke_4188a7f/officeqa/train/requests/officeqa:UID0220_attempt1.json",
+        "request_id": "9a30c3398ae24b30a55d0683d8cfaf1b",
+        "stage": "extractor",
+        "public_tool_names": []
+      },
+      {
+        "file": "/home/yangchengyu/asg_empirical_v31_20261004/adapter_smoke_4188a7f/officeqa/train/requests/officeqa:UID0220_attempt1.json",
+        "request_id": "b62ec9f76933437b98bc32e58f2772fc",
+        "stage": "tool_builder",
+        "public_tool_names": []
+      }
+    ],
+    "programs": []
+  },
+  "docvqa": {
+    "status": "unsupported",
+    "reason": "Locked model has no image capability",
+    "score": null
+  }
+}

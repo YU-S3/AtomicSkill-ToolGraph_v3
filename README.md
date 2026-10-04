@@ -34,6 +34,10 @@ ALFWorld 清单按数据根目录下的物理文件和 SHA256 解析，扫描到
 
 已完成 Train 后仅修复上述加载入口，可显式使用 `skillcompiler-pilot ... --continue-val` 继续原 6 个 Val。此入口核对原 Train 配置、物理题目集合、源码差异及 Train／冻结 Bank digest，保存 `continuation_manifest.json` 和分阶段源码版本；不重新执行 Train，也不放宽普通 `--resume` 的身份要求。
 
+文件 Adapter 的 `tool_definitions()` 返回实际公开工具列表，供 Learner／Builder 使用；Program 仍禁止递归调用 `execute_python`。修复后已从空 Bank 完成 OfficeQA、Spreadsheet 各 2 Train＋1 Val，实际成绩和费用见 [文件类冒烟报告](reports/file_adapter_smoke_result.json)。43 项回归（含真实 Docker）与安装包验证见 [工程验证](reports/file_adapter_fix_verification.json)。
+
+主实验共享划分、run seed 与统一日志尚未完全对齐，具体差异及待确认事项见 [主实验核对报告](reports/main_experiment_alignment_v11.json)。现有 pilot 和 smoke 保留为诊断结果，不作为正式主实验数据。
+
 ## 项目结构与边界
 
 - `src/atomic_skillgraph/empirical/`：通用 Bank、普通参数引用、Planner/Learner、执行器、Docker worker、恢复与预算。

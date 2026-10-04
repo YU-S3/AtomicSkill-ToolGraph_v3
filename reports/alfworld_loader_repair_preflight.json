@@ -1,0 +1,130 @@
+{
+  "status": "passed",
+  "code": {
+    "git_sha": "4188a7fc710e9cff219e3479a5d025fe4e628bee",
+    "tracked_dirty": false,
+    "source_sha256": "8c0d9ec6c7e09a2fdf59d5971044e0e5a45b2574241a44145f6276cb2a638706"
+  },
+  "classification": "infrastructure_physical_task_resolution",
+  "cause": "Legacy environment ordinal was incorrectly used as the discovery scan bound",
+  "selection_sha256": "6f4c4396769d74383a70cd0073a65340b72dcc57eed359d96a298bcfde164dcc",
+  "train_summary_sha256": "756c1e567dbfcb220292981c321d7e2db710d4c68d1d293bbb5eb34c645c748e",
+  "train_file_count": 335,
+  "train_files_digest": "44cdb2aaa33694fb769289ac14bbf776b4d7c4e0d31562411209e6e4c4b28642",
+  "all_train_files_unchanged": true,
+  "frozen_bank_file_sha256": "bf4b5cfcfefc4b5f0b2a772b988229156c3f1c465cf7045d0c2e9e12eb276dc4",
+  "pytest": {
+    "passed": 42,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 21.75,
+    "real_docker": true
+  },
+  "mechanism_sources_unchanged_from_train": true,
+  "val_physical_tasks": [
+    {
+      "source_task_id": "alfworld_eval_in_distribution_122_look_at_obj_in_light",
+      "runtime_task_id": "alfworld_eval_in_distribution_105_look_at_obj_in_light",
+      "source_env_index": 122,
+      "runtime_env_index": 105,
+      "physical_key": "89f0c1971759545c08e6cbabcfe11deae7cbe74b6d4ae8742848028a741e36a2",
+      "file_sha256_matches": true,
+      "native_reset_identity_passed": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_47_pick_and_place_simple",
+      "runtime_task_id": "alfworld_eval_in_distribution_139_pick_and_place_simple",
+      "source_env_index": 47,
+      "runtime_env_index": 139,
+      "physical_key": "055566b8e6e41ae2495244684cc0dcb2cdc56eb4ad0ec190750ee7b649c20999",
+      "file_sha256_matches": true,
+      "native_reset_identity_passed": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_50_pick_clean_then_place_in_recep",
+      "runtime_task_id": "alfworld_eval_in_distribution_123_pick_clean_then_place_in_recep",
+      "source_env_index": 50,
+      "runtime_env_index": 123,
+      "physical_key": "c6dec080dce7e25f619450181681757572b0c4239bbffa4101e4cef4e2d87f6b",
+      "file_sha256_matches": true,
+      "native_reset_identity_passed": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_52_pick_cool_then_place_in_recep",
+      "runtime_task_id": "alfworld_eval_in_distribution_33_pick_cool_then_place_in_recep",
+      "source_env_index": 52,
+      "runtime_env_index": 33,
+      "physical_key": "d28bca8bc3b3ff5f8480109a1245c1591f0b37c91982593dd5cf20f4934ea2b6",
+      "file_sha256_matches": true,
+      "native_reset_identity_passed": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_103_pick_heat_then_place_in_recep",
+      "runtime_task_id": "alfworld_eval_in_distribution_116_pick_heat_then_place_in_recep",
+      "source_env_index": 103,
+      "runtime_env_index": 116,
+      "physical_key": "8c0e94887355d63e77733ba1b2ddd7526a8b6ef5cab762de5f66c34e24c1a367",
+      "file_sha256_matches": true,
+      "native_reset_identity_passed": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_109_pick_two_obj_and_place",
+      "runtime_task_id": "alfworld_eval_in_distribution_21_pick_two_obj_and_place",
+      "source_env_index": 109,
+      "runtime_env_index": 21,
+      "physical_key": "07a6f76a0681f40613f1144b558c8aec35f77c9d650eabdf092222cd0848c701",
+      "file_sha256_matches": true,
+      "native_reset_identity_passed": true
+    }
+  ],
+  "model_requests": 0,
+  "task_actions": 0,
+  "original_tasks_substituted": false,
+  "other_adapter_resource_preflight": {
+    "searchqa": {
+      "tasks_checked": 1724,
+      "stable_ids_unique": true,
+      "referenced_files_checked": 0,
+      "missing_count": 0,
+      "missing": []
+    },
+    "spreadsheet": {
+      "tasks_checked": 400,
+      "stable_ids_unique": true,
+      "referenced_files_checked": 1200,
+      "missing_count": 0,
+      "missing": []
+    },
+    "officeqa": {
+      "tasks_checked": 246,
+      "stable_ids_unique": true,
+      "referenced_files_checked": 0,
+      "missing_count": 0,
+      "missing": [],
+      "corpus_present": true,
+      "corpus_text_files": 697
+    },
+    "docvqa": {
+      "tasks_checked": 404,
+      "stable_ids_unique": true,
+      "referenced_files_checked": 404,
+      "missing_count": 0,
+      "missing": []
+    },
+    "livemath": {
+      "tasks_checked": 177,
+      "stable_ids_unique": true,
+      "referenced_files_checked": 0,
+      "missing_count": 0,
+      "missing": []
+    }
+  },
+  "installed_wheel": {
+    "source_commit": "4188a7fc710e9cff219e3479a5d025fe4e628bee",
+    "wheel_sha256": "a09a1bf66fbb236691ecd1f716051ee1e3cd6e36d8a9938cc588fb546a838863",
+    "outside_repository": true,
+    "pythonpath_unset": true,
+    "five_cli_help_passed": true,
+    "continue_val_option_present": true
+  }
+}

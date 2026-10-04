@@ -1,0 +1,138 @@
+{
+  "schema": "empirical.adapter_smoke_preserved_qa.v1",
+  "source_commit": "4188a7fc710e9cff219e3479a5d025fe4e628bee",
+  "raw_run_root": "/home/yangchengyu/asg_empirical_v31_20261004/adapter_smoke_4188a7f",
+  "diagnostic_only": true,
+  "formal_score": false,
+  "ordinary_failures_retried": false,
+  "runs": {
+    "searchqa/train": {
+      "complete": true,
+      "tasks": 2,
+      "successes": 0,
+      "known_total_tokens": 62378,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "9089ffadf70e08c3cdecadc67e577867132072d18734dcb71e5524eb1952ec23",
+      "cases": [
+        {
+          "task_id": "searchqa:0d6855b36a0a49229d38e4a376b6ee09",
+          "physical_key": "e5e61c0c5a0439dfb2ee7c16b308dec520e1805bb1b532dd71a975702989bd3f",
+          "score": {
+            "hard": false,
+            "soft": 0.5,
+            "raw_score": 0.5,
+            "scorer": "searchqa.skillopt-em-f1"
+          },
+          "termination_reason": "single_answer",
+          "native_calls": 0,
+          "frozen_unchanged": null
+        },
+        {
+          "task_id": "searchqa:224665d37d03421895cf8e7b05863144",
+          "physical_key": "901544cd977f76e52e5be05d1352fb6cba52447f3aa590db01ccc0624092e6e8",
+          "score": {
+            "hard": false,
+            "soft": 0.05,
+            "raw_score": 0.05,
+            "scorer": "searchqa.skillopt-em-f1"
+          },
+          "termination_reason": "single_answer",
+          "native_calls": 0,
+          "frozen_unchanged": null
+        }
+      ]
+    },
+    "searchqa/val": {
+      "complete": true,
+      "tasks": 1,
+      "successes": 0,
+      "known_total_tokens": 1873,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "ea6a8840f145ee853d10d09095d73581b03baefb7a13c6523c8446100001ed66",
+      "cases": [
+        {
+          "task_id": "searchqa:d66f1f0158054f638ff1b8acf3e18a8a",
+          "physical_key": "4ea5a330e72ae6197f098f014a94c18db59b16bc39221d39c9a103550f50ccd3",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "searchqa.skillopt-em-f1"
+          },
+          "termination_reason": "single_answer",
+          "native_calls": 0,
+          "frozen_unchanged": true
+        }
+      ]
+    },
+    "livemath/train": {
+      "complete": true,
+      "tasks": 2,
+      "successes": 0,
+      "known_total_tokens": 249978,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "b7dad9aaa4e9f10f3e440c329effdebd197a23c88c7fa5e1ce1f97f22b5156f9",
+      "cases": [
+        {
+          "task_id": "livemath:202512:51",
+          "physical_key": "a6cd408a10550325856a09e04218e3a32ab3dc2d6c0776848e54495e8f77f20d",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "livemath.skillopt-em-f1"
+          },
+          "termination_reason": "single_answer",
+          "native_calls": 0,
+          "frozen_unchanged": null
+        },
+        {
+          "task_id": "livemath:202512:18",
+          "physical_key": "9ce3704180d92a67652ca66165a9e5fd661125a5a2320262fa83f760ac1cb3ab",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "livemath.skillopt-em-f1"
+          },
+          "termination_reason": "single_answer",
+          "native_calls": 0,
+          "frozen_unchanged": null
+        }
+      ]
+    },
+    "livemath/val": {
+      "complete": true,
+      "tasks": 1,
+      "successes": 0,
+      "known_total_tokens": 15229,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "f5bd33ce62ec9a1de7453941a5ff1a24105d42a6b71dd018568578ac19899239",
+      "cases": [
+        {
+          "task_id": "livemath:202601:33",
+          "physical_key": "3fd124aca790b0a0da3afee38ae82b83705742e145583b4e3cf75cebb030f4e9",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "livemath.skillopt-em-f1"
+          },
+          "termination_reason": "single_answer",
+          "native_calls": 0,
+          "frozen_unchanged": true
+        }
+      ]
+    }
+  },
+  "livemath_val_completion": {
+    "mode": "resume_empty_val_with_original_source_and_exact_recorded_config",
+    "train_reexecuted": false,
+    "first_launcher_refused_without_resume_before_any_request": true
+  },
+  "docvqa": {
+    "status": "unsupported",
+    "reason": "Locked model has no image capability",
+    "score": null
+  }
+}

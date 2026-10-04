@@ -1,0 +1,182 @@
+{
+  "status": "train_complete_val_not_started_due_to_manifest_scan_bound",
+  "code_git_sha": "15ede6bac159a589dbbb2d6f46ae9bbc60f5d8e6",
+  "run": "/home/yangchengyu/asg_empirical_v31_20261004/pilot_terminal_rule",
+  "train": {
+    "tasks": 12,
+    "successes": 12,
+    "total_tokens": 1771246,
+    "known_total_tokens": 1771246,
+    "unknown_billing_attempts": 0,
+    "program_invocations": 39,
+    "knowledge_digest": "0009f74ed4b54b939b74f13a6b6fbff9b4aee3cf47fb78ad2bb27d64aee7ba79",
+    "complete": true
+  },
+  "val": {
+    "tasks_completed": 0,
+    "score": null,
+    "model_requests": 0
+  },
+  "formal_score": false,
+  "records_reclassified": false,
+  "original_selection_unchanged": true,
+  "diagnostic": "val_mapping_diagnostic.json",
+  "cases": [
+    {
+      "task_id": "alfworld_train_0_pick_and_place_simple",
+      "physical_key": "3e4d72137a0f522e045ca527968da411a303e48230449c3e1a8583c40a1965e3",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 5,
+      "environment_steps": 5,
+      "program_invocations": 0
+    },
+    {
+      "task_id": "alfworld_train_1_pick_and_place_simple",
+      "physical_key": "81d01307163f659255b22c8e9364ae261655a1ff9dcb575fb4623a17c871f3ac",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 9,
+      "environment_steps": 7,
+      "program_invocations": 2
+    },
+    {
+      "task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "physical_key": "d81a9676eac2bc2046e119b6a867123108efa16db98e0afaab1fa34d99a044b6",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 23,
+      "environment_steps": 16,
+      "program_invocations": 2
+    },
+    {
+      "task_id": "alfworld_train_3_pick_two_obj_and_place",
+      "physical_key": "feeaef88c8c19520a884a18f7bb87093705726dc2890a2744a2f96d14d358112",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 89,
+      "environment_steps": 41,
+      "program_invocations": 30
+    },
+    {
+      "task_id": "alfworld_train_4_pick_clean_then_place_in_recep",
+      "physical_key": "052d398dfafa640224d9b55eb68d7eb77770f190062f96b644d5f39b4918e62e",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 42,
+      "environment_steps": 31,
+      "program_invocations": 1
+    },
+    {
+      "task_id": "alfworld_train_6_pick_cool_then_place_in_recep",
+      "physical_key": "d754168a008f0f57e35eae78232a3cbc9e29f9172dc407997d9043040d3c4e57",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 53,
+      "environment_steps": 51,
+      "program_invocations": 0
+    },
+    {
+      "task_id": "alfworld_train_7_pick_clean_then_place_in_recep",
+      "physical_key": "7cbcbbc6ff039a492e5261352311ef15212149605b252adea2bbdd57c367ed57",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 14,
+      "environment_steps": 11,
+      "program_invocations": 2
+    },
+    {
+      "task_id": "alfworld_train_13_pick_heat_then_place_in_recep",
+      "physical_key": "82fba01c8cf196b85fc664ffaa8f37c6871be29bd03b4bb7274a54fed130821c",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 9,
+      "environment_steps": 9,
+      "program_invocations": 0
+    },
+    {
+      "task_id": "alfworld_train_24_look_at_obj_in_light",
+      "physical_key": "9269388b2459645a04ed16dfff3444d884c5d21583f7313db499e8f0ca86b4f5",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 4,
+      "environment_steps": 4,
+      "program_invocations": 0
+    },
+    {
+      "task_id": "alfworld_train_25_pick_heat_then_place_in_recep",
+      "physical_key": "389b3ad6041a39f34d121747adfe560c849be02f12a412800b4e31663886977a",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 38,
+      "environment_steps": 38,
+      "program_invocations": 0
+    },
+    {
+      "task_id": "alfworld_train_29_pick_cool_then_place_in_recep",
+      "physical_key": "8ccbe1ab32cc5322a60d50b5d21266750246cc6ab51c8c43d1e0fef81ad414f4",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 8,
+      "environment_steps": 8,
+      "program_invocations": 0
+    },
+    {
+      "task_id": "alfworld_train_30_look_at_obj_in_light",
+      "physical_key": "5cb9bbb1c93b91f6407cc7428edd672e49329f38d7bb22a4683213c16bdf78a9",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "native_call_attempts": 10,
+      "environment_steps": 10,
+      "program_invocations": 2
+    }
+  ]
+}

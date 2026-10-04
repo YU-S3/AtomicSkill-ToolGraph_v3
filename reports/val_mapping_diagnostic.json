@@ -1,0 +1,60 @@
+{
+  "discovered_count": 140,
+  "manifest_count": 6,
+  "matches": [
+    {
+      "source_task_id": "alfworld_eval_in_distribution_122_look_at_obj_in_light",
+      "manifest_env_index": 122,
+      "found": true,
+      "current_env_index": 105,
+      "current_task_id": "alfworld_eval_in_distribution_105_look_at_obj_in_light",
+      "file_hash_matches": true,
+      "task_signature_matches": false
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_47_pick_and_place_simple",
+      "manifest_env_index": 47,
+      "found": true,
+      "current_env_index": 139,
+      "current_task_id": "alfworld_eval_in_distribution_139_pick_and_place_simple",
+      "file_hash_matches": true,
+      "task_signature_matches": false
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_50_pick_clean_then_place_in_recep",
+      "manifest_env_index": 50,
+      "found": true,
+      "current_env_index": 123,
+      "current_task_id": "alfworld_eval_in_distribution_123_pick_clean_then_place_in_recep",
+      "file_hash_matches": true,
+      "task_signature_matches": false
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_52_pick_cool_then_place_in_recep",
+      "manifest_env_index": 52,
+      "found": true,
+      "current_env_index": 33,
+      "current_task_id": "alfworld_eval_in_distribution_33_pick_cool_then_place_in_recep",
+      "file_hash_matches": true,
+      "task_signature_matches": false
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_103_pick_heat_then_place_in_recep",
+      "manifest_env_index": 103,
+      "found": true,
+      "current_env_index": 116,
+      "current_task_id": "alfworld_eval_in_distribution_116_pick_heat_then_place_in_recep",
+      "file_hash_matches": true,
+      "task_signature_matches": false
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_109_pick_two_obj_and_place",
+      "manifest_env_index": 109,
+      "found": true,
+      "current_env_index": 21,
+      "current_task_id": "alfworld_eval_in_distribution_21_pick_two_obj_and_place",
+      "file_hash_matches": true,
+      "task_signature_matches": false
+    }
+  ]
+}

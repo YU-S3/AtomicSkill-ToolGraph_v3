@@ -1,0 +1,181 @@
+{
+  "status": "completed",
+  "classification": "infrastructure_physical_task_resolution",
+  "original_tasks_substituted": false,
+  "train_reexecuted": false,
+  "train_files_checked": 335,
+  "all_train_files_unchanged": true,
+  "train_files_digest_before": "44cdb2aaa33694fb769289ac14bbf776b4d7c4e0d31562411209e6e4c4b28642",
+  "train_files_digest_after": "44cdb2aaa33694fb769289ac14bbf776b4d7c4e0d31562411209e6e4c4b28642",
+  "selection_sha256": "6f4c4396769d74383a70cd0073a65340b72dcc57eed359d96a298bcfde164dcc",
+  "frozen_bank_file_sha256_before": "bf4b5cfcfefc4b5f0b2a772b988229156c3f1c465cf7045d0c2e9e12eb276dc4",
+  "frozen_bank_file_sha256_after": "bf4b5cfcfefc4b5f0b2a772b988229156c3f1c465cf7045d0c2e9e12eb276dc4",
+  "run_codes": {
+    "train": {
+      "git_sha": "15ede6bac159a589dbbb2d6f46ae9bbc60f5d8e6",
+      "tracked_dirty": false,
+      "source_sha256": "506b0ec5bb1fa1c427132b5da2fbd4200c34f2ed5b498d15ea7115d90aa4a218"
+    },
+    "valid_seen": {
+      "git_sha": "4188a7fc710e9cff219e3479a5d025fe4e628bee",
+      "tracked_dirty": false,
+      "source_sha256": "8c0d9ec6c7e09a2fdf59d5971044e0e5a45b2574241a44145f6276cb2a638706"
+    }
+  },
+  "val": {
+    "tasks": 6,
+    "successes": 6,
+    "total_tokens": 690135,
+    "known_total_tokens": 690135,
+    "unknown_billing_attempts": 0,
+    "program_invocations": 3,
+    "complete": true
+  },
+  "val_cases": [
+    {
+      "source_task_id": "alfworld_eval_in_distribution_122_look_at_obj_in_light",
+      "runtime_task_id": "alfworld_eval_in_distribution_105_look_at_obj_in_light",
+      "physical_key": "89f0c1971759545c08e6cbabcfe11deae7cbe74b6d4ae8742848028a741e36a2",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "termination_reason": "environment_terminal",
+      "native_call_attempts": 5,
+      "environment_steps": 5,
+      "program_invocations": 0,
+      "frozen_unchanged": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_47_pick_and_place_simple",
+      "runtime_task_id": "alfworld_eval_in_distribution_139_pick_and_place_simple",
+      "physical_key": "055566b8e6e41ae2495244684cc0dcb2cdc56eb4ad0ec190750ee7b649c20999",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "termination_reason": "environment_terminal",
+      "native_call_attempts": 11,
+      "environment_steps": 4,
+      "program_invocations": 1,
+      "frozen_unchanged": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_50_pick_clean_then_place_in_recep",
+      "runtime_task_id": "alfworld_eval_in_distribution_123_pick_clean_then_place_in_recep",
+      "physical_key": "c6dec080dce7e25f619450181681757572b0c4239bbffa4101e4cef4e2d87f6b",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "termination_reason": "environment_terminal",
+      "native_call_attempts": 10,
+      "environment_steps": 10,
+      "program_invocations": 0,
+      "frozen_unchanged": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_52_pick_cool_then_place_in_recep",
+      "runtime_task_id": "alfworld_eval_in_distribution_33_pick_cool_then_place_in_recep",
+      "physical_key": "d28bca8bc3b3ff5f8480109a1245c1591f0b37c91982593dd5cf20f4934ea2b6",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "termination_reason": "environment_terminal",
+      "native_call_attempts": 24,
+      "environment_steps": 24,
+      "program_invocations": 0,
+      "frozen_unchanged": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_103_pick_heat_then_place_in_recep",
+      "runtime_task_id": "alfworld_eval_in_distribution_116_pick_heat_then_place_in_recep",
+      "physical_key": "8c0e94887355d63e77733ba1b2ddd7526a8b6ef5cab762de5f66c34e24c1a367",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "termination_reason": "environment_terminal",
+      "native_call_attempts": 80,
+      "environment_steps": 75,
+      "program_invocations": 1,
+      "frozen_unchanged": true
+    },
+    {
+      "source_task_id": "alfworld_eval_in_distribution_109_pick_two_obj_and_place",
+      "runtime_task_id": "alfworld_eval_in_distribution_21_pick_two_obj_and_place",
+      "physical_key": "07a6f76a0681f40613f1144b558c8aec35f77c9d650eabdf092222cd0848c701",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "termination_reason": "environment_terminal",
+      "native_call_attempts": 15,
+      "environment_steps": 15,
+      "program_invocations": 1,
+      "frozen_unchanged": true
+    }
+  ],
+  "mechanism_release": {
+    "schema": "skillcompiler.mechanism-release.v1",
+    "code": {
+      "git_sha": "4188a7fc710e9cff219e3479a5d025fe4e628bee",
+      "tracked_dirty": false,
+      "source_sha256": "8c0d9ec6c7e09a2fdf59d5971044e0e5a45b2574241a44145f6276cb2a638706"
+    },
+    "run_codes": {
+      "train": {
+        "git_sha": "15ede6bac159a589dbbb2d6f46ae9bbc60f5d8e6",
+        "tracked_dirty": false,
+        "source_sha256": "506b0ec5bb1fa1c427132b5da2fbd4200c34f2ed5b498d15ea7115d90aa4a218"
+      },
+      "valid_seen": {
+        "git_sha": "4188a7fc710e9cff219e3479a5d025fe4e628bee",
+        "tracked_dirty": false,
+        "source_sha256": "8c0d9ec6c7e09a2fdf59d5971044e0e5a45b2574241a44145f6276cb2a638706"
+      }
+    },
+    "profile": "skillcompiler.empirical.v1",
+    "selection_sha256": "59dae1ac53185a8d2dc7272fa9d194ddb597daf6936f72d962eea06b0e1d6081",
+    "acceptance": "/home/yangchengyu/asg_empirical_v31_20261004/acceptance_scope_fix/acceptance.json",
+    "acceptance_passed": true,
+    "implementation_ready": true,
+    "mechanism_demonstrated": true,
+    "measured_effect": null,
+    "mechanism_evidence": {
+      "generated_multi_action_frozen_invocation": "program_a9f9a6e25858f0f3fb523158f4cd8fc7e72b73bf75e02004f44aee734a9e31cd",
+      "pilot_multi_action_invocations": 1
+    },
+    "pilot": {
+      "train": {
+        "tasks": 12,
+        "successes": 12,
+        "total_tokens": 1771246,
+        "program_invocations": 39,
+        "knowledge_digest": "0009f74ed4b54b939b74f13a6b6fbff9b4aee3cf47fb78ad2bb27d64aee7ba79"
+      },
+      "valid_seen": {
+        "tasks": 6,
+        "successes": 6,
+        "total_tokens": 690135,
+        "program_invocations": 3,
+        "knowledge_digest": "16c7cb8db2b4e5287d04f1454cdc617fa48651374ed630efeb306fbea913cf4b"
+      }
+    },
+    "formal_score": false
+  },
+  "formal_score": false
+}

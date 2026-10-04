@@ -1,0 +1,206 @@
+{
+  "audit_date": "2026-10-04",
+  "method": "ours",
+  "source_commit": "15ede6bac159a589dbbb2d6f46ae9bbc60f5d8e6",
+  "status": "not_fully_aligned",
+  "scope": "Shared main-experiment splits, run seeds and raw records; baseline algorithms excluded",
+  "protocols": {
+    "logging_v1.0": {
+      "path": "D:/Download/Edge/不同Seed主实验统一运行记录规范_v1.0.md",
+      "sha256": "6d860d630a5fdf64c8d63c8ef7d0b969bf0bad1a034565411ebc8bfa1c8337bf"
+    },
+    "freeze_v1.1": {
+      "path": "D:/Download/Edge/Baseline_多Benchmark实验冻结规范_v1.1_中文版.md",
+      "sha256": "300d805429685d006290ade164f29bf527b3d50547db3408d395d31af9e87ae7"
+    }
+  },
+  "split_audit": {
+    "counts_match": true,
+    "shared_membership_confirmed": false,
+    "searchqa": {
+      "current_rank": "SHA256(42|id)",
+      "required_rank": "SHA256(searchqa|split|42|id)",
+      "same_ids": {
+        "train": 227,
+        "val": 2,
+        "test": 1400
+      },
+      "counts": {
+        "train": 300,
+        "val": 24,
+        "test": 1400
+      },
+      "original_test_ids_and_order_preserved": true
+    },
+    "spreadsheet": {
+      "current_rule": "Sequential multilabel splitting and exact-size adjustment",
+      "required_rule": "Per-instruction_type hash ranking and fixed quotas",
+      "same_ids": {
+        "train": 97,
+        "val": 0,
+        "test": 81
+      },
+      "counts": {
+        "train": 200,
+        "val": 20,
+        "test": 180
+      },
+      "class_quotas_match": true,
+      "approved_42930_pairing_preserved": true
+    },
+    "officeqa": {
+      "current_rule": "Sequential multilabel splitting and exact-size adjustment",
+      "required_rule": "Per-difficulty hash ranking and fixed quotas",
+      "conditional_comparison": "Using difficulty as the formula's category; pending user confirmation",
+      "same_ids": {
+        "train": 59,
+        "val": 2,
+        "test": 39
+      },
+      "counts": {
+        "train": 120,
+        "val": 24,
+        "test": 102
+      },
+      "difficulty_quotas_match": true,
+      "raw_category_column_present": false
+    },
+    "docvqa": {
+      "fixed_534_question_universe_preserved": true,
+      "current_stages": "Train -> Val -> Test, seed 42 at each stage, followed by size adjustment",
+      "required_stages": "Reserve(seed42) -> Test(seed43) -> Val(seed44)",
+      "literal_required_algorithm_counts": {
+        "train": 180,
+        "val": 22,
+        "test": 201,
+        "reserve": 131
+      },
+      "required_counts": {
+        "train": 180,
+        "val": 24,
+        "test": 200,
+        "reserve": 130
+      },
+      "diagnostic_library": {
+        "iterative-stratification": "0.1.9",
+        "numpy": "2.5.2"
+      },
+      "quantity_correction_or_canonical_manifest": "pending_user_answer"
+    },
+    "livemath": {
+      "fixed_177_question_four_month_universe_preserved": true,
+      "current_labels": "month plus theorem_type",
+      "required_labels": "theorem_type only",
+      "required_stages": "Test(seed42) -> Val(seed43)",
+      "literal_required_algorithm_counts": {
+        "train": 60,
+        "val": 17,
+        "test": 100
+      },
+      "same_ids": {
+        "train": 22,
+        "val": 2,
+        "test": 59
+      }
+    },
+    "alfworld": {
+      "counts": {
+        "train": 120,
+        "val": 24,
+        "test": 134
+      },
+      "existing_baseline_checkout_commit": "f85c1810eaf2fcaa5c3e85f09dd9f154243b2f66",
+      "physical_path_and_sha256_set_overlap_with_existing_baseline": {
+        "train": 3,
+        "val": 24,
+        "test": 134
+      },
+      "new_v1.1_canonical_manifest": "pending_authoritative_shared_manifest",
+      "physical_identity_diagnostic_does_not_execute_task_actions": true
+    }
+  },
+  "run_seed_audit": {
+    "allowed_seeds": [
+      42,
+      43,
+      44
+    ],
+    "bank_seed_guard_present": true,
+    "current_runner_uses_run_seed_for_task_shuffle": false,
+    "current_learner_has_no_random_candidate_sampler": true,
+    "provider_generation_seed_plumbed": false,
+    "three_seed_formal_campaign_completed": false,
+    "all_llm_roles_use_same_model_and_endpoint": true
+  },
+  "raw_record_audit": {
+    "native_logs_preserved": [
+      "execution_manifest.json",
+      "config.json",
+      "run.sqlite3",
+      "traces/",
+      "requests/",
+      "checkpoints/",
+      "bank/",
+      "frozen_bank/",
+      "summary.json"
+    ],
+    "existing_records": [
+      "task identity and split",
+      "parsed official score",
+      "termination reason",
+      "native attempts and environment steps",
+      "request stages, prompts and responses",
+      "actual HTTP retry timestamps and usage accounting",
+      "per-task Bank before/after digest and read-only guard"
+    ],
+    "incomplete_records": [
+      "explicit run ID, start/end/status and config/split hashes",
+      "task metadata, order and start/end timestamps",
+      "complete actual sent request messages after Provider normalization",
+      "original raw_usage JSON per actual HTTP request",
+      "interaction timestamps",
+      "official scorer raw output and scorer revision",
+      "training units and actual sample consumption",
+      "read-only validation snapshot events with selection fields null",
+      "artifact version, parent, path, hash and creation unit",
+      "freeze timestamp and Test before/after artifact hash",
+      "normalized infrastructure errors and recovery events"
+    ],
+    "uniform_jsonl_files_present": false,
+    "historical_missing_timestamps_and_raw_usage_recoverable_without_fabrication": false
+  },
+  "preservation": {
+    "source_code_changed_by_this_audit": false,
+    "frozen_split_ids_overwritten": false,
+    "new_llm_requests_or_formal_test_episodes": 0,
+    "historical_pilot_relabelled_as_formal": false,
+    "baseline_repository_modified": false
+  },
+  "pending_decisions": [
+    "Authoritative common main-experiment manifest directory, or approval to generate it once",
+    "OfficeQA category means difficulty",
+    "DocVQA canonical IDs or documented deterministic quantity adjustment"
+  ],
+  "resolved_user_decisions": [
+    {
+      "topic": "ALFWorld physical-file loader repair",
+      "instruction": "Keep original 12 Train and continue original 6 Val after loader repair",
+      "status": "completed",
+      "val_successes": 6,
+      "val_tasks": 6,
+      "preserved_train_files": 335,
+      "all_train_files_unchanged": true,
+      "evidence": "reports/alfworld_loader_repair_result.json"
+    },
+    {
+      "topic": "FileAdapter empty public tool definitions",
+      "instruction": "Fix FileAdapter.tool_definitions and fresh OfficeQA/Spreadsheet 2 Train + 1 Val",
+      "source_commit": "bff5350fa7fd170c33d7d6c543e7789cb5c737fd",
+      "unit_validation": "43 passed, 0 failed, 0 skipped; real Docker",
+      "smoke_status": "completed",
+      "evidence": "reports/file_adapter_fix_verification.json",
+      "smoke_evidence": "reports/file_adapter_smoke_result.json"
+    }
+  ],
+  "formal_campaign_started": false
+}

@@ -1,0 +1,363 @@
+{
+  "schema": "empirical.file_adapter_smoke_result.v1",
+  "status": "completed",
+  "source_commit": "bff5350fa7fd170c33d7d6c543e7789cb5c737fd",
+  "raw_run_root": "/home/yangchengyu/asg_empirical_v31_20261004/file_adapter_smoke_bff5350",
+  "diagnostic_only": true,
+  "formal_score": false,
+  "fresh_empty_banks": true,
+  "method_logic_changed": false,
+  "ordinary_failures_retried": false,
+  "model": "deepseek-v4-flash",
+  "runs": {
+    "officeqa/train": {
+      "complete": true,
+      "tasks": 2,
+      "successes": 0,
+      "known_total_tokens": 1077915,
+      "unknown_billing_attempts": 0,
+      "program_invocations": 0,
+      "knowledge_digest": "edb08f167683e5803b1c73630cbeb7e5228861b59ef1f9d108994795e10225db",
+      "code": {
+        "git_sha": "bff5350fa7fd170c33d7d6c543e7789cb5c737fd",
+        "tracked_dirty": false,
+        "source_sha256": "3972c559c021ff8f735c1a591321b75f5ff036cb8613a09908e418dbfa6f521f"
+      },
+      "task_attempt_counts": {
+        "officeqa:UID0187": 1,
+        "officeqa:UID0220": 1
+      },
+      "cases": [
+        {
+          "task_id": "officeqa:UID0187",
+          "physical_key": "313f501ba2284a8366d460a56020b44923207f262ba3616d34623fc10feccd09",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "officeqa_skillopt_em_f1_v1"
+          },
+          "termination_reason": "tool_budget_exhausted",
+          "native_calls": 24,
+          "error": null,
+          "sealed_bundle_present": null,
+          "learning": {
+            "decision": "propose_or_revise_workflow",
+            "program": null,
+            "errors": [],
+            "workflow": "workflow_6d40c78081a8eeff05ac87115d1292cb592e145ec60ddce128b731c934984635"
+          },
+          "frozen_unchanged": null
+        },
+        {
+          "task_id": "officeqa:UID0220",
+          "physical_key": "b84bc80016ddfd3d72c29796d7d11bdd34797fdac1734f4f9dd70e6521482652",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "officeqa_skillopt_em_f1_v1"
+          },
+          "termination_reason": "runtime_protocol_error",
+          "native_calls": 12,
+          "error": null,
+          "sealed_bundle_present": null,
+          "learning": {
+            "decision": "propose_or_revise_workflow",
+            "program": null,
+            "errors": [],
+            "workflow": "workflow_97aab445e0aad2dc672e625b95b06ce08e6a148b95171801f1e6594e415e5601"
+          },
+          "frozen_unchanged": null
+        }
+      ]
+    },
+    "officeqa/val": {
+      "complete": true,
+      "tasks": 1,
+      "successes": 0,
+      "known_total_tokens": 624270,
+      "unknown_billing_attempts": 0,
+      "program_invocations": 0,
+      "knowledge_digest": "8291b9fd0b7e4defcc821f1fd59f3585720822d3f4a13e4db0f743104bb8a5e0",
+      "code": {
+        "git_sha": "bff5350fa7fd170c33d7d6c543e7789cb5c737fd",
+        "tracked_dirty": false,
+        "source_sha256": "3972c559c021ff8f735c1a591321b75f5ff036cb8613a09908e418dbfa6f521f"
+      },
+      "task_attempt_counts": {
+        "officeqa:UID0095": 1
+      },
+      "cases": [
+        {
+          "task_id": "officeqa:UID0095",
+          "physical_key": "4b8a64fb6b5d010db21d4579cee35c45dfdb7fea9adf6c47e5e64ff92d9d4743",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "officeqa_skillopt_em_f1_v1"
+          },
+          "termination_reason": "token_budget_exhausted",
+          "native_calls": 12,
+          "error": {
+            "code": "empirical_token_budget_exhausted",
+            "message": "Metered turn exceeded role budget"
+          },
+          "sealed_bundle_present": null,
+          "learning": {},
+          "frozen_unchanged": true
+        }
+      ]
+    },
+    "spreadsheet/train": {
+      "complete": true,
+      "tasks": 2,
+      "successes": 1,
+      "known_total_tokens": 1896499,
+      "unknown_billing_attempts": 0,
+      "program_invocations": 0,
+      "knowledge_digest": "03ffc752549654fe7ab319b5515daac7147d14052bf15b0d8bc11adc3d7d2078",
+      "code": {
+        "git_sha": "bff5350fa7fd170c33d7d6c543e7789cb5c737fd",
+        "tracked_dirty": false,
+        "source_sha256": "3972c559c021ff8f735c1a591321b75f5ff036cb8613a09908e418dbfa6f521f"
+      },
+      "task_attempt_counts": {
+        "spreadsheet:120-24": 1,
+        "spreadsheet:353-29": 1
+      },
+      "cases": [
+        {
+          "task_id": "spreadsheet:120-24",
+          "physical_key": "3c820e3a93d9207ed542dd4fcf444f67591b1701a5852cc3c7bfc41fd804fc49",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "spreadsheet.skillopt-all-cases",
+            "case_results": [
+              false
+            ]
+          },
+          "termination_reason": "agent_submitted",
+          "native_calls": 8,
+          "error": null,
+          "sealed_bundle_present": true,
+          "learning": {
+            "decision": "propose_skill_and_program_spec",
+            "program": "program_21e442a1c1d9137075e835eee74d4adf1b1bdeb3c67da33404c1ce87aa5e4e79",
+            "errors": [
+              "Workflow rejected: Result reference needs a preceding producer and field"
+            ],
+            "test_subjects": [
+              "3c820e3a93d9207ed542dd4fcf444f67591b1701a5852cc3c7bfc41fd804fc49"
+            ]
+          },
+          "frozen_unchanged": null
+        },
+        {
+          "task_id": "spreadsheet:353-29",
+          "physical_key": "be3fcdff3aa1d941123325efa14f4da98f6fc5e383e5ee124b925ab4887cbdad",
+          "score": {
+            "hard": true,
+            "soft": 1.0,
+            "raw_score": 1.0,
+            "scorer": "spreadsheet.skillopt-all-cases",
+            "case_results": [
+              true
+            ]
+          },
+          "termination_reason": "agent_submitted",
+          "native_calls": 23,
+          "error": null,
+          "sealed_bundle_present": true,
+          "learning": {
+            "error": "Metered turn exceeded role budget",
+            "rejected": true
+          },
+          "frozen_unchanged": null
+        }
+      ]
+    },
+    "spreadsheet/val": {
+      "complete": true,
+      "tasks": 1,
+      "successes": 0,
+      "known_total_tokens": 123935,
+      "unknown_billing_attempts": 0,
+      "program_invocations": 0,
+      "knowledge_digest": "a41692a9949a2c64664c46808c67e2afaef0900f00579359e3ec7706f8340eaf",
+      "code": {
+        "git_sha": "bff5350fa7fd170c33d7d6c543e7789cb5c737fd",
+        "tracked_dirty": false,
+        "source_sha256": "3972c559c021ff8f735c1a591321b75f5ff036cb8613a09908e418dbfa6f521f"
+      },
+      "task_attempt_counts": {
+        "spreadsheet:40757": 1
+      },
+      "cases": [
+        {
+          "task_id": "spreadsheet:40757",
+          "physical_key": "43e42b3ade6a4e981989bcd74fbd5a337c6a9f73274a0fa7a660a86345671ff5",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "spreadsheet.skillopt-all-cases",
+            "case_results": [
+              false
+            ]
+          },
+          "termination_reason": "agent_submitted",
+          "native_calls": 6,
+          "error": null,
+          "sealed_bundle_present": false,
+          "learning": {},
+          "frozen_unchanged": true
+        }
+      ]
+    }
+  },
+  "request_evidence": [
+    {
+      "file": "/home/yangchengyu/asg_empirical_v31_20261004/file_adapter_smoke_bff5350/officeqa/train/requests/officeqa:UID0187_attempt1.json",
+      "request_id": "c213441b880b4b44a80e02e452bace08",
+      "stage": "extractor",
+      "public_tool_names": [
+        "glob",
+        "read",
+        "grep",
+        "execute_python"
+      ]
+    },
+    {
+      "file": "/home/yangchengyu/asg_empirical_v31_20261004/file_adapter_smoke_bff5350/officeqa/train/requests/officeqa:UID0220_attempt1.json",
+      "request_id": "619e4e84ab6049bbb62d23d955859405",
+      "stage": "extractor",
+      "public_tool_names": [
+        "glob",
+        "read",
+        "grep",
+        "execute_python"
+      ]
+    },
+    {
+      "file": "/home/yangchengyu/asg_empirical_v31_20261004/file_adapter_smoke_bff5350/spreadsheet/train/requests/spreadsheet:120-24_attempt1.json",
+      "request_id": "17ad4a16f76140fa95c9244d879299f9",
+      "stage": "extractor",
+      "public_tool_names": [
+        "execute_python"
+      ]
+    },
+    {
+      "file": "/home/yangchengyu/asg_empirical_v31_20261004/file_adapter_smoke_bff5350/spreadsheet/train/requests/spreadsheet:120-24_attempt1.json",
+      "request_id": "831271ec4dba4d6eb86e9a49ba45723b",
+      "stage": "extractor",
+      "public_tool_names": [
+        "execute_python"
+      ]
+    },
+    {
+      "file": "/home/yangchengyu/asg_empirical_v31_20261004/file_adapter_smoke_bff5350/spreadsheet/train/requests/spreadsheet:120-24_attempt1.json",
+      "request_id": "55a6e68858dd43e5b5bbea68032c4e0b",
+      "stage": "tool_builder",
+      "public_tool_names": [
+        "execute_python"
+      ]
+    },
+    {
+      "file": "/home/yangchengyu/asg_empirical_v31_20261004/file_adapter_smoke_bff5350/spreadsheet/train/requests/spreadsheet:353-29_attempt1.json",
+      "request_id": "b620ab2d652c4b7c91e1fa20a1fbb0c8",
+      "stage": "extractor",
+      "public_tool_names": [
+        "execute_python"
+      ]
+    },
+    {
+      "file": "/home/yangchengyu/asg_empirical_v31_20261004/file_adapter_smoke_bff5350/spreadsheet/train/requests/spreadsheet:353-29_attempt1.json",
+      "request_id": "fe41288414bc48dc9feaf2c5d44fd225",
+      "stage": "tool_builder",
+      "public_tool_names": [
+        "execute_python"
+      ]
+    }
+  ],
+  "programs": {
+    "officeqa": [],
+    "spreadsheet": [
+      {
+        "id": "program_21e442a1c1d9137075e835eee74d4adf1b1bdeb3c67da33404c1ce87aa5e4e79",
+        "state": "candidate",
+        "allowed_tools": [],
+        "source_sha256": "a35db5126144b76523b3894f08a71a6b6ff3cca9a193b64045a461afcc5b7ec7",
+        "trials": [
+          {
+            "id": "e5f3afa54193e50813235bd462d42fcae3d3f0491307f1caa60614fd6302c5bc",
+            "task_key": "3c820e3a93d9207ed542dd4fcf444f67591b1701a5852cc3c7bfc41fd804fc49",
+            "origin": "train_test",
+            "outcome": "normal",
+            "basis": null,
+            "trial_native_calls": 5,
+            "program_status": "ok",
+            "score": {
+              "case_results": [
+                false
+              ],
+              "hard": false,
+              "raw_score": 0.0,
+              "scorer": "spreadsheet.skillopt-all-cases",
+              "soft": 0.0
+            }
+          }
+        ]
+      },
+      {
+        "id": "program_d58069e19d6afb5406bf2f95fbcd37cce40b0720c0f72969cb99c137f28a5ad2",
+        "state": "candidate",
+        "allowed_tools": [],
+        "source_sha256": "185098970ff14a0862ade3ab833a7d78d3376994175cb13617f122d3e42c933b",
+        "trials": [
+          {
+            "id": "dfbdbe378debe2fbc607e945e9a925bb16e205d701100bfa1e81493b96ddea4d",
+            "task_key": "be3fcdff3aa1d941123325efa14f4da98f6fc5e383e5ee124b925ab4887cbdad",
+            "origin": "train_test",
+            "outcome": "normal",
+            "basis": null,
+            "trial_native_calls": 10,
+            "program_status": "ok",
+            "score": {
+              "case_results": [
+                false
+              ],
+              "hard": false,
+              "raw_score": 0.0,
+              "scorer": "spreadsheet.skillopt-all-cases",
+              "soft": 0.0
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "frozen_checks": {
+    "officeqa": {
+      "logical_digest_before_val": "8291b9fd0b7e4defcc821f1fd59f3585720822d3f4a13e4db0f743104bb8a5e0",
+      "logical_digest_after_val": "8291b9fd0b7e4defcc821f1fd59f3585720822d3f4a13e4db0f743104bb8a5e0",
+      "unchanged": true
+    },
+    "spreadsheet": {
+      "logical_digest_before_val": "a41692a9949a2c64664c46808c67e2afaef0900f00579359e3ec7706f8340eaf",
+      "logical_digest_after_val": "a41692a9949a2c64664c46808c67e2afaef0900f00579359e3ec7706f8340eaf",
+      "unchanged": true
+    }
+  },
+  "known_total_tokens": 3722619,
+  "unknown_billing_attempts": 0,
+  "live_office_builder_requests": 0,
+  "office_program_permissions_evidence": "Actual generated candidate in 43-test real Docker regression; this smoke Learner chose workflows and generated no OfficeQA Program",
+  "verification_report": "reports/file_adapter_fix_verification.json",
+  "preserved_previous_smoke": "reports/file_adapter_smoke_interrupted.json",
+  "preserved_qa_smoke": "reports/adapter_smoke_preserved_qa.json",
+  "alfworld_preservation": "reports/alfworld_loader_repair_result.json"
+}

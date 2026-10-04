@@ -1,0 +1,42 @@
+{
+  "schema": "empirical.file_adapter_fix_verification.v1",
+  "status": "passed",
+  "source_commit": "bff5350fa7fd170c33d7d6c543e7789cb5c737fd",
+  "change": "FileAdapter.tool_definitions delegates to available_tools; Learner, Builder and generated Program permissions use the public tool catalog",
+  "pytest": {
+    "passed": 43,
+    "failed": 0,
+    "skipped": 0,
+    "output": "...........................................                              [100%]\n43 passed in 22.14s",
+    "elapsed_seconds": 22.77778649330139,
+    "real_docker": true,
+    "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+  },
+  "regression_evidence": [
+    "Actual Learner and Builder prompt materials contain OfficeQA public tool definitions",
+    "Generated candidate Program authorizes glob/read/grep and excludes recursive execute_python",
+    "Real Docker Program reads public evidence via glob/read with two native calls",
+    "Spreadsheet tool definitions expose its native execute_python interface"
+  ],
+  "installed_wheel": {
+    "source_commit": "bff5350fa7fd170c33d7d6c543e7789cb5c737fd",
+    "wheel": "/home/yangchengyu/skillcompiler_v31_wheels/bff5350/atomic_skillgraph-3.1.0-py3-none-any.whl",
+    "wheel_sha256": "83df5578160c51d68abc34ac69f290841e044796b33b07f6e1e78dc4594dc058",
+    "outside_repository": true,
+    "pythonpath_unset": true,
+    "five_cli_help_passed": {
+      "skillcompiler": true,
+      "skillcompiler-pilot": true,
+      "skillcompiler-acceptance": true,
+      "skillcompiler-multibench": true,
+      "skillcompiler-prepare": true
+    },
+    "installed_file_adapter_definition_passed": true
+  },
+  "preservation": {
+    "alfworld_train_rerun": false,
+    "alfworld_val_rerun": false,
+    "baseline_repository_modified": false,
+    "historical_records_promoted": false
+  }
+}
