@@ -1,5 +1,27 @@
 # AtomicSkillGraph v3
 
+## Empirical SkillCompiler（2026-10-04）
+
+新生产入口使用唯一 `skillcompiler.empirical.v1` profile 和独立 Bank。
+它通过普通参数/返回值、受限 Python、真实 Train 测试和独立评分工作；
+下文的 R10.3 证据与 IR 说明仅适用于原历史入口。旧 Bank 不自动迁移。
+
+WSL 环境需 Python 3.12、`bubblewrap` 和 `libseccomp2`。生成代码只在独立
+命名空间进程运行，通过 JSON RPC 调用公开工具；缺少隔离依赖时拒绝执行。
+新配置保持既有 DeepSeek 模型、high reasoning、completion 上限和任务预算。
+
+```bash
+cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3
+export ALFWORLD_DATA=/home/yangchengyu/.cache/alfworld
+/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_empirical \
+  --manifest data/baseline_manifests/train_120.json --output runs/empirical_seed42
+```
+
+使用 `--env-file .env` 可显式加载已有凭据；不写入配置或沙箱。
+`--resume` 仅在相同源码、配置和清单下从任务边界恢复；完成任务不会重复计入。
+验证需指定 `--frozen-bank` 和对应独立清单/输出目录，长期库只读。
+正式大规模实验仍需先完成 v3.0 文档规定的生成程序验收和固定 12+6 pilot。
+
 AtomicSkillGraph v3 是一个独立的、基于 native ToolCall 的集中式原子
 Skill/Tool 联合进化实验系统。它使用 Planner 构建严格线性的 Runtime 控制序列，
 用 Runtime Agent 在真实 Harness 中认证参数并调用 Implementation，通过分层验证、

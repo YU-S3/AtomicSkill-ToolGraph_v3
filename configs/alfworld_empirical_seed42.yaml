@@ -1,0 +1,63 @@
+# New Bank only. Same model/reasoning/completion and task caps as mechanism.v2.
+mechanism_profile: skillcompiler.empirical.v1
+schema_version: empirical.v1
+data_dir: runs/empirical_seed42/bank
+experiment:
+  seed: 42
+  benchmark: alfworld
+  runtime_mode: online
+  max_task_attempts: 3
+  output_dir: runs/empirical_seed42
+harness:
+  adapter: alfworld_v3
+  split: train
+  max_steps: 100
+  public_discovery_version: alfworld.public-discovery.v2
+runtime:
+  global_action_budget: 100
+  repeated_unchanged_failure_limit: 2
+learning:
+  max_new_programs_per_task: 1
+  builder_repair_limit: 1
+  max_train_test_cases_per_program_version: 2
+planning:
+  retrieval_top_k: 8
+  structural_repair_limit: 1
+  task_replan_limit: 1
+program_worker:
+  max_tool_calls_per_invocation: 32
+  wall_timeout_seconds: 60
+  memory_limit_mb: 1024
+  max_rpc_message_bytes: 1048576
+program_environment:
+  backend: sandbox_python_v1
+  python: '3.12'
+  dependencies: []
+llm:
+  provider: openai_compatible
+  dialect: deepseek_v4_chat
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-flash
+  api_key_env: MODEL_API_KEY
+  max_retries: 4
+  protocol:
+    thinking_type: enabled
+  planner:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300
+    max_total_tokens_per_phase: 120000
+  runtime:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 180
+    max_total_tokens_per_task: 600000
+  extractor:
+    reasoning_effort: high
+    max_completion_tokens: 131072
+    request_timeout_seconds: 600
+    max_total_tokens_per_task: 262144
+  tool_builder:
+    reasoning_effort: high
+    max_completion_tokens: 32768
+    request_timeout_seconds: 300

@@ -28,3 +28,12 @@ def create_harness(config):
             simplification=settings.get('simplification', 'easy'),
             version=settings.get('scienceworld_version', '1.2.3'))
     raise ValueError(f'Unknown harness adapter: {name}')
+
+
+def create_simple_harness(config):
+    """Empirical factory: legacy ValidatorChannel is not the public contract."""
+    settings = config.get('harness', {})
+    if settings.get('adapter', 'alfworld_v3') == 'alfworld_v3':
+        from .alfworld_simple import SimpleAlfWorld
+        return SimpleAlfWorld(create_harness(config))
+    raise ValueError('Simple adapter is not installed: ' + str(settings.get('adapter')))

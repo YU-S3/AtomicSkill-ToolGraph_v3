@@ -243,6 +243,9 @@ def load_config(source: str | Path | Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError("v3 config root must be a mapping")
         config = payload
         config["_config_path"] = str(config_path)
+    if config.get("mechanism_profile") == "skillcompiler.empirical.v1":
+        from .empirical.system import validate_config
+        return validate_config(config)
     if int(config.get("schema_version", 0)) != 3:
         raise ValueError("AtomicSkillGraph v3 requires schema_version: 3")
     from .mechanism_profile import resolve as resolve_mechanism_profile
@@ -421,6 +424,15 @@ class _ToolBuildBudgetExhausted(Exception):
         self.error_code = str(error_code)
         self.messages = copy.deepcopy(normalized_messages)
         self.budget_boundary = str(budget_boundary)
+
+
+def create_system(config, **kwargs):
+    """Select the production chain before constructing any legacy state."""
+    config = load_config(config)
+    if config.get("mechanism_profile") == "skillcompiler.empirical.v1":
+        from .empirical.system import EmpiricalSystem
+        return EmpiricalSystem(config, **kwargs)
+    return AtomicSkillGraphSystem(config, **kwargs)
 
 
 class AtomicSkillGraphSystem:
