@@ -312,3 +312,18 @@ def test_t39_empty_final_files_cannot_claim_an_old_bundle(tmp_path,worker):
     assert trial['outcome']=='normal' and 'score' not in trial['result']
     assert s.bank.get(asset['id'])['state']=='candidate'
     s.close()
+
+
+
+@pytest.mark.parametrize('explicit_intent',[True,False])
+def test_t34_guidance_only_cannot_be_built_by_conflicting_trial_request(tmp_path,monkeypatch,explicit_intent):
+    asset=skill('QA guidance',execution_intent='guidance_only') if explicit_intent else skill('QA guidance')
+    proposal={'decision':'propose_skill_and_program_spec','skill':asset,'generate_program':False,
+              'realization_request':{'skill_id':'$new','action':'trial','case_bindings':[]}}
+    seen=http(monkeypatch,[response([proposal],name='submit_learning')])
+    a=AnswerAdapter('searchqa',{'qa':{'answers':['answer']}}); a.reset(PublicTask('qa','qa-physical','question'))
+    s=EmpiricalSystem(config_for(tmp_path/'bank'),harness=a)
+    log=s.learner.learn(a.task,learning_trace())
+    assert len(seen)==1 and not s.bank.jobs() and log['program'] is None
+    assert s.bank.all('skill')[0]['execution_intent']=='guidance_only'
+    s.close()

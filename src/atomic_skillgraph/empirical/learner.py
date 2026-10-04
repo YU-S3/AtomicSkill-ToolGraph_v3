@@ -67,7 +67,7 @@ class Learner:
         if proposal.get('skill'):
             asset = deepcopy(proposal['skill'])
             requested = proposal.get('generate_program', proposal['decision'] == 'propose_skill_and_program_spec')
-            asset.setdefault('execution_intent', 'program_requested' if requested else 'guidance_only')
+            asset.setdefault('execution_intent', 'program_requested' if requested and s.adapter.capabilities.interaction != 'single_answer' else 'guidance_only')
             asset.setdefault('result_role', 'intermediate')
             skill = bank.put('skill', asset)
         elif proposal.get('existing_skill_id'):
@@ -78,8 +78,10 @@ class Learner:
             selected_id = skill['id'] if request['skill_id'] == '$new' and skill else request['skill_id']
             skill = bank.get(selected_id)
             if not skill or 'input_schema' not in skill: raise ValueError('Unknown realization Skill')
-        requested = skill and (proposal.get('generate_program', proposal['decision'] == 'propose_skill_and_program_spec') or
+        requested = skill and skill.get('execution_intent') != 'guidance_only' and (proposal.get('generate_program', proposal['decision'] == 'propose_skill_and_program_spec') or
                                skill.get('execution_intent') == 'program_requested' or request)
+        if skill and skill.get('execution_intent') == 'guidance_only' and request:
+            log['ignored_realization_request'] = 'guidance_only has no Program job'
         if requested:
             job_id = digest(['realization', skill['id']])
             job = next((j for j in jobs if j['id'] == job_id), None)

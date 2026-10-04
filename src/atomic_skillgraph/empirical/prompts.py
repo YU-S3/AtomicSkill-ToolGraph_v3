@@ -60,6 +60,7 @@ its inputs and its workflow. The full example task is context, not permission to
 conditions from that task. Leave subsequent task-specific work to continuation. Do not broaden the selected goal
 while repairing a response's structure. If proposing a new skill, an accompanying workflow may reference it as $new.
 execution_intent is guidance_only for single-answer QA; tool capabilities can be program_requested.
+guidance_only does not request a Program job: set generate_program=false and omit realization_request.
 Declare result_role intermediate/final_answer/final_files in the Skill. A missing Program is pending work, not
 completion. reuse_existing with generate_program=true still requests a build. Use realization_request for at most
 one related pending job and 0-2 actually applicable completed Train case_ids, fixing each input and reset or real
