@@ -309,7 +309,8 @@ def test_resume_completed_task_does_not_repeat_solve_or_learning(tmp_path, monke
 
 def test_invalid_optional_workflow_preserves_tested_program(tmp_path, monkeypatch):
     from atomic_skillgraph.empirical.system import EmpiricalSystem
-    skill = {'goal': 'prepare', 'input_schema': object_schema(), 'output_schema': object_schema()}
+    skill = {'goal': 'prepare', 'input_schema': object_schema(), 'output_schema': object_schema(),
+             'execution_intent': 'program_requested'}
     provider = Provider([{'decision': 'propose_skill_and_program_spec', 'skill': skill,
                          'realization_request': {'skill_id': '$new', 'action': 'build', 'case_bindings': [
                              {'case_id': key, 'inputs': {}, 'start_mode': 'reset', 'prefix': []} for key in ['p1','p2']]},
