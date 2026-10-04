@@ -38,9 +38,9 @@ STEP = object_schema({"action": {"enum": ["call_tool", "call_program", "complete
         'path': {'type': 'array', 'items': {'oneOf': [TEXT, {'type': 'integer','minimum':0}]}}}, ['result_id','path'])},
     'output_refs': {'type': 'object', 'additionalProperties': object_schema({'result_id': TEXT,
         'path': {'type': 'array', 'items': {'oneOf': [TEXT, {'type': 'integer','minimum':0}]}}}, ['result_id','path'])}}, ["action"])
-PLAN = {'oneOf': [object_schema({'mode': {'enum': ['select']}, 'workflow_id': TEXT,
-    'node_args': {'type': 'object', 'additionalProperties': {'type': 'object', 'additionalProperties': REF}}}, ['mode','workflow_id','node_args']),
-    object_schema({'mode': {'enum': ['compose']}, 'workflow': WORKFLOW}, ['mode','workflow'])]}
+PLAN = object_schema({'mode': {'enum': ['select','compose']}, 'workflow_id': TEXT,
+    'node_args': {'type': 'object', 'additionalProperties': {'type': 'object', 'additionalProperties': REF}},
+    'workflow': WORKFLOW}, ['mode'])
 FINISH = object_schema({'action': {'enum': ['finish']}, 'answer': {}, 'detail': TEXT}, ['action','answer'])
 
 PLANNER_PROMPT = """Choose a short executable workflow for the original task. Use the supplied Skills/Workflows as

@@ -345,3 +345,14 @@ def test_t40_stopped_train_smoke_does_not_start_val_or_another_benchmark(tmp_pat
     report=run_multibench.run_smoke(config_for(tmp_path/'bank'),root,tmp_path/'out',['searchqa','livemath'])
     assert len(calls)==1 and report['benchmarks']['searchqa']['status']=='stopped'
     assert 'val' not in report['benchmarks']['searchqa']['runs'] and 'livemath' not in report['benchmarks']
+
+
+
+def test_t26_planner_uses_an_object_root_at_actual_http_boundary(tmp_path,monkeypatch):
+    s=office(tmp_path); s.bank.put('skill',skill('find target'))
+    plan={'mode':'compose','workflow':dynamic(s.adapter.task)}
+    seen=http(monkeypatch,[response([plan],name='submit_plan')])
+    assert s.planner.plan(s.adapter.task,s.adapter)==plan['workflow']
+    schema=seen[0]['tools'][0]['function']['parameters']
+    assert schema['type']=='object' and schema['properties']['mode']['enum']==['select','compose']
+    s.close()

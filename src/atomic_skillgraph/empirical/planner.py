@@ -24,6 +24,8 @@ class Planner:
         workflows = {a['id']: a for a in related if 'nodes' in a}
         def instantiate(value):
             if value.get('mode') == 'select':
+                if set(value) != {'mode','workflow_id','node_args'}:
+                    raise ValueError('select requires workflow_id and node_args only')
                 if value.get('workflow_id') not in workflows: raise ValueError('Workflow was not retrieved')
                 workflow = deepcopy(workflows[value['workflow_id']])
                 nodes = {n['id']: n for n in workflow['nodes']}
@@ -31,6 +33,8 @@ class Planner:
                     if node_id not in nodes: raise ValueError('Unknown selected workflow node')
                     nodes[node_id].setdefault('args', {}).update(overrides)
             else:
+                if value.get('mode') == 'compose' and set(value) != {'mode','workflow'}:
+                    raise ValueError('compose requires a workflow only')
                 workflow = value.get('workflow', value)
             return self.validate(workflow, completed_results or ())
         materials = {"task": {"goal": task.goal, "inputs": task.inputs}, "interfaces": related,
