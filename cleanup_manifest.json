@@ -527,7 +527,7 @@
     "old mixed correctness tests": "tests/test_empirical_boundaries.py, test_provider_transport.py, test_public_observation.py"
   },
   "test_result": {
-    "passed": 33,
+    "passed": 42,
     "skipped": 0,
     "environment": "Ubuntu WSL / real Docker digest pinned; existing Python 3.12 venv"
   }

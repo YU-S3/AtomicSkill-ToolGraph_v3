@@ -48,12 +48,22 @@ def code_identity():
     return {'git_sha':sha,'tracked_dirty':bool(dirty),'source_sha256':digest(content)}
 
 
-def resolve_alfworld_tasks(adapter, entries):
+def resolve_alfworld_tasks(adapter, entries, *, mapping_path=None):
     harness = adapter.harness
     root = Path(harness.alfworld_data).resolve(strict=True)
+    files = set()
+    for entry in entries:
+        path = (root / entry['gamefile_rel']).resolve(strict=True)
+        if not path.is_relative_to(root) or path.relative_to(root).as_posix() != entry['gamefile_rel']:
+            raise ValueError('Manifest physical path must be canonical and within the dataset')
+        if str(path) in files:
+            raise ValueError('Duplicate physical task: ' + entry['gamefile_rel'])
+        if hashlib.sha256(path.read_bytes()).hexdigest() != entry['gamefile_sha256']:
+            raise ValueError('Manifest physical file hash mismatch: ' + entry['gamefile_rel'])
+        files.add(str(path))
     discovered = {Path(t.context["game_file"]).resolve().relative_to(root).as_posix(): t
-                  for t in harness.load_tasks(limit=max(e['env_index'] for e in entries) + 1)}
-    selected, seen = [], set()
+                  for t in harness.load_tasks(game_files=files)}
+    selected, seen, mapping = [], set(), []
     for entry in entries:
         relative = entry["gamefile_rel"]
         task = discovered.get(relative)
@@ -66,6 +76,16 @@ def resolve_alfworld_tasks(adapter, entries):
         selected.append(PublicTask(task.task_id, digest({"path": relative, "sha256": file_hash}), task.goal,
             {"environment_task": {"task_type": task.task_type, "context": task.context, "metadata": task.metadata}},
             "train" if entry["source_split"] == "train" else entry["source_split"]))
+        mapping.append({'source_task_id': entry['task_id'], 'source_env_index': entry['env_index'],
+            'runtime_task_id': task.task_id, 'runtime_env_index': task.context['env_index'],
+            'gamefile_rel': relative, 'gamefile_sha256': file_hash, 'physical_key': selected[-1].physical_key,
+            'source_task_signature': entry.get('task_signature'),
+            'runtime_task_signature': task.metadata.get('task_signature')})
+    if mapping_path is not None:
+        value = {'schema': 'empirical.physical-task-map.v1', 'source_entries_digest': digest(entries), 'tasks': mapping}
+        if Path(mapping_path).exists() and json.loads(Path(mapping_path).read_text()) != value:
+            raise ValueError('Existing physical task resolution changed')
+        write_json(mapping_path, value)
     return selected
 
 
@@ -169,7 +189,7 @@ def main():
                                     "valid_unseen": "eval_out_of_distribution"}[source_split]
     config["experiment"]["runtime_mode"] = "frozen" if readonly else "online"
     adapter = create_simple_harness(config)
-    tasks = resolve_alfworld_tasks(adapter, manifest["tasks"])
+    tasks = resolve_alfworld_tasks(adapter, manifest["tasks"], mapping_path=Path(args.output)/'task_identity_resolution.json')
     def factory():
         candidate = create_simple_harness(config)
         return candidate

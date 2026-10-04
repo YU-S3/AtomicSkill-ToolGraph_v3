@@ -47,7 +47,7 @@ def main():
     if len(subjects) != 2:
         raise ValueError('Fixed two Train subjects are missing; do not substitute tasks')
     adapter = create_simple_harness(config)
-    tasks = resolve_alfworld_tasks(adapter, subjects)
+    tasks = resolve_alfworld_tasks(adapter, subjects, mapping_path=output/'task_identity_resolution.json')
     def factory():
         candidate = create_simple_harness(config)
         return candidate

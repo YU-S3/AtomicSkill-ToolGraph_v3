@@ -271,8 +271,14 @@ class AlfWorldAdapter:
         return task, observation, admissible
 
 
-    def load_tasks(self, *, limit: int = 0, task_type: str | None = None) -> list[HarnessTask]:
-        if (self._env is None or self._exact_file is not None
+    def load_tasks(self, *, limit: int = 0, task_type: str | None = None,
+                   game_files: set[str] | None = None) -> list[HarnessTask]:
+        targets = {str(Path(file).resolve()) for file in game_files} if game_files is not None else None
+        if targets is not None and limit:
+            raise ValueError('Physical task selection cannot use an ordinal scan limit')
+        if targets == set():
+            return []
+        if (targets is not None or self._task_index != 0 or self._env is None or self._exact_file is not None
                 or self._backend_identity != self._configuration_identity()):
             total = self.initialize()
         else:
@@ -280,14 +286,27 @@ class AlfWorldAdapter:
             total = len(files) if files is not None else 0
         wanted = task_type or self.task_type
         result: list[HarnessTask] = []
+        if targets is not None and not total:
+            self._close_backend()
+            raise AtomicSkillGraphError('infrastructure_failure', 'ALFWorld discovery has no known task count',
+                                       layer=FailureLayer.INFRASTRUCTURE)
         scan_limit = total or (limit * 20 if limit else 10000)
         for _ in range(scan_limit):
             task, observation, admissible = self._raw_reset()
             task.context.update({"initial_observation": observation, "initial_admissible": admissible})
-            if not wanted or task.task_type == wanted:
+            file = str(Path(task.context['game_file']).resolve())
+            if (not wanted or task.task_type == wanted) and (targets is None or file in targets):
                 result.append(task)
+                if targets is not None:
+                    targets.remove(file)
+                    if not targets:
+                        break
             if limit and len(result) >= limit:
                 break
+        if targets:
+            self._close_backend()
+            raise AtomicSkillGraphError('infrastructure_failure', 'Physical tasks absent from ALFWorld discovery: '
+                                       + ', '.join(sorted(targets)), layer=FailureLayer.INFRASTRUCTURE)
         return result
 
 

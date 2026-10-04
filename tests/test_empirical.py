@@ -364,3 +364,32 @@ def test_interrupted_learning_resume_keeps_execution_and_all_billed_usage(tmp_pa
     frozen = Bank(tmp_path / 'run' / 'frozen_bank', readonly=True)
     assert frozen.all('skill')[0]['goal'] == 'uncommitted'
     frozen.close()
+
+
+def test_loader_continuation_preserves_completed_train_and_rejects_bank_changes(tmp_path):
+    import json
+    from atomic_skillgraph.experiments.run_empirical import code_identity, write_json
+    from atomic_skillgraph.experiments.run_empirical_pilot import completed_train
+    from atomic_skillgraph.empirical.contracts import digest
+
+    output = tmp_path / 'pilot'
+    config = config_for(output / 'train' / 'bank')
+    entries = [{'gamefile_rel': 'original/game.tw-pddl', 'gamefile_sha256': 'original'}]
+    bank = Bank(config['data_dir'])
+    frozen = bank.freeze(output / 'train' / 'frozen_bank')
+    summary = {'complete': True, 'tasks': 1, 'frozen': frozen, 'knowledge_digest': bank.digest(),
+        'cases': [{'task': {'physical_key': digest({'path': entries[0]['gamefile_rel'], 'sha256': 'original'})}}]}
+    code = dict(code_identity(), tracked_dirty=False)
+    write_json(output / 'train' / 'execution_manifest.json', {'config': config, 'code': code})
+    write_json(output / 'train' / 'summary.json', summary)
+    original = (output / 'train' / 'summary.json').read_bytes()
+    assert completed_train(config, entries, output) == summary
+    assert (output / 'train' / 'summary.json').read_bytes() == original
+    assert bank.digest() == summary['knowledge_digest']
+    assert json.loads((output / 'continuation_manifest.json').read_text())['train_reused_without_execution']
+    with pytest.raises(ValueError, match='physical task selection differs'):
+        completed_train(config, [dict(entries[0], gamefile_sha256='other')], output)
+    bank.put('skill', {'goal': 'unexpected mutation'})
+    with pytest.raises(ValueError, match='Bank changed'):
+        completed_train(config, entries, output)
+    bank.close()

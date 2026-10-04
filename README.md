@@ -30,6 +30,10 @@ skillcompiler-multibench --config configs/default.yaml --datasets /path/to/prepa
 
 `--resume` 要求源码、配置和任务身份一致。已完成执行只恢复未完成学习；缓存响应与版本注册幂等。未知环境副作用停止尝试，不自动重放。`STOP_AFTER_TASK` 文件在下一题前停止。费用保留所有尝试，未知计费不会写成零。
 
+ALFWorld 清单按数据根目录下的物理文件和 SHA256 解析，扫描到全部目标后停止；旧 `env_index` 不作为扫描上限。`task_identity_resolution.json` 保存原清单与当前环境 ID 的对应关系，reset 仍校验当前文件、序号、目标和签名。重复 discovery 从起点开始，缺题或身份变化时停止，不替换题目。
+
+已完成 Train 后仅修复上述加载入口，可显式使用 `skillcompiler-pilot ... --continue-val` 继续原 6 个 Val。此入口核对原 Train 配置、物理题目集合、源码差异及 Train／冻结 Bank digest，保存 `continuation_manifest.json` 和分阶段源码版本；不重新执行 Train，也不放宽普通 `--resume` 的身份要求。
+
 ## 项目结构与边界
 
 - `src/atomic_skillgraph/empirical/`：通用 Bank、普通参数引用、Planner/Learner、执行器、Docker worker、恢复与预算。
