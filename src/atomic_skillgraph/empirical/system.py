@@ -471,13 +471,9 @@ class EmpiricalSystem:
                     basis, outcome = "local_check", "positive"
                 elif result["status"] == "ok":
                     role = program.get('result_role', 'intermediate')
-                    ready = getattr(adapter, 'submission_ready', lambda *a, **k: False)(result.get('outputs', {}), result_role=role)
-                    if role == 'final_files':
-                        declared = set(result.get('outputs', {}).get('files', []))
-                        current = adapter.observe().get('workspace', {})
-                        ready = ready and {'solution.py','case1_result.xlsx'}.issubset(declared) and any(
-                            workspace_before.get('hashes', {}).get(n) != current.get('hashes', {}).get(n)
-                            for n in ['solution.py','case1_result.xlsx'])
+                    readiness = {'result_role': role}
+                    if role == 'final_files': readiness['previous_workspace'] = workspace_before
+                    ready = getattr(adapter, 'submission_ready', lambda *a, **k: False)(result.get('outputs', {}), **readiness)
                     if ready:
                         outputs = result.get('outputs', {})
                         sealed = adapter.submit(outputs['answer'] if role == 'final_answer' else outputs)

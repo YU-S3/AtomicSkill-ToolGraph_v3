@@ -227,12 +227,16 @@ class SpreadsheetAdapter(FileAdapter):
             result_schema({'type': 'object'}), effect='sandbox_compute')
         self.specs = {spec.name: spec}
 
-    def submission_ready(self, output=None, *, result_role='intermediate'):
+    def submission_ready(self, output=None, *, result_role='intermediate', previous_workspace=None):
         pointer = self.workspace.root / 'manifest.json'
         if not pointer.exists(): return False
         manifest = json.loads(pointer.read_text())
-        return all(name in manifest['outputs'] and (self.workspace.root/manifest['version']/name).is_file()
-                   for name in ['solution.py', 'case1_result.xlsx'])
+        required = {'solution.py', 'case1_result.xlsx'}
+        ready = all(name in manifest['outputs'] and (self.workspace.root/manifest['version']/name).is_file() for name in required)
+        if previous_workspace is not None:
+            ready = ready and required.issubset((output or {}).get('files', [])) and any(
+                previous_workspace.get('hashes', {}).get(name) != manifest.get('hashes', {}).get(name) for name in required)
+        return ready
 
     def call(self, name, arguments):
         if name != 'execute_python': raise ValueError('Unknown spreadsheet tool')
