@@ -40,4 +40,6 @@ skillcompiler-multibench --config configs/default.yaml --datasets /path/to/prepa
 
 每个 seed 独立空 Bank；两个不同物理 Train 任务正向实测才成为 usable，repair 不继承旧版本成功。冻结仅包含 usable Program 和普通指导/策略；Val/Test 不更新 Bank。模型自报成功、文件存在与正式评分分别记录。
 
+用户在本轮明确补充了整题终止分支：Program 正常返回并实际使环境由未终止转为终止，独立评分通过且没有 Agent 补做时，允许记为 `task_outcome` 正向；无需虚构下游输出消费。旧运行记录保持原样，修改后从空 Bank 重跑固定 pilot。
+
 第三方评分来源与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

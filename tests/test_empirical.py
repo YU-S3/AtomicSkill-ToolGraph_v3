@@ -226,6 +226,54 @@ class Provider:
         return AgentTurn('' if tools else answer, calls, 'tool_calls' if tools else 'stop', 10, 20, 30, 5, 1)
 
 
+@pytest.mark.parametrize('status,hard,positive', [
+    ('ok', True, True), ('ok', False, False), ('not_found', True, False),
+    ('execution_error', True, False)])
+def test_program_terminal_success_requires_normal_return_and_independent_score(tmp_path, worker, status, hard, positive):
+    from atomic_skillgraph.empirical.system import EmpiricalSystem
+
+    class TerminalAdapter(AnswerAdapter):
+        def reset(self, task):
+            self.steps = 0
+
+        def call(self, name, arguments):
+            return dict(super().call(name, arguments), done=True)
+
+        def check_local(self, inputs, outputs, events):
+            return 'unavailable'
+
+        def evaluate(self, answer):
+            return {'hard': hard and self.steps == 1}
+
+    adapter = TerminalAdapter()
+    system = EmpiricalSystem(config_for(tmp_path), harness=adapter, provider=object(), adapter_factory=TerminalAdapter)
+    system.worker = worker
+    ending = "raise RuntimeError('failed after terminal')" if status == 'execution_error' else f"return {{'status': {status!r}, 'outputs': {{}}}}"
+    p = system.bank.put('program', program("def run(ctx, inputs):\n    ctx.call('act', {'value': 'done'})\n    " + ending))
+    for key in ['prior1', 'prior2']:
+        system.bank.record({'id': key, 'program_id': p['id'], 'task_key': key,
+                            'origin': 'train_test', 'outcome': 'positive', 'basis': 'local_check'})
+    task = PublicTask('t', 'physical', 'finish task')
+    def no_agent(*a, **kw):
+        pytest.fail('terminal Program must not invoke Agent recovery')
+    system.agent = no_agent
+    record = system.test_program(p, {}, task, trial_id='trial')
+    assert (record['outcome'] == 'positive') == positive
+    assert record['result']['terminal_by_program']
+    assert 'continuation' not in record['result']
+    adapter.reset(task)
+    execution = Executor(system.bank, no_agent, worker, object()).run(task, adapter, Broker(adapter, 1),
+        {'nodes': [{'id': 'finish', 'goal': task.goal, 'program_id': p['id'], 'args': {}}]})
+    attempt = execution['attempts'][0]
+    assert attempt['terminal_by_program'] and not attempt['outputs_consumed']
+    system.learner.learn = lambda *a: {}
+    system.learn_trace(task, {'execution': execution, 'score': adapter.evaluate(adapter.submit(execution['prediction']))})
+    assert (attempt['outcome'] == 'positive') == positive
+    if positive:
+        assert record['basis'] == attempt['basis'] == 'task_outcome'
+    system.close()
+
+
 def test_single_answer_uses_one_solve_and_independent_score_and_frozen(tmp_path):
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     config = config_for(tmp_path / 'bank')

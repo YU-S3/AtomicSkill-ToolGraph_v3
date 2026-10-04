@@ -1,0 +1,50 @@
+{
+  "code": {
+    "git_sha": "b84c30f1b507c772929c856231917cdf0618bf7a",
+    "tracked_dirty": false,
+    "source_sha256": "87bfed2d13d2a5c95e6a12e9792301afd21de402c545f88452f8689eae6798f5"
+  },
+  "run": "/home/yangchengyu/asg_empirical_v31_20261004/acceptance_scope_fix",
+  "passed": true,
+  "state": "usable",
+  "program_id": "program_a9f9a6e25858f0f3fb523158f4cd8fc7e72b73bf75e02004f44aee734a9e31cd",
+  "frozen_unchanged": true,
+  "continuation_score": {
+    "raw_score": 1.0,
+    "hard": true,
+    "soft": 1.0,
+    "scorer": "alfworld.official-won"
+  },
+  "known_total_tokens": 44484,
+  "formal_score": false,
+  "tests": [
+    {
+      "physical_key": "5cb9bbb1c93b91f6407cc7428edd672e49329f38d7bb22a4683213c16bdf78a9",
+      "outcome": "positive",
+      "basis": "local_check",
+      "native_calls": 13,
+      "program_status": "ok",
+      "program_calls": 13,
+      "local_check": "passed"
+    },
+    {
+      "physical_key": "81d01307163f659255b22c8e9364ae261655a1ff9dcb575fb4623a17c871f3ac",
+      "outcome": "positive",
+      "basis": "local_check",
+      "native_calls": 2,
+      "program_status": "ok",
+      "program_calls": 2,
+      "local_check": "passed"
+    }
+  ],
+  "ordinary_execution": {
+    "program_invocations": 1,
+    "reason": "environment_terminal",
+    "input_reads": [
+      "prepare",
+      "continue",
+      "continue"
+    ],
+    "replaced_inputs": {}
+  }
+}

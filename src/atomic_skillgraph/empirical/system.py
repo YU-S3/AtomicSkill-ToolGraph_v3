@@ -297,7 +297,7 @@ class EmpiricalSystem:
         if self.readonly or task.split != 'train':
             raise RuntimeError('Only Train may learn')
         for attempt in trace["execution"]["attempts"]:
-            if attempt["status"] == "ok" and attempt["outputs_consumed"] and trace["score"]["hard"] and attempt["local_check"] == "unavailable":
+            if attempt["status"] == "ok" and (attempt["outputs_consumed"] or attempt.get("terminal_by_program", False)) and trace["score"]["hard"] and attempt["local_check"] == "unavailable":
                 attempt.update(outcome="positive", basis="task_outcome")
             self.bank.record(attempt)
         self._learning_start = len(self.usage.events)
@@ -355,6 +355,7 @@ class EmpiricalSystem:
                     self.bank.record(record)
                     return record
             start = len(broker.events)
+            was_terminal = broker.done
             try:
                 validate_schema_instance(inputs, program["input_schema"])
             except ValueError as exc:
@@ -363,11 +364,17 @@ class EmpiricalSystem:
                 result = self.worker.execute(program, inputs, broker)
                 local = broker.check_local(inputs, result.get("outputs", {}), start) if result["status"] == "ok" else "unavailable"
                 result['local_check'] = local
+                result['terminal_by_program'] = not was_terminal and broker.done
                 basis, outcome = None, "normal"
                 if result["status"] == "execution_error" or local == "failed":
                     outcome = "execution_failure"
                 elif result["status"] == "ok" and local == "passed":
                     basis, outcome = "local_check", "positive"
+                elif result["status"] == "ok" and result['terminal_by_program']:
+                    score = adapter.evaluate(adapter.submit(result.get("outputs", {})))
+                    result["score"] = score
+                    if score["hard"]:
+                        basis, outcome = "task_outcome", "positive"
                 elif result["status"] == "ok":
                     # Without a local oracle, run the remainder from the actual
                     # Train state; this is billed training, not replay credit.

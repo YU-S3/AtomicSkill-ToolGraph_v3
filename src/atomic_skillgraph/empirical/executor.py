@@ -32,6 +32,7 @@ class Executor:
 
         def invoke(program, arguments, node_id):
             start = len(broker.events)
+            was_terminal = broker.done
             result = self.worker.execute(program, arguments, broker)
             local = broker.check_local(arguments, result.get("outputs", {}), start) if result["status"] == "ok" else "unavailable"
             result["local_check"] = local
@@ -45,7 +46,8 @@ class Executor:
             attempt = {"id": uuid4().hex, "program_id": program["id"], "task_key": task.physical_key,
                 "origin": "online", "split": task.split, "outcome": outcome, "calls": len(broker.events) - start,
                 "status": result["status"], "local_check": local, "basis": "local_check" if outcome == "positive" else None,
-                "node": node_id, "outputs_consumed": False}
+                "node": node_id, "outputs_consumed": False,
+                "terminal_by_program": not was_terminal and broker.done}
             attempts.append(attempt)
             history.append({"program": program["id"], "arguments": arguments, "result": result})
             return result

@@ -1,0 +1,44 @@
+{
+  "code_git_sha": "b84c30f1b507c772929c856231917cdf0618bf7a",
+  "run": "/home/yangchengyu/asg_empirical_v31_20261004/pilot",
+  "status": "interrupted_by_user_approved_terminal_rule_change",
+  "completed_train": 3,
+  "completed_train_successes": 3,
+  "completed_val": 0,
+  "known_total_tokens": 614231,
+  "unknown_usage_events": 0,
+  "pending_requests_unknown_billing": 1,
+  "pending_billed_tokens": null,
+  "bank_reused": false,
+  "records_reclassified": false,
+  "formal_score": false,
+  "completed_cases": [
+    {
+      "task_id": "alfworld_train_0_pick_and_place_simple",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      }
+    },
+    {
+      "task_id": "alfworld_train_1_pick_and_place_simple",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      }
+    },
+    {
+      "task_id": "alfworld_train_2_pick_two_obj_and_place",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      }
+    }
+  ]
+}
