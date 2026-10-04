@@ -118,13 +118,14 @@ def main():
         pending_skills = {j['skill_id'] for j in job_snapshots[0] if not j.get('program_id')}
         missing_job_observed = bool(pending_skills and any(j['skill_id'] in pending_skills and j.get('program_id') for j in jobs))
         qualified = [p for p in programs if p['state'] == 'usable' and len({t['task_key'] for t in system.bank.attempts(p['id'])
-            if t['origin'] == 'train_test' and t['outcome'] == 'positive' and t['calls'] >= 2}) == 2]
+            if t['origin'] == 'train_test' and t['outcome'] == 'positive' and t.get('result', {}).get('calls', 0) >= 2}) == 2]
         frozen = system.bank.freeze(output / 'frozen_bank')
         result = {'learning': learning, 'jobs': jobs, 'job_snapshots': job_snapshots, 'freeze': frozen, 'train_bank_digest': system.bank.digest(),
                   'missing_program_job_observed': missing_job_observed,
                   'state': qualified[0]['state'] if qualified else 'candidate' if programs else None,
                   'passed': False, 'formal_score': False,
                   'usage': [e.to_dict() for e in system.usage.events]}
+        write_json(output / 'acceptance.json', result)
         if qualified:
             evaluation_config = deepcopy(system.config)
             evaluation_config['data_dir'] = str(output / 'frozen_bank')
@@ -139,8 +140,14 @@ def main():
                 result.update(ordinary_execution=trace, frozen_unchanged=before == evaluation.bank.digest(),
                     mechanism_observed=bool(selected and any(a['status']=='ok' and a['calls']>=2 and a['outputs_consumed'] for a in selected)))
                 result['passed'] = missing_job_observed and result['mechanism_observed'] and result['frozen_unchanged']
+            except Exception as exc:
+                result['ordinary_execution_error'] = str(exc)
+                raise
+            finally:
                 result['usage'].extend(e.to_dict() for e in evaluation.usage.events)
-            finally: evaluation.close()
+                result['total_tokens'] = sum(u['total_tokens'] for u in result['usage'])
+                write_json(output / 'acceptance.json', result)
+                evaluation.close()
         result['total_tokens'] = sum(u['total_tokens'] for u in result['usage'])
         write_json(output / 'acceptance.json', result)
         print(json.dumps({k: result.get(k) for k in ('state','passed','mechanism_observed','frozen_unchanged','total_tokens')}), flush=True)
