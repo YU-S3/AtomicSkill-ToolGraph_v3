@@ -64,6 +64,7 @@ class OpenAICompatibleConfig:
     extra_headers: dict[str, str] = field(default_factory=dict)
     input_modalities: tuple[str, ...] = ('text',)
     token_limit_field: str = 'max_tokens'
+    generation_seed: int | None = None
 
     def __post_init__(self) -> None:
         parsed = urlparse(self.base_url)
@@ -186,6 +187,8 @@ class OpenAICompatibleProvider:
             payload['thinking'] = {'type': self.config.thinking_type}
         if normalized_tools:
             payload["tools"] = [tool.to_openai() for tool in normalized_tools]
+        if self.config.generation_seed is not None:
+            payload['seed'] = self.config.generation_seed
         return payload
 
     def complete(
@@ -209,6 +212,9 @@ class OpenAICompatibleProvider:
                 except (TypeError, ValueError):
                     policy_segments.append({'parse_failed': True, 'sha256': hashlib.sha256(public.encode()).hexdigest()})
         self._request_context.final_payload_audit = {
+            'messages': [{k: copy.deepcopy(v) for k, v in m.items() if k != 'reasoning_content'}
+                         for m in payload['messages']],
+            'private_reasoning_redacted': any('reasoning_content' in m for m in payload['messages']),
             'messages_sha256': _sha256_json(payload['messages']),
             'tools_sha256': _sha256_json(payload.get('tools', [])),
             'messages_utf8_bytes': len(json.dumps(payload['messages'], ensure_ascii=False).encode()),
@@ -253,6 +259,8 @@ class OpenAICompatibleProvider:
             audit_id = f"provider_request_{uuid.uuid4().hex}"
             started_at = time.time()
             self._request_context.response_diagnostic = {}
+            self._request_context.raw_usage = None
+            self._request_context.public_response = None
             try:
                 response = requests.post(
                     self.config.endpoint,
@@ -329,6 +337,14 @@ class OpenAICompatibleProvider:
                     continue
                 raise AgentProviderError("provider_invalid_response", message, http_status=response.status_code)
             provider_request_id = _provider_request_id(response, data)
+            self._request_context.raw_usage = copy.deepcopy(data.get('usage'))
+            self._request_context.public_response = {
+                **{k: copy.deepcopy(data[k]) for k in ('id', 'model', 'created', 'system_fingerprint') if k in data},
+                'choices': [{**{k: copy.deepcopy(v) for k, v in c.items() if k != 'message'},
+                             'message': {k: copy.deepcopy(v) for k, v in c.get('message', {}).items()
+                                         if k != 'reasoning_content'}}
+                            for c in (data.get('choices') if isinstance(data.get('choices'), list) else []) if isinstance(c, dict)
+                            and isinstance(c.get('message', {}), dict)]}
             try:
                 turn = self._parse_response(
                     data,
@@ -547,6 +563,9 @@ class OpenAICompatibleProvider:
             "repair_in_progress": context.get('repair'),
             "final_payload_audit": copy.deepcopy(getattr(self._request_context, 'final_payload_audit', {})),
             "endpoint": self.config.endpoint,
+            "model_id": self.config.model,
+            "raw_usage": copy.deepcopy(getattr(self._request_context, 'raw_usage', None)),
+            "public_response": copy.deepcopy(getattr(self._request_context, 'public_response', None)),
             "started_at": started_at,
             "ended_at": time.time(),
             "outcome": outcome,

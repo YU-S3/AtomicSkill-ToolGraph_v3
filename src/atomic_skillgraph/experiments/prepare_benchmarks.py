@@ -1,7 +1,6 @@
-"""Build fixed Ours manifests from authorized local resources, with private gold separate."""
+"""Load public resource pools, then materialize only the frozen canonical IDs."""
 import argparse
 import csv
-import hashlib
 import json
 from pathlib import Path
 import tarfile
@@ -9,40 +8,6 @@ import tarfile
 from atomic_skillgraph.empirical.contracts import PublicTask, digest
 from atomic_skillgraph.harness.benchmarks import truncate_context
 from .run_empirical import write_json
-
-
-def split_exact(rows, quotas, *, seed=42):
-    import numpy as np
-    from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
-    labels = sorted({label for row in rows for label in row['labels']})
-    matrix = np.array([[int(label in row['labels']) for label in labels] for row in rows])
-    remaining, groups = list(range(len(rows))), {}
-    names = list(quotas)
-    for name in names[:-1]:
-        if not quotas[name]:
-            groups[name] = []
-            continue
-        splitter = MultilabelStratifiedShuffleSplit(n_splits=1, test_size=quotas[name]/len(remaining), random_state=seed)
-        rest, chosen = next(splitter.split(np.zeros((len(remaining),1)), matrix[remaining]))
-        groups[name] = [remaining[i] for i in chosen]
-        remaining = [remaining[i] for i in rest]
-    groups[names[-1]] = remaining
-    totals = matrix.sum(axis=0)
-    def error(group, target):
-        counts = matrix[group].sum(axis=0) if group else np.zeros(len(labels))
-        return float(np.abs(counts-totals*target/len(rows)).sum())
-    while any(len(groups[name]) != quotas[name] for name in names):
-        source = next(name for name in names if len(groups[name]) > quotas[name])
-        target = next(name for name in names if len(groups[name]) < quotas[name])
-        def movement(index):
-            src = [i for i in groups[source] if i != index]
-            gain = error(src, quotas[source]) + error(groups[target]+[index], quotas[target])
-            return gain, hashlib.sha256(f'{seed}|{rows[index]["id"]}'.encode()).hexdigest()
-        index = min(groups[source], key=movement)
-        groups[source].remove(index)
-        groups[target].append(index)
-    return {name: sorted((rows[i] for i in group), key=lambda row: hashlib.sha256(
-        f'{seed}|{row["id"]}'.encode()).hexdigest()) for name, group in groups.items()}
 
 
 def upstream_ids(upstream, dataset):
@@ -65,7 +30,7 @@ def spreadsheet_cases(directory, override=None):
     return cases
 
 
-def prepare(resources, output, case_map=None):
+def prepare_resources(resources, output, case_map=None):
     import pyarrow.parquet as pq
     resources, output = Path(resources).resolve(), Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -81,11 +46,7 @@ def prepare(resources, output, case_map=None):
                     search[str(row['key'])] = {'id':str(row['key']), 'goal':row['question'],
                         'inputs':{'context':truncate_context(row['context'])}, 'answers':row['answers'], 'labels':['searchqa']}
     if set(search) != chosen: raise ValueError('SearchQA selected ID coverage mismatch')
-    rank = lambda row: hashlib.sha256(f'42|{row["id"]}'.encode()).hexdigest()
-    train = sorted((search[str(row['id'])] for row in search_ids['train']),key=rank)
-    val = sorted((search[str(row['id'])] for row in search_ids['val']),key=rank)
-    datasets['searchqa'] = {'train':train[:300],'val':val[:24],
-        'test':[search[str(row['id'])] for row in search_ids['test']], 'reserve':train[300:]+val[24:]}
+    datasets['searchqa'] = {'all': list(search.values())}
     document_ids = {str(row['id']):row for group in upstream_ids(upstream,'docvqa').values() for row in group}
     documents = []
     images = output/'public_images'
@@ -103,12 +64,12 @@ def prepare(resources, output, case_map=None):
                 documents.append({'id':task_id,'goal':row['question'],'inputs':{'images':[str(image)]},
                     'answers':row['answers'],'labels':document_ids[task_id]['topic'].split('|')})
     if len(documents) != 534: raise ValueError('DocVQA Universe must contain the fixed 534 questions')
-    datasets['docvqa'] = split_exact(documents, {'train':180,'val':24,'test':200,'reserve':130})
+    datasets['docvqa'] = {'all': documents}
     office = [{'id':row['uid'],'goal':row['question'],'inputs':{'corpus':'full offline corpus; glob/read/grep'},
                'answer':row['answer'],'labels':[row['difficulty']]} for row in csv.DictReader(
                (resources/'raw/officeqa/officeqa_full.csv').open(encoding='utf-8-sig'))]
     if len(office) != 246: raise ValueError('OfficeQA Full must contain 246 tasks')
-    datasets['officeqa'] = split_exact(office, {'train':120,'val':24,'test':102})
+    datasets['officeqa'] = {'all': office}
     mathematics = []
     for path in sorted((resources/'raw/livemath/data').glob('*/*.json')):
         for row in json.loads(path.read_text()):
@@ -116,7 +77,7 @@ def prepare(resources, output, case_map=None):
                 'inputs':{'choices':row['mcq']['choices']}, 'choices':row['mcq']['choices'],
                 'correct_choice':row['mcq']['correct_choice'], 'labels':[str(row['month']), *row['theorem_type']]})
     if len(mathematics) != 177: raise ValueError('LiveMath Universe must contain 177 tasks')
-    datasets['livemath'] = split_exact(mathematics, {'train':60,'val':17,'test':100})
+    datasets['livemath'] = {'all': mathematics}
     extracted = resources/'extracted/spreadsheetbench_verified_400'
     if not (extracted/'dataset.json').exists():
         archive_path = next((resources/'raw/spreadsheetbench').glob('*.tar.gz'))
@@ -142,7 +103,7 @@ def prepare(resources, output, case_map=None):
                       'answer_position':position,'solution_contract':'Write solution.py and case1_result.xlsx. solution.py uses INPUT_PATH and OUTPUT_PATH.'},
             'public_files':{'input.xlsx':cases[0]['input']},'cases':cases,
             'instruction_type':row['instruction_type'],'answer_position':position,'labels':[row['instruction_type']]})
-    datasets['spreadsheet'] = split_exact(spreadsheets, {'train':200,'val':20,'test':180})
+    datasets['spreadsheet'] = {'all': spreadsheets}
     counts = {}
     for benchmark, groups in datasets.items():
         path = output/benchmark
@@ -156,25 +117,34 @@ def prepare(resources, output, case_map=None):
                 task = PublicTask(task_id,digest([benchmark,row['id']]),row['goal'],row['inputs'],split)
                 from dataclasses import asdict
                 tasks.append(asdict(task))
-            manifest = {'schema':'empirical.tasks.v1','benchmark':benchmark,'split_seed':42,'tasks':tasks}
+            manifest = {'schema':'empirical.tasks.v1','benchmark':benchmark,'resource_pool':True,'tasks':tasks}
             target = path/(split+'.json')
             if target.exists() and json.loads(target.read_text()) != manifest:
                 raise ValueError('Existing frozen manifest differs; do not silently resplit '+str(target))
             write_json(target,manifest)
         write_json(path/'evaluator_records.json',records)
     write_json(output/'dataset_lock.json',{'upstream':'SkillOpt@fa4ca184573e42ec11472959dd57422381418096',
-        'split_seed':42,'seeds':[42,43,44],'counts':counts,'docvqa_split_unit':'question',
+        'resource_pool_only':True,'counts':counts,'docvqa_split_unit':'question',
         'officeqa_information':'full_offline_no_oracle','livemath_use_theorem':False,'livemath_use_sketch':False})
     return counts
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--resources',required=True)
+    parser.add_argument('--authority', required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--prepared-pool')
+    source.add_argument('--resources')
+    parser.add_argument('--case-map')
     parser.add_argument('--output',required=True)
-    parser.add_argument('--case-map',help='Explicit approved spreadsheet resource pairing JSON')
     args=parser.parse_args()
-    print(json.dumps(prepare(args.resources,args.output,args.case_map)),flush=True)
+    from .canonical_manifest import materialize
+    pool = args.prepared_pool
+    if args.resources:
+        pool = Path(args.output) / '_resource_pool'
+        prepare_resources(args.resources, pool, args.case_map)
+    materialize(args.authority, pool, args.output)
+    print(json.dumps({'authority': args.authority, 'materialized': True}), flush=True)
 
 
 if __name__=='__main__': main()

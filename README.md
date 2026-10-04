@@ -2,7 +2,7 @@
 
 唯一生产入口为 `skillcompiler.empirical.v1`。流程是普通 Skill 接口与指导 → Python Program → 固定真实 Train 试用 → usable 版本 → Workflow/动态执行 → 冻结库与独立评分。
 
-本轮范围是 Ours。其他方法复现和更多模型 API 接入不在本轮范围；现有 DeepSeek 配置维持 high reasoning。正式矩阵尚未启动，小样本结果不能作为正式性能结论。
+本轮范围是 Ours。其他方法复现和更多模型 API 接入不在本轮范围；现有 DeepSeek 配置维持 high reasoning，实际模型 ID 如实记录。小样本 pilot 与正式实验使用独立 Bank，pilot 没有问题，也不需要为了正式划分重新跑。
 
 规范：[核心机制](docs/specs/01_核心机制精简重构实施文档_v3.1.md)、[六 Benchmark](docs/specs/02_六Benchmark适配实施文档_v3.1.md)、[删除与迁移](docs/specs/04_旧代码删除与迁移清单_v3.1.md)。发生范围冲突时，以用户明确要求为准。
 
@@ -20,7 +20,7 @@ docker image inspect --format='{{.Id}}' skillcompiler-program:v3.1
 
 ```bash
 PROGRAM_IMAGE_DIGEST=$(docker image inspect --format='{{.Id}}' skillcompiler-program:v3.1) python -m pytest -q
-skillcompiler-prepare --resources /path/to/SkillCompiler_resources_20261003 --output /path/to/prepared --case-map data/resource_mappings/spreadsheet_cases.json
+skillcompiler-prepare --authority data/main_experiment_v1 --resources /path/to/SkillCompiler_resources_20261003 --output /path/to/prepared --case-map data/resource_mappings/spreadsheet_cases.json
 skillcompiler-acceptance --config configs/alfworld_empirical_seed42.yaml --materials /path/to/original/pilot --output /path/to/new/acceptance --env-file .env
 skillcompiler-pilot --config configs/alfworld_empirical_seed42.yaml --materials /path/to/original/pilot --acceptance /path/to/new/acceptance/acceptance.json --output /path/to/new/pilot --env-file .env
 skillcompiler-multibench --config configs/default.yaml --datasets /path/to/prepared --corpus-root /path/to/treasury_bulletins_parsed/transformed --output /path/to/new/smoke --env-file .env
@@ -36,7 +36,18 @@ ALFWorld 清单按数据根目录下的物理文件和 SHA256 解析，扫描到
 
 文件 Adapter 的 `tool_definitions()` 返回实际公开工具列表，供 Learner／Builder 使用；Program 仍禁止递归调用 `execute_python`。修复后已从空 Bank 完成 OfficeQA、Spreadsheet 各 2 Train＋1 Val，实际成绩和费用见 [文件类冒烟报告](reports/file_adapter_smoke_result.json)。43 项回归（含真实 Docker）与安装包验证见 [工程验证](reports/file_adapter_fix_verification.json)。
 
-主实验共享划分、run seed 与统一日志尚未完全对齐，具体差异及待确认事项见 [主实验核对报告](reports/main_experiment_alignment_v11.json)。现有 pilot 和 smoke 保留为诊断结果，不作为正式主实验数据。
+正式实验唯一数据 authority 是 [main_experiment_v1](data/main_experiment_v1/manifest.json)。SearchQA 为 300/24/1400，SpreadsheetBench 为 200/20/180，OfficeQA 为 120/24/102，DocVQA 正式采用自然分层的 180/22/201（Reserve131），LiveMath 为 60/17/100，ALFWorld 为 120/24/134。OfficeQA 按 difficulty，LiveMath 只按 theorem_type 分层；ALFWorld Val/Test 保留原物理成员和顺序。旧 `splits/` 与旧核对报告保留历史用途，正式 runner 不读取它们。
+
+```bash
+skillcompiler-manifest verify --authority data/main_experiment_v1
+# 已有旧资源池也可直接按 canonical ID materialize，绝不重新切分：
+skillcompiler-prepare --authority data/main_experiment_v1 --prepared-pool /path/to/old/prepared --output /path/to/formal/prepared
+skillcompiler-formal --config configs/main_experiment_v1.yaml --datasets /path/to/formal/prepared --corpus-root /path/to/treasury_bulletins_parsed/transformed --output /path/to/new/formal --env-file .env
+```
+
+正式 runner 仅用 run_seed=42/43/44 打乱 Train，Val/Test 保持 canonical 顺序。每个 model/benchmark/seed 从独立空 Bank 开始，Train 结束后冻结并以只读方式执行 Val/Test；Ours 不用 Val 选择候选。已有方法参数与各角色预算不变，Provider seed 不支持时记录 unsupported/null。尚未配置的正式模型保持空值，当前模型的 DocVQA 组合明确 unsupported，不用 OCR 或文本替代真实图像。
+
+每个正式 Run 旁路保存规范要求的八类 JSONL、resolved config、run manifest、实际 artifact 版本与最终 frozen manifest，并保留原生日志。实际 HTTP 请求、原始 usage、重试、环境交互和评分器原始输出均直接记录，不额外请求模型。私有 reasoning_content 按原有边界移除，完整请求的哈希与该移除标记保留；评分器原始输出只进入审计文件，不进入 Learner 输入。训练单位区分实际 trajectory、learning_update 与 program_trial，重复消费按真实单位记录。旧 pilot 不回填缺失字段。
 
 ## 项目结构与边界
 

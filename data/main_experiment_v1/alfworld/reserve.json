@@ -1,0 +1,7 @@
+{
+  "schema": "public.main_experiment.split.v1",
+  "benchmark": "alfworld",
+  "split": "reserve",
+  "split_seed": 42,
+  "tasks": []
+}

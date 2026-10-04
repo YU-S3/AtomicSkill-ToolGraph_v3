@@ -100,6 +100,25 @@ def test_untrusted_mapping_and_identity_never_load_arbitrary_file(backend):
     assert backend['close'] == backend['create']
 
 
+def test_canonical_id_wraps_verified_native_id_without_relaxing_reset(backend, tmp_path):
+    from atomic_skillgraph.experiments.run_empirical import resolve_alfworld_tasks
+    from atomic_skillgraph.harness.alfworld_simple import SimpleAlfWorld
+    harness = AlfWorldAdapter(split='train', alfworld_data=str(tmp_path))
+    task = harness.load_tasks()[2]
+    path = Path(task.context['game_file'])
+    entries = [{'task_id': 'alfworld:canonical', 'source_split': 'train', 'env_index': None,
+                'task_type': task.task_type, 'gamefile_rel': path.relative_to(tmp_path).as_posix(),
+                'gamefile_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}]
+    adapter = SimpleAlfWorld(harness)
+    public = resolve_alfworld_tasks(adapter, entries, canonical_split='train')[0]
+    assert public.task_id == 'alfworld:canonical'
+    assert public.inputs['environment_task']['native_task_id'] == task.task_id
+    adapter.reset(public)
+    assert harness._current_task.task_id == task.task_id
+    assert harness._current_task.context['game_file'] == str(path)
+    adapter.close()
+
+
 def test_unknown_index_discovered_once_and_configuration_invalidates(backend):
     original = AlfWorldAdapter(split='train'); task = original.load_tasks()[4]
     original._close_backend()

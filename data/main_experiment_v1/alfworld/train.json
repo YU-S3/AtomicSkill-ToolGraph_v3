@@ -1,0 +1,1568 @@
+{
+  "schema": "public.main_experiment.split.v1",
+  "benchmark": "alfworld",
+  "split": "train",
+  "split_seed": 42,
+  "tasks": [
+    {
+      "task_id": "alfworld:63f971300bb827751c44324d2e466fc0fe7840f97816ca04e0dca9434217bca6",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Pencil-None-DeskLamp-320/trial_T20190908_143829_213070/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Pencil-None-DeskLamp-320/trial_T20190908_143829_213070/game.tw-pddl",
+      "gamefile_sha256": "695bbac1dbe23abcc0919eaf9684b40173f01cc18593b573018313136d3e3232",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:d2fde2a9c1794f9734b6552a4d59166047635a9f5ffb27a012a6e2a2f22fa298",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Book-None-DeskLamp-324/trial_T20190907_014400_977309/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Book-None-DeskLamp-324/trial_T20190907_014400_977309/game.tw-pddl",
+      "gamefile_sha256": "666d9fab23be43d83453e44144228aa40582a10d26476417ce9a4787d1e391e9",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:b640f6e9472ab1661688399ab3ffb6f664b4c8b8f234e60e2320f2b771362923",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Statue-None-DeskLamp-319/trial_T20190907_035512_450549/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Statue-None-DeskLamp-319/trial_T20190907_035512_450549/game.tw-pddl",
+      "gamefile_sha256": "00b172e04ac986fc59861b46b73efba22c203622333f5d04a0a2d43d52b96e02",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:eea89d2db9fadd6cce3b93549a6a15eb8fb744d6caf0b202a4d5252c928af6fe",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Laptop-None-DeskLamp-306/trial_T20190908_105734_354331/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Laptop-None-DeskLamp-306/trial_T20190908_105734_354331/game.tw-pddl",
+      "gamefile_sha256": "e6c071fdfc9e52c5ff4d445b69d939a19822623eb697e7dc95bd92ae556f5a89",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:a85455f6778d4a5c8918d46a40dba491af6696c45c0017d333bf7f763bf877b0",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Plate-None-DeskLamp-218/trial_T20190907_215235_918119/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Plate-None-DeskLamp-218/trial_T20190907_215235_918119/game.tw-pddl",
+      "gamefile_sha256": "8d525c5f52499e1d17e32a771b04fd9e58bf7b06ec88e0c1ce493f9ab4ab22c9",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:cf7d1d36f7b5f38f2cfd656cca7675b50f4f57d1ced09af83ceb6133534f2d7d",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-AlarmClock-None-DeskLamp-324/trial_T20190909_140247_926002/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-AlarmClock-None-DeskLamp-324/trial_T20190909_140247_926002/game.tw-pddl",
+      "gamefile_sha256": "4fd9568db119933bd042506b92b5f9e9ccb7e2a488c12c1c23e964b3673c7eed",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:ac004fa45a588e18c5e773ca1d6367423e04332f21dd0de2ea5288fa239274e4",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-AlarmClock-None-DeskLamp-314/trial_T20190908_042426_942777/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-AlarmClock-None-DeskLamp-314/trial_T20190908_042426_942777/game.tw-pddl",
+      "gamefile_sha256": "2aaf9b6581bd25d82349d5de852b2633ec72020653ad874a8387a40df7359ce0",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:db193d148c0712d3074728311f5dcc97efcd793c6442c915ac90317136488a8f",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-CD-None-DeskLamp-317/trial_T20190908_032827_984500/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-CD-None-DeskLamp-317/trial_T20190908_032827_984500/game.tw-pddl",
+      "gamefile_sha256": "b4560ab68ba76ff9994218e739c4b66e4fbdd8b353fc7b5a3269f2e577e4cf49",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:61ff6ac0dd6b443576b7bbba18b3ef2f2d59060eef553d4b18237bfd26ddd1b9",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Pillow-None-DeskLamp-307/trial_T20190908_190558_647867/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Pillow-None-DeskLamp-307/trial_T20190908_190558_647867/game.tw-pddl",
+      "gamefile_sha256": "2c381a0951463bf9ba6a5e31bd250aab35258e06ac16b7d1bc81378b5c2589f1",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:272d479756e74205cebb77f91e3c061340ac2211be9be14c911a3fdaf54d1ffe",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Bowl-None-DeskLamp-323/trial_T20190908_024036_061391/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Bowl-None-DeskLamp-323/trial_T20190908_024036_061391/game.tw-pddl",
+      "gamefile_sha256": "582588e6871226868e48cdb87e8dfe2949a834a43a169b39c5e6cc2d2694197a",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:6c764e76f6bf34de7a0ef0d482f3e43878dcc39c232c534d4a5f7d46915b0c24",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Laptop-None-DeskLamp-323/trial_T20190908_014241_887170/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Laptop-None-DeskLamp-323/trial_T20190908_014241_887170/game.tw-pddl",
+      "gamefile_sha256": "18b13d343a814383f69a43acfa356589fadd20d50591e45ff30cde82a502a738",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:b64152347cd8c4d8003a286e305ebaf0f6dbf833261bb5d59aea3312bd6efb8c",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-AlarmClock-None-DeskLamp-304/trial_T20190907_170557_255365/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-AlarmClock-None-DeskLamp-304/trial_T20190907_170557_255365/game.tw-pddl",
+      "gamefile_sha256": "afcedcdb7efef5e18df571db6dadf3fa36c15031e7b796ef5ac5a486c7263245",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:d7fb215161d002f1f414b435c1073606a1f3d5922a36296def214d6b6cbac3d3",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Book-None-DeskLamp-316/trial_T20190908_101915_421195/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Book-None-DeskLamp-316/trial_T20190908_101915_421195/game.tw-pddl",
+      "gamefile_sha256": "394a892bd8f912f3025df0ff4b855c3bf614b9009db280c4fef4b6f1e3cdab6c",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:c9fd8b9e50f698f79e38479299c2ac91ccbba0e56414be1d9898366eb9d19291",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Bowl-None-DeskLamp-327/trial_T20190907_094410_444756/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Bowl-None-DeskLamp-327/trial_T20190907_094410_444756/game.tw-pddl",
+      "gamefile_sha256": "4673f1fc805c33124a67e349006534fc59b1aae27fa483fdf3ead89c392a7813",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:9665b4b8785305a1c757407e46ba4e09c03276253dcbee25ffc8d342a1ce1f9f",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-AlarmClock-None-DeskLamp-327/trial_T20190909_101936_297661/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-AlarmClock-None-DeskLamp-327/trial_T20190909_101936_297661/game.tw-pddl",
+      "gamefile_sha256": "08ef0c5115600051931463be112b89b51e6ac46ad41447c29b8af698b9de4782",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:84eada8cfe4f14f3e718d956cfd6d0e4c1e1e150fb652e88fe796c97101a18c1",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-CellPhone-None-DeskLamp-316/trial_T20190907_075509_267502/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-CellPhone-None-DeskLamp-316/trial_T20190907_075509_267502/game.tw-pddl",
+      "gamefile_sha256": "1deda6e05244204817de054d5c5b6ebdade1bfafda7ecd09158260bab27f606f",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:ff91cf70614ad40e84ce96c44969165cc9595d9a43524218526f9ef5f4209ffb",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Statue-None-DeskLamp-319/trial_T20190907_035546_167548/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Statue-None-DeskLamp-319/trial_T20190907_035546_167548/game.tw-pddl",
+      "gamefile_sha256": "daf38e72ddb22401af7df39f92addd5603c75f2ff3c04931f37dff5f377b8827",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:7dfb67d66a983601bf1d2aa3fc6dd8daed9af1bb1f426dea0c986596ca9dc9eb",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Pillow-None-DeskLamp-316/trial_T20190908_232421_645610/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Pillow-None-DeskLamp-316/trial_T20190908_232421_645610/game.tw-pddl",
+      "gamefile_sha256": "18d681d877097368a38ccb8c9e02063bc93810dc668b62d4ff5d59b84459c1d5",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:284ca4680fb771491c33ef0aed8307b9c7f0358aaa31b3e2bc857b79be324bf1",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-TissueBox-None-DeskLamp-301/trial_T20190908_011330_213255/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-TissueBox-None-DeskLamp-301/trial_T20190908_011330_213255/game.tw-pddl",
+      "gamefile_sha256": "9d4a7185f15cbed8a817975be85859a1b837afc09e723b9ce65f2133abc5644f",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:cc743e3a1e6728a233d3fc809699ceb855072900e1291ee0801f1617204c6c6a",
+      "source_id": "json_2.1.1/train/look_at_obj_in_light-Watch-None-DeskLamp-205/trial_T20190907_001919_953335/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "look_at_obj_in_light"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/look_at_obj_in_light-Watch-None-DeskLamp-205/trial_T20190907_001919_953335/game.tw-pddl",
+      "gamefile_sha256": "12efbd108184bf9ce09069b372e635dec438b94f408e653d9519939a9cab9bca",
+      "task_type": "look_at_obj_in_light",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:5619845a00f41c89b24edcfeecaaf1be560ebfe1f006bd3f4e6051fc0d2e35e2",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Toilet-415/trial_T20190909_080011_253379/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Toilet-415/trial_T20190909_080011_253379/game.tw-pddl",
+      "gamefile_sha256": "e853e48c4bc136367b7730349bbfb11832ff1b555eb091f2ddde01dae6326a1b",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:b7e2749559ea111fa6c3d8d6eb8e973ad2acc5d71787e38efbb41bd3f172b016",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-CreditCard-None-ArmChair-216/trial_T20190909_054954_990241/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-CreditCard-None-ArmChair-216/trial_T20190909_054954_990241/game.tw-pddl",
+      "gamefile_sha256": "4aec6428cd4f81109e97fc14ee34752c3653fa742f0353974076c1fb9f03719a",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:51d005073cef5a3a7bffd573682542ea435a966505edf2e4969965cf9223100a",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Cabinet-403/trial_T20190908_221042_476220/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Cabinet-403/trial_T20190908_221042_476220/game.tw-pddl",
+      "gamefile_sha256": "66815258452850fe7bc59887172d19f52bddd7275d4ea61e81505c2785b9dbbd",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:412b8111fefeb3071a019f0a3d843693bd782e2b9892670acec6d3862a9c00f1",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-Watch-None-DiningTable-326/trial_T20190912_074626_851427/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-Watch-None-DiningTable-326/trial_T20190912_074626_851427/game.tw-pddl",
+      "gamefile_sha256": "cb4a18df3492997ef776ace85eb73dc0f942e7a87f5f64688cf54ed03bf7d5b2",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:0cfdf19856e4ab1003a72bc92e54cc5fad1b04c5319a2c957f96b92e294b3e1b",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-RemoteControl-None-Dresser-311/trial_T20190907_154756_629170/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-RemoteControl-None-Dresser-311/trial_T20190907_154756_629170/game.tw-pddl",
+      "gamefile_sha256": "a7ca2a407c37d1fd2fdd473b49ed4c86daedd11d42bfd39c00fd69a2753280b2",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:66ec31625902d4c5b7781c0b9cfb77b77575a95421cfd9ef25a012a83db178ef",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Toilet-426/trial_T20190908_155247_137362/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Toilet-426/trial_T20190908_155247_137362/game.tw-pddl",
+      "gamefile_sha256": "ca5e62ed2e4ea8587b025a48a189760c12d4e367103bb2924b53746bfa7ba80b",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:1f0ab9a1e6b617055d7f0b93f55979467e0ab9f32e6eed9c9a0736f1ea31ede1",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-Book-None-Sofa-209/trial_T20190909_035124_250394/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-Book-None-Sofa-209/trial_T20190909_035124_250394/game.tw-pddl",
+      "gamefile_sha256": "d45177f7250a5af80cb5180f950ccf321ee81f0854922638297c252b99dfd613",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:be8d86fa88774f4e3776c745f77690408f35998f5cbec442f2b6789744e2e90c",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-Candle-None-Toilet-419/trial_T20190907_194433_810530/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-Candle-None-Toilet-419/trial_T20190907_194433_810530/game.tw-pddl",
+      "gamefile_sha256": "d8eb7ae6df4f4fbc7575a30cd7750f4b39fb79d8e013beb2d2ef7844901828f9",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:890669a8f8bf632fbde2ae3e28ec9819928a0734701bd1aa3e78e9d6d8ffc668",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Cabinet-403/trial_T20190908_220946_946277/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Cabinet-403/trial_T20190908_220946_946277/game.tw-pddl",
+      "gamefile_sha256": "031ebd9a288c55be51251f549d18356b57ba12c4607083acdf40eaa6d31695c3",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:e4956e93ff04ce1bd14e8dd043cdcedaa9b776726e48d57d14f100bc2548297e",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-ToiletPaper-None-ToiletPaperHanger-423/trial_T20190908_022354_663784/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-ToiletPaper-None-ToiletPaperHanger-423/trial_T20190908_022354_663784/game.tw-pddl",
+      "gamefile_sha256": "96c33a11ebc3cefb2fb26e524b55391befa80d44a8032928acbe9a89254f6a99",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:1a6a6bc1f972621fc3bcdc628e49158379fb62f00351e89bb834df4ec1193406",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-CellPhone-None-Desk-316/trial_T20190909_053356_708088/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-CellPhone-None-Desk-316/trial_T20190909_053356_708088/game.tw-pddl",
+      "gamefile_sha256": "98281bd0b508d87c17e7f837f924869f9f796594851ac9151ae43983594e3e21",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:519e8300327847b19cd4eb1394351888156ebe48fa15fff83a473ae3010a696a",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-Candle-None-Toilet-407/trial_T20190909_055216_511429/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-Candle-None-Toilet-407/trial_T20190909_055216_511429/game.tw-pddl",
+      "gamefile_sha256": "565faefa24aaa499823d3c6bdf67ac20565d751bb414329e38f6c4e96a4c86af",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:1b03c136c0bd60bef8c30327a0f32112a5247d514c5e8d3e8d9af96a122002a9",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-SaltShaker-None-DiningTable-26/trial_T20190907_113833_592985/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-SaltShaker-None-DiningTable-26/trial_T20190907_113833_592985/game.tw-pddl",
+      "gamefile_sha256": "8a2734d1f69e91af5b19b7db2b582a680fe2bdcbcc4101386d65a5a6de98006e",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:6c07aecb831fd50507b2d01bcc89220f7e14414df71ba4009955ab27b98d7ce5",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-ToiletPaper-None-ToiletPaperHanger-421/trial_T20190906_182523_085136/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-ToiletPaper-None-ToiletPaperHanger-421/trial_T20190906_182523_085136/game.tw-pddl",
+      "gamefile_sha256": "b08f68b3b97ed6cfecfaad0a3e576c533efa6049187a6c4fb051055d7bd46525",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:61a809f1382896f90a905e0b3d206c367ec64a389435de9d636b582d41b9d758",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-RemoteControl-None-Sofa-216/trial_T20190909_150037_262342/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-RemoteControl-None-Sofa-216/trial_T20190909_150037_262342/game.tw-pddl",
+      "gamefile_sha256": "a62a06b82e75b00cb22da19b6c1585266d5ec03fa0a627fb2b0b72acf1c1faed",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:11dadf675759fc504039150d6746003c7db230bc9f2a06f3e8bc86f8a48afb91",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-CellPhone-None-Desk-312/trial_T20190908_021807_843876/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-CellPhone-None-Desk-312/trial_T20190908_021807_843876/game.tw-pddl",
+      "gamefile_sha256": "75bd8854dd8e2ef160c779c6b46ff9fb14e04b229133ce01504343573a658ce8",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:ab03778eb75ba4376e4edefbb38625969e2c08cbe27046858debe0f38786b2ad",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-CD-None-SideTable-328/trial_T20190907_033509_300729/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-CD-None-SideTable-328/trial_T20190907_033509_300729/game.tw-pddl",
+      "gamefile_sha256": "137792f32257a17ee9c7dac9c3be3cb5393e4a68e862cd038cfbb7dc72ef225d",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:e83dacb356e5d7a225b65c92fe27c37b1aaa14eb428912f8f603039adcfd23e8",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-AlarmClock-None-Shelf-320/trial_T20190907_121158_600571/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-AlarmClock-None-Shelf-320/trial_T20190907_121158_600571/game.tw-pddl",
+      "gamefile_sha256": "afbb684bac99b6114c7d1afe13e4761f26f3931fff393021550466b9f64a5cb4",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:9a1560d80569c9fdcd2e834735c34ccd837f7d6766247ff81409e00fc780cdc2",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-KeyChain-None-Desk-310/trial_T20190908_124631_281710/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-KeyChain-None-Desk-310/trial_T20190908_124631_281710/game.tw-pddl",
+      "gamefile_sha256": "a8c3afd1add1ab68274326471c3bdac899133ba798c8fc876826203ef1cf03a4",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:b06c6ae9f859cd6a8d9462e4404b9a12a8338346cb41fd8e4f1de8296c6ec1e0",
+      "source_id": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Toilet-422/trial_T20190909_124904_818536/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_and_place_simple"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_and_place_simple-SprayBottle-None-Toilet-422/trial_T20190909_124904_818536/game.tw-pddl",
+      "gamefile_sha256": "316c3186945c9f9f73bc02cd2cfe6c6db97150d2569294f2cc833e0347ddc369",
+      "task_type": "pick_and_place_simple",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:60279d8529c776cd9f307824cb860d50d419984b9d6276803ffa5e1d78dd9e5b",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Cup-None-Microwave-14/trial_T20190907_120854_419532/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Cup-None-Microwave-14/trial_T20190907_120854_419532/game.tw-pddl",
+      "gamefile_sha256": "d90cbbfd7d52b765f4c790ae164335a02bdc1755ca0ba02acf292cbf23965ee8",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:1b1c48759f5bdefc8f077227aecbb773dd7032973d14a7aebd4d65842de5e14d",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Bowl-None-Shelf-1/trial_T20190909_070204_191856/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Bowl-None-Shelf-1/trial_T20190909_070204_191856/game.tw-pddl",
+      "gamefile_sha256": "ce618b654e2d0f3cf5ce1b4743e910ec6e5f5df7689eda13d931cdf7546babff",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:f0c27601ca7b209ba3ddb4b7561a928f1ca043cfdc551fd2ddd864257c190ce8",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Cloth-None-Drawer-410/trial_T20190908_122837_611974/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Cloth-None-Drawer-410/trial_T20190908_122837_611974/game.tw-pddl",
+      "gamefile_sha256": "4392943edf0afed9950fa4ddb80538ddfdfb2627529f42724b531c723ebc4514",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:a666c2953063c8df51a601c23dee742ad764b919439d46d7706b96c21b576332",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-Drawer-415/trial_T20190909_052957_687258/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-Drawer-415/trial_T20190909_052957_687258/game.tw-pddl",
+      "gamefile_sha256": "931b2f308bba3d38c8a91fbecf929001a59537936219613178da40210a6fde78",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:501cd98c6cc6efcf27f3cc3f47e4352774bf5062454d862b4c4e91be717fc986",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Bowl-None-Microwave-23/trial_T20190908_101019_780853/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Bowl-None-Microwave-23/trial_T20190908_101019_780853/game.tw-pddl",
+      "gamefile_sha256": "bb0ec93fe8e0db9874e73406357920098320946c477b9fde703056b62c665f04",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:9b8bf89eb921262533ef262b7d86e4c408a6b7fbfdb800e44c1c4f3b5295eecf",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Plate-None-DiningTable-19/trial_T20190909_045558_023687/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Plate-None-DiningTable-19/trial_T20190909_045558_023687/game.tw-pddl",
+      "gamefile_sha256": "8468e72c3e30d04c5ef81c42775e7a203b0b3c74f46145b81be4eeea3645d509",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:0229095c0e92a72bbe3c5ea895809bb0f0e853e28a654c64ee3cbec42001a597",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Kettle-None-Shelf-7/trial_T20190907_200522_086856/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Kettle-None-Shelf-7/trial_T20190907_200522_086856/game.tw-pddl",
+      "gamefile_sha256": "da5e548bfa06829ef140f64bc213dddec4f6d7eeb5f5d02b0ece2df1ee32e046",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:1311d9a3853e0d201c6fece9533f4f78171cf83dbdf02f8755952e1df1ad28a1",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-CounterTop-409/trial_T20190908_025345_309782/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-CounterTop-409/trial_T20190908_025345_309782/game.tw-pddl",
+      "gamefile_sha256": "d3520e1974584c294781adafcc3dea6ea6aa005c8c7db128bf2f4d9a1c260534",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:cc9f121951c5b81d8f8f370e2ccaa177f48c576107f92bfc9e3649e4c3b55dfc",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Kettle-None-Cabinet-2/trial_T20190909_043015_942171/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Kettle-None-Cabinet-2/trial_T20190909_043015_942171/game.tw-pddl",
+      "gamefile_sha256": "c3f0c46461b06e17ab71c97aeffcab80047d0c6eb9851dacab5de74edae6c6aa",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:4272db93ca55eba3c3cd802edd4f7790c02ea3b0b4c9d702c8d820256b312741",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Egg-None-Microwave-14/trial_T20190907_232820_943207/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Egg-None-Microwave-14/trial_T20190907_232820_943207/game.tw-pddl",
+      "gamefile_sha256": "57f64ece96220e2a11686ac44104b080e0d6b80c876d596613a084276842d5f7",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:8e887ba742f56c41cd16509eaf14fa10f15e35e136ef864f3d93acee03fcd281",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-CounterTop-418/trial_T20190908_225804_452583/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-CounterTop-418/trial_T20190908_225804_452583/game.tw-pddl",
+      "gamefile_sha256": "e87fdf6a9371fda6846aa22151ed96adc52381150ff6219278283326525d815b",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:17d8ef2274a5db980ff4575af1d1fc49cdc4b948cf6d5331cc13ed6f8812b2f5",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Plate-None-DiningTable-19/trial_T20190909_045331_010733/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Plate-None-DiningTable-19/trial_T20190909_045331_010733/game.tw-pddl",
+      "gamefile_sha256": "bcfd12ec55ab06f983bbd80aa0e4bf4fab60f560d511a950473f6de03b4966e2",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:46f210366d147fbc028c03df612e479ff49e936940c1c7b6f2babcce26c1ac3d",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Lettuce-None-CounterTop-18/trial_T20190909_071155_178558/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Lettuce-None-CounterTop-18/trial_T20190909_071155_178558/game.tw-pddl",
+      "gamefile_sha256": "fe442aa00fb6ded517e4bd43e56b64d32dc0740a29babfb74c10e628898af5a4",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:806de6644db157704212926c9e27a965c9984f190d3d7581817742a646e51902",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Apple-None-Microwave-14/trial_T20190909_120047_598548/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Apple-None-Microwave-14/trial_T20190909_120047_598548/game.tw-pddl",
+      "gamefile_sha256": "2de2f649ea4b28d1973f37ad436c8b001bfc4f7e2672c5b99ed4d0d28b1b9e6a",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:1cecfefdc946efb873f36113c99607b5a598ef709a2098961b8181c8ea2e9301",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Knife-None-CounterTop-24/trial_T20190907_234930_784591/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Knife-None-CounterTop-24/trial_T20190907_234930_784591/game.tw-pddl",
+      "gamefile_sha256": "51e8e473239519b51c4afbc6f63b69529c907ade69ddcb47814c172b3eb70832",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:1a3a3c071dedbc10b5c66eeab97b86252334c0554bd67fc30100586d248dcdb9",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Spatula-None-DiningTable-17/trial_T20190909_044757_667154/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Spatula-None-DiningTable-17/trial_T20190909_044757_667154/game.tw-pddl",
+      "gamefile_sha256": "8bc463bb21e953de7a19dcd4cb46581aa16821965d9ca7a71276b828f4bac7c0",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:726e0cbf948afb402e63539d19d1595a1d8899cc25c3c72b92476d47676da332",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Mug-None-CoffeeMachine-1/trial_T20190909_134634_406636/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Mug-None-CoffeeMachine-1/trial_T20190909_134634_406636/game.tw-pddl",
+      "gamefile_sha256": "25ce31ec9ed002400ba5967931b425230eb9e477520b0bda7d93e82ce564b09d",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:748cefb14f3b44a1284d3876b14e3d1db54c346a808719808e424fae3ba9bdb0",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Mug-None-CoffeeMachine-25/trial_T20190907_223942_379753/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Mug-None-CoffeeMachine-25/trial_T20190907_223942_379753/game.tw-pddl",
+      "gamefile_sha256": "c2c1384296091d09405157e5b57466238d0a177a8b8fd5a27fc2bf086b6f2854",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:ec2874a1e21791156ff5e6344f287c19b9be0753fb4e75c81dfb9d8dab64da4a",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Potato-None-Microwave-2/trial_T20190908_102036_283979/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Potato-None-Microwave-2/trial_T20190908_102036_283979/game.tw-pddl",
+      "gamefile_sha256": "870e6b1a806852eb8807599667eb44eff434c55193820c9030706c874410ccca",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:7eca69fe2c4a4a4e8714395cad6a2ce3cbafbab788cc4ca8a06c64e1b922f118",
+      "source_id": "json_2.1.1/train/pick_clean_then_place_in_recep-Potato-None-GarbageCan-19/trial_T20190908_073719_353393/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_clean_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_clean_then_place_in_recep-Potato-None-GarbageCan-19/trial_T20190908_073719_353393/game.tw-pddl",
+      "gamefile_sha256": "d99bee1516ea9f4738c9b6d77ca85631a05fc25e0c35e35bdc4dbdc2e3058940",
+      "task_type": "pick_clean_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:c3d8000db59cfe8127b0ac314291ebb77f326992008bb0674fb63c8e32045449",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Mug-None-CoffeeMachine-4/trial_T20190907_053034_950201/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Mug-None-CoffeeMachine-4/trial_T20190907_053034_950201/game.tw-pddl",
+      "gamefile_sha256": "7c8fd9f42e2a87608480ebb3f209ffd6f5886ed7c53c68157e683e05f93a0ce9",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:f1c0bf71e0636db050635492e6bebc953bd90437bf52a0ca76c84a1988aacffb",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Lettuce-None-CounterTop-22/trial_T20190908_084626_474201/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Lettuce-None-CounterTop-22/trial_T20190908_084626_474201/game.tw-pddl",
+      "gamefile_sha256": "a9ace1372dfe1bd2f8399c77942f4f5a644185f1aaf40869e2ef10a13d641be6",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:3a6e492f66573bf4ca48434c88e243f0f6009a2f0a571a9c01b73e9013d48e50",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Bread-None-CounterTop-4/trial_T20190907_232940_130727/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Bread-None-CounterTop-4/trial_T20190907_232940_130727/game.tw-pddl",
+      "gamefile_sha256": "592204cf8d3e391b12676092959b08a20b32e600e2d32bb19cf791e2c6aaa065",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:efdae4a443edc3db57a7528dfde355a8d769a1315f8c2e832c88085e844088ab",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Plate-None-Cabinet-27/trial_T20190906_173250_466409/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Plate-None-Cabinet-27/trial_T20190906_173250_466409/game.tw-pddl",
+      "gamefile_sha256": "a4622991f12a81a5291a8de068e7a9e23595ac6aa4aabc56105e1084e4b535ab",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:27dca1a98f4a104f653c81f1fa9730d5cc5c6a510e0d56baa82901083eb84f1d",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-WineBottle-None-GarbageCan-17/trial_T20190907_144111_838056/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-WineBottle-None-GarbageCan-17/trial_T20190907_144111_838056/game.tw-pddl",
+      "gamefile_sha256": "06beca255f752e58c8b9d4c99b58d2d7707eb583752208c92755d20063d5db0d",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:a979ba68b271cb441ddb21eb8c216ecb68019875901ccd749cadce23081c4ec5",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-WineBottle-None-GarbageCan-17/trial_T20190907_144031_217697/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-WineBottle-None-GarbageCan-17/trial_T20190907_144031_217697/game.tw-pddl",
+      "gamefile_sha256": "29b58e1edd4bb97e6c53cab77f2fc06710c8757de98f4b2da11154d0b01782df",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:de96119b44e4a0922c81d1a33988d8451858bacb22809f277debaad23556261e",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Pot-None-CounterTop-17/trial_T20190909_013407_550007/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Pot-None-CounterTop-17/trial_T20190909_013407_550007/game.tw-pddl",
+      "gamefile_sha256": "a76678e41da825f87b29dbe78686ddefcd5d1a37af61dfe48a6ec7248179845f",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:e4827a049c1aa142ec3470f37aac4204589a8c5edcf48411358637e32240458e",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Mug-None-CoffeeMachine-18/trial_T20190907_075222_975015/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Mug-None-CoffeeMachine-18/trial_T20190907_075222_975015/game.tw-pddl",
+      "gamefile_sha256": "cfb9a3d2175643d66ccd8e1fb24e41e1ce44cbdd809591358aabca0fc77e3c6c",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:2d851be7f1a3d44c9fc3ef4277a5d71cf6418b00f4b496537e93b1c9cb2a33f8",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Egg-None-Microwave-18/trial_T20190909_113607_998821/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Egg-None-Microwave-18/trial_T20190909_113607_998821/game.tw-pddl",
+      "gamefile_sha256": "e7a295f8afd856ea77ea03621846f8ca16c50d217cac4a309531726de5052897",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:d5b83b56296bfe5fb44ade46db3df33781c6874a28b21f5afd5da36598da104e",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Potato-None-Microwave-15/trial_T20190908_154618_326152/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Potato-None-Microwave-15/trial_T20190908_154618_326152/game.tw-pddl",
+      "gamefile_sha256": "9b7e23117eb8733190c75addfbcaa6643e8fb1552256dadd7e0083b277c65e47",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:59ef7e4d9319bdba106fc2b5b9c81445cc769a798d4bd32da4f7201ff28b2584",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Plate-None-Microwave-7/trial_T20190909_130503_412416/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Plate-None-Microwave-7/trial_T20190909_130503_412416/game.tw-pddl",
+      "gamefile_sha256": "9de59441e3b1fd8e6be292823abde43ed33bfe907295e675c1d6828ddc22124b",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:3a5f2d815a37fc062024d2dc286a501f08064133deb995665b171f020287d3d9",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Cup-None-Shelf-20/trial_T20190907_155034_140166/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Cup-None-Shelf-20/trial_T20190907_155034_140166/game.tw-pddl",
+      "gamefile_sha256": "cc980bd3dfe2cb31161e302ebc9a117c627be1d07c5c5ab326f7ed357fe88325",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:da5b5860fafab0f77b891b3da9878fac30ae8dd40b0221bd6e47e06e12f0bf6a",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Potato-None-SideTable-21/trial_T20190907_040229_877234/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Potato-None-SideTable-21/trial_T20190907_040229_877234/game.tw-pddl",
+      "gamefile_sha256": "da2c2fd85a4094b1ea06a4fca58d1c15cac2794308732159ab019c6824525ad3",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:01836616d4f3ea10b660363ef11acc2e47a12a2c3af494daf187fd9e3489afd4",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Egg-None-Microwave-30/trial_T20190908_232626_369557/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Egg-None-Microwave-30/trial_T20190908_232626_369557/game.tw-pddl",
+      "gamefile_sha256": "1bb6c27978a2e00426603bc155e174510e31195dbe84338503b18e385358fa71",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:df8d3e6ad19fa3560e61586507c9ea6114e99610aca92f0e31288eb4ebc2de4a",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Pot-None-DiningTable-24/trial_T20190908_111415_336140/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Pot-None-DiningTable-24/trial_T20190908_111415_336140/game.tw-pddl",
+      "gamefile_sha256": "637cff35bddd6d4d84e5040e18cc4de519574a6c4ddcfbcd0d01baed27059e8c",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:fa16c3d27c43b4856de14c5cdae6a571f9d3a7c6e1c4380d672b6a017f50fe35",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Pan-None-CounterTop-12/trial_T20190908_062308_849468/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Pan-None-CounterTop-12/trial_T20190908_062308_849468/game.tw-pddl",
+      "gamefile_sha256": "a9487db5117c3bcf1d96bba3bf29bd405163742181e460a57fc9d63770c315d2",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:2ae9b9806c9a2656ca0ddc17575f6999520939826fd76b698e5628b769487451",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Pan-None-Cabinet-18/trial_T20190907_222321_075263/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Pan-None-Cabinet-18/trial_T20190907_222321_075263/game.tw-pddl",
+      "gamefile_sha256": "9b5a76fb3e2e32f4ebda66f196f42eb52494211dad9bcf846ee9c1d74b12c808",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:30697c9becc00c2ca1045fb4201618cde4401691f3feb0099b6fad67cb66bfcf",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Tomato-None-Microwave-13/trial_T20190908_075444_186083/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Tomato-None-Microwave-13/trial_T20190908_075444_186083/game.tw-pddl",
+      "gamefile_sha256": "f336ad91ee3858e3651ec8d46ae5e0461c251c0bac50b2739aafc0202a07df44",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:a3e1520f34f5b074bcb4be978105d57548343a53096d04e0f33a74312c3619bc",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Bread-None-CounterTop-17/trial_T20190907_151028_159967/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Bread-None-CounterTop-17/trial_T20190907_151028_159967/game.tw-pddl",
+      "gamefile_sha256": "4557b5981913b8bfaa53e5e5a4b841e0b3bcc112bba594da387de3bd26a28e95",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:c07df21a889bb75de02c25ccca966ea424775278a969379a1f31bc74597ea036",
+      "source_id": "json_2.1.1/train/pick_cool_then_place_in_recep-Mug-None-CoffeeMachine-21/trial_T20190908_034233_887856/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_cool_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_cool_then_place_in_recep-Mug-None-CoffeeMachine-21/trial_T20190908_034233_887856/game.tw-pddl",
+      "gamefile_sha256": "28b1d7de6ecc4c0b62470816c6aee0b4a3fdccf2771f06314b9436cfdc31fdb8",
+      "task_type": "pick_cool_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:2aa2dc780195b8e49233314d33876f53b05d5d51c6bac363d978ef32873e6666",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-15/trial_T20190908_004914_713432/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-15/trial_T20190908_004914_713432/game.tw-pddl",
+      "gamefile_sha256": "ae4f41d8b21670044cdf5e926f87cb7ce5710a09a2fd6ff2906085ddfe2bf76d",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:4c3cfe532df10b0f32b06dbb304dccbd4325ae1b0ef2c989204dbbccdba0f727",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Potato-None-CounterTop-19/trial_T20190909_152050_792044/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Potato-None-CounterTop-19/trial_T20190909_152050_792044/game.tw-pddl",
+      "gamefile_sha256": "9ace419ebb710608681d34167502e0563f8c26c494da6deb24d19ce9d731f761",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:43cbc392c0c8ee6e7fc0c071bdad3f2714002752fe0b7b1cddec84752ef38c51",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Cup-None-Cabinet-25/trial_T20190908_012733_848662/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Cup-None-Cabinet-25/trial_T20190908_012733_848662/game.tw-pddl",
+      "gamefile_sha256": "3c78aaefa3e836ef8211c334caa0beed5df34cf8aacd774297843a1a9a8f2bdc",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:e24d8247e53a95f1e9cb893079600eeca012675591225fbcc7c3ff9802e0ba2e",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-3/trial_T20190906_233908_118479/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-3/trial_T20190906_233908_118479/game.tw-pddl",
+      "gamefile_sha256": "f3048c706ebbb31e60d488f254908562e7476c9e3400977eacedc15582c0edba",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:6eb0fe2aa81b95010033504c24ce3fdb693fea0cae68a316fe0e5ab1a394174a",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Tomato-None-CounterTop-2/trial_T20190908_171606_930881/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Tomato-None-CounterTop-2/trial_T20190908_171606_930881/game.tw-pddl",
+      "gamefile_sha256": "f21575093ba521da28ba7b76a86b44a1a5b9ac6ce446b729d7e7ed9247f30671",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:29fdc2df0428215c410fcec28ac6f5535196f552d9092ade81f306c1290a8c9d",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-GarbageCan-2/trial_T20190908_203932_323147/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-GarbageCan-2/trial_T20190908_203932_323147/game.tw-pddl",
+      "gamefile_sha256": "484ec5f99eb8be48026d77f5b4d7f007ac7ffdcf36e9a758df695dc2e23423c7",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:2e4c640727a087d6bf0974630a5e7ead8b9588ccd3851522277c087b65d968bb",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-Shelf-5/trial_T20190906_203744_920699/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-Shelf-5/trial_T20190906_203744_920699/game.tw-pddl",
+      "gamefile_sha256": "369ac860856a3102ee6a7995d1317c60f409550bb2cf695ad29909cc11854bf5",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:d3ced1c2a4ddb51fa07b227a0182bc123d0053fe2d4f07595996eaf956365476",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Plate-None-SideTable-28/trial_T20190906_222200_918980/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Plate-None-SideTable-28/trial_T20190906_222200_918980/game.tw-pddl",
+      "gamefile_sha256": "748fee78190698e9bee172a7dd0224d2dd06c923063527986cacbb56577619ad",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:e5918aeb4d5af1d84665c90e2ea52330b5f5862d9f71ebafed9f04109dc2e974",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Egg-None-CounterTop-30/trial_T20190909_130401_115312/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Egg-None-CounterTop-30/trial_T20190909_130401_115312/game.tw-pddl",
+      "gamefile_sha256": "372b43597d34ee5679fd6dbd77dfc7b20801d26d3944421d93037fe2bfb9094a",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:32eed443ffcc94e8fc5cdc80ae18c247f94d5df0bca5716d032bbd82b4b2d2d3",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Egg-None-Fridge-4/trial_T20190908_220718_809536/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Egg-None-Fridge-4/trial_T20190908_220718_809536/game.tw-pddl",
+      "gamefile_sha256": "db4771ad0041a2890288a0a0198162e2c0a0ae7134404cb5dabc141e1976276c",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:8042016859bd61e9d47af83db7b0a5cd6af985ffa2e01d1e9d038bc751224748",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Cup-None-CounterTop-13/trial_T20190907_013449_796900/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Cup-None-CounterTop-13/trial_T20190907_013449_796900/game.tw-pddl",
+      "gamefile_sha256": "69106c81851db42bc1fc95371a09ec5a2a398239d226ad3e6f04a67120aad68b",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:a0211ba5ad82c9974e075957ec2019d61c148da1887de8826013ceaa19c882b8",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Tomato-None-DiningTable-24/trial_T20190907_073329_394002/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Tomato-None-DiningTable-24/trial_T20190907_073329_394002/game.tw-pddl",
+      "gamefile_sha256": "089636a74332ce302e058e36af8b6142b53fcf900860042259cb75cce7a5f1e7",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:4d1aed2e81723099ccd1af4456ab72e9e802de71fd73398dc312d6e46f067974",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-Fridge-30/trial_T20190908_114847_958679/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-Fridge-30/trial_T20190908_114847_958679/game.tw-pddl",
+      "gamefile_sha256": "c95f1f2286f6fdeaabfc56fd2fea0d7574f814c5aa3f0418ea086c1fe8ac4ae8",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:ab624f32f1b639a30bdc00e538fe2710327460743235fffff8a70338d3945bc9",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-Fridge-20/trial_T20190908_013911_274341/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-Fridge-20/trial_T20190908_013911_274341/game.tw-pddl",
+      "gamefile_sha256": "c0c712af60e4c17cb97206986cd882680409317710745230b99a93e52369fdef",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:acdf541294b9afc89bec791b47425557ad06313a18b95148a8bf3f401dd1d4e4",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Cup-None-Fridge-13/trial_T20190908_070444_960595/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Cup-None-Fridge-13/trial_T20190908_070444_960595/game.tw-pddl",
+      "gamefile_sha256": "83cc43449492284f984f8e557eb6d9caec7fe187390699a7c94b6a38ef25b849",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:d2fa21cd24e58c9bbda1c15df6b5cb2ffb2ed36178790f675f7e77c9dd20e08b",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-Fridge-30/trial_T20190908_114730_041931/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-Fridge-30/trial_T20190908_114730_041931/game.tw-pddl",
+      "gamefile_sha256": "ef0297126c3cad5084006cb4842ea5d55037c69204dc0928290352742edd37ef",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:30501f2099c0287361ccfe4e93bc492cb3ec1c10b72687034cedd8c603d41e32",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Cup-None-Cabinet-27/trial_T20190908_124007_307383/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Cup-None-Cabinet-27/trial_T20190908_124007_307383/game.tw-pddl",
+      "gamefile_sha256": "8907e574a2aed7d265ac92682e079bffb72a93a637275d8cb28076b200644516",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:02f563d7680c572a311e286067ee5e6daa08f91323a53db47635693fa8f143b7",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Tomato-None-Fridge-19/trial_T20190909_152219_111684/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Tomato-None-Fridge-19/trial_T20190909_152219_111684/game.tw-pddl",
+      "gamefile_sha256": "569e4dbf45b652b69a4b3ec3d8bc9f8ede635866fa295790d5891b3336eaf256",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:f8a35229f686709db4063358974bd0ea3682d699f79a8db24e3d75c3edbc3a65",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-Fridge-25/trial_T20190908_050921_727654/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Apple-None-Fridge-25/trial_T20190908_050921_727654/game.tw-pddl",
+      "gamefile_sha256": "9f85280b0880396470c9d904b007aa3d262bdf1dfad671a84472b24eefeee691",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:a6d89d99acb844f7869977a0fbe657c8798e022581a607303f1ab0483dac71d5",
+      "source_id": "json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-18/trial_T20190907_142151_953742/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_heat_then_place_in_recep"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-18/trial_T20190907_142151_953742/game.tw-pddl",
+      "gamefile_sha256": "5a2885397cc3afc6da50aea69cc014b36cf080d510cde99389e8b0de486e6f85",
+      "task_type": "pick_heat_then_place_in_recep",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:b72e96083a3f631dec689224a44d8af3e7fcec281f5e87132b8bff23ae598665",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-Newspaper-None-Sofa-218/trial_T20190907_204014_431529/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-Newspaper-None-Sofa-218/trial_T20190907_204014_431529/game.tw-pddl",
+      "gamefile_sha256": "95622e8a9e646c8da7c600453b13bace300a365a687a27665784aba89346b499",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:a23663fb009387a183c12b8f89139894dc2dbc18dcb5579a80e5abd8cd6b0b6b",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-Book-None-Dresser-317/trial_T20190910_180738_291661/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-Book-None-Dresser-317/trial_T20190910_180738_291661/game.tw-pddl",
+      "gamefile_sha256": "ed4f5cf5b7ebaac11862a9aa2aecf14a373f3316546b1b9bab9868fd9b8b68dc",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:dcc5c9b4f4f18608cce9766b7f59b3c983b9f8eb8439e6af045ee87d3ef3e0c8",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-KeyChain-None-Sofa-224/trial_T20190908_015957_043071/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-KeyChain-None-Sofa-224/trial_T20190908_015957_043071/game.tw-pddl",
+      "gamefile_sha256": "847deb72e5979bf0b65b5e6e0bcfeadb89ad8fc01d4d4d01cfd932078b4bdab9",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:ccc70929c2b276984e99b9527bb7503429ede37005abe1561df5051b221ddc5f",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-SprayBottle-None-Cabinet-417/trial_T20190909_112757_524439/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-SprayBottle-None-Cabinet-417/trial_T20190909_112757_524439/game.tw-pddl",
+      "gamefile_sha256": "f8b30da660a7e32e336206b6a251866e41a27a808b9dc8c84f20f636dc9ec302",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:9b9ebcf32369008d8c235aba0178387309a47e04821fdd5c1cb8d374b775a671",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-CreditCard-None-Sofa-206/trial_T20190906_203503_354880/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-CreditCard-None-Sofa-206/trial_T20190906_203503_354880/game.tw-pddl",
+      "gamefile_sha256": "bd056c7865636ceab0a02d37788b0c74558df0e347d5527929e222dfa16d0d88",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:18ee8b76f170ab27e703f71ea682b24f873ad0f8d0e2ed3b521c6734ca2367ed",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-ToiletPaper-None-CounterTop-402/trial_T20190909_053732_822099/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-ToiletPaper-None-CounterTop-402/trial_T20190909_053732_822099/game.tw-pddl",
+      "gamefile_sha256": "e78fe7fc928befdc76b890785e799f0761b9a14d7f3c2b49b71e982bd628892a",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:c6234dfbdf9f0da316e0a7074f53fd13793c8d5b63452783d712f2a74967f8f1",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-WineBottle-None-Cabinet-17/trial_T20190909_014123_556566/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-WineBottle-None-Cabinet-17/trial_T20190909_014123_556566/game.tw-pddl",
+      "gamefile_sha256": "7b293c264f7d39619b1a172a92b9cdda18c89459b106635dd4ab55c1766ce5d6",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:7d5ddbfade9f7f02fdc5e7ebc58e01c61fc871507fd87318125a9d4012515b0d",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-Book-None-Bed-328/trial_T20190912_065434_217065/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-Book-None-Bed-328/trial_T20190912_065434_217065/game.tw-pddl",
+      "gamefile_sha256": "02a2085ef66d6a6019b0a674b7e67ffcc36721f72b0da7ebbe1d261b98f6c1b4",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:93d8aa7352f77a09cc5ff5fd0211f5b6a21ac17325706614fe70f34ad178368e",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-RemoteControl-None-ArmChair-230/trial_T20190907_195543_135937/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-RemoteControl-None-ArmChair-230/trial_T20190907_195543_135937/game.tw-pddl",
+      "gamefile_sha256": "c82741949e102cf6f21f0c155d4dbcff4256b01a8dc65ab0b5f8fb309e3b44b3",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:070c700dbff4ddaf8ddd228bce2faab48216429b273d71aa7253e69af776cd35",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-Box-None-CoffeeTable-230/trial_T20190908_124448_064600/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-Box-None-CoffeeTable-230/trial_T20190908_124448_064600/game.tw-pddl",
+      "gamefile_sha256": "3f19f90c09059622ddd9e4aa820c7b4ea48a56041a4a8576a3eb6561cce10d47",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:f55e428b1ebdbef4111c7b9f5cc51ecb673587a13b9eb62dfbe92250196c1cc0",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-SoapBottle-None-Toilet-428/trial_T20190909_070317_650884/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-SoapBottle-None-Toilet-428/trial_T20190909_070317_650884/game.tw-pddl",
+      "gamefile_sha256": "b08af56223649e6f06d9793b8f42c1f5b53897e7080d68d0cc062f4453e1f3e6",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:7da9562746405244b181c5c09a50c3d188a62d38964e36e565956be193227dd4",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-SaltShaker-None-Shelf-20/trial_T20190906_200701_399969/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-SaltShaker-None-Shelf-20/trial_T20190906_200701_399969/game.tw-pddl",
+      "gamefile_sha256": "2f7cb6efb1c8ae86aaf070ddb7ace80f5e17a10d3ba3339df6232446ddbd9fea",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:2eea6a564244c57badf3d888adf11e9f037bd79da16cc8308fafae72b4821d56",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-DishSponge-None-Cart-430/trial_T20190908_123550_524298/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-DishSponge-None-Cart-430/trial_T20190908_123550_524298/game.tw-pddl",
+      "gamefile_sha256": "8224b087120fe22ce8c543268a318489d917f6530dc82e21af34454e0f715e45",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:37f3fee3e58bac91d9bf6a08dda4a67fdd2f5992fd7dc42a6c069989357bca99",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-SaltShaker-None-Cabinet-21/trial_T20190919_010823_789405/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-SaltShaker-None-Cabinet-21/trial_T20190919_010823_789405/game.tw-pddl",
+      "gamefile_sha256": "4d24beb6a0b30850336232657ac79f399659772b3406e976b0e1a959c8d09b30",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:12904e588b88c7a7c0ec86984fdcaa90793869773c0a73bd93110dd1d3e7c181",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-Vase-None-CoffeeTable-214/trial_T20190909_093918_758122/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-Vase-None-CoffeeTable-214/trial_T20190909_093918_758122/game.tw-pddl",
+      "gamefile_sha256": "1a690bb88c97573b1234fb0982d2fd4e6aea9e355e7fa1a32836ad7d283acb49",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:e87dd9686bfb85dcc175890c8ce5dffaef768cdb3bf975bbc36787c78ad712a5",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-SprayBottle-None-GarbageCan-416/trial_T20190909_014108_782415/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-SprayBottle-None-GarbageCan-416/trial_T20190909_014108_782415/game.tw-pddl",
+      "gamefile_sha256": "a3ca23ab55932bb6bf7edd7a265e110870ea9089fa4aa1de5c139b8e2784ee6a",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:472d97f8d0499017f4bd19970d4def6c29310c760ea3528ce943f5dadb28aa51",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-Vase-None-Desk-204/trial_T20190906_181607_130370/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-Vase-None-Desk-204/trial_T20190906_181607_130370/game.tw-pddl",
+      "gamefile_sha256": "e84a3bc3b8214f3a75cc4743ee467e0af0f51c9f3a9cbe732d77f6ed04a7eee3",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:1fdbd1953c4ea87acadce0523e65bd494f26e8ca2e69b149a162801125685f60",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-Pen-None-Dresser-318/trial_T20190908_063003_015125/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-Pen-None-Dresser-318/trial_T20190908_063003_015125/game.tw-pddl",
+      "gamefile_sha256": "87e6ee99bfbf9286316f9a8e0603459b67971cb6a5e213b0e1044c1840860630",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:0da02bdcdbbcc5b2d4f4b56d68caaa56fb0ada72cd928967cb9d056664f6d40e",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-ToiletPaper-None-Toilet-415/trial_T20190908_080223_407018/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-ToiletPaper-None-Toilet-415/trial_T20190908_080223_407018/game.tw-pddl",
+      "gamefile_sha256": "fc9f174006eba5c36b9c9bd3c5ba7c32d1bafe776c1a91b109d11efe7ffc76ac",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    },
+    {
+      "task_id": "alfworld:d534791f67b868efaa5839da1484758992fdb0cfb3e78025c7b832b7f3d2cb7b",
+      "source_id": "json_2.1.1/train/pick_two_obj_and_place-CellPhone-None-Shelf-320/trial_T20190908_113058_584290/game.tw-pddl",
+      "task_metadata": {
+        "task_type": "pick_two_obj_and_place"
+      },
+      "source_split": "train",
+      "gamefile_rel": "json_2.1.1/train/pick_two_obj_and_place-CellPhone-None-Shelf-320/trial_T20190908_113058_584290/game.tw-pddl",
+      "gamefile_sha256": "ec9c5500a6810db2a0dc9d98743aa262dc40b28af1f8f2cf2d3a7ddcb2ed9a2e",
+      "task_type": "pick_two_obj_and_place",
+      "env_index": null,
+      "task_signature": null
+    }
+  ]
+}

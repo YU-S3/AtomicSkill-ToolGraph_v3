@@ -81,7 +81,7 @@ class SimpleAdapter(Protocol):
 
 class Broker:
     """Shared task counter and the only host bridge exposed to a Program."""
-    def __init__(self, adapter, call_limit, *, step_limit=None, journal=None, native_timeout=180):
+    def __init__(self, adapter, call_limit, *, step_limit=None, journal=None, native_timeout=180, observer=None):
         self.adapter, self.call_limit = adapter, call_limit
         self.events = []
         self.done = False
@@ -90,6 +90,7 @@ class Broker:
         self.journal = journal
         self.unknown = False
         self.native_timeout = native_timeout
+        self.observer = observer
         self._lock = threading.Lock()
         self._leases = set()
         self._responses = {}
@@ -140,8 +141,11 @@ class Broker:
             raise RuntimeError("Task tool budget exhausted or environment terminated")
         with self._lock:
             deadline = deadline or time.monotonic() + self.native_timeout
+            started_at = time.time()
             event = {"name": name, "arguments": arguments, "index": len(self.events), 'state': 'intent'}
             self.events.append(event)
+            if self.observer:
+                self.observer(event, started_at, None)
             if self.journal:
                 self.journal(self.events)
             specs = {tool["name"]: tool for tool in self.available_tools()}
@@ -170,6 +174,8 @@ class Broker:
                 except queue.Empty:
                     self.unknown = True
                     event['state'] = 'unknown'
+                    if self.observer:
+                        self.observer(event, started_at, time.time())
                     if self.journal:
                         self.journal(self.events)
                     # No Agent recovery is permitted on this owner, even if a
@@ -182,6 +188,8 @@ class Broker:
                 if not ok:
                     self.unknown = True
                     event['state'] = 'unknown'
+                    if self.observer:
+                        self.observer(event, started_at, time.time())
                     if self.journal:
                         self.journal(self.events)
                     raise UnknownSideEffect(str(value)) from value
@@ -189,6 +197,8 @@ class Broker:
                 self.environment_steps += int(result.get('environment_step', 0))
             self.done = bool(result.get('done', False))
             event.update(state='finished', result=result, environment_steps=self.environment_steps)
+            if self.observer:
+                self.observer(event, started_at, time.time())
             if self.journal:
                 self.journal(self.events)
             return result

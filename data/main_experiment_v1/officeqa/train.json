@@ -1,0 +1,848 @@
+{
+  "schema": "public.main_experiment.split.v1",
+  "benchmark": "officeqa",
+  "split": "train",
+  "split_seed": 42,
+  "tasks": [
+    {
+      "task_id": "officeqa:UID0146",
+      "source_id": "UID0146",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0153",
+      "source_id": "UID0153",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0119",
+      "source_id": "UID0119",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0066",
+      "source_id": "UID0066",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0067",
+      "source_id": "UID0067",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0152",
+      "source_id": "UID0152",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0082",
+      "source_id": "UID0082",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0041",
+      "source_id": "UID0041",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0198",
+      "source_id": "UID0198",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0208",
+      "source_id": "UID0208",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0034",
+      "source_id": "UID0034",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0092",
+      "source_id": "UID0092",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0235",
+      "source_id": "UID0235",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0181",
+      "source_id": "UID0181",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0080",
+      "source_id": "UID0080",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0043",
+      "source_id": "UID0043",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0002",
+      "source_id": "UID0002",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0166",
+      "source_id": "UID0166",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0138",
+      "source_id": "UID0138",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0026",
+      "source_id": "UID0026",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0191",
+      "source_id": "UID0191",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0106",
+      "source_id": "UID0106",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0033",
+      "source_id": "UID0033",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0129",
+      "source_id": "UID0129",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0048",
+      "source_id": "UID0048",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0016",
+      "source_id": "UID0016",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0040",
+      "source_id": "UID0040",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0210",
+      "source_id": "UID0210",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0151",
+      "source_id": "UID0151",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0099",
+      "source_id": "UID0099",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0115",
+      "source_id": "UID0115",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0239",
+      "source_id": "UID0239",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0142",
+      "source_id": "UID0142",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0060",
+      "source_id": "UID0060",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0178",
+      "source_id": "UID0178",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0200",
+      "source_id": "UID0200",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0167",
+      "source_id": "UID0167",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0162",
+      "source_id": "UID0162",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0139",
+      "source_id": "UID0139",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0229",
+      "source_id": "UID0229",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0023",
+      "source_id": "UID0023",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0052",
+      "source_id": "UID0052",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0171",
+      "source_id": "UID0171",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0231",
+      "source_id": "UID0231",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0143",
+      "source_id": "UID0143",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0209",
+      "source_id": "UID0209",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0104",
+      "source_id": "UID0104",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0160",
+      "source_id": "UID0160",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0074",
+      "source_id": "UID0074",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0098",
+      "source_id": "UID0098",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0242",
+      "source_id": "UID0242",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0217",
+      "source_id": "UID0217",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0051",
+      "source_id": "UID0051",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0105",
+      "source_id": "UID0105",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0061",
+      "source_id": "UID0061",
+      "task_metadata": {
+        "difficulty": "easy"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0226",
+      "source_id": "UID0226",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0010",
+      "source_id": "UID0010",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0085",
+      "source_id": "UID0085",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0244",
+      "source_id": "UID0244",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0062",
+      "source_id": "UID0062",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0039",
+      "source_id": "UID0039",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0068",
+      "source_id": "UID0068",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0205",
+      "source_id": "UID0205",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0204",
+      "source_id": "UID0204",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0017",
+      "source_id": "UID0017",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0117",
+      "source_id": "UID0117",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0108",
+      "source_id": "UID0108",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0243",
+      "source_id": "UID0243",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0155",
+      "source_id": "UID0155",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0044",
+      "source_id": "UID0044",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0245",
+      "source_id": "UID0245",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0028",
+      "source_id": "UID0028",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0022",
+      "source_id": "UID0022",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0182",
+      "source_id": "UID0182",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0183",
+      "source_id": "UID0183",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0009",
+      "source_id": "UID0009",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0196",
+      "source_id": "UID0196",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0173",
+      "source_id": "UID0173",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0036",
+      "source_id": "UID0036",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0100",
+      "source_id": "UID0100",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0096",
+      "source_id": "UID0096",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0174",
+      "source_id": "UID0174",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0135",
+      "source_id": "UID0135",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0102",
+      "source_id": "UID0102",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0170",
+      "source_id": "UID0170",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0013",
+      "source_id": "UID0013",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0169",
+      "source_id": "UID0169",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0112",
+      "source_id": "UID0112",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0218",
+      "source_id": "UID0218",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0030",
+      "source_id": "UID0030",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0109",
+      "source_id": "UID0109",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0214",
+      "source_id": "UID0214",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0148",
+      "source_id": "UID0148",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0227",
+      "source_id": "UID0227",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0111",
+      "source_id": "UID0111",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0221",
+      "source_id": "UID0221",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0083",
+      "source_id": "UID0083",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0175",
+      "source_id": "UID0175",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0073",
+      "source_id": "UID0073",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0188",
+      "source_id": "UID0188",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0084",
+      "source_id": "UID0084",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0057",
+      "source_id": "UID0057",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0097",
+      "source_id": "UID0097",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0154",
+      "source_id": "UID0154",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0059",
+      "source_id": "UID0059",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0177",
+      "source_id": "UID0177",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0120",
+      "source_id": "UID0120",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0094",
+      "source_id": "UID0094",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0147",
+      "source_id": "UID0147",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0015",
+      "source_id": "UID0015",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0195",
+      "source_id": "UID0195",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0193",
+      "source_id": "UID0193",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0184",
+      "source_id": "UID0184",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0069",
+      "source_id": "UID0069",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0122",
+      "source_id": "UID0122",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0050",
+      "source_id": "UID0050",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0211",
+      "source_id": "UID0211",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0007",
+      "source_id": "UID0007",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0035",
+      "source_id": "UID0035",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    },
+    {
+      "task_id": "officeqa:UID0201",
+      "source_id": "UID0201",
+      "task_metadata": {
+        "difficulty": "hard"
+      }
+    }
+  ]
+}

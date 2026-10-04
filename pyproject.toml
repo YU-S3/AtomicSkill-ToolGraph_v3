@@ -20,6 +20,8 @@ skillcompiler-pilot = "atomic_skillgraph.experiments.run_empirical_pilot:main"
 skillcompiler-acceptance = "atomic_skillgraph.experiments.run_empirical_acceptance:main"
 skillcompiler-multibench = "atomic_skillgraph.experiments.run_multibench:main"
 skillcompiler-prepare = "atomic_skillgraph.experiments.prepare_benchmarks:main"
+skillcompiler-manifest = "atomic_skillgraph.experiments.canonical_manifest:main"
+skillcompiler-formal = "atomic_skillgraph.experiments.run_formal:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

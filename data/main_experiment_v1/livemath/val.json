@@ -1,0 +1,193 @@
+{
+  "schema": "public.main_experiment.split.v1",
+  "benchmark": "livemath",
+  "split": "val",
+  "split_seed": 42,
+  "tasks": [
+    {
+      "task_id": "livemath:202511:18",
+      "source_id": "202511:18",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Implication",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:13",
+      "source_id": "202512:13",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Existence",
+          "Classification or Bijection"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:15",
+      "source_id": "202512:15",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Universal",
+          "Classification or Bijection"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:22",
+      "source_id": "202512:22",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Implication",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:23",
+      "source_id": "202512:23",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Universal–Existential",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:38",
+      "source_id": "202512:38",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Biconditional or Equivalence",
+          "Implication"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:48",
+      "source_id": "202512:48",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Inequality or Bound",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:50",
+      "source_id": "202512:50",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Implication",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:36",
+      "source_id": "202601:36",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Inequality or Bound",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:16",
+      "source_id": "202602:16",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Classification or Bijection",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:2",
+      "source_id": "202602:2",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Implication",
+          "Asymptotic or Limit"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:27",
+      "source_id": "202602:27",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Existential–Universal",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:3",
+      "source_id": "202602:3",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Existential–Universal",
+          "Asymptotic or Limit"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:32",
+      "source_id": "202602:32",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "unknown"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:35",
+      "source_id": "202602:35",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Implication",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:39",
+      "source_id": "202602:39",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Inequality or Bound",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:8",
+      "source_id": "202602:8",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Biconditional or Equivalence"
+        ]
+      }
+    }
+  ]
+}

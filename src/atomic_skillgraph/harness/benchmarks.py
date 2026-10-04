@@ -26,7 +26,7 @@ def truncate_context(context, max_chars=6000):
     return result or context[:max_chars] + '\n...[truncated]'
 
 
-def score_answer(benchmark, prediction, record):
+def score_answer(benchmark, prediction, record, *, audit=None):
     scorer = importlib.import_module('.scorers.' + benchmark, __package__)
     prediction = str(prediction or '')
     if benchmark == 'livemath':
@@ -40,6 +40,8 @@ def score_answer(benchmark, prediction, record):
         hard, soft, name = raw['anls'] >= .999, raw['anls'], 'docvqa.skillopt-anls'
     else:
         hard, soft, name = bool(raw['em']), raw['f1'], 'officeqa_skillopt_em_f1_v1' if benchmark == 'officeqa' else benchmark + '.skillopt-em-f1'
+    if audit is not None:
+        audit.update(raw_scorer_output=raw, scorer_version=hashlib.sha256(Path(scorer.__file__).read_bytes()).hexdigest())
     return {'hard': hard, 'soft': soft, 'raw_score': soft, 'scorer': name}
 
 
@@ -79,7 +81,8 @@ class AnswerAdapter:
     def evaluate(self, sealed):
         if sealed['task_id'] != self.task.task_id:
             raise ValueError('Submission task mismatch')
-        return score_answer(self.benchmark, sealed['prediction'], self._records[self.task.task_id])
+        self.score_audit = {}
+        return score_answer(self.benchmark, sealed['prediction'], self._records[self.task.task_id], audit=self.score_audit)
 
 
 class FileAdapter(AnswerAdapter):
@@ -224,6 +227,11 @@ class SpreadsheetAdapter(FileAdapter):
         record = self._records[self.task.task_id]
         cases = record['cases']
         outcomes = []
+        raw_outputs = []
+        def record_score(calculated, case):
+            raw = evaluate(str(calculated), case['gold'], record['instruction_type'], record['answer_position'])
+            raw_outputs.append(raw)
+            return bool(raw['ok'])
         bundle = Path(sealed['bundle']) if sealed.get('bundle') else None
         if bundle:
             lock = json.loads((bundle/'solution_manifest.json').read_text())
@@ -244,17 +252,23 @@ class SpreadsheetAdapter(FileAdapter):
                         predicted = evaluator.workspace.root/manifest['version']/'case1_result.xlsx'
                         recalculator, calculated = self._recalculate(predicted)
                         try:
-                            outcomes.append(bool(evaluate(str(calculated), case['gold'], record['instruction_type'], record['answer_position'])['ok']))
+                            outcomes.append(record_score(calculated, case))
                         finally: recalculator.close()
-                    else: outcomes.append(False)
+                    else:
+                        outcomes.append(False)
+                        raw_outputs.append({'not_scored': 'variant_execution_failed', 'execution_result': result})
                 finally: evaluator.close()
             elif predicted and predicted.exists():
                 recalculator, calculated = self._recalculate(predicted)
                 try:
-                    outcomes.append(bool(evaluate(str(calculated), case['gold'], record['instruction_type'], record['answer_position'])['ok']))
+                    outcomes.append(record_score(calculated, case))
                 finally: recalculator.close()
-            else: outcomes.append(False)
+            else:
+                outcomes.append(False)
+                raw_outputs.append({'not_scored': 'missing_prediction'})
         soft = sum(outcomes)/len(cases) if cases else 0
+        self.score_audit = {'raw_scorer_output': raw_outputs, 'scorer_version': hashlib.sha256(
+            Path(importlib.import_module('.scorers.spreadsheet', __package__).__file__).read_bytes()).hexdigest()}
         return {'hard': bool(cases) and all(outcomes), 'soft': soft, 'raw_score': soft,
                 'scorer': 'spreadsheet.skillopt-all-cases', 'case_results': outcomes}
 

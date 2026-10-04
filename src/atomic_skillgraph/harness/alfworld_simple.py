@@ -22,7 +22,7 @@ class SimpleAlfWorld:
         self.task, self.held = task, set()
         self.visited, self.location = [], None
         context = dict(task.inputs.get("environment_task", {}))
-        original = HarnessTask(task.task_id, task.goal, "alfworld", context.get("task_type", ""),
+        original = HarnessTask(context.get('native_task_id', task.task_id), task.goal, "alfworld", context.get("task_type", ""),
                                context.get("context", {}), context.get("metadata", {}))
         self.last = self.harness.reset(original)
         return self.observe()
@@ -95,6 +95,10 @@ class SimpleAlfWorld:
         if sealed_output["task_id"] != self.task.task_id:
             raise ValueError("Submission task mismatch")
         won = bool(self.last.won)
+        from importlib.metadata import version
+        self.score_audit = {'scorer_version': 'alfworld@' + version('alfworld'),
+            'raw_scorer_output': {'won': self.last.won, 'done': self.last.done,
+                'benchmark_score': self.last.benchmark_score, 'benchmark_reward': self.last.benchmark_reward}}
         return {"raw_score": float(won), "hard": won, "soft": float(won), "scorer": "alfworld.official-won"}
 
     def close(self):

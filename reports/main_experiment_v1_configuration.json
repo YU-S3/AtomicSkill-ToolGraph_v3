@@ -1,0 +1,4568 @@
+{
+  "searchqa": {
+    "42": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "searchqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/searchqa/train.json",
+        "data_dir": "/FORMAL_OUTPUT/searchqa/42/train/bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "searchqa",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/searchqa/42/train"
+        },
+        "harness": {
+          "adapter": "searchqa",
+          "evaluator_records": "/FORMAL_RESOURCES/searchqa/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "searchqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/searchqa/val.json",
+        "data_dir": "/FORMAL_OUTPUT/searchqa/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "searchqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/searchqa/42/val"
+        },
+        "harness": {
+          "adapter": "searchqa",
+          "evaluator_records": "/FORMAL_RESOURCES/searchqa/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "searchqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/searchqa/test.json",
+        "data_dir": "/FORMAL_OUTPUT/searchqa/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "searchqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/searchqa/42/test"
+        },
+        "harness": {
+          "adapter": "searchqa",
+          "evaluator_records": "/FORMAL_RESOURCES/searchqa/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "43": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "searchqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/searchqa/train.json",
+        "data_dir": "/FORMAL_OUTPUT/searchqa/43/train/bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "searchqa",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/searchqa/43/train"
+        },
+        "harness": {
+          "adapter": "searchqa",
+          "evaluator_records": "/FORMAL_RESOURCES/searchqa/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "searchqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/searchqa/val.json",
+        "data_dir": "/FORMAL_OUTPUT/searchqa/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "searchqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/searchqa/43/val"
+        },
+        "harness": {
+          "adapter": "searchqa",
+          "evaluator_records": "/FORMAL_RESOURCES/searchqa/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "searchqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/searchqa/test.json",
+        "data_dir": "/FORMAL_OUTPUT/searchqa/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "searchqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/searchqa/43/test"
+        },
+        "harness": {
+          "adapter": "searchqa",
+          "evaluator_records": "/FORMAL_RESOURCES/searchqa/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "44": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "searchqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/searchqa/train.json",
+        "data_dir": "/FORMAL_OUTPUT/searchqa/44/train/bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "searchqa",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/searchqa/44/train"
+        },
+        "harness": {
+          "adapter": "searchqa",
+          "evaluator_records": "/FORMAL_RESOURCES/searchqa/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "searchqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/searchqa/val.json",
+        "data_dir": "/FORMAL_OUTPUT/searchqa/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "searchqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/searchqa/44/val"
+        },
+        "harness": {
+          "adapter": "searchqa",
+          "evaluator_records": "/FORMAL_RESOURCES/searchqa/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "searchqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/searchqa/test.json",
+        "data_dir": "/FORMAL_OUTPUT/searchqa/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "searchqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/searchqa/44/test"
+        },
+        "harness": {
+          "adapter": "searchqa",
+          "evaluator_records": "/FORMAL_RESOURCES/searchqa/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    }
+  },
+  "spreadsheetbench": {
+    "42": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "spreadsheetbench.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/spreadsheetbench/train.json",
+        "data_dir": "/FORMAL_OUTPUT/spreadsheetbench/42/train/bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "spreadsheetbench",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/spreadsheetbench/42/train"
+        },
+        "harness": {
+          "adapter": "spreadsheet",
+          "evaluator_records": "/FORMAL_RESOURCES/spreadsheetbench/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 30,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 120,
+          "memory_limit_mb": 2048,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "spreadsheetbench.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/spreadsheetbench/val.json",
+        "data_dir": "/FORMAL_OUTPUT/spreadsheetbench/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "spreadsheetbench",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/spreadsheetbench/42/val"
+        },
+        "harness": {
+          "adapter": "spreadsheet",
+          "evaluator_records": "/FORMAL_RESOURCES/spreadsheetbench/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 30,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 120,
+          "memory_limit_mb": 2048,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "spreadsheetbench.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/spreadsheetbench/test.json",
+        "data_dir": "/FORMAL_OUTPUT/spreadsheetbench/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "spreadsheetbench",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/spreadsheetbench/42/test"
+        },
+        "harness": {
+          "adapter": "spreadsheet",
+          "evaluator_records": "/FORMAL_RESOURCES/spreadsheetbench/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 30,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 120,
+          "memory_limit_mb": 2048,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "43": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "spreadsheetbench.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/spreadsheetbench/train.json",
+        "data_dir": "/FORMAL_OUTPUT/spreadsheetbench/43/train/bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "spreadsheetbench",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/spreadsheetbench/43/train"
+        },
+        "harness": {
+          "adapter": "spreadsheet",
+          "evaluator_records": "/FORMAL_RESOURCES/spreadsheetbench/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 30,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 120,
+          "memory_limit_mb": 2048,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "spreadsheetbench.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/spreadsheetbench/val.json",
+        "data_dir": "/FORMAL_OUTPUT/spreadsheetbench/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "spreadsheetbench",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/spreadsheetbench/43/val"
+        },
+        "harness": {
+          "adapter": "spreadsheet",
+          "evaluator_records": "/FORMAL_RESOURCES/spreadsheetbench/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 30,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 120,
+          "memory_limit_mb": 2048,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "spreadsheetbench.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/spreadsheetbench/test.json",
+        "data_dir": "/FORMAL_OUTPUT/spreadsheetbench/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "spreadsheetbench",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/spreadsheetbench/43/test"
+        },
+        "harness": {
+          "adapter": "spreadsheet",
+          "evaluator_records": "/FORMAL_RESOURCES/spreadsheetbench/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 30,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 120,
+          "memory_limit_mb": 2048,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "44": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "spreadsheetbench.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/spreadsheetbench/train.json",
+        "data_dir": "/FORMAL_OUTPUT/spreadsheetbench/44/train/bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "spreadsheetbench",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/spreadsheetbench/44/train"
+        },
+        "harness": {
+          "adapter": "spreadsheet",
+          "evaluator_records": "/FORMAL_RESOURCES/spreadsheetbench/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 30,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 120,
+          "memory_limit_mb": 2048,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "spreadsheetbench.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/spreadsheetbench/val.json",
+        "data_dir": "/FORMAL_OUTPUT/spreadsheetbench/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "spreadsheetbench",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/spreadsheetbench/44/val"
+        },
+        "harness": {
+          "adapter": "spreadsheet",
+          "evaluator_records": "/FORMAL_RESOURCES/spreadsheetbench/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 30,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 120,
+          "memory_limit_mb": 2048,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "spreadsheetbench.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/spreadsheetbench/test.json",
+        "data_dir": "/FORMAL_OUTPUT/spreadsheetbench/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "spreadsheetbench",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/spreadsheetbench/44/test"
+        },
+        "harness": {
+          "adapter": "spreadsheet",
+          "evaluator_records": "/FORMAL_RESOURCES/spreadsheetbench/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 30,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 120,
+          "memory_limit_mb": 2048,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    }
+  },
+  "officeqa": {
+    "42": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "officeqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/officeqa/train.json",
+        "data_dir": "/FORMAL_OUTPUT/officeqa/42/train/bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "officeqa",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/officeqa/42/train"
+        },
+        "harness": {
+          "adapter": "officeqa",
+          "evaluator_records": "/FORMAL_RESOURCES/officeqa/evaluator_records_train.json",
+          "corpus_root": "/OFFICE_CORPUS"
+        },
+        "runtime": {
+          "global_action_budget": 24,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "officeqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/officeqa/val.json",
+        "data_dir": "/FORMAL_OUTPUT/officeqa/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "officeqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/officeqa/42/val"
+        },
+        "harness": {
+          "adapter": "officeqa",
+          "evaluator_records": "/FORMAL_RESOURCES/officeqa/evaluator_records_val.json",
+          "corpus_root": "/OFFICE_CORPUS"
+        },
+        "runtime": {
+          "global_action_budget": 24,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "officeqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/officeqa/test.json",
+        "data_dir": "/FORMAL_OUTPUT/officeqa/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "officeqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/officeqa/42/test"
+        },
+        "harness": {
+          "adapter": "officeqa",
+          "evaluator_records": "/FORMAL_RESOURCES/officeqa/evaluator_records_test.json",
+          "corpus_root": "/OFFICE_CORPUS"
+        },
+        "runtime": {
+          "global_action_budget": 24,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "43": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "officeqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/officeqa/train.json",
+        "data_dir": "/FORMAL_OUTPUT/officeqa/43/train/bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "officeqa",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/officeqa/43/train"
+        },
+        "harness": {
+          "adapter": "officeqa",
+          "evaluator_records": "/FORMAL_RESOURCES/officeqa/evaluator_records_train.json",
+          "corpus_root": "/OFFICE_CORPUS"
+        },
+        "runtime": {
+          "global_action_budget": 24,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "officeqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/officeqa/val.json",
+        "data_dir": "/FORMAL_OUTPUT/officeqa/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "officeqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/officeqa/43/val"
+        },
+        "harness": {
+          "adapter": "officeqa",
+          "evaluator_records": "/FORMAL_RESOURCES/officeqa/evaluator_records_val.json",
+          "corpus_root": "/OFFICE_CORPUS"
+        },
+        "runtime": {
+          "global_action_budget": 24,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "officeqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/officeqa/test.json",
+        "data_dir": "/FORMAL_OUTPUT/officeqa/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "officeqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/officeqa/43/test"
+        },
+        "harness": {
+          "adapter": "officeqa",
+          "evaluator_records": "/FORMAL_RESOURCES/officeqa/evaluator_records_test.json",
+          "corpus_root": "/OFFICE_CORPUS"
+        },
+        "runtime": {
+          "global_action_budget": 24,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "44": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "officeqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/officeqa/train.json",
+        "data_dir": "/FORMAL_OUTPUT/officeqa/44/train/bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "officeqa",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/officeqa/44/train"
+        },
+        "harness": {
+          "adapter": "officeqa",
+          "evaluator_records": "/FORMAL_RESOURCES/officeqa/evaluator_records_train.json",
+          "corpus_root": "/OFFICE_CORPUS"
+        },
+        "runtime": {
+          "global_action_budget": 24,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "officeqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/officeqa/val.json",
+        "data_dir": "/FORMAL_OUTPUT/officeqa/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "officeqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/officeqa/44/val"
+        },
+        "harness": {
+          "adapter": "officeqa",
+          "evaluator_records": "/FORMAL_RESOURCES/officeqa/evaluator_records_val.json",
+          "corpus_root": "/OFFICE_CORPUS"
+        },
+        "runtime": {
+          "global_action_budget": 24,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "officeqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/officeqa/test.json",
+        "data_dir": "/FORMAL_OUTPUT/officeqa/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "officeqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/officeqa/44/test"
+        },
+        "harness": {
+          "adapter": "officeqa",
+          "evaluator_records": "/FORMAL_RESOURCES/officeqa/evaluator_records_test.json",
+          "corpus_root": "/OFFICE_CORPUS"
+        },
+        "runtime": {
+          "global_action_budget": 24,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    }
+  },
+  "docvqa": {
+    "42": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "docvqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/docvqa/train.json",
+        "data_dir": "/FORMAL_OUTPUT/docvqa/42/train/bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "docvqa",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/docvqa/42/train"
+        },
+        "harness": {
+          "adapter": "docvqa",
+          "evaluator_records": "/FORMAL_RESOURCES/docvqa/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "docvqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/docvqa/val.json",
+        "data_dir": "/FORMAL_OUTPUT/docvqa/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "docvqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/docvqa/42/val"
+        },
+        "harness": {
+          "adapter": "docvqa",
+          "evaluator_records": "/FORMAL_RESOURCES/docvqa/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "docvqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/docvqa/test.json",
+        "data_dir": "/FORMAL_OUTPUT/docvqa/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "docvqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/docvqa/42/test"
+        },
+        "harness": {
+          "adapter": "docvqa",
+          "evaluator_records": "/FORMAL_RESOURCES/docvqa/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "43": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "docvqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/docvqa/train.json",
+        "data_dir": "/FORMAL_OUTPUT/docvqa/43/train/bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "docvqa",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/docvqa/43/train"
+        },
+        "harness": {
+          "adapter": "docvqa",
+          "evaluator_records": "/FORMAL_RESOURCES/docvqa/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "docvqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/docvqa/val.json",
+        "data_dir": "/FORMAL_OUTPUT/docvqa/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "docvqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/docvqa/43/val"
+        },
+        "harness": {
+          "adapter": "docvqa",
+          "evaluator_records": "/FORMAL_RESOURCES/docvqa/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "docvqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/docvqa/test.json",
+        "data_dir": "/FORMAL_OUTPUT/docvqa/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "docvqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/docvqa/43/test"
+        },
+        "harness": {
+          "adapter": "docvqa",
+          "evaluator_records": "/FORMAL_RESOURCES/docvqa/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "44": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "docvqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/docvqa/train.json",
+        "data_dir": "/FORMAL_OUTPUT/docvqa/44/train/bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "docvqa",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/docvqa/44/train"
+        },
+        "harness": {
+          "adapter": "docvqa",
+          "evaluator_records": "/FORMAL_RESOURCES/docvqa/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "docvqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/docvqa/val.json",
+        "data_dir": "/FORMAL_OUTPUT/docvqa/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "docvqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/docvqa/44/val"
+        },
+        "harness": {
+          "adapter": "docvqa",
+          "evaluator_records": "/FORMAL_RESOURCES/docvqa/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "docvqa.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/docvqa/test.json",
+        "data_dir": "/FORMAL_OUTPUT/docvqa/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "docvqa",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/docvqa/44/test"
+        },
+        "harness": {
+          "adapter": "docvqa",
+          "evaluator_records": "/FORMAL_RESOURCES/docvqa/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    }
+  },
+  "livemath": {
+    "42": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "livemath.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/livemath/train.json",
+        "data_dir": "/FORMAL_OUTPUT/livemath/42/train/bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "livemath",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/livemath/42/train"
+        },
+        "harness": {
+          "adapter": "livemath",
+          "evaluator_records": "/FORMAL_RESOURCES/livemath/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "livemath.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/livemath/val.json",
+        "data_dir": "/FORMAL_OUTPUT/livemath/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "livemath",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/livemath/42/val"
+        },
+        "harness": {
+          "adapter": "livemath",
+          "evaluator_records": "/FORMAL_RESOURCES/livemath/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "livemath.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/livemath/test.json",
+        "data_dir": "/FORMAL_OUTPUT/livemath/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "livemath",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/livemath/42/test"
+        },
+        "harness": {
+          "adapter": "livemath",
+          "evaluator_records": "/FORMAL_RESOURCES/livemath/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "43": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "livemath.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/livemath/train.json",
+        "data_dir": "/FORMAL_OUTPUT/livemath/43/train/bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "livemath",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/livemath/43/train"
+        },
+        "harness": {
+          "adapter": "livemath",
+          "evaluator_records": "/FORMAL_RESOURCES/livemath/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "livemath.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/livemath/val.json",
+        "data_dir": "/FORMAL_OUTPUT/livemath/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "livemath",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/livemath/43/val"
+        },
+        "harness": {
+          "adapter": "livemath",
+          "evaluator_records": "/FORMAL_RESOURCES/livemath/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "livemath.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/livemath/test.json",
+        "data_dir": "/FORMAL_OUTPUT/livemath/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "livemath",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/livemath/43/test"
+        },
+        "harness": {
+          "adapter": "livemath",
+          "evaluator_records": "/FORMAL_RESOURCES/livemath/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "44": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "livemath.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/livemath/train.json",
+        "data_dir": "/FORMAL_OUTPUT/livemath/44/train/bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "livemath",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/livemath/44/train"
+        },
+        "harness": {
+          "adapter": "livemath",
+          "evaluator_records": "/FORMAL_RESOURCES/livemath/evaluator_records_train.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "livemath.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/livemath/val.json",
+        "data_dir": "/FORMAL_OUTPUT/livemath/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "livemath",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/livemath/44/val"
+        },
+        "harness": {
+          "adapter": "livemath",
+          "evaluator_records": "/FORMAL_RESOURCES/livemath/evaluator_records_val.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "livemath.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/livemath/test.json",
+        "data_dir": "/FORMAL_OUTPUT/livemath/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "livemath",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/livemath/44/test"
+        },
+        "harness": {
+          "adapter": "livemath",
+          "evaluator_records": "/FORMAL_RESOURCES/livemath/evaluator_records_test.json"
+        },
+        "runtime": {
+          "global_action_budget": 1,
+          "repeated_unchanged_failure_limit": 2
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    }
+  },
+  "alfworld": {
+    "42": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "alfworld.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/alfworld/train.json",
+        "data_dir": "/FORMAL_OUTPUT/alfworld/42/train/bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "alfworld",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/alfworld/42/train"
+        },
+        "harness": {
+          "adapter": "alfworld_v3",
+          "split": "train",
+          "max_steps": 100,
+          "public_discovery_version": "alfworld.public-discovery.v2"
+        },
+        "runtime": {
+          "global_action_budget": 100,
+          "repeated_unchanged_failure_limit": 2,
+          "environment_step_budget": 100
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "alfworld.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/alfworld/val.json",
+        "data_dir": "/FORMAL_OUTPUT/alfworld/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "alfworld",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/alfworld/42/val"
+        },
+        "harness": {
+          "adapter": "alfworld_v3",
+          "split": "eval_in_distribution",
+          "max_steps": 100,
+          "public_discovery_version": "alfworld.public-discovery.v2"
+        },
+        "runtime": {
+          "global_action_budget": 100,
+          "repeated_unchanged_failure_limit": 2,
+          "environment_step_budget": 100
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "alfworld.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/alfworld/test.json",
+        "data_dir": "/FORMAL_OUTPUT/alfworld/42/train/frozen_bank",
+        "experiment": {
+          "seed": 42,
+          "benchmark": "alfworld",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/alfworld/42/test"
+        },
+        "harness": {
+          "adapter": "alfworld_v3",
+          "split": "eval_out_of_distribution",
+          "max_steps": 100,
+          "public_discovery_version": "alfworld.public-discovery.v2"
+        },
+        "runtime": {
+          "global_action_budget": 100,
+          "repeated_unchanged_failure_limit": 2,
+          "environment_step_budget": 100
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "43": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "alfworld.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/alfworld/train.json",
+        "data_dir": "/FORMAL_OUTPUT/alfworld/43/train/bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "alfworld",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/alfworld/43/train"
+        },
+        "harness": {
+          "adapter": "alfworld_v3",
+          "split": "train",
+          "max_steps": 100,
+          "public_discovery_version": "alfworld.public-discovery.v2"
+        },
+        "runtime": {
+          "global_action_budget": 100,
+          "repeated_unchanged_failure_limit": 2,
+          "environment_step_budget": 100
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "alfworld.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/alfworld/val.json",
+        "data_dir": "/FORMAL_OUTPUT/alfworld/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "alfworld",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/alfworld/43/val"
+        },
+        "harness": {
+          "adapter": "alfworld_v3",
+          "split": "eval_in_distribution",
+          "max_steps": 100,
+          "public_discovery_version": "alfworld.public-discovery.v2"
+        },
+        "runtime": {
+          "global_action_budget": 100,
+          "repeated_unchanged_failure_limit": 2,
+          "environment_step_budget": 100
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "alfworld.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/alfworld/test.json",
+        "data_dir": "/FORMAL_OUTPUT/alfworld/43/train/frozen_bank",
+        "experiment": {
+          "seed": 43,
+          "benchmark": "alfworld",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/alfworld/43/test"
+        },
+        "harness": {
+          "adapter": "alfworld_v3",
+          "split": "eval_out_of_distribution",
+          "max_steps": 100,
+          "public_discovery_version": "alfworld.public-discovery.v2"
+        },
+        "runtime": {
+          "global_action_budget": 100,
+          "repeated_unchanged_failure_limit": 2,
+          "environment_step_budget": 100
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    },
+    "44": {
+      "train": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "alfworld.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/alfworld/train.json",
+        "data_dir": "/FORMAL_OUTPUT/alfworld/44/train/bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "alfworld",
+          "runtime_mode": "online",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/alfworld/44/train"
+        },
+        "harness": {
+          "adapter": "alfworld_v3",
+          "split": "train",
+          "max_steps": 100,
+          "public_discovery_version": "alfworld.public-discovery.v2"
+        },
+        "runtime": {
+          "global_action_budget": 100,
+          "repeated_unchanged_failure_limit": 2,
+          "environment_step_budget": 100
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "val": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "alfworld.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/alfworld/val.json",
+        "data_dir": "/FORMAL_OUTPUT/alfworld/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "alfworld",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/alfworld/44/val"
+        },
+        "harness": {
+          "adapter": "alfworld_v3",
+          "split": "eval_in_distribution",
+          "max_steps": 100,
+          "public_discovery_version": "alfworld.public-discovery.v2"
+        },
+        "runtime": {
+          "global_action_budget": 100,
+          "repeated_unchanged_failure_limit": 2,
+          "environment_step_budget": 100
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      },
+      "test": {
+        "mechanism_profile": "skillcompiler.empirical.v1",
+        "schema_version": "empirical.v1",
+        "benchmark_profile": "alfworld.main_experiment_v1",
+        "manifest": "data/main_experiment_v1/alfworld/test.json",
+        "data_dir": "/FORMAL_OUTPUT/alfworld/44/train/frozen_bank",
+        "experiment": {
+          "seed": 44,
+          "benchmark": "alfworld",
+          "runtime_mode": "frozen",
+          "max_task_attempts": 3,
+          "output_dir": "/FORMAL_OUTPUT/alfworld/44/test"
+        },
+        "harness": {
+          "adapter": "alfworld_v3",
+          "split": "eval_out_of_distribution",
+          "max_steps": 100,
+          "public_discovery_version": "alfworld.public-discovery.v2"
+        },
+        "runtime": {
+          "global_action_budget": 100,
+          "repeated_unchanged_failure_limit": 2,
+          "environment_step_budget": 100
+        },
+        "learning": {
+          "max_new_programs_per_task": 1,
+          "builder_repair_limit": 1,
+          "max_train_test_cases_per_program_version": 2
+        },
+        "planning": {
+          "retrieval_top_k": 8,
+          "structural_repair_limit": 1,
+          "task_replan_limit": 1
+        },
+        "program_worker": {
+          "max_tool_calls_per_invocation": 32,
+          "wall_timeout_seconds": 60,
+          "memory_limit_mb": 1024,
+          "max_rpc_message_bytes": 1048576
+        },
+        "program_environment": {
+          "backend": "sandbox_python_v1",
+          "python": "3.12",
+          "dependencies": [
+            "openpyxl==3.1.5",
+            "pandas==2.3.3",
+            "pillow==11.3.0"
+          ],
+          "adapter_abi": "simple.v1",
+          "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+        },
+        "llm": {
+          "provider": "openai_compatible",
+          "dialect": "deepseek_v4_chat",
+          "base_url": "https://api.deepseek.com",
+          "model": "deepseek-v4-flash",
+          "api_key_env": "MODEL_API_KEY",
+          "max_retries": 4,
+          "protocol": {
+            "thinking_type": "enabled"
+          },
+          "planner": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300,
+            "max_total_tokens_per_phase": 120000
+          },
+          "runtime": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 180,
+            "max_total_tokens_per_task": 600000
+          },
+          "extractor": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 131072,
+            "request_timeout_seconds": 600,
+            "max_total_tokens_per_task": 262144
+          },
+          "tool_builder": {
+            "reasoning_effort": "high",
+            "max_completion_tokens": 32768,
+            "request_timeout_seconds": 300
+          }
+        }
+      }
+    }
+  }
+}

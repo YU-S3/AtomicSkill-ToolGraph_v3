@@ -1,0 +1,150 @@
+{
+  "status": "engineering_checks_passed_pending_clean_full_regression",
+  "authority_sha256": "b85e0c2e442ca6b97ef98ece895719d4231f18db29682b0fcb6fdf3f91c37c95",
+  "benchmarks": {
+    "searchqa": {
+      "counts": {
+        "train": 300,
+        "val": 24,
+        "test": 1400,
+        "reserve": 276
+      },
+      "split_sha256": {
+        "train": "51b725bc18b927515a33791840bf04be3355f6b58c049091ba0d9eebb66af54e",
+        "val": "a033388acc3e8a6b6fca93c41bbba2112ebc3ab494bc47f32ece3558d6887d08",
+        "test": "c95e68095a493323cb6a5e664cb1685c098728f21d5be68091db27c4ca2b4f8d",
+        "reserve": "2d030896b0ecf9b484cddf62da4e1b5d6167634e79ef9041366b9ecbe64fbed9"
+      },
+      "train_order_sha256": {
+        "42": "99c9c9829f314a7431d5632aa6fe7c67f2219a8423393a123559526d9301df43",
+        "43": "12fcb038407ca2eb0527d0dd216ecf91fd4ca4f02a5d7b859724398acfc56e0c",
+        "44": "bda55df4485b84b549cdffe86cee7f91a1cad71a09e285b8a96402327b03d199"
+      },
+      "three_train_orders_differ": true,
+      "members_identical": true,
+      "val_test_order": "canonical"
+    },
+    "spreadsheetbench": {
+      "counts": {
+        "train": 200,
+        "val": 20,
+        "test": 180,
+        "reserve": 0
+      },
+      "split_sha256": {
+        "train": "98687454f1e2b05cc0aa57fa26419871139a4108fac3e48a5b1b46589f24437e",
+        "val": "d7d9caa57a5dfcdd67c90df69444784e95eae5d83816b94ae3037d1893221710",
+        "test": "4b16ac2591934f9e776347447459f2340a2c57b24565ee31e9ed449f19776a4d",
+        "reserve": "bfe289237fb4c78c2bf13d0b50a3d21571fd682bb3ebbbb6575885e242b5e6bc"
+      },
+      "train_order_sha256": {
+        "42": "3050ff02372e91389333408a8ecd501ca978548a4f636e0c00579d15e7067142",
+        "43": "23490888c199303822242da1b43069b688570facb031307409d15d0f3d490e11",
+        "44": "f197c865933bfd18f53fd2c01e362f74f55a0d76d8ffcea9f245c37d5927bc1c"
+      },
+      "three_train_orders_differ": true,
+      "members_identical": true,
+      "val_test_order": "canonical"
+    },
+    "officeqa": {
+      "counts": {
+        "train": 120,
+        "val": 24,
+        "test": 102,
+        "reserve": 0
+      },
+      "split_sha256": {
+        "train": "de167ac9e1716ed7a48eb21b42c170eb99b8c78964e65c24ca48f460a1cab0a9",
+        "val": "aa8195732aa78d700fc8ef694dbc248d65705b90fa2fccc5fe2dc917fea8be5d",
+        "test": "396e278201d49a9f14a1ef56ebaa188f8c551f4eda57813137c48493038c5f5e",
+        "reserve": "7cb92bff59e460fca070df911508faf979b12bf672fa28e354ab592cf87f8ff6"
+      },
+      "train_order_sha256": {
+        "42": "22bc5ed95f09750d978662d648fe6b3705eb22833dfeade277a7bd78429aa508",
+        "43": "8f025a832c05073fe43499e745093f0166b8e4478fc1337c0d98b633c8ad1e60",
+        "44": "c42ecd515d9eeca6f2a552d232c0e83708fbfbf5762f382fb7d5a086afe195e1"
+      },
+      "three_train_orders_differ": true,
+      "members_identical": true,
+      "val_test_order": "canonical"
+    },
+    "docvqa": {
+      "counts": {
+        "train": 180,
+        "val": 22,
+        "test": 201,
+        "reserve": 131
+      },
+      "split_sha256": {
+        "train": "607b9aaf14c7d1fd5a28246ec116d11bde19ed74646134095b4e505d1b06e57d",
+        "val": "2e9c59a30fb57e9cbde231a7a3b1a491fa065f54493addaa8f249c2ae5ddb1c5",
+        "test": "f4c211fa419ee44acfb925ae32a9d02b9d47c3a9c800c9d1cbbc5f01210e29f7",
+        "reserve": "d5676c7087658829ec57eef88989b1a769cd856213d1494b10ee007ab00ab4aa"
+      },
+      "train_order_sha256": {
+        "42": "5a91802c23aeb4bba895cf608891bd7d4faa06d4e31b047449a185216c10f95d",
+        "43": "402e3e62a9d08c720d20587db0ca50f90678eadf32831cfea8e393636adf8053",
+        "44": "aa0ae2bb9579f4b314168632470e9bf7fc1857ec7990a80e5815dfb1c90ea625"
+      },
+      "three_train_orders_differ": true,
+      "members_identical": true,
+      "val_test_order": "canonical"
+    },
+    "livemath": {
+      "counts": {
+        "train": 60,
+        "val": 17,
+        "test": 100,
+        "reserve": 0
+      },
+      "split_sha256": {
+        "train": "31c1ea371fb967d9e933ea76f6edf5bc8c46255f8e33d4f79f968c036a3252ca",
+        "val": "2136fded0dba987243b89146d0371bbbddf37695edd736e2a37693ecac9027ed",
+        "test": "069b1d7ecaa6f3efb818fad9e9533ec851721421f02b8d78a2f47d484512d105",
+        "reserve": "7e3705561c8e508daae9d557599c9d1e64ca4dce82ede97d1b70a524751a945b"
+      },
+      "train_order_sha256": {
+        "42": "e948cb6e68de92106eb487dcb1d240cbfe5a7d502cb351e473a1a631486c2e9d",
+        "43": "a72204dfed4d1a89e94f81c2d1ed57824a08fcc2bdabe46c7799378f9b7bca45",
+        "44": "18139aabc8a4b30183b792aae82a5ebd0fe67b5a2810f3fe9c417121b11e3992"
+      },
+      "three_train_orders_differ": true,
+      "members_identical": true,
+      "val_test_order": "canonical"
+    },
+    "alfworld": {
+      "counts": {
+        "train": 120,
+        "val": 24,
+        "test": 134,
+        "reserve": 0
+      },
+      "split_sha256": {
+        "train": "54a781803b904535bd95db262c20b3913ca9b738728c2caec68a045653b18c06",
+        "val": "4d11a6cf9448d2d2d8d541ce52303f35bf65ebe003f50286b54cdd9015010867",
+        "test": "33552a6abed6e8b5d328da393900c82b269ee3a226f468796645c6590b2d7fb1",
+        "reserve": "dff4a9334150061fd3304364be47235a4cc97a7b428cfbeafd8511254cde6753"
+      },
+      "train_order_sha256": {
+        "42": "e703cf5871e9fb6362bdc4e7bac10df11d31e263af59d62d5cd675faea24f376",
+        "43": "979c9cb51548c7a8b6b6f533c9ef67dd64e39c14b77553ca5b0bc6f56d218bfb",
+        "44": "1782d6c90c92aaa8b2e9a769c387407c1360cfb0184e246fd42a2f4acbdf48e5"
+      },
+      "three_train_orders_differ": true,
+      "members_identical": true,
+      "val_test_order": "canonical"
+    }
+  },
+  "alfworld_physical_hashes_verified": 278,
+  "searchqa_original_test_order_and_ids_preserved": true,
+  "pilot_train_files_verified": 335,
+  "pilot_train_files_unchanged": true,
+  "pilot_has_no_issue": true,
+  "method_logic_and_caps_unchanged": true,
+  "old_pilot_fields_backfilled": false,
+  "extra_live_llm_requests_for_alignment": 0,
+  "formal_models_unconfigured_user_requested": 6,
+  "available_actual_model": "deepseek-v4-flash",
+  "docvqa_current_model_status": "unsupported_text_only_lock",
+  "historical_report_preserved": "reports/main_experiment_alignment_v11.json"
+}

@@ -67,6 +67,10 @@
       "completion_tokens",
       "total_tokens"
     ],
-    "formal_matrix_launched": false
+    "formal_matrix_launched": false,
+    "generation_seed_supported": false,
+    "generation_seed": null,
+    "generation_seed_source": "https://api-docs.deepseek.com/api/create-chat-completion/",
+    "generation_seed_note": "No seed request parameter in the locked DeepSeek Chat dialect; unsupported/null, no substitute setting."
   }
 }

@@ -9,6 +9,7 @@ from .contracts import digest, program_digest, validate_program, validate_workfl
 class Bank:
     def __init__(self, root, *, readonly=False, seed=42):
         self.root, self.readonly = Path(root), readonly
+        self.observer = None
         if readonly:
             self.db = sqlite3.connect(f"{(self.root / 'bank.sqlite3').resolve().as_uri()}?mode=ro", uri=True)
         else:
@@ -60,6 +61,8 @@ class Bank:
             return old
         self.db.execute("INSERT INTO assets VALUES(?,?,?)", (kind, asset["id"], json.dumps(asset, ensure_ascii=False)))
         self.db.commit()
+        if self.observer:
+            self.observer.asset(kind, asset)
         return asset
 
     def get(self, asset_id):
@@ -122,6 +125,8 @@ class Bank:
             if failures >= 2:
                 program["state"] = "disabled"
             self.db.execute("UPDATE assets SET payload=? WHERE id=?", (json.dumps(program), program["id"]))
+        if self.observer:
+            self.observer.asset('program', program)
 
     def retrieve(self, query, limit=8):
         words = set(query.lower().split())

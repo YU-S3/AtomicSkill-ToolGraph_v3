@@ -48,7 +48,7 @@ def code_identity():
     return {'git_sha':sha,'tracked_dirty':bool(dirty),'source_sha256':digest(content)}
 
 
-def resolve_alfworld_tasks(adapter, entries, *, mapping_path=None):
+def resolve_alfworld_tasks(adapter, entries, *, mapping_path=None, canonical_split=None):
     harness = adapter.harness
     root = Path(harness.alfworld_data).resolve(strict=True)
     files = set()
@@ -73,9 +73,12 @@ def resolve_alfworld_tasks(adapter, entries, *, mapping_path=None):
         file_hash = hashlib.sha256(Path(task.context["game_file"]).read_bytes()).hexdigest()
         if file_hash != entry["gamefile_sha256"] or task.task_type != entry["task_type"]:
             raise ValueError("Manifest physical identity mismatch")
-        selected.append(PublicTask(task.task_id, digest({"path": relative, "sha256": file_hash}), task.goal,
-            {"environment_task": {"task_type": task.task_type, "context": task.context, "metadata": task.metadata}},
-            "train" if entry["source_split"] == "train" else entry["source_split"]))
+        environment_task = {"task_type": task.task_type, "context": task.context, "metadata": task.metadata}
+        if canonical_split:
+            environment_task['native_task_id'] = task.task_id
+        selected.append(PublicTask(entry['task_id'] if canonical_split else task.task_id,
+            digest({"path": relative, "sha256": file_hash}), task.goal, {"environment_task": environment_task},
+            canonical_split or ("train" if entry["source_split"] == "train" else entry["source_split"])))
         mapping.append({'source_task_id': entry['task_id'], 'source_env_index': entry['env_index'],
             'runtime_task_id': task.task_id, 'runtime_env_index': task.context['env_index'],
             'gamefile_rel': relative, 'gamefile_sha256': file_hash, 'physical_key': selected[-1].physical_key,
@@ -89,7 +92,8 @@ def resolve_alfworld_tasks(adapter, entries, *, mapping_path=None):
     return selected
 
 
-def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, adapter_factory=None):
+def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, adapter_factory=None,
+        formal_log=None, task_metadata=None, order_offset=0):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     identity = {"schema": "empirical.run.v1", "config": config, "tasks": [asdict(t) for t in tasks],
@@ -105,11 +109,13 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
         write_json(identity_path, identity)
         write_json(output / "config.json", config)
     system = EmpiricalSystem(config, harness=adapter, readonly=readonly, adapter_factory=adapter_factory)
+    system.observer = formal_log
+    system.bank.observer = formal_log
     state = sqlite3.connect(output / "run.sqlite3")
     state.execute("CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,attempts INTEGER,status TEXT,result TEXT)")
     cases = []
     try:
-        for task in tasks:
+        for task_index, task in enumerate(tasks):
             if (output / 'STOP_AFTER_TASK').exists():
                 raise SystemExit(75)
             row = state.execute("SELECT attempts,status,result FROM tasks WHERE id=?", (task.task_id,)).fetchone()
@@ -132,7 +138,29 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
                               (task.task_id, count, 'running', None))
             trace_path = output / "traces" / (task.task_id + ".json")
             system.audit_path = output / "requests" / (task.task_id + "_attempt" + str(count) + ".json")
-            trace = system.run_task(task, learn=not readonly, attempt_id=task.task_id + ":" + str(count))
+            attempt_id = task.task_id + ":" + str(count)
+            if formal_log:
+                formal_log.begin_task(task, task_index + order_offset, attempt_id, (task_metadata or {}).get(task.task_id, {}))
+            try:
+                trace = system.run_task(task, learn=not readonly, attempt_id=attempt_id)
+            except Exception as exc:
+                if not formal_log or formal_log.task_error(exc):
+                    raise
+                # A model-authored failure is a result, never a retry-until-win.
+                if getattr(exc, 'model_authored', False):
+                    trace = {'schema': 'empirical.trace.v1', 'task': asdict(task), 'attempt_id': attempt_id,
+                        'score': system.adapter.evaluate(system.adapter.submit(None)),
+                        'execution': {'prediction': None, 'reason': 'execution_error', 'attempts': []},
+                        'tools': json.loads((checkpoint.root / 'native_events.json').read_text())
+                            if (checkpoint.root / 'native_events.json').exists() else [],
+                        'usage': [], 'requests': [], 'error': {'code': type(exc).__name__, 'message': str(exc)}}
+                    if Path(system.audit_path).exists():
+                        trace.update(json.loads(Path(system.audit_path).read_text()))
+                    trace['scoring_audit'] = getattr(system.adapter, 'score_audit', {})
+                else:
+                    raise
+            if formal_log:
+                formal_log.end_task(trace)
             write_json(trace_path, trace)
             with state:
                 state.execute("UPDATE tasks SET status='completed',result=? WHERE id=?", (json.dumps(trace), task.task_id))
@@ -143,7 +171,10 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
         frozen = None
         if not readonly:
             destination = output / "frozen_bank"
-            frozen = system.bank.freeze(destination) if not destination.exists() else json.loads((destination / "freeze.json").read_text())
+            newly_created = not destination.exists()
+            frozen = system.bank.freeze(destination) if newly_created else json.loads((destination / "freeze.json").read_text())
+            if formal_log:
+                formal_log.freeze(destination, newly_created=newly_created)
             if frozen["source_digest"] != system.bank.digest():
                 raise RuntimeError("Existing freeze differs from completed Train Bank")
         audits = [json.loads(path.read_text()) for path in (output / 'requests').glob('*.json')]

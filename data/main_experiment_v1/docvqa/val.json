@@ -1,0 +1,234 @@
+{
+  "schema": "public.main_experiment.split.v1",
+  "benchmark": "docvqa",
+  "split": "val",
+  "split_seed": 42,
+  "tasks": [
+    {
+      "task_id": "docvqa:3116",
+      "source_id": "3116",
+      "task_metadata": {
+        "topic": [
+          "form"
+        ],
+        "doc_id": "1216"
+      }
+    },
+    {
+      "task_id": "docvqa:5552",
+      "source_id": "5552",
+      "task_metadata": {
+        "topic": [
+          "table/list"
+        ],
+        "doc_id": "1875"
+      }
+    },
+    {
+      "task_id": "docvqa:5821",
+      "source_id": "5821",
+      "task_metadata": {
+        "topic": [
+          "handwritten",
+          "form"
+        ],
+        "doc_id": "1996"
+      }
+    },
+    {
+      "task_id": "docvqa:6351",
+      "source_id": "6351",
+      "task_metadata": {
+        "topic": [
+          "free_text",
+          "layout"
+        ],
+        "doc_id": "2225"
+      }
+    },
+    {
+      "task_id": "docvqa:6787",
+      "source_id": "6787",
+      "task_metadata": {
+        "topic": [
+          "form"
+        ],
+        "doc_id": "2363"
+      }
+    },
+    {
+      "task_id": "docvqa:32878",
+      "source_id": "32878",
+      "task_metadata": {
+        "topic": [
+          "free_text"
+        ],
+        "doc_id": "9253"
+      }
+    },
+    {
+      "task_id": "docvqa:39946",
+      "source_id": "39946",
+      "task_metadata": {
+        "topic": [
+          "table/list"
+        ],
+        "doc_id": "11396"
+      }
+    },
+    {
+      "task_id": "docvqa:42037",
+      "source_id": "42037",
+      "task_metadata": {
+        "topic": [
+          "table/list"
+        ],
+        "doc_id": "11940"
+      }
+    },
+    {
+      "task_id": "docvqa:42222",
+      "source_id": "42222",
+      "task_metadata": {
+        "topic": [
+          "layout"
+        ],
+        "doc_id": "11955"
+      }
+    },
+    {
+      "task_id": "docvqa:46283",
+      "source_id": "46283",
+      "task_metadata": {
+        "topic": [
+          "table/list"
+        ],
+        "doc_id": "13358"
+      }
+    },
+    {
+      "task_id": "docvqa:47525",
+      "source_id": "47525",
+      "task_metadata": {
+        "topic": [
+          "table/list"
+        ],
+        "doc_id": "13650"
+      }
+    },
+    {
+      "task_id": "docvqa:47537",
+      "source_id": "47537",
+      "task_metadata": {
+        "topic": [
+          "table/list"
+        ],
+        "doc_id": "13650"
+      }
+    },
+    {
+      "task_id": "docvqa:47915",
+      "source_id": "47915",
+      "task_metadata": {
+        "topic": [
+          "layout"
+        ],
+        "doc_id": "13885"
+      }
+    },
+    {
+      "task_id": "docvqa:49406",
+      "source_id": "49406",
+      "task_metadata": {
+        "topic": [
+          "layout"
+        ],
+        "doc_id": "14325"
+      }
+    },
+    {
+      "task_id": "docvqa:50311",
+      "source_id": "50311",
+      "task_metadata": {
+        "topic": [
+          "handwritten",
+          "layout"
+        ],
+        "doc_id": "14575"
+      }
+    },
+    {
+      "task_id": "docvqa:50817",
+      "source_id": "50817",
+      "task_metadata": {
+        "topic": [
+          "layout"
+        ],
+        "doc_id": "14743"
+      }
+    },
+    {
+      "task_id": "docvqa:53438",
+      "source_id": "53438",
+      "task_metadata": {
+        "topic": [
+          "form"
+        ],
+        "doc_id": "2715"
+      }
+    },
+    {
+      "task_id": "docvqa:53576",
+      "source_id": "53576",
+      "task_metadata": {
+        "topic": [
+          "free_text",
+          "table/list"
+        ],
+        "doc_id": "2766"
+      }
+    },
+    {
+      "task_id": "docvqa:54624",
+      "source_id": "54624",
+      "task_metadata": {
+        "topic": [
+          "form"
+        ],
+        "doc_id": "1992"
+      }
+    },
+    {
+      "task_id": "docvqa:61228",
+      "source_id": "61228",
+      "task_metadata": {
+        "topic": [
+          "figure/diagram",
+          "layout"
+        ],
+        "doc_id": "7471"
+      }
+    },
+    {
+      "task_id": "docvqa:62409",
+      "source_id": "62409",
+      "task_metadata": {
+        "topic": [
+          "table/list"
+        ],
+        "doc_id": "8554"
+      }
+    },
+    {
+      "task_id": "docvqa:63709",
+      "source_id": "63709",
+      "task_metadata": {
+        "topic": [
+          "layout",
+          "others"
+        ],
+        "doc_id": "9387"
+      }
+    }
+  ]
+}

@@ -1,0 +1,270 @@
+{
+  "schema": "public.main_experiment.v1",
+  "authority": "main_experiment_v1",
+  "split_seed": 42,
+  "run_seeds": [
+    42,
+    43,
+    44
+  ],
+  "upstream": "SkillOpt@fa4ca184573e42ec11472959dd57422381418096",
+  "libraries": {
+    "numpy": "2.5.2",
+    "iterative-stratification": "0.1.9"
+  },
+  "sources_sha256": {
+    "extracted/spreadsheetbench_verified_400/dataset.json": "bcecaa89a005bd4e3bbe98da150a86e8062c27f262e575d5e47bd9861b3525e7",
+    "raw/livemath/data/202511/qa_202511_final.json": "a16443ef669233ac2015bb8b54f9149d136818b636e954930a09ceb200dc8ea8",
+    "raw/livemath/data/202512/qa_202512_final.json": "301174eb9ad13300ae8d9e1388a1df5193e1b7061d425049ee23fffb22ea276d",
+    "raw/livemath/data/202601/qa_202601_final.json": "8695186c1ab15c0e2a18f6e3b75731d60006617d76718dfce50f5604143551cc",
+    "raw/livemath/data/202602/qa_202602_final.json": "5081a04f7a2b0234aa7df7faa05da8b0020222d5fcb64bc136d34e5d9a0b713a",
+    "raw/officeqa/officeqa_full.csv": "b5eb1ce0cb343842bccb2f5b067793b4ed90e03e8bf64cb0d40d759bb768ff77",
+    "upstream/SkillOpt-fa4ca184573e42ec11472959dd57422381418096/data/docvqa_id_split/test/items.json": "ede36981c1f774b6b4aa983f6153f22e606b67a01fd75302b48311e8add3f64c",
+    "upstream/SkillOpt-fa4ca184573e42ec11472959dd57422381418096/data/docvqa_id_split/train/items.json": "7187cfcef49003035b1492a0190dd2183fd17d753a1b310e06f3fe8c54edcb4d",
+    "upstream/SkillOpt-fa4ca184573e42ec11472959dd57422381418096/data/docvqa_id_split/val/items.json": "7dff0d8bfbe42e1173b4c789af13b55a37c7c17f450d49d2c9d0a93559920687",
+    "upstream/SkillOpt-fa4ca184573e42ec11472959dd57422381418096/data/searchqa_id_split/test/items.json": "b6056005ed8ffa03239a0295644d83968513bed80235927716fca14926ff11bc",
+    "upstream/SkillOpt-fa4ca184573e42ec11472959dd57422381418096/data/searchqa_id_split/train/items.json": "3ae7532c2d11d9ec63ed20e3a4e425db5f6fa51a618622be848d88aa63187f0d",
+    "upstream/SkillOpt-fa4ca184573e42ec11472959dd57422381418096/data/searchqa_id_split/val/items.json": "2fccbfc16f858a1f2c9b16551c5047b2f4468dff2537f782059ac7355db37e8e",
+    "legacy/test_ood_full_134.json": "795987c5bf8c6f0e1e869129b84ed2932de15ccda084785136453dce617ef438",
+    "legacy/validation_24.json": "133905acac4e261879999e6fe3ebbbb4f3abedc29e7f5b585134e53ce85a8dcf"
+  },
+  "benchmarks": {
+    "searchqa": {
+      "rules": {
+        "train_rank": "SHA256(searchqa|train|42|id)",
+        "val_rank": "SHA256(searchqa|val|42|id)",
+        "test": "original SkillOpt order and IDs"
+      },
+      "splits": {
+        "train": {
+          "count": 300,
+          "path": "searchqa/train.json",
+          "sha256": "51b725bc18b927515a33791840bf04be3355f6b58c049091ba0d9eebb66af54e"
+        },
+        "val": {
+          "count": 24,
+          "path": "searchqa/val.json",
+          "sha256": "a033388acc3e8a6b6fca93c41bbba2112ebc3ab494bc47f32ece3558d6887d08"
+        },
+        "test": {
+          "count": 1400,
+          "path": "searchqa/test.json",
+          "sha256": "c95e68095a493323cb6a5e664cb1685c098728f21d5be68091db27c4ca2b4f8d"
+        },
+        "reserve": {
+          "count": 276,
+          "path": "searchqa/reserve.json",
+          "sha256": "2d030896b0ecf9b484cddf62da4e1b5d6167634e79ef9041366b9ecbe64fbed9"
+        }
+      }
+    },
+    "spreadsheetbench": {
+      "rules": {
+        "rank": "SHA256(spreadsheet|instruction_type|42|id)",
+        "quotas": {
+          "Cell-Level Manipulation": [
+            138,
+            14,
+            123,
+            0
+          ],
+          "Sheet-Level Manipulation": [
+            62,
+            6,
+            57,
+            0
+          ]
+        }
+      },
+      "splits": {
+        "train": {
+          "count": 200,
+          "path": "spreadsheetbench/train.json",
+          "sha256": "98687454f1e2b05cc0aa57fa26419871139a4108fac3e48a5b1b46589f24437e"
+        },
+        "val": {
+          "count": 20,
+          "path": "spreadsheetbench/val.json",
+          "sha256": "d7d9caa57a5dfcdd67c90df69444784e95eae5d83816b94ae3037d1893221710"
+        },
+        "test": {
+          "count": 180,
+          "path": "spreadsheetbench/test.json",
+          "sha256": "4b16ac2591934f9e776347447459f2340a2c57b24565ee31e9ed449f19776a4d"
+        },
+        "reserve": {
+          "count": 0,
+          "path": "spreadsheetbench/reserve.json",
+          "sha256": "bfe289237fb4c78c2bf13d0b50a3d21571fd682bb3ebbbb6575885e242b5e6bc"
+        }
+      }
+    },
+    "officeqa": {
+      "rules": {
+        "category": "difficulty",
+        "rank": "SHA256(officeqa|difficulty|42|uid)",
+        "quotas": {
+          "easy": [
+            55,
+            11,
+            47,
+            0
+          ],
+          "hard": [
+            65,
+            13,
+            55,
+            0
+          ]
+        }
+      },
+      "splits": {
+        "train": {
+          "count": 120,
+          "path": "officeqa/train.json",
+          "sha256": "de167ac9e1716ed7a48eb21b42c170eb99b8c78964e65c24ca48f460a1cab0a9"
+        },
+        "val": {
+          "count": 24,
+          "path": "officeqa/val.json",
+          "sha256": "aa8195732aa78d700fc8ef694dbc248d65705b90fa2fccc5fe2dc917fea8be5d"
+        },
+        "test": {
+          "count": 102,
+          "path": "officeqa/test.json",
+          "sha256": "396e278201d49a9f14a1ef56ebaa188f8c551f4eda57813137c48493038c5f5e"
+        },
+        "reserve": {
+          "count": 0,
+          "path": "officeqa/reserve.json",
+          "sha256": "7cb92bff59e460fca070df911508faf979b12bf672fa28e354ab592cf87f8ff6"
+        }
+      }
+    },
+    "docvqa": {
+      "rules": {
+        "order": "numeric questionId",
+        "labels": "topic",
+        "stages": [
+          [
+            "reserve",
+            130,
+            42
+          ],
+          [
+            "test",
+            200,
+            43
+          ],
+          [
+            "val",
+            24,
+            44
+          ]
+        ],
+        "quantity_correction": false,
+        "accepted_actual_counts": [
+          180,
+          22,
+          201,
+          131
+        ]
+      },
+      "splits": {
+        "train": {
+          "count": 180,
+          "path": "docvqa/train.json",
+          "sha256": "607b9aaf14c7d1fd5a28246ec116d11bde19ed74646134095b4e505d1b06e57d"
+        },
+        "val": {
+          "count": 22,
+          "path": "docvqa/val.json",
+          "sha256": "2e9c59a30fb57e9cbde231a7a3b1a491fa065f54493addaa8f249c2ae5ddb1c5"
+        },
+        "test": {
+          "count": 201,
+          "path": "docvqa/test.json",
+          "sha256": "f4c211fa419ee44acfb925ae32a9d02b9d47c3a9c800c9d1cbbc5f01210e29f7"
+        },
+        "reserve": {
+          "count": 131,
+          "path": "docvqa/reserve.json",
+          "sha256": "d5676c7087658829ec57eef88989b1a769cd856213d1494b10ee007ab00ab4aa"
+        }
+      }
+    },
+    "livemath": {
+      "rules": {
+        "order": "lexicographic month:no",
+        "labels": "theorem_type only",
+        "stages": [
+          [
+            "test",
+            100,
+            42
+          ],
+          [
+            "val",
+            17,
+            43
+          ]
+        ],
+        "month": "metadata only",
+        "quantity_correction": false
+      },
+      "splits": {
+        "train": {
+          "count": 60,
+          "path": "livemath/train.json",
+          "sha256": "31c1ea371fb967d9e933ea76f6edf5bc8c46255f8e33d4f79f968c036a3252ca"
+        },
+        "val": {
+          "count": 17,
+          "path": "livemath/val.json",
+          "sha256": "2136fded0dba987243b89146d0371bbbddf37695edd736e2a37693ecac9027ed"
+        },
+        "test": {
+          "count": 100,
+          "path": "livemath/test.json",
+          "sha256": "069b1d7ecaa6f3efb818fad9e9533ec851721421f02b8d78a2f47d484512d105"
+        },
+        "reserve": {
+          "count": 0,
+          "path": "livemath/reserve.json",
+          "sha256": "7e3705561c8e508daae9d557599c9d1e64ca4dce82ede97d1b70a524751a945b"
+        }
+      }
+    },
+    "alfworld": {
+      "rules": {
+        "train_rank": "SHA256(alfworld|train|42|gamefile_rel)",
+        "train_per_type": 20,
+        "universe": "official AlfredTWEnv collect_game_files",
+        "val_test": "preserve existing physical members and order, explicit user decision",
+        "unused_official_games": "outside experiment; not materialized"
+      },
+      "splits": {
+        "train": {
+          "count": 120,
+          "path": "alfworld/train.json",
+          "sha256": "54a781803b904535bd95db262c20b3913ca9b738728c2caec68a045653b18c06"
+        },
+        "val": {
+          "count": 24,
+          "path": "alfworld/val.json",
+          "sha256": "4d11a6cf9448d2d2d8d541ce52303f35bf65ebe003f50286b54cdd9015010867"
+        },
+        "test": {
+          "count": 134,
+          "path": "alfworld/test.json",
+          "sha256": "33552a6abed6e8b5d328da393900c82b269ee3a226f468796645c6590b2d7fb1"
+        },
+        "reserve": {
+          "count": 0,
+          "path": "alfworld/reserve.json",
+          "sha256": "dff4a9334150061fd3304364be47235a4cc97a7b428cfbeafd8511254cde6753"
+        }
+      }
+    }
+  }
+}

@@ -84,6 +84,7 @@ class EmpiricalSystem:
         self.phase = 'train'
         self.budget_scope = None
         self.prior_usage = []
+        self.observer = None
 
     def _budget(self, stage):
         if stage == 'runtime':
@@ -112,6 +113,8 @@ class EmpiricalSystem:
             temporary.write_text(json.dumps({'requests': list(requests.values()),
                 'usage': list(usage.values())}, ensure_ascii=False), encoding='utf-8')
             os.replace(temporary, path)
+            if self.observer:
+                self.observer.requests(list(requests.values()))
 
     def provider(self, stage):
         if self.provider_override is not None:
@@ -124,6 +127,7 @@ class EmpiricalSystem:
                 dialect=llm.get('dialect', 'deepseek_v4_chat'),
                 input_modalities=tuple(llm.get('input_modalities', ['text'])),
                 token_limit_field=llm.get('token_limit_field', 'max_tokens'),
+                generation_seed=self.config['experiment']['seed'] if llm.get('generation_seed_supported') is True else None,
                 max_completion_tokens=settings["max_completion_tokens"],
                 thinking_type=llm.get("protocol", {}).get("thinking_type", "enabled"),
                 reasoning_effort=settings.get("reasoning_effort", "high"),
@@ -182,7 +186,9 @@ class EmpiricalSystem:
                     if repair < repair_limit and turn.finish_reason != 'length':
                         messages.append({'role': 'user', 'content': 'Repair only the invalid ToolCall JSON: ' + str(exc)[:2048]})
                         continue
-                    raise ValueError(str(exc)) from exc
+                    failure = ValueError(str(exc))
+                    failure.model_authored = True
+                    raise failure from exc
                 raise
             finally:
                 records = getattr(provider, "request_records_since", None)
@@ -212,6 +218,7 @@ class EmpiricalSystem:
                 return value
             except ValueError as exc:
                 if repair == repair_limit or (turn.finish_reason == 'length' and not turn.tool_calls):
+                    exc.model_authored = True
                     raise
                 messages.extend(repair_messages(turn, exc))
                 messages.append({"role": "user", "content": "Repair only the invalid structure. Preserve the requested goal and valid content. "
@@ -245,7 +252,8 @@ class EmpiricalSystem:
         self.adapter.reset(task)
         broker = Broker(self.adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
             step_limit=self.config.get('runtime', {}).get('environment_step_budget'),
-            journal=self.checkpoint.native_events if self.checkpoint else None)
+            journal=self.checkpoint.native_events if self.checkpoint else None,
+            observer=self.observer.native_observer(trace['attempt_id']) if self.observer else None)
         try:
             if self.adapter.capabilities.interaction == "single_answer":
                 # No extra planning solve, and no protocol repair/re-solving.
@@ -287,6 +295,8 @@ class EmpiricalSystem:
             trace["requests"] = self.requests[request_start:]
             self._save_requests()
             trace["knowledge_after"] = self.bank.digest()
+            if self.observer:
+                trace['scoring_audit'] = getattr(self.adapter, 'score_audit', {})
             if self.audit_path and Path(self.audit_path).exists():
                 trace['usage'] = json.loads(Path(self.audit_path).read_text())['usage']
             if self.readonly and trace["knowledge_after"] != before:
@@ -296,6 +306,7 @@ class EmpiricalSystem:
     def learn_trace(self, task, trace):
         if self.readonly or task.split != 'train':
             raise RuntimeError('Only Train may learn')
+        learning_observation = self.observer.learning_start(task) if self.observer else None
         for attempt in trace["execution"]["attempts"]:
             if attempt["status"] == "ok" and (attempt["outputs_consumed"] or attempt.get("terminal_by_program", False)) and trace["score"]["hard"] and attempt["local_check"] == "unavailable":
                 attempt.update(outcome="positive", basis="task_outcome")
@@ -306,6 +317,8 @@ class EmpiricalSystem:
         except (ValueError, SyntaxError, BudgetExhausted) as exc:
             trace["learning"] = {"error": str(exc), "rejected": True}
         finally:
+            if self.observer:
+                self.observer.learning_end(learning_observation, trace.get('learning'))
             self._learning_start = None
 
     def test_program(self, program, inputs, task, *, trial_id, trial_case=None):
@@ -331,13 +344,17 @@ class EmpiricalSystem:
         self.phase = 'trial'
         self.budget_scope = trial_id
         adapter = self.adapter_factory()
+        trial_observation = self.observer.trial_start(trial_id, task) if self.observer else None
         previous_runtime_start = self._runtime_start
         self._runtime_start = len(self.usage.events)
         broker = Broker(adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
             step_limit=self.config.get('runtime', {}).get('environment_step_budget'),
-            journal=trial_checkpoint.native_events if trial_checkpoint else None)
+            journal=trial_checkpoint.native_events if trial_checkpoint else None,
+            observer=self.observer.native_observer(trial_id) if self.observer else None)
         try:
             adapter.reset(task)
+            if trial_observation:
+                trial_observation['consumed'] = True
             if trial_case:
                 if trial_case.physical_task_key != task.physical_key or task.split != 'train':
                     raise ValueError('TrialCase physical task/split mismatch')
@@ -396,6 +413,9 @@ class EmpiricalSystem:
             self.bank.record(record)
             return record
         finally:
+            if self.observer:
+                self.observer.trial_end(trial_observation, broker.events, locals().get('record'), locals().get('result'),
+                                        getattr(adapter, 'score_audit', {}))
             self._runtime_start = previous_runtime_start
             self.phase = previous_phase
             self.budget_scope = previous_scope

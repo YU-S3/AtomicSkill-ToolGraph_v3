@@ -1,0 +1,661 @@
+{
+  "schema": "public.main_experiment.split.v1",
+  "benchmark": "livemath",
+  "split": "train",
+  "split_seed": 42,
+  "tasks": [
+    {
+      "task_id": "livemath:202511:13",
+      "source_id": "202511:13",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "unknown"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:14",
+      "source_id": "202511:14",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Biconditional or Equivalence",
+          "Universal–Existential"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:15",
+      "source_id": "202511:15",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Implication",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:17",
+      "source_id": "202511:17",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Implication",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:22",
+      "source_id": "202511:22",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Inequality or Bound",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:25",
+      "source_id": "202511:25",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:26",
+      "source_id": "202511:26",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:27",
+      "source_id": "202511:27",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Implication",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:28",
+      "source_id": "202511:28",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Universal",
+          "Implication"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:29",
+      "source_id": "202511:29",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Existence",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:6",
+      "source_id": "202511:6",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Implication",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202511:7",
+      "source_id": "202511:7",
+      "task_metadata": {
+        "month": "202511",
+        "theorem_type": [
+          "Universal–Existential",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:12",
+      "source_id": "202512:12",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Existential–Universal",
+          "Classification or Bijection"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:18",
+      "source_id": "202512:18",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Existence",
+          "Nonexistence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:19",
+      "source_id": "202512:19",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Existence",
+          "Uniqueness"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:2",
+      "source_id": "202512:2",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Implication",
+          "Asymptotic or Limit"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:20",
+      "source_id": "202512:20",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Existence",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:24",
+      "source_id": "202512:24",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Implication",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:26",
+      "source_id": "202512:26",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Existential–Universal",
+          "Algorithmic or Constructive"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:27",
+      "source_id": "202512:27",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Implication",
+          "Existential–Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:28",
+      "source_id": "202512:28",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Existential–Universal",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:30",
+      "source_id": "202512:30",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Existential–Universal",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:31",
+      "source_id": "202512:31",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Universal",
+          "Equivalence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:36",
+      "source_id": "202512:36",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "unknown"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:40",
+      "source_id": "202512:40",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Implication",
+          "Nonexistence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:43",
+      "source_id": "202512:43",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Existence",
+          "Implication"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:45",
+      "source_id": "202512:45",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Implication",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:46",
+      "source_id": "202512:46",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Biconditional or Equivalence",
+          "Implication"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:52",
+      "source_id": "202512:52",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Universal",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:6",
+      "source_id": "202512:6",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Biconditional or Equivalence",
+          "Classification or Bijection"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202512:8",
+      "source_id": "202512:8",
+      "task_metadata": {
+        "month": "202512",
+        "theorem_type": [
+          "Biconditional or Equivalence",
+          "Classification or Bijection"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:11",
+      "source_id": "202601:11",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Universal",
+          "Classification or Bijection"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:14",
+      "source_id": "202601:14",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Classification or Bijection"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:15",
+      "source_id": "202601:15",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Existence",
+          "Implication"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:16",
+      "source_id": "202601:16",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Existence",
+          "Implication"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:17",
+      "source_id": "202601:17",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Existence",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:2",
+      "source_id": "202601:2",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Inequality or Bound",
+          "Asymptotic or Limit"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:20",
+      "source_id": "202601:20",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Existential–Universal",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:28",
+      "source_id": "202601:28",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Implication",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:31",
+      "source_id": "202601:31",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Universal",
+          "Implication"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:38",
+      "source_id": "202601:38",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Inequality or Bound",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:42",
+      "source_id": "202601:42",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Uniqueness",
+          "Classification or Bijection"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202601:6",
+      "source_id": "202601:6",
+      "task_metadata": {
+        "month": "202601",
+        "theorem_type": [
+          "Biconditional or Equivalence",
+          "Implication"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:1",
+      "source_id": "202602:1",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Implication",
+          "Asymptotic or Limit"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:10",
+      "source_id": "202602:10",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Implication",
+          "Biconditional or Equivalence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:12",
+      "source_id": "202602:12",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Biconditional or Equivalence",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:15",
+      "source_id": "202602:15",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Classification or Bijection",
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:18",
+      "source_id": "202602:18",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Universal–Existential",
+          "Existence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:24",
+      "source_id": "202602:24",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Existence",
+          "Asymptotic or Limit"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:28",
+      "source_id": "202602:28",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Existential–Universal",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:29",
+      "source_id": "202602:29",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Existential–Universal",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:33",
+      "source_id": "202602:33",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Equivalence",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:38",
+      "source_id": "202602:38",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Implication",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:4",
+      "source_id": "202602:4",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Universal",
+          "Asymptotic or Limit"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:42",
+      "source_id": "202602:42",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Universal",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:44",
+      "source_id": "202602:44",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Existential–Universal",
+          "Inequality or Bound"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:45",
+      "source_id": "202602:45",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Universal",
+          "Classification or Bijection"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:50",
+      "source_id": "202602:50",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Universal"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:7",
+      "source_id": "202602:7",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Biconditional or Equivalence"
+        ]
+      }
+    },
+    {
+      "task_id": "livemath:202602:9",
+      "source_id": "202602:9",
+      "task_metadata": {
+        "month": "202602",
+        "theorem_type": [
+          "Biconditional or Equivalence",
+          "Classification or Bijection"
+        ]
+      }
+    }
+  ]
+}

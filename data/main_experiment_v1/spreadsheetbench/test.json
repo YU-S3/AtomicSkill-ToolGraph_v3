@@ -1,0 +1,1268 @@
+{
+  "schema": "public.main_experiment.split.v1",
+  "benchmark": "spreadsheetbench",
+  "split": "test",
+  "split_seed": 42,
+  "tasks": [
+    {
+      "task_id": "spreadsheet:42198",
+      "source_id": "42198",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:48921",
+      "source_id": "48921",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:50521",
+      "source_id": "50521",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:41265",
+      "source_id": "41265",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:10747",
+      "source_id": "10747",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:57262",
+      "source_id": "57262",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:52541",
+      "source_id": "52541",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:12307",
+      "source_id": "12307",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:18645",
+      "source_id": "18645",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:58942",
+      "source_id": "58942",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:37900",
+      "source_id": "37900",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:52532",
+      "source_id": "52532",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:39903",
+      "source_id": "39903",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:45707",
+      "source_id": "45707",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:40757",
+      "source_id": "40757",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:41348",
+      "source_id": "41348",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:39667",
+      "source_id": "39667",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:34033",
+      "source_id": "34033",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:6239",
+      "source_id": "6239",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:57033",
+      "source_id": "57033",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:55427",
+      "source_id": "55427",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:51556",
+      "source_id": "51556",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:15671",
+      "source_id": "15671",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:54144",
+      "source_id": "54144",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:40892",
+      "source_id": "40892",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:53383",
+      "source_id": "53383",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:52575",
+      "source_id": "52575",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:41410",
+      "source_id": "41410",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:45635",
+      "source_id": "45635",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:53117",
+      "source_id": "53117",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:49667",
+      "source_id": "49667",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:40959",
+      "source_id": "40959",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:42216",
+      "source_id": "42216",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:57693",
+      "source_id": "57693",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:41589",
+      "source_id": "41589",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:54242",
+      "source_id": "54242",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:55965",
+      "source_id": "55965",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:45063",
+      "source_id": "45063",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:38823",
+      "source_id": "38823",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:2768",
+      "source_id": "2768",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:9391",
+      "source_id": "9391",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:55060",
+      "source_id": "55060",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:53647",
+      "source_id": "53647",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:38985",
+      "source_id": "38985",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:39432",
+      "source_id": "39432",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:40478",
+      "source_id": "40478",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:44628",
+      "source_id": "44628",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:57558",
+      "source_id": "57558",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:56274",
+      "source_id": "56274",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:56915",
+      "source_id": "56915",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:46646",
+      "source_id": "46646",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:1563",
+      "source_id": "1563",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:30930",
+      "source_id": "30930",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:55708",
+      "source_id": "55708",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:58723",
+      "source_id": "58723",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:42930",
+      "source_id": "42930",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:44266",
+      "source_id": "44266",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:45738",
+      "source_id": "45738",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:44389",
+      "source_id": "44389",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:48745",
+      "source_id": "48745",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:50051",
+      "source_id": "50051",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:51359",
+      "source_id": "51359",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:32902",
+      "source_id": "32902",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:52233",
+      "source_id": "52233",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:43436",
+      "source_id": "43436",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:9569",
+      "source_id": "9569",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:33157",
+      "source_id": "33157",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:50193",
+      "source_id": "50193",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:54085",
+      "source_id": "54085",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:32438",
+      "source_id": "32438",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:59196",
+      "source_id": "59196",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:59902",
+      "source_id": "59902",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:59358",
+      "source_id": "59358",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:50971",
+      "source_id": "50971",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:49300",
+      "source_id": "49300",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:51586",
+      "source_id": "51586",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:59794",
+      "source_id": "59794",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:45937",
+      "source_id": "45937",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:55979",
+      "source_id": "55979",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:58109",
+      "source_id": "58109",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:18935",
+      "source_id": "18935",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:33722",
+      "source_id": "33722",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:53167",
+      "source_id": "53167",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:37462",
+      "source_id": "37462",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:57445",
+      "source_id": "57445",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:47827",
+      "source_id": "47827",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:34210",
+      "source_id": "34210",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:36277",
+      "source_id": "36277",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:54717",
+      "source_id": "54717",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:6698",
+      "source_id": "6698",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:11842",
+      "source_id": "11842",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:39931",
+      "source_id": "39931",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:50768",
+      "source_id": "50768",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:9726",
+      "source_id": "9726",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:55049",
+      "source_id": "55049",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:3413",
+      "source_id": "3413",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:39046",
+      "source_id": "39046",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:35739",
+      "source_id": "35739",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:16511",
+      "source_id": "16511",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:57743",
+      "source_id": "57743",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:48620",
+      "source_id": "48620",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:42526",
+      "source_id": "42526",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:50811",
+      "source_id": "50811",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:38969",
+      "source_id": "38969",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:54667",
+      "source_id": "54667",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:32789",
+      "source_id": "32789",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:49196",
+      "source_id": "49196",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:31746",
+      "source_id": "31746",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:55977",
+      "source_id": "55977",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:59884",
+      "source_id": "59884",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:48588",
+      "source_id": "48588",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:52305",
+      "source_id": "52305",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:31011",
+      "source_id": "31011",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:54196",
+      "source_id": "54196",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:46240",
+      "source_id": "46240",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:9111",
+      "source_id": "9111",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:32255",
+      "source_id": "32255",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:58499",
+      "source_id": "58499",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:55085",
+      "source_id": "55085",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:45300",
+      "source_id": "45300",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:55421",
+      "source_id": "55421",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:38462",
+      "source_id": "38462",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:51680",
+      "source_id": "51680",
+      "task_metadata": {
+        "instruction_type": "Cell-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:477-45",
+      "source_id": "477-45",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:250-20",
+      "source_id": "250-20",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:22-47",
+      "source_id": "22-47",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:325-44",
+      "source_id": "325-44",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:147-48",
+      "source_id": "147-48",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:353-29",
+      "source_id": "353-29",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:408-39",
+      "source_id": "408-39",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:398-14",
+      "source_id": "398-14",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:108-24",
+      "source_id": "108-24",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:267-21",
+      "source_id": "267-21",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:472-15",
+      "source_id": "472-15",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:402-43",
+      "source_id": "402-43",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:534-26",
+      "source_id": "534-26",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:341-40",
+      "source_id": "341-40",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:97-36",
+      "source_id": "97-36",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:269-44",
+      "source_id": "269-44",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:367-23",
+      "source_id": "367-23",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:66-24",
+      "source_id": "66-24",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:230-16",
+      "source_id": "230-16",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:236-22",
+      "source_id": "236-22",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:297-42",
+      "source_id": "297-42",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:374-31",
+      "source_id": "374-31",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:535-20",
+      "source_id": "535-20",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:263-1",
+      "source_id": "263-1",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:183-8",
+      "source_id": "183-8",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:267-18",
+      "source_id": "267-18",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:463-17",
+      "source_id": "463-17",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:493-5",
+      "source_id": "493-5",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:269-43",
+      "source_id": "269-43",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:168-17",
+      "source_id": "168-17",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:343-20",
+      "source_id": "343-20",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:254-34",
+      "source_id": "254-34",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:79-7",
+      "source_id": "79-7",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:382-29",
+      "source_id": "382-29",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:577-40",
+      "source_id": "577-40",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:203-15",
+      "source_id": "203-15",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:141-20",
+      "source_id": "141-20",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:60-7",
+      "source_id": "60-7",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:388-47",
+      "source_id": "388-47",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:17-35",
+      "source_id": "17-35",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:165-23",
+      "source_id": "165-23",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:379-36",
+      "source_id": "379-36",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:399-14",
+      "source_id": "399-14",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:194-19",
+      "source_id": "194-19",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:333-29",
+      "source_id": "333-29",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:416-15",
+      "source_id": "416-15",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:374-18",
+      "source_id": "374-18",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:109-21",
+      "source_id": "109-21",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:82-30",
+      "source_id": "82-30",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:142-12",
+      "source_id": "142-12",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:247-24",
+      "source_id": "247-24",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:409-45",
+      "source_id": "409-45",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:510-3",
+      "source_id": "510-3",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:177-6",
+      "source_id": "177-6",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:599-9",
+      "source_id": "599-9",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:524-31",
+      "source_id": "524-31",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    },
+    {
+      "task_id": "spreadsheet:547-18",
+      "source_id": "547-18",
+      "task_metadata": {
+        "instruction_type": "Sheet-Level Manipulation"
+      }
+    }
+  ]
+}
