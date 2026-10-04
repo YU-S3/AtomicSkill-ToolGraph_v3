@@ -1,0 +1,51 @@
+{
+  "source": "pilot_terminal_rule/valid_seen/traces",
+  "offline_replay_only": true,
+  "events": {
+    "TAKE": {
+      "task": "alfworld_eval_in_distribution_33_pick_cool_then_place_in_recep.json",
+      "name": "TAKE",
+      "arguments": {
+        "object": "apple_1",
+        "source": "microwave_1"
+      },
+      "result": {
+        "accepted": true,
+        "data": {},
+        "error": null,
+        "observation": "You pick up the apple 1 from the microwave 1.",
+        "done": false,
+        "environment_step": 1
+      }
+    },
+    "MOVE": {
+      "task": "alfworld_eval_in_distribution_116_pick_heat_then_place_in_recep.json",
+      "name": "MOVE",
+      "arguments": {
+        "object": "apple_1",
+        "destination": "microwave_1"
+      },
+      "result": {
+        "accepted": true,
+        "data": {},
+        "error": null,
+        "observation": "You move the apple 1 to the microwave 1.",
+        "done": false,
+        "environment_step": 1
+      }
+    },
+    "INVENTORY_EMPTY": {
+      "task": "alfworld_eval_in_distribution_116_pick_heat_then_place_in_recep.json",
+      "name": "INVENTORY",
+      "arguments": {},
+      "result": {
+        "accepted": true,
+        "data": {},
+        "error": null,
+        "observation": "You are not carrying anything.",
+        "done": false,
+        "environment_step": 1
+      }
+    }
+  }
+}

@@ -196,9 +196,14 @@ class OpenAICompatibleProvider:
         messages: list[AgentMessage],
         *,
         tools: list[NativeToolSpec] | None = None,
+        max_completion_tokens: int | None = None,
     ) -> AgentTurn:
         normalized_tools = list(tools or [])
         payload = self._build_payload(messages, normalized_tools)
+        if max_completion_tokens is not None:
+            if type(max_completion_tokens) is not int or max_completion_tokens <= 0:
+                raise ValueError('Request completion cap must be positive')
+            payload[self.config.token_limit_field] = max_completion_tokens
         # This observes the final serialized HTTP surface, after all Session
         # edits. Store only public policy segments, schema and hashes; never
         # headers or provider-private assistant reasoning/envelopes.

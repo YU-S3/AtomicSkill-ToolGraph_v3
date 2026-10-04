@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 from ..empirical.contracts import PublicTask, digest
+from ..empirical.system import validate_config
 from ..harness.registry import create_simple_harness
 from .canonical_manifest import ADAPTER_NAMES, BENCHMARKS, ordered_train, sha256, verify
 from .formal_log import FormalLog, tree_identity, utc
@@ -36,7 +37,7 @@ def resolved_config(base, profile, benchmark, seed, split, root, datasets, autho
     config['program_worker'].update(wall_timeout_seconds=profile['wall_seconds'], memory_limit_mb=profile['memory_mb'],
                                     max_tool_calls_per_invocation=profile['program_call_limit'])
     config['program_environment'].update(adapter_abi=profile['adapter_abi'], image_digest=profile['image_digest'])
-    return config
+    return validate_config(config)
 
 
 def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpus_root, *, resume=False):

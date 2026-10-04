@@ -133,7 +133,9 @@ class FormalLog:
                 'action_or_tool_name': event['name'], 'action_arguments': event['arguments'],
                 'observation': result, 'action_status': event['state'] if event['state'] != 'finished' else
                     ('success' if result.get('accepted') else 'rejected'),
-                'timestamp': utc(started_at), 'end_time': utc(ended_at) if ended_at else None})
+                'timestamp': utc(started_at), 'end_time': utc(ended_at) if ended_at else None,
+                **{key: event.get(key) for key in ['backend_invoked','tool_call_consumed','environment_step',
+                    'batch_id','call_id','result_id','local_result_read','progress_before','progress_after','state_update']}})
         return observe
 
     def training(self, event_id, unit_type, start, end, examples, status, error=None, **details):

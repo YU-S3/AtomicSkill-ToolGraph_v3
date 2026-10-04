@@ -13,7 +13,7 @@ import yaml
 from atomic_skillgraph.empirical.contracts import PublicTask, digest
 from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
 from atomic_skillgraph.harness.simple_protocol import UnknownSideEffect
-from atomic_skillgraph.empirical.system import EmpiricalSystem
+from atomic_skillgraph.empirical.system import EmpiricalSystem, validate_config
 from atomic_skillgraph.harness.registry import create_simple_harness
 
 
@@ -94,6 +94,8 @@ def resolve_alfworld_tasks(adapter, entries, *, mapping_path=None, canonical_spl
 
 def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, adapter_factory=None,
         formal_log=None, task_metadata=None, order_offset=0):
+    config = validate_config(config)
+    print(json.dumps({'event': 'resolved_config', 'config': config}, ensure_ascii=False), flush=True)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     identity = {"schema": "empirical.run.v1", "config": config, "tasks": [asdict(t) for t in tasks],
@@ -131,7 +133,12 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
                 raise RuntimeError('Task attempts exhausted')
             checkpoint = TaskCheckpoint(output / 'checkpoints' / task.task_id / str(count))
             if checkpoint.state['stage'] == 'task_started' and (checkpoint.root / 'native_events.json').exists():
-                raise UnknownSideEffect('Interrupted environment execution requires explicit new attempt; no blind replay')
+                native = json.loads((checkpoint.root/'native_events.json').read_text())
+                surface = adapter or system.adapter
+                specs = {t['name']: t for t in surface.available_tools()}
+                if surface.capabilities.checkpoint_mode != 'workspace_copy' or any(
+                    e['state'] != 'finished' or specs.get(e['name'], {}).get('effect') != 'read_only' for e in native):
+                    raise UnknownSideEffect('Interrupted environment execution requires explicit new attempt; no blind replay')
             system.checkpoint = checkpoint
             with state:
                 state.execute("INSERT INTO tasks VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET attempts=excluded.attempts,status=excluded.status",

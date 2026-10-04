@@ -1,6 +1,7 @@
 """One version state and one attempt table; no per-layer qualification."""
 import json
 import sqlite3
+import re
 from pathlib import Path
 
 from .contracts import digest, program_digest, validate_program, validate_workflow
@@ -20,6 +21,8 @@ class Bank:
                 CREATE TABLE IF NOT EXISTS assets(kind TEXT,id TEXT PRIMARY KEY,payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY,program_id TEXT,task_key TEXT,
                     origin TEXT,outcome TEXT,payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS realization_jobs(id TEXT PRIMARY KEY,payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS train_cases(task_key TEXT PRIMARY KEY,payload TEXT NOT NULL);
             """)
             self.db.execute("INSERT OR IGNORE INTO metadata VALUES('schema','empirical.bank.v1')")
             self.db.execute("INSERT OR IGNORE INTO metadata VALUES('seed',?)", (str(seed),))
@@ -129,14 +132,66 @@ class Bank:
             self.observer.asset('program', program)
 
     def retrieve(self, query, limit=8):
-        words = set(query.lower().split())
+        words = self.words(query)
         assets = [*self.all("skill"), *self.all("workflow")]
-        return sorted(assets, key=lambda a: (-len(words & set((a.get("goal", "") + " " +
-                     a.get("guidance", "")).lower().split())), a["id"]))[:limit]
+        return sorted(assets, key=lambda a: (-len(words & self.words(a.get('goal', '') + ' ' + a.get('guidance', ''))), a['id']))[:limit]
+
+    @staticmethod
+    def words(text): return set(re.findall(r'\w+', text.casefold(), flags=re.UNICODE))
+
+    def program_options(self, query, *, node=None, allow_candidate=False, excluded=(), limit=8):
+        authorized = {p['id'] for p in self.routes(node or {}, allow_candidate=allow_candidate)}
+        skills = {s['id']: s for s in self.all('skill')}
+        cards = []
+        for p in self.all('program'):
+            if p['id'] in excluded or p['state'] == 'disabled' or (p['state'] != 'usable' and not (allow_candidate and not self.readonly)):
+                continue
+            capabilities = [{'skill_id': i['skill_id'], 'goal': skills.get(i['skill_id'], {}).get('goal', '')}
+                            for i in self.all('implementation') if i['program_id'] == p['id']]
+            description = ' '.join(c['goal'] for c in capabilities)
+            trials = [a for a in self.attempts(p['id']) if a['outcome'] in {'positive','execution_failure'}]
+            reliability = sum(a['outcome']=='positive' for a in trials)/len(trials) if trials else 0
+            card = {'id': p['id'], 'state': p['state'], 'capabilities': capabilities,
+                    'entry_constraints': p.get('entry_constraints', 'undeclared'),
+                    'result_role': p.get('result_role', 'intermediate'),
+                    'input_schema': p['input_schema'], 'output_schema': p['output_schema']}
+            order = (p['id'] not in authorized, -len(self.words((node or {}).get('goal','')) & self.words(description)),
+                     -len(self.words(query) & self.words(description)), p['state'] != 'usable', -reliability, p['id'])
+            cards.append((order, card))
+        return [card for _, card in sorted(cards, key=lambda row: row[0])[:limit]]
+
+    def jobs(self):
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='realization_jobs'").fetchone(): return []
+        return [json.loads(r[0]) for r in self.db.execute('SELECT payload FROM realization_jobs ORDER BY rowid')]
+
+    def save_job(self, job):
+        self._writable()
+        if job['state'] not in {'ready','waiting_example','deferred','done'} or job['kind'] not in {'build','repair','trial'}:
+            raise ValueError('Unknown realization job state/kind')
+        self.db.execute('INSERT OR REPLACE INTO realization_jobs VALUES(?,?)', (job['id'], json.dumps(job, ensure_ascii=False)))
+        self.db.commit()
+        return job
+
+    def save_case(self, task, experience):
+        from dataclasses import asdict
+        self._writable()
+        if task.split != 'train': raise ValueError('Only completed Train cases are eligible')
+        self.db.execute('INSERT OR IGNORE INTO train_cases VALUES(?,?)',
+                        (task.physical_key, json.dumps({'task': asdict(task), 'experience': experience}, ensure_ascii=False)))
+        self.db.commit()
+
+    def train_cases(self):
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='train_cases'").fetchone(): return []
+        return [json.loads(r[0]) for r in self.db.execute('SELECT payload FROM train_cases ORDER BY rowid')]
 
     def digest(self):
-        return digest({table: list(self.db.execute(f"SELECT * FROM {table} ORDER BY rowid"))
-                       for table in ("metadata", "assets", "attempts")})
+        rows = {table: list(self.db.execute(f"SELECT * FROM {table} ORDER BY rowid"))
+                for table in ('metadata', 'assets', 'attempts')}
+        for table in ['realization_jobs', 'train_cases']:
+            if self.db.execute('SELECT 1 FROM sqlite_master WHERE name=?', (table,)).fetchone():
+                content = list(self.db.execute(f'SELECT * FROM {table} ORDER BY rowid'))
+                if content: rows[table] = content
+        return digest(rows)
 
     def freeze(self, destination):
         self._writable()
@@ -144,6 +199,8 @@ class Bank:
         destination.mkdir(parents=True, exist_ok=False)
         target = sqlite3.connect(destination / "bank.sqlite3")
         self.db.backup(target)
+        target.execute('DROP TABLE IF EXISTS realization_jobs')
+        target.execute('DROP TABLE IF EXISTS train_cases')
         usable = {p['id'] for p in self.all('program') if p['state'] == 'usable'}
         for kind, asset_id, payload in target.execute('SELECT kind,id,payload FROM assets').fetchall():
             asset = json.loads(payload)

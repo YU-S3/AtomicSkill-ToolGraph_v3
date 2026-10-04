@@ -45,8 +45,9 @@ class TrialCase:
 
 
 def program_digest(program):
-    return digest({key: sorted(set(program[key])) if key == 'allowed_tools' else program[key]
-                   for key in ("source", "entry", "input_schema", "output_schema", "allowed_tools", "environment")})
+    keys = ['source', 'entry', 'input_schema', 'output_schema', 'allowed_tools', 'environment']
+    keys += [key for key in ('result_role', 'entry_constraints') if key in program]
+    return digest({key: sorted(set(program[key])) if key == 'allowed_tools' else program[key] for key in keys})
 
 
 def validate_program(program):
@@ -62,6 +63,8 @@ def validate_program(program):
         if not isinstance(schema, dict) or schema.get("type") != "object":
             raise ValueError("Program interfaces must be object schemas")
     environment = program['environment']
+    if program.get('result_role', 'intermediate') not in {'intermediate','final_answer','final_files'}:
+        raise ValueError('Unknown Program result_role')
     if not isinstance(environment, dict) or not environment.get('adapter_abi') or not environment.get('image_digest'):
         raise ValueError('Program environment needs Adapter ABI and locked image digest')
     tree = ast.parse(program["source"])
@@ -114,8 +117,9 @@ def validate_workflow(workflow, known_programs=(), known_skills=(), completed=()
 
 
 class ValueStore:
-    def __init__(self, task):
+    def __init__(self, task, context=None):
         self.task = {**task.inputs, "goal": task.goal}
+        self.context = context
         self.results = {}
         self.history = []
 
@@ -127,13 +131,33 @@ class ValueStore:
             elif "task" in ref and ref["task"] in self.task:
                 values[name] = self.task[ref["task"]]
             elif "from" in ref and ref["field"] in self.results.get(ref["from"], {}):
-                values[name] = self.results[ref["from"]][ref["field"]]
+                value = self.results[ref["from"]][ref["field"]]
+                values[name] = self.context.resolve(value) if self.context and isinstance(value, ResultRef) else value
             else:
                 missing[name] = ref
         return values, missing
 
-    def publish(self, node_id, outputs, origin):
+    def publish(self, node_id, outputs, origin, output_refs=None):
         if node_id in self.results:
             raise ValueError("Completed results cannot be overwritten")
-        self.results[node_id] = dict(outputs)
-        self.history.append({"node": node_id, "origin": origin, "outputs": dict(outputs)})
+        refs = output_refs or {}
+        if refs:
+            self.context.bind(outputs, refs)
+        self.results[node_id] = {**outputs, **{k: ResultRef(v) for k, v in refs.items()}}
+        self.history.append({"node": node_id, "origin": origin, "outputs": self.results[node_id]})
+
+    def model_view(self):
+        return {node: {key: dict(value) if isinstance(value, ResultRef) else self.context.preview(value)
+                       if self.context else value for key, value in fields.items()}
+                for node, fields in self.results.items()}
+
+
+class ResultRef(dict):
+    """Tagged in process so an ordinary user dictionary is never unwrapped."""
+
+
+@dataclass(frozen=True)
+class RuntimeDecision:
+    actions: tuple
+    call_ids: tuple
+    response_id: str

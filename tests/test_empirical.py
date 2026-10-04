@@ -311,6 +311,8 @@ def test_invalid_optional_workflow_preserves_tested_program(tmp_path, monkeypatc
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     skill = {'goal': 'prepare', 'input_schema': object_schema(), 'output_schema': object_schema()}
     provider = Provider([{'decision': 'propose_skill_and_program_spec', 'skill': skill,
+                         'realization_request': {'skill_id': '$new', 'action': 'build', 'case_bindings': [
+                             {'case_id': key, 'inputs': {}, 'start_mode': 'reset', 'prefix': []} for key in ['p1','p2']]},
                          'workflow': {'goal': 'bad', 'nodes': [{'id': 'one', 'goal': 'bad',
                              'args': {'x': {'from': 'missing', 'field': 'x'}}}]}},
                          {'source': "def run(ctx, inputs):\n    return {'status':'ok','outputs':{}}", 'trial_inputs': [{'case_id': key, 'inputs': {}, 'start_mode': 'reset', 'prefix': []} for key in ['p1','p2']]}])

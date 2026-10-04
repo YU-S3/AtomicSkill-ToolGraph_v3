@@ -16,6 +16,7 @@ class Capabilities:
     tool_surface: str = "named_tools"
     checkpoint_mode: str = "none"
     local_check: str = "unavailable"
+    final_submission_kind: str = 'environment'
 
 
 @dataclass
@@ -81,8 +82,10 @@ class SimpleAdapter(Protocol):
 
 class Broker:
     """Shared task counter and the only host bridge exposed to a Program."""
-    def __init__(self, adapter, call_limit, *, step_limit=None, journal=None, native_timeout=180, observer=None):
+    def __init__(self, adapter, call_limit, *, step_limit=None, journal=None, native_timeout=180, observer=None, context=None):
+        from ..empirical.task_context import TaskContext
         self.adapter, self.call_limit = adapter, call_limit
+        self.context = context or TaskContext()
         self.events = []
         self.done = False
         self.environment_steps = 0
@@ -120,6 +123,8 @@ class Broker:
         elif method == 'call':
             result = self.call(values.get('name'), values.get('arguments'), deadline=deadline,
                                allowed_tools=allowed_tools)
+        elif method == 'read_result':
+            result = self.call('read_result', values, deadline=deadline, allowed_tools=allowed_tools)
         else:
             raise ValueError("Unknown broker RPC")
         self._responses[key] = (fingerprint, result)
@@ -129,12 +134,26 @@ class Broker:
         return self.adapter.observe()
 
     def available_tools(self):
-        return [] if self.done else self.adapter.available_tools()
+        if self.done: return []
+        tools = self.adapter.available_tools()
+        if self.adapter.capabilities.interaction != 'single_answer':
+            tools = [*tools, self.context.tool()]
+        return tools
 
     def remaining_calls(self):
         return 0 if self.done or self.unknown else max(0, self.call_limit - len(self.events))
 
-    def call(self, name, arguments, *, deadline=None, allowed_tools=None):
+    def call(self, name, arguments, *, deadline=None, allowed_tools=None, event_id=None, batch_id=None, call_id=None):
+        from uuid import uuid4
+        from ..empirical.task_context import progress_key
+        if event_id:
+            prior = next((e for e in self.events if e.get('event_id') == event_id), None)
+            if prior:
+                if prior['name'] != name or prior['arguments'] != arguments:
+                    raise ValueError('Conflicting completed call identity')
+                if prior['state'] != 'finished':
+                    raise UnknownSideEffect('Previous call result is unknown')
+                return prior['result']
         if self.unknown:
             raise UnknownSideEffect("Unknown native side effect; attempt cannot continue")
         if self.remaining_calls() <= 0:
@@ -142,7 +161,10 @@ class Broker:
         with self._lock:
             deadline = deadline or time.monotonic() + self.native_timeout
             started_at = time.time()
-            event = {"name": name, "arguments": arguments, "index": len(self.events), 'state': 'intent'}
+            event = {"name": name, "arguments": arguments, "index": len(self.events), 'state': 'intent',
+                     'event_id': event_id or uuid4().hex, 'batch_id': batch_id, 'call_id': call_id,
+                     'backend_invoked': False, 'tool_call_consumed': True,
+                     'progress_before': progress_key(self.adapter)}
             self.events.append(event)
             if self.observer:
                 self.observer(event, started_at, None)
@@ -155,22 +177,32 @@ class Broker:
                 if name not in specs:
                     raise ValueError("tool is not currently available")
                 validate_schema_instance(arguments, specs[name]["input_schema"])
-                if self.step_limit is not None and self.environment_steps >= self.step_limit:
+                if name != 'read_result' and self.step_limit is not None and self.environment_steps >= self.step_limit:
                     raise ValueError("Environment step budget exhausted")
             except ValueError as exc:
                 result = {'accepted': False, 'observation': self.observe(), 'data': {},
                           'error': str(exc), 'done': self.done}
             else:
-                outcome = queue.Queue(maxsize=1)
+                if name == 'read_result':
+                    try:
+                        result = self.context.read(**arguments)
+                    except ValueError as exc:
+                        result = {'accepted': False, 'observation': '', 'data': {}, 'error': str(exc), 'done': False}
+                    event['local_result_read'] = True
+                    result['environment_step'] = 0
+                    outcome = None
+                else:
+                    event['backend_invoked'] = True
+                    outcome = queue.Queue(maxsize=1)
                 def invoke():
                     try:
                         outcome.put((True, self.adapter.call(name, arguments)))
                     except BaseException as exc:
                         outcome.put((False, exc))
-                owner = threading.Thread(target=invoke, daemon=True)
-                owner.start()
+                owner = threading.Thread(target=invoke, daemon=True) if outcome is not None else None
+                if owner: owner.start()
                 try:
-                    ok, value = outcome.get(timeout=max(0, deadline - time.monotonic()) if deadline else None)
+                    ok, value = outcome.get(timeout=max(0, deadline - time.monotonic()) if deadline else None) if owner else (True, result)
                 except queue.Empty:
                     self.unknown = True
                     event['state'] = 'unknown'
@@ -184,7 +216,7 @@ class Broker:
                     if abort:
                         threading.Thread(target=abort, daemon=True).start()
                     raise UnknownSideEffect("Native call deadline expired; attempt stopped")
-                owner.join()
+                if owner: owner.join()
                 if not ok:
                     self.unknown = True
                     event['state'] = 'unknown'
@@ -196,7 +228,12 @@ class Broker:
                 result = value
                 self.environment_steps += int(result.get('environment_step', 0))
             self.done = bool(result.get('done', False))
-            event.update(state='finished', result=result, environment_steps=self.environment_steps)
+            result_id = self.context.register(event['event_id'], result, name=name, arguments=arguments)
+            event.update(state='finished', result=result, result_id=result_id,
+                         environment_steps=self.environment_steps, environment_step=int(result.get('environment_step', 0)),
+                         progress_after=progress_key(self.adapter))
+            if event['backend_invoked'] and hasattr(self.adapter, 'public_update'):
+                event['state_update'] = self.adapter.public_update
             if self.observer:
                 self.observer(event, started_at, time.time())
             if self.journal:

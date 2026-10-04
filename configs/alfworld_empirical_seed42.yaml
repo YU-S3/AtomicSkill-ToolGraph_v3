@@ -4,6 +4,7 @@ benchmark_profile: alfworld.public-discovery.v2
 manifest: data/baseline_manifests/train_120.json
 data_dir: runs/empirical_seed42/bank
 experiment:
+  implementation_revision: empirical-v3.1-CF2
   seed: 42
   benchmark: alfworld
   runtime_mode: online
@@ -15,10 +16,15 @@ harness:
   max_steps: 100
   public_discovery_version: alfworld.public-discovery.v2
 runtime:
+  read_batch_max_calls: 3
+  result_inline_max_chars: 2048
+  result_preview_max_items: 40
+  result_read_window_chars: 12000
   global_action_budget: 100
   repeated_unchanged_failure_limit: 2
   environment_step_budget: 100
 learning:
+  builder_truncation_recovery_max_completion_tokens: 65536
   max_new_programs_per_task: 1
   builder_repair_limit: 1
   max_train_test_cases_per_program_version: 2
@@ -38,7 +44,7 @@ program_environment:
   - openpyxl==3.1.5
   - pandas==2.3.3
   - pillow==11.3.0
-  adapter_abi: simple.v1
+  adapter_abi: simple.v2
   image_digest: sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783
 llm:
   provider: openai_compatible

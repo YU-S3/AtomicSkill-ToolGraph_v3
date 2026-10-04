@@ -38,6 +38,11 @@ def _worker():
         def available_tools(self): return rpc('available_tools')
         def remaining_calls(self): return rpc('remaining_calls')
         def call(self, name, arguments): return rpc('call', name=name, arguments=arguments)
+        def read_result(self, result_id, offset=0, limit=None, path=None):
+            values = {'result_id': result_id, 'offset': offset}
+            if limit is not None: values['limit'] = limit
+            if path is not None: values['path'] = path
+            return rpc('read_result', **values)
     source = Path('/program/source.py').read_text()
     inputs = json.loads(Path('/program/inputs.json').read_text())
     sys.stdout = sys.stderr
@@ -86,6 +91,8 @@ class ProgramWorker:
         if sys.platform != 'linux' or not shutil.which('docker'):
             raise RuntimeError('sandbox_python_v1 requires Docker on Linux; no host execution fallback')
         s = self.settings
+        if len(json.dumps(inputs, ensure_ascii=False, allow_nan=False).encode()) > s['max_rpc_message_bytes']:
+            raise ValueError('Program inputs exceed RPC limit; use bounded read_result with a result_id input')
         container = 'skillcompiler-' + uuid4().hex
         calls, result, diagnostic = 0, {'status': 'execution_error', 'detail': 'Worker exited without a result'}, bytearray()
         started = time.monotonic()
@@ -133,7 +140,7 @@ class ProgramWorker:
                                 if request.get('invocation_id') != container or not isinstance(request.get('sequence'), int):
                                     raise ValueError('Invalid invocation RPC identity')
                                 sequence, method = request['sequence'], request.get('method')
-                                if method == 'call' and sequence not in seen:
+                                if method in {'call', 'read_result'} and sequence not in seen:
                                     if calls >= s['max_tool_calls_per_invocation']:
                                         raise RuntimeError('Program native call budget exhausted')
                                     calls += 1
@@ -167,7 +174,8 @@ class ProgramWorker:
             if result['status'] == 'ok':
                 validate_schema_instance(result.get('outputs'), program['output_schema'])
                 if workspace:
-                    result['workspace'] = workspace.publish(stage, broker.adapter.declared_outputs(result['outputs']))
+                    result['workspace'] = workspace.publish(stage, broker.adapter.declared_outputs(result['outputs']),
+                                                            result['outputs'].get('deleted_files', []))
                     stage = None
             else:
                 result.pop('outputs', None)

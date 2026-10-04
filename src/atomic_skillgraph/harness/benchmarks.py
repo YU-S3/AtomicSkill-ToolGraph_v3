@@ -12,6 +12,7 @@ from ..empirical.contracts import digest, object_schema
 from ..empirical.program_worker import ProgramWorker
 from ..empirical.workspace import Workspace
 from .simple_protocol import Broker, Capabilities
+from .tool_spec import ToolSpec, result_schema
 
 
 def truncate_context(context, max_chars=6000):
@@ -46,12 +47,12 @@ def score_answer(benchmark, prediction, record, *, audit=None):
 
 
 class AnswerAdapter:
-    capabilities = Capabilities(interaction='single_answer', tool_surface='none')
+    capabilities = Capabilities(interaction='single_answer', tool_surface='none', final_submission_kind='single_answer')
 
     def __init__(self, benchmark, records):
         self.benchmark, self._records = benchmark, records
         if benchmark == 'docvqa':
-            self.capabilities = Capabilities(interaction='single_answer', input_modalities=('text','image'), tool_surface='none')
+            self.capabilities = Capabilities(interaction='single_answer', input_modalities=('text','image'), tool_surface='none', final_submission_kind='single_answer')
 
     def reset(self, task):
         self.task = task
@@ -86,9 +87,18 @@ class AnswerAdapter:
 
 
 class FileAdapter(AnswerAdapter):
-    capabilities = Capabilities(input_modalities=('text','files'), checkpoint_mode='workspace_copy')
+    capabilities = Capabilities(input_modalities=('text','files'), checkpoint_mode='workspace_copy', final_submission_kind='text')
 
-    def tool_definitions(self): return self.available_tools()
+    def tool_definitions(self): return [spec.view() for spec in self.specs.values()]
+    def available_tools(self): return self.tool_definitions()
+
+    def model_state(self):
+        return {'workspace': {k: v for k, v in self.observe()['workspace'].items() if k in {'outputs', 'content_hash'}}}
+
+    def progress_key(self): return digest(self.model_state())
+
+    def submission_ready(self, output, *, result_role='intermediate'):
+        return self.capabilities.final_submission_kind == 'text' and isinstance(output, dict) and 'answer' in output and result_role == 'final_answer'
 
     def __init__(self, benchmark, records, config):
         super().__init__(benchmark, records)
@@ -136,15 +146,16 @@ shutil.copyfile('/tmp/recalculated/input.xlsx', OUTPUT_PATH)
         manifest = json.loads((evaluator.workspace.root/'manifest.json').read_text())
         return evaluator, evaluator.workspace.root/manifest['version']/'case1_result.xlsx'
 
-    def _python(self, source, files):
+    def _python(self, source, files, deleted_files=()):
         wrapper = 'def run(ctx, inputs):\n    namespace = {"INPUT_PATH": "/workspace/inputs/input.xlsx", "OUTPUT_PATH": "/workspace/case1_result.xlsx"}\n'
         wrapper += '    exec(' + repr(source) + ', namespace)\n'
-        wrapper += '    return {"status": "ok", "outputs": {"files": inputs["files"]}}\n'
+        wrapper += '    return {"status": "ok", "outputs": {"files": inputs["files"], "deleted_files": inputs["deleted_files"]}}\n'
+        output_fields = {'files': {'type': 'array', 'items': {'type': 'string'}}, 'deleted_files': {'type': 'array', 'items': {'type': 'string'}}}
         program = {'id': 'temporary_' + digest(wrapper), 'source': wrapper, 'entry': 'run',
-            'input_schema': object_schema({'files': {'type': 'array', 'items': {'type': 'string'}}}, ['files']),
-            'output_schema': object_schema({'files': {'type': 'array', 'items': {'type': 'string'}}}, ['files']),
+            'input_schema': object_schema(output_fields, ['files', 'deleted_files']),
+            'output_schema': object_schema(output_fields, ['files', 'deleted_files']),
             'allowed_tools': [], 'environment': self.config['program_environment']}
-        result = self.worker.execute(program, {'files': files}, Broker(self, 1))
+        result = self.worker.execute(program, {'files': files, 'deleted_files': list(deleted_files)}, Broker(self, 1))
         return {'accepted': result['status'] == 'ok', 'observation': result.get('diagnostic', ''),
                 'data': result.get('outputs', {}), 'error': result.get('detail'), 'done': False}
 
@@ -153,21 +164,33 @@ class OfficeAdapter(FileAdapter):
     def __init__(self, records, config):
         super().__init__('officeqa', records, config)
         self.corpus = Path(config['harness']['corpus_root']).resolve(strict=True)
+        self.specs = {name: ToolSpec(name, description, schema, result_schema(data), effect, batchable, units)
+            for name, description, schema, data, effect, batchable, units in [
+            ('glob', 'List matching relative corpus paths', object_schema({'pattern': {'type':'string'}}, ['pattern']), {'type': 'array', 'items': {'type': 'string'}}, 'read_only', True, {}),
+            ('read', 'Read at most 12000 characters. offset is a zero-based decoded Unicode character index, not a line or byte position.',
+             object_schema({'path': {'type':'string'}, 'offset': {'type':'integer','minimum':0}}, ['path','offset']), {'type': 'object'}, 'read_only', True, {'offset': 'unicode_codepoint_0_based'}),
+            ('grep', 'Search corpus; up to 40 hits. line is one-based display only; offset can be passed directly to read.',
+             object_schema({'pattern': {'type':'string'}}, ['pattern']), {'type': 'array', 'items': {'type': 'object'}}, 'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
+            ('execute_python', 'Compute with acquired public values; no corpus or network mount.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
 
     def _path(self, relative):
-        path = (self.corpus / relative).resolve(strict=True)
-        if not path.is_relative_to(self.corpus) or not path.is_file():
+        path = (self.corpus / relative).resolve()
+        if not path.is_relative_to(self.corpus):
             raise ValueError('Corpus path is not authorized')
+        if not path.exists() or not path.is_file(): raise ValueError('Corpus file is missing or not a file')
         return path
 
-    def available_tools(self):
-        return [{'name': name, 'description': description, 'input_schema': schema} for name, description, schema in [
-            ('glob', 'List matching relative corpus paths', object_schema({'pattern': {'type':'string'}}, ['pattern'])),
-            ('read', 'Read a public text window, at most 12000 characters', object_schema({'path': {'type':'string'}, 'offset': {'type':'integer','minimum':0}}, ['path','offset'])),
-            ('grep', 'Search all corpus files; return up to 40 public matching lines', object_schema({'pattern': {'type':'string'}}, ['pattern'])),
-            ('execute_python', 'Compute using already acquired public values; no corpus or network mount', object_schema({'source': {'type':'string'}}, ['source']))]]
-
     def call(self, name, arguments):
+        if not self.corpus.is_dir(): raise RuntimeError('Authorized corpus root is unavailable')
+        try:
+            return self._call(name, arguments)
+        except UnicodeError:
+            raise
+        except (ValueError, re.error) as exc:
+            return {'accepted': False, 'observation': '', 'data': [] if name in {'glob','grep'} else {}, 'error': str(exc),
+                    'error_code': 'invalid_corpus_input', 'done': False}
+
+    def _call(self, name, arguments):
         if name == 'execute_python': return self._python(arguments['source'], [])
         if name == 'glob':
             data = sorted(p.relative_to(self.corpus).as_posix() for p in self.corpus.rglob('*.txt')
@@ -179,10 +202,13 @@ class OfficeAdapter(FileAdapter):
         elif name == 'grep':
             pattern, data = re.compile(arguments['pattern'], re.I), []
             for path in sorted(self.corpus.rglob('*.txt')):
-                for index, line in enumerate(path.read_text(encoding='utf-8').splitlines()):
+                path = self._path(path.relative_to(self.corpus).as_posix())
+                offset = 0
+                for index, line in enumerate(path.read_text(encoding='utf-8').splitlines(keepends=True)):
                     if pattern.search(line):
-                        data.append({'path': path.relative_to(self.corpus).as_posix(), 'line': index+1, 'text': line[:1000]})
+                        data.append({'path': path.relative_to(self.corpus).as_posix(), 'line': index+1, 'offset': offset, 'text': line.rstrip('\n')[:1000]})
                         if len(data) == 40: break
+                    offset += len(line)
                 if len(data) == 40: break
         else:
             raise ValueError('Unknown corpus tool')
@@ -190,16 +216,27 @@ class OfficeAdapter(FileAdapter):
 
 
 class SpreadsheetAdapter(FileAdapter):
-    def __init__(self, records, config): super().__init__('spreadsheet', records, config)
+    capabilities = Capabilities(input_modalities=('text','files'), checkpoint_mode='workspace_copy', final_submission_kind='files')
 
-    def available_tools(self):
-        return [{'name': 'execute_python', 'description': 'Run Python in the shared sandbox. INPUT_PATH and OUTPUT_PATH are predefined. '
+    def __init__(self, records, config):
+        super().__init__('spreadsheet', records, config)
+        spec = ToolSpec('execute_python', 'Run Python in the shared sandbox. INPUT_PATH and OUTPUT_PATH are predefined. '
             'Write solution.py using INPUT_PATH/OUTPUT_PATH and case1_result.xlsx. Declare output filenames to commit them.',
-            'input_schema': object_schema({'source': {'type':'string'}, 'files': {'type':'array','items':{'type':'string'}}}, ['source','files'])}]
+            object_schema({'source': {'type':'string'}, 'files': {'type':'array','items':{'type':'string'}},
+                           'deleted_files': {'type':'array','items':{'type':'string'}}}, ['source','files']),
+            result_schema({'type': 'object'}), effect='sandbox_compute')
+        self.specs = {spec.name: spec}
+
+    def submission_ready(self, output=None, *, result_role='intermediate'):
+        pointer = self.workspace.root / 'manifest.json'
+        if not pointer.exists(): return False
+        manifest = json.loads(pointer.read_text())
+        return all(name in manifest['outputs'] and (self.workspace.root/manifest['version']/name).is_file()
+                   for name in ['solution.py', 'case1_result.xlsx'])
 
     def call(self, name, arguments):
         if name != 'execute_python': raise ValueError('Unknown spreadsheet tool')
-        return self._python(arguments['source'], arguments['files'])
+        return self._python(arguments['source'], arguments['files'], arguments.get('deleted_files', []))
 
     def submit(self, prediction):
         pointer = self.workspace.root / 'manifest.json'

@@ -1,5 +1,6 @@
 """The empirical production chain; no legacy System is constructed."""
 from dataclasses import asdict
+from copy import deepcopy
 from pathlib import Path
 import json
 import os
@@ -11,9 +12,10 @@ from ..agents.usage import UsageLedger
 from ..agents.session import repair_messages
 from ..core.errors import BudgetExhausted, FailureLayer
 from ..harness.simple_protocol import Broker, EpisodeResult
-from . import PROFILE
+from . import PROFILE, CF2_DEFAULTS
 from .bank import Bank
-from .contracts import PublicTask, digest
+from .contracts import PublicTask, RuntimeDecision, digest
+from .task_context import TaskContext
 from .executor import Executor
 from .learner import Learner
 from .planner import Planner, dynamic
@@ -27,7 +29,12 @@ STAGE_BUCKETS = {"planner": "planner_p1", "runtime": "runtime_dynamic", "extract
 def validate_config(config):
     if config.get("mechanism_profile") != PROFILE:
         raise ValueError("Empirical System requires its explicit profile")
-    config = dict(config)
+    config = deepcopy(config)
+    for section, defaults in CF2_DEFAULTS.items():
+        config[section] = {**defaults, **config.get(section, {})}
+        for key, value in defaults.items():
+            if config[section][key] != value:
+                raise ValueError('Unsupported CF2 policy ' + section + '.' + key)
     if config.get("schema_version") != "empirical.v1":
         raise ValueError("Empirical System requires a fresh empirical.v1 schema")
     allowed = {'mechanism_profile', 'schema_version', 'data_dir', 'experiment', 'harness', 'runtime',
@@ -46,6 +53,9 @@ def validate_config(config):
     environment = config.get('program_environment', {})
     if not environment.get('adapter_abi') or not environment.get('image_digest'):
         raise ValueError('Lock the Adapter ABI and container image before running')
+    if environment['adapter_abi'] not in {'simple.v1','simple.v2'}:
+        raise ValueError('Unsupported Adapter ABI')
+    environment['adapter_abi'] = 'simple.v2'
     for section, limits in {"learning": {"max_new_programs_per_task": 1, "builder_repair_limit": 1,
         "max_train_test_cases_per_program_version": 2}, "planning": {"retrieval_top_k": 8,
         "structural_repair_limit": 1, "task_replan_limit": 1}, "runtime": {"repeated_unchanged_failure_limit": 2}}.items():
@@ -85,6 +95,7 @@ class EmpiricalSystem:
         self.budget_scope = None
         self.prior_usage = []
         self.observer = None
+        self.task_context = None
 
     def _budget(self, stage):
         if stage == 'runtime':
@@ -135,7 +146,8 @@ class EmpiricalSystem:
                 max_retries=llm.get("max_retries", 4)))
         return self.providers[stage]
 
-    def agent(self, stage, prompt, materials, name, schema, *, validator=None, repair_limit=0):
+    def agent(self, stage, prompt, materials, name, schema, *, validator=None, repair_limit=0,
+              completion_override=None, repair_reason=None, job_key=None):
         provider = self.provider(stage)
         tools = [NativeToolSpec(name, "Submit the requested result", schema)] if name else []
         messages = [{"role": "system", "content": prompt},
@@ -151,14 +163,19 @@ class EmpiricalSystem:
             if used >= cap:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Role token budget exhausted', layer=FailureLayer.RUNTIME_AGENT)
             turn = None
+            completion_cap = completion_override or self.config['llm'].get(stage, {}).get('max_completion_tokens', 32768)
+            if stage == 'tool_builder': completion_cap = min(completion_cap, cap-used)
             response_key = digest({'stage': stage, 'phase': self.phase, 'budget_scope': self.budget_scope,
-                                   'messages': messages, 'tools': [t.to_openai() for t in tools]})
+                                   'messages': messages, 'tools': [t.to_openai() for t in tools],
+                                   'completion_cap': completion_cap, 'repair_reason': repair_reason, 'job_key': job_key,
+                                   'implementation_revision': self.config['experiment']['implementation_revision']})
             recovered = self.checkpoint.response(response_key) if self.checkpoint else None
             request_id = recovered['request_id'] if recovered else uuid4().hex
             provider_offset = getattr(provider, "request_record_count", 0)
             record = {"id": request_id, "stage": stage, "repair": repair,
                       "phase": self.phase, 'budget_scope': self.budget_scope,
                       "messages": messages, "tools": [t.to_openai() for t in tools]}
+            record.update(completion_cap=completion_cap, repair_reason=repair_reason, job_key=job_key)
             # Trace messages omit replay-private reasoning. The immediate repair
             # retains the actual assistant envelope in process only.
             record["messages"] = [{k: v for k, v in m.items() if k != "reasoning_content"} for m in messages]
@@ -171,7 +188,8 @@ class EmpiricalSystem:
                     turn = AgentTurn(**recovered['turn'])
                     record['recovered_response'] = True
                 else:
-                    turn = provider.complete(messages, tools=tools)
+                    kwargs = {'max_completion_tokens': completion_cap} if isinstance(provider, OpenAICompatibleProvider) or completion_override is not None else {}
+                    turn = provider.complete(messages, tools=tools, **kwargs)
                     if self.checkpoint:
                         self.checkpoint.save_response(response_key, {'turn': asdict(turn), 'request_id': request_id})
             except Exception as exc:
@@ -180,6 +198,12 @@ class EmpiricalSystem:
                     turn.provider_metadata['phase'] = self.phase
                     turn.provider_metadata['budget_scope'] = self.budget_scope
                     self.usage.record_turn(session_id=request_id, turn_index=0, bucket=STAGE_BUCKETS[stage], turn=turn)
+                    record['response'] = {'content': turn.content, 'finish_reason': turn.finish_reason,
+                        'tool_calls': [{'id': c.call_id, 'name': c.name, 'arguments': c.arguments} for c in turn.tool_calls],
+                        'usage': {k: getattr(turn, k) for k in ('prompt_tokens','completion_tokens','total_tokens','reasoning_tokens')}}
+                    if self.checkpoint:
+                        self.checkpoint.save_response(response_key, {'turn': asdict(turn), 'request_id': request_id,
+                            'protocol_error': str(exc) if isinstance(exc, ProviderAgentProtocolError) else None})
                 record["error"] = str(exc)
                 self._save_requests()
                 if isinstance(exc, ProviderAgentProtocolError):
@@ -188,6 +212,7 @@ class EmpiricalSystem:
                         continue
                     failure = ValueError(str(exc))
                     failure.model_authored = True
+                    failure.finish_reason = turn.finish_reason
                     raise failure from exc
                 raise
             finally:
@@ -209,6 +234,25 @@ class EmpiricalSystem:
             try:
                 if not name:
                     return turn.content
+                if name == 'runtime_step' and turn.tool_calls:
+                    actions = []
+                    for call in turn.tool_calls:
+                        if call.name != name: raise ValueError('Unexpected Runtime ToolCall name')
+                        validate_schema_instance(call.arguments, schema)
+                        self.task_context.bind(call.arguments.get('arguments', {}), call.arguments.get('argument_refs', {})) if self.task_context else None
+                        actions.append(call.arguments)
+                    if len(actions) > 1:
+                        specs = {t['name']: t for t in materials.get('tools', [])}
+                        if len(actions) > self.config['runtime']['read_batch_max_calls'] or any(
+                            a['action'] != 'call_tool' or not specs.get(a.get('name'), {}).get('batchable') or
+                            specs.get(a.get('name'), {}).get('effect') != 'read_only' for a in actions):
+                            raise ValueError('Batch must contain at most 3 independent approved read-only calls')
+                        for action in actions:
+                            args = self.task_context.bind(action.get('arguments', {}), action.get('argument_refs', {})) if self.task_context else action.get('arguments', {})
+                            validate_schema_instance(args, specs[action['name']]['input_schema'])
+                    for action in actions:
+                        if validator: validator(action)
+                    return RuntimeDecision(tuple(actions), tuple(c.call_id for c in turn.tool_calls), request_id)
                 if len(turn.tool_calls) != 1 or turn.tool_calls[0].name != name:
                     raise ValueError("Expected one " + name + " ToolCall")
                 value = turn.tool_calls[0].arguments
@@ -219,6 +263,7 @@ class EmpiricalSystem:
             except ValueError as exc:
                 if repair == repair_limit or (turn.finish_reason == 'length' and not turn.tool_calls):
                     exc.model_authored = True
+                    exc.finish_reason = turn.finish_reason
                     raise
                 messages.extend(repair_messages(turn, exc))
                 messages.append({"role": "user", "content": "Repair only the invalid structure. Preserve the requested goal and valid content. "
@@ -250,19 +295,36 @@ class EmpiricalSystem:
                 trace.update(json.loads(Path(self.audit_path).read_text()))
             return trace
         self.adapter.reset(task)
+        self.task_context = TaskContext(self.config['runtime'])
         broker = Broker(self.adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
             step_limit=self.config.get('runtime', {}).get('environment_step_budget'),
             journal=self.checkpoint.native_events if self.checkpoint else None,
-            observer=self.observer.native_observer(trace['attempt_id']) if self.observer else None)
+            observer=self.observer.native_observer(trace['attempt_id']) if self.observer else None,
+            context=self.task_context)
+        self.executor.checkpoint = self.checkpoint
+        if self.checkpoint and self.checkpoint.state.get('program_started'):
+            from ..harness.simple_protocol import UnknownSideEffect
+            raise UnknownSideEffect('Interrupted Program/workspace execution requires explicit reconstruction')
+        native_path = self.checkpoint.root/'native_events.json' if self.checkpoint else None
+        if native_path and native_path.exists():
+            prior_events = json.loads(native_path.read_text())
+            specs = {t['name']: t for t in broker.available_tools()}
+            if self.adapter.capabilities.checkpoint_mode != 'workspace_copy' or any(
+                e['state'] != 'finished' or specs.get(e['name'], {}).get('effect') != 'read_only' for e in prior_events):
+                from ..harness.simple_protocol import UnknownSideEffect
+                raise UnknownSideEffect('Interrupted stateful or unknown operation requires explicit reconstruction')
+            broker.events = prior_events
+            broker.environment_steps = sum(e.get('environment_step', 0) for e in prior_events)
         try:
             if self.adapter.capabilities.interaction == "single_answer":
                 # No extra planning solve, and no protocol repair/re-solving.
                 answer = self.agent("runtime", "Answer the question once using only the public input and any supplied guidance.",
-                    {"goal": task.goal, "inputs": task.inputs, "guidance": self.bank.retrieve(task.goal),
+                    {"goal": task.goal, "inputs": task.inputs, "guidance": [{k: a.get(k,'') for k in ('goal','guidance')}
+                        for a in self.bank.retrieve(task.goal) if 'guidance' in a][:3],
                      'content_parts': getattr(self.adapter, 'content_parts', lambda: [])()}, None, None)
                 execution = {"prediction": answer, "reason": "single_answer", "attempts": []}
             else:
-                plan = self.planner.plan(task, self.adapter)
+                plan = self.checkpoint.state['executor_state']['plan'] if self.checkpoint and self.checkpoint.state.get('executor_state') else self.planner.plan(task, self.adapter)
                 trace["initial_plan"] = plan
                 execution = self.executor.run(task, self.adapter, broker, plan)
             sealed = self.adapter.submit(execution["prediction"])
@@ -291,6 +353,11 @@ class EmpiricalSystem:
             if self.checkpoint:
                 self.checkpoint.advance('learning_finished', trace=trace)
         finally:
+            native_ids = {e.get('result_id') for e in broker.events}
+            trace['result_store'] = {'native_index': [{'result_id': e.get('result_id'), 'event_id': e.get('event_id'), 'index': e['index']}
+                for e in broker.events if e.get('result_id')],
+                'program_results': {rid: value for rid, value in broker.context.results.items() if rid not in native_ids},
+                'local_reads': broker.context.local_reads}
             trace["usage"] = [e.to_dict() for e in self.usage.events[self._task_start:]]
             trace["requests"] = self.requests[request_start:]
             self._save_requests()
@@ -322,6 +389,7 @@ class EmpiricalSystem:
             self._learning_start = None
 
     def test_program(self, program, inputs, task, *, trial_id, trial_case=None):
+        if self.readonly or task.split != 'train': raise ValueError('Program trials require Train')
         if self.adapter_factory is None:
             return {"id": trial_id, "program_id": program["id"], "task_key": task.physical_key,
                     "origin": "train_test", "outcome": "inapplicable", "error": "No isolated Adapter factory"}
@@ -341,6 +409,8 @@ class EmpiricalSystem:
             return record
         previous_phase = self.phase
         previous_scope = self.budget_scope
+        previous_context = self.task_context
+        self.task_context = TaskContext(self.config['runtime'])
         self.phase = 'trial'
         self.budget_scope = trial_id
         adapter = self.adapter_factory()
@@ -350,7 +420,8 @@ class EmpiricalSystem:
         broker = Broker(adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
             step_limit=self.config.get('runtime', {}).get('environment_step_budget'),
             journal=trial_checkpoint.native_events if trial_checkpoint else None,
-            observer=self.observer.native_observer(trial_id) if self.observer else None)
+            observer=self.observer.native_observer(trial_id) if self.observer else None,
+            context=self.task_context)
         try:
             adapter.reset(task)
             if trial_observation:
@@ -373,8 +444,14 @@ class EmpiricalSystem:
                     return record
             start = len(broker.events)
             was_terminal = broker.done
+            workspace_before = adapter.observe().get('workspace', {})
             try:
                 validate_schema_instance(inputs, program["input_schema"])
+                if len(json.dumps(inputs, ensure_ascii=False).encode()) > self.worker.settings['max_rpc_message_bytes']:
+                    raise ValueError('Program inputs exceed RPC limit')
+                tools = getattr(adapter, 'tool_definitions', adapter.available_tools)()
+                if not set(program['allowed_tools']).issubset({t['name'] for t in tools} | {'read_result'}):
+                    raise ValueError('Required public tools are unavailable for this case')
             except ValueError as exc:
                 outcome, result, basis = "inapplicable", {"error": str(exc)}, None
             else:
@@ -383,16 +460,37 @@ class EmpiricalSystem:
                 result['local_check'] = local
                 result['terminal_by_program'] = not was_terminal and broker.done
                 basis, outcome = None, "normal"
-                if result["status"] == "execution_error" or local == "failed":
+                if result['terminal_by_program']:
+                    score = adapter.evaluate(adapter.submit(result.get('outputs', {})))
+                    result['score'] = score
+                    if score['hard'] and result['status'] == 'ok': basis, outcome = 'task_outcome', 'positive'
+                    elif result['status'] == 'execution_error': outcome = 'execution_failure'
+                elif result["status"] == "execution_error" or local == "failed":
                     outcome = "execution_failure"
                 elif result["status"] == "ok" and local == "passed":
                     basis, outcome = "local_check", "positive"
-                elif result["status"] == "ok" and result['terminal_by_program']:
-                    score = adapter.evaluate(adapter.submit(result.get("outputs", {})))
-                    result["score"] = score
-                    if score["hard"]:
-                        basis, outcome = "task_outcome", "positive"
                 elif result["status"] == "ok":
+                    role = program.get('result_role', 'intermediate')
+                    ready = getattr(adapter, 'submission_ready', lambda *a, **k: False)(result.get('outputs', {}), result_role=role)
+                    if role == 'final_files':
+                        declared = set(result.get('outputs', {}).get('files', []))
+                        current = adapter.observe().get('workspace', {})
+                        ready = ready and {'solution.py','case1_result.xlsx'}.issubset(declared) and any(
+                            workspace_before.get('hashes', {}).get(n) != current.get('hashes', {}).get(n)
+                            for n in ['solution.py','case1_result.xlsx'])
+                    if ready:
+                        outputs = result.get('outputs', {})
+                        sealed = adapter.submit(outputs['answer'] if role == 'final_answer' else outputs)
+                        score = adapter.evaluate(sealed)
+                        result.update(score=score, submission='direct_program_output')
+                        if score['hard']: basis, outcome = 'task_outcome', 'positive'
+                    if role in {'final_answer', 'final_files'}:
+                        record = {"id": trial_id, "program_id": program["id"], "task_key": task.physical_key,
+                            "origin": "train_test", "split": "train", "outcome": outcome, "basis": basis,
+                            "calls": len(broker.events), "result": result, "tools": broker.events}
+                        if trial_checkpoint: trial_checkpoint.advance('trial_finished', record=record)
+                        self.bank.record(record)
+                        return record
                     # Without a local oracle, run the remainder from the actual
                     # Train state; this is billed training, not replay credit.
                     executor = Executor(self.bank, self.agent, self.worker, self.planner)
@@ -419,6 +517,7 @@ class EmpiricalSystem:
             self._runtime_start = previous_runtime_start
             self.phase = previous_phase
             self.budget_scope = previous_scope
+            self.task_context = previous_context
             adapter.close()
 
     def close(self):

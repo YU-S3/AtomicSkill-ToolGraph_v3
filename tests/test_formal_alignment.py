@@ -106,7 +106,8 @@ def test_native_logging_preserves_public_feedback_exactly(tmp_path):
     log.begin_task(PublicTask('task', 'physical', 'goal'), 0, 'task:1', {})
     plain = Broker(Adapter(), 2)
     observed = Broker(Adapter(), 2, observer=log.native_observer('task:1'))
-    assert plain.call('act', {'value': 'x'}) == observed.call('act', {'value': 'x'})
+    observed.context.scope = plain.context.scope
+    assert plain.call('act', {'value': 'x'}, event_id='same-public-event') == observed.call('act', {'value': 'x'}, event_id='same-public-event')
     assert plain.events == observed.events
     assert [r['action_status'] for r in log.rows('interactions')] == ['intent', 'success']
     assert log.rows('interactions')[1]['timestamp'] and log.rows('interactions')[1]['end_time']
