@@ -1,0 +1,166 @@
+{
+  "schema": "skillcompiler.benchmark-profiles.v1",
+  "method": "ours",
+  "upstream": "SkillOpt@fa4ca184573e42ec11472959dd57422381418096",
+  "split_seed": 42,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "profiles": {
+    "searchqa": {
+      "counts": [
+        300,
+        24,
+        1400,
+        276
+      ],
+      "interaction": "single_answer",
+      "input": "question/context; DOC boundary 6000 chars",
+      "scorer": "SkillOpt EM/F1",
+      "hard": "EM == 1",
+      "native_calls": 0,
+      "wall_seconds": 60,
+      "memory_mb": 1024,
+      "program_call_limit": 32,
+      "adapter_abi": "simple.v1",
+      "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783",
+      "split_order": [
+        "train",
+        "val",
+        "test",
+        "reserve"
+      ]
+    },
+    "spreadsheet": {
+      "counts": [
+        200,
+        20,
+        180,
+        0
+      ],
+      "interaction": "tool_loop",
+      "input": "first variant workbook and answer range",
+      "scorer": "SkillOpt all variants / LibreOffice recalculation",
+      "hard": "all variants pass",
+      "native_calls": 30,
+      "mode": "react",
+      "wall_seconds": 120,
+      "memory_mb": 2048,
+      "program_call_limit": 32,
+      "adapter_abi": "simple.v1",
+      "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783",
+      "split_order": [
+        "train",
+        "val",
+        "test",
+        "reserve"
+      ]
+    },
+    "officeqa": {
+      "counts": [
+        120,
+        24,
+        102,
+        0
+      ],
+      "interaction": "tool_loop",
+      "input": "Full246; full offline corpus; no oracle/source_docs/network",
+      "scorer": "officeqa_skillopt_em_f1_v1",
+      "hard": "normalized EM == 1",
+      "native_calls": 24,
+      "wall_seconds": 60,
+      "memory_mb": 1024,
+      "program_call_limit": 32,
+      "adapter_abi": "simple.v1",
+      "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783",
+      "split_order": [
+        "train",
+        "val",
+        "test",
+        "reserve"
+      ]
+    },
+    "docvqa": {
+      "counts": [
+        180,
+        24,
+        200,
+        130
+      ],
+      "interaction": "single_answer",
+      "input": "question and real image content parts; no OCR substitute",
+      "scorer": "SkillOpt ANLS; normalized distance >= 0.5 gives zero",
+      "hard": "ANLS >= 0.999",
+      "native_calls": 0,
+      "wall_seconds": 60,
+      "memory_mb": 1024,
+      "program_call_limit": 32,
+      "adapter_abi": "simple.v1",
+      "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783",
+      "split_order": [
+        "train",
+        "val",
+        "test",
+        "reserve"
+      ]
+    },
+    "livemath": {
+      "counts": [
+        60,
+        17,
+        100,
+        0
+      ],
+      "interaction": "single_answer",
+      "input": "question/choices only; months 202511-202602; no theorem/sketch",
+      "scorer": "SkillOpt choice parser",
+      "hard": "exact label",
+      "native_calls": 0,
+      "wall_seconds": 60,
+      "memory_mb": 1024,
+      "program_call_limit": 32,
+      "adapter_abi": "simple.v1",
+      "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783",
+      "split_order": [
+        "train",
+        "val",
+        "test",
+        "reserve"
+      ]
+    },
+    "alfworld": {
+      "counts": [
+        120,
+        24,
+        134,
+        null
+      ],
+      "interaction": "tool_loop",
+      "input": "public observation and exact native catalog",
+      "scorer": "official environment won",
+      "hard": "won",
+      "native_calls": 100,
+      "environment_steps": 100,
+      "wall_seconds": 60,
+      "memory_mb": 1024,
+      "program_call_limit": 32,
+      "adapter_abi": "simple.v1",
+      "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783",
+      "split_order": [
+        "train",
+        "val",
+        "test",
+        "reserve"
+      ]
+    }
+  },
+  "scorer_sha256": {
+    "docvqa.py": "09157ae524c546dfa1e5c42c3383b017303e04a95c09a5c9683e06d618b66b0b",
+    "livemath.py": "97c92063a38228e91bbb6a12cad7a783374900c9975610654b50b3a4eb997488",
+    "officeqa.py": "49dad2a2bdede9665541102fe47ca74ab2a0cc05ad84d2f8ca047f223c1b4aef",
+    "searchqa.py": "b69136fa727fedeede7ab257144f4dc937877bd1792f13c5c596d566df66fbd3",
+    "spreadsheet.py": "341dd5a5e6109460fce41b336d78a897bd691159c5410a5fd98701de713dd162"
+  }
+}

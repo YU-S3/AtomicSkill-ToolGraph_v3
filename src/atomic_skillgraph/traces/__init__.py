@@ -1,4 +1,1 @@
-"""Structured v3 trace schema and atomic persistence."""
-
-from .schema import *
-from .store import TraceStore
+"""Episode and cost logs are emitted by the empirical runner."""

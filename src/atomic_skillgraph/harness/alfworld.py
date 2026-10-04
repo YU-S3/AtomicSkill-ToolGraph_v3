@@ -1,27 +1,15 @@
-"""ALFWorld v3 adapter: raw commands are parsed exactly once at this boundary."""
-
+"""ALFWorld native boundary: exact task reset, public catalog and feedback."""
 from __future__ import annotations
-
 import os
 import copy
 import re
 import hashlib
 import json
-from dataclasses import dataclass
-from itertools import combinations
 from pathlib import Path
-from typing import Any, Iterable, Mapping
-
-from ..core.bindings import BindingExpression, BindingExprKind
-from ..core.contracts import (
-    ContractSource, IdentityConstraint, IdentityRelation, SemanticPredicate, TaskContract,
-)
+from typing import Any
 from ..core.errors import AtomicSkillGraphError, FailureLayer
-from ..core.results import AtomicEffectResolution, PrimitiveToolStep, ValidationResult
-from ..validation.contract_matcher import ContractMatcher
 from .action_catalog import HarnessActionCatalog
-from .protocol import HarnessActionResult, HarnessActionSpec, HarnessTask, PredicateSpec
-
+from .simple_protocol import HarnessTask, HarnessActionSpec, HarnessActionResult
 
 TASK_TYPE_IDS = {
     "pick_and_place_simple": 1,
@@ -31,6 +19,7 @@ TASK_TYPE_IDS = {
     "pick_cool_then_place_in_recep": 5,
     "pick_two_obj_and_place": 6,
 }
+
 
 _GAME_TYPE_RE = re.compile("(" + "|".join(map(re.escape, TASK_TYPE_IDS)) + ")")
 
@@ -58,74 +47,6 @@ def entity_matches(left: Any, right: Any) -> bool:
     return same_entity_family(left, expected)
 
 
-def semantic_value_compatible(
-    *,
-    role: str,
-    concrete_value: Any,
-    semantic_anchor: Any,
-    semantic_type: str,
-) -> bool:
-    """Check a concrete ALFWorld proposal against its semantic task anchor.
-
-    Semantic entity anchors such as ``apple`` accept concrete members such as
-    ``apple_2``.  Concrete anchors preserve identity.  Non-entity scalar
-    values use equality after harmless string normalization.
-    """
-
-    if semantic_anchor is None or semantic_anchor == "":
-        return True
-    kind = str(semantic_type).strip().casefold()
-    entity_roles = {
-        "object", "item", "source", "destination", "location", "station",
-        "tool", "light", "light_source", "held_object", "target_location",
-        "object_location", "container", "receptacle", "appliance",
-    }
-    entity_typed = kind in {
-        "entity", "object", "location", "container", "receptacle",
-        "appliance", "tool", "light", "station",
-    } or str(role).strip().casefold() in entity_roles
-    if entity_typed and isinstance(concrete_value, str) and isinstance(semantic_anchor, str):
-        return entity_matches(concrete_value, semantic_anchor)
-    return concrete_value == semantic_anchor
-
-
-class AlfWorldContractMatcher:
-    """Value-sensitive TaskContract matcher owned by the ALFWorld adapter."""
-
-    def covers(
-        self,
-        target: SemanticPredicate,
-        offered: SemanticPredicate,
-        offered_arguments: dict[str, Any],
-    ) -> bool:
-        if target.predicate.casefold() != offered.predicate.casefold():
-            return False
-        if target.effect_domain is not offered.effect_domain:
-            return False
-        if set(target.args) != set(offered_arguments):
-            return False
-        return all(
-            entity_matches(offered_arguments[role], expected)
-            if isinstance(expected, str)
-            and isinstance(offered_arguments.get(role), str)
-            else offered_arguments.get(role) == expected
-            for role, expected in target.args.items()
-        )
-
-    def effect_covers_target(
-        self,
-        *,
-        offered_predicate: SemanticPredicate,
-        offered_arguments: dict[str, Any],
-        target_predicate: SemanticPredicate,
-    ) -> bool:
-        """Compatibility alias for the earlier internal matcher name."""
-
-        return self.covers(
-            target_predicate, offered_predicate, offered_arguments,
-        )
-
-
 _ACTION_PATTERNS: list[tuple[str, re.Pattern[str], tuple[str, ...]]] = [
     ("TAKE", re.compile(r"^take (.+?) from (.+)$", re.I), ("object", "source")),
     ("PUT", re.compile(r"^put (.+?) in/on (.+)$", re.I), ("object", "destination")),
@@ -144,89 +65,6 @@ _ACTION_PATTERNS: list[tuple[str, re.Pattern[str], tuple[str, ...]]] = [
 ]
 
 
-# The ALFWorld predicate vocabulary has exactly one code authority.  Both the
-# public Harness schema and private Validator snapshots are projections of
-# these specs; neither boundary maintains its own predicate/domain table.
-_ALFWORLD_PREDICATE_SPECS: tuple[PredicateSpec, ...] = (
-    PredicateSpec(
-        "agent.holds", "world", ("object",),
-        {"object": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "agent.at_location", "world", ("location",),
-        {"location": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "object.at_location", "world", ("object", "location"),
-        {"object": "entity", "location": "entity"},
-        "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "object.heated", "world", ("object",),
-        {"object": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "object.cleaned", "world", ("object",),
-        {"object": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "object.cooled", "world", ("object",),
-        {"object": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "object.sliced", "world", ("object",),
-        {"object": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "container.open", "world", ("container",),
-        {"container": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "container.closed", "world", ("container",),
-        {"container": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "light.on", "world", ("light",),
-        {"light": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "light.off", "world", ("light",),
-        {"light": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "object.observed", "evidence", ("object",),
-        {"object": "entity"}, "alfworld_action_facts",
-    ),
-    PredicateSpec(
-        "object.observed_with", "world", ("object", "light"),
-        {"object": "entity", "light": "entity"},
-        "alfworld_terminal_certificate",
-    ),
-    PredicateSpec(
-        "entity.discovered_at", "evidence", ("entity", "location"),
-        {"entity": "entity", "location": "entity"},
-        "alfworld_action_catalog",
-    ),
-)
-
-_ALFWORLD_PREDICATE_DOMAINS = {
-    spec.predicate: spec.effect_domain for spec in _ALFWORLD_PREDICATE_SPECS
-}
-
-# Existing public catalog projection, exposed as data so consumers do not
-# have to guess which public argument witnesses a predicate role. This is
-# not an action policy and does not add facts to the validator.
-_PUBLIC_CATALOG_RELATION_SCHEMA = {
-    "action_type": "TAKE",
-    "argument_roles": ["object", "source"],
-    "predicates": [
-        {"predicate": "entity.discovered_at", "argument_mapping": {"entity": "object", "location": "source"}},
-        {"predicate": "object.at_location", "argument_mapping": {"object": "object", "location": "source"}},
-    ],
-    "availability": "Current public catalog only; reading this relation does not execute the action. After another action, re-query the refreshed catalog. Historical discovery does not guarantee a currently selectable witness.",
-}
-
-
 def parse_alfworld_action(raw_action: Any) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
     """The only ALFWorld raw-command parser used by v3 runtime."""
     text = re.sub(r"\s+", " ", str(raw_action).strip())
@@ -241,824 +79,6 @@ def parse_alfworld_action(raw_action: Any) -> tuple[str, dict[str, Any], str, di
     if lowered == "look":
         return "LOOK", {}, text, {"parser": "alfworld_v3"}
     return "UNKNOWN", {}, text, {"parser": "alfworld_v3", "unparsed": True}
-
-
-class AlfWorldValidatorChannel:
-    """Private action-derived facts plus official win signal; never policy-facing."""
-
-    validation_strength = "official_goal_plus_action_derived_effects"
-
-    def __init__(self) -> None:
-        self.revision = 0
-        self.won = False
-        self.done = False
-        self._facts: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
-        self._held: set[str] = set()
-        self._locations: dict[str, str] = {}
-        self._properties: dict[str, set[str]] = {
-            "object.heated": set(), "object.cooled": set(),
-            "object.cleaned": set(), "object.sliced": set(),
-        }
-        self._containers_open: set[str] = set()
-        self._containers_closed: set[str] = set()
-        self._lights_on: set[str] = set()
-        self._lights_off: set[str] = set()
-        self._light_locations: dict[str, str] = {}
-        self._observed: set[str] = set()
-        self._agent_location = ""
-        self._discovered: dict[tuple[str, str], tuple[str, str]] = {}
-
-    def reset(self) -> None:
-        self.revision = 0
-        self.won = self.done = False
-        self._facts.clear()
-        self._held.clear()
-        self._locations.clear()
-        for values in self._properties.values():
-            values.clear()
-        self._containers_open.clear()
-        self._containers_closed.clear()
-        self._lights_on.clear()
-        self._lights_off.clear()
-        self._light_locations.clear()
-        self._observed.clear()
-        self._agent_location = ""
-        self._discovered.clear()
-
-    def _rebuild_facts(self) -> None:
-        facts: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
-
-        def add(predicate: str, **arguments: str) -> None:
-            facts.add((predicate, tuple(sorted((key, str(value)) for key, value in arguments.items()))))
-
-        for obj in self._held:
-            add("agent.holds", object=obj)
-        for obj, location in self._locations.items():
-            add("object.at_location", object=obj, location=location)
-        for predicate, objects in self._properties.items():
-            for obj in objects:
-                add(predicate, object=obj)
-        if self._agent_location:
-            add("agent.at_location", location=self._agent_location)
-        for container in self._containers_open:
-            add("container.open", container=container)
-        for container in self._containers_closed:
-            add("container.closed", container=container)
-        for light in self._lights_on:
-            add("light.on", light=light)
-        for light in self._lights_off:
-            add("light.off", light=light)
-        for obj in self._observed:
-            add("object.observed", object=obj)
-        for entity, location in self._discovered.values():
-            add("entity.discovered_at", entity=entity, location=location)
-        # The look-at goal is a final-state conjunction, not an action-order
-        # witness.  Derive it from current base state so TAKE -> USE and
-        # USE -> TAKE have identical semantics, and so leaving, putting, or
-        # switching the light off invalidates the fact immediately.
-        for held_object in self._held:
-            for light in self._lights_on:
-                if (
-                    self._agent_location
-                    and self._light_locations.get(light) == self._agent_location
-                ):
-                    add(
-                        "object.observed_with",
-                        object=held_object,
-                        light=light,
-                    )
-        self._facts = facts
-
-    def record(
-        self,
-        spec: HarnessActionSpec,
-        *,
-        accepted: bool,
-        revision: int,
-        done: bool,
-        won: bool,
-        observation: str = "",
-        metadata: dict[str, Any] | None = None,
-        catalog: list[HarnessActionSpec] | None = None,
-    ) -> None:
-        self.revision, self.done, self.won = revision, done, won
-        if catalog is not None:
-            self.set_catalog(catalog)
-        if not accepted:
-            return
-        args = spec.arguments
-        obj = str(args.get("object", ""))
-        if spec.action_type == "TAKE":
-            if obj:
-                self._held.add(obj)
-                self._locations.pop(obj, None)
-        elif spec.action_type in {"PUT", "MOVE"}:
-            destination = str(args.get("destination", ""))
-            if obj and destination:
-                self._held.discard(obj)
-                self._locations[obj] = destination
-        elif spec.action_type == "HEAT":
-            if obj:
-                self._properties["object.heated"].add(obj)
-                self._properties["object.cooled"].discard(obj)
-        elif spec.action_type == "COOL":
-            if obj:
-                self._properties["object.cooled"].add(obj)
-                self._properties["object.heated"].discard(obj)
-        elif spec.action_type == "CLEAN":
-            if obj:
-                self._properties["object.cleaned"].add(obj)
-        elif spec.action_type == "SLICE":
-            if obj:
-                self._properties["object.sliced"].add(obj)
-        elif spec.action_type == "GO_TO":
-            self._agent_location = str(args.get("destination", ""))
-        elif spec.action_type == "OPEN":
-            if obj:
-                self._containers_closed.discard(obj)
-                self._containers_open.add(obj)
-        elif spec.action_type == "CLOSE":
-            if obj:
-                self._containers_open.discard(obj)
-                self._containers_closed.add(obj)
-        elif spec.action_type == "TOGGLE_ON":
-            if obj:
-                self._lights_off.discard(obj)
-                self._lights_on.add(obj)
-                if self._agent_location:
-                    self._light_locations[obj] = self._agent_location
-        elif spec.action_type == "TOGGLE_OFF":
-            if obj:
-                self._lights_on.discard(obj)
-                self._lights_off.add(obj)
-        elif spec.action_type == "USE":
-            # USE is contextual in ALFWorld.  The official observation is the
-            # only authority for a light transition; when it is ambiguous we
-            # deliberately do not manufacture a deterministic light fact.
-            if obj:
-                lowered = re.sub(r"\s+", " ", str(observation or "").casefold())
-                on_phrase = bool(re.search(r"\b(?:turn|turned|switch|switched)\s+on\b", lowered))
-                off_phrase = bool(re.search(r"\b(?:turn|turned|switch|switched)\s+off\b", lowered))
-                if on_phrase and not off_phrase:
-                    self._lights_off.discard(obj)
-                    self._lights_on.add(obj)
-                    if self._agent_location:
-                        self._light_locations[obj] = self._agent_location
-                elif off_phrase and not on_phrase:
-                    self._lights_on.discard(obj)
-                    self._lights_off.add(obj)
-        elif spec.action_type == "EXAMINE":
-            if obj:
-                self._observed.add(obj)
-        self._rebuild_facts()
-
-    def set_catalog(self, catalog: list[HarnessActionSpec]) -> None:
-        """Rebuild revision-aware structured evidence from the public catalog."""
-
-        self._discovered.clear()
-        for spec in catalog:
-            if spec.action_type != "TAKE":
-                continue
-            entity = str(spec.arguments.get("object", ""))
-            location = str(spec.arguments.get("source", ""))
-            if entity and location:
-                self._discovered[(entity, location)] = (entity, location)
-        self._rebuild_facts()
-
-    def set_public_discovery(self, frame) -> None:
-        self._discovered = {(row.entity, row.location): (row.entity, row.location) for row in frame.records}
-        self._rebuild_facts()
-
-    def snapshot(self) -> dict[str, Any]:
-        facts: list[dict[str, Any]] = []
-        for predicate, argument_items in sorted(self._facts):
-            arguments = dict(argument_items)
-            effect_domain = _ALFWORLD_PREDICATE_DOMAINS.get(predicate)
-            if effect_domain is None:
-                raise AtomicSkillGraphError(
-                    "semantic_snapshot_integrity_error",
-                    f"ALFWorld semantic fact has no predicate schema: {predicate}",
-                    layer=FailureLayer.INFRASTRUCTURE,
-                )
-            facts.append({
-                "predicate": predicate,
-                "args": arguments,
-                "effect_domain": effect_domain,
-                "witness_ref": self._fact_ref(
-                    self.revision, predicate, arguments,
-                ),
-            })
-        return {
-            "revision": self.revision, "done": self.done, "won": self.won,
-            "facts": facts,
-            "validation_strength": self.validation_strength,
-        }
-
-    @staticmethod
-    def _expected_args(
-        predicate: SemanticPredicate | dict[str, Any], bindings: dict[str, Any],
-    ) -> tuple[str, dict[str, Any], int, str]:
-        name = predicate.predicate if isinstance(predicate, SemanticPredicate) else str(predicate.get("predicate", ""))
-        raw_args = predicate.args if isinstance(predicate, SemanticPredicate) else dict(predicate.get("args", {}))
-        cardinality = predicate.cardinality if isinstance(predicate, SemanticPredicate) else int(predicate.get("cardinality", 1))
-        distinct_by = predicate.distinct_by if isinstance(predicate, SemanticPredicate) else str(predicate.get("distinct_by", ""))
-        expected: dict[str, Any] = {}
-        for role, value in raw_args.items():
-            if isinstance(value, BindingExpression):
-                if value.kind is BindingExprKind.CONSTANT:
-                    expected[role] = value.constant
-                elif value.kind is BindingExprKind.SKILL_INPUT:
-                    expected[role] = bindings.get(value.source_role)
-                else:
-                    # Effect contracts may only refer to their own boundary
-                    # inputs or constants.  Keep unsupported expressions from
-                    # becoming a ``None`` wildcard in ``_matching_facts``.
-                    expected[role] = (
-                        f"__unsupported_effect_expression__:{value.kind.value}"
-                    )
-            elif isinstance(value, str) and value.startswith("$"):
-                expected[role] = bindings.get(value[1:])
-            else:
-                expected[role] = value
-        return name, expected, max(1, int(cardinality)), distinct_by
-
-    def _matching_facts(
-        self, predicate: SemanticPredicate | dict[str, Any], bindings: dict[str, Any],
-    ) -> list[dict[str, str]]:
-        name, expected, _, _ = self._expected_args(predicate, bindings)
-        matches: list[dict[str, str]] = []
-        for fact_name, fact_items in self._facts:
-            if fact_name != name:
-                continue
-            actual = dict(fact_items)
-            if all(value in (None, "") or entity_matches(actual.get(role, ""), value) for role, value in expected.items()):
-                matches.append(actual)
-        return matches
-
-    def _matches(self, predicate: SemanticPredicate | dict[str, Any], bindings: dict[str, Any]) -> bool:
-        _, _, cardinality, distinct_by = self._expected_args(predicate, bindings)
-        matches = self._matching_facts(predicate, bindings)
-        if distinct_by:
-            return len({item.get(distinct_by, "") for item in matches if item.get(distinct_by)}) >= cardinality
-        return len(matches) >= cardinality
-
-    @staticmethod
-    def _effect_parts(
-        effect: SemanticPredicate | dict[str, Any],
-    ) -> tuple[str, dict[str, Any], int, str]:
-        if isinstance(effect, SemanticPredicate):
-            return (
-                effect.predicate,
-                dict(effect.args),
-                max(1, int(effect.cardinality)),
-                str(effect.distinct_by),
-            )
-        return (
-            str(effect.get("predicate", "")),
-            dict(effect.get("args") or {}),
-            max(1, int(effect.get("cardinality", 1))),
-            str(effect.get("distinct_by", "")),
-        )
-
-    @staticmethod
-    def _fact_ref(revision: int, predicate: str, arguments: dict[str, Any]) -> str:
-        suffix = ",".join(
-            f"{role}={normalize_entity(value)}"
-            for role, value in sorted(arguments.items())
-        )
-        return f"alfworld_action_fact:r{revision}:{predicate}:{suffix}"
-
-    @staticmethod
-    def _value_matches(actual: Any, expected: Any) -> bool:
-        if isinstance(actual, str) and isinstance(expected, str):
-            return entity_matches(actual, expected)
-        return actual == expected
-
-    def resolve_atomic_effect(
-        self, request: dict[str, Any],
-    ) -> AtomicEffectResolution:
-        """Resolve concrete Atomic inputs only from accepted-action facts.
-
-        This is deliberately separate from ``validate_atomic_effect``.  It
-        may discover concrete input witnesses, but the ordinary Atomic
-        validator remains the terminal authority after those witnesses are
-        merged with the occurrence bindings.
-        """
-
-        effects = list(request.get("effects") or [])
-        if not effects:
-            return AtomicEffectResolution(
-                False,
-                failure_code="atomic_effect_violation",
-                message="Atomic effect resolution requires at least one effect",
-            )
-        if "current_revision" not in request:
-            return AtomicEffectResolution(
-                False,
-                failure_code="atomic_effect_revision_invalid",
-                message="Atomic effect resolution requires an explicit revision",
-            )
-        try:
-            if isinstance(request["current_revision"], bool):
-                raise ValueError("boolean revision")
-            requested_revision = int(request["current_revision"])
-        except (TypeError, ValueError):
-            return AtomicEffectResolution(
-                False,
-                failure_code="atomic_effect_revision_invalid",
-                message="Atomic effect resolution revision is invalid",
-            )
-        if requested_revision != self.revision:
-            return AtomicEffectResolution(
-                False,
-                failure_code="stale_atomic_effect_witness",
-                message="Atomic effect resolution revision is stale",
-            )
-
-        known = {
-            str(role): value
-            for role, value in dict(request.get("known_bindings") or {}).items()
-            if value not in (None, "")
-        }
-        anchors = {
-            str(role): value
-            for role, value in dict(request.get("semantic_anchors") or {}).items()
-            if value not in (None, "")
-        }
-        preferred = [
-            value for value in list(request.get("preferred_values") or [])
-            if value not in (None, "")
-        ]
-        preferred_bindings = {
-            str(role): value
-            for role, value in dict(
-                request.get("preferred_bindings") or {}
-            ).items()
-            if value not in (None, "")
-        }
-        authoritative_fact_keys = {
-            (
-                str(item.get("predicate", "")),
-                tuple(sorted(
-                    (str(role), str(value))
-                    for role, value in dict(item.get("args") or {}).items()
-                )),
-            )
-            for item in list(
-                request.get("authoritative_evidence_facts") or []
-            )
-            if isinstance(item, Mapping)
-            and str(item.get("predicate", ""))
-        }
-        input_specs = list(request.get("input_specs") or [])
-        output_specs = list(request.get("output_specs") or [])
-        output_identity = list(request.get("output_identity") or [])
-        semantic_types: dict[str, str] = {}
-        for spec in input_specs:
-            if isinstance(spec, Mapping):
-                name = str(spec.get("name", ""))
-                semantic_type = str(spec.get("semantic_type", "entity"))
-            else:
-                name = str(getattr(spec, "name", ""))
-                semantic_type = str(getattr(spec, "semantic_type", "entity"))
-            if name:
-                semantic_types[name] = semantic_type
-        facts = [
-            (predicate, dict(arguments))
-            for predicate, arguments in sorted(self._facts)
-        ]
-        per_effect: list[list[tuple[dict[str, Any], list[str]]]] = []
-        checks: dict[str, bool] = {}
-
-        for index, effect in enumerate(effects):
-            predicate, raw_args, cardinality, distinct_by = self._effect_parts(effect)
-            parsed_args: dict[str, tuple[str, Any]] = {}
-            for predicate_role, raw in raw_args.items():
-                expression: BindingExpression | None = None
-                if isinstance(raw, BindingExpression):
-                    expression = raw
-                elif isinstance(raw, Mapping) and "kind" in raw:
-                    try:
-                        expression = BindingExpression.from_dict(dict(raw))
-                    except (KeyError, TypeError, ValueError):
-                        return AtomicEffectResolution(
-                            False,
-                            checks=checks,
-                            failure_code="atomic_effect_expression_invalid",
-                            message="Atomic effect contains an invalid binding expression",
-                        )
-                if expression is not None:
-                    if expression.kind is BindingExprKind.CONSTANT:
-                        parsed_args[predicate_role] = (
-                            "constant", expression.constant,
-                        )
-                    elif expression.kind is BindingExprKind.SKILL_INPUT:
-                        parsed_args[predicate_role] = (
-                            "role", str(expression.source_role),
-                        )
-                    else:
-                        return AtomicEffectResolution(
-                            False,
-                            checks=checks,
-                            failure_code="atomic_effect_expression_unsupported",
-                            message=(
-                                "Atomic effects may only use skill-input or "
-                                "constant expressions"
-                            ),
-                        )
-                elif isinstance(raw, str) and raw.startswith("$"):
-                    parsed_args[predicate_role] = ("role", raw[1:])
-                else:
-                    parsed_args[predicate_role] = ("constant", raw)
-
-            source_roles = {
-                str(value)
-                for kind, value in parsed_args.values()
-                if kind == "role" and str(value)
-            }
-            if any(kind == "role" and not str(value) for kind, value in parsed_args.values()):
-                return AtomicEffectResolution(
-                    False,
-                    checks=checks,
-                    failure_code="atomic_effect_expression_invalid",
-                    message="Atomic effect references an empty input role",
-                )
-            raw_candidates: list[tuple[dict[str, Any], dict[str, Any], str]] = []
-            for fact_predicate, actual_args in facts:
-                if fact_predicate != predicate:
-                    continue
-                assignment: dict[str, Any] = {}
-                compatible = True
-                for predicate_role, (kind, expected) in parsed_args.items():
-                    actual = actual_args.get(predicate_role)
-                    if actual in (None, ""):
-                        compatible = False
-                        break
-                    if kind == "constant":
-                        if not self._value_matches(actual, expected):
-                            compatible = False
-                            break
-                        continue
-                    source_role = str(expected)
-                    if not source_role:
-                        compatible = False
-                        break
-                    if source_role in known and not self._value_matches(
-                        actual, known[source_role],
-                    ):
-                        compatible = False
-                        break
-                    anchor = anchors.get(source_role)
-                    if anchor not in (None, "") and not semantic_value_compatible(
-                        role=source_role,
-                        concrete_value=actual,
-                        semantic_anchor=anchor,
-                        semantic_type=semantic_types.get(source_role, "entity"),
-                    ):
-                        compatible = False
-                        break
-                    prior = assignment.get(source_role)
-                    if prior is not None and prior != actual:
-                        compatible = False
-                        break
-                    assignment[source_role] = actual
-                if compatible:
-                    # A role-specific Agent claim is only a candidate filter.
-                    # It cannot create a fact, weaken a hard anchor, or make an
-                    # otherwise absent witness eligible.
-                    for role, expected in preferred_bindings.items():
-                        if role not in source_roles:
-                            continue
-                        actual = assignment.get(role, known.get(role))
-                        if actual in (None, "") or not self._value_matches(
-                            actual, expected,
-                        ):
-                            compatible = False
-                            break
-                if compatible:
-                    raw_candidates.append((
-                        assignment,
-                        actual_args,
-                        self._fact_ref(self.revision, predicate, actual_args),
-                    ))
-
-            # An unanchored runtime-resolvable role may be filled only by a
-            # value explicitly implicated by the just-accepted action, or by
-            # a unique relation whose other roles are anchored.  The latter
-            # is intentionally non-vacuous: a one-role navigation effect at
-            # node entry may not adopt an arbitrary current location.
-            candidate_values = {
-                role: {
-                    candidate[0][role]
-                    for candidate in raw_candidates
-                    if role in candidate[0]
-                }
-                for role in source_roles
-            }
-            filtered: list[tuple[dict[str, Any], dict[str, Any], str]] = []
-            for assignment, actual_args, witness in raw_candidates:
-                allowed = True
-                occurrence_authoritative = (
-                    predicate,
-                    tuple(sorted(
-                        (str(role), str(value))
-                        for role, value in actual_args.items()
-                    )),
-                ) in authoritative_fact_keys
-                for role, value in assignment.items():
-                    if role in known or role in anchors:
-                        continue
-                    preferred_match = (
-                        role in preferred_bindings
-                        and self._value_matches(
-                            value, preferred_bindings[role],
-                        )
-                    ) or any(
-                        self._value_matches(value, candidate)
-                        for candidate in preferred
-                    )
-                    other_arguments = [
-                        (kind, expected)
-                        for kind, expected in parsed_args.values()
-                        if not (kind == "role" and str(expected) == role)
-                    ]
-                    other_arguments_anchored = bool(other_arguments) and all(
-                        kind == "constant"
-                        or str(expected) in known
-                        or str(expected) in anchors
-                        for kind, expected in other_arguments
-                    )
-                    uniquely_constrained = (
-                        len(candidate_values.get(role, set())) == 1
-                        and other_arguments_anchored
-                    )
-                    if (
-                        not preferred_match
-                        and not occurrence_authoritative
-                        and not uniquely_constrained
-                    ):
-                        allowed = False
-                        break
-                if allowed:
-                    filtered.append((assignment, actual_args, witness))
-
-            groups_by_assignment: dict[
-                tuple[tuple[str, str], ...],
-                tuple[dict[str, Any], list[str]],
-            ] = {}
-            for group in combinations(filtered, cardinality):
-                if distinct_by and len({
-                    item[1].get(distinct_by)
-                    for item in group
-                    if item[1].get(distinct_by) not in (None, "")
-                }) < cardinality:
-                    continue
-                merged: dict[str, Any] = {}
-                consistent = True
-                refs: list[str] = []
-                for assignment, _actual_args, witness in group:
-                    refs.append(witness)
-                    for role, value in assignment.items():
-                        if role in merged and merged[role] != value:
-                            consistent = False
-                            break
-                        merged[role] = value
-                    if not consistent:
-                        break
-                if consistent:
-                    key = tuple(sorted(
-                        (role, repr(value)) for role, value in merged.items()
-                    ))
-                    if key in groups_by_assignment:
-                        prior, prior_refs = groups_by_assignment[key]
-                        groups_by_assignment[key] = (
-                            prior,
-                            list(dict.fromkeys([*prior_refs, *refs])),
-                        )
-                    else:
-                        groups_by_assignment[key] = (
-                            merged,
-                            list(dict.fromkeys(refs)),
-                        )
-            groups = list(groups_by_assignment.values())
-            checks[f"effect_{index}_witness_resolved"] = bool(groups)
-            per_effect.append(groups)
-
-        if not all(per_effect):
-            return AtomicEffectResolution(
-                False,
-                checks=checks,
-                failure_code="atomic_effect_violation",
-                message="Declared Atomic effect has no eligible current action-derived witness",
-            )
-
-        combined: list[tuple[dict[str, Any], list[str]]] = [({}, [])]
-        for groups in per_effect:
-            next_combined: list[tuple[dict[str, Any], list[str]]] = []
-            for existing, existing_refs in combined:
-                for assignment, refs in groups:
-                    if any(
-                        role in existing and existing[role] != value
-                        for role, value in assignment.items()
-                    ):
-                        continue
-                    next_combined.append((
-                        {**existing, **assignment},
-                        list(dict.fromkeys([*existing_refs, *refs])),
-                    ))
-            combined = next_combined
-
-        # A multi-effect contract may distribute roles across different
-        # predicates. Per-effect filtering above can only check roles used by
-        # that predicate; check every claimed role on each joint assignment.
-        combined = [
-            (assignment, refs)
-            for assignment, refs in combined
-            if all(
-                (actual := {**known, **assignment}.get(role))
-                not in (None, "")
-                and self._value_matches(actual, expected)
-                for role, expected in preferred_bindings.items()
-            )
-        ]
-
-        checks["joint_effect_assignment_exists"] = bool(combined)
-        if not combined:
-            return AtomicEffectResolution(
-                False,
-                checks=checks,
-                failure_code="atomic_effect_violation",
-                message="Atomic effects have no jointly consistent witness assignment",
-            )
-
-        by_assignment: dict[tuple[tuple[str, str], ...], tuple[dict[str, Any], list[str]]] = {}
-        for assignment, refs in combined:
-            key = tuple(sorted((role, repr(value)) for role, value in assignment.items()))
-            if key in by_assignment:
-                prior_assignment, prior_refs = by_assignment[key]
-                by_assignment[key] = (
-                    prior_assignment,
-                    list(dict.fromkeys([*prior_refs, *refs])),
-                )
-            else:
-                by_assignment[key] = (assignment, refs)
-        if len(by_assignment) != 1:
-            return AtomicEffectResolution(
-                False,
-                checks=checks,
-                failure_code="atomic_effect_witness_ambiguous",
-                message="Multiple concrete Atomic effect witness assignments remain",
-            )
-
-        resolved, witness_refs = next(iter(by_assignment.values()))
-        merged_values = {**known, **resolved}
-        outputs: dict[str, Any] = {}
-        for raw in output_identity:
-            output_role = str(raw.get("output_role", ""))
-            input_role = str(raw.get("input_role", ""))
-            if output_role and input_role in merged_values:
-                outputs[output_role] = merged_values[input_role]
-        output_roles = {
-            str(spec.get("name", ""))
-            if isinstance(spec, Mapping)
-            else str(getattr(spec, "name", ""))
-            for spec in output_specs
-        }
-        witness_set = set(witness_refs)
-        witness_arguments = [
-            arguments
-            for fact_predicate, arguments in facts
-            if self._fact_ref(
-                self.revision, fact_predicate, arguments,
-            ) in witness_set
-        ]
-        for output_role in sorted(output_roles - set(outputs)):
-            exact: dict[str, Any] = {}
-            for arguments in witness_arguments:
-                if output_role in arguments:
-                    value = arguments[output_role]
-                    exact.setdefault(repr(value), value)
-            if len(exact) == 1:
-                outputs[output_role] = next(iter(exact.values()))
-        checks["assignment_unique"] = True
-        checks["witness_revision_current"] = True
-        return AtomicEffectResolution(
-            True,
-            resolved_bindings=resolved,
-            output_candidates=outputs,
-            witness_refs=witness_refs,
-            checks=checks,
-        )
-
-    def validate_atomic_effect(self, request: dict[str, Any]) -> ValidationResult:
-        effects = request.get("effects", [])
-        bindings = request.get("bindings", {})
-        checks: dict[str, bool] = {}
-        for index, effect in enumerate(effects):
-            _, raw_expected, _, _ = self._expected_args(effect, bindings)
-            # Atomic completion/AlreadySatisfied must be tied to concrete
-            # realized entities, never only to a goal class such as ``apple``.
-            concrete = all(
-                value not in (None, "") and bool(re.search(r"(?:_|\s)\d+$", normalize_entity(value)))
-                for value in raw_expected.values()
-            )
-            checks[f"effect_{index}_bindings_concrete"] = concrete
-            checks[f"effect_{index}"] = concrete and self._matches(effect, bindings)
-        passed = bool(effects) and all(checks.values())
-        if passed:
-            witnesses = [f"alfworld_action_fact:r{self.revision}:{key}" for key in checks]
-            return ValidationResult("atomic", True, checks=checks, witness_refs=witnesses)
-        return ValidationResult(
-            "atomic", False, checks=checks, failure_codes=["atomic_effect_violation"],
-            messages=["declared Atomic effect has no current validator witness"],
-        )
-
-    def validate_task_contract(self, contract: TaskContract) -> ValidationResult:
-        # The benchmark win signal is deliberately not consulted here.
-        # TaskValidator combines it with this independent action-derived
-        # contract result at the terminal boundary.
-        matches = [self._matching_facts(effect, {}) for effect in contract.target_effects]
-        checks = {f"target_{index}": self._matches(effect, {}) for index, effect in enumerate(contract.target_effects)}
-        checks["contract_mapped_from_goal"] = bool(contract.target_effects)
-        cardinality_ok = True
-        for constraint in contract.cardinality_constraints:
-            predicate = str(constraint.get("predicate", ""))
-            role = str(constraint.get("distinct_by") or constraint.get("role") or "object")
-            count = max(1, int(constraint.get("count", 1)))
-            candidates = [
-                item for index, effect_matches in enumerate(matches)
-                if contract.target_effects[index].predicate == predicate
-                for item in effect_matches
-            ]
-            cardinality_ok &= len({item.get(role, "") for item in candidates if item.get(role)}) >= count
-        checks["cardinality_constraints"] = cardinality_ok
-
-        def role_values(role: str) -> set[str]:
-            return {
-                str(witness[role])
-                for target, target_matches in zip(
-                    contract.target_effects, matches,
-                )
-                if role in target.args
-                for witness in target_matches
-                if witness.get(role) not in (None, "")
-            }
-
-        def per_effect_role_values(role: str) -> list[set[str]]:
-            return [
-                {
-                    str(witness[role])
-                    for witness in target_matches
-                    if witness.get(role) not in (None, "")
-                }
-                for target, target_matches in zip(
-                    contract.target_effects, matches,
-                )
-                if role in target.args
-            ]
-
-        identity_ok = True
-        for constraint in contract.identity_constraints:
-            left_values = role_values(constraint.left_role)
-            right_values = role_values(constraint.right_role)
-            if constraint.relation is IdentityRelation.SAME_AS:
-                if constraint.left_role == constraint.right_role:
-                    related = per_effect_role_values(
-                        constraint.left_role,
-                    )
-                    identity_ok &= bool(
-                        related
-                        and all(related)
-                        and set.intersection(*related)
-                    )
-                else:
-                    identity_ok &= bool(
-                        left_values and right_values
-                        and left_values & right_values
-                    )
-            elif constraint.left_role == constraint.right_role:
-                # Same-role multiplicity belongs exclusively to the formal
-                # cardinality ``distinct_by`` authority.
-                identity_ok = False
-            else:
-                identity_ok &= bool(
-                    left_values and right_values
-                    and left_values.isdisjoint(right_values)
-                )
-        checks["identity_constraints"] = identity_ok
-        passed = bool(contract.target_effects) and all(checks.values())
-        witnesses = []
-        if passed:
-            witnesses = [
-                f"alfworld_action_fact:r{self.revision}:{effect.predicate}:{index}"
-                for index, effect in enumerate(contract.target_effects)
-            ]
-        return ValidationResult(
-            "task_contract", passed, checks=checks,
-            failure_codes=[] if passed else ["task_contract_mismatch"],
-            messages=[] if passed else ["task contract is not yet satisfied"],
-            witness_refs=witnesses,
-        )
 
 
 class AlfWorldAdapter:
@@ -1085,7 +105,6 @@ class AlfWorldAdapter:
         self._task_index = 0
         self._revision = 0
         self._catalog = HarnessActionCatalog(parse_alfworld_action)
-        self._validator = AlfWorldValidatorChannel()
         self._current_task: HarnessTask | None = None
         self._observation = ""
         self._done = self._won = False
@@ -1097,8 +116,10 @@ class AlfWorldAdapter:
         self._backend_identity = ""
         self._exact_file: str | None = None
 
+
     def _configuration_identity(self) -> str:
         return json.dumps([self.split, self._build_config()], sort_keys=True)
+
 
     def _close_backend(self) -> None:
         env, self._env = self._env, None
@@ -1108,12 +129,14 @@ class AlfWorldAdapter:
         if env is not None:
             env.close()
 
+
     def _check_discovery_identity(self) -> str:
         identity = self._configuration_identity()
         if identity != self._discovery_identity:
             self._discovered_files = ()
             self._discovery_identity = identity
         return identity
+
 
     def _build_config(self) -> dict[str, Any]:
         split_map = {"eval_out_of_distribution": "valid_unseen", "eval_in_distribution": "valid_seen", "train": "train"}
@@ -1141,6 +164,7 @@ class AlfWorldAdapter:
             }},
             "controller": {"type": "oracle", "debug": False},
         }
+
 
     def initialize(self) -> int:
         identity = self._check_discovery_identity()
@@ -1170,6 +194,7 @@ class AlfWorldAdapter:
         self._task_index = 0
         return len(files) if files is not None else 0
 
+
     def _prepare_exact_backend(self, game_file: str, identity: str) -> bool:
         import alfworld.agents.environment as alf_env
 
@@ -1197,6 +222,7 @@ class AlfWorldAdapter:
                 layer=FailureLayer.INFRASTRUCTURE,
             ) from exc
         return True
+
 
     def _raw_reset(self) -> tuple[HarnessTask, str, list[str]]:
         if self._env is None:
@@ -1238,13 +264,12 @@ class AlfWorldAdapter:
                 "env_index": self._task_index,
                 "game_file": game_file,
                 "goal_roles": roles,
-                "semantic_bindings": roles,
-                "binding_types": {role: "entity" for role in roles},
             },
             metadata={"task_signature": signature},
         )
         self._task_index += 1
         return task, observation, admissible
+
 
     def load_tasks(self, *, limit: int = 0, task_type: str | None = None) -> list[HarnessTask]:
         if (self._env is None or self._exact_file is not None
@@ -1264,6 +289,7 @@ class AlfWorldAdapter:
             if limit and len(result) >= limit:
                 break
         return result
+
 
     def load_balanced_tasks(
         self, task_types: list[str], per_type_limit: int,
@@ -1309,6 +335,7 @@ class AlfWorldAdapter:
             )
         selected = [task for label in labels for task in buckets[label]]
         return sorted(selected, key=lambda task: int(task.context["env_index"]))
+
 
     def reset(self, task: HarnessTask) -> HarnessActionResult:
         index = int(task.context.get("env_index", 0))
@@ -1359,132 +386,14 @@ class AlfWorldAdapter:
         self._revision = 0
         self._runtime_accepted_prefix = []
         self._done = self._won = False
-        self._validator.reset()
         catalog = self._replace_action_catalog(admissible, self._revision)
-        self._validator.set_catalog(catalog)
         self._refresh_public_discovery(None, True)
         return HarnessActionResult(True, observation, False, False, self._revision, catalog, {"reset": True})
+
 
     def action_catalog(self) -> list[HarnessActionSpec]:
         return self._catalog.items()
 
-    def _runtime_state_digest(self, *, include_public=True) -> str:
-        import hashlib
-        import json
-        snapshot = self._validator.snapshot()
-        facts = [{k: v for k, v in fact.items() if k != "witness_ref"}
-                 for fact in snapshot["facts"]]
-        if not include_public:
-            facts = [fact for fact in facts if fact['predicate'] != 'entity.discovered_at']
-        facts.sort(key=lambda value: json.dumps(value, sort_keys=True))
-        payload = {"facts": facts, "done": self._done, "won": self._won,
-                   "catalog": sorted((item.action_type, json.dumps(item.arguments, sort_keys=True))
-                                     for item in self.action_catalog())}
-        if include_public and self._public_discovery_frame is not None:
-            frame = self._public_discovery_frame
-            payload['public_discovery'] = {'version': frame.version, 'observation_hash': frame.observation_hash,
-                'relations': sorted((r.entity, r.location, r.relation_kind) for r in frame.records),
-                'inspected_scopes': sorted((s.location, s.status) for s in frame.inspected_scopes),
-                'conflicts': frame.conflicts}
-        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-
-    def capture_runtime_checkpoint(self):
-        from .protocol import HarnessRuntimeCheckpoint
-        if self._current_task is None:
-            raise ValueError("runtime checkpoint requires an active task")
-        return HarnessRuntimeCheckpoint(
-            copy.deepcopy(self._current_task), tuple(copy.deepcopy(self._runtime_accepted_prefix)),
-            self._revision, self._runtime_state_digest(),
-            {'world_digest': self._runtime_state_digest(include_public=False), 'observation': self._observation,
-             'signature': copy.deepcopy(self._public_discovery_signature), 'accepted': self._public_discovery_accepted}
-                if self.public_discovery_version else {},
-        )
-
-    def restore_runtime_checkpoint(self, checkpoint):
-        if self._done or self._won:
-            raise AtomicSkillGraphError(
-                "runtime_checkpoint_restore_failed", "terminal world cannot be rolled back",
-                layer=FailureLayer.INFRASTRUCTURE,
-            )
-        try:
-            result = self.reset(checkpoint.task)
-            for signature in checkpoint.accepted_prefix:
-                candidates = [item for item in self.action_catalog()
-                              if item.action_type == signature["action_type"]
-                              and item.arguments == signature["arguments"]]
-                if len(candidates) != 1:
-                    raise ValueError("checkpoint replay requires exactly one canonical action")
-                result = self.execute_action(candidates[0].action_id, candidates[0].revision)
-                if not result.accepted or result.done or result.won:
-                    raise ValueError("checkpoint replay rejected or reached terminal")
-            public_feedback = checkpoint.public_feedback
-            digest = self._runtime_state_digest(include_public=not bool(public_feedback))
-            if digest != (public_feedback['world_digest'] if public_feedback else checkpoint.state_digest):
-                raise ValueError("checkpoint replay state digest mismatch")
-            # Rebase the restored catalog to the checkpoint revision, never
-            # dispatch an action with a stale pre-reset action id.
-            self._revision = checkpoint.revision
-            self._validator.revision = checkpoint.revision
-            catalog = self._replace_action_catalog(
-                [item.raw_action for item in self.action_catalog()], checkpoint.revision,
-            )
-            self._validator.set_catalog(catalog)
-            if public_feedback:
-                self._observation = public_feedback['observation']
-                self._refresh_public_discovery(public_feedback['signature'], public_feedback['accepted'])
-                digest = self._runtime_state_digest()
-                if digest != checkpoint.state_digest:
-                    raise ValueError('checkpoint public feedback reconstruction mismatch')
-            return HarnessActionResult(True, self._observation, False, False,
-                                       self._revision, catalog, {
-                "restore_replay_action_count": len(checkpoint.accepted_prefix),
-                "restored_digest": digest,
-            })
-        except Exception as exc:
-            raise AtomicSkillGraphError(
-                "runtime_checkpoint_restore_failed", str(exc), layer=FailureLayer.INFRASTRUCTURE,
-            ) from exc
-
-    def public_runtime_relation_facts(self) -> list[dict[str, Any]]:
-        """Project only location facts evidenced by the public action catalog.
-
-        The validator channel remains private. A current TAKE affordance is
-        itself public evidence that its named object is at its named source,
-        so the projection is rebuilt exclusively from that catalog entry.
-        """
-
-        relation = _PUBLIC_CATALOG_RELATION_SCHEMA
-        catalog_refs: dict[tuple[str, str], tuple[str, int]] = {}
-        for spec in self.action_catalog():
-            if str(spec.action_type).upper() != relation["action_type"]:
-                continue
-            entity = str(spec.arguments.get(relation["argument_roles"][0], ""))
-            location = str(spec.arguments.get(relation["argument_roles"][1], ""))
-            if entity and location:
-                catalog_refs[(entity, location)] = (
-                    f"action_catalog:{spec.action_id}:revision:{spec.revision}",
-                    int(spec.revision),
-                )
-
-        public: list[dict[str, Any]] = []
-        for (
-            (entity, location), (public_ref, observed_revision)
-        ) in sorted(catalog_refs.items()):
-            arguments = dict(zip(relation["argument_roles"], (entity, location)))
-            for projection in relation["predicates"]:
-                public.append({
-                    "predicate": projection["predicate"],
-                    "args": {role: arguments[source] for role, source in projection["argument_mapping"].items()},
-                    "effect_domain": _ALFWORLD_PREDICATE_DOMAINS[projection["predicate"]],
-                    "observed_at_revision": observed_revision,
-                    "source_kind": "public_action_catalog",
-                    "evidence_status": "observed",
-                    "public_evidence_ref": public_ref,
-                })
-        if self._public_discovery_frame is not None:
-            public = [p for p in public if p['predicate'] != 'entity.discovered_at']
-            public.extend(self._public_discovery_frame.relation_facts())
-        return public
 
     def _refresh_public_discovery(self, signature, accepted):
         if self.public_discovery_version is None:
@@ -1496,20 +405,11 @@ class AlfWorldAdapter:
             action_signature=signature, accepted=accepted, revision=self._revision,
             catalog=self.action_catalog(), episode_id=self._current_task.task_id,
             version=self.public_discovery_version)
-        self._validator.set_public_discovery(self._public_discovery_frame)
+
 
     def public_discovery_frame(self):
         return self._public_discovery_frame
 
-    def public_catalog_relation_schema(self) -> list[dict[str, Any]]:
-        """Static schema for the public projection above; no episode values."""
-        result = [copy.deepcopy(_PUBLIC_CATALOG_RELATION_SCHEMA)]
-        if self.public_discovery_version:
-            result.append({'source': self.public_discovery_version, 'predicate': 'entity.discovered_at',
-                'argument_roles': ['entity', 'location'], 'effect_domain': 'evidence',
-                'availability': 'Current explicit flat On/In public listing or TAKE catalog relation. '
-                    'Not inferred from navigation, USE, task goal, closed or ambiguous descriptions.'})
-        return result
 
     def _replace_action_catalog(
         self, admissible: list[Any], revision: int,
@@ -1524,16 +424,6 @@ class AlfWorldAdapter:
         ]
         return self._catalog.replace(supported, revision)
 
-    def semantic_value_compatible(
-        self, *, role: str, concrete_value: Any,
-        semantic_anchor: Any, semantic_type: str,
-    ) -> bool:
-        return semantic_value_compatible(
-            role=role,
-            concrete_value=concrete_value,
-            semantic_anchor=semantic_anchor,
-            semantic_type=semantic_type,
-        )
 
     def execute_action(self, action_id: str, revision: int) -> HarnessActionResult:
         if self._done or self._won:
@@ -1569,16 +459,6 @@ class AlfWorldAdapter:
             "action_type": spec.action_type,
         }
         self._observation, self._done, self._won = observation, done, won
-        self._validator.record(
-            spec,
-            accepted=accepted,
-            revision=self._revision,
-            done=done,
-            won=won,
-            observation=observation,
-            metadata=metadata,
-            catalog=catalog,
-        )
         self._refresh_public_discovery({'action_type': spec.action_type, 'arguments': spec.arguments}, accepted)
         if self._public_discovery_frame is not None:
             metadata['public_discovery_frame'] = self._public_discovery_frame.to_dict()
@@ -1587,59 +467,6 @@ class AlfWorldAdapter:
             metadata,
         )
 
-    def task_contract(self, task: HarnessTask) -> TaskContract:
-        goal = re.sub(r"\s+", " ", task.goal.casefold())
-        roles = _goal_roles(goal)
-        target_object = roles.get("object", "")
-        destination = roles.get("destination", "")
-        light_source = roles.get("light_source", "")
-        effects: list[SemanticPredicate] = []
-        if task.task_type == "pick_heat_then_place_in_recep" or re.search(r"\b(?:heat|heated|hot)\b", goal):
-            effects.append(SemanticPredicate("object.heated", {"object": target_object}))
-        if task.task_type == "pick_clean_then_place_in_recep" or re.search(r"\b(?:clean|cleaned)\b", goal):
-            effects.append(SemanticPredicate("object.cleaned", {"object": target_object}))
-        if task.task_type == "pick_cool_then_place_in_recep" or re.search(r"\b(?:cool|cooled|cold)\b", goal):
-            effects.append(SemanticPredicate("object.cooled", {"object": target_object}))
-        count = _goal_cardinality(goal)
-        if task.task_type == "pick_two_obj_and_place":
-            count = 2
-        if destination or task.task_type != "look_at_obj_in_light" and re.search(r"\b(?:put|place)\b", goal):
-            effects.append(SemanticPredicate(
-                "object.at_location", {"object": target_object, "location": destination},
-                cardinality=count, distinct_by="object" if count > 1 else "",
-            ))
-        if task.task_type == "look_at_obj_in_light" or re.search(r"\b(?:examine|look at)\b", goal):
-            effects.append(SemanticPredicate(
-                "object.observed_with", {"object": target_object, "light": light_source},
-            ))
-        cardinality = ([{
-            "constraint_id": "cc_object_at_location_distinct_object",
-            "predicate": "object.at_location",
-            "count": count,
-            "distinct_by": "object",
-            "shared_roles": ["location"],
-            "composition_mode": "repeat_unit",
-        }] if count > 1 else [])
-        identity: list[IdentityConstraint] = []
-        if task.task_type in {
-            "pick_clean_then_place_in_recep", "pick_heat_then_place_in_recep",
-            "pick_cool_then_place_in_recep",
-        }:
-            identity.append(IdentityConstraint("object", IdentityRelation.SAME_AS, "object", "task"))
-        return TaskContract(effects, cardinality, identity, ContractSource.ADAPTER_DERIVED, 1.0, "alfworld_v3_goal")
-
-    def contract_matcher(self) -> ContractMatcher:
-        return AlfWorldContractMatcher()
-
-    def validator_channel(self) -> AlfWorldValidatorChannel:
-        return self._validator
-
-    def semantic_predicate_schema(self) -> list[PredicateSpec]:
-        if self.public_discovery_version:
-            from dataclasses import replace
-            return [replace(spec, validation_source='alfworld_public_discovery') if spec.predicate == 'entity.discovered_at'
-                    else spec for spec in _ALFWORLD_PREDICATE_SPECS]
-        return list(_ALFWORLD_PREDICATE_SPECS)
 
     def primitive_action_schema(self) -> list[dict[str, Any]]:
         """Single parser-derived source of truth for Builder/Runtime/Static."""
@@ -1673,73 +500,6 @@ class AlfWorldAdapter:
             {"action_type": "INVENTORY", "argument_roles": []},
         ])
         return schema
-
-    def compile_primitive(self, primitive: PrimitiveToolStep, bindings: dict[str, Any]) -> HarnessActionSpec:
-        expected: dict[str, Any] = {}
-        for role, expression in primitive.argument_mapping.items():
-            if isinstance(expression, BindingExpression):
-                value = expression.constant if expression.kind is BindingExprKind.CONSTANT else bindings.get(expression.source_role)
-            elif isinstance(expression, dict) and "kind" in expression:
-                expr = BindingExpression.from_dict(expression)
-                value = expr.constant if expr.kind is BindingExprKind.CONSTANT else bindings.get(expr.source_role)
-            else:
-                value = expression
-            expected[role] = normalize_entity(value)
-        for spec in self.action_catalog():
-            if spec.action_type == primitive.action_type and all(spec.arguments.get(key) == value for key, value in expected.items()):
-                return spec
-        raise KeyError(f"no current {primitive.action_type} affordance matches {expected}")
-
-    def execute_primitive(self, primitive: PrimitiveToolStep, bindings: dict[str, Any]) -> HarnessActionResult:
-        spec = self.compile_primitive(primitive, bindings)
-        return self.execute_action(spec.action_id, spec.revision)
-
-    def replay_tool(self, task: HarnessTask, tool: Any, case: dict[str, Any]) -> bool:
-        """Replay primitive_ir only.  tool_ir_v1 is owned by ToolRunner."""
-
-        if getattr(tool, "artifact_kind", "") == "tool_ir_v1":
-            return False
-        expected_task = str((case.get("source_task") or {}).get("task_id", ""))
-        if expected_task and expected_task != task.task_id:
-            return False
-        try:
-            self.reset(task)
-            for event in case.get("prefix", []):
-                spec = self._match_action_event(event)
-                result = self.execute_action(spec.action_id, spec.revision)
-                if not result.accepted or (result.done and not result.won):
-                    return False
-            bindings = dict(case.get("bindings") or {})
-            for raw in tool.artifact.get("steps", []):
-                primitive = PrimitiveToolStep(
-                    action_type=str(raw["action_type"]),
-                    argument_mapping=dict(raw.get("argument_mapping", {})),
-                )
-                result = self.execute_primitive(primitive, bindings)
-                if not result.accepted or (result.done and not result.won):
-                    return False
-            validation = self._validator.validate_atomic_effect({
-                "effects": list(case.get("effects") or []),
-                "bindings": bindings,
-            })
-            return validation.passed
-        except AtomicSkillGraphError:
-            # Harness/API/process failures are infrastructure failures and
-            # must never be converted into negative replay evidence.
-            raise
-        except (KeyError, ValueError, RuntimeError):
-            return False
-
-    def _match_action_event(self, event: dict[str, Any]) -> HarnessActionSpec:
-        action_type = str(event.get("action_type", ""))
-        arguments = {key: normalize_entity(value) for key, value in dict(event.get("arguments", {})).items()}
-        for spec in self.action_catalog():
-            if spec.action_type == action_type and all(spec.arguments.get(key) == value for key, value in arguments.items()):
-                return spec
-        raise KeyError(f"source replay prefix action is not currently admissible: {action_type} {arguments}")
-
-    def supports_constraint(self, kind: str, verifier_id: str = "") -> bool:
-        return not verifier_id and kind in {"argument_exists", "argument_concrete", "harness_affordance"}
 
 
 def _goal_roles(goal: str) -> dict[str, str]:

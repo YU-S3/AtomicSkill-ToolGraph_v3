@@ -1,342 +1,43 @@
-# AtomicSkillGraph v3
+# SkillCompiler empirical v3.1
 
-## Empirical SkillCompiler（2026-10-04）
+唯一生产入口为 `skillcompiler.empirical.v1`。流程是普通 Skill 接口与指导 → Python Program → 固定真实 Train 试用 → usable 版本 → Workflow/动态执行 → 冻结库与独立评分。
 
-新生产入口使用唯一 `skillcompiler.empirical.v1` profile 和独立 Bank。
-它通过普通参数/返回值、受限 Python、真实 Train 测试和独立评分工作；
-下文的 R10.3 证据与 IR 说明仅适用于原历史入口。旧 Bank 不自动迁移。
+本轮范围是 Ours。其他方法复现和更多模型 API 接入不在本轮范围；现有 DeepSeek 配置维持 high reasoning。正式矩阵尚未启动，小样本结果不能作为正式性能结论。
 
-WSL 环境需 Python 3.12、`bubblewrap` 和 `libseccomp2`。生成代码只在独立
-命名空间进程运行，通过 JSON RPC 调用公开工具；缺少隔离依赖时拒绝执行。
-新配置保持既有 DeepSeek 模型、high reasoning、completion 上限和任务预算。
+规范：[核心机制](docs/specs/01_核心机制精简重构实施文档_v3.1.md)、[六 Benchmark](docs/specs/02_六Benchmark适配实施文档_v3.1.md)、[删除与迁移](docs/specs/04_旧代码删除与迁移清单_v3.1.md)。发生范围冲突时，以用户明确要求为准。
 
-```bash
-cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3
-export ALFWORLD_DATA=/home/yangchengyu/.cache/alfworld
-/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_empirical \
-  --manifest data/baseline_manifests/train_120.json --output runs/empirical_seed42
-```
+## 本地 WSL
 
-使用 `--env-file .env` 可显式加载已有凭据；不写入配置或沙箱。
-`--resume` 仅在相同源码、配置和清单下从任务边界恢复；完成任务不会重复计入。
-验证需指定 `--frozen-bank` 和对应独立清单/输出目录，长期库只读。
-正式大规模实验仍需先完成 v3.0 文档规定的生成程序验收和固定 12+6 pilot。
-
-AtomicSkillGraph v3 是一个独立的、基于 native ToolCall 的集中式原子
-Skill/Tool 联合进化实验系统。它使用 Planner 构建严格线性的 Runtime 控制序列，
-用 Runtime Agent 在真实 Harness 中认证参数并调用 Implementation，通过分层验证、
-append-only EvidenceLedger 和生命周期投影完成可审计的长期进化。
-
-完整语义与不变量见
-[v3.0 设计文档](AtomicSkillGraph_集中式原子SkillGraph与Tool联合进化_完整设计文档_v3.0_独立重构版.md)。
-
-## 独立性边界
-
-v3 的运行时实现只来自本仓库的 `src/atomic_skillgraph/`：
-
-- 不把 v3 定位为 FlowEvo 扩展；
-- 不 import `D:\T3S_exp\AtomicSkill-ToolGraph` 的 v2 代码；
-- 不 import `D:\T3S_exp\FlowEvo-main`；
-- 不加载或迁移 v2 bank；正式训练从空的 schema v3 bank 开始；
-- ALFWorld 只通过 v3 Harness 边界接入，Core 不解析任意文本动作。
-
-v2 和 FlowEvo 中经 contract 审计后可复用的思想已经被独立重写；它们不是 v3
-安装、导入或运行所需的路径。
-
-## 环境要求与安装
-
-- Python 3.10 或更高版本；
-- 真实 ALFWorld 实验需要 ALFWorld 数据；
-- deterministic smoke 不需要模型 API 或 ALFWorld。
-
-在仓库根目录创建独立环境：
+使用 Ubuntu WSL、Python 3.12 和已启用 WSL 集成的 Docker Desktop。模型密钥只通过环境变量或明确指定的 `--env-file` 加载。
 
 ```bash
-python -m venv .venv
+python -m pip install '.[alfworld,benchmarks,dev]'
+docker build -t skillcompiler-program:v3.1 containers/program
+docker image inspect --format='{{.Id}}' skillcompiler-program:v3.1
 ```
 
-PowerShell：
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[alfworld,dev]"
-```
-
-Linux/WSL：
+镜像必须与 `configs/default.yaml`、`containers/program/image.lock.json` 中的 digest 一致。重新构建得到不同 digest 时，先核对环境和依赖，不能静默沿用旧身份。Program 与动态 Python 使用同一个非 root、禁网络、只读根文件系统的容器；只挂载本题公开输入和工作区。容器内不联网安装依赖。
 
 ```bash
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[alfworld,dev]'
+PROGRAM_IMAGE_DIGEST=$(docker image inspect --format='{{.Id}}' skillcompiler-program:v3.1) python -m pytest -q
+skillcompiler-prepare --resources /path/to/SkillCompiler_resources_20261003 --output /path/to/prepared --case-map data/resource_mappings/spreadsheet_cases.json
+skillcompiler-acceptance --config configs/alfworld_empirical_seed42.yaml --materials /path/to/original/pilot --output /path/to/new/acceptance --env-file .env
+skillcompiler-pilot --config configs/alfworld_empirical_seed42.yaml --materials /path/to/original/pilot --acceptance /path/to/new/acceptance/acceptance.json --output /path/to/new/pilot --env-file .env
+skillcompiler-multibench --config configs/default.yaml --datasets /path/to/prepared --corpus-root /path/to/treasury_bulletins_parsed/transformed --output /path/to/new/smoke --env-file .env
 ```
 
-本机可直接复用 v2 已有的 WSL 实验环境；其 Python 和 ALFWorld 数据路径已经验证：
+单个 ALFWorld manifest 使用 `skillcompiler --config ... --manifest ... --output ...`；评估追加 `--frozen-bank ...`。新 Benchmark 使用 `skillcompiler-multibench` 的固定 2 Train＋1 Val smoke。DocVQA 需要锁定模型的真实图像能力，当前文本 DeepSeek 组合记录 unsupported，分数留空。
 
-```bash
-cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3
-/home/yangchengyu/asg_alfworld_venv/bin/python -m pip install -e '.[dev]'
-export ALFWORLD_DATA=/home/yangchengyu/.cache/alfworld
-```
+`--resume` 要求源码、配置和任务身份一致。已完成执行只恢复未完成学习；缓存响应与版本注册幂等。未知环境副作用停止尝试，不自动重放。`STOP_AFTER_TASK` 文件在下一题前停止。费用保留所有尝试，未知计费不会写成零。
 
-该环境没有 `bin/activate`，所以本机命令始终直接调用它的 Python 绝对路径。这里
-不创建新的 ALFWorld 环境，也不从 v2 目录导入代码；editable install 只把 v3 当前
-仓库安装到同一 Python 环境中。
+## 项目结构与边界
 
-如果只运行无 ALFWorld 的静态检查或 deterministic smoke，可使用：
+- `src/atomic_skillgraph/empirical/`：通用 Bank、普通参数引用、Planner/Learner、执行器、Docker worker、恢复与预算。
+- `src/atomic_skillgraph/harness/`：ALFWorld 和五个新增 Benchmark 的公开输入、工具和独立评分器。数据集特定规则只在此层与数据准备层。
+- `src/atomic_skillgraph/experiments/`：可安装的固定清单、运行、验收和 smoke 入口；根 `experiments/` 是兼容入口。
+- `benchmark_profiles.json`、`models.lock.json`、`splits/`：资源条件、模型能力与固定 ID 清单；完整公开输入和私有 evaluator 记录留在本地资源目录。
+- `cleanup_manifest.json`：逐文件删除与迁移分类；[历史版本](docs/history/README.md)保存旧实现与结果来源。
 
-```bash
-python -m pip install -e '.[dev]'
-```
+每个 seed 独立空 Bank；两个不同物理 Train 任务正向实测才成为 usable，repair 不继承旧版本成功。冻结仅包含 usable Program 和普通指导/策略；Val/Test 不更新 Bank。模型自报成功、文件存在与正式评分分别记录。
 
-## API 填写
-
-三个配置文件只保存环境变量名：
-
-```yaml
-llm:
-  provider: openai_compatible
-  dialect: deepseek_v4_chat
-  base_url: "https://api.deepseek.com"
-  model: "deepseek-v4-flash"
-  api_key_env: MODEL_API_KEY
-```
-
-运行真实 API 前：
-
-1. 正式配置固定使用 DeepSeek 官方 `https://api.deepseek.com`、
-   `deepseek-v4-flash` 和 `/chat/completions`。控制结构全部通过 native submission
-   ToolCall 交付；正式 payload 使用 `max_tokens`、thinking 和 `reasoning_effort`，
-   不发送 `response_format`、`max_completion_tokens`、`tool_choice`、
-   `parallel_tool_calls` 或 `temperature`；
-2. 把密钥放入 `api_key_env` 指定的环境变量；默认变量名为
-   `MODEL_API_KEY`；
-3. 正式任务开始前必须运行真实 capability probe，证明 structured ToolCall、
-   两轮 `reasoning_content` 原样 replay、Extractor 的 `max_tokens=131072` 以及
-   provider usage 都满足协议；train 和 frozen eval 使用相同的配置与密钥来源。
-
-PowerShell 当前会话：
-
-```powershell
-$env:MODEL_API_KEY = "填写真实密钥"
-$env:ALFWORLD_DATA = "填写 ALFWorld 数据目录"
-```
-
-Linux/WSL 当前会话：
-
-```bash
-export MODEL_API_KEY='填写真实密钥'
-export ALFWORLD_DATA='/path/to/alfworld/data'
-```
-
-[`.env.example`](.env.example) 只列出变量名，便于人工配置；当前运行时不承诺
-自动加载 `.env`。仅复制 `.env.example` 而不向进程导出变量不会生效。
-
-不要在 YAML、命令行参数、README 或源码中增加 `api_key` 值。v3 Provider
-只调用 `os.environ[api_key_env]` 对应的环境来源；缺失时 fail closed，且不会退回
-配置文件明文或 v2/FlowEvo 的本地配置。
-
-## 配置文件
-
-| 文件 | 用途 |
-|---|---|
-| `configs/default.yaml` | 设计文档中的通用 v3 Agent、Planner、Runtime、生命周期和抽取预算 |
-| `configs/alfworld_train_full_30.yaml` | 固定 full-method 在线训练：`train` split，六类各 5 题，共 30 题 |
-| `configs/alfworld_frozen_eval.yaml` | 固定 held-out 冻结评测：`eval_out_of_distribution`（ALFWorld `valid_unseen`），六类各 10 题，共 60 题 |
-
-训练和评测共同覆盖以下六类，顺序也是固定 manifest 的选择顺序：
-
-1. `pick_and_place_simple`
-2. `look_at_obj_in_light`
-3. `pick_clean_then_place_in_recep`
-4. `pick_heat_then_place_in_recep`
-5. `pick_cool_then_place_in_recep`
-6. `pick_two_obj_and_place`
-
-`full` 表示完整 AtomicSkillGraph v3 方法，不是 ablation。训练配置要求空 v3 bank；
-冻结评测配置要求读取训练完成后生成的 frozen snapshot，并拒绝与训练 manifest
-重叠的 held-out 任务。
-
-## 实验启动命令
-
-设计冻结的实验模块名为：
-
-- `experiments.run_v3_smoke`
-- `experiments.run_v3_train`
-- `experiments.run_v3_frozen_eval`
-
-以下命令均为当前仓库已经实现并通过命令级检查的正式入口。
-
-### 1. 静态 preflight
-
-最小命令：
-
-```bash
-python -m experiments.run_v3_smoke --preflight
-```
-
-显式配置形式：
-
-```bash
-python -m experiments.run_v3_smoke --preflight --config configs/default.yaml
-```
-
-Preflight 必须检查 import、配置/API 来源、SQLite schema、空 bank、Harness、
-Provider 的 native ToolCall 请求接口、真实物化的任务 manifest，以及 Artifact/Trace
-输出可写性。静态 preflight 不向模型端点发付费探测请求，也不应打印密钥。
-
-### 2. Deterministic no-API full-chain smoke
-
-命令：
-
-```bash
-python -m experiments.run_v3_smoke --deterministic --config configs/default.yaml
-```
-
-该 smoke 使用 Fake Agent 和 Fake Harness，至少覆盖四个 episode：Full Dynamic
-学习、下一题 autonomous Direct、错误参数 preflight 后 Fresh Seeded，以及图完成后
-task rescue。验收包括 Trace 完整、Ledger 幂等、token 守恒、started 归因、
-validated output DataFlow、Candidate 在线可用和 frozen digest 不变。
-
-### 3. DeepSeek provider capability probe
-
-```bash
-python -m experiments.run_v3_smoke --provider-probe --config configs/alfworld_train_full_30.yaml
-```
-
-Probe A/B/C 必须全部通过，产物写入训练输出目录的
-`provider_capability_manifest.json` 和 `provider_probe_trace.json`。产物只保存请求、
-usage、状态和 reasoning 的长度/hash，不保存密钥或 reasoning 全文。
-
-### 4. 真实 ALFWorld smoke
-
-命令：
-
-```bash
-python -m experiments.run_v3_smoke --real-alfworld --config configs/alfworld_train_full_30.yaml
-```
-
-固定门禁是 3 个 cold `pick_and_place_simple`、2 个未见过的 warm 同类 task，及
-1 个 heat-then-place 多节点 task。warm task 必须有 learned Implementation preflight
-通过、Implementation/Tool 实际 started+completed、Atomic effect 通过，以及
-`direct_autonomous_success` 或 `direct_agent_prepared_success`。多节点任务还必须证明
-validated output 被下游已启动的 Implementation 作为 DataFlow 参数实际消费；
-`agent_completed_before_invocation` 不算 Tool 复用证据。
-
-### 5. Full-30 在线训练
-
-命令：
-
-```bash
-python -m experiments.run_v3_train --config configs/alfworld_train_full_30.yaml
-```
-
-在本机复用 v2 环境时，从 PowerShell 进入 WSL 后可完整执行：
-
-```bash
-cd /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3
-/home/yangchengyu/asg_alfworld_venv/bin/python -m pip install -e '.[dev]'
-export ALFWORLD_DATA=/home/yangchengyu/.cache/alfworld
-read -rsp 'MODEL_API_KEY: ' MODEL_API_KEY && export MODEL_API_KEY && echo
-/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_smoke --preflight --config configs/alfworld_train_full_30.yaml
-/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_smoke --provider-probe --config configs/alfworld_train_full_30.yaml
-/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_smoke --deterministic --config configs/default.yaml
-/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_smoke --real-alfworld --config configs/alfworld_train_full_30.yaml
-/home/yangchengyu/asg_alfworld_venv/bin/python -m experiments.run_v3_train --config configs/alfworld_train_full_30.yaml
-```
-
-旧失败 run 必须先归档；第一次修复后训练是 fresh run，不加 `--resume`。
-
-Runner 必须先固化精确任务 manifest，再从空 v3 bank 按该清单运行。配置中的
-`tasks_per_type: 5`、`total_tasks: 30` 和六个 task type 是正式协议，不能被
-“取前 30 题”替代。fresh bank 检查覆盖全部长期知识表以及 `artifacts/` 下的文件；
-仅有 schema-v3 初始化行和空 artifact 目录才视为真正的空 bank。
-
-### 6. 任务边界 resume
-
-命令：
-
-```bash
-python -m experiments.run_v3_train --config configs/alfworld_train_full_30.yaml --resume
-```
-
-Resume 只跳过 manifest 中已经 `completed`，且 task signature、config hash、代码
-commit 和 knowledge milestone 全部一致的题目。它不从任意 ALFWorld world revision
-恢复；中途失败的 episode 从相同初始任务状态重跑，且基础设施/API 失败不产生长期
-Skill/Tool 负面证据。`experiment.max_task_attempts` 是跨进程累计的严格正整数；正式
-train 配置设为 `3`，因此每题最多执行 3 个 attempt，下一次 resume 会在启动第 4 个
-attempt 前 fail closed。
-
-30 题全部完成后，Runner 还会在冻结前执行一次配置批次的 final maintenance；只有
-结构化结果满足 `pending_count == 0` 才允许 freeze。该边界同样受 knowledge checkpoint
-保护；若 maintenance 改变知识摘要，Runner 会以 compare-and-update 事务把新摘要写入
-最后一个 completed task 的 `knowledge_digest_after`，保持 source train digest chain
-与 frozen provenance 一致。周期维护和 final maintenance 使用独立、先落盘的 immutable
-maintenance Trace；不会覆盖已保存的 task Trace。
-
-### 7. Frozen held-out 评测
-
-命令：
-
-```bash
-python -m experiments.run_v3_frozen_eval --config configs/alfworld_frozen_eval.yaml
-```
-
-冻结评测固定使用 `eval_out_of_distribution/valid_unseen` 的六类各 10 题，共 60
-题。开始前必须验证 train manifest、frozen snapshot 和 held-out manifest；结束后必须
-满足：
-
-```text
-knowledge_digest_before == knowledge_digest_after
-```
-
-Frozen 模式只允许 Active/Preferred 资产。它可以写独立 eval Trace 和 metrics，但
-禁止创建或修改 Skill/Implementation/Tool/Composite、更新长期状态/utility、写入训练
-EvidenceLedger，或在题目间传播测试期新知识。
-
-若评测中断，使用以下任务边界恢复命令；不要手工跳题或复用半完成 episode：
-
-```bash
-python -m experiments.run_v3_frozen_eval --config configs/alfworld_frozen_eval.yaml --resume
-```
-
-冻结评测同样固定 `experiment.max_task_attempts: 3`；计数保存在独立 eval run-state
-数据库中，不写入或改变 frozen knowledge snapshot。
-
-## 输出与审计要求
-
-正式运行应至少保存：
-
-- 精确 task manifest 及其 hash；
-- config hash、代码 commit、运行 phase 和 knowledge milestone；
-- 原子写入的逐题 Trace；
-- NativeToolCall、EnvironmentAction、Implementation/Tool execution 和 Validation；
-- `planner_p1`、`planner_p1_repair`、`planner_p2`、`planner_p2_repair`、
-  `runtime_preparation`、`runtime_seeded`、`runtime_dynamic`、`extractor_e1`、
-  `extractor_e2`、`evolution_repair` 的逐轮 usage；
-- per-agent token/latency 报告和知识增长/生命周期报告。
-
-每题的 artifact growth/lifecycle 不从文本日志反推：Runner 在任务边界读取
-`artifact_index` 的版本/状态和 `lifecycle_projection` 的权威 checkpoint/完整投影，保存
-带 digest 的 before/after snapshot 与 delta，并和 completed task 的 `result_json` 同一
-事务提交。报告只对不可变 task Trace 做内存 overlay，不回写 Trace。收尾还会验证本次
-进程 `UsageLedger` 的每个 event id 恰好存在于已落盘 task Trace 或本进程新建的
-maintenance Trace，且每条 Trace 自身 token reconciliation 为零。
-
-正式结果要求 `token_mismatch = 0` 且 `unattributed_total_tokens = 0`。Reasoning
-token 只按 Provider metadata 计量，不读取 reasoning text，也不把 reasoning token
-再次加到 Provider 已报告的 `total_tokens`。
-
-## 常见失败
-
-- `MODEL_API_KEY` 缺失：在启动 Runner 的同一个进程环境中导出变量；不要把 key
-  写进 YAML。
-- Provider 配置被改动：正式训练必须保持 `deepseek_v4_chat`、
-  `https://api.deepseek.com` 和 `deepseek-v4-flash`，并重新运行 capability probe。
-- ALFWorld 初始化失败：检查 `ALFWORLD_DATA` 下是否存在 `logic/` 和
-  `json_2.1.1/`，并确认安装了 `.[alfworld]`。
-- Resume 拒绝：不要覆盖旧 run directory；核对 manifest、配置、commit 和 frozen
-  milestone 是否完全一致。
-- `max_task_attempts` 已耗尽：该题不会再自动或通过 `--resume` 启动新 attempt；保留
-  run directory 作为失败证据，定位基础设施问题后启动新的、独立命名的正式 run。
-- Frozen digest 改变：该次评测无效，必须定位写路径并从原 frozen snapshot 重跑。
+第三方评分来源与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

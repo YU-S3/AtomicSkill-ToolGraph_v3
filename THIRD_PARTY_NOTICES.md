@@ -1,17 +1,17 @@
-# Expression organization adaptation
+# Third-party scoring code
 
-The ordered grouping in `agents/skill_guidance.py::organize_guidance_view`
-adapts the main/note traversal of EmbodiSkill's
-`tasks/workflow/format.py::format_task_prompt_with_skills`.
+The five files under `src/atomic_skillgraph/harness/scorers/` are copied without algorithm changes from Microsoft SkillOpt, pinned commit `fa4ca184573e42ec11472959dd57422381418096`:
 
-Source: https://github.com/air-embodied-brain/EmbodiSkill
-Pinned commit: `760126030eab1d33ec6a6f30988f0f1fb58df3a7`.
-Source Git blob: `ac575cdc89c795580db7299cd96535854567ab5e`.
-Copyright (c) 2026 EmbodiSkill contributors. MIT license:
-`third_party/embodiskill/LICENSE`.
+- `searchqa.py` ← `skillopt/envs/searchqa/evaluator.py`
+- `spreadsheet.py` ← `skillopt/envs/spreadsheetbench/evaluator.py`
+- `officeqa.py` ← `skillopt/envs/officeqa/evaluator.py`
+- `docvqa.py` ← `skillopt/envs/docvqa/evaluator.py`
+- `livemath.py` ← `skillopt/envs/livemathematicianbench/evaluator.py`
 
-Adaptations use typed steps/notes and retain exact text, order, repetitions,
-absence and unknown public fields. No upstream case folding, deduplication,
-task examples, manual updates, reflection, retrieval or provider code is used.
-The native-interface roundtrip logic is local R10.3 code, not an upstream
-algorithm. No token or behavioral equivalence claim follows from formatting.
+Source: https://github.com/microsoft/SkillOpt/tree/fa4ca184573e42ec11472959dd57422381418096/skillopt/envs
+
+MIT license and copyright are preserved in `src/atomic_skillgraph/harness/scorers/LICENSE`. File hashes are recorded in `benchmark_profiles.json`.
+
+The local bridge separates public inputs from evaluator gold, seals spreadsheet code and outputs, recalculates formulas with the locked LibreOffice container, and performs all variant scoring without Agent feedback. These changes are execution adapters, not reproductions of the SkillOpt learning algorithm.
+
+The previously adapted EmbodiSkill formatting implementation has been retired from the current production lane. Its code, attribution and license remain available in `archive/pre-empirical-v31`; see `docs/history/README.md`.

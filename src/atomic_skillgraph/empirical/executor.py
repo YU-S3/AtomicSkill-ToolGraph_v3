@@ -16,7 +16,7 @@ class Executor:
         blocked, attempted, failures, history = set(), set(), {}, []
         completed, replans, node_index, final = set(), 0, 0, None
         producers, supplied_by, consumed = {}, {}, set()
-        input_reads = []
+        input_reads, replaced_inputs = [], {}
         dynamic_sequence = 0
         reason = "completed"
 
@@ -63,11 +63,8 @@ class Executor:
                 node_index = 0
             node = plan["nodes"][node_index]
             arguments, missing = values.resolve(node.get("args", {}))
-            for field, ref in node.get("args", {}).items():
-                if field in arguments:
-                    producer = producers.get(ref.get('from')) or supplied_by.get((node['id'], field))
-                    if producer:
-                        consumed.add(producer)
+            input_producers = {field: producers.get(ref.get('from')) or supplied_by.get((node['id'], field))
+                               for field, ref in node.get('args', {}).items() if field in arguments}
             routes = [p for p in self.bank.routes(node) if p["id"] not in blocked]
             if not missing and routes and digest({"node": node["id"], "program": routes[0]["id"], "args": arguments,
                                                  "state": broker.observe()}) not in attempted:
@@ -80,6 +77,7 @@ class Executor:
                     if arguments:
                         input_reads.append(node['id'])
                     result = invoke(program, arguments, node["id"])
+                    consumed.update(producer for producer in input_producers.values() if producer)
                     attempted.add(digest({"node": node["id"], "program": program["id"], "args": arguments, "state": broker.observe()}))
                     if result["status"] == "ok" and result["local_check"] != "failed":
                         values.publish(node["id"], result["outputs"], "program")
@@ -102,14 +100,22 @@ class Executor:
                 "recent": history[-3:], "remaining_calls": broker.remaining_calls(),
                 "may_replan": replans == 0, "completed_results": values.results}
             try:
-                if arguments:
-                    input_reads.append(node['id'])
                 step = self.agent("runtime", RUNTIME_PROMPT, materials, "runtime_step", STEP, repair_limit=1)
             except ValueError as exc:
                 reason = "runtime_protocol_error"
                 history.append({"error": str(exc)})
                 break
             action = step["action"]
+            used = set(step.get('used_inputs', [])) & set(arguments)
+            replaced = set(step.get('replaced_inputs', [])) & set(arguments)
+            if used - replaced:
+                input_reads.append(node['id'])
+            consumed.update(input_producers[field] for field in used - replaced if input_producers.get(field))
+            for field in replaced:
+                producer = input_producers.get(field)
+                if producer:
+                    consumed.discard(producer)
+                replaced_inputs.setdefault(node['id'], []).append(field)
             if action == "finish":
                 final, reason = step.get("answer"), "agent_submitted"
                 break
@@ -130,7 +136,15 @@ class Executor:
                 replans, plan, node_index = replans + 1, revised, 0
                 continue
             if action == "complete_node":
-                values.publish(node["id"], step.get("outputs", {}), "agent")
+                outputs = step.get('outputs', {})
+                skill = self.bank.get(node.get('skill_id', ''))
+                if skill:
+                    try:
+                        validate_schema_instance(outputs, skill['output_schema'])
+                    except ValueError as exc:
+                        history.append({'error': str(exc)})
+                        continue
+                values.publish(node["id"], outputs, "agent")
                 completed.add(node["id"])
                 node_index += 1
                 continue
@@ -154,12 +168,20 @@ class Executor:
                         raise ValueError("Program is unavailable in this task")
                     result = invoke(program, call_args, node["id"])
                     if result["status"] == "ok" and result["local_check"] != "failed":
+                        if name in {route['id'] for route in routes}:
+                            values.publish(node['id'], result['outputs'], 'program')
+                            producers[node['id']] = attempts[-1]['id']
+                            completed.add(node['id'])
+                            node_index += 1
+                            continue
                         # Preparation can supply the current node's missing
                         # inputs, then its authorized program runs automatically.
                         supplied = result["outputs"]
                         expected = set(node.get("args", {}))
                         if routes:
                             expected.update(routes[0]["input_schema"].get("properties", {}))
+                        else:
+                            expected.update(supplied)
                         node.setdefault("args", {}).update({k: {"literal": v} for k, v in supplied.items()
                                                             if k in expected})
                         supplied_by.update({(node['id'], k): attempts[-1]['id'] for k in supplied if k in expected})
@@ -186,4 +208,5 @@ class Executor:
             attempt["outputs_consumed"] = attempt['id'] in consumed
         return {"prediction": final if final is not None else final_values, "reason": reason,
                 "values": values.history, "history": history, "attempts": attempts,
-                "plan": plan, "plan_revisions": replans, "input_reads": input_reads}
+                "plan": plan, "plan_revisions": replans, "input_reads": input_reads,
+                "replaced_inputs": replaced_inputs}

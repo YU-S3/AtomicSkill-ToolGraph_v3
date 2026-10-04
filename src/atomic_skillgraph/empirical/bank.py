@@ -3,7 +3,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .contracts import digest, validate_program, validate_workflow
+from .contracts import digest, program_digest, validate_program, validate_workflow
 
 
 class Bank:
@@ -37,10 +37,17 @@ class Bank:
         self._writable()
         asset = dict(asset)
         if kind == "program":
-            asset["id"] = "program_" + validate_program(asset)
+            if not isinstance(asset.get('allowed_tools'), list):
+                raise ValueError('allowed_tools must be tool names')
+            asset["allowed_tools"] = sorted(set(asset["allowed_tools"]))
+            asset["id"] = "program_" + program_digest(asset)
+            existing = self.get(asset['id'])
+            if existing is not None:
+                return existing
+            validate_program(asset)
             asset["state"] = "candidate"
         elif kind == "workflow":
-            validate_workflow(asset, [p["id"] for p in self.all("program")], [s["id"] for s in self.all("skill")])
+            validate_workflow(asset, {p['id']: p for p in self.all('program')}, {s['id']: s for s in self.all('skill')})
         if kind not in {"skill", "implementation", "program", "workflow"}:
             raise ValueError("Unknown asset kind")
         asset.setdefault("id", kind + "_" + digest(asset))
@@ -132,9 +139,28 @@ class Bank:
         destination.mkdir(parents=True, exist_ok=False)
         target = sqlite3.connect(destination / "bank.sqlite3")
         self.db.backup(target)
+        usable = {p['id'] for p in self.all('program') if p['state'] == 'usable'}
+        for kind, asset_id, payload in target.execute('SELECT kind,id,payload FROM assets').fetchall():
+            asset = json.loads(payload)
+            if (kind == 'program' and asset_id not in usable) or (
+                    kind == 'implementation' and asset['program_id'] not in usable):
+                target.execute('DELETE FROM assets WHERE id=?', (asset_id,))
+            elif kind == 'workflow':
+                for node in asset['nodes']:
+                    if node.get('program_id') and node['program_id'] not in usable:
+                        node.pop('program_id')
+                        node['dynamic'] = True
+                target.execute('UPDATE assets SET payload=? WHERE id=?', (json.dumps(asset), asset_id))
+        for program_id, in target.execute('SELECT DISTINCT program_id FROM attempts').fetchall():
+            if program_id not in usable:
+                target.execute('DELETE FROM attempts WHERE program_id=?', (program_id,))
+        target.commit()
+        seed = int(self.db.execute("SELECT value FROM metadata WHERE key='seed'").fetchone()[0])
+        frozen = Bank(destination, readonly=True, seed=seed)
+        manifest = {"schema": "empirical.bank.v1", "digest": frozen.digest(), 'source_digest': self.digest(),
+                    "programs": [{"id": p["id"], "state": p["state"]} for p in frozen.all("program")]}
+        frozen.close()
         target.close()
-        manifest = {"schema": "empirical.bank.v1", "digest": self.digest(),
-                    "programs": [{"id": p["id"], "state": p["state"]} for p in self.all("program")]}
         (destination / "freeze.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return manifest
 

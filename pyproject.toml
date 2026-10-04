@@ -1,7 +1,7 @@
 [project]
 name = "atomic-skillgraph"
-version = "3.0.0"
-description = "AtomicSkillGraph v3: native-toolcall atomic skill/tool co-evolution"
+version = "3.1.0"
+description = "SkillCompiler empirical programs and frozen benchmark evaluation"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -11,8 +11,15 @@ dependencies = [
 
 [project.optional-dependencies]
 alfworld = ["alfworld==0.4.2"]
-scienceworld = ["scienceworld==1.2.3"]
+benchmarks = ["openpyxl==3.1.5", "pyarrow>=19", "Pillow==11.3.0", "iterative-stratification==0.1.9"]
 dev = ["pytest>=7.0"]
+
+[project.scripts]
+skillcompiler = "atomic_skillgraph.experiments.run_empirical:main"
+skillcompiler-pilot = "atomic_skillgraph.experiments.run_empirical_pilot:main"
+skillcompiler-acceptance = "atomic_skillgraph.experiments.run_empirical_acceptance:main"
+skillcompiler-multibench = "atomic_skillgraph.experiments.run_multibench:main"
+skillcompiler-prepare = "atomic_skillgraph.experiments.prepare_benchmarks:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -20,7 +27,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"atomic_skillgraph.harness.scorers" = ["LICENSE"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "experiments/tests", "src/atomic_skillgraph/governance/tests"]
+testpaths = ["tests"]
 addopts = "-p no:cacheprovider"

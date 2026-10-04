@@ -1,0 +1,72 @@
+{
+  "schema": "skillcompiler.models.v1",
+  "formal_models": [
+    {
+      "display_name": "GPT5.5",
+      "model_id": null,
+      "endpoint": null,
+      "api_key_env": null,
+      "input_modalities": null,
+      "status": "unconfigured_user_requested"
+    },
+    {
+      "display_name": "Gemini-3.5-pro",
+      "model_id": null,
+      "endpoint": null,
+      "api_key_env": null,
+      "input_modalities": null,
+      "status": "unconfigured_user_requested"
+    },
+    {
+      "display_name": "Qwen3.6-35B-A3B",
+      "model_id": null,
+      "endpoint": null,
+      "api_key_env": null,
+      "input_modalities": null,
+      "status": "unconfigured_user_requested"
+    },
+    {
+      "display_name": "DeepSeek-V4.1-flash",
+      "model_id": null,
+      "endpoint": null,
+      "api_key_env": null,
+      "input_modalities": null,
+      "status": "unconfigured_user_requested"
+    },
+    {
+      "display_name": "Kimi-K2.5",
+      "model_id": null,
+      "endpoint": null,
+      "api_key_env": null,
+      "input_modalities": null,
+      "status": "unconfigured_user_requested"
+    },
+    {
+      "display_name": "GLM-5.2",
+      "model_id": null,
+      "endpoint": null,
+      "api_key_env": null,
+      "input_modalities": null,
+      "status": "unconfigured_user_requested"
+    }
+  ],
+  "current_test": {
+    "model_id": "deepseek-v4-flash",
+    "endpoint": "https://api.deepseek.com/chat/completions",
+    "api_key_env": "MODEL_API_KEY",
+    "dialect": "deepseek_v4_chat",
+    "input_modalities": [
+      "text"
+    ],
+    "tools": true,
+    "reasoning_effort": "high",
+    "thinking_type": "enabled",
+    "token_limit_field": "max_tokens",
+    "usage_fields": [
+      "prompt_tokens",
+      "completion_tokens",
+      "total_tokens"
+    ],
+    "formal_matrix_launched": false
+  }
+}

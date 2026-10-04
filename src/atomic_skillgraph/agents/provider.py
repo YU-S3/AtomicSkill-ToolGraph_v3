@@ -62,6 +62,8 @@ class OpenAICompatibleConfig:
     retry_backoff_seconds: float = 2.0
     max_retry_after_seconds: float = 30.0
     extra_headers: dict[str, str] = field(default_factory=dict)
+    input_modalities: tuple[str, ...] = ('text',)
+    token_limit_field: str = 'max_tokens'
 
     def __post_init__(self) -> None:
         parsed = urlparse(self.base_url)
@@ -69,16 +71,18 @@ class OpenAICompatibleConfig:
             raise ValueError("base_url must be an absolute http(s) URL")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("base_url must not contain credentials, query parameters, or fragments")
-        if self.dialect != "deepseek_v4_chat":
-            raise ValueError("formal provider dialect must be deepseek_v4_chat")
+        if self.dialect not in {'deepseek_v4_chat', 'openai_chat'}:
+            raise ValueError('Unsupported provider dialect')
+        if self.token_limit_field not in {'max_tokens', 'max_completion_tokens'}:
+            raise ValueError('Unsupported token limit field')
         if not self.model.strip() or not self.api_key_env.strip():
             raise ValueError("model and api_key_env must be non-empty")
         if isinstance(self.max_completion_tokens, bool) or self.max_completion_tokens <= 0:
             raise ValueError("max_completion_tokens must be positive")
         if self.thinking_type not in {"enabled", "disabled"}:
             raise ValueError("thinking_type must be enabled or disabled")
-        if self.reasoning_effort not in {"low", "high", "max"}:
-            raise ValueError("reasoning_effort must be low, high, or max")
+        if self.reasoning_effort not in {"low", 'medium', "high", "max"}:
+            raise ValueError('Unsupported reasoning effort')
         if self.connect_timeout_seconds <= 0 or self.request_timeout_seconds <= 0:
             raise ValueError("provider timeouts must be positive")
         if self.max_retries < 0 or self.retry_backoff_seconds < 0:
@@ -166,7 +170,7 @@ class OpenAICompatibleProvider:
     def _build_payload(
         self, messages: list[AgentMessage], tools: list[NativeToolSpec] | None,
     ) -> dict[str, Any]:
-        normalized_messages = _validate_deepseek_messages(messages)
+        normalized_messages = _validate_deepseek_messages(messages, allow_images='image' in self.config.input_modalities)
         normalized_tools = list(tools or [])
         if not all(isinstance(tool, NativeToolSpec) for tool in normalized_tools):
             raise TypeError("tools must contain NativeToolSpec values")
@@ -175,10 +179,11 @@ class OpenAICompatibleProvider:
         payload: dict[str, Any] = {
             "model": self.config.model,
             "messages": normalized_messages,
-            "max_tokens": self.config.max_completion_tokens,
-            "thinking": {"type": self.config.thinking_type},
+            self.config.token_limit_field: self.config.max_completion_tokens,
             "reasoning_effort": self.config.reasoning_effort,
         }
+        if self.config.dialect == 'deepseek_v4_chat':
+            payload['thinking'] = {'type': self.config.thinking_type}
         if normalized_tools:
             payload["tools"] = [tool.to_openai() for tool in normalized_tools]
         return payload
@@ -221,13 +226,8 @@ class OpenAICompatibleProvider:
             'tools': copy.deepcopy(payload.get('tools', [])),
             'captured_after_build_payload': True,
         }
-        from .native_call_contract import NativeCallContractView, canonical, NATIVE_CALL_CONTRACT_VERSION
-        contracts = [NativeCallContractView.from_tool(t).to_dict() for t in (tools or [])]
-        actual_schemas = {t['function']['name']: canonical(t['function']['parameters']) for t in payload.get('tools', [])}
-        if actual_schemas != {c['tool_name']: c['input_schema_json'] for c in contracts}:
-            raise ValueError('final provider schema differs from request contract')
-        self._request_context.final_payload_audit.update(native_call_contract_version=NATIVE_CALL_CONTRACT_VERSION,
-                                                       native_call_contracts=contracts)
+        if payload.get('tools', []) != [tool.to_openai() for tool in normalized_tools]:
+            raise ValueError('Final provider tools differ from requested tools')
         api_key = self.config.resolve_api_key()
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -419,7 +419,7 @@ class OpenAICompatibleProvider:
         raw_reasoning = message.get("reasoning_content")
         if isinstance(raw_reasoning, str):
             reasoning_content = raw_reasoning
-        elif tools_requested and self.config.thinking_type == "enabled":
+        elif tools_requested and self.config.dialect == 'deepseek_v4_chat' and self.config.thinking_type == "enabled":
             self._raise_protocol(
                 "provider_reasoning_content_missing",
                 "thinking+tools response is missing string reasoning_content",
@@ -589,7 +589,7 @@ class OpenAICompatibleProvider:
         time.sleep(min(base + jitter, self.config.max_retry_after_seconds))
 
 
-def _validate_deepseek_messages(messages: list[AgentMessage]) -> list[AgentMessage]:
+def _validate_deepseek_messages(messages: list[AgentMessage], *, allow_images=False) -> list[AgentMessage]:
     if not isinstance(messages, list) or not messages:
         raise ValueError("provider request requires a non-empty messages list")
     normalized = copy.deepcopy(messages)
@@ -599,8 +599,17 @@ def _validate_deepseek_messages(messages: list[AgentMessage]) -> list[AgentMessa
         role = message.get("role")
         if role not in {"system", "user", "assistant", "tool"}:
             raise ValueError(f"message {index} has an invalid role")
-        if "content" not in message or not isinstance(message["content"], str):
-            raise TypeError(f"message {index} content must be a string")
+        content = message.get('content')
+        if isinstance(content, list) and role == 'user' and allow_images:
+            for part in content:
+                if not isinstance(part, dict) or part.get('type') not in {'text', 'image_url'}:
+                    raise ValueError('Unsupported content part')
+                if part['type'] == 'text' and not isinstance(part.get('text'), str):
+                    raise TypeError('Text part needs text')
+                if part['type'] == 'image_url' and not isinstance(part.get('image_url', {}).get('url'), str):
+                    raise TypeError('Image part needs a real image URL')
+        elif not isinstance(content, str):
+            raise TypeError(f'message {index} content requires text or supported image parts')
         allowed = {
             "system": {"role", "content"},
             "user": {"role", "content"},

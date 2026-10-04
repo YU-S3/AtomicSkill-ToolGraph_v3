@@ -1,24 +1,8 @@
-"""AtomicSkillGraph v3 public API."""
+"""SkillCompiler empirical API."""
+__version__ = "3.1.0"
 
-from .core.contracts import (
-    AbstractAtomicSkill,
-    CompositeSkill,
-    ImplementationAtom,
-    TaskContract,
-    ToolAsset,
-)
-from .core.refs import SkillRef, ToolRef
-from .system import AtomicSkillGraphSystem
-
-__all__ = [
-    "AbstractAtomicSkill",
-    "AtomicSkillGraphSystem",
-    "CompositeSkill",
-    "ImplementationAtom",
-    "SkillRef",
-    "TaskContract",
-    "ToolAsset",
-    "ToolRef",
-]
-
-__version__ = "3.0.0"
+def __getattr__(name):
+    if name == "EmpiricalSystem":
+        from .empirical.system import EmpiricalSystem
+        return EmpiricalSystem
+    raise AttributeError(name)

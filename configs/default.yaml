@@ -1,98 +1,70 @@
-# AtomicSkillGraph v3 base configuration.
-# API secrets are never valid configuration values: only api_key_env is read.
-schema_version: 3
-method_patch: "3.2"
-repair_revision: "R10.2.1"
-
-data_dir: data_v3
-
+mechanism_profile: skillcompiler.empirical.v1
+schema_version: empirical.v1
+benchmark_profile: alfworld.public-discovery.v2
+manifest: data/baseline_manifests/train_120.json
+data_dir: runs/empirical_seed42/bank
+experiment:
+  seed: 42
+  benchmark: alfworld
+  runtime_mode: online
+  max_task_attempts: 3
+  output_dir: runs/empirical_seed42
+harness:
+  adapter: alfworld_v3
+  split: train
+  max_steps: 100
+  public_discovery_version: alfworld.public-discovery.v2
+runtime:
+  global_action_budget: 100
+  repeated_unchanged_failure_limit: 2
+  environment_step_budget: 100
+learning:
+  max_new_programs_per_task: 1
+  builder_repair_limit: 1
+  max_train_test_cases_per_program_version: 2
+planning:
+  retrieval_top_k: 8
+  structural_repair_limit: 1
+  task_replan_limit: 1
+program_worker:
+  max_tool_calls_per_invocation: 32
+  wall_timeout_seconds: 60
+  memory_limit_mb: 1024
+  max_rpc_message_bytes: 1048576
+program_environment:
+  backend: sandbox_python_v1
+  python: '3.12'
+  dependencies:
+  - openpyxl==3.1.5
+  - pandas==2.3.3
+  - pillow==11.3.0
+  adapter_abi: simple.v1
+  image_digest: sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783
 llm:
   provider: openai_compatible
   dialect: deepseek_v4_chat
-  base_url: "https://api.deepseek.com"
-  model: "deepseek-v4-flash"
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-flash
   api_key_env: MODEL_API_KEY
-  connect_timeout_seconds: 15
   max_retries: 4
-  retry_backoff_seconds: 2
-  max_retry_after_seconds: 30
   protocol:
-    endpoint_path: "/chat/completions"
-    structured_output_transport: native_submission_tool
-    token_limit_field: max_tokens
     thinking_type: enabled
-    send_reasoning_effort: true
-    replay_reasoning_content_with_tools: true
-    send_response_format: false
-    send_tool_choice: false
-    send_parallel_tool_calls: false
-    send_temperature: false
-    strict_tools: false
-    require_usage: true
-
   planner:
     reasoning_effort: high
     max_completion_tokens: 32768
     request_timeout_seconds: 300
-    max_turns: 4
     max_total_tokens_per_phase: 120000
-
   runtime:
     reasoning_effort: high
     max_completion_tokens: 32768
     request_timeout_seconds: 180
     max_total_tokens_per_task: 600000
-    learned_toolcall_repair_limit: 2
-    protocol_repair_limit: 1
-
   extractor:
     reasoning_effort: high
     max_completion_tokens: 131072
     request_timeout_seconds: 600
-    max_turns: 2
     max_total_tokens_per_task: 262144
-
-  evolution_repair:
+  tool_builder:
     reasoning_effort: high
     max_completion_tokens: 32768
     request_timeout_seconds: 300
-    max_turns: 1
-    max_total_tokens_per_batch: 120000
-
-planner:
-  composite_top_k: 5
-  atomic_top_k_per_requirement: 3
-  max_atomic_top_k: 5
-  requirement_repair_limit: 1
-  graph_repair_limit: 1
-  max_repeat_count: 4
-  max_runtime_occurrences: 16
-  cold_start_c1_repair_limit: 1
-
-cold_start:
-  enabled: true
-  provisional_top_k_per_requirement: 3
-  failure_experience_top_k: 2
-  scaffold_max_steps: 8
-  failure_extractor_enabled: true
-  source_replay_required: true
-  provisional_suppress_consecutive_failures: 3
-  promotion_requires_strict_task_success: true
-  experience_confirm_independent_tasks: 2
-
-runtime:
-  global_action_budget: 100
-  max_implementation_candidates: 3
-
-lifecycle:
-  maintenance_interval_successes: 5
-  atomic_active_independent_support: 2
-  implementation_active_direct_successes: 2
-  tool_active_started_successes: 2
-  tool_preferred_min_started: 5
-  composite_active_self_sufficient_successes: 2
-
-extraction:
-  extract_full_dynamic_success: true
-  extract_task_rescue_success: true
-  skip_stable_direct_success: true

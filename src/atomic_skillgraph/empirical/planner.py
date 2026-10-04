@@ -12,8 +12,8 @@ class Planner:
         self.bank, self.agent = bank, agent
 
     def validate(self, workflow, completed=()):
-        return validate_workflow(workflow, [p["id"] for p in self.bank.all("program")],
-                                 [s["id"] for s in self.bank.all("skill")], completed)
+        return validate_workflow(workflow, {p['id']: p for p in self.bank.all('program')},
+                                 {s['id']: s for s in self.bank.all('skill')}, completed)
 
     def plan(self, task, adapter, feedback=None, completed_results=None):
         related = self.bank.retrieve(task.goal)

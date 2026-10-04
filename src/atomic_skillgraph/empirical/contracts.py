@@ -26,6 +26,29 @@ class PublicTask:
     split: str = "train"
 
 
+@dataclass(frozen=True)
+class TrialCase:
+    case_id: str
+    physical_task_key: str
+    public_task_ref: str
+    inputs: dict
+    start_mode: str = 'reset'
+    prefix: tuple = ()
+    check: str = 'task_outcome'
+    continuation: str = 'dynamic'
+
+    def __post_init__(self):
+        if self.start_mode not in {'reset', 'prefix_replay'} or self.check not in {'local', 'task_outcome'}:
+            raise ValueError('Invalid TrialCase mode')
+        if self.start_mode == 'reset' and self.prefix:
+            raise ValueError('Reset TrialCase cannot include a prefix')
+
+
+def program_digest(program):
+    return digest({key: sorted(set(program[key])) if key == 'allowed_tools' else program[key]
+                   for key in ("source", "entry", "input_schema", "output_schema", "allowed_tools", "environment")})
+
+
 def validate_program(program):
     for key in ("source", "entry", "input_schema", "output_schema", "allowed_tools", "environment"):
         if key not in program:
@@ -38,13 +61,15 @@ def validate_program(program):
     for schema in (program["input_schema"], program["output_schema"]):
         if not isinstance(schema, dict) or schema.get("type") != "object":
             raise ValueError("Program interfaces must be object schemas")
+    environment = program['environment']
+    if not isinstance(environment, dict) or not environment.get('adapter_abi') or not environment.get('image_digest'):
+        raise ValueError('Program environment needs Adapter ABI and locked image digest')
     tree = ast.parse(program["source"])
     entries = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "run"]
     if len(entries) != 1 or [arg.arg for arg in entries[0].args.args] != ["ctx", "inputs"]:
         raise ValueError("Program entry must be def run(ctx, inputs)")
     compile(tree, "<program>", "exec")  # Syntax only; user code never runs here.
-    return digest({key: program[key] for key in (
-        "source", "entry", "input_schema", "output_schema", "allowed_tools", "environment")})
+    return program_digest(program)
 
 
 def validate_workflow(workflow, known_programs=(), known_skills=(), completed=()):
@@ -52,6 +77,10 @@ def validate_workflow(workflow, known_programs=(), known_skills=(), completed=()
     if not isinstance(nodes, list) or not 1 <= len(nodes) <= 16:
         raise ValueError("Workflow needs 1..16 ordered nodes")
     seen = set(completed)
+    fields = {node_id: set(outputs) for node_id, outputs in completed.items()} if isinstance(completed, dict) else {}
+    def check_field(ref):
+        if ref['from'] in fields and ref['field'] not in fields[ref['from']]:
+            raise ValueError('Unknown result field ' + ref['field'])
     for node in nodes:
         node_id = node.get("id")
         if not isinstance(node_id, str) or not node_id or node_id in seen or not node.get("goal"):
@@ -69,12 +98,18 @@ def validate_workflow(workflow, known_programs=(), known_skills=(), completed=()
             if keys == {"from", "field"}:
                 if ref["from"] not in seen or not isinstance(ref["field"], str):
                     raise ValueError("Result reference needs a preceding producer and field")
+                check_field(ref)
             elif keys not in ({"task"}, {"literal"}, {"unresolved"}):
                 raise ValueError("Unsupported parameter reference")
         seen.add(node_id)
+        producer = known_programs.get(node.get('program_id')) if isinstance(known_programs, dict) else None
+        producer = producer or (known_skills.get(node.get('skill_id')) if isinstance(known_skills, dict) else None)
+        if producer and producer['output_schema'].get('additionalProperties') is False:
+            fields[node_id] = set(producer['output_schema'].get('properties', {}))
     for ref in workflow.get("outputs", {}).values():
         if not isinstance(ref, dict) or set(ref) != {"from", "field"} or ref["from"] not in seen:
             raise ValueError("Final output must reference a declared node field")
+        check_field(ref)
     return workflow
 
 

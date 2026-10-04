@@ -1,39 +1,12 @@
 """Benchmark construction stays outside Planner and Runtime policy logic."""
-
-def resolve_benchmark_identity(config):
-    adapter = (config.get('harness') or {}).get('adapter', 'alfworld_v3')
-    expected = {'alfworld_v3':'alfworld', 'scienceworld_v1':'scienceworld'}
-    if adapter not in expected:
-        raise ValueError(f'Unknown harness adapter: {adapter}')
-    benchmark = (config.get('experiment') or {}).get('benchmark')
-    if benchmark is None and adapter == 'alfworld_v3':
-        benchmark = 'alfworld'  # Historical config compatibility only.
-    if benchmark != expected[adapter]:
-        raise ValueError(f'Benchmark/adapter identity mismatch: {benchmark!r}/{adapter}')
-    return {'benchmark':benchmark, 'adapter':adapter}
-def create_harness(config):
-    resolve_benchmark_identity(config)
-    settings = dict(config.get('harness') or {})
-    experiment = config.get('experiment') or {}
+def create_simple_harness(config):
+    settings = config.get('harness', {})
     name = settings.get('adapter', 'alfworld_v3')
-    split = str(experiment.get('split', settings.get('split', 'train')))
     if name == 'alfworld_v3':
         from .alfworld import AlfWorldAdapter
-        return AlfWorldAdapter(split=split, max_steps=int(settings.get('max_steps', 100)),
-            alfworld_data=settings.get('alfworld_data') or None,
-            public_discovery_version=settings.get('public_discovery_version'))
-    if name == 'scienceworld_v1':
-        from .scienceworld import ScienceWorldAdapter
-        return ScienceWorldAdapter(split=split, max_steps=int(settings.get('max_steps', 100)),
-            simplification=settings.get('simplification', 'easy'),
-            version=settings.get('scienceworld_version', '1.2.3'))
-    raise ValueError(f'Unknown harness adapter: {name}')
-
-
-def create_simple_harness(config):
-    """Empirical factory: legacy ValidatorChannel is not the public contract."""
-    settings = config.get('harness', {})
-    if settings.get('adapter', 'alfworld_v3') == 'alfworld_v3':
         from .alfworld_simple import SimpleAlfWorld
-        return SimpleAlfWorld(create_harness(config))
-    raise ValueError('Simple adapter is not installed: ' + str(settings.get('adapter')))
+        return SimpleAlfWorld(AlfWorldAdapter(split=settings.get('split', 'train'),
+            max_steps=settings.get('max_steps', 100), alfworld_data=settings.get('alfworld_data'),
+            public_discovery_version=settings.get('public_discovery_version')))
+    from .benchmarks import create_adapter
+    return create_adapter(config)

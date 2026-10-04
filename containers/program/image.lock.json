@@ -1,0 +1,17 @@
+{
+  "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783",
+  "base_image": "python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
+  "adapter_abi": "simple.v1",
+  "dependencies": [
+    "et_xmlfile==2.0.0",
+    "numpy==2.5.3",
+    "openpyxl==3.1.5",
+    "pandas==2.3.3",
+    "pillow==11.3.0",
+    "python-dateutil==2.9.0.post0",
+    "pytz==2026.5",
+    "six==1.17.0",
+    "tzdata==2026.5"
+  ],
+  "libreoffice": "LibreOffice 25.2.3.2 520(Build:2)"
+}

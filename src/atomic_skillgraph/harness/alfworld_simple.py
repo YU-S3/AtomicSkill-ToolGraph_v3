@@ -3,7 +3,7 @@ from collections import defaultdict
 from dataclasses import asdict, is_dataclass
 
 from ..empirical.contracts import PublicTask, object_schema
-from .protocol import HarnessTask
+from .simple_protocol import HarnessTask
 from .simple_protocol import Capabilities
 
 
@@ -37,7 +37,7 @@ class SimpleAlfWorld:
                 "discovery": asdict(frame) if is_dataclass(frame) else {}}
 
     def available_tools(self):
-        if self.last and self.last.done:
+        if self.last and (self.last.done or self.last.won):
             return []
         groups = defaultdict(list)
         for action in self.harness.action_catalog():
@@ -59,8 +59,8 @@ class SimpleAlfWorld:
         matches = [action for action in self.harness.action_catalog()
                    if action.action_type == name and action.arguments == arguments]
         if len(matches) != 1:
-            return {"accepted": False, "status": "blocked", "error": "No current exact action matches these arguments",
-                    "observation": self.last.observation, "done": bool(self.last.done)}
+            return {"accepted": False, "data": {}, "error": "No current exact action matches these arguments",
+                    "observation": self.last.observation, "done": bool(self.last.done), "environment_step": 0}
         action = matches[0]
         self.last = self.harness.execute_action(action.action_id, action.revision)
         if self.last.accepted:
@@ -73,8 +73,8 @@ class SimpleAlfWorld:
                 self.held.add(obj)
             elif name == "PUT" and obj:
                 self.held.discard(obj)
-        return {"accepted": self.last.accepted, "status": "ok" if self.last.accepted else "blocked",
-                "observation": self.last.observation, "outputs": {}, "done": self.last.done}
+        return {"accepted": self.last.accepted, "data": {}, "error": None if self.last.accepted else "Nothing happens",
+                "observation": self.last.observation, "done": self.last.done or self.last.won, "environment_step": 1}
 
     def check_local(self, inputs, outputs, events):
         # A cheap independent result check based exclusively on public accepted
@@ -99,3 +99,6 @@ class SimpleAlfWorld:
 
     def close(self):
         self.harness._close_backend()
+
+    def abort(self):
+        self.close()

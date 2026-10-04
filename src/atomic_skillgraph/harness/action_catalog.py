@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable
 
-from .protocol import HarnessActionSpec
+from .simple_protocol import HarnessActionSpec
 
 
 Parser = Callable[[Any], tuple[str, dict[str, Any], str, dict[str, Any]]]

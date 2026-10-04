@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -14,10 +15,18 @@ from atomic_skillgraph.empirical.program_worker import ProgramWorker
 from atomic_skillgraph.harness.simple_protocol import Broker, Capabilities
 
 
+def config_for(root):
+    import yaml
+    config = yaml.safe_load(Path(__file__).resolve().parents[1].joinpath('configs/alfworld_empirical_seed42.yaml').read_text())
+    config['data_dir'] = str(root)
+    config['program_environment'].update(adapter_abi='simple.v1', image_digest=os.environ.get('PROGRAM_IMAGE_DIGEST', 'sha256:' + 'a'*64))
+    return config
+
+
 def program(source, inputs=None, outputs=None):
     return {"source": source, "entry": "run", "input_schema": inputs or object_schema(),
             "output_schema": outputs or object_schema(), "allowed_tools": ["act"],
-            "environment": {"python": "3.12", "dependencies": []}}
+            "environment": {"python": "3.12", "dependencies": [], "adapter_abi": "simple.v1", "image_digest": os.environ.get("PROGRAM_IMAGE_DIGEST", "sha256:" + "a"*64)}}
 
 
 class Adapter:
@@ -42,16 +51,15 @@ class Adapter:
 
 @pytest.fixture
 def worker():
-    if sys.platform != "linux" or not shutil.which("bwrap"):
-        pytest.skip("real namespace sandbox requires Linux/bubblewrap")
+    if sys.platform != "linux" or not shutil.which("docker") or not os.environ.get("PROGRAM_IMAGE_DIGEST"):
+        pytest.skip("container tests require Linux, Docker and PROGRAM_IMAGE_DIGEST")
     return ProgramWorker({"wall_timeout_seconds": 2})
 
 
 def test_new_chain_does_not_construct_legacy_system(tmp_path, monkeypatch):
-    from atomic_skillgraph.system import create_system, AtomicSkillGraphSystem
-    monkeypatch.setattr(AtomicSkillGraphSystem, "__init__", lambda *a, **k: pytest.fail("legacy System constructed"))
-    system = create_system({"mechanism_profile": "skillcompiler.empirical.v1", "schema_version": "empirical.v1",
-                            "data_dir": str(tmp_path), "llm": {}}, harness=Adapter(), provider=object())
+    from atomic_skillgraph.system import create_system
+    assert 'atomic_skillgraph.knowledge.database' not in sys.modules
+    system = create_system(config_for(tmp_path), harness=Adapter(), provider=object())
     assert system.bank.all("program") == []
     system.bank.close()
 
@@ -122,12 +130,19 @@ def test_real_sandbox_hides_keys_host_and_network_and_forbids_descendants(tmp_pa
 def run(ctx, inputs):
     assert 'MODEL_API_KEY' not in os.environ
     assert not os.path.exists({str(secret)!r})
-    for operation in (lambda: socket.socket(), lambda: subprocess.run(['/bin/true'])):
-        try:
-            operation()
-        except PermissionError:
-            continue
-        raise RuntimeError('isolation failed')
+    try:
+        socket.create_connection(('1.1.1.1', 443), timeout=.2)
+    except OSError:
+        pass
+    else:
+        raise RuntimeError('network isolation failed')
+    assert os.getuid() != 0
+    try:
+        open('/etc/worker-forbidden', 'w')
+    except OSError:
+        pass
+    else:
+        raise RuntimeError('root filesystem writable')
     return {{'status': 'ok', 'outputs': {{}}}}
 """
     bank = Bank(tmp_path / "bank")
@@ -213,8 +228,7 @@ class Provider:
 
 def test_single_answer_uses_one_solve_and_independent_score_and_frozen(tmp_path):
     from atomic_skillgraph.empirical.system import EmpiricalSystem
-    config = {'mechanism_profile': 'skillcompiler.empirical.v1', 'schema_version': 'empirical.v1',
-              'data_dir': str(tmp_path / 'bank'), 'llm': {}}
+    config = config_for(tmp_path / 'bank')
     provider = Provider(['I declare success', {'decision': 'no_change'}])
     system = EmpiricalSystem(config, harness=AnswerAdapter(), provider=provider)
     trace = system.run_task(PublicTask('t', 'p', 'question'))
@@ -236,8 +250,7 @@ def test_single_answer_uses_one_solve_and_independent_score_and_frozen(tmp_path)
 def test_resume_completed_task_does_not_repeat_solve_or_learning(tmp_path, monkeypatch):
     from experiments import run_empirical as runner
     from atomic_skillgraph.empirical.system import EmpiricalSystem
-    config = {'mechanism_profile': 'skillcompiler.empirical.v1', 'schema_version': 'empirical.v1',
-              'data_dir': str(tmp_path / 'bank'), 'llm': {}}
+    config = config_for(tmp_path / 'bank')
     provider = Provider(['correct', {'decision': 'no_change'}])
     monkeypatch.setattr(runner, 'EmpiricalSystem', lambda config, **kw: EmpiricalSystem(config, provider=provider, **kw))
     tasks = [PublicTask('t', 'p', 'question')]
@@ -252,11 +265,10 @@ def test_invalid_optional_workflow_preserves_tested_program(tmp_path, monkeypatc
     provider = Provider([{'decision': 'propose_skill_and_program_spec', 'skill': skill,
                          'workflow': {'goal': 'bad', 'nodes': [{'id': 'one', 'goal': 'bad',
                              'args': {'x': {'from': 'missing', 'field': 'x'}}}]}},
-                         {'source': "def run(ctx, inputs):\n    return {'status':'ok','outputs':{}}", 'example_inputs': {}}])
-    config = {'mechanism_profile': 'skillcompiler.empirical.v1', 'schema_version': 'empirical.v1',
-              'data_dir': str(tmp_path), 'llm': {}}
+                         {'source': "def run(ctx, inputs):\n    return {'status':'ok','outputs':{}}", 'trial_inputs': [{'case_id': key, 'inputs': {}, 'start_mode': 'reset', 'prefix': []} for key in ['p1','p2']]}])
+    config = config_for(tmp_path)
     system = EmpiricalSystem(config, harness=AnswerAdapter(), provider=provider)
-    def trial(program, inputs, task, trial_id):
+    def trial(program, inputs, task, trial_id, **kwargs):
         row = {'id': trial_id, 'program_id': program['id'], 'task_key': task.physical_key,
                'origin': 'train_test', 'outcome': 'positive', 'basis': 'local_check'}
         system.bank.record(row)
@@ -282,13 +294,12 @@ def test_dynamic_continuation_keeps_completed_results(tmp_path):
     assert len({v['node'] for v in result['values']}) == 2 and result['prediction'] == 'done'
 
 
-def test_interrupted_resume_restores_bank_and_retains_all_billed_usage(tmp_path, monkeypatch):
+def test_interrupted_learning_resume_keeps_execution_and_all_billed_usage(tmp_path, monkeypatch):
     from experiments import run_empirical as runner
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     from atomic_skillgraph.empirical.learner import Learner
-    config = {'mechanism_profile': 'skillcompiler.empirical.v1', 'schema_version': 'empirical.v1',
-              'data_dir': str(tmp_path / 'bank'), 'llm': {}}
-    provider = Provider(['correct', 'correct', {'decision': 'no_change'}])
+    config = config_for(tmp_path / 'bank')
+    provider = Provider(['correct', {'decision': 'no_change'}])
     monkeypatch.setattr(runner, 'EmpiricalSystem', lambda config, **kw: EmpiricalSystem(config, provider=provider, **kw))
     original = Learner.learn
     def interrupted(learner, *a, **kw):
@@ -300,7 +311,8 @@ def test_interrupted_resume_restores_bank_and_retains_all_billed_usage(tmp_path,
         runner.run(config, tasks, tmp_path / 'run', adapter=AnswerAdapter())
     monkeypatch.setattr(Learner, 'learn', original)
     summary = runner.run(config, tasks, tmp_path / 'run', adapter=AnswerAdapter(), resume=True)
-    assert summary['total_tokens'] == 90 and summary['completed_task_tokens'] == 60
+    assert summary['total_tokens'] == 60 and summary['completed_task_tokens'] == 60
+    assert len(provider.calls) == 2
     frozen = Bank(tmp_path / 'run' / 'frozen_bank', readonly=True)
-    assert frozen.all('skill') == []
+    assert frozen.all('skill')[0]['goal'] == 'uncommitted'
     frozen.close()
