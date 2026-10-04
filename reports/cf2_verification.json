@@ -1,0 +1,1689 @@
+{
+  "implementation_revision": "empirical-v3.1-CF2",
+  "baseline": "77959e89afce13e67402b6dd6672f3dbadff0d2e",
+  "tested_code": "57ad1ed",
+  "engineering_passed": true,
+  "mechanism_observed": true,
+  "cost_target_met": false,
+  "quality_target_met": "unmeasured",
+  "formal_score": false,
+  "model": "deepseek-v4-flash",
+  "reasoning_effort": "high",
+  "adapter_abi": "simple.v2",
+  "diagnostic_root": "/home/yangchengyu/cf2_diagnostic_20261005",
+  "pytest": {
+    "total": 120,
+    "passed": 120
+  },
+  "test_matrix": [
+    {
+      "id": "T01",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t01_recorded_take_move_empty_inventory",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.001,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/harness/alfworld_simple.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/empirical/program_worker.py"
+      ]
+    },
+    {
+      "id": "T02",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t02_rejected_move_keeps_held_object",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.0,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/harness/alfworld_simple.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/empirical/program_worker.py"
+      ]
+    },
+    {
+      "id": "T03",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t03_unknown_inventory_cannot_assert_old_hold",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.0,
+          "status": "passed"
+        },
+        {
+          "name": "test_t03_known_empty_inventory_invalidates_prior_locations",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.0,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/harness/alfworld_simple.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/empirical/program_worker.py"
+      ]
+    },
+    {
+      "id": "T04",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t04_old_take_is_not_a_current_local_success",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.001,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/harness/alfworld_simple.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/empirical/program_worker.py"
+      ]
+    },
+    {
+      "id": "T05",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t05_program_and_agent_share_broker_and_state",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.473,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/harness/alfworld_simple.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/empirical/program_worker.py"
+      ]
+    },
+    {
+      "id": "T06",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t06_parser_tool_spec_and_actual_http_preserve_semantics",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.039,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/harness/alfworld_simple.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/empirical/program_worker.py"
+      ]
+    },
+    {
+      "id": "T07",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t07_registered_handler_result_schemas",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.51,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/harness/tool_spec.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T08",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t08_grep_read_unicode_and_crlf_share_offset",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.035,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/harness/tool_spec.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T09",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t09_read_only_check_preserves_published_outputs",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.007,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/workspace.py"
+      ]
+    },
+    {
+      "id": "T10",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t10_undeclared_changes_preserve_old_commit[modify]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_t10_undeclared_changes_preserve_old_commit[delete]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.007,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/workspace.py"
+      ]
+    },
+    {
+      "id": "T11",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t11_explicit_delta_and_interrupted_publish",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.014,
+          "status": "passed"
+        },
+        {
+          "name": "test_t11_publishing_rejects_unauthorized_output_paths[input]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_t11_publishing_rejects_unauthorized_output_paths[traversal]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_t11_publishing_rejects_unauthorized_output_paths[symlink]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.007,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/workspace.py"
+      ]
+    },
+    {
+      "id": "T12",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t12_explicit_plan_answer_submits_without_new_dynamic",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.035,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T13",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t13_completed_file_plan_seals_registered_bundle",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.037,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T14",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t14_intermediate_dictionary_is_not_an_answer",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.035,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T15",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t15_last_read_gets_one_finish_only_without_more_retrieval",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.038,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T16",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t16_terminal_does_not_trigger_finish_only",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.032,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T17",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t17_corpus_input_errors_are_counted_normal_feedback[grep-args0]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.037,
+          "status": "passed"
+        },
+        {
+          "name": "test_t17_corpus_input_errors_are_counted_normal_feedback[read-args1]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.035,
+          "status": "passed"
+        },
+        {
+          "name": "test_t17_corpus_input_errors_are_counted_normal_feedback[read-args2]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.038,
+          "status": "passed"
+        },
+        {
+          "name": "test_t17_corpus_input_errors_are_counted_normal_feedback[read-args3]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.039,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T18",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t18_missing_corpus_still_stops_as_infrastructure",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.037,
+          "status": "passed"
+        },
+        {
+          "name": "test_t18_decoding_failure_is_not_an_input_error",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.034,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T19",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t19_actual_http_pure_read_batch_has_no_repair[2]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.04,
+          "status": "passed"
+        },
+        {
+          "name": "test_t19_actual_http_pure_read_batch_has_no_repair[3]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.048,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T20",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t20_mixed_batch_is_repaired_before_any_dispatch[bad0]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.043,
+          "status": "passed"
+        },
+        {
+          "name": "test_t20_mixed_batch_is_repaired_before_any_dispatch[bad1]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.037,
+          "status": "passed"
+        },
+        {
+          "name": "test_t20_mixed_batch_is_repaired_before_any_dispatch[bad2]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.037,
+          "status": "passed"
+        },
+        {
+          "name": "test_t20_full_batch_validation_precedes_dispatch[over_limit]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.036,
+          "status": "passed"
+        },
+        {
+          "name": "test_t20_full_batch_validation_precedes_dispatch[bad_arguments]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.036,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T21",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t21_bad_regex_does_not_cancel_other_pure_read",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.04,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T22",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t22_saved_batch_resumes_without_repeat_or_usage",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.068,
+          "status": "passed"
+        },
+        {
+          "name": "test_t22_batch_remaining_calls_are_explicitly_not_executed[budget]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.058,
+          "status": "passed"
+        },
+        {
+          "name": "test_t22_batch_remaining_calls_are_explicitly_not_executed[infrastructure]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.045,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/executor.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    },
+    {
+      "id": "T23",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t23_large_result_ref_crosses_actual_http_without_copy",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.035,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/task_context.py",
+        "src/atomic_skillgraph/empirical/contracts.py",
+        "src/atomic_skillgraph/empirical/program_worker.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py"
+      ]
+    },
+    {
+      "id": "T24",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t24_invalid_result_refs_do_not_fetch_or_forge[ref0]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.0,
+          "status": "passed"
+        },
+        {
+          "name": "test_t24_invalid_result_refs_do_not_fetch_or_forge[ref1]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.0,
+          "status": "passed"
+        },
+        {
+          "name": "test_t24_invalid_result_refs_do_not_fetch_or_forge[ref2]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.0,
+          "status": "passed"
+        },
+        {
+          "name": "test_t24_invalid_result_refs_do_not_fetch_or_forge[ref3]",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.0,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/task_context.py",
+        "src/atomic_skillgraph/empirical/contracts.py",
+        "src/atomic_skillgraph/empirical/program_worker.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py"
+      ]
+    },
+    {
+      "id": "T25",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t25_result_read_is_local_counted_and_untruncated",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.035,
+          "status": "passed"
+        },
+        {
+          "name": "test_t25_program_local_result_reads_share_native_and_invocation_limits",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.494,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/task_context.py",
+        "src/atomic_skillgraph/empirical/contracts.py",
+        "src/atomic_skillgraph/empirical/program_worker.py",
+        "src/atomic_skillgraph/harness/simple_protocol.py"
+      ]
+    },
+    {
+      "id": "T26",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t26_file_public_input_contract_is_preserved_at_http",
+          "module": "tests.test_cf2_contracts",
+          "seconds": 0.036,
+          "status": "passed"
+        },
+        {
+          "name": "test_t26_current_guidance_and_program_goal_reach_http",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.064,
+          "status": "passed"
+        },
+        {
+          "name": "test_t26_planner_uses_an_object_root_at_actual_http_boundary",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.039,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/bank.py",
+        "src/atomic_skillgraph/empirical/planner.py",
+        "src/atomic_skillgraph/empirical/executor.py"
+      ]
+    },
+    {
+      "id": "T27",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t27_ninth_relevant_program_enters_menu_and_frozen_filters",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.188,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/bank.py",
+        "src/atomic_skillgraph/empirical/planner.py",
+        "src/atomic_skillgraph/empirical/executor.py"
+      ]
+    },
+    {
+      "id": "T28",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t28_second_authorized_route_ready_runs_without_runtime",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.526,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/bank.py",
+        "src/atomic_skillgraph/empirical/planner.py",
+        "src/atomic_skillgraph/empirical/executor.py"
+      ]
+    },
+    {
+      "id": "T29",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t29_explicit_output_mapping_automatically_continues",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.994,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/bank.py",
+        "src/atomic_skillgraph/empirical/planner.py",
+        "src/atomic_skillgraph/empirical/executor.py"
+      ]
+    },
+    {
+      "id": "T30",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t30_revision_only_cannot_reset_rejected_call_limit",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.043,
+          "status": "passed"
+        },
+        {
+          "name": "test_t30_real_workspace_progress_allows_a_new_attempt",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.035,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/bank.py",
+        "src/atomic_skillgraph/empirical/planner.py",
+        "src/atomic_skillgraph/empirical/executor.py"
+      ]
+    },
+    {
+      "id": "T31",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t31_reuse_existing_can_build_a_missing_program",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.527,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/learner.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/checkpoint.py"
+      ]
+    },
+    {
+      "id": "T32",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t32_missing_light_binding_waits_without_builder",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.078,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/learner.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/checkpoint.py"
+      ]
+    },
+    {
+      "id": "T33",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t33_new_case_fills_unused_trial_slot_and_duplicates_do_not",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.112,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/learner.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/checkpoint.py"
+      ]
+    },
+    {
+      "id": "T34",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t34_qa_guidance_only_uses_one_normal_solver",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.048,
+          "status": "passed"
+        },
+        {
+          "name": "test_t34_guidance_only_cannot_be_built_by_conflicting_trial_request[True]",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.058,
+          "status": "passed"
+        },
+        {
+          "name": "test_t34_guidance_only_cannot_be_built_by_conflicting_trial_request[False]",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.057,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/learner.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/checkpoint.py"
+      ]
+    },
+    {
+      "id": "T35",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t35_both_length_paths_share_one_65536_recovery[False]",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.522,
+          "status": "passed"
+        },
+        {
+          "name": "test_t35_both_length_paths_share_one_65536_recovery[True]",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.459,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/learner.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/checkpoint.py"
+      ]
+    },
+    {
+      "id": "T36",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t36_recovery_then_syntax_failure_cannot_generate_third",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.072,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/learner.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/checkpoint.py"
+      ]
+    },
+    {
+      "id": "T37",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t37_valid_length_submission_does_not_regenerate",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.542,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/learner.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/checkpoint.py"
+      ]
+    },
+    {
+      "id": "T38",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t38_saved_recovery_survives_crash_and_runtime_cap_is_unchanged",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.588,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/learner.py",
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/agents/provider.py",
+        "src/atomic_skillgraph/empirical/checkpoint.py"
+      ]
+    },
+    {
+      "id": "T39",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t39_file_trial_scores_produced_bundle_without_dynamic_solver",
+          "module": "tests.test_cf2_realization",
+          "seconds": 4.456,
+          "status": "passed"
+        },
+        {
+          "name": "test_t39_empty_final_files_cannot_claim_an_old_bundle",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.492,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/system.py",
+        "src/atomic_skillgraph/empirical/program_worker.py",
+        "src/atomic_skillgraph/harness/benchmarks.py",
+        "src/atomic_skillgraph/harness/scorers/spreadsheet.py"
+      ]
+    },
+    {
+      "id": "T40",
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t40_episodes_seeds_frozen_and_real_image_http_are_isolated",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.177,
+          "status": "passed"
+        },
+        {
+          "name": "test_t40_stopped_train_smoke_does_not_start_val_or_another_benchmark",
+          "module": "tests.test_cf2_realization",
+          "seconds": 0.005,
+          "status": "passed"
+        }
+      ],
+      "production_modules": [
+        "src/atomic_skillgraph/empirical/task_context.py",
+        "src/atomic_skillgraph/empirical/bank.py",
+        "src/atomic_skillgraph/experiments/run_multibench.py",
+        "src/atomic_skillgraph/harness/benchmarks.py"
+      ]
+    }
+  ],
+  "test_scope": {
+    "intercepted_http": "engineering/final_http; no live model/network",
+    "actual_http": "engineering/actual_http; paid model requests",
+    "docker": "actual pinned local Docker, no host fallback",
+    "real_state": "engineering/real_state_check.json; recorded actions replayed against actual ALFWorld, no model calls",
+    "real_vision": "unsupported for locked model; original image constructed and byte-hash checked offline"
+  },
+  "wheel": {
+    "code": "57ad1ed",
+    "cwd": "/tmp",
+    "wheel": "/home/yangchengyu/cf2_diagnostic_20261005/engineering/release_wheel/atomic_skillgraph-3.1.0-py3-none-any.whl",
+    "module_path": "/home/yangchengyu/cf2_install_20261005/lib/python3.12/site-packages/atomic_skillgraph/__init__.py",
+    "checks": {
+      "skillcompiler": 0,
+      "skillcompiler-pilot": 0,
+      "skillcompiler-acceptance": 0,
+      "skillcompiler-multibench": 0,
+      "skillcompiler-prepare": 0,
+      "skillcompiler-manifest": 0,
+      "skillcompiler-formal": 0
+    }
+  },
+  "controls": {
+    "old": {
+      "recorded_feedback_only": true,
+      "learned_bank_created": false,
+      "F01_inventory_consistent": false,
+      "state_outputs": [
+        {
+          "observation": "You pick up the apple 1 from the microwave 1.",
+          "done": false,
+          "held_objects": [
+            "apple_1"
+          ],
+          "visited_locations": [],
+          "current_location": null,
+          "discovery": {}
+        },
+        {
+          "observation": "You move the apple 1 to the microwave 1.",
+          "done": false,
+          "held_objects": [
+            "apple_1"
+          ],
+          "visited_locations": [],
+          "current_location": null,
+          "discovery": {}
+        },
+        {
+          "observation": "You are not carrying anything.",
+          "done": false,
+          "held_objects": [
+            "apple_1"
+          ],
+          "visited_locations": [],
+          "current_location": null,
+          "discovery": {}
+        }
+      ],
+      "F09_incremental_registration": false,
+      "workspace_before": {
+        "version": "version-6daa1e328fa943faa6650b31efa5924e",
+        "outputs": [
+          "solution.py",
+          "case1_result.xlsx"
+        ]
+      },
+      "workspace_after": {
+        "version": "version-842cee805f7340c0ae3078789d301f9b",
+        "outputs": []
+      },
+      "grep": {
+        "path": "a.txt",
+        "line": 2,
+        "text": "第二行 target"
+      },
+      "read": {
+        "text": ""
+      },
+      "input_error_type": "UnknownSideEffect",
+      "F11_offset_roundtrip": false,
+      "F13_ordinary_input_error": false
+    },
+    "new": {
+      "recorded_feedback_only": true,
+      "learned_bank_created": false,
+      "F01_inventory_consistent": true,
+      "state_outputs": [
+        {
+          "observation": "You pick up the apple 1 from the microwave 1.",
+          "done": false,
+          "held_objects": [
+            "apple_1"
+          ],
+          "inventory_status": "known",
+          "visited_locations": [],
+          "current_location": null,
+          "discovery": {}
+        },
+        {
+          "observation": "You move the apple 1 to the microwave 1.",
+          "done": false,
+          "held_objects": [],
+          "inventory_status": "known",
+          "visited_locations": [],
+          "current_location": null,
+          "discovery": {}
+        },
+        {
+          "observation": "You are not carrying anything.",
+          "done": false,
+          "held_objects": [],
+          "inventory_status": "known",
+          "visited_locations": [],
+          "current_location": null,
+          "discovery": {}
+        }
+      ],
+      "F09_incremental_registration": true,
+      "workspace_before": {
+        "version": "version-fec9653ec5a64bedb9be0d82ce626219",
+        "outputs": [
+          "case1_result.xlsx",
+          "solution.py"
+        ],
+        "hashes": {
+          "case1_result.xlsx": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "solution.py": "d287bb7f9d15abdc5b6e98536263815744b6ef21c8f3c839fc434ca70d8efe99"
+        },
+        "content_hash": "037d111ba79ba8b46f323300c0bc5f207829546316b02a50de76fc43b913b7e3"
+      },
+      "workspace_after": {
+        "version": "version-fec9653ec5a64bedb9be0d82ce626219",
+        "outputs": [
+          "case1_result.xlsx",
+          "solution.py"
+        ],
+        "hashes": {
+          "case1_result.xlsx": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d",
+          "solution.py": "d287bb7f9d15abdc5b6e98536263815744b6ef21c8f3c839fc434ca70d8efe99"
+        },
+        "content_hash": "037d111ba79ba8b46f323300c0bc5f207829546316b02a50de76fc43b913b7e3"
+      },
+      "grep": {
+        "path": "a.txt",
+        "line": 2,
+        "offset": 6,
+        "text": "第二行 target"
+      },
+      "read": {
+        "text": "第二行 target\nlast",
+        "next_offset": null
+      },
+      "input_error": {
+        "accepted": false,
+        "observation": "",
+        "data": {},
+        "error": "Corpus file is missing or not a file",
+        "error_code": "invalid_corpus_input",
+        "done": false
+      },
+      "F11_offset_roundtrip": true,
+      "F13_ordinary_input_error": true
+    }
+  },
+  "runs": {
+    "alfworld_old_frozen": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/frozen6_after_contract_fix",
+      "code": {
+        "git_sha": "9556f130f81a4b2e4a926d8cbb2c5be40aaba17d",
+        "tracked_dirty": false,
+        "source_sha256": "6fcf85b58b43c7821570f957de3b522cb8b1153a62e6dd453c88f5b2505f30a5"
+      },
+      "readonly": true,
+      "tasks": 6,
+      "successes": 6,
+      "known_total_tokens": 375234,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "16c7cb8db2b4e5287d04f1454cdc617fa48651374ed630efeb306fbea913cf4b",
+      "cases": [
+        {
+          "task_id": "alfworld_eval_in_distribution_105_look_at_obj_in_light",
+          "physical_key": "89f0c1971759545c08e6cbabcfe11deae7cbe74b6d4ae8742848028a741e36a2",
+          "score": {
+            "raw_score": 1.0,
+            "hard": true,
+            "soft": 1.0,
+            "scorer": "alfworld.official-won"
+          },
+          "reason": "environment_terminal",
+          "native_calls": 9,
+          "llm_requests": 10,
+          "tokens": 56957,
+          "program_attempts": []
+        },
+        {
+          "task_id": "alfworld_eval_in_distribution_139_pick_and_place_simple",
+          "physical_key": "055566b8e6e41ae2495244684cc0dcb2cdc56eb4ad0ec190750ee7b649c20999",
+          "score": {
+            "raw_score": 1.0,
+            "hard": true,
+            "soft": 1.0,
+            "scorer": "alfworld.official-won"
+          },
+          "reason": "environment_terminal",
+          "native_calls": 4,
+          "llm_requests": 5,
+          "tokens": 26937,
+          "program_attempts": []
+        },
+        {
+          "task_id": "alfworld_eval_in_distribution_123_pick_clean_then_place_in_recep",
+          "physical_key": "c6dec080dce7e25f619450181681757572b0c4239bbffa4101e4cef4e2d87f6b",
+          "score": {
+            "raw_score": 1.0,
+            "hard": true,
+            "soft": 1.0,
+            "scorer": "alfworld.official-won"
+          },
+          "reason": "environment_terminal",
+          "native_calls": 18,
+          "llm_requests": 19,
+          "tokens": 117662,
+          "program_attempts": []
+        },
+        {
+          "task_id": "alfworld_eval_in_distribution_33_pick_cool_then_place_in_recep",
+          "physical_key": "d28bca8bc3b3ff5f8480109a1245c1591f0b37c91982593dd5cf20f4934ea2b6",
+          "score": {
+            "raw_score": 1.0,
+            "hard": true,
+            "soft": 1.0,
+            "scorer": "alfworld.official-won"
+          },
+          "reason": "environment_terminal",
+          "native_calls": 13,
+          "llm_requests": 14,
+          "tokens": 92058,
+          "program_attempts": []
+        },
+        {
+          "task_id": "alfworld_eval_in_distribution_116_pick_heat_then_place_in_recep",
+          "physical_key": "8c0e94887355d63e77733ba1b2ddd7526a8b6ef5cab762de5f66c34e24c1a367",
+          "score": {
+            "raw_score": 1.0,
+            "hard": true,
+            "soft": 1.0,
+            "scorer": "alfworld.official-won"
+          },
+          "reason": "environment_terminal",
+          "native_calls": 10,
+          "llm_requests": 11,
+          "tokens": 71233,
+          "program_attempts": []
+        },
+        {
+          "task_id": "alfworld_eval_in_distribution_21_pick_two_obj_and_place",
+          "physical_key": "07a6f76a0681f40613f1144b558c8aec35f77c9d650eabdf092222cd0848c701",
+          "score": {
+            "raw_score": 1.0,
+            "hard": true,
+            "soft": 1.0,
+            "scorer": "alfworld.official-won"
+          },
+          "reason": "environment_terminal",
+          "native_calls": 15,
+          "llm_requests": 1,
+          "tokens": 10387,
+          "program_attempts": [
+            {
+              "id": "46954131774f40429175453b54d6480f",
+              "program_id": "program_71f725b0dad8125d203e32c956f2ed72732016c6f3bf6d4cbc243cccd2e98dbd",
+              "task_key": "07a6f76a0681f40613f1144b558c8aec35f77c9d650eabdf092222cd0848c701",
+              "origin": "online",
+              "split": "valid_seen",
+              "outcome": "normal",
+              "calls": 15,
+              "status": "ok",
+              "local_check": "unavailable",
+              "basis": null,
+              "node": "pick_two_and_place",
+              "outputs_consumed": false,
+              "terminal_by_program": true,
+              "result_id": "335b3b1bcc1745e9b53a2bfe4f5bf278:15",
+              "native_event_start": 0,
+              "native_event_end": 15
+            }
+          ]
+        }
+      ]
+    },
+    "new_preparation_ordinary": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/preparation_ordinary_after_contract_fix",
+      "code": {
+        "git_sha": "9556f130f81a4b2e4a926d8cbb2c5be40aaba17d",
+        "tracked_dirty": false,
+        "source_sha256": "6fcf85b58b43c7821570f957de3b522cb8b1153a62e6dd453c88f5b2505f30a5"
+      },
+      "readonly": true,
+      "tasks": 1,
+      "successes": 1,
+      "known_total_tokens": 12873,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "7408b04baf231d7f5b020a7f93b49b1b4a4c796b1d4f606347f9e04f32baaff4",
+      "cases": [
+        {
+          "task_id": "alfworld_train_1_pick_and_place_simple",
+          "physical_key": "81d01307163f659255b22c8e9364ae261655a1ff9dcb575fb4623a17c871f3ac",
+          "score": {
+            "raw_score": 1.0,
+            "hard": true,
+            "soft": 1.0,
+            "scorer": "alfworld.official-won"
+          },
+          "reason": "environment_terminal",
+          "native_calls": 4,
+          "llm_requests": 3,
+          "tokens": 12873,
+          "program_attempts": [
+            {
+              "id": "14e48016e25d45b1a51d720972dc6da4",
+              "program_id": "program_7120c1f3be1faf2d3f04365314be1021583f9cadb87eda63a9b1d96f5608fea1",
+              "task_key": "81d01307163f659255b22c8e9364ae261655a1ff9dcb575fb4623a17c871f3ac",
+              "origin": "online",
+              "split": "val",
+              "outcome": "normal",
+              "calls": 2,
+              "status": "ok",
+              "local_check": "unavailable",
+              "basis": null,
+              "node": "locate_and_take_keychain",
+              "outputs_consumed": true,
+              "terminal_by_program": false,
+              "result_id": "a0f205361bb1458f8cfa459df33f3629:2",
+              "native_event_start": 0,
+              "native_event_end": 2
+            }
+          ]
+        }
+      ]
+    },
+    "searchqa_train": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/smoke_after_contract_fix/searchqa/train",
+      "code": {
+        "git_sha": "9556f130f81a4b2e4a926d8cbb2c5be40aaba17d",
+        "tracked_dirty": false,
+        "source_sha256": "6fcf85b58b43c7821570f957de3b522cb8b1153a62e6dd453c88f5b2505f30a5"
+      },
+      "readonly": false,
+      "tasks": 2,
+      "successes": 1,
+      "known_total_tokens": 19124,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "d53c271856493cd63e8c9a078d596921a5d1bc1a49e718191c664ad034703d6b",
+      "cases": [
+        {
+          "task_id": "searchqa:0d6855b36a0a49229d38e4a376b6ee09",
+          "physical_key": "e5e61c0c5a0439dfb2ee7c16b308dec520e1805bb1b532dd71a975702989bd3f",
+          "score": {
+            "hard": false,
+            "soft": 0.09523809523809523,
+            "raw_score": 0.09523809523809523,
+            "scorer": "searchqa.skillopt-em-f1"
+          },
+          "reason": "single_answer",
+          "native_calls": 0,
+          "llm_requests": 2,
+          "tokens": 9964,
+          "program_attempts": []
+        },
+        {
+          "task_id": "searchqa:224665d37d03421895cf8e7b05863144",
+          "physical_key": "901544cd977f76e52e5be05d1352fb6cba52447f3aa590db01ccc0624092e6e8",
+          "score": {
+            "hard": true,
+            "soft": 1.0,
+            "raw_score": 1.0,
+            "scorer": "searchqa.skillopt-em-f1"
+          },
+          "reason": "single_answer",
+          "native_calls": 0,
+          "llm_requests": 2,
+          "tokens": 9160,
+          "program_attempts": []
+        }
+      ]
+    },
+    "searchqa_val": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/smoke_after_contract_fix/searchqa/val",
+      "code": {
+        "git_sha": "9556f130f81a4b2e4a926d8cbb2c5be40aaba17d",
+        "tracked_dirty": false,
+        "source_sha256": "6fcf85b58b43c7821570f957de3b522cb8b1153a62e6dd453c88f5b2505f30a5"
+      },
+      "readonly": true,
+      "tasks": 1,
+      "successes": 1,
+      "known_total_tokens": 1509,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "2143c05ff3868a87744124cb27da2ae17b0db0c50027436ea9c60e6786ab68a6",
+      "cases": [
+        {
+          "task_id": "searchqa:d66f1f0158054f638ff1b8acf3e18a8a",
+          "physical_key": "4ea5a330e72ae6197f098f014a94c18db59b16bc39221d39c9a103550f50ccd3",
+          "score": {
+            "hard": true,
+            "soft": 1.0,
+            "raw_score": 1.0,
+            "scorer": "searchqa.skillopt-em-f1"
+          },
+          "reason": "single_answer",
+          "native_calls": 0,
+          "llm_requests": 1,
+          "tokens": 1509,
+          "program_attempts": []
+        }
+      ]
+    },
+    "livemath_train": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/smoke_after_contract_fix/livemath/train",
+      "code": {
+        "git_sha": "9556f130f81a4b2e4a926d8cbb2c5be40aaba17d",
+        "tracked_dirty": false,
+        "source_sha256": "6fcf85b58b43c7821570f957de3b522cb8b1153a62e6dd453c88f5b2505f30a5"
+      },
+      "readonly": false,
+      "tasks": 2,
+      "successes": 0,
+      "known_total_tokens": 165484,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "2b9595812a64b8edd37c8eae9372fa1d2167b965c78e6912e6ade7f8b67e2226",
+      "cases": [
+        {
+          "task_id": "livemath:202512:51",
+          "physical_key": "a6cd408a10550325856a09e04218e3a32ab3dc2d6c0776848e54495e8f77f20d",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "livemath.skillopt-em-f1"
+          },
+          "reason": "single_answer",
+          "native_calls": 0,
+          "llm_requests": 4,
+          "tokens": 119437,
+          "program_attempts": []
+        },
+        {
+          "task_id": "livemath:202512:18",
+          "physical_key": "9ce3704180d92a67652ca66165a9e5fd661125a5a2320262fa83f760ac1cb3ab",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "livemath.skillopt-em-f1"
+          },
+          "reason": "single_answer",
+          "native_calls": 0,
+          "llm_requests": 2,
+          "tokens": 46047,
+          "program_attempts": []
+        }
+      ]
+    },
+    "livemath_val": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/smoke_after_contract_fix/livemath/val",
+      "code": {
+        "git_sha": "9556f130f81a4b2e4a926d8cbb2c5be40aaba17d",
+        "tracked_dirty": false,
+        "source_sha256": "6fcf85b58b43c7821570f957de3b522cb8b1153a62e6dd453c88f5b2505f30a5"
+      },
+      "readonly": true,
+      "tasks": 1,
+      "successes": 0,
+      "known_total_tokens": 12412,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "0559935e484beb40627480d46a159e12694c7e6435ed235cf78f9419705f73a0",
+      "cases": [
+        {
+          "task_id": "livemath:202601:33",
+          "physical_key": "3fd124aca790b0a0da3afee38ae82b83705742e145583b4e3cf75cebb030f4e9",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "livemath.skillopt-em-f1"
+          },
+          "reason": "single_answer",
+          "native_calls": 0,
+          "llm_requests": 1,
+          "tokens": 12412,
+          "program_attempts": []
+        }
+      ]
+    },
+    "officeqa_train": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/file_smoke_final/officeqa/train",
+      "code": {
+        "git_sha": "8bf1befd4a83f69cab679c84e4e8a2f33d10effa",
+        "tracked_dirty": false,
+        "source_sha256": "16da84e86a892c26108ff3861d35747033d8c996650e4c5fe72c949d355c94b1"
+      },
+      "readonly": false,
+      "tasks": 2,
+      "successes": 0,
+      "known_total_tokens": 257194,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "f49be90f11a2a4e8ad16cfdd946170f0afd7d2ec3c4f891dc70ba043e317e4c6",
+      "cases": [
+        {
+          "task_id": "officeqa:UID0187",
+          "physical_key": "313f501ba2284a8366d460a56020b44923207f262ba3616d34623fc10feccd09",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "officeqa_skillopt_em_f1_v1"
+          },
+          "reason": "finish_only",
+          "native_calls": 24,
+          "llm_requests": 17,
+          "tokens": 123895,
+          "program_attempts": []
+        },
+        {
+          "task_id": "officeqa:UID0220",
+          "physical_key": "b84bc80016ddfd3d72c29796d7d11bdd34797fdac1734f4f9dd70e6521482652",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "officeqa_skillopt_em_f1_v1"
+          },
+          "reason": "runtime_protocol_error",
+          "native_calls": 20,
+          "llm_requests": 24,
+          "tokens": 133299,
+          "program_attempts": []
+        }
+      ]
+    },
+    "officeqa_val_before_public_inputs_fix": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/file_smoke_final/officeqa/val",
+      "code": {
+        "git_sha": "8bf1befd4a83f69cab679c84e4e8a2f33d10effa",
+        "tracked_dirty": false,
+        "source_sha256": "16da84e86a892c26108ff3861d35747033d8c996650e4c5fe72c949d355c94b1"
+      },
+      "readonly": true,
+      "tasks": 1,
+      "successes": 1,
+      "known_total_tokens": 134856,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "8c00d27a27ef47fd32155ee5b856a5df4c5f705dacc31ece7359b8348677a188",
+      "cases": [
+        {
+          "task_id": "officeqa:UID0095",
+          "physical_key": "4b8a64fb6b5d010db21d4579cee35c45dfdb7fea9adf6c47e5e64ff92d9d4743",
+          "score": {
+            "hard": true,
+            "soft": 1.0,
+            "raw_score": 1.0,
+            "scorer": "officeqa_skillopt_em_f1_v1"
+          },
+          "reason": "finish_only",
+          "native_calls": 24,
+          "llm_requests": 21,
+          "tokens": 134856,
+          "program_attempts": []
+        }
+      ]
+    },
+    "officeqa_val": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/file_val_after_public_inputs_fix/officeqa",
+      "code": {
+        "git_sha": "57ad1edf883559267dfaa4afc0fc955cad05db3d",
+        "tracked_dirty": false,
+        "source_sha256": "6e71fe5e6162b3c7ea0b210c3b4965fd2026429deb98b3e940708fa81affbc3a"
+      },
+      "readonly": true,
+      "tasks": 1,
+      "successes": 0,
+      "known_total_tokens": 165409,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "8c00d27a27ef47fd32155ee5b856a5df4c5f705dacc31ece7359b8348677a188",
+      "cases": [
+        {
+          "task_id": "officeqa:UID0095",
+          "physical_key": "4b8a64fb6b5d010db21d4579cee35c45dfdb7fea9adf6c47e5e64ff92d9d4743",
+          "score": {
+            "hard": false,
+            "soft": 0.0,
+            "raw_score": 0.0,
+            "scorer": "officeqa_skillopt_em_f1_v1"
+          },
+          "reason": "finish_only_protocol_error",
+          "native_calls": 24,
+          "llm_requests": 20,
+          "tokens": 165409,
+          "program_attempts": []
+        }
+      ]
+    },
+    "spreadsheet_train": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/file_smoke_final/spreadsheet/train",
+      "code": {
+        "git_sha": "8bf1befd4a83f69cab679c84e4e8a2f33d10effa",
+        "tracked_dirty": false,
+        "source_sha256": "16da84e86a892c26108ff3861d35747033d8c996650e4c5fe72c949d355c94b1"
+      },
+      "readonly": false,
+      "tasks": 2,
+      "successes": 2,
+      "known_total_tokens": 551010,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "5117cbf447d5dcbc2762b4037e9823593e39ed53a9dabbddd745cc966adf68fc",
+      "cases": [
+        {
+          "task_id": "spreadsheet:120-24",
+          "physical_key": "3c820e3a93d9207ed542dd4fcf444f67591b1701a5852cc3c7bfc41fd804fc49",
+          "score": {
+            "hard": true,
+            "soft": 1.0,
+            "raw_score": 1.0,
+            "scorer": "spreadsheet.skillopt-all-cases",
+            "case_results": [
+              true
+            ]
+          },
+          "reason": "plan_submitted",
+          "native_calls": 8,
+          "llm_requests": 14,
+          "tokens": 204599,
+          "program_attempts": []
+        },
+        {
+          "task_id": "spreadsheet:353-29",
+          "physical_key": "be3fcdff3aa1d941123325efa14f4da98f6fc5e383e5ee124b925ab4887cbdad",
+          "score": {
+            "hard": true,
+            "soft": 1.0,
+            "raw_score": 1.0,
+            "scorer": "spreadsheet.skillopt-all-cases",
+            "case_results": [
+              true
+            ]
+          },
+          "reason": "plan_submitted",
+          "native_calls": 13,
+          "llm_requests": 21,
+          "tokens": 346411,
+          "program_attempts": []
+        }
+      ]
+    },
+    "spreadsheet_val": {
+      "path": "/home/yangchengyu/cf2_diagnostic_20261005/file_val_after_public_inputs_fix/spreadsheet",
+      "code": {
+        "git_sha": "57ad1edf883559267dfaa4afc0fc955cad05db3d",
+        "tracked_dirty": false,
+        "source_sha256": "6e71fe5e6162b3c7ea0b210c3b4965fd2026429deb98b3e940708fa81affbc3a"
+      },
+      "readonly": true,
+      "tasks": 1,
+      "successes": 1,
+      "known_total_tokens": 108301,
+      "unknown_billing_attempts": 0,
+      "knowledge_digest": "51877c23aebff1498ed5d3c7d2942c54a9cbfe0fafd2b8018bc6483327e8d288",
+      "cases": [
+        {
+          "task_id": "spreadsheet:40757",
+          "physical_key": "43e42b3ade6a4e981989bcd74fbd5a337c6a9f73274a0fa7a660a86345671ff5",
+          "score": {
+            "hard": true,
+            "soft": 1.0,
+            "raw_score": 1.0,
+            "scorer": "spreadsheet.skillopt-all-cases",
+            "case_results": [
+              true
+            ]
+          },
+          "reason": "plan_submitted",
+          "native_calls": 7,
+          "llm_requests": 12,
+          "tokens": 108301,
+          "program_attempts": []
+        }
+      ]
+    }
+  },
+  "cost_by_benchmark": {
+    "alfworld": {
+      "measurement": "alfworld_old_frozen",
+      "mean_tokens": 62539.0,
+      "band": ">60000",
+      "goal_met": false,
+      "upper_bound_met": false
+    },
+    "searchqa": {
+      "measurement": "searchqa_val",
+      "mean_tokens": 1509.0,
+      "band": "<=50000",
+      "goal_met": true,
+      "upper_bound_met": true
+    },
+    "livemath": {
+      "measurement": "livemath_val",
+      "mean_tokens": 12412.0,
+      "band": "<=50000",
+      "goal_met": true,
+      "upper_bound_met": true
+    },
+    "officeqa": {
+      "measurement": "officeqa_val",
+      "mean_tokens": 165409.0,
+      "band": ">60000",
+      "goal_met": false,
+      "upper_bound_met": false
+    },
+    "spreadsheetbench": {
+      "measurement": "spreadsheet_val",
+      "mean_tokens": 108301.0,
+      "band": ">60000",
+      "goal_met": false,
+      "upper_bound_met": false
+    },
+    "docvqa": {
+      "status": "unsupported",
+      "mean_tokens": null,
+      "goal_met": "unmeasured"
+    }
+  },
+  "all_paid_diagnostics": {
+    "known_total_tokens": 2175853,
+    "unknown_billing_attempts": 2,
+    "total_tokens": null
+  },
+  "preparation": {
+    "state": "usable",
+    "positive_physical_trials": 2,
+    "ordinary_program_calls": 2,
+    "ordinary_output_consumed": true,
+    "learning_known_tokens": 188003,
+    "learning_code": "b452cee",
+    "ordinary_code": "9556f13",
+    "builder_caps": [
+      32768,
+      65536
+    ],
+    "source": "/home/yangchengyu/cf2_diagnostic_20261005/preparation_result.json"
+  },
+  "compatibility": {
+    "old_abi": "simple.v1",
+    "read_only": true,
+    "old_bank_digest": "16c7cb8db2b4e5287d04f1454cdc617fa48651374ed630efeb306fbea913cf4b",
+    "old_valid_seen_tokens": 690135,
+    "program_sources_changed": false
+  },
+  "canonical_manifest_sha256": "b85e0c2e442ca6b97ef98ece895719d4231f18db29682b0fcb6fdf3f91c37c95",
+  "historical_integrity": {
+    "files": 1155,
+    "changed": []
+  },
+  "formal_matrix": {
+    "path": "/home/yangchengyu/formal_main_experiment_v1_20261005/matrix.json",
+    "sha256": "7e5d04ad219ce64bbf90812f951a5451dcc974a2804ca27a4331a0f069759127",
+    "status_counts": {
+      "interrupted": 1,
+      "queued": 14,
+      "unsupported": 3
+    },
+    "running": false,
+    "new_matrix_started": false
+  },
+  "single_answer_policy": {
+    "default": "guidance_only",
+    "explicit_guidance_only_builds": false,
+    "explicit_program_requested_allowed": true,
+    "formal_solver_calls_per_task": 1,
+    "forced_guidance_only_alternative_adopted": false
+  },
+  "remaining": [
+    "ALFWorld/OfficeQA/Spreadsheet frozen cost above the 60000 upper target",
+    "quality comparison unmeasured; baseline reproduction outside scope",
+    "current model DocVQA unsupported"
+  ],
+  "initial_engineering_failures": {
+    "planner_schema_http_400": {
+      "unknown_billing_attempts": 2,
+      "root_fixed": true,
+      "results_preserved": true
+    },
+    "guidance_only_conflicting_request": {
+      "fixed": true,
+      "initial_searchqa_costs_preserved": true
+    },
+    "file_public_input_projection": {
+      "fixed": true,
+      "train_preserved": true,
+      "val_repeated_in_separate_directory": true
+    }
+  },
+  "formal_protocol_error_result": "Office final finish-only returned length with no tool call; 0/1 kept, no retry or extra repair",
+  "delivery_package": "D:/T3S_exp/deliveries/CF2_代码修改与固定诊断_20261005.zip"
+}
