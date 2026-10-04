@@ -1,0 +1,82 @@
+{
+  "schema": "skillcompiler.split.v1",
+  "benchmark": "livemath",
+  "split_seed": 42,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "public_manifest_sha256": "37546d90fcf43b9eff6f6c37201e117827249aee38d8406fa030c88cb307e3ba",
+  "count": 17,
+  "tasks": [
+    {
+      "task_id": "livemath:202601:33",
+      "physical_key": "3fd124aca790b0a0da3afee38ae82b83705742e145583b4e3cf75cebb030f4e9"
+    },
+    {
+      "task_id": "livemath:202511:3",
+      "physical_key": "ba712ca48dd30b037f7598b0e11ff281215f8788f624331507131d8042d65857"
+    },
+    {
+      "task_id": "livemath:202601:7",
+      "physical_key": "8d10e3f66d7d1096dc11b95e246b0f74e508c7985ecee4f201fde277d35bd631"
+    },
+    {
+      "task_id": "livemath:202512:29",
+      "physical_key": "d03598c4a7588f8acc5e10187e822fb5e9458dbbd57d75e9b88457fcceb92799"
+    },
+    {
+      "task_id": "livemath:202602:21",
+      "physical_key": "8ed6c5d6ab88954e6d7c66c266b0a7b028b50c951e95e8d593fadfe018b0d654"
+    },
+    {
+      "task_id": "livemath:202602:39",
+      "physical_key": "e7d26358985c0c18dd14d050f82b97986e5d70be25e16c0c049db455462e118b"
+    },
+    {
+      "task_id": "livemath:202512:12",
+      "physical_key": "6e9976143f8c9561fd5c4ec8278862e8527d4c9dba24e8478d01dea625532711"
+    },
+    {
+      "task_id": "livemath:202601:40",
+      "physical_key": "abcfa2a823e5b459f63dd18e1f5ba606a6577c3b373f27406713057a7a0b8221"
+    },
+    {
+      "task_id": "livemath:202511:22",
+      "physical_key": "62d5644e3461308dd18c5c15e030c702f5a9f4d7cafa2f22cfe62da6144c2b1f"
+    },
+    {
+      "task_id": "livemath:202512:3",
+      "physical_key": "d0059055cc6b3851c66883bc66cdca72d22428d4aa35279f4d22cf95b8b8e0be"
+    },
+    {
+      "task_id": "livemath:202512:47",
+      "physical_key": "7334d604961f8f3beff0167faa8a92f0c55db3d7d07d77668e89614a4d7954b9"
+    },
+    {
+      "task_id": "livemath:202602:34",
+      "physical_key": "3bd2bbe6e3eaaa85138171e541a4d7ce59a661e0fd5b8131bdf297be5eeef859"
+    },
+    {
+      "task_id": "livemath:202511:27",
+      "physical_key": "0cd287ed9693ad14e96d1cd02d440cdef33c1c1da58985238da043a27d53ef9a"
+    },
+    {
+      "task_id": "livemath:202602:14",
+      "physical_key": "8b75ee4fb16e89c9f814bcdbe9ab6beb6bdfc6e02680527c1b95298dce39092d"
+    },
+    {
+      "task_id": "livemath:202512:2",
+      "physical_key": "e5afb5e1bb444ecfe6b8d4bc03967f0c81858e25e8d8d25a5196b6a3d22297bc"
+    },
+    {
+      "task_id": "livemath:202602:32",
+      "physical_key": "66a2e8db597343276acb352ee823d26792695bc4c37ba750954a4242e5a02b9d"
+    },
+    {
+      "task_id": "livemath:202601:37",
+      "physical_key": "b68f4ddd786018ab2de4850cb9ac35113a5ecae27ef5c5c336540801b5f56530"
+    }
+  ]
+}

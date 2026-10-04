@@ -214,7 +214,8 @@ class EmpiricalSystem:
                 if repair == repair_limit or (turn.finish_reason == 'length' and not turn.tool_calls):
                     raise
                 messages.extend(repair_messages(turn, exc))
-                messages.append({"role": "user", "content": "Repair only the invalid structure: " + str(exc)[:2048]})
+                messages.append({"role": "user", "content": "Repair only the invalid structure. Preserve the requested goal and valid content. "
+                    "If you returned JSON as text, submit those same arguments through the requested ToolCall: " + str(exc)[:2048]})
 
     def run_task(self, task, *, learn=None, attempt_id=None):
         if not isinstance(task, PublicTask):

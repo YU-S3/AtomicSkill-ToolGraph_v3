@@ -38,7 +38,11 @@ program specification. Prefer a useful local goal including necessary search/pre
 guidance; category queries and concrete object IDs are different fields. Examples are hypotheses, not proofs: no
 witnesses/owners/occurrence certificates. Workflows may trim exploration, merge preparation, or retain dynamic gaps.
 Declare all value dependencies explicitly. Do not claim historical success that is not in the supplied record.
-If proposing a new skill, an accompanying workflow may reference it as $new. Return one submit_learning ToolCall."""
+If selected_local_goal is supplied, it defines the requested reusable capability. Preserve that scope in the Skill,
+its inputs and its workflow. The full example task is context, not permission to add extra required objects or
+conditions from that task. Leave subsequent task-specific work to continuation. Do not broaden the selected goal
+while repairing a response's structure. If proposing a new skill, an accompanying workflow may reference it as $new.
+Return one submit_learning ToolCall."""
 BUILDER_PROMPT = """Generate a reusable restricted Python program: def run(ctx, inputs) -> dict. Use normal variables,
 branches and loops. ctx.observe(), ctx.available_tools(), ctx.call(name, arguments), ctx.remaining_calls() are the only
 public task interfaces. No LLM, evaluator, network, host paths, external installation or private state. Do not call
@@ -50,7 +54,8 @@ labels are not tool IDs. Do not hardcode example object instances/locations. Gen
 trial_inputs with one submit_program ToolCall. Provide one independent binding for each supplied case_id.
 Use each case's public task to construct its own inputs; never copy concrete objects or file paths from another case.
 Prefer start_mode reset and prefix []; intermediate-state skills require the exact real public action prefix
-from that case's recorded experience. Only use the tool names supplied to you."""
+from that case's recorded experience. Implement the supplied Skill's local goal; do not expand it to solve the
+complete example task or add unrelated required targets. Only use the tool names supplied to you."""
 RUNTIME_PROMPT = """Execute the current node toward the original user's task, keeping exact resource identities and
 quantity constraints. Prefer an existing program when inputs are ready; otherwise use a public tool, call a preparation
 program, or supply missing values. Only call currently provided tools with their normal arguments. Return one runtime_step

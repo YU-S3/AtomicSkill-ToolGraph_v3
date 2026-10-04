@@ -4,10 +4,10 @@
     "archive/empirical-v30"
   ],
   "delete": [
-    "AtomicSkillGraph_v3.2_AgentDrivenToolEvolution_\u8fd0\u884c\u65f6\u81ea\u52a8\u5316\u4e0e\u9a8c\u8bc1\u8fb9\u754c\u4fee\u590d\u51bb\u7ed3\u6587\u6863.md",
-    "AtomicSkillGraph_v3.2_R1.1_EvidenceAtomic\u4e0e\u8de8\u4efb\u52a1Tool\u590d\u7528\u95ed\u73af\u4fee\u590d\u51bb\u7ed3\u6587\u6863_\u6700\u7ec8\u7248.md",
-    "AtomicSkillGraph_v3.2_R1_\u6838\u5fc3\u94fe\u8def\u95ed\u5408\u4e0e\u6b63\u5f0f\u5b9e\u9a8c\u524d\u4fee\u590d\u51bb\u7ed3\u6587\u6863_\u6700\u7ec8\u7248.md",
-    "AtomicSkillGraph_\u96c6\u4e2d\u5f0f\u539f\u5b50SkillGraph\u4e0eTool\u8054\u5408\u8fdb\u5316_\u5b8c\u6574\u8bbe\u8ba1\u6587\u6863_v3.0_\u72ec\u7acb\u91cd\u6784\u7248.md",
+    "AtomicSkillGraph_v3.2_AgentDrivenToolEvolution_运行时自动化与验证边界修复冻结文档.md",
+    "AtomicSkillGraph_v3.2_R1.1_EvidenceAtomic与跨任务Tool复用闭环修复冻结文档_最终版.md",
+    "AtomicSkillGraph_v3.2_R1_核心链路闭合与正式实验前修复冻结文档_最终版.md",
+    "AtomicSkillGraph_集中式原子SkillGraph与Tool联合进化_完整设计文档_v3.0_独立重构版.md",
     "PROVIDER_RECOVERY_VALIDATION.md",
     "R10.2.1_IMPLEMENTATION_REPORT.md",
     "R10.2.1_REMOVAL_AUDIT.md",
@@ -509,7 +509,11 @@
   ],
   "remaining_tests": [
     "tests/test_alfworld_exact_reset.py",
-    "tests/test_empirical.py"
+    "tests/test_benchmark_adapters.py",
+    "tests/test_empirical.py",
+    "tests/test_empirical_boundaries.py",
+    "tests/test_provider_transport.py",
+    "tests/test_public_observation.py"
   ],
   "migrations": {
     "HarnessTask/ActionSpec/ActionResult": "harness/simple_protocol.py",
@@ -521,5 +525,10 @@
     "public discovery": "harness/public_discovery.py",
     "Provider/auth/usage": "agents/provider.py, protocol.py, usage.py",
     "old mixed correctness tests": "tests/test_empirical_boundaries.py, test_provider_transport.py, test_public_observation.py"
+  },
+  "test_result": {
+    "passed": 33,
+    "skipped": 0,
+    "environment": "Ubuntu WSL / real Docker digest pinned; existing Python 3.12 venv"
   }
 }

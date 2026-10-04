@@ -1,0 +1,39 @@
+{
+  "code": {
+    "git_sha": "448fed6ab9ea12a1bfb8b1db168fae98daa6fd50",
+    "tracked_dirty": false,
+    "source_sha256": "fb75df414c68816c67b2726698267b32e1daf9d3d512caaea5f480e56c522a82"
+  },
+  "run": "/home/yangchengyu/asg_empirical_v31_20261004/acceptance",
+  "passed": false,
+  "state": "candidate",
+  "known_total_tokens": 114699,
+  "formal_score": false,
+  "reason": "Learner broadened the selected acquisition goal to require a light source; absent light gave not_found.",
+  "tests": [
+    {
+      "physical_key": "5cb9bbb1c93b91f6407cc7428edd672e49329f38d7bb22a4683213c16bdf78a9",
+      "outcome": "positive",
+      "basis": "task_outcome",
+      "native_calls": 42,
+      "program_status": "ok",
+      "program_calls": 2,
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      }
+    },
+    {
+      "physical_key": "81d01307163f659255b22c8e9364ae261655a1ff9dcb575fb4623a17c871f3ac",
+      "outcome": "normal",
+      "basis": null,
+      "native_calls": 16,
+      "program_status": "not_found",
+      "program_calls": 16,
+      "score": null
+    }
+  ],
+  "next_action": "User authorized one fresh two-case acceptance after preserving the selected local goal in prompts; no generated source edits."
+}

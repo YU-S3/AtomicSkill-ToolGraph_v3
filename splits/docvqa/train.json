@@ -1,0 +1,734 @@
+{
+  "schema": "skillcompiler.split.v1",
+  "benchmark": "docvqa",
+  "split_seed": 42,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "public_manifest_sha256": "5e2e06667e0935f7be88d0a956b35524a8db78cf5dceac37e53d6bbc8dace75d",
+  "count": 180,
+  "tasks": [
+    {
+      "task_id": "docvqa:44841",
+      "physical_key": "f35063b137805dcf8bbae61a9dfe6437aa41523ce6943935e0a2d733edfe374d"
+    },
+    {
+      "task_id": "docvqa:45117",
+      "physical_key": "e9012880b7bf33298a7d08ac96398f1802f8668fe16a6fdfe301eee7a8afc1f9"
+    },
+    {
+      "task_id": "docvqa:58675",
+      "physical_key": "26a8e847cba4e9333d426916476bb1aa468e0f90494d1d001c5d3c972a9ce1e6"
+    },
+    {
+      "task_id": "docvqa:57402",
+      "physical_key": "c19e5aaee2535f3a9f282ee566c46bb29696a37484b702ef91251584362c1003"
+    },
+    {
+      "task_id": "docvqa:43154",
+      "physical_key": "db8da800a4879bacdcdee0567336f2184ba70741108f9d2c472ef8bdbf745669"
+    },
+    {
+      "task_id": "docvqa:61509",
+      "physical_key": "76a33d09b2c7344be82eeee24c22e66132dc2cdd77668ea0ddeb645c2d86a102"
+    },
+    {
+      "task_id": "docvqa:63892",
+      "physical_key": "c34b88efa9955945541da358d3a23b3e8b2c6272a0de4d53ce200d1c08b1a3a5"
+    },
+    {
+      "task_id": "docvqa:51248",
+      "physical_key": "2186e80634a8f04b657875a820ae536dadfb6ebe0283c903ffb2af41d546260a"
+    },
+    {
+      "task_id": "docvqa:47537",
+      "physical_key": "695099eaddfe44fc3c3ddc6ee5373cdec3f2a6ce030b6b0cb7cd1b40b2367948"
+    },
+    {
+      "task_id": "docvqa:5199",
+      "physical_key": "83947b7d0a7ce7488bb33a6c7487a4d819aa9b65eec6c1749b4fa025cb887a02"
+    },
+    {
+      "task_id": "docvqa:56556",
+      "physical_key": "e4fe1a1124e3a25a41353188339f98c3c06bbeab74ffa4192dc68783828ed064"
+    },
+    {
+      "task_id": "docvqa:6822",
+      "physical_key": "7c188f1218c0ea0ec58eedc0b12fe195359af46a18a3df3566ff8d6263b95845"
+    },
+    {
+      "task_id": "docvqa:60407",
+      "physical_key": "dad8831de0b4dd3f21ded878a37e4dc1d709fda8b47e7419ec33c6fb6da7e73b"
+    },
+    {
+      "task_id": "docvqa:60048",
+      "physical_key": "f1750d2752eaf8ebd70104182f95747d67a22d5ca2efc173be57b14f827c7c54"
+    },
+    {
+      "task_id": "docvqa:44978",
+      "physical_key": "68625fd0a8e9e539b7f098bcb9f4e6c9c2f9a958b1b2d15f1c1ad1ec0fac5dc9"
+    },
+    {
+      "task_id": "docvqa:7025",
+      "physical_key": "93d4b354a06ceb4d900fd5d099d99b122a24a454d6931b028e651c346c9e1b79"
+    },
+    {
+      "task_id": "docvqa:56576",
+      "physical_key": "cc3bcf9976df1becc7e93e46b07a154bf9720fb4be02f4aa4e48c25812ef857c"
+    },
+    {
+      "task_id": "docvqa:64936",
+      "physical_key": "5f1d8a109fbc836488c04c4318e63ff3bdcd0f048becedc48292a9840a5fea21"
+    },
+    {
+      "task_id": "docvqa:9845",
+      "physical_key": "1885a70606e2c06c25f342d63bc93540296765383dc69e3da33505552b0651bc"
+    },
+    {
+      "task_id": "docvqa:5646",
+      "physical_key": "a25d339efe28e731b504a57ed3fb576bb175dcd915a0631d2056e71c6a8db196"
+    },
+    {
+      "task_id": "docvqa:63700",
+      "physical_key": "e020fd44575cb86ae0609ce09b722c41e2d1d11cdfd454b02f66b68a042b89ca"
+    },
+    {
+      "task_id": "docvqa:57801",
+      "physical_key": "e22b0aec9fc3ff818e6b0aee12d025953067ca60349304acc4fac2e3674308ff"
+    },
+    {
+      "task_id": "docvqa:43110",
+      "physical_key": "38337ab41088780f3fed3b3cbbcda8a2ff085e8e8a71485555013a0ba144bba5"
+    },
+    {
+      "task_id": "docvqa:55160",
+      "physical_key": "d60c921c852c1060c6fe533681bc6d4400aa08973e9d80f81a419ded11c93a6d"
+    },
+    {
+      "task_id": "docvqa:4978",
+      "physical_key": "752ae54f20e3fc4e5e8ff545803b929cffc2dd8642a047f066973157994304c8"
+    },
+    {
+      "task_id": "docvqa:56275",
+      "physical_key": "1cb52d1d4834dc9da22cf169871a9db8a8be2acde6e5bfde934de99edb0f4307"
+    },
+    {
+      "task_id": "docvqa:57532",
+      "physical_key": "7b35c4f8dce1b3145de5a6f6eaad14128f067a7f0f5cd0bdb7b4cfb963dd6c65"
+    },
+    {
+      "task_id": "docvqa:1982",
+      "physical_key": "98fabb4c624cb44a2640d393cd309f1746b0f2bb50a68e24f6e494edb1510d9c"
+    },
+    {
+      "task_id": "docvqa:15041",
+      "physical_key": "bf5385e5d2719ea6e215b49e6231d94ee1d12c1945fed7b0d39aef1769bef0c1"
+    },
+    {
+      "task_id": "docvqa:64612",
+      "physical_key": "265348a7bfc113e57288055a65758ba13dc4c921e6a94982aa2514924a80c924"
+    },
+    {
+      "task_id": "docvqa:63710",
+      "physical_key": "55f9eb8c11cf9619b58c019d8d4663549abaac68b216438bbbc4495ac333744f"
+    },
+    {
+      "task_id": "docvqa:50307",
+      "physical_key": "ee5dda3f31f4d30599b7ee5a2ed64424026d39a86ee841834627a5e018a7c8bb"
+    },
+    {
+      "task_id": "docvqa:50837",
+      "physical_key": "6f9f36be27cbf5ecef352b95e6c57d009f9504d95bd479e9f2a0c0e4243339e4"
+    },
+    {
+      "task_id": "docvqa:64587",
+      "physical_key": "c4485476cc76ad609565caa668390be468c6f59f4b90cf144de61a1b5f7108da"
+    },
+    {
+      "task_id": "docvqa:28064",
+      "physical_key": "3e8d0a15f6b63edc84b5ea916312fc033d0c1e0dd37bc80adbb73d05e3768eb8"
+    },
+    {
+      "task_id": "docvqa:64219",
+      "physical_key": "918179e2420412bb26486c48817070b4ab925f473405156bff4e31094a68f986"
+    },
+    {
+      "task_id": "docvqa:62478",
+      "physical_key": "bedab3784db17243297aadadbb6e8fc25a071d378cc58771a068e37a478b8f7f"
+    },
+    {
+      "task_id": "docvqa:62917",
+      "physical_key": "6fbd8ec3885a090ea42c2528d6df2be41c36c6938474f261442462cf503c282e"
+    },
+    {
+      "task_id": "docvqa:50840",
+      "physical_key": "ecd7b219d9383109e1fec828b484ca6735e8be2f814878f05e435365a864dd27"
+    },
+    {
+      "task_id": "docvqa:3042",
+      "physical_key": "c8c4a981f2f561f87063f9efe2c5f107e028e2ca0978e89b5a52ab3da17d217c"
+    },
+    {
+      "task_id": "docvqa:56857",
+      "physical_key": "dc663a810c2114ea022744d363956eac972838409c358d2c3c63fcee2bd5db8f"
+    },
+    {
+      "task_id": "docvqa:21707",
+      "physical_key": "3dcfce5cd9a53c0952be2c1c0fa2c9750ba6c8c994c0b8864f2b5b5da1ddc7c8"
+    },
+    {
+      "task_id": "docvqa:58680",
+      "physical_key": "f8261436bf14bc79c84d91a5634b3fd8eb4d5ca3bbe2a2a322abcf0a43078486"
+    },
+    {
+      "task_id": "docvqa:62840",
+      "physical_key": "6ecfcf6e3e9577b2252703e4738d03d02d5f941808ea94c347a49c4e26734c09"
+    },
+    {
+      "task_id": "docvqa:7615",
+      "physical_key": "cbcd16bb31a576402abf8b21ae522929f7a81f6777c03b7c334be63ccab2dcd1"
+    },
+    {
+      "task_id": "docvqa:3838",
+      "physical_key": "bcbfcfd8785e8d7b58c5168a77cd64a9f2e9ce3fc1618f7c31ff494bb08f963c"
+    },
+    {
+      "task_id": "docvqa:59304",
+      "physical_key": "47f7de3f01dc7c72203831e7b43e0ae2c9f8ff29b681fa04d0d18635c9788b96"
+    },
+    {
+      "task_id": "docvqa:50815",
+      "physical_key": "d4454e2f3dc358bd3452a53be02e24c07ba9b9a3675beec7b4e7316a1c50f632"
+    },
+    {
+      "task_id": "docvqa:7013",
+      "physical_key": "f45bfbc4de3a64f6222d2a7a7b52f62bb03d6496a0dcd8a03baf90155c4925fb"
+    },
+    {
+      "task_id": "docvqa:50968",
+      "physical_key": "6c915e3041ce2ba29c08223e517eb14e836ee4ebe1a44edb7f29c576f3047534"
+    },
+    {
+      "task_id": "docvqa:47452",
+      "physical_key": "017e4a89122d93cb54e947bbdbcf5fd50f3aa217f77f7b9527f690fb427bd47e"
+    },
+    {
+      "task_id": "docvqa:25502",
+      "physical_key": "638fed5a33ea95878c073b807df1f130763f5332d5c6fa7c5f0fea4ba0575862"
+    },
+    {
+      "task_id": "docvqa:56785",
+      "physical_key": "537e6667fb1fe11fea70a0946143381a1df75b8240620a9ddea274a0fec66cbe"
+    },
+    {
+      "task_id": "docvqa:16424",
+      "physical_key": "e8ff4e36aba5c5d219b23ad5a801b154a4dce67d363d7c58a77c9041096d77c8"
+    },
+    {
+      "task_id": "docvqa:5313",
+      "physical_key": "d0153f93d18c2d948f9ab27040bdfe15428e62fcb13c48f5c26772f5ac210796"
+    },
+    {
+      "task_id": "docvqa:55256",
+      "physical_key": "646ab38b8e448ffcc8c7c10813e4a605f5dc72cce43a7962bd189ecd909124fc"
+    },
+    {
+      "task_id": "docvqa:5558",
+      "physical_key": "ef780a97ccfbdccb739bc7f6355803aaaf38a121a4a86cd6db2d716b339654d8"
+    },
+    {
+      "task_id": "docvqa:57321",
+      "physical_key": "3930f7a69a86e7a32040c32b971d03999c8ebd08eace1f743e26a0ce5f59bc78"
+    },
+    {
+      "task_id": "docvqa:58878",
+      "physical_key": "1c2ec014be5cb1cab20b45aed8e6d0d697850e3ac721505a3da8492203af7e21"
+    },
+    {
+      "task_id": "docvqa:21068",
+      "physical_key": "31c96f02d65f6a5490cc246fa1d43795b439cf1d268addf06de7fa54e6a854ee"
+    },
+    {
+      "task_id": "docvqa:50515",
+      "physical_key": "f564a5ad5a60302862b812b0d21480c6da766ea05f2237254e6d9ab17e067129"
+    },
+    {
+      "task_id": "docvqa:44130",
+      "physical_key": "d4ac470ec4bd8186ff693a1d599d5984e4d2a48ce7c42ec62feb8a28289f2666"
+    },
+    {
+      "task_id": "docvqa:15036",
+      "physical_key": "9a829b7cb75dbe683327f4acb2d8d5137bd9f1b545b0b805c9caa36eb04dd2a0"
+    },
+    {
+      "task_id": "docvqa:64617",
+      "physical_key": "2d02fa500b7537e66ffa739fa90c638e35289b7cd33c8d995234d8df6ac96c79"
+    },
+    {
+      "task_id": "docvqa:5673",
+      "physical_key": "c2d5ee17555cb7689c54985180a3942190f20a32a9741bc31855c9922b1015bb"
+    },
+    {
+      "task_id": "docvqa:55471",
+      "physical_key": "165873ff6cc6f54edbae8211ff8adf21cb9f2253dca94d21f7b2fcd77c7e4492"
+    },
+    {
+      "task_id": "docvqa:377",
+      "physical_key": "89056aae46fd74b51f4f756a8eea64cfc301cc2cb52af870eb82d215bfd3d419"
+    },
+    {
+      "task_id": "docvqa:62995",
+      "physical_key": "736245d51200fa6ad331cb944ff42cd8f038434b6e9a310c41d0182be1bb118b"
+    },
+    {
+      "task_id": "docvqa:3071",
+      "physical_key": "554b1a1216caf9cd30c5294266491f2f2e2ddcdcdbda97f17137545a1fc32019"
+    },
+    {
+      "task_id": "docvqa:64634",
+      "physical_key": "8e80ef46760f1121eeac12ede2b110510fe4e02197e00a45495bbd825f1ee416"
+    },
+    {
+      "task_id": "docvqa:2143",
+      "physical_key": "78912b6f105e909374f5747051f243109be3b501fa8f6eb244d06b20c8c4c1c4"
+    },
+    {
+      "task_id": "docvqa:57454",
+      "physical_key": "d30220050d214f89973fe29b871ffc6f9b46261e96a4e0647f07c40f0d4fb2fb"
+    },
+    {
+      "task_id": "docvqa:15323",
+      "physical_key": "6c7fa03d8fb4b149d7b242db7b9b832c706d28c7eca3e04e39ba7b10ac7de585"
+    },
+    {
+      "task_id": "docvqa:53575",
+      "physical_key": "0c0d63305362632410535cdb8ad1509614134b2f46c1e42dfea8b579db0c7b65"
+    },
+    {
+      "task_id": "docvqa:57087",
+      "physical_key": "59ae9db8754c1cea07fab2ef9e63f88d35e28394f30dc7dbdbc67b5f173ddd25"
+    },
+    {
+      "task_id": "docvqa:15008",
+      "physical_key": "ad69b184c8439b55deb220daf2cfc6dc5f6c8efd75b30126bbe4ac38cf4ab778"
+    },
+    {
+      "task_id": "docvqa:18842",
+      "physical_key": "3f0d57f996648d2b92235c0ef43a35bf250bde0f1b1724b3492dd71cbab3c47b"
+    },
+    {
+      "task_id": "docvqa:63787",
+      "physical_key": "04d9af9a498f5d1171b84c043642fc8c300612b37ee844e3fb58e9ad75f20a72"
+    },
+    {
+      "task_id": "docvqa:61548",
+      "physical_key": "8bf52ad681d71c410f79496693ffc0f644ff6358fa1dcd2631b5c2cbbce8330e"
+    },
+    {
+      "task_id": "docvqa:63109",
+      "physical_key": "ceadc4f9b77307a12d645f023461864d84688cd913064233b7ff7583581e26fb"
+    },
+    {
+      "task_id": "docvqa:59600",
+      "physical_key": "4a04a91252acb0a4edb53303913835c71fdadcf076004f9c189d54e571d55f6f"
+    },
+    {
+      "task_id": "docvqa:3135",
+      "physical_key": "023dc97b6ea56a116ade192db99e2016789f1a0d9eaee8f81cb1d053ec720bef"
+    },
+    {
+      "task_id": "docvqa:5474",
+      "physical_key": "f6b4d55168322b7243b1c381f16ba5dbdd6959169176b7a7bcc3a565801ba62f"
+    },
+    {
+      "task_id": "docvqa:55095",
+      "physical_key": "5a5e39298e57353c3c41fa22a902bef24b6938f7303734655c67ed75977a1005"
+    },
+    {
+      "task_id": "docvqa:16473",
+      "physical_key": "9648e24b02dc5b853389645f0b9593cfd530974a320a2f3f8f9caf44c1f85186"
+    },
+    {
+      "task_id": "docvqa:65152",
+      "physical_key": "799e13e22e8dea920b70773f6007cbbcbff9d12857112157c1247306e7a0866c"
+    },
+    {
+      "task_id": "docvqa:45726",
+      "physical_key": "bd729f7f319b8731c00ae5606a64a85035d8e77d64ca8e254f9865465dc18fd3"
+    },
+    {
+      "task_id": "docvqa:56451",
+      "physical_key": "b4ab6f17ac747b45b569f01ad20600f22032096897c2a8789a21a49bb2abd1cd"
+    },
+    {
+      "task_id": "docvqa:45103",
+      "physical_key": "5e735b1aa21932b538a41894a4cb21d1147c4c7df9daac1d640af81cd0fa24ac"
+    },
+    {
+      "task_id": "docvqa:41799",
+      "physical_key": "3a8a2470105618af21fd608ca0fad3d86cc32f12ee164e729f540f5d3c4a1ef0"
+    },
+    {
+      "task_id": "docvqa:4953",
+      "physical_key": "ba2450e83b1be47aa9bcdb2979734f6001f93ede9fa4d606ad23469e1f6a60ed"
+    },
+    {
+      "task_id": "docvqa:62646",
+      "physical_key": "1d99c6300acec96023a1e2bcb7827361943f789db66e67bbbaaa2492fd478e10"
+    },
+    {
+      "task_id": "docvqa:53466",
+      "physical_key": "ca46536584858800c9407fe4e4c6e609d282affb47b674dd65bac16ac93ce855"
+    },
+    {
+      "task_id": "docvqa:63026",
+      "physical_key": "56c87d0d8da45ba2177e16d30fe992e855847a75e29903e16e17af8cea8dee30"
+    },
+    {
+      "task_id": "docvqa:44939",
+      "physical_key": "4237ee3325dddf7bf3571da91083986d00a9f0f16158306f30aaa1c7a25f8494"
+    },
+    {
+      "task_id": "docvqa:58431",
+      "physical_key": "db3153bd139ba0bee4c440e39c2744dcff212cfa3a732050435c3a5995904fdf"
+    },
+    {
+      "task_id": "docvqa:41716",
+      "physical_key": "366182060fb30f10df8354f7dbd3152d83dec58c14240ca12fffb679a915a129"
+    },
+    {
+      "task_id": "docvqa:18611",
+      "physical_key": "29cfa0994035c56cac034313d00db01dd518b766851e8db7af5cbaeba9987a03"
+    },
+    {
+      "task_id": "docvqa:16339",
+      "physical_key": "2bbd2722387da162468e204f8e09522876fad57b4aac405651ad10f4e3fd24a0"
+    },
+    {
+      "task_id": "docvqa:43484",
+      "physical_key": "e902443c7b938f2723d96107ba9a47e93cc32b27fe10245151ca1d0689456094"
+    },
+    {
+      "task_id": "docvqa:61551",
+      "physical_key": "08dc2a4bf1cf980a2a5ebb7050217abac1c4318d85a737ea7a647ab4a6260ba3"
+    },
+    {
+      "task_id": "docvqa:61578",
+      "physical_key": "adbc873f9a5855fdd7fe7deffa673d132bde43b9ee33de948e274be984d747a2"
+    },
+    {
+      "task_id": "docvqa:64494",
+      "physical_key": "8f99283cdcbd00aeaee3e54a96eaff6f1e46c68114b55c5d85cc864bd8bdd18f"
+    },
+    {
+      "task_id": "docvqa:63246",
+      "physical_key": "cfb5c5f74cf01140fabba8466dce11709f8d07dfe7724c5419a26b529f57b2d1"
+    },
+    {
+      "task_id": "docvqa:37229",
+      "physical_key": "69a928036a3be1895384bb63eafe687cc05c8ea7283efc3926fc1dadaca4a79f"
+    },
+    {
+      "task_id": "docvqa:5591",
+      "physical_key": "f7a05dcc967b7c6dc518a7ae12bce3d10a9998d8153291feb35e9d779064b98a"
+    },
+    {
+      "task_id": "docvqa:9367",
+      "physical_key": "225faf83a1a8101cfda73e267bcbd12ed10b2503e6b09f32b029c82995a3882c"
+    },
+    {
+      "task_id": "docvqa:61764",
+      "physical_key": "5908d7c02c51e702c8f58333c81a3a2dea243f94876168ffefec2374abebceb3"
+    },
+    {
+      "task_id": "docvqa:60863",
+      "physical_key": "847cd0d0998688e5cffa581772649c0a7cffaaeaac8ffd70b65c26a141bbfaae"
+    },
+    {
+      "task_id": "docvqa:5858",
+      "physical_key": "4dc607e3ef911ad265e9deff7841ff810dd02123bdffdbd08d4f1eed116fa5b7"
+    },
+    {
+      "task_id": "docvqa:38920",
+      "physical_key": "d0ac2b852dcc11d6db4c7f8ef3ccef16099f3d265013da237ae62ed874391585"
+    },
+    {
+      "task_id": "docvqa:54958",
+      "physical_key": "4ca060d5e193843a3671c443006fc30520feca0e242ba4f3654d1f585f3c7df0"
+    },
+    {
+      "task_id": "docvqa:51484",
+      "physical_key": "97b76d86801cda0150af3c994203a5a3b1e909f6e9af2e72244b0d2d6e93e648"
+    },
+    {
+      "task_id": "docvqa:50506",
+      "physical_key": "2527484553a19f9707a9a5a03f55d277f2b7e460ba6f68b0336d94b314af2994"
+    },
+    {
+      "task_id": "docvqa:45837",
+      "physical_key": "ba27cdc02b40cdd99baa5499f16a1004ca3e2db77d8f6700d856095a6a1c2a21"
+    },
+    {
+      "task_id": "docvqa:61472",
+      "physical_key": "e456f5a802f70651c6a6118f744482423eb9ba49ca552a929fd54bf73ce7b0f7"
+    },
+    {
+      "task_id": "docvqa:15382",
+      "physical_key": "89ebb9e265e5d6c5d7710ef95023ac38472f62bfa3c49456f531887a82944015"
+    },
+    {
+      "task_id": "docvqa:6787",
+      "physical_key": "e69cb70a4d131097fdbd29d32941e791aed9d536d934b69d22971cf7e1a14bb9"
+    },
+    {
+      "task_id": "docvqa:56580",
+      "physical_key": "e5c009ed7d6d3fce2619ef58f02ff5de020b4cd874ed58d275b0c484673a8544"
+    },
+    {
+      "task_id": "docvqa:56371",
+      "physical_key": "217069344186fb65ede01b2e9a9224f5551b614ac2bd9eb9616e372417f81e05"
+    },
+    {
+      "task_id": "docvqa:4438",
+      "physical_key": "c9e9e0bc53a0c0a96d6b00b9fffacdc991ea287e32618d0c89463bd0ffb21e03"
+    },
+    {
+      "task_id": "docvqa:38912",
+      "physical_key": "3f1ed6743429c772ea31282821159dce83c3461a4e626713e71b9306521ab417"
+    },
+    {
+      "task_id": "docvqa:6025",
+      "physical_key": "82bccf07b7819e9803c7e2c92712ef5c2daa5ae801ca987db621700cdc717e3c"
+    },
+    {
+      "task_id": "docvqa:64324",
+      "physical_key": "b788f5357ee5f1dc7dc02cdd0b60b54176887a7b946d4b84cada432f104bf950"
+    },
+    {
+      "task_id": "docvqa:60447",
+      "physical_key": "1d2226dbe2b54e66cf4221a1a2a136a894b4d0ad37f12946c87701175df7c05b"
+    },
+    {
+      "task_id": "docvqa:59693",
+      "physical_key": "0e03eb1915c62e8b66475c669ad89fc6dfb47a70915284c00c0dd827209672fe"
+    },
+    {
+      "task_id": "docvqa:60171",
+      "physical_key": "9d1ff643001fdf10d2227003416575f9f05f1e9ac330c68506f6b703f1bb711f"
+    },
+    {
+      "task_id": "docvqa:3847",
+      "physical_key": "d430811c4af606197a40efd26b0e9996602fc25f2028a06cd017cf97f8bfe1c4"
+    },
+    {
+      "task_id": "docvqa:59443",
+      "physical_key": "d1ee9197413fb169c61ccbb6af9b5b3975c5748dbb01d96003defc68b8ad75d2"
+    },
+    {
+      "task_id": "docvqa:1163",
+      "physical_key": "0a2af74c376d4b8c54006e754ae34f8e66d0db7bba8d3e94acebbd71d75e9849"
+    },
+    {
+      "task_id": "docvqa:16826",
+      "physical_key": "03ad5fd3cfaa2bf7579f84de5ac0a8d77fb3a38e2fc68130720b9a7138d9593b"
+    },
+    {
+      "task_id": "docvqa:47454",
+      "physical_key": "94b2ed29e1c5e5dc8e803490f958f9d60e1aaa7660df344dce84f6bb0e3d26be"
+    },
+    {
+      "task_id": "docvqa:42332",
+      "physical_key": "d76436b70bdf59f2bb6150529a005f9d819c2a5cd8fabc4d0737091ab0c66022"
+    },
+    {
+      "task_id": "docvqa:46283",
+      "physical_key": "3da107ae5d68b467a011c55de8f5378deaacc4e28c5ead3b1022fba327037364"
+    },
+    {
+      "task_id": "docvqa:45625",
+      "physical_key": "6a51cc8156baa1c362f8af59cb5710a46610b931767a982819ae45824769e69a"
+    },
+    {
+      "task_id": "docvqa:5552",
+      "physical_key": "fe0de1aecd316b2ff5f845d4d4e5440b94f56a6c39966fb4caec18f6735c7789"
+    },
+    {
+      "task_id": "docvqa:53438",
+      "physical_key": "4e4ff7a1c2d919a9313d3b42427e66ca636f2797ccd152bb16256d1db169d6da"
+    },
+    {
+      "task_id": "docvqa:64420",
+      "physical_key": "ff98e16bf212da2414ced4d2504145960cc840f300ddf45bbcd3ff424d8fcecc"
+    },
+    {
+      "task_id": "docvqa:57145",
+      "physical_key": "f02bc24e4857c338334f76c358d4fa9a590c7d1bb483a43bf0efc9c42bb96d1f"
+    },
+    {
+      "task_id": "docvqa:61164",
+      "physical_key": "a1bc290e92eec3331a47656bd004a5b7585b86b8456b0b6ef2925c80ca990197"
+    },
+    {
+      "task_id": "docvqa:64152",
+      "physical_key": "b4f1dd681adf4d9a2395448c2405a8f58a4e8629944df0440580398c587e24a5"
+    },
+    {
+      "task_id": "docvqa:6776",
+      "physical_key": "ed71ef6717e3cc33e9c3c647d5fe863a8e8d0a88a9c924021e67a13d98a10a64"
+    },
+    {
+      "task_id": "docvqa:40624",
+      "physical_key": "c18a60d61ebe0100cb36fec088ca3fa5482b3ed08ebd63913a4a26e432e6cae6"
+    },
+    {
+      "task_id": "docvqa:1963",
+      "physical_key": "09bac2118b7b57d4066c175ad09e6065c4193cfeeedbafab3e807ef2f5ba5292"
+    },
+    {
+      "task_id": "docvqa:52155",
+      "physical_key": "5a9d60928824d9896c22b19b23f0ccff0c7a7163f5a903ff981188fef950125f"
+    },
+    {
+      "task_id": "docvqa:62392",
+      "physical_key": "bf647de521958d72acff9512dacfbc69973b29c909dcafb761c7c12ee9669744"
+    },
+    {
+      "task_id": "docvqa:6357",
+      "physical_key": "03f225a8841a29130f385c2414598f89539d633c243b2a68d19f4112478d3843"
+    },
+    {
+      "task_id": "docvqa:1183",
+      "physical_key": "73e2544216e08672d00c2d9f560df219a2eecacb3a0ff256b6f5e57b76f14a9a"
+    },
+    {
+      "task_id": "docvqa:64903",
+      "physical_key": "61cfab735eeef317b486d2e07f314336e9b83b297ca1138c377a1d265f139020"
+    },
+    {
+      "task_id": "docvqa:51661",
+      "physical_key": "06813a7de0edea2d12ed6b98945b0dc1d242ec62409b9af5a11bc7e76938a733"
+    },
+    {
+      "task_id": "docvqa:61228",
+      "physical_key": "2c5526187b4ca238d780ab30537ded38afe0c3e4660cd68743e295a7d635d34c"
+    },
+    {
+      "task_id": "docvqa:64169",
+      "physical_key": "f51fabb1eb81720f14a744963584ff6636bee2db351cd9a5fd64863597d48254"
+    },
+    {
+      "task_id": "docvqa:46299",
+      "physical_key": "dda24fe9cd2a635fd64121eb6eaec37a4ae5ba73b57e47654a23554ee387a59b"
+    },
+    {
+      "task_id": "docvqa:46506",
+      "physical_key": "89a6a6c2b2a3b649b109dd7fa9bfb146c8929d6dd5b16e2f66f9549cc18d7a5a"
+    },
+    {
+      "task_id": "docvqa:58426",
+      "physical_key": "7e5fda356cd042f051352c17433ae6f060b957a82738b5e9fa409834dbf1aceb"
+    },
+    {
+      "task_id": "docvqa:62404",
+      "physical_key": "4e52db03ff98fbff21c9de4bc768f01e44296c13383ba49139f569a14c8ad6fd"
+    },
+    {
+      "task_id": "docvqa:64887",
+      "physical_key": "adee8865b3ce9338dd16d817805cfceb9692dc3722c7d1756ef33c24730c514e"
+    },
+    {
+      "task_id": "docvqa:55459",
+      "physical_key": "8ebb995fafaf91c5b628f88c21ef3c3ba2ec805001d948c551f58d87770e54c6"
+    },
+    {
+      "task_id": "docvqa:57242",
+      "physical_key": "dff1b36172ce766701b0225da243242aa6bfdffa7b6ff5d8881bd8049c640fef"
+    },
+    {
+      "task_id": "docvqa:52300",
+      "physical_key": "9661b1bc590ddfeaac2b140faa3de20f61a4741f8f067d7568e4c346df0cc983"
+    },
+    {
+      "task_id": "docvqa:5612",
+      "physical_key": "d54c520575dbb762f3ccc28c3b6fbab1d34ef3d7ac2f6e14d6e5f3e3890f101d"
+    },
+    {
+      "task_id": "docvqa:32892",
+      "physical_key": "4e6f366e42e1e4d27b48d7cbceb71409718466dc82ca938aab9741642de41b4a"
+    },
+    {
+      "task_id": "docvqa:64583",
+      "physical_key": "ba6df854b5270e21dbdad7982e81dd1c17121c6b572f7d8caaf1908264aeabf4"
+    },
+    {
+      "task_id": "docvqa:55032",
+      "physical_key": "ec477685f499498460ca59bea81a653808354f53d51d0b21fc96d6d839b5410a"
+    },
+    {
+      "task_id": "docvqa:12577",
+      "physical_key": "a521b3d692f50f0388d573a54f1c87387505ba7cbae5e7d6f96f7d105d419c6c"
+    },
+    {
+      "task_id": "docvqa:7028",
+      "physical_key": "68d89a42ca76e18bcca8ec243f568ceca41c9acb7737082de4a2a2d2afc64b71"
+    },
+    {
+      "task_id": "docvqa:15094",
+      "physical_key": "f36d9b6fe9f4deda954c8049135bab48c29c61cc5e7add59d494023db676c5a0"
+    },
+    {
+      "task_id": "docvqa:51548",
+      "physical_key": "0256bb2cc1297287bffeff3fea1c551c6b3f720c44d9afcd9a6210432969ca10"
+    },
+    {
+      "task_id": "docvqa:55237",
+      "physical_key": "0b10981f5f06055c8b01151853a1668ffed58b374e785dfd6c31e61b05e36442"
+    },
+    {
+      "task_id": "docvqa:57978",
+      "physical_key": "55104eec40642e9c0b8435085d7664c323c630d1314d8823c6d940b4ed3d75c2"
+    },
+    {
+      "task_id": "docvqa:63709",
+      "physical_key": "5ac8ae30186228a88d34ac81b4f52b378a8db316c2998c42995a7352646a37b7"
+    },
+    {
+      "task_id": "docvqa:1261",
+      "physical_key": "ea6682b3da52f5c9a02d3112edc6701affff616ebd1f29940ff5906a41021d57"
+    },
+    {
+      "task_id": "docvqa:63158",
+      "physical_key": "06ef0ddcd0d1a19d1d369bf853f9065c98e0a66e5a3ae83c0ea4f8d5f28c0fb1"
+    },
+    {
+      "task_id": "docvqa:1903",
+      "physical_key": "bd7453c927510277fa32940bfccb9bda20cbb65c22c70e61808f32207fe55228"
+    },
+    {
+      "task_id": "docvqa:60996",
+      "physical_key": "c4141d00834857ce09c2685963536db2d64ffe1b77e35341230e0eab0da8ecbb"
+    },
+    {
+      "task_id": "docvqa:2282",
+      "physical_key": "e8482153244291950c6b7e4cb40fda953446c59a586fc0cdcae1b8a2593e7d72"
+    },
+    {
+      "task_id": "docvqa:58419",
+      "physical_key": "1e5bb75dc4eab2e28af1914d082975fd69a67bf89210105018e948733b43ade5"
+    },
+    {
+      "task_id": "docvqa:63657",
+      "physical_key": "ede0a29717f56422b3f4020f9287525fe6bc8c296add6f88f65f11229a743e3f"
+    },
+    {
+      "task_id": "docvqa:54586",
+      "physical_key": "7a7248d7fa0149fe7fc9b32b9cc0d490b48b499c7b2ec2697eaba39eeddedd63"
+    },
+    {
+      "task_id": "docvqa:1191",
+      "physical_key": "27316446980d439d35a2d7982c05b6a99b0429f52f126ceb922da93a882c71c6"
+    }
+  ]
+}

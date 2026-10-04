@@ -1,0 +1,110 @@
+{
+  "schema": "skillcompiler.split.v1",
+  "benchmark": "searchqa",
+  "split_seed": 42,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "public_manifest_sha256": "af5352a70d6a87be02d9564440d6dcd3da2afe978669a664170e47244734f6ae",
+  "count": 24,
+  "tasks": [
+    {
+      "task_id": "searchqa:d66f1f0158054f638ff1b8acf3e18a8a",
+      "physical_key": "4ea5a330e72ae6197f098f014a94c18db59b16bc39221d39c9a103550f50ccd3"
+    },
+    {
+      "task_id": "searchqa:ef2b37212c98453390c9dca445d69de1",
+      "physical_key": "d38e3fb6c304d9e8a4826d3b108434e23f0ae9a38f1318b70357025b5d03c49b"
+    },
+    {
+      "task_id": "searchqa:0d1592f640f04ecb9c7add7164f87c5a",
+      "physical_key": "28120089f988ddb1ed36f673ffb5ba531e045c6e716a48ea12d8fc1999b5fdbe"
+    },
+    {
+      "task_id": "searchqa:7f3e18272c6d43dd8c6385c4758b685e",
+      "physical_key": "3e34f2493ba023fab57c5125d8a96f800ae6079c1a7f27d31c014a416dbce453"
+    },
+    {
+      "task_id": "searchqa:2b85b097d130404daeb26a3349bdc297",
+      "physical_key": "7c6ee0db3e304b561eded779a0e86b20a3b598a9461143a01fe979ed61f3f709"
+    },
+    {
+      "task_id": "searchqa:982e414b371248788c72732975949957",
+      "physical_key": "bd141b833759a35be4757d1a5840d27781639c1287cf029a1b8ffdbdc5129567"
+    },
+    {
+      "task_id": "searchqa:f7bf36628c7540da907dda84b48aac82",
+      "physical_key": "a46f9ae2b719521f62905dab52a3d1f3ba6357a1e4246a984c5275222435033d"
+    },
+    {
+      "task_id": "searchqa:5af06dca120a46889964109e94fff0a0",
+      "physical_key": "095be1cf6be1f37aeaa97069c98cbb97b8652414b0963699d5d047f6ce414e3d"
+    },
+    {
+      "task_id": "searchqa:a1d460152c3840d98ed3bc45bf80d5c1",
+      "physical_key": "71c8a731c423a78f80833495d7fa587e25264314a60705f2540e3b192d827c33"
+    },
+    {
+      "task_id": "searchqa:eae01f064523415c95e57ff1e8dadc43",
+      "physical_key": "cb76fa937e949c8105c1044afe4ee3402651276b1bb7e1b915b018f09acacf1c"
+    },
+    {
+      "task_id": "searchqa:41c691d3b7e94ffd993647c7e531e94e",
+      "physical_key": "63d42da96b84278c83948ef3658db634208cf4e1175a78520a7d4b4138b644ab"
+    },
+    {
+      "task_id": "searchqa:ae54626131ed42eaa55755f10ee64a76",
+      "physical_key": "a3c1561a14c726d4e2c17ee76f8b66a4e65b9bdd510b605ed7738f6688b06a32"
+    },
+    {
+      "task_id": "searchqa:95e54b962ce1420d82c716ff428d84fe",
+      "physical_key": "8b8e9f76313f5c6c359fb8428533ac0b705d09da15f183385c1ee47b9a6e666a"
+    },
+    {
+      "task_id": "searchqa:802015dbc9f5406d8df3b468497f6553",
+      "physical_key": "2e8f488643e1912d67950de388f6a03ebaf86259a550fcef1806940d63a222e0"
+    },
+    {
+      "task_id": "searchqa:099a1ae148184bd5a93c9bc9889306e7",
+      "physical_key": "7b1f56121990c190ac26756b9d614d8402d4356581a412ee560b4260abf11d51"
+    },
+    {
+      "task_id": "searchqa:ea475dcd08d54da6896f56e330fa2a1c",
+      "physical_key": "d3fb8dde0f5eff5bda2ef6f75f392bd9da9c69c63e11112d86fbd1cbad8618f8"
+    },
+    {
+      "task_id": "searchqa:efd2d367aeec4cc4ae72cd3eaa040a0f",
+      "physical_key": "90340a88e2733d369efbec15b1ae68e97699c4d14b9e2858cf750ec931ff4abe"
+    },
+    {
+      "task_id": "searchqa:74441a0f7dae42ca9ee19d8be8c9b318",
+      "physical_key": "64bdcc6ace4480587eeb71e845dba08904bedfa87aa035f6a85bdf918623b59f"
+    },
+    {
+      "task_id": "searchqa:c8e87f5da41c47c7a3116bd1ed0cc34d",
+      "physical_key": "c0b40ba1804c0314b10c7802b58bb538dada4ba2f31a38112af1be8cdc122e27"
+    },
+    {
+      "task_id": "searchqa:cdf86d1982f64cb49d6595680b1c53b8",
+      "physical_key": "db9c5d00d1eb5b768c29d1feb8dae2d41fee72cc24e473ee3e33e3b6518dd442"
+    },
+    {
+      "task_id": "searchqa:e0ba941f8e2c4fa6a0dea2b562b0e4be",
+      "physical_key": "7b2371cb2752482395613bc600532ab495d15c850680857e10ef0f93824aba99"
+    },
+    {
+      "task_id": "searchqa:20e140b44e0f4a6484e9cf776b09679b",
+      "physical_key": "d090eb0cd3ada4bc7d72cc7e1f7fff0f0134cc2d01f9c705f5145c026900e0b0"
+    },
+    {
+      "task_id": "searchqa:83928d21f3504843aa6294ce9d9c8da1",
+      "physical_key": "ae8dcb0fcd249ee25d9e6907232ec958317e2fdb633c315a3b76dc72c42cce26"
+    },
+    {
+      "task_id": "searchqa:64899cac91e5423fa3617bf576e6df4d",
+      "physical_key": "bffe9a7551a18133da04bbacab9f639fc0203ff6b0a89e87173c48a6615ae405"
+    }
+  ]
+}
