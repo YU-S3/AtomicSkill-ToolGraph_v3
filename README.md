@@ -49,6 +49,8 @@ skillcompiler-formal --config configs/main_experiment_v1.yaml --datasets /path/t
 
 每个正式 Run 旁路保存规范要求的八类 JSONL、resolved config、run manifest、实际 artifact 版本与最终 frozen manifest，并保留原生日志。实际 HTTP 请求、原始 usage、重试、环境交互和评分器原始输出均直接记录，不额外请求模型。私有 reasoning_content 按原有边界移除，完整请求的哈希与该移除标记保留；评分器原始输出只进入审计文件，不进入 Learner 输入。训练单位区分实际 trajectory、learning_update 与 program_trial，重复消费按真实单位记录。旧 pilot 不回填缺失字段。
 
+[最终工程对齐验收](reports/main_experiment_v1_alignment.json)已通过，含 51 项回归、三 seed 顺序、原 pilot 335 文件不变与安装验证。[当前启动记录](reports/main_experiment_v1_launch.json)对应现有 DeepSeek 的 15 个可执行组合和 3 个 DocVQA unsupported 组合；运行中的源码固定在独立 WSL checkout，进度以该记录中的 `matrix.json` 为准。六个指定正式模型的接口仍按用户要求留空，当前实际 `deepseek-v4-flash` 不冒充 `DeepSeek-V4.1-flash`。
+
 ## 项目结构与边界
 
 - `src/atomic_skillgraph/empirical/`：通用 Bank、普通参数引用、Planner/Learner、执行器、Docker worker、恢复与预算。

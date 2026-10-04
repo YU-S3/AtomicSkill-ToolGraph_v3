@@ -1,0 +1,38 @@
+{
+  "pid": 52366,
+  "cwd": "/home/yangchengyu/asg_formal_main_v1_20261005",
+  "output": "/home/yangchengyu/formal_main_experiment_v1_20261005",
+  "command": [
+    "/home/yangchengyu/asg_alfworld_venv/bin/python",
+    "-u",
+    "-m",
+    "atomic_skillgraph.experiments.run_formal",
+    "--config",
+    "configs/main_experiment_v1.yaml",
+    "--datasets",
+    "/home/yangchengyu/main_experiment_v1_resources_20261004",
+    "--output",
+    "/home/yangchengyu/formal_main_experiment_v1_20261005",
+    "--corpus-root",
+    "/mnt/d/T3S_exp/SkillCompiler_resources_20261003/raw/officeqa/treasury_bulletins_parsed/transformed",
+    "--env-file",
+    "/mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env"
+  ],
+  "source_commit": "4f21233bb31de88925a45217e80e40e8958b7ab3",
+  "status": "started",
+  "checked_at": "2026-10-04T16:22:33.170192+00:00",
+  "alive": true,
+  "matrix_status_counts": {
+    "running": 1,
+    "queued": 14,
+    "unsupported": 3
+  },
+  "available_actual_model": "deepseek-v4-flash",
+  "paper_formal_model_apis_unconfigured": 6,
+  "current_docvqa_status": "unsupported_text_only_lock",
+  "canonical_authority_sha256": "b85e0c2e442ca6b97ef98ece895719d4231f18db29682b0fcb6fdf3f91c37c95",
+  "current_model_does_not_impersonate": "DeepSeek-V4.1-flash",
+  "performance_tuning_performed": false,
+  "stdout_path": "/home/yangchengyu/formal_main_experiment_v1_20261005/launcher.log",
+  "matrix_path": "/home/yangchengyu/formal_main_experiment_v1_20261005/matrix.json"
+}

@@ -1,5 +1,5 @@
 {
-  "status": "engineering_checks_passed_pending_clean_full_regression",
+  "status": "passed",
   "authority_sha256": "b85e0c2e442ca6b97ef98ece895719d4231f18db29682b0fcb6fdf3f91c37c95",
   "benchmarks": {
     "searchqa": {
@@ -146,5 +146,47 @@
   "formal_models_unconfigured_user_requested": 6,
   "available_actual_model": "deepseek-v4-flash",
   "docvqa_current_model_status": "unsupported_text_only_lock",
-  "historical_report_preserved": "reports/main_experiment_alignment_v11.json"
+  "historical_report_preserved": "reports/main_experiment_alignment_v11.json",
+  "checked_at": "2026-10-04T16:22:33.157151+00:00",
+  "code": {
+    "git_sha": "4f21233bb31de88925a45217e80e40e8958b7ab3",
+    "tracked_dirty": false,
+    "source_sha256": "1fb0757805548a16db1f5a55c0191f1750f05bfb8327c40197ef7dd51a6d946f"
+  },
+  "pytest": {
+    "passed": 51,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 16.37,
+    "real_docker": true,
+    "source_commit": "4df4b6a913b42aef96c1d68b50944ba643c0782a"
+  },
+  "final_delta_verification": {
+    "change": "unique persistent run_id only",
+    "source_commit": "4f21233bb31de88925a45217e80e40e8958b7ab3",
+    "targeted_passed": 15,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 0.61
+  },
+  "wheel": {
+    "sha256": "43784b0f1e91c8f6e490e23829bb31835fb448713fc92c6e4c9c02bafc4b5e4b",
+    "cli_help_passed": 7,
+    "installed_outside_checkout": true
+  },
+  "logger_acceptance": {
+    "extra_live_llm_requests": 0,
+    "mock_http_exact_call_count": 3,
+    "raw_usage_and_retry_preserved": true,
+    "unsupported_token_details_null": true,
+    "private_reasoning_not_logged": true,
+    "native_feedback_unchanged": true,
+    "official_scorer_output_not_exposed_to_learner": true,
+    "artifact_parents_and_candidate_state_verified": true,
+    "readonly_frozen_hash_unchanged": true,
+    "old_pilot_not_backfilled": true
+  },
+  "scorer_hashes_unchanged": true,
+  "windows_wsl_canonical_bytes_identical": true,
+  "baseline_repository_modified": false
 }
