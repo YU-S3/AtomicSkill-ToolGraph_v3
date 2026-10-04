@@ -3,9 +3,10 @@ import json
 import os
 import sys
 import pytest
-from atomic_skillgraph.empirical.contracts import PublicTask
+from atomic_skillgraph.empirical.contracts import PublicTask, object_schema
+from atomic_skillgraph.harness.simple_protocol import Broker
 from atomic_skillgraph.harness.benchmarks import AnswerAdapter, OfficeAdapter, SpreadsheetAdapter, truncate_context
-from test_empirical import config_for
+from test_empirical import config_for, Provider, worker
 
 
 def test_public_qa_does_not_contain_gold_and_scoring_is_independent():
@@ -45,6 +46,41 @@ def test_office_has_full_corpus_and_cannot_read_outside_it(tmp_path):
     adapter.close()
 
 
+def test_office_learner_builder_and_program_share_public_tools(tmp_path, worker, monkeypatch):
+    from atomic_skillgraph.empirical.system import EmpiricalSystem
+    corpus=tmp_path/'corpus'; corpus.mkdir()
+    (corpus/'source.txt').write_text('public evidence')
+    config=config_for(tmp_path/'bank'); config['harness']['corpus_root']=str(corpus)
+    adapter=OfficeAdapter({'o':{'answer':'private gold'}},config)
+    task=PublicTask('o','physical','read public evidence')
+    adapter.reset(task)
+    skill={'goal':task.goal,'input_schema':object_schema(),
+           'output_schema':object_schema({'text':{'type':'string'}},['text'])}
+    source="""def run(ctx, inputs):
+    paths = ctx.call('glob', {'pattern': '*.txt'})['data']
+    text = ctx.call('read', {'path': paths[0], 'offset': 0})['data']['text']
+    return {'status': 'ok', 'outputs': {'text': text}}
+"""
+    provider=Provider([{'decision':'propose_skill_and_program_spec','skill':skill},
+        {'source':source,'trial_inputs':[{'case_id':task.physical_key,'inputs':{},'start_mode':'reset','prefix':[]}]}])
+    system=EmpiricalSystem(config,harness=adapter,provider=provider)
+    monkeypatch.setattr(system,'test_program',lambda *a,**kw:{'outcome':'inapplicable'})
+    try:
+        log=system.learner.learn(task,{'tools':[],'score':{},'execution':{}})
+        for messages in provider.calls:
+            tools=json.loads(messages[1]['content'])['tools']
+            assert {t['name'] for t in tools}=={'glob','read','grep','execute_python'}
+        program=system.bank.get(log['program'])
+        assert set(program['allowed_tools'])=={'glob','read','grep'}
+        broker=Broker(adapter,2)
+        result=worker.execute(program,{},broker)
+        assert result['status']=='ok' and result['outputs']=={'text':'public evidence'},result
+        assert [e['name'] for e in broker.events]==['glob','read']
+        assert program['state']=='candidate'
+    finally:
+        system.close()
+
+
 def test_spreadsheet_seals_solution_and_replays_variants_without_gold(tmp_path):
     if sys.platform!='linux' or not os.environ.get('PROGRAM_IMAGE_DIGEST'):
         pytest.skip('requires locked container')
@@ -59,6 +95,7 @@ def test_spreadsheet_seals_solution_and_replays_variants_without_gold(tmp_path):
                   'instruction_type':'Cell-Level Manipulation','answer_position':'Sheet!B1'}}
     config=config_for(tmp_path/'bank'); config['program_worker'].update(wall_timeout_seconds=120,memory_limit_mb=2048)
     adapter=SpreadsheetAdapter(records,config)
+    assert [t['name'] for t in adapter.tool_definitions()]==['execute_python']
     adapter.reset(PublicTask('s','p','double A1 into B1'))
     solution="import openpyxl\nw=openpyxl.load_workbook(INPUT_PATH)\nw.active['B1']='=A1*2'\nw.save(OUTPUT_PATH)\nw.close()\n"
     source="from pathlib import Path\nPath('solution.py').write_text("+repr(solution)+")\nexec("+repr(solution)+")"

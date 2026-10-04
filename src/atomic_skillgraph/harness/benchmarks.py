@@ -85,6 +85,8 @@ class AnswerAdapter:
 class FileAdapter(AnswerAdapter):
     capabilities = Capabilities(input_modalities=('text','files'), checkpoint_mode='workspace_copy')
 
+    def tool_definitions(self): return self.available_tools()
+
     def __init__(self, benchmark, records, config):
         super().__init__(benchmark, records)
         self.config = config
