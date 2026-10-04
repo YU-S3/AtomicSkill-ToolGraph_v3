@@ -442,3 +442,17 @@ def test_acceptance_preserves_actual_public_experience_without_history_duplicati
     experience=public_experience(source)
     assert experience=={key:source[key] for key in ('tools','score','execution')}
     assert experience['tools'] is not source['tools'] and 'requests' not in experience
+
+
+
+def test_t26_file_public_input_contract_is_preserved_at_http(tmp_path,monkeypatch):
+    s=office(tmp_path)
+    s.adapter.task=PublicTask('office','office-physical','Original instruction',
+        {'input_file':'input.xlsx','output_file':'case1_result.xlsx','answer_position':'Sheet1!B2:C4',
+         'solution_contract':{'entry':'INPUT_PATH/OUTPUT_PATH'}})
+    seen=http(monkeypatch,[response([{'action':'finish','answer':'done'}])])
+    s.executor.run(s.adapter.task,s.adapter,Broker(s.adapter,24,context=s.task_context),dynamic(s.adapter.task))
+    material=json.loads(seen[0]['messages'][1]['content'])
+    assert material['public_state']['inputs']==s.adapter.task.inputs
+    assert material['original_goal']=='Original instruction'
+    s.close()

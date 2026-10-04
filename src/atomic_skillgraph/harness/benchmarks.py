@@ -93,7 +93,8 @@ class FileAdapter(AnswerAdapter):
     def available_tools(self): return self.tool_definitions()
 
     def model_state(self):
-        return {'workspace': {k: v for k, v in self.observe()['workspace'].items() if k in {'outputs', 'content_hash'}}}
+        return {'inputs': self.task.inputs,
+                'workspace': {k: v for k, v in self.observe()['workspace'].items() if k in {'outputs', 'content_hash'}}}
 
     def progress_key(self): return digest(self.model_state())
 
