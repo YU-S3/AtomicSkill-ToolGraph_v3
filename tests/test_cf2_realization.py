@@ -327,3 +327,21 @@ def test_t34_guidance_only_cannot_be_built_by_conflicting_trial_request(tmp_path
     assert len(seen)==1 and not s.bank.jobs() and log['program'] is None
     assert s.bank.all('skill')[0]['execution_intent']=='guidance_only'
     s.close()
+
+
+
+def test_t40_stopped_train_smoke_does_not_start_val_or_another_benchmark(tmp_path,monkeypatch):
+    from atomic_skillgraph.experiments import run_multibench
+    root=tmp_path/'datasets'; (root/'searchqa').mkdir(parents=True)
+    task=PublicTask('qa','physical','question')
+    from dataclasses import asdict
+    (root/'searchqa/train.json').write_text(json.dumps({'tasks':[asdict(task)]}))
+    monkeypatch.setattr(run_multibench,'create_simple_harness',lambda *a:object())
+    calls=[]
+    def stopped(*a,**k):
+        calls.append(a)
+        return {'tasks':1,'successes':1,'total_tokens':5,'knowledge_digest':'unchanged','complete':False}
+    monkeypatch.setattr(run_multibench,'run',stopped)
+    report=run_multibench.run_smoke(config_for(tmp_path/'bank'),root,tmp_path/'out',['searchqa','livemath'])
+    assert len(calls)==1 and report['benchmarks']['searchqa']['status']=='stopped'
+    assert 'val' not in report['benchmarks']['searchqa']['runs'] and 'livemath' not in report['benchmarks']

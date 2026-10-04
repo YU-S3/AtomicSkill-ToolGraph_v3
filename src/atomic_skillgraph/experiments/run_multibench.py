@@ -44,6 +44,10 @@ def run_smoke(config, dataset_root, output, benchmarks):
             summary=run(settings,tasks,output/benchmark/split,readonly=split!='train',adapter=adapter,
                 adapter_factory=lambda settings=settings:create_simple_harness(settings))
             summaries[split]={key:summary[key] for key in ['tasks','successes','total_tokens','knowledge_digest','complete']}
+            if not summary['complete'] or (output/'STOP_AFTER_TASK').exists() or (output/benchmark/split/'STOP_AFTER_TASK').exists():
+                report['benchmarks'][benchmark]={'status':'stopped','runs':summaries}
+                write_json(output/'adapter_smoke.json',report)
+                return report
         report['benchmarks'][benchmark]={'status':'completed','runs':summaries}
         write_json(output/'adapter_smoke.json',report)
     report['implementation_ready']=all(row['status'] == 'completed' for row in report['benchmarks'].values())
