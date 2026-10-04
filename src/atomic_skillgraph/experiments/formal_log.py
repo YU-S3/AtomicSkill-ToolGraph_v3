@@ -4,6 +4,7 @@ from collections import Counter
 import json
 from pathlib import Path
 import time
+from uuid import uuid4
 
 from ..empirical.contracts import digest
 from .canonical_manifest import sha256
@@ -42,7 +43,7 @@ class FormalLog:
             self.emit('errors', {'event_id': 'resume:' + utc(), 'timestamp': utc(), 'event_type': 'resume',
                                 'normalized_error': None, 'native_checkpoint_resume': True})
         else:
-            self.manifest = {**identity, 'identity': identity, 'run_id': self.root.name,
+            self.manifest = {**identity, 'identity': identity, 'run_id': uuid4().hex,
                              'start_time': utc(), 'end_time': None, 'run_status': 'running',
                              'config_hash': digest(config), 'initial_artifact_hash': None}
             write_json(self.root / 'resolved_config.json', config)
