@@ -74,7 +74,7 @@ def test_recorded_absolute_file_declaration_remains_execution_failure(tmp_path, 
     binding = proposal['trial_inputs'][0]['inputs']
     artifact = program(proposal['source'], inputs=RECORDED['spreadsheet_input_schema'],
                        outputs=RECORDED['spreadsheet_output_schema'])
-    artifact['allowed_tools'] = []
+    artifact.update(id='recorded-interface-fixture', allowed_tools=[])
     try:
         result = worker.execute(artifact, binding, Broker(adapter, 1))
         assert result['status'] == 'execution_error' and 'Output path must be relative' in result['detail']
@@ -94,7 +94,7 @@ def test_program_path_and_publication_name_remain_separate(tmp_path, worker):
         "    return {'status':'ok','outputs':{'output_path':inputs['output_path'],'files':['report.txt']}}",
         inputs=object_schema({'output_path': {'type': 'string'}}, ['output_path']),
         outputs=object_schema({'output_path': {'type': 'string'}, 'files': {'type': 'array'}}, ['output_path', 'files']))
-    artifact['allowed_tools'] = []
+    artifact.update(id='publication-interface-fixture', allowed_tools=[])
     try:
         result = worker.execute(artifact, {'output_path': '/workspace/report.txt'}, Broker(adapter, 1))
         assert result['status'] == 'ok'
