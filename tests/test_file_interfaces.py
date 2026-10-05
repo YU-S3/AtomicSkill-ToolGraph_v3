@@ -72,7 +72,8 @@ def test_recorded_absolute_file_declaration_remains_execution_failure(tmp_path, 
     adapter.reset(PublicTask('sheet', 'physical', 'recorded file interface'))
     proposal = RECORDED['spreadsheet_program']
     binding = proposal['trial_inputs'][0]['inputs']
-    artifact = program(proposal['source'], inputs=object_schema(), outputs={'type': 'object'})
+    artifact = program(proposal['source'], inputs=RECORDED['spreadsheet_input_schema'],
+                       outputs=RECORDED['spreadsheet_output_schema'])
     artifact['allowed_tools'] = []
     try:
         result = worker.execute(artifact, binding, Broker(adapter, 1))
@@ -85,7 +86,7 @@ def test_recorded_absolute_file_declaration_remains_execution_failure(tmp_path, 
 
 def test_program_path_and_publication_name_remain_separate(tmp_path, worker):
     config = config_for(tmp_path / 'bank')
-    adapter = SpreadsheetAdapter({}, config)
+    adapter = SpreadsheetAdapter({'file': {}}, config)
     adapter.reset(PublicTask('file', 'file-physical', 'interface regression only'))
     artifact = program("def run(ctx, inputs):\n"
         "    from pathlib import Path\n"

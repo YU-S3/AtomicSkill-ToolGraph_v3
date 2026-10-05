@@ -297,5 +297,71 @@
         "prefix": []
       }
     ]
+  },
+  "spreadsheet_input_schema": {
+    "type": "object",
+    "properties": {
+      "input_path": {
+        "type": "string",
+        "description": "Source .xlsx/.xlsm workbook. If absent, use INPUT_PATH env var, else scan /workspace/inputs for the first workbook."
+      },
+      "output_path": {
+        "type": "string",
+        "description": "Destination workbook path. If absent, use OUTPUT_PATH env var."
+      },
+      "sheet_name": {
+        "type": "string",
+        "description": "Worksheet to transform; defaults to the workbook's first sheet."
+      },
+      "target_column": {
+        "type": "string",
+        "default": "A",
+        "description": "Excel column letter holding the URN/id values to fill (default 'A')."
+      },
+      "header_row": {
+        "type": "integer",
+        "default": 1,
+        "description": "Row index of the header; data is scanned from header_row+1 downward."
+      }
+    },
+    "required": [
+      "input_path"
+    ]
+  },
+  "spreadsheet_output_schema": {
+    "type": "object",
+    "properties": {
+      "output_path": {
+        "type": "string"
+      },
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "filled_count": {
+        "type": "integer",
+        "description": "Number of blank cells that were given a new prefix+letter value."
+      },
+      "blank_remaining": {
+        "type": "integer",
+        "description": "Blank cells still present in the target column inside the data region."
+      },
+      "mismatch_count": {
+        "type": "integer"
+      },
+      "verification": {
+        "type": "string",
+        "enum": [
+          "PASS",
+          "FAIL"
+        ]
+      }
+    },
+    "required": [
+      "output_path",
+      "verification"
+    ]
   }
 }
