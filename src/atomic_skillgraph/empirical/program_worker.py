@@ -10,6 +10,48 @@ import tempfile
 import time
 from uuid import uuid4
 
+PROGRAM_STATUSES = ('ok', 'not_found', 'needs_input', 'blocked')
+PROGRAM_RESULT_SCHEMA = {'type': 'object', 'properties': {
+    'status': {'enum': list(PROGRAM_STATUSES)}, 'outputs': {'type': 'object'}},
+    'required': ['status', 'outputs']}
+
+
+class Context:
+    def __init__(self, rpc): self._rpc = rpc
+    def observe(self): return self._rpc('observe')
+    def available_tools(self): return self._rpc('available_tools')
+    def remaining_calls(self): return self._rpc('remaining_calls')
+    def call(self, name, arguments): return self._rpc('call', name=name, arguments=arguments)
+    def read_result(self, result_id, offset=0, limit=None, path=None):
+        values = {'result_id': result_id, 'offset': offset}
+        if limit is not None: values['limit'] = limit
+        if path is not None: values['path'] = path
+        return self._rpc('read_result', **values)
+
+
+def public_program_abi(tools=(), *, current_tools=(), tool_surface=None):
+    import inspect
+    from ..harness.tool_spec import result_schema
+    methods = ['observe', 'available_tools', 'call', 'remaining_calls', 'read_result']
+    return {'entry': 'def run(ctx, inputs)',
+            'methods': {name: str(inspect.signature(getattr(Context, name))).replace('self, ', '').replace('self', '')
+                        for name in methods},
+            'returns': {'observe': 'public state dict', 'available_tools': 'list[ToolView]',
+                        'call': result_schema(), 'remaining_calls': 'int', 'read_result': result_schema()},
+            'tool_surfaces': {'exact_catalog': 'Each current_arguments item is one complete legal arguments dict.',
+                              'named_tools': 'Use input_schema; current_arguments need not be present.'},
+            'current_tool_surface': tool_surface,
+            'tool_examples': [dict(tool) for tool in [*list(current_tools)[:2], *list(tools)[:1]]],
+            'program_result_schema': PROGRAM_RESULT_SCHEMA,
+            'return_example': {'status': 'ok', 'outputs': {'resource_id': 'resource_1'}}}
+
+
+def validate_return(result):
+    if not isinstance(result, dict) or result.get('status') not in PROGRAM_STATUSES:
+        raise ValueError('run must return status/outputs, with a valid status')
+    if not isinstance(result.get('outputs'), dict):
+        raise ValueError('run must return an outputs dictionary')
+
 
 def _worker():
     output, input_stream = sys.stdout, sys.stdin
@@ -33,27 +75,14 @@ def _worker():
         if 'rpc_error' in response:
             raise RuntimeError(response['rpc_error'])
         return response['value']
-    class Context:
-        def observe(self): return rpc('observe')
-        def available_tools(self): return rpc('available_tools')
-        def remaining_calls(self): return rpc('remaining_calls')
-        def call(self, name, arguments): return rpc('call', name=name, arguments=arguments)
-        def read_result(self, result_id, offset=0, limit=None, path=None):
-            values = {'result_id': result_id, 'offset': offset}
-            if limit is not None: values['limit'] = limit
-            if path is not None: values['path'] = path
-            return rpc('read_result', **values)
     source = Path('/program/source.py').read_text()
     inputs = json.loads(Path('/program/inputs.json').read_text())
     sys.stdout = sys.stderr
     try:
         namespace = {'__name__': 'generated_program'}
         exec(compile(source, '/program/source.py', 'exec'), namespace)
-        result = namespace['run'](Context(), inputs)
-        if not isinstance(result, dict) or result.get('status') not in {'ok', 'not_found', 'needs_input', 'blocked'}:
-            raise ValueError('run must return a valid status dictionary')
-        if not isinstance(result.get('outputs', {}), dict):
-            raise ValueError('outputs must be a dictionary')
+        result = namespace['run'](Context(rpc), inputs)
+        validate_return(result)
         send({'kind': 'done', 'result': result})
     except BaseException as exc:
         send({'kind': 'done', 'result': {'status': 'execution_error', 'detail': str(exc)[:2048]}})
@@ -169,8 +198,8 @@ class ProgramWorker:
                     if process.poll() is None: process.kill()
                     process.wait(timeout=10)
                     for stream in (process.stdin, process.stdout, process.stderr): stream.close()
-            if not isinstance(result, dict) or result.get('status') not in {'ok', 'not_found', 'needs_input', 'blocked', 'execution_error'}:
-                raise ValueError('Invalid worker result')
+            if not isinstance(result, dict) or result.get('status') != 'execution_error':
+                validate_return(result)
             if result['status'] == 'ok':
                 validate_schema_instance(result.get('outputs'), program['output_schema'])
                 if workspace:

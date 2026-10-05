@@ -20,8 +20,17 @@ from test_provider_transport import Response
 RECORDED = json.loads((Path(__file__).parent / 'fixtures/cf2_file_interfaces.json').read_text())
 
 
+def current_node_protocol(proposal):
+    proposal = deepcopy(proposal)
+    for node in proposal.get('workflow', {}).get('nodes', []):
+        node.pop('dynamic', None)
+        node['execution_mode'] = 'skill' if node.get('skill_id') else 'dynamic'
+        if node['execution_mode'] == 'skill': node['purpose'] = node.pop('goal')
+    return proposal
+
+
 def test_recorded_unknown_skill_name_uses_existing_repair_limit_without_partial_asset(tmp_path, monkeypatch):
-    seen = http(monkeypatch, [response([p], name='submit_learning') for p in RECORDED['office_proposals']])
+    seen = http(monkeypatch, [response([current_node_protocol(p)], name='submit_learning') for p in RECORDED['office_proposals']])
     system = office(tmp_path)
     try:
         with pytest.raises(ValueError):
@@ -37,7 +46,7 @@ def test_recorded_unknown_skill_name_uses_existing_repair_limit_without_partial_
 
 
 def test_new_and_existing_skill_references_are_distinct_and_reach_http(tmp_path, monkeypatch):
-    proposal = deepcopy(RECORDED['office_proposals'][-1])
+    proposal = current_node_protocol(RECORDED['office_proposals'][-1])
     proposal['realization_request'].update(skill_id='$new', action='defer', case_bindings=[])
     seen = http(monkeypatch, [response([proposal], name='submit_learning')])
     system = office(tmp_path)

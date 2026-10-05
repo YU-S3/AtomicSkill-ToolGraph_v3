@@ -55,7 +55,7 @@ def test_t26_current_guidance_and_program_goal_reach_http(tmp_path,monkeypatch,w
     sk=s.bank.put('skill',skill(inputs=object_schema({'query':{'type':'string'}},['query'])))
     p=usable(s.bank,program("def run(ctx, inputs):\n    return {'status':'needs_input','outputs':{}}",inputs=sk['input_schema']))
     s.bank.put('implementation',{'skill_id':sk['id'],'program_id':p['id']})
-    plan={'nodes':[{'id':'current','goal':sk['goal'],'skill_id':sk['id'],'args':{}}]}
+    plan={'nodes':[{'id':'current','execution_mode':'skill','skill_id':sk['id'],'args':{}}]}
     s.executor.run(s.adapter.task,s.adapter,Broker(s.adapter,24,context=s.task_context),plan)
     material=json.loads(seen[0]['messages'][1]['content'])
     assert material['guidance'][0]['guidance']==sk['guidance']
@@ -82,7 +82,7 @@ def test_t28_second_authorized_route_ready_runs_without_runtime(tmp_path,worker)
     first=usable(s.bank,program("def run(ctx, inputs):\n    return {'status':'ok','outputs':{'answer':'first'}}",inputs=object_schema({'missing':{'type':'string'}},['missing']),outputs=sk['output_schema']),cost=1)
     second=usable(s.bank,program("def run(ctx, inputs):\n    return {'status':'ok','outputs':{'answer':'second'}}",outputs=sk['output_schema']),cost=2)
     for p in [first,second]: s.bank.put('implementation',{'skill_id':sk['id'],'program_id':p['id']})
-    node={'id':'answer','goal':sk['goal'],'skill_id':sk['id'],'args':{}}
+    node={'id':'answer','execution_mode':'skill','skill_id':sk['id'],'args':{}}
     assert [p['id'] for p in s.bank.routes(node)]==[first['id'],second['id']]
     executor=Executor(s.bank,lambda *a,**k: pytest.fail('ready route must bypass Runtime'),worker,object())
     result=executor.run(s.adapter.task,s.adapter,Broker(s.adapter,24),{'nodes':[node],'outputs':{'answer':{'from':'answer','field':'answer'}}})
@@ -96,7 +96,7 @@ def test_t29_explicit_output_mapping_automatically_continues(tmp_path,worker):
     target=usable(s.bank,program("def run(ctx, inputs):\n    return {'status':'ok','outputs':{'answer':inputs['object']}}",inputs=sk['input_schema'],outputs=sk['output_schema']))
     prep=usable(s.bank,program("def run(ctx, inputs):\n    return {'status':'ok','outputs':{'found_object':'public-object'}}",outputs=object_schema({'found_object':{'type':'string'}},['found_object'])))
     s.bank.put('implementation',{'skill_id':sk['id'],'program_id':target['id']})
-    plan={'nodes':[{'id':'use','goal':sk['goal'],'skill_id':sk['id'],'args':{'object':{'unresolved':'obtain'}}}],
+    plan={'nodes':[{'id':'use','execution_mode':'skill','skill_id':sk['id'],'args':{'object':{'unresolved':'obtain'}}}],
           'outputs':{'answer':{'from':'use','field':'answer'}}}
     result,calls=run_steps(s,[{'action':'call_program','name':prep['id'],'arguments':{},'output_mapping':{'found_object':'object'}}],plan)
     assert result['prediction']=='public-object' and len(calls)==1 and len(result['attempts'])==2
@@ -188,6 +188,9 @@ def test_t35_both_length_paths_share_one_65536_recovery(tmp_path,monkeypatch,mal
     s=office(tmp_path); trial_factory(s)
     s.learner.learn(s.adapter.task,learning_trace())
     assert [p['max_tokens'] for p in seen[1:]]==[32768,65536]
+    abi=[json.loads(p['messages'][1]['content'])['public_program_abi'] for p in seen[1:]]
+    assert abi[0]==abi[1] and abi[0]['current_tool_surface']=='named_tools'
+    assert abi[0]['methods']['call']=='(name, arguments)' and abi[0]['program_result_schema']['required']==['status','outputs']
     job=s.bank.jobs()[0]
     assert job['repair_used'] and job['generation_count']==2
     assert s.provider('runtime').config.max_completion_tokens==32768

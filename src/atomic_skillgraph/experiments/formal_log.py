@@ -106,6 +106,8 @@ class FormalLog:
                 self.emit('llm_calls', {'event_id': call_id, 'call_id': call_id,
                     'task_id': task_id,
                     'stage': request['stage'], 'phase': request['phase'], 'budget_scope': request.get('budget_scope'),
+                    'logical_decision_id': request.get('logical_decision_id'), 'decision_scope': request.get('decision_scope'),
+                    'owner_state_version': request.get('owner_state_version'), 'purpose': request.get('purpose'),
                     'model_id': attempt['model_id'], 'request_messages': attempt['final_payload_audit']['messages'],
                     'request_tools': attempt['final_payload_audit'].get('tools', []),
                     'private_reasoning_redacted': attempt['final_payload_audit'].get('private_reasoning_redacted', False),

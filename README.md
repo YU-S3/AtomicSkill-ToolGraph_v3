@@ -1,10 +1,14 @@
-# SkillCompiler empirical v3.1-CF2
+# SkillCompiler empirical v3.1-CF3
 
 唯一生产入口为 `skillcompiler.empirical.v1`。流程是普通 Skill 接口与指导 → Python Program → 固定真实 Train 试用 → usable 版本 → Workflow/动态执行 → 冻结库与独立评分。
 
 本轮范围是 Ours。其他方法复现和更多模型 API 接入不在本轮范围；现有 DeepSeek 配置维持 high reasoning，实际模型 ID 如实记录。小样本 pilot 与正式实验使用独立 Bank，pilot 没有问题，也不需要为了正式划分重新跑。
 
-本轮唯一实施入口为 [CF2 最终规范](docs/specs/SkillCompiler_CF2.md)。旧补充单不再叠加；历史版本与报告保留。公共 split、scorer、模型能力锁、high 推理和原预算维持原值。
+本轮唯一实施入口为 [CF3 修改规范](docs/specs/SkillCompiler_CF3.md)，CF2 已完成的公开接口、状态与文件修复继续保留。公共 split、scorer、模型能力锁、high 推理和原预算维持原值。
+
+CF3 节点明确区分 `dynamic/skill/program`：参考 Skill 不授予自动路线或输出约束；执行绑定读取真实资产接口，参数 ready 的 usable Program 继续自动接管并连续交接。局部 `patch_node` 只改本题实例，显式与系统重规划共用一次额度，之后最多一次剩余任务 Dynamic。逻辑决策 checkpoint 区分未完成响应恢复与新决策，未知在途副作用仍停止。
+
+新配置记录 `empirical-v3.1-CF3`、`empirical.recoverable-takeover.v1` 和 checkpoint v2。使用独立输出目录；不得续写旧策略 checkpoint 或自行启动新的收费试验。新版学习与成本效果需要按用户授权另行测量。
 
 [CF2 交付报告](reports/CF2_交付报告.md)记录最终工程检查与固定真实诊断。120 项回归通过；冻结六题为 6/6、375,234 tokens，ALFWorld 和文件类成本仍超过目标上界，质量对照尚未测量。逐项测试和计费见 [机器记录](reports/cf2_verification.json)。
 

@@ -454,5 +454,5 @@ def test_t26_file_public_input_contract_is_preserved_at_http(tmp_path,monkeypatc
     s.executor.run(s.adapter.task,s.adapter,Broker(s.adapter,24,context=s.task_context),dynamic(s.adapter.task))
     material=json.loads(seen[0]['messages'][1]['content'])
     assert material['public_state']['inputs']==s.adapter.task.inputs
-    assert material['original_goal']=='Original instruction'
+    assert material['original_task']=={'goal':'Original instruction','inputs':s.adapter.task.inputs}
     s.close()

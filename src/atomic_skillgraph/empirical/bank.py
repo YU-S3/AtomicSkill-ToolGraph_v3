@@ -4,7 +4,7 @@ import sqlite3
 import re
 from pathlib import Path
 
-from .contracts import digest, program_digest, validate_program, validate_workflow
+from .contracts import digest, program_digest, validate_program, validate_workflow, resolve_node_interface, normalize_workflow
 
 
 class Bank:
@@ -51,7 +51,8 @@ class Bank:
             validate_program(asset)
             asset["state"] = "candidate"
         elif kind == "workflow":
-            validate_workflow(asset, {p['id']: p for p in self.all('program')}, {s['id']: s for s in self.all('skill')})
+            asset = normalize_workflow(asset, self)
+            validate_workflow(asset, bank=self)
         if kind not in {"skill", "implementation", "program", "workflow"}:
             raise ValueError("Unknown asset kind")
         asset.setdefault("id", kind + "_" + digest(asset))
@@ -76,8 +77,11 @@ class Bank:
         return [json.loads(r[0]) for r in self.db.execute("SELECT payload FROM assets WHERE kind=? ORDER BY id", (kind,))]
 
     def routes(self, node, *, allow_candidate=False):
-        refs = [node["program_id"]] if node.get("program_id") else [
-            i["program_id"] for i in self.all("implementation") if i["skill_id"] == node.get("skill_id")]
+        interface = resolve_node_interface(node, self)
+        if interface['execution_mode'] == 'dynamic':
+            return []
+        refs = [interface['bound_program_id']] if interface['execution_mode'] == 'program' else [
+            i["program_id"] for i in self.all("implementation") if i["skill_id"] == interface['bound_skill_id']]
         routes = [self.get(ref) for ref in refs]
         routes = [p for p in routes if p and (p["state"] == "usable" or (
             allow_candidate and not self.readonly and p["state"] == "candidate"))]
@@ -140,7 +144,8 @@ class Bank:
     def words(text): return set(re.findall(r'\w+', text.casefold(), flags=re.UNICODE))
 
     def program_options(self, query, *, node=None, allow_candidate=False, excluded=(), limit=8):
-        authorized = {p['id'] for p in self.routes(node or {}, allow_candidate=allow_candidate)}
+        interface = resolve_node_interface(node, self) if node else None
+        authorized = {p['id'] for p in self.routes(node, allow_candidate=allow_candidate)} if node else set()
         skills = {s['id']: s for s in self.all('skill')}
         cards = []
         for p in self.all('program'):
@@ -155,7 +160,7 @@ class Bank:
                     'entry_constraints': p.get('entry_constraints', 'undeclared'),
                     'result_role': p.get('result_role', 'intermediate'),
                     'input_schema': p['input_schema'], 'output_schema': p['output_schema']}
-            order = (p['id'] not in authorized, -len(self.words((node or {}).get('goal','')) & self.words(description)),
+            order = (p['id'] not in authorized, -len(self.words((interface or {}).get('node_goal','')) & self.words(description)),
                      -len(self.words(query) & self.words(description)), p['state'] != 'usable', -reliability, p['id'])
             cards.append((order, card))
         return [card for _, card in sorted(cards, key=lambda row: row[0])[:limit]]
@@ -208,11 +213,24 @@ class Bank:
                     kind == 'implementation' and asset['program_id'] not in usable):
                 target.execute('DELETE FROM assets WHERE id=?', (asset_id,))
             elif kind == 'workflow':
+                changed = False
                 for node in asset['nodes']:
                     if node.get('program_id') and node['program_id'] not in usable:
+                        interface = resolve_node_interface(node, self)
                         node.pop('program_id')
-                        node['dynamic'] = True
-                target.execute('UPDATE assets SET payload=? WHERE id=?', (json.dumps(asset), asset_id))
+                        node.pop('skill_id', None)
+                        node.pop('dynamic', None)
+                        node.update(execution_mode='dynamic', goal=interface['node_goal'])
+                        if interface['bound_skill_id']:
+                            node['reference_skill_ids'] = list(dict.fromkeys([
+                                *node.get('reference_skill_ids', []), interface['bound_skill_id']]))[:3]
+                        changed = True
+                if changed:
+                    asset.pop('id')
+                    asset['source_workflow_id'] = asset_id
+                    asset['id'] = 'workflow_' + digest(asset)
+                    target.execute('DELETE FROM assets WHERE id=?', (asset_id,))
+                    target.execute('INSERT INTO assets VALUES(?,?,?)', ('workflow', asset['id'], json.dumps(asset)))
         for program_id, in target.execute('SELECT DISTINCT program_id FROM attempts').fetchall():
             if program_id not in usable:
                 target.execute('DELETE FROM attempts WHERE program_id=?', (program_id,))

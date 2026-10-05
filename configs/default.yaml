@@ -4,7 +4,7 @@ benchmark_profile: alfworld.public-discovery.v2
 manifest: data/baseline_manifests/train_120.json
 data_dir: runs/empirical_seed42/bank
 experiment:
-  implementation_revision: empirical-v3.1-CF2
+  implementation_revision: empirical-v3.1-CF3
   seed: 42
   benchmark: alfworld
   runtime_mode: online
@@ -16,6 +16,8 @@ harness:
   max_steps: 100
   public_discovery_version: alfworld.public-discovery.v2
 runtime:
+  plan_execution_policy: empirical.recoverable-takeover.v1
+  dynamic_escape_limit: 1
   read_batch_max_calls: 3
   result_inline_max_chars: 2048
   result_preview_max_items: 40

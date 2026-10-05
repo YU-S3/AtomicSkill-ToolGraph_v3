@@ -232,6 +232,7 @@ class Broker:
             event.update(state='finished', result=result, result_id=result_id,
                          environment_steps=self.environment_steps, environment_step=int(result.get('environment_step', 0)),
                          progress_after=progress_key(self.adapter))
+            self.context.observe_progress(event)
             if event['backend_invoked'] and hasattr(self.adapter, 'public_update'):
                 event['state_update'] = self.adapter.public_update
             if self.observer:

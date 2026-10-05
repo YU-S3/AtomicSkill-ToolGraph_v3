@@ -314,7 +314,7 @@ def test_invalid_optional_workflow_preserves_tested_program(tmp_path, monkeypatc
     provider = Provider([{'decision': 'propose_skill_and_program_spec', 'skill': skill,
                          'realization_request': {'skill_id': '$new', 'action': 'build', 'case_bindings': [
                              {'case_id': key, 'inputs': {}, 'start_mode': 'reset', 'prefix': []} for key in ['p1','p2']]},
-                         'workflow': {'goal': 'bad', 'nodes': [{'id': 'one', 'goal': 'bad',
+                         'workflow': {'goal': 'bad', 'nodes': [{'id': 'one', 'execution_mode': 'dynamic', 'goal': 'bad',
                              'args': {'x': {'from': 'missing', 'field': 'x'}}}]}},
                          {'source': "def run(ctx, inputs):\n    return {'status':'ok','outputs':{}}", 'trial_inputs': [{'case_id': key, 'inputs': {}, 'start_mode': 'reset', 'prefix': []} for key in ['p1','p2']]}])
     config = config_for(tmp_path)
@@ -341,8 +341,9 @@ def test_dynamic_continuation_keeps_completed_results(tmp_path):
     result = Executor(bank, lambda *a, **k: next(steps), object(), object()).run(
         PublicTask('t', 'p', 'goal'), adapter, Broker(adapter, 5),
         {'nodes': [{'id': 'task', 'goal': 'goal', 'args': {}}]})
-    assert [v['outputs']['value'] for v in result['values']] == ['one', 'two']
-    assert len({v['node'] for v in result['values']}) == 2 and result['prediction'] == 'done'
+    assert [v['outputs']['value'] for v in result['values']] == ['one']
+    assert result['pending_outputs']['remaining_task']['outputs'] == {'value': 'two'}
+    assert result['dynamic_escapes'] == 1 and result['prediction'] == 'done'
 
 
 def test_interrupted_learning_resume_keeps_execution_and_all_billed_usage(tmp_path, monkeypatch):

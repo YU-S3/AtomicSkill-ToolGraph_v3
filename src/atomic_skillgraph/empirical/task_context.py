@@ -2,16 +2,55 @@
 import json
 from uuid import uuid4
 
-from . import CF2_DEFAULTS
-from .contracts import object_schema
+from . import POLICY_DEFAULTS
+from .contracts import object_schema, digest
 from ..harness.tool_spec import ToolSpec, result_schema
 
 
 class TaskContext:
     def __init__(self, settings=None):
-        self.settings = {**CF2_DEFAULTS['runtime'], **(settings or {})}
+        self.settings = {**POLICY_DEFAULTS['runtime'], **(settings or {})}
         self.scope = uuid4().hex
         self.results, self.sources, self.memory, self.local_reads = {}, {}, {}, []
+        self.pending_outputs = {}
+        self.active_node = None
+        self.progress_observations, self.progress_contents, self.progress_states = [], set(), set()
+        self.loop_hits, self.loop_feedback = {}, None
+
+    def activate_node(self, key):
+        if self.active_node != key:
+            self.progress_observations, self.loop_hits, self.loop_feedback = [], {}, None
+            self.active_node = key
+
+    def mark_progress(self, kind, value):
+        key = digest([kind, value])
+        if key in self.progress_contents:
+            return False
+        self.progress_contents.add(key)
+        self.progress_observations, self.loop_hits, self.loop_feedback = [], {}, None
+        return True
+
+    def observe_progress(self, event):
+        result = event['result']
+        content = stable_public({key: result[key] for key in ['observation', 'data', 'outputs', 'error'] if key in result})
+        state = event.get('progress_after')
+        changed = state not in self.progress_states
+        self.progress_states.add(state)
+        if self.mark_progress('public_result', content) or changed:
+            self.progress_observations, self.loop_hits, self.loop_feedback = [], {}, None
+        signature = digest([event['name'], event['arguments'], event.get('progress_before'), state, content])
+        if self.progress_observations and self.progress_observations[-1]['node'] != self.active_node:
+            self.progress_observations = []
+        self.progress_observations.append({'node': self.active_node, 'signature': signature, 'name': event['name']})
+        self.progress_observations = self.progress_observations[-16:]
+        sequence = [x['signature'] for x in self.progress_observations]
+        for length in range(1, 5):
+            if len(sequence) >= 2 * length and sequence[-length:] == sequence[-2*length:-length]:
+                key = digest(sequence[-length:])
+                self.loop_hits[key] = self.loop_hits.get(key, 0) + 1
+                self.loop_feedback = {'kind': 'no_progress_loop', 'signature': key, 'pattern_length': length,
+                                      'hits': self.loop_hits[key], 'operations': [x['name'] for x in self.progress_observations[-length:]]}
+                break
 
     def register(self, event_id, result, *, name='', arguments=None):
         if event_id in self.sources:
@@ -98,10 +137,14 @@ def progress_key(adapter):
     state = getattr(adapter, 'progress_key', None)
     if state:
         return state()
-    def clean(value):
-        if isinstance(value, dict):
-            return {k: clean(v) for k, v in value.items() if k not in {
-                'revision', 'source_ref', 'timestamp', 'remaining_calls', 'version', 'event_id'}}
-        if isinstance(value, list): return [clean(v) for v in value]
-        return value
-    return digest([clean(adapter.observe()), clean(adapter.available_tools())])
+    return digest([stable_public(adapter.observe()), stable_public(adapter.available_tools())])
+
+
+def stable_public(value):
+    if isinstance(value, dict):
+        return {k: stable_public(v) for k,v in value.items() if k not in {
+            'revision','source_ref','timestamp','remaining_calls','version','event_id','result_id',
+            'calls','elapsed_seconds','environment_step','environment_steps'}}
+    if isinstance(value, list):
+        return [stable_public(v) for v in value]
+    return value

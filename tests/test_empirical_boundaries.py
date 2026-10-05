@@ -51,8 +51,11 @@ def test_freeze_omits_unqualified_code_and_marks_workflow_dynamic(tmp_path):
     manifest = bank.freeze(tmp_path / 'frozen')
     frozen = Bank(tmp_path / 'frozen', readonly=True)
     assert frozen.all('program') == [] and manifest['programs'] == []
-    node = frozen.get(workflow['id'])['nodes'][0]
-    assert node['dynamic'] and 'program_id' not in node
+    projected = frozen.all('workflow')[0]
+    assert projected['source_workflow_id'] == workflow['id'] and projected['id'] != workflow['id']
+    node = projected['nodes'][0]
+    assert node['execution_mode'] == 'dynamic' and 'program_id' not in node and 'skill_id' not in node
+    assert bank.get(workflow['id']) == workflow
     frozen.close()
     bank.close()
 

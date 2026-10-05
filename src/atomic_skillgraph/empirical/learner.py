@@ -4,6 +4,7 @@ from copy import deepcopy
 from .contracts import PublicTask, TrialCase, digest, validate_schema_instance
 from .prompts import BUILD, BUILDER_PROMPT, LEARNING, LEARNER_PROMPT
 from .task_context import TaskContext
+from .program_worker import public_program_abi
 
 
 class Learner:
@@ -31,8 +32,9 @@ class Learner:
         s = self.system
         if s.checkpoint and key in s.checkpoint.state:
             return s.checkpoint.state[key]
-        value = s.agent(stage, prompt, material, name, schema, **kwargs)
-        if s.checkpoint: s.checkpoint.advance(s.checkpoint.state['stage'], **{key: value})
+        value = s.agent(stage, prompt, material, name, schema, owner_state_version=key, **kwargs)
+        if s.checkpoint:
+            s.checkpoint.commit_decision(s.last_decision_id, 'applied', **{key: value})
         return value
 
     def _skill_references(self, proposal):
@@ -40,6 +42,7 @@ class Learner:
         if proposal.get('existing_skill_id') is not None and proposal['existing_skill_id'] not in known:
             raise ValueError('existing_skill_id must be an existing Skill ID')
         references = [node['skill_id'] for node in proposal.get('workflow', {}).get('nodes', []) if 'skill_id' in node]
+        references += [ref for node in proposal.get('workflow', {}).get('nodes', []) for ref in node.get('reference_skill_ids', [])]
         if proposal.get('realization_request'):
             references.append(proposal['realization_request']['skill_id'])
         for reference in references:
@@ -63,7 +66,8 @@ class Learner:
             pending = [j for j in jobs if j['skill_id'] == asset['id'] and j['state'] != 'done']
             related.append({**asset, 'pending': pending,
                 'execution_intent': asset.get('execution_intent', 'program_requested' if pending else 'guidance_only'),
-                'usable_programs': [p['id'] for p in bank.routes({'skill_id': asset['id']})]})
+                'usable_programs': [p['id'] for p in bank.routes({'execution_mode': 'skill', 'skill_id': asset['id']})]
+                if 'guidance' in asset else []})
         tools = getattr(s.adapter, 'tool_definitions', s.adapter.available_tools)()
         if s.adapter.capabilities.interaction != 'single_answer':
             tools = [*tools, TaskContext(s.config['runtime']).tool()]
@@ -75,6 +79,8 @@ class Learner:
         for properties in [schema['properties']['realization_request']['properties'],
                            schema['properties']['workflow']['properties']['nodes']['items']['properties']]:
             properties['skill_id'] = {'type': 'string', 'enum': ['$new', *skill_ids]}
+        schema['properties']['workflow']['properties']['nodes']['items']['properties']['reference_skill_ids']['items'] = {
+            'type': 'string', 'enum': ['$new', *skill_ids]}
         proposal = self._receive('learning_proposal', 'extractor', LEARNER_PROMPT,
             {'experience': self._view(experience), 'related': related, 'tools': tools,
              'completed_train_cases': [{'case_id': key, 'task': case.get('task', {'goal': t.goal, 'inputs': t.inputs}),
@@ -167,6 +173,9 @@ class Learner:
                 if node.get('skill_id') == '$new':
                     if not skill: raise ValueError('Workflow references a missing Skill')
                     node['skill_id'] = skill['id']
+                if '$new' in node.get('reference_skill_ids', []):
+                    if not skill: raise ValueError('Workflow references a missing Skill')
+                    node['reference_skill_ids'] = [skill['id'] if ref == '$new' else ref for ref in node['reference_skill_ids']]
             try: log['workflow'] = bank.put('workflow', workflow)['id']
             except ValueError as exc: log['errors'].append('Workflow rejected: ' + str(exc))
         return log
@@ -192,7 +201,8 @@ class Learner:
         for binding in bindings: self._preflight_binding(binding, skill, cases)
         log['test_subjects'] = [b['case_id'] for b in bindings]
         examples = [{'case_id': b['case_id'], 'fixed_binding': b, **self._view(cases[b['case_id']][1])} for b in bindings]
-        material = {'skill': skill, 'tools': tools, 'examples': examples}
+        abi = public_program_abi(tools, current_tools=s.adapter.available_tools(), tool_surface=s.adapter.capabilities.tool_surface)
+        material = {'skill': skill, 'tools': tools, 'examples': examples, 'public_program_abi': abi}
         if job['kind'] == 'repair' and job.get('program_id'):
             previous = bank.get(job['program_id'])
             material.update(source=previous['source'], errors=[r.get('result', {}) for r in bank.attempts(previous['id'])[-2:]])
@@ -233,7 +243,8 @@ class Learner:
                         job.update(state='deferred', last_error_kind=getattr(exc,'finish_reason',None) or 'structure'); break
                     job.update(repair_used=True, last_error_kind=getattr(exc,'finish_reason',None) or 'structure')
                     bank.save_job(job)
-                    material = {'skill': skill, 'tools': tools, 'examples': examples, 'error': str(exc)[:2048]}
+                    material = {'skill': skill, 'tools': tools, 'examples': examples, 'error': str(exc)[:2048],
+                                'public_program_abi': abi}
                     continue
             log['program'] = program['id']
             failures = []
@@ -250,7 +261,7 @@ class Learner:
                 job.update(repair_used=True, last_error_kind='execution')
                 bank.save_job(job)
                 material = {'skill': skill, 'tools': tools, 'examples': examples, 'source': program['source'],
-                            'errors': [s for s in failures]}
+                            'errors': [s for s in failures], 'public_program_abi': abi}
                 program = None
                 continue
             actual = [a for a in bank.attempts(program['id']) if a['origin']=='train_test' and a['outcome']!='inapplicable']
