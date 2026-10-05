@@ -1,0 +1,849 @@
+{
+  "schema": "skillcompiler.cf3.verification.v1",
+  "time": "2026-10-05T13:25:47.168215+00:00",
+  "base_commit": "2528f53b222dfbb79a54e37ad7514eb3f160fd59",
+  "source_commit": "a1e6b00980ccddf0641df70fc4b4e6dc7e42aeda",
+  "source_identity": {
+    "git_sha": "a1e6b00980ccddf0641df70fc4b4e6dc7e42aeda",
+    "tracked_dirty": false,
+    "source_sha256": "c80180f815cae081527a02b343639d72bb72711b891b15facde3707582956c41"
+  },
+  "modified_paths": [
+    {
+      "status": "M",
+      "path": "README.md"
+    },
+    {
+      "status": "M",
+      "path": "configs/alfworld_empirical_seed42.yaml"
+    },
+    {
+      "status": "M",
+      "path": "configs/default.yaml"
+    },
+    {
+      "status": "A",
+      "path": "docs/specs/SkillCompiler_CF3.md"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/__init__.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/bank.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/checkpoint.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/contracts.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/executor.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/learner.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/planner.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/program_worker.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/prompts.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/system.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/empirical/task_context.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/experiments/formal_log.py"
+    },
+    {
+      "status": "M",
+      "path": "src/atomic_skillgraph/harness/simple_protocol.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_cf2_contracts.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_cf2_realization.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_cf3_actual_takeover.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/test_cf3_takeover.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_empirical.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_empirical_boundaries.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_file_interfaces.py"
+    }
+  ],
+  "resolved_config_path": "resolved_config.json",
+  "configuration_checks": {
+    "default.yaml": {
+      "only_changes": [
+        "experiment.implementation_revision",
+        "runtime.plan_execution_policy",
+        "runtime.dynamic_escape_limit"
+      ],
+      "scientific_settings_unchanged": true,
+      "sha256": "bc3d936eb0b090af856eac9d5a60ac23e0034422c8ce07ec3fd46d6b7a3a6948"
+    },
+    "alfworld_empirical_seed42.yaml": {
+      "only_changes": [
+        "experiment.implementation_revision",
+        "runtime.plan_execution_policy",
+        "runtime.dynamic_escape_limit"
+      ],
+      "scientific_settings_unchanged": true,
+      "sha256": "bc3d936eb0b090af856eac9d5a60ac23e0034422c8ce07ec3fd46d6b7a3a6948"
+    }
+  },
+  "tests": {
+    "total": 160,
+    "passed": 160,
+    "failed": 0,
+    "skipped": 0,
+    "duration_seconds": "197.617",
+    "raw_log": "regressions.log",
+    "junit": "regressions.xml"
+  },
+  "T01_T28": {
+    "T01": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t01_t07_reference_skill_does_not_take_over_or_impose_output",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.585"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T02": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t02_t03_bound_capability_ready_has_no_runtime_confirmation[skill]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.595"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T03": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t02_t03_bound_capability_ready_has_no_runtime_confirmation[program]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.949"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T04": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t04_t09_t10_new_program_graph_aliases_and_business_values[False]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "1.179"
+        },
+        {
+          "name": "test_t04_t09_t10_new_program_graph_aliases_and_business_values[True]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "1.196"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T05": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t05_t06_planned_routes_and_preparation_continue_automatically[True]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "1.115"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T06": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t05_t06_planned_routes_and_preparation_continue_automatically[False]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.581"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T07": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t01_t07_reference_skill_does_not_take_over_or_impose_output",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.585"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T08": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t08_t11_pending_handoff_is_patched_without_search_or_replan",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.628"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T09": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t04_t09_t10_new_program_graph_aliases_and_business_values[True]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "1.196"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T10": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t04_t09_t10_new_program_graph_aliases_and_business_values[False]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "1.179"
+        },
+        {
+          "name": "test_t04_t09_t10_new_program_graph_aliases_and_business_values[True]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "1.196"
+        },
+        {
+          "name": "test_t10_t11_completed_handoff_adds_view_without_rewriting_actual_result",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "1.162"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T11": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t08_t11_pending_handoff_is_patched_without_search_or_replan",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.628"
+        },
+        {
+          "name": "test_t11_args_patch_readies_program_and_invalid_patch_keeps_plan",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.570"
+        },
+        {
+          "name": "test_t11_t25_frozen_detach_is_only_a_task_projection",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.082"
+        },
+        {
+          "name": "test_t10_t11_completed_handoff_adds_view_without_rewriting_actual_result",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "1.162"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T12": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t12_repeated_handoff_failure_uses_one_replan_and_one_escape",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.038"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T13": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t13_same_prompt_new_decisions_do_not_recover_old_response",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.059"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T14": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t14_same_unapplied_decision_recovers_response_once",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.085"
+        },
+        {
+          "name": "test_t14_isolated_trial_replan_owns_trial_checkpoint_not_parent",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.653"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T15": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t15_rejected_response_and_feedback_survive_crash",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.076"
+        },
+        {
+          "name": "test_t15_protocol_rejection_commits_feedback_with_owner_state",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.083"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T16": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t16_three_read_batch_crash_after_second_keeps_usage_and_budget",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.114"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T17": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t17_t18_escape_keeps_state_and_explicit_program_takeover",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.584"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T18": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t17_t18_escape_keeps_state_and_explicit_program_takeover",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.584"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T19": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t19_loop_detection_ignores_budget_revision_but_keeps_new_content",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.001"
+        },
+        {
+          "name": "test_t19_production_accepted_loop_and_new_document_windows[False]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.055"
+        },
+        {
+          "name": "test_t19_production_accepted_loop_and_new_document_windows[True]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.065"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T20": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t20_planner_http_includes_stable_unavailable_tool_semantics",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.039"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T21": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t35_both_length_paths_share_one_65536_recovery[False]",
+          "module": "tests.test_cf2_realization",
+          "status": "passed",
+          "seconds": "0.621"
+        },
+        {
+          "name": "test_t35_both_length_paths_share_one_65536_recovery[True]",
+          "module": "tests.test_cf2_realization",
+          "status": "passed",
+          "seconds": "0.603"
+        },
+        {
+          "name": "test_t21_worker_uses_real_toolview_and_toolresult_shapes[exact_catalog]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.505"
+        },
+        {
+          "name": "test_t21_worker_uses_real_toolview_and_toolresult_shapes[named_tools]",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.577"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T22": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t22_worker_requires_envelope_without_faking_success",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "1.127"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T23": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t23_real_usable_program_keeps_automatic_native_takeover[0]",
+          "module": "tests.test_cf3_actual_takeover",
+          "status": "passed",
+          "seconds": "148.662"
+        },
+        {
+          "name": "test_t23_real_usable_program_keeps_automatic_native_takeover[1]",
+          "module": "tests.test_cf3_actual_takeover",
+          "status": "passed",
+          "seconds": "1.466"
+        }
+      ],
+      "boundary": "real naturally learned Program + real ALFWorld, intercepted Planner"
+    },
+    "T24": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t23_real_usable_program_keeps_automatic_native_takeover[0]",
+          "module": "tests.test_cf3_actual_takeover",
+          "status": "passed",
+          "seconds": "148.662"
+        },
+        {
+          "name": "test_t23_real_usable_program_keeps_automatic_native_takeover[1]",
+          "module": "tests.test_cf3_actual_takeover",
+          "status": "passed",
+          "seconds": "1.466"
+        },
+        {
+          "name": "test_real_program_category_input_concrete_output_and_shared_calls",
+          "module": "tests.test_empirical",
+          "status": "passed",
+          "seconds": "1.090"
+        }
+      ],
+      "boundary": "real naturally learned Program + real ALFWorld, intercepted Planner"
+    },
+    "T25": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t11_t25_frozen_detach_is_only_a_task_projection",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.082"
+        },
+        {
+          "name": "test_t25_frozen_execution_failure_and_local_detach_preserve_qualification",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.602"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T26": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t26_unknown_inflight_program_stops_without_dispatch_or_credit",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.039"
+        },
+        {
+          "name": "test_native_deadline_stops_attempt_without_recovery",
+          "module": "tests.test_empirical_boundaries",
+          "status": "passed",
+          "seconds": "0.011"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T27": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_t34_qa_guidance_only_uses_one_normal_solver",
+          "module": "tests.test_cf2_realization",
+          "status": "passed",
+          "seconds": "0.041"
+        },
+        {
+          "name": "test_t40_episodes_seeds_frozen_and_real_image_http_are_isolated",
+          "module": "tests.test_cf2_realization",
+          "status": "passed",
+          "seconds": "0.153"
+        },
+        {
+          "name": "test_t27_single_solver_response_recovers_without_second_solve",
+          "module": "tests.test_cf3_takeover",
+          "status": "passed",
+          "seconds": "0.051"
+        },
+        {
+          "name": "test_image_message_is_real_and_capability_checked",
+          "module": "tests.test_empirical_boundaries",
+          "status": "passed",
+          "seconds": "0.000"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    },
+    "T28": {
+      "status": "passed",
+      "tests": [
+        {
+          "name": "test_discovery_exact_reuse_clean_state_and_return_to_discovery",
+          "module": "tests.test_alfworld_exact_reset",
+          "status": "passed",
+          "seconds": "0.007"
+        },
+        {
+          "name": "test_t01_recorded_take_move_empty_inventory",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.001"
+        },
+        {
+          "name": "test_t02_rejected_move_keeps_held_object",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.000"
+        },
+        {
+          "name": "test_t03_unknown_inventory_cannot_assert_old_hold",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.000"
+        },
+        {
+          "name": "test_t08_grep_read_unicode_and_crlf_share_offset",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.044"
+        },
+        {
+          "name": "test_t09_read_only_check_preserves_published_outputs",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.006"
+        },
+        {
+          "name": "test_t10_undeclared_changes_preserve_old_commit[modify]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.007"
+        },
+        {
+          "name": "test_t10_undeclared_changes_preserve_old_commit[delete]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.006"
+        },
+        {
+          "name": "test_t11_explicit_delta_and_interrupted_publish",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.015"
+        },
+        {
+          "name": "test_t15_last_read_gets_one_finish_only_without_more_retrieval",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.036"
+        },
+        {
+          "name": "test_t19_actual_http_pure_read_batch_has_no_repair[2]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.043"
+        },
+        {
+          "name": "test_t19_actual_http_pure_read_batch_has_no_repair[3]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.048"
+        },
+        {
+          "name": "test_t20_mixed_batch_is_repaired_before_any_dispatch[bad0]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.042"
+        },
+        {
+          "name": "test_t20_mixed_batch_is_repaired_before_any_dispatch[bad1]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.040"
+        },
+        {
+          "name": "test_t20_mixed_batch_is_repaired_before_any_dispatch[bad2]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.036"
+        },
+        {
+          "name": "test_t23_large_result_ref_crosses_actual_http_without_copy",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.031"
+        },
+        {
+          "name": "test_t25_program_local_result_reads_share_native_and_invocation_limits",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.524"
+        },
+        {
+          "name": "test_t11_publishing_rejects_unauthorized_output_paths[input]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.009"
+        },
+        {
+          "name": "test_t11_publishing_rejects_unauthorized_output_paths[traversal]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.006"
+        },
+        {
+          "name": "test_t11_publishing_rejects_unauthorized_output_paths[symlink]",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.006"
+        },
+        {
+          "name": "test_t03_known_empty_inventory_invalidates_prior_locations",
+          "module": "tests.test_cf2_contracts",
+          "status": "passed",
+          "seconds": "0.000"
+        },
+        {
+          "name": "test_t38_saved_recovery_survives_crash_and_runtime_cap_is_unchanged",
+          "module": "tests.test_cf2_realization",
+          "status": "passed",
+          "seconds": "0.709"
+        },
+        {
+          "name": "test_t39_file_trial_scores_produced_bundle_without_dynamic_solver",
+          "module": "tests.test_cf2_realization",
+          "status": "passed",
+          "seconds": "4.759"
+        },
+        {
+          "name": "test_single_answer_uses_one_solve_and_independent_score_and_frozen",
+          "module": "tests.test_empirical",
+          "status": "passed",
+          "seconds": "0.052"
+        },
+        {
+          "name": "test_recorded_unknown_skill_name_uses_existing_repair_limit_without_partial_asset",
+          "module": "tests.test_file_interfaces",
+          "status": "passed",
+          "seconds": "0.042"
+        },
+        {
+          "name": "test_new_and_existing_skill_references_are_distinct_and_reach_http",
+          "module": "tests.test_file_interfaces",
+          "status": "passed",
+          "seconds": "0.057"
+        },
+        {
+          "name": "test_recorded_absolute_file_declaration_remains_execution_failure",
+          "module": "tests.test_file_interfaces",
+          "status": "passed",
+          "seconds": "0.926"
+        },
+        {
+          "name": "test_program_path_and_publication_name_remain_separate",
+          "module": "tests.test_file_interfaces",
+          "status": "passed",
+          "seconds": "0.546"
+        },
+        {
+          "name": "test_all_canonical_members_fixed_and_run_seed_only_changes_train_order",
+          "module": "tests.test_formal_alignment",
+          "status": "passed",
+          "seconds": "0.017"
+        },
+        {
+          "name": "test_formal_benchmark_config_keeps_method_caps_and_isolates_gold_and_state",
+          "module": "tests.test_formal_alignment",
+          "status": "passed",
+          "seconds": "0.011"
+        },
+        {
+          "name": "test_formal_native_run_logs_no_extra_calls_and_frozen_hash_is_unchanged",
+          "module": "tests.test_formal_alignment",
+          "status": "passed",
+          "seconds": "0.142"
+        }
+      ],
+      "boundary": "production module regression; model HTTP intercepted where applicable"
+    }
+  },
+  "preserved": {
+    "frozen": {
+      "sha256": "55f35ae1084e2c985a98e7589f50f04070a633e2acd8e240b3981d4c37da8de5",
+      "files_sha256": {
+        "bank.sqlite3": "368a2bb15cd5b848a4633c9b3615b9cac0f91d4093c918fea09d154b9391135f",
+        "freeze.json": "22e7ea3cc2b0ebe519ab83dff00a0ae299fa988d4ee2433aa7f602e98eacba7d"
+      },
+      "size_bytes": 373208
+    },
+    "previous_review_archive_sha256": "67e85b530654ae042f715562349f39d599795f120c11fd38fb4978a47bf0a485",
+    "formal_matrix_statuses": {
+      "interrupted": 1,
+      "queued": 14,
+      "unsupported": 3
+    },
+    "canonical_manifest_sha256": "b85e0c2e442ca6b97ef98ece895719d4231f18db29682b0fcb6fdf3f91c37c95"
+  },
+  "actual_takeover": [
+    {
+      "task_id": "alfworld:2b594f4a42ef8307150653659f0d97aa38e7394fd202e9fbd5ab6479f43812c3",
+      "goal": "heat some apple and put it in diningtable.",
+      "program_id": "program_723f61a42e58b85130ca89d90b4ae4fa511b480086519f6bbf24de962836010e",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "reason": "environment_terminal",
+      "native_calls": 9,
+      "worker_invocations": 1,
+      "runtime_llm_requests": 0,
+      "planner_http": "intercepted",
+      "live_model_requests": 0,
+      "fresh_cf3_learning": false
+    },
+    {
+      "task_id": "alfworld:ed31b506e39c335f7c779a44d16785328d33b1202c553b4488d8c56e84bc044e",
+      "goal": "put two creditcard in dresser.",
+      "program_id": "program_7c2d8d52dee915724cc15941be19abda45ae189bce0523555f218d8390534d46",
+      "score": {
+        "raw_score": 1.0,
+        "hard": true,
+        "soft": 1.0,
+        "scorer": "alfworld.official-won"
+      },
+      "reason": "environment_terminal",
+      "native_calls": 18,
+      "worker_invocations": 1,
+      "runtime_llm_requests": 0,
+      "planner_http": "intercepted",
+      "live_model_requests": 0,
+      "fresh_cf3_learning": false
+    }
+  ],
+  "live_cf3_model_experiment": {
+    "status": "not_run",
+    "model_requests": 0,
+    "fresh_learning": "not_measured",
+    "cost_target": "not_measured",
+    "quality_comparison": "not_measured"
+  },
+  "engineering_status": "passed",
+  "mechanism_status": "old naturally learned Programs retain automatic takeover; deterministic cross-node handoff observed",
+  "effect_measurement_status": "not_measured",
+  "known_engineering_failures": []
+}

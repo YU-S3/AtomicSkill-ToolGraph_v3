@@ -10,9 +10,11 @@ CF3 节点明确区分 `dynamic/skill/program`：参考 Skill 不授予自动路
 
 新配置记录 `empirical-v3.1-CF3`、`empirical.recoverable-takeover.v1` 和 checkpoint v2。使用独立输出目录；不得续写旧策略 checkpoint 或自行启动新的收费试验。新版学习与成本效果需要按用户授权另行测量。
 
+[CF3 交付报告](reports/CF3_交付报告.md)与[逐项核验](reports/cf3_verification.json)记录 160 项通过的最终回归，以及原自然学出的 Heat／双对象程序在真实 ALFWorld 的只读执行层核验。fresh CF3 学习和费用效果尚未测量。
+
 [CF2 交付报告](reports/CF2_交付报告.md)记录最终工程检查与固定真实诊断。120 项回归通过；冻结六题为 6/6、375,234 tokens，ALFWorld 和文件类成本仍超过目标上界，质量对照尚未测量。逐项测试和计费见 [机器记录](reports/cf2_verification.json)。
 
-CF2 统一工具定义、公开状态、结果引用和增量文件发布；Office 的独立纯读批次最多 3 项，Builder 首次与所有恢复合计最多两次生成。新配置记录 `empirical-v3.1-CF2` 与 `simple.v2` ABI；旧 Frozen 开发对照仅经只读兼容视图执行，不改原程序或正向记录。
+CF2 已统一工具定义、公开状态、结果引用和增量文件发布；Office 的独立纯读批次最多 3 项，Builder 首次与所有恢复合计最多两次生成。其历史配置记录 `empirical-v3.1-CF2` 与 `simple.v2` ABI；旧 Frozen 开发对照仅经只读兼容视图执行，不改原程序或正向记录。
 
 旧正式运行保持用户停止状态，不随补丁自动恢复。新策略正式训练使用新输出目录和独立空 Bank。工程回归、真实诊断和正式效果分别记录；回归通过不代表成本或质量目标已达标。
 
