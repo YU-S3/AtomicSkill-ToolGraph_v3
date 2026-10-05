@@ -1,5 +1,7 @@
 # 文件接口修复与 seed42 Train120 前缀运行
 
+此处记录此前的启动控制。该运行已在第 6 题重复原生发现时中断；按用户最新要求，改为新目录空 Bank 的独立 12 Train + 6 Val，见 [后续修复与重启记录](ALFWorld_隔离试用映射修复与12加6重启.md)。旧运行记录保留。
+
 受测源码固定为 `5462c70f8b3bb9424dec8b23f0d848acb3343559`，无 LLM 回归 **126/126 通过**。日志在 `/home/yangchengyu/alfworld_seed42_train120_cf2_20261005/engineering/verified_pytest.log`。
 
 - 新 Skill 在 realization_request 和 Workflow 中只能用 `$new`；已有 Skill 只能引用 Bank 中真实存在的 Skill ID。规则进入实际 HTTP schema 和提交前校验，未知名称不自动映射，原一次结构修复上限不变。
