@@ -454,11 +454,13 @@ class EmpiricalSystem:
             return record
         previous_phase = self.phase
         previous_checkpoint = self.checkpoint
+        previous_planner_checkpoint = getattr(self.planner, 'checkpoint', None)
         previous_scope = self.budget_scope
         previous_context = self.task_context
         self.task_context = TaskContext(self.config['runtime'])
         self.phase = 'trial'
         self.checkpoint = trial_checkpoint
+        self.planner.checkpoint = trial_checkpoint
         self.budget_scope = trial_id
         adapter = self.adapter_factory()
         trial_observation = self.observer.trial_start(trial_id, task) if self.observer else None
@@ -564,6 +566,7 @@ class EmpiricalSystem:
             self._runtime_start = previous_runtime_start
             self.phase = previous_phase
             self.checkpoint = previous_checkpoint
+            self.planner.checkpoint = previous_planner_checkpoint
             self.budget_scope = previous_scope
             self.task_context = previous_context
             adapter.close()

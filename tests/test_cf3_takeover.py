@@ -509,3 +509,26 @@ def test_t25_frozen_execution_failure_and_local_detach_preserve_qualification(tm
     assert result['prediction']=='private' and len(sent)==3 and result['plan_revisions']==0
     assert tree_identity(frozen)==before and s.bank.routes(node)==order and s.bank.get(p['id'])['state']=='usable'
     s.close()
+
+
+def test_t14_isolated_trial_replan_owns_trial_checkpoint_not_parent(tmp_path,monkeypatch,worker):
+    from test_cf2_realization import trial_factory
+    s=office(tmp_path);s.worker=worker;trial_factory(s)
+    parent=TaskCheckpoint(tmp_path/'checkpoint');parent.advance('task_started',executor_state={'owner_version':99})
+    s.checkpoint=s.planner.checkpoint=parent
+    s.bank.put('skill',skill('find target'))
+    asset=program("def run(ctx, inputs):\n    return {'status':'ok','outputs':{'value':'public'}}",
+                  outputs=object_schema({'value':{'type':'string'}},['value']))
+    asset['allowed_tools']=[];p=s.bank.put('program',asset)
+    invalid={'action':'call_tool','name':'read','arguments':{'path':'missing','offset':0}}
+    plan=workflow([{'id':'recover','execution_mode':'dynamic','goal':'Answer from acquired public information','args':{}}])
+    sent=transport(monkeypatch,[('runtime_step',invalid),('runtime_step',invalid),
+        ('submit_plan',{'mode':'compose','workflow':plan}),('runtime_step',{'action':'finish','answer':'private'})])
+    record=s.test_program(p,{},s.adapter.task,trial_id='trial_scope')
+    trial=TaskCheckpoint(parent.root/'trials/trial_scope')
+    planner=next(d for d in trial.state['decisions'].values() if d['purpose']=='planner')
+    assert planner['owner_state_version']==2 and 'trial_scope' in planner['scope']
+    assert s.checkpoint is parent and s.planner.checkpoint is parent and not parent.state['decisions']
+    assert parent.state['executor_state']['owner_version']==99 and len(sent)==4
+    assert record['outcome']=='normal' and record['calls']==2
+    s.close()
