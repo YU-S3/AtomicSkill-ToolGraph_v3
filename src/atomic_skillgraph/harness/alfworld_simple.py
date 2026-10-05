@@ -42,6 +42,9 @@ class SimpleAlfWorld:
         self._apply_public_result('reset', {}, self.last)
         return self.observe()
 
+    def inherit_discovery(self, source):
+        self.harness.inherit_discovery(source.harness)
+
     def observe(self):
         if self.last is None:
             return {}

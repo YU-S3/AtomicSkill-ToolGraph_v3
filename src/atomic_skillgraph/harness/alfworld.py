@@ -137,6 +137,16 @@ class AlfWorldAdapter:
             self._discovery_identity = identity
         return identity
 
+    def inherit_discovery(self, source: AlfWorldAdapter) -> None:
+        """Reuse verified file/index metadata, never an episode or world state."""
+        identity = self._check_discovery_identity()
+        if source._discovery_identity != identity or source._configuration_identity() != identity:
+            raise AtomicSkillGraphError(
+                'infrastructure_failure', 'ALFWorld discovery configuration differs',
+                layer=FailureLayer.INFRASTRUCTURE,
+            )
+        self._discovered_files = source._discovered_files
+
 
     def _build_config(self) -> dict[str, Any]:
         split_map = {"eval_out_of_distribution": "valid_unseen", "eval_in_distribution": "valid_seen", "train": "train"}

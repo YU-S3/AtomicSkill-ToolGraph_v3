@@ -423,6 +423,9 @@ class EmpiricalSystem:
             observer=self.observer.native_observer(trial_id) if self.observer else None,
             context=self.task_context)
         try:
+            inherit = getattr(adapter, 'inherit_discovery', None)
+            if inherit:
+                inherit(self.adapter)
             adapter.reset(task)
             if trial_observation:
                 trial_observation['consumed'] = True

@@ -133,6 +133,64 @@ def test_unknown_index_discovered_once_and_configuration_invalidates(backend):
     h._close_backend()
 
 
+def test_isolated_discovery_reuses_only_verified_mapping_and_keeps_guards(backend):
+    source = AlfWorldAdapter(split='train')
+    task = source.load_tasks()[4]
+    source.reset(task)
+    source._revision = 7
+    isolated = AlfWorldAdapter(split='train')
+    isolated.inherit_discovery(source)
+    before = dict(backend)
+    isolated.reset(task)
+    assert backend['collect'] == before['collect'] and backend['reset'] == before['reset'] + 1
+    assert isolated._env is not source._env and isolated._revision == 0 and source._revision == 7
+    wrong = copy.deepcopy(task)
+    wrong.context['game_file'] = source._discovered_files[1]
+    with pytest.raises(AtomicSkillGraphError, match='file/index mismatch'):
+        isolated.reset(wrong)
+    source.max_steps += 1
+    with pytest.raises(AtomicSkillGraphError, match='configuration differs'):
+        isolated.inherit_discovery(source)
+    source._close_backend()
+    isolated._close_backend()
+    assert backend['close'] == backend['create']
+
+
+def test_program_trial_uses_verified_discovery_without_sharing_episode(backend, tmp_path, monkeypatch):
+    from dataclasses import asdict
+    from atomic_skillgraph.empirical.contracts import PublicTask
+    from atomic_skillgraph.empirical.system import EmpiricalSystem
+    from atomic_skillgraph.harness.alfworld_simple import SimpleAlfWorld
+    from test_empirical import config_for, program
+
+    source = SimpleAlfWorld(AlfWorldAdapter(split='train'))
+    native = source.harness.load_tasks()[4]
+    task = PublicTask(native.task_id, 'physical-case', native.goal,
+                      {'environment_task': asdict(native)}, 'train')
+    source.reset(task)
+    source.held = {'apple_1'}
+    source.harness._revision = 7
+    trials = []
+    def factory():
+        trials.append(SimpleAlfWorld(AlfWorldAdapter(split='train')))
+        return trials[-1]
+    system = EmpiricalSystem(config_for(tmp_path / 'bank'), harness=source, adapter_factory=factory)
+    candidate = program('def run(ctx, inputs): return {}')
+    candidate['allowed_tools'] = ['LOOK']
+    candidate = system.bank.put('program', candidate)
+    monkeypatch.setattr(system.worker, 'execute', lambda *a: {'status': 'execution_error', 'detail': 'declared model failure'})
+    before = dict(backend)
+    try:
+        record = system.test_program(candidate, {}, task, trial_id='isolated-trial')
+        assert record['outcome'] == 'execution_failure' and system.requests == []
+        assert backend['collect'] == before['collect'] and backend['reset'] == before['reset'] + 1
+        assert source.harness._revision == 7 and source.held == {'apple_1'} and trials[0].held == set()
+        assert trials[0].harness._env is None and source.harness._env is not None
+        assert system.bank.get(candidate['id'])['state'] != 'usable'
+    finally:
+        system.close()
+
+
 def test_physical_selection_scans_past_old_ordinal_and_keeps_reset_guards(backend, tmp_path):
     from atomic_skillgraph.experiments.run_empirical import resolve_alfworld_tasks
     h = AlfWorldAdapter(split='train', alfworld_data=str(tmp_path))
