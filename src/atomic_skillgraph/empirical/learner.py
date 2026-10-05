@@ -35,6 +35,19 @@ class Learner:
         if s.checkpoint: s.checkpoint.advance(s.checkpoint.state['stage'], **{key: value})
         return value
 
+    def _skill_references(self, proposal):
+        known = {asset['id'] for asset in self.system.bank.all('skill')}
+        if proposal.get('existing_skill_id') is not None and proposal['existing_skill_id'] not in known:
+            raise ValueError('existing_skill_id must be an existing Skill ID')
+        references = [node['skill_id'] for node in proposal.get('workflow', {}).get('nodes', []) if 'skill_id' in node]
+        if proposal.get('realization_request'):
+            references.append(proposal['realization_request']['skill_id'])
+        for reference in references:
+            if reference == '$new' and proposal.get('skill'):
+                continue
+            if reference not in known:
+                raise ValueError('Skill reference must be $new with a new Skill, or an existing Skill ID')
+
     def learn(self, task, trace, *, focus=None):
         s, bank = self.system, self.system.bank
         experience = self._experience(task, trace)
@@ -55,13 +68,22 @@ class Learner:
         if s.adapter.capabilities.interaction != 'single_answer':
             tools = [*tools, TaskContext(s.config['runtime']).tool()]
         log = {'decision': None, 'program': None, 'tests': [], 'errors': []}
+        schema = deepcopy(LEARNING)
+        skill_ids = [asset['id'] for asset in bank.all('skill')]
+        if skill_ids:
+            schema['properties']['existing_skill_id'] = {'type': 'string', 'enum': skill_ids}
+        for properties in [schema['properties']['realization_request']['properties'],
+                           schema['properties']['workflow']['properties']['nodes']['items']['properties']]:
+            properties['skill_id'] = {'type': 'string', 'enum': ['$new', *skill_ids]}
         proposal = self._receive('learning_proposal', 'extractor', LEARNER_PROMPT,
             {'experience': self._view(experience), 'related': related, 'tools': tools,
              'completed_train_cases': [{'case_id': key, 'task': case.get('task', {'goal': t.goal, 'inputs': t.inputs}),
                  'action_prefix': [{'name': e['name'], 'arguments': e['arguments']} for e in case.get('events', []) if e.get('backend_invoked', True)]}
                  for key, (t, case) in sorted(cases.items(), key=lambda row: (
                      -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0]))[:8]],
-             'selected_local_goal': focus}, 'submit_learning', LEARNING, repair_limit=1)
+             'selected_local_goal': focus}, 'submit_learning', schema,
+             validator=self._skill_references, repair_limit=1)
+        self._skill_references(proposal)
         log['decision'] = proposal['decision']
         skill = None
         if proposal.get('skill'):

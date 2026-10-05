@@ -58,7 +58,10 @@ Declare all value dependencies explicitly. Do not claim historical success that 
 If selected_local_goal is supplied, it defines the requested reusable capability. Preserve that scope in the Skill,
 its inputs and its workflow. The full example task is context, not permission to add extra required objects or
 conditions from that task. Leave subsequent task-specific work to continuation. Do not broaden the selected goal
-while repairing a response's structure. If proposing a new skill, an accompanying workflow may reference it as $new.
+while repairing a response's structure. A new Skill has no assigned ID yet: use $new in realization_request.skill_id
+and workflow node skill_id. Existing references must be real supplied Skill IDs, never an invented name or alias.
+For file workspaces, program paths may be absolute inside /workspace; files/deleted_files are publication names
+relative to /workspace, without a leading slash, inputs prefix or '..'. Keep output_path separate from files.
 execution_intent is guidance_only for single-answer QA; tool capabilities can be program_requested.
 guidance_only does not request a Program job: set generate_program=false and omit realization_request.
 Declare result_role intermediate/final_answer/final_files in the Skill. A missing Program is pending work, not
@@ -82,7 +85,11 @@ Support the declared entry_constraints: for mid-episode preparation, first inspe
 currently legal arguments instead of always restarting search. Preserve fixed trial bindings exactly.
 Prefer start_mode reset and prefix []; intermediate-state skills require the exact real public action prefix
 from that case's recorded experience. Implement the supplied Skill's local goal; do not expand it to solve the
-complete example task or add unrelated required targets. Only use the tool names supplied to you."""
+complete example task or add unrelated required targets. Only use the tool names supplied to you.
+For file workspaces, use /workspace/... paths inside Python as needed, but return outputs.files/deleted_files as
+relative publication names, e.g. write /workspace/result.xlsx and declare files=["result.xlsx"]. An output_path
+field can retain the program path; do not copy that absolute value into files. Absolute publication paths,
+inputs/... and '..' paths are rejected; do not bypass those checks."""
 RUNTIME_PROMPT = """Execute the current node toward the original user's task, keeping exact resource identities and
 quantity constraints. Prefer an existing program when inputs are ready; otherwise use a public tool, call a preparation
 program, or supply missing values. Only call currently provided tools with their normal arguments. The materials state

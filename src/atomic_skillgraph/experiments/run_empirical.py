@@ -93,7 +93,9 @@ def resolve_alfworld_tasks(adapter, entries, *, mapping_path=None, canonical_spl
 
 
 def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, adapter_factory=None,
-        formal_log=None, task_metadata=None, order_offset=0):
+        formal_log=None, task_metadata=None, order_offset=0, stop_after_tasks=None):
+    if stop_after_tasks is not None and (type(stop_after_tasks) is not int or stop_after_tasks < 1):
+        raise ValueError('stop_after_tasks must be a positive completed-task count')
     config = validate_config(config)
     print(json.dumps({'event': 'resolved_config', 'config': config}, ensure_ascii=False), flush=True)
     output = Path(output)
@@ -120,6 +122,10 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
         for task_index, task in enumerate(tasks):
             if (output / 'STOP_AFTER_TASK').exists():
                 raise SystemExit(75)
+            if stop_after_tasks is not None and len(cases) >= stop_after_tasks:
+                write_json(output / 'STOP_AFTER_TASK', {'reason': 'requested completed-task boundary',
+                    'completed_tasks': len(cases), 'expected_tasks': len(tasks)})
+                break
             row = state.execute("SELECT attempts,status,result FROM tasks WHERE id=?", (task.task_id,)).fetchone()
             if row and row[1] == "completed":
                 trace = json.loads(row[2])
@@ -175,8 +181,9 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
             cases.append(trace)
             print(json.dumps({"task": task.task_id, "completed": len(cases), "score": trace["score"],
                               "tokens": sum(u["total_tokens"] for u in trace["usage"])}), flush=True)
+        complete = len(cases) == len(tasks)
         frozen = None
-        if not readonly:
+        if not readonly and complete:
             destination = output / "frozen_bank"
             newly_created = not destination.exists()
             frozen = system.bank.freeze(destination) if newly_created else json.loads((destination / "freeze.json").read_text())
@@ -191,7 +198,8 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
         unknown_billing += sum(1 for audit in audits for request in audit['requests']
             if not request.get('response', {}).get('usage') and not request.get('http_attempts'))
         known_tokens = sum(u['total_tokens'] for u in usage)
-        summary = {"schema": "empirical.summary.v1", "complete": True, "tasks": len(cases),
+        summary = {"schema": "empirical.summary.v1", "complete": complete, "tasks": len(cases),
+                   'expected_tasks': len(tasks), 'status': 'completed' if complete else 'stopped',
                    "successes": sum(bool(t["score"]["hard"]) for t in cases),
                    "total_tokens": None if unknown_billing else known_tokens,
                    'known_total_tokens': known_tokens, 'unknown_billing_attempts': unknown_billing,

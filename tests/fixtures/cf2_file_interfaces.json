@@ -1,0 +1,301 @@
+{
+  "source": "CF2 fixed file smoke Train records; never a learned asset",
+  "audit_sha256": {
+    "office": "412702210a73318be6d8fd6854ceb7121e9eaa997178fa621d9664eaa7023c44",
+    "spreadsheet": "b82262f3a82e27346cfb9760ea0dfc821661f53d0247eff1ad6094601264cf50"
+  },
+  "office_proposals": [
+    {
+      "decision": "propose_skill_and_program_spec",
+      "rationale": "The Train case failed (raw_score 0.0) because the agent never read the relevant Treasury Bulletin table: it looped over ~20 keyword greps/globs, searched a non-existent phrase (\"nominal fine ounces\"), never called read() on a table body, never extracted the monthly domestic-silver figures, and never computed anything (program_calls empty) — it simply guessed. This is a reusable capability gap: (1) locating the right table title and printed unit header, (2) extracting an exact monthly series, (3) computing a geometric mean. I propose a new skill scoped to monthly-series geometric mean extraction from the Treasury Bulletin corpus, with a deterministic geometric-mean program, plus a compact locate→extract→compute workflow that trims the exploration that went wrong here. Scope is preserved to the requested single-answer QA (values in thousands of fine ounces, Apr–Aug 1940); no extra required objects beyond the series label, unit and month range are introduced.",
+      "skill": {
+        "goal": "Given the offline U.S. Treasury Bulletin corpus, locate a named monthly numeric series (e.g., U.S. silver production in thousands of fine ounces), read the exact values covering a requested calendar-month range, and compute their geometric mean rounded to the requested decimal places.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "series_name": {
+              "type": "string",
+              "description": "Natural-language label of the target monthly series, e.g. 'Silver production, United States'."
+            },
+            "units": {
+              "type": "string",
+              "description": "Printed unit header to match, e.g. 'thousands of fine ounces'."
+            },
+            "month_start": {
+              "type": "string",
+              "description": "First calendar month of the range, YYYY-MM."
+            },
+            "month_end": {
+              "type": "string",
+              "description": "Last calendar month of the range, YYYY-MM."
+            },
+            "decimal_places": {
+              "type": "integer",
+              "default": 2
+            },
+            "corpus": {
+              "type": "string",
+              "description": "Offline corpus of treasury_bulletin_<year>_<month>.txt files."
+            }
+          },
+          "required": [
+            "series_name",
+            "month_start",
+            "month_end"
+          ]
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "object",
+              "description": "Corpus path and table title from which the values were read."
+            },
+            "monthly_values": {
+              "type": "array",
+              "description": "List of {month, value} for each month in the requested range."
+            },
+            "geometric_mean": {
+              "type": "number"
+            },
+            "answer": {
+              "type": "string",
+              "description": "Geometric mean rounded to the requested decimal places."
+            }
+          },
+          "required": [
+            "monthly_values",
+            "geometric_mean",
+            "answer"
+          ]
+        },
+        "execution_intent": "program_requested",
+        "result_role": "final_answer",
+        "entry_constraints": "Offline corpus only; use glob/read/grep for retrieval and execute_python for arithmetic. Single-answer QA: one final numeric answer. Do not search for surface phrases that may not exist verbatim (e.g. 'nominal fine ounces'); match the printed unit header instead ('thousands of fine ounces'), and never answer without reading the table values.",
+        "guidance": "1) Locate the table, not just the keyword: glob treasury_bulletin_<year>_<month>.txt for every month needed and grep for the table title such as 'Silver Production, Movements and Seigniorage' and the unit header 'thousands of fine ounces'; use the returned offsets to read(). 2) Prefer the bulletin volume whose date covers the requested months and whose table reports the domestic/United States row. 3) read() the table region and extract the exact monthly value for each month in the range (rows are months, columns are series); record the source path and table title. 4) Verify you have exactly one positive numeric value per requested month before computing; if a value or month is missing, read adjacent table regions rather than guessing. 5) Compute the geometric mean as exp(sum(ln x_i)/n) via execute_python (all x_i > 0), then round to the requested decimal places. 6) Report the extracted monthly value list, the source table, and the rounded answer; never fabricate a figure."
+      },
+      "generate_program": true,
+      "workflow": {
+        "goal": "Answer a monthly-series geometric-mean question from the Treasury Bulletin corpus by locating the correct table, extracting exact monthly values, and computing the geometric mean.",
+        "nodes": [
+          {
+            "id": "locate",
+            "goal": "Find the Bulletin volumes/tables that contain the requested monthly series and its printed unit header",
+            "dynamic": true,
+            "args": {
+              "task": "glob the corpus for treasury_bulletin_<year>_<month>.txt files spanning the requested month range; grep for the series/table title (e.g. 'Silver Production, Movements and Seigniorage') and the unit header (e.g. 'thousands of fine ounces'); return candidate file paths, offsets and table titles"
+            }
+          },
+          {
+            "id": "extract",
+            "goal": "Extract the exact monthly values for the series over the requested range and record the source table",
+            "after": [
+              "locate"
+            ],
+            "args": {
+              "from": "locate",
+              "field": "candidate_regions"
+            }
+          },
+          {
+            "id": "compute",
+            "goal": "Compute the geometric mean of the extracted monthly values, rounded to the requested decimal places",
+            "skill_id": "$new",
+            "after": [
+              "extract"
+            ],
+            "args": {
+              "from": "extract",
+              "field": "monthly_values"
+            }
+          }
+        ],
+        "outputs": {
+          "monthly_values": {
+            "from": "extract",
+            "field": "monthly_values"
+          },
+          "answer": {
+            "from": "compute",
+            "field": "answer"
+          }
+        }
+      },
+      "realization_request": {
+        "skill_id": "treasury_monthly_series_geometric_mean",
+        "action": "build",
+        "case_bindings": [
+          {
+            "case_id": "313f501ba2284a8366d460a56020b44923207f262ba3616d34623fc10feccd09",
+            "inputs": {
+              "corpus": "full offline corpus; glob/read/grep"
+            },
+            "start_mode": "reset",
+            "prefix": []
+          }
+        ]
+      }
+    },
+    {
+      "decision": "propose_skill_and_program_spec",
+      "rationale": "The Train case failed (raw_score 0.0) because the agent never read the relevant Treasury Bulletin table: it looped over ~20 keyword greps/globs, searched a non-existent phrase (\"nominal fine ounces\"), never called read() on a table body, never extracted the monthly domestic-silver figures, and never computed anything (program_calls empty) — it simply guessed. This is a reusable capability gap: (1) locating the right table title and printed unit header, (2) extracting an exact monthly series, (3) computing a geometric mean. I propose a new skill scoped to monthly-series geometric-mean extraction from the Treasury Bulletin corpus, with a deterministic geometric-mean program, plus a compact locate→extract→compute workflow that trims the exploration that went wrong here. Scope is preserved to the requested single-answer QA (values in thousands of fine ounces, Apr–Aug 1940); no extra required objects beyond the series label, unit and month range are introduced.",
+      "skill": {
+        "goal": "Given the offline U.S. Treasury Bulletin corpus, locate a named monthly numeric series (e.g., U.S. silver production in thousands of fine ounces), read the exact values covering a requested calendar-month range, and compute their geometric mean rounded to the requested decimal places.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "series_name": {
+              "type": "string",
+              "description": "Natural-language label of the target monthly series, e.g. 'Silver production, United States'."
+            },
+            "units": {
+              "type": "string",
+              "description": "Printed unit header to match, e.g. 'thousands of fine ounces'."
+            },
+            "month_start": {
+              "type": "string",
+              "description": "First calendar month of the range, YYYY-MM."
+            },
+            "month_end": {
+              "type": "string",
+              "description": "Last calendar month of the range, YYYY-MM."
+            },
+            "decimal_places": {
+              "type": "integer",
+              "default": 2
+            },
+            "corpus": {
+              "type": "string",
+              "description": "Offline corpus of treasury_bulletin_<year>_<month>.txt files."
+            }
+          },
+          "required": [
+            "series_name",
+            "month_start",
+            "month_end"
+          ]
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "object",
+              "description": "Corpus path and table title from which the values were read."
+            },
+            "monthly_values": {
+              "type": "array",
+              "description": "List of {month, value} for each month in the requested range."
+            },
+            "geometric_mean": {
+              "type": "number"
+            },
+            "answer": {
+              "type": "string",
+              "description": "Geometric mean rounded to the requested decimal places."
+            }
+          },
+          "required": [
+            "monthly_values",
+            "geometric_mean",
+            "answer"
+          ]
+        },
+        "execution_intent": "program_requested",
+        "result_role": "final_answer",
+        "entry_constraints": "Offline corpus only; use glob/read/grep for retrieval and execute_python for arithmetic. Single-answer QA: one final numeric answer. Do not search for surface phrases that may not exist verbatim (e.g. 'nominal fine ounces'); match the printed unit header instead ('thousands of fine ounces'), and never answer without reading the table values.",
+        "guidance": "1) Locate the table, not just the keyword: glob treasury_bulletin_<year>_<month>.txt for every month needed and grep for the table title such as 'Silver Production, Movements and Seigniorage' and the unit header 'thousands of fine ounces'; use the returned offsets to read(). 2) Prefer the bulletin volume whose date covers the requested months and whose table reports the domestic/United States row. 3) read() the table region and extract the exact monthly value for each month in the range (rows are months, columns are series); record the source path and table title. 4) Verify you have exactly one positive numeric value per requested month before computing; if a value or month is missing, read adjacent table regions rather than guessing. 5) Compute the geometric mean as exp(sum(ln x_i)/n) via execute_python (all x_i > 0), then round to the requested decimal places. 6) Report the extracted monthly value list, the source table, and the rounded answer; never fabricate a figure."
+      },
+      "generate_program": true,
+      "workflow": {
+        "goal": "Answer a monthly-series geometric-mean question from the Treasury Bulletin corpus by locating the correct table, extracting exact monthly values, and computing the geometric mean.",
+        "nodes": [
+          {
+            "id": "locate",
+            "goal": "Find the Bulletin volumes/tables that contain the requested monthly series and its printed unit header",
+            "dynamic": true,
+            "args": {
+              "query": {
+                "task": "glob the corpus for treasury_bulletin_<year>_<month>.txt files spanning the requested month range; grep for the series/table title (e.g. 'Silver Production, Movements and Seigniorage') and the unit header (e.g. 'thousands of fine ounces'); return candidate file paths, offsets and table titles"
+              }
+            }
+          },
+          {
+            "id": "extract",
+            "goal": "Extract the exact monthly values for the series over the requested range and record the source table",
+            "after": [
+              "locate"
+            ],
+            "args": {
+              "candidate_regions": {
+                "from": "locate",
+                "field": "candidate_regions"
+              }
+            }
+          },
+          {
+            "id": "compute",
+            "goal": "Compute the geometric mean of the extracted monthly values, rounded to the requested decimal places",
+            "skill_id": "$new",
+            "after": [
+              "extract"
+            ],
+            "args": {
+              "monthly_values": {
+                "from": "extract",
+                "field": "monthly_values"
+              }
+            }
+          }
+        ],
+        "outputs": {
+          "monthly_values": {
+            "from": "extract",
+            "field": "monthly_values"
+          },
+          "answer": {
+            "from": "compute",
+            "field": "answer"
+          }
+        }
+      },
+      "realization_request": {
+        "skill_id": "treasury_monthly_series_geometric_mean",
+        "action": "build",
+        "case_bindings": [
+          {
+            "case_id": "313f501ba2284a8366d460a56020b44923207f262ba3616d34623fc10feccd09",
+            "inputs": {
+              "corpus": "full offline corpus; glob/read/grep"
+            },
+            "start_mode": "reset",
+            "prefix": []
+          }
+        ]
+      }
+    }
+  ],
+  "spreadsheet_program": {
+    "source": "\"\"\"Fill blank cells of a target column with the last non-blank prefix above them\nplus a sequential bijective base-26 lowercase-letter suffix (a, b, ..., z, aa, ab, ...).\nThe suffix counter restarts at 'a' for every maximal run of consecutive blanks.\nPre-existing non-blank cells and all other columns are preserved verbatim.\n\nEntry point:  run(ctx, inputs) -> {\"status\": \"ok\"|\"not_found\"|\"needs_input\"|\"blocked\",\n                                   \"outputs\": {...}}\n\"\"\"\n\nimport os\nimport glob\n\n\ndef _suffix_for(i):\n    \"\"\"Bijective base-26: 1->a, 2->b, ..., 26->z, 27->aa, 28->ab, ...\"\"\"\n    s = \"\"\n    while i > 0:\n        i, rem = divmod(i - 1, 26)\n        s = chr(97 + rem) + s\n    return s\n\n\ndef _is_blank(v):\n    return v is None or (isinstance(v, str) and v.strip() == \"\")\n\n\ndef _norm_prefix(p):\n    if isinstance(p, bool):\n        return str(p)\n    if isinstance(p, float) and p.is_integer():\n        return str(int(p))\n    if isinstance(p, int):\n        return str(p)\n    return str(p)\n\n\ndef _col_index(letter):\n    if isinstance(letter, int):\n        return letter if letter > 0 else 1\n    idx = 0\n    for ch in str(letter).strip():\n        if ch.isalpha():\n            idx = idx * 26 + (ord(ch.upper()) - 64)\n    return idx if idx > 0 else 1\n\n\ndef _resolve_input(inputs):\n    inp = inputs.get(\"input_path\") or inputs.get(\"input_file\")\n    if not inp:\n        inp = os.environ.get(\"INPUT_PATH\")\n    if inp and os.path.exists(inp):\n        return inp\n    cands = []\n    for pat in (\"/workspace/inputs/*.xlsx\", \"/workspace/inputs/*.xlsm\",\n                \"inputs/*.xlsx\", \"inputs/*.xlsm\",\n                \"/workspace/*.xlsx\", \"*.xlsx\", \"*.xlsm\"):\n        cands.extend(sorted(glob.glob(pat)))\n    seen = set()\n    for c in cands:\n        if c not in seen:\n            seen.add(c)\n            return c\n    return None\n\n\ndef _resolve_output(inputs):\n    outp = inputs.get(\"output_path\") or inputs.get(\"output_file\")\n    if not outp:\n        outp = os.environ.get(\"OUTPUT_PATH\")\n    if not outp:\n        outp = \"case1_result.xlsx\"\n    return outp\n\n\ndef run(ctx, inputs):\n    outputs = {\n        \"output_path\": \"\",\n        \"files\": [],\n        \"filled_count\": 0,\n        \"blank_remaining\": 0,\n        \"mismatch_count\": 0,\n        \"verification\": \"FAIL\",\n    }\n\n    def log(msg):\n        try:\n            if ctx is not None and hasattr(ctx, \"observe\"):\n                ctx.observe(msg)\n        except Exception:\n            pass\n        try:\n            print(msg)\n        except Exception:\n            pass\n\n    if not isinstance(inputs, dict):\n        inputs = {}\n\n    inp = _resolve_input(inputs)\n    if not inp:\n        log(\"ERROR: no readable input workbook found\")\n        return {\"status\": \"not_found\", \"outputs\": outputs}\n    log(\"input workbook: %s\" % inp)\n\n    outp = _resolve_output(inputs)\n    log(\"requested output: %s\" % outp)\n\n    try:\n        import openpyxl\n    except Exception as exc:\n        log(\"ERROR: openpyxl unavailable: %r\" % (exc,))\n        return {\"status\": \"blocked\", \"outputs\": outputs}\n\n    sheet_name = inputs.get(\"sheet_name\")\n    target_column = inputs.get(\"target_column\", \"A\")\n    header_row = inputs.get(\"header_row\", 1)\n    try:\n        header_row = int(header_row)\n    except Exception:\n        header_row = 1\n    if header_row < 1:\n        header_row = 1\n    tcol = _col_index(target_column)\n\n    try:\n        wb = openpyxl.load_workbook(inp)\n    except Exception as exc:\n        log(\"ERROR: cannot load workbook: %r\" % (exc,))\n        return {\"status\": \"blocked\", \"outputs\": outputs}\n\n    names = list(wb.sheetnames)\n    if sheet_name and sheet_name in names:\n        ws = wb[sheet_name]\n    else:\n        ws = wb[names[0]]\n    log(\"sheet=%r max_row=%d max_col=%d target_col=%s header_row=%d\"\n        % (ws.title, ws.max_row, ws.max_column, target_column, header_row))\n\n    max_row = ws.max_row\n    max_col = ws.max_column\n\n    # data region = last row holding any content across the used columns\n    data_last = header_row\n    for r in range(1, max_row + 1):\n        for c in range(1, max_col + 1):\n            if not _is_blank(ws.cell(row=r, column=c).value):\n                data_last = r\n                break\n    if data_last < header_row:\n        data_last = max_row\n\n    # snapshot originals BEFORE mutating\n    orig_col = {}\n    for r in range(1, data_last + 1):\n        orig_col[r] = ws.cell(row=r, column=tcol).value\n    others = {}\n    for r in range(1, data_last + 1):\n        for c in range(1, max_col + 1):\n            if c != tcol:\n                others[(r, c)] = ws.cell(row=r, column=c).value\n\n    # ---- transform ----\n    filled = 0\n    prefix = None\n    r = header_row + 1\n    while r <= data_last:\n        v = ws.cell(row=r, column=tcol).value\n        if not _is_blank(v):\n            prefix = v\n            r += 1\n            continue\n        start = r\n        while r <= data_last and _is_blank(ws.cell(row=r, column=tcol).value):\n            r += 1\n        if prefix is None:\n            log(\"WARNING: blank run rows %d-%d has no non-blank value above; left untouched\"\n                % (start, r - 1))\n            continue\n        base = _norm_prefix(prefix)\n        for k, row in enumerate(range(start, r), start=1):\n            ws.cell(row=row, column=tcol).value = base + _suffix_for(k)\n            filled += 1\n\n    # ---- save ----\n    written = []\n    try:\n        d = os.path.dirname(os.path.abspath(outp))\n        if d and not os.path.isdir(d):\n            os.makedirs(d, exist_ok=True)\n    except Exception:\n        pass\n    try:\n        wb.save(outp)\n        written.append(outp)\n    except Exception as exc:\n        log(\"ERROR: save failed at %s: %r\" % (outp, exc))\n        try:\n            alt = os.path.basename(outp) or \"case1_result.xlsx\"\n            wb.save(alt)\n            outp = alt\n            written.append(alt)\n        except Exception as exc2:\n            log(\"ERROR: fallback save failed: %r\" % (exc2,))\n            return {\"status\": \"blocked\", \"outputs\": outputs}\n\n    # extra relative copy when the primary path is absolute elsewhere\n    try:\n        base_name = os.path.basename(outp)\n        if base_name and os.path.abspath(base_name) != os.path.abspath(outp):\n            wb.save(base_name)\n            if base_name not in written:\n                written.append(base_name)\n    except Exception:\n        pass\n\n    outputs[\"output_path\"] = outp\n    outputs[\"files\"] = written\n    log(\"saved: %s copies=%r\" % (outp, written))\n\n    # ---- verify by reloading the saved workbook ----\n    try:\n        wbv = openpyxl.load_workbook(outp)\n    except Exception as exc:\n        log(\"ERROR: cannot reload output: %r\" % (exc,))\n        outputs[\"filled_count\"] = filled\n        return {\"status\": \"blocked\", \"outputs\": outputs}\n    if ws.title in wbv.sheetnames:\n        wsv = wbv[ws.title]\n    else:\n        wsv = wbv[wbv.sheetnames[0]]\n\n    # independently recompute expected target-column values from the ORIGINAL snapshot\n    expected = {}\n    prefix = None\n    r = header_row + 1\n    while r <= data_last:\n        ov = orig_col.get(r)\n        if not _is_blank(ov):\n            prefix = ov\n            expected[r] = ov\n            r += 1\n            continue\n        start = r\n        while r <= data_last and _is_blank(orig_col.get(r)):\n            r += 1\n        if prefix is None:\n            for row in range(start, r):\n                expected[row] = None\n        else:\n            base = _norm_prefix(prefix)\n            for k, row in enumerate(range(start, r), start=1):\n                expected[row] = base + _suffix_for(k)\n\n    mismatches = 0\n    for r in range(1, data_last + 1):\n        exp = expected.get(r, orig_col.get(r))\n        got = wsv.cell(row=r, column=tcol).value\n        if _is_blank(exp) and _is_blank(got):\n            continue\n        if exp != got:\n            mismatches += 1\n\n    for (r, c), v in others.items():\n        got = wsv.cell(row=r, column=c).value\n        if _is_blank(v) and _is_blank(got):\n            continue\n        if v != got:\n            mismatches += 1\n\n    blank_remaining = 0\n    for r in range(header_row + 1, data_last + 1):\n        if _is_blank(wsv.cell(row=r, column=tcol).value):\n            blank_remaining += 1\n\n    outputs[\"filled_count\"] = filled\n    outputs[\"blank_remaining\"] = blank_remaining\n    outputs[\"mismatch_count\"] = mismatches\n    outputs[\"verification\"] = \"PASS\" if (mismatches == 0 and blank_remaining == 0) else \"FAIL\"\n    log(\"filled=%d blank_remaining=%d mismatch_count=%d verification=%s\"\n        % (filled, blank_remaining, mismatches, outputs[\"verification\"]))\n    return {\"status\": \"ok\", \"outputs\": outputs}\n",
+    "example_inputs": {
+      "input_path": "/workspace/inputs/input.xlsx",
+      "output_path": "/workspace/case1_result.xlsx",
+      "sheet_name": "Sheet1",
+      "target_column": "A",
+      "header_row": 1
+    },
+    "trial_inputs": [
+      {
+        "case_id": "be3fcdff3aa1d941123325efa14f4da98f6fc5e383e5ee124b925ab4887cbdad",
+        "inputs": {
+          "input_path": "/workspace/inputs/input.xlsx",
+          "output_path": "/workspace/case1_result.xlsx",
+          "sheet_name": "Sheet1",
+          "target_column": "A",
+          "header_row": 1
+        },
+        "start_mode": "reset",
+        "prefix": []
+      }
+    ]
+  }
+}

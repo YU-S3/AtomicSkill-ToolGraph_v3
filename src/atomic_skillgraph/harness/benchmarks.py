@@ -222,9 +222,13 @@ class SpreadsheetAdapter(FileAdapter):
     def __init__(self, records, config):
         super().__init__('spreadsheet', records, config)
         spec = ToolSpec('execute_python', 'Run Python in the shared sandbox. INPUT_PATH and OUTPUT_PATH are predefined. '
-            'Write solution.py using INPUT_PATH/OUTPUT_PATH and case1_result.xlsx. Declare output filenames to commit them.',
-            object_schema({'source': {'type':'string'}, 'files': {'type':'array','items':{'type':'string'}},
-                           'deleted_files': {'type':'array','items':{'type':'string'}}}, ['source','files']),
+            'Write solution.py using INPUT_PATH/OUTPUT_PATH and case1_result.xlsx. Program paths can be absolute '
+            'inside /workspace; files/deleted_files must be publication names relative to /workspace, '
+            'without a leading slash, inputs prefix or .. segments.',
+            object_schema({'source': {'type':'string'}, 'files': {'type':'array','items':{'type':'string'},
+                           'description':'Relative publication names, e.g. case1_result.xlsx; not OUTPUT_PATH.'},
+                           'deleted_files': {'type':'array','items':{'type':'string'},
+                           'description':'Relative names of registered outputs to delete.'}}, ['source','files']),
             result_schema({'type': 'object'}), effect='sandbox_compute')
         self.specs = {spec.name: spec}
 
