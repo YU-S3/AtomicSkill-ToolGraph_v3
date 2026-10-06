@@ -1,0 +1,390 @@
+{
+  "schema": "cf4.verification.v1",
+  "base_commit": "bc63d02bc3bb0988cdbd15a203a068fc162f0b9b",
+  "tested_source": {
+    "git_sha": "8550285a19da9b56a885728fa0ee65eaeab33f41",
+    "tracked_dirty": false,
+    "source_sha256": "64902a8adf652e32a70831d63a3bb499f16396e450952d782a3f7384468a4917"
+  },
+  "implementation_revision": "empirical-v3.1-CF4",
+  "model_view_version": "empirical.model-view.cf4",
+  "public_contracts": {
+    "distribution": "skillcompiler-bench-contracts",
+    "version": "3.1.4",
+    "source_files_sha256": {
+      "LICENSE": "9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15",
+      "__init__.py": "e35eaa24c8b190ed7cc065535cb07d26452fc40a0d8935287fb0b5b0732346bc",
+      "answer.py": "5a04d73f36fead0f54717b3cb97e99b0d8ae489fc9ddaa5ec7d83bcb079a05be",
+      "livemath.py": "a2e19d0aca8a5c7c912f0ef93f04d49144ce8fec2faf2217d7b3eb2c8d93ac14",
+      "office.py": "643bb17124ddbd239ec7f83f620fe9e35f601f9593f1052ac1cada2b40df7cf6"
+    },
+    "benchmark_contracts_sha256": "e63911fe52c16518a7a1e0dd5647c1c53e52020e6275a198461c0706ebbb20c7",
+    "wheel": "skillcompiler_bench_contracts-3.1.4-py3-none-any.whl",
+    "wheel_sha256": "34140b0269b3053a736ef742849d658b56641a969de322c139d729a86cd74126"
+  },
+  "public_materialization_path": "/home/yangchengyu/main_experiment_v1_resources_cf4_20261006_v1",
+  "public_materialization_sha256": "2e7fa5aef40bffcb96c1c1bc3be3b129a090d9c3652abbb47664c010d4cc1c1d",
+  "authority_sha256": "b85e0c2e442ca6b97ef98ece895719d4231f18db29682b0fcb6fdf3f91c37c95",
+  "officeqa_corpus_sha256": "4883f8d199215ab95a904f0769e2e9c7dd636444d72498ca247d6feba561daeb",
+  "officeqa_corpus_files": 697,
+  "canonical_counts": {
+    "searchqa": {
+      "train": 300,
+      "val": 24,
+      "test": 1400,
+      "reserve": 276
+    },
+    "spreadsheetbench": {
+      "train": 200,
+      "val": 20,
+      "test": 180,
+      "reserve": 0
+    },
+    "officeqa": {
+      "train": 120,
+      "val": 24,
+      "test": 102,
+      "reserve": 0
+    },
+    "docvqa": {
+      "train": 180,
+      "val": 22,
+      "test": 201,
+      "reserve": 131
+    },
+    "livemath": {
+      "train": 60,
+      "val": 17,
+      "test": 100,
+      "reserve": 0
+    },
+    "alfworld": {
+      "train": 120,
+      "val": 24,
+      "test": 134,
+      "reserve": 0
+    }
+  },
+  "live_model_requests": 0,
+  "paid_experiments_started": false,
+  "pytest": {
+    "passed": 214,
+    "failed": 0,
+    "skipped": 0,
+    "junit": "pytest_final.xml",
+    "stdout": "pytest_final.log"
+  },
+  "coverage": {
+    "T01": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t01_missing_original_choice_inserted_public_private_equal",
+        "tests.test_cf4_differential::test_t01_real_raw_old_candidates_lack_correct_label"
+      ]
+    },
+    "T02": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t02_complete_and_idempotent[choices0]",
+        "tests.test_cf4_contracts::test_t02_complete_and_idempotent[choices1]",
+        "tests.test_cf4_contracts::test_t02_complete_and_idempotent[choices2]"
+      ]
+    },
+    "T03": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t03_invalid_source_is_not_guessed[changes0]",
+        "tests.test_cf4_contracts::test_t03_invalid_source_is_not_guessed[changes1]",
+        "tests.test_cf4_contracts::test_t03_invalid_source_is_not_guessed[changes2]",
+        "tests.test_cf4_contracts::test_t03_invalid_source_is_not_guessed[changes3]",
+        "tests.test_cf4_contracts::test_t03_invalid_source_is_not_guessed[changes4]"
+      ]
+    },
+    "T04": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t04_all_177_materialized_same_ids_keys_orders"
+      ]
+    },
+    "T05": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t05_actual_materialized_livemath_reaches_final_http",
+        "tests.test_cf4_contracts::test_t05_t06_t07_actual_solver_http_contract_and_resume[livemath]",
+        "tests.test_cf4_contracts::test_t05_t06_t07_actual_solver_http_contract_and_resume[searchqa]",
+        "tests.test_cf4_contracts::test_t05_t06_t07_actual_solver_http_contract_and_resume[docvqa]"
+      ]
+    },
+    "T06": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t05_t06_t07_actual_solver_http_contract_and_resume[livemath]",
+        "tests.test_cf4_contracts::test_t05_t06_t07_actual_solver_http_contract_and_resume[searchqa]",
+        "tests.test_cf4_contracts::test_t05_t06_t07_actual_solver_http_contract_and_resume[docvqa]"
+      ]
+    },
+    "T07": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf2_realization::test_t40_episodes_seeds_frozen_and_real_image_http_are_isolated",
+        "tests.test_cf4_contracts::test_t05_t06_t07_actual_solver_http_contract_and_resume[livemath]",
+        "tests.test_cf4_contracts::test_t05_t06_t07_actual_solver_http_contract_and_resume[searchqa]",
+        "tests.test_cf4_contracts::test_t05_t06_t07_actual_solver_http_contract_and_resume[docvqa]"
+      ]
+    },
+    "T08": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t08_t09_t10_t12_scope_offsets_limit_and_budget"
+      ]
+    },
+    "T09": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t08_t09_t10_t12_scope_offsets_limit_and_budget"
+      ]
+    },
+    "T10": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t08_t09_t10_t12_scope_offsets_limit_and_budget"
+      ]
+    },
+    "T11": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t11_scope_rejected_before_any_read[None]",
+        "tests.test_cf4_contracts::test_t11_scope_rejected_before_any_read[a.txt]",
+        "tests.test_cf4_contracts::test_t11_scope_rejected_before_any_read[paths2]",
+        "tests.test_cf4_contracts::test_t11_scope_rejected_before_any_read[paths3]",
+        "tests.test_cf4_contracts::test_t11_scope_rejected_before_any_read[paths4]",
+        "tests.test_cf4_contracts::test_t11_scope_rejected_before_any_read[paths5]",
+        "tests.test_cf4_contracts::test_t11_scope_rejected_before_any_read[paths6]",
+        "tests.test_cf4_contracts::test_t11_scope_rejected_before_any_read[paths7]",
+        "tests.test_cf4_contracts::test_t11_io_unicode_symlink_root_faults_remain_infrastructure"
+      ]
+    },
+    "T12": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t08_t09_t10_t12_scope_offsets_limit_and_budget"
+      ]
+    },
+    "T13": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf2_contracts::test_t22_saved_batch_resumes_without_repeat_or_usage",
+        "tests.test_cf4_contracts::test_t13_scoped_read_batch_resume_no_repeat"
+      ]
+    },
+    "T14": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t14_same_schema_in_planner_runtime_builder_http"
+      ]
+    },
+    "T15": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t15_ours_scoped_grep_matches_public_package"
+      ],
+      "baseline_fixture_status": "pending: user excluded baseline integrations",
+      "all_eight_methods_verified": false
+    },
+    "T16": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t16_t17_t19_usable_third_case_skips_but_saves_workflow_and_resume",
+        "tests.test_cf4_differential::test_t16_original_production_learner_overflows_usable_fixed_slots"
+      ]
+    },
+    "T17": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t16_t17_t19_usable_third_case_skips_but_saves_workflow_and_resume"
+      ]
+    },
+    "T18": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t18_candidate_explicit_repair_new_version_not_skipped"
+      ]
+    },
+    "T19": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t16_t17_t19_usable_third_case_skips_but_saves_workflow_and_resume"
+      ]
+    },
+    "T20": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t20_t22_missing_input_repaired_to_defer_before_asset_write",
+        "tests.test_cf4_differential::test_t20_original_production_learner_saves_invalid_skill_before_preflight"
+      ]
+    },
+    "T21": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t21_t24_binding_repair_then_two_actual_train_trials"
+      ]
+    },
+    "T22": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t20_t22_missing_input_repaired_to_defer_before_asset_write"
+      ]
+    },
+    "T23": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t23_invalid_binding_never_becomes_evidence[unknown]",
+        "tests.test_cf4_contracts::test_t23_invalid_binding_never_becomes_evidence[val]",
+        "tests.test_cf4_contracts::test_t23_invalid_binding_never_becomes_evidence[prefix]",
+        "tests.test_cf4_contracts::test_t23_invalid_binding_never_becomes_evidence[reset_prefix]",
+        "tests.test_cf4_contracts::test_t23_invalid_binding_never_becomes_evidence[type]"
+      ]
+    },
+    "T24": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t21_t24_binding_repair_then_two_actual_train_trials"
+      ]
+    },
+    "T25": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf3_takeover::test_t01_t07_reference_skill_does_not_take_over_or_impose_output",
+        "tests.test_cf4_contracts::test_t25_t27_dynamic_card_reports_binding_without_authorizing_route"
+      ]
+    },
+    "T26": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_empirical::test_preparation_then_two_program_nodes_execute_without_model_calls"
+      ]
+    },
+    "T27": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t25_t27_dynamic_card_reports_binding_without_authorizing_route"
+      ]
+    },
+    "T28": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf3_actual_takeover::test_t23_real_usable_program_keeps_automatic_native_takeover[0]",
+        "tests.test_cf3_actual_takeover::test_t23_real_usable_program_keeps_automatic_native_takeover[1]"
+      ]
+    },
+    "T29": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t29_t30_t31_projection_preserves_real_values_refs_and_checkpoint"
+      ]
+    },
+    "T30": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf2_contracts::test_t23_large_result_ref_crosses_actual_http_without_copy",
+        "tests.test_cf4_contracts::test_t29_t30_t31_projection_preserves_real_values_refs_and_checkpoint"
+      ]
+    },
+    "T31": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_contracts::test_t29_t30_t31_projection_preserves_real_values_refs_and_checkpoint"
+      ]
+    },
+    "T32": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf2_realization::test_t40_episodes_seeds_frozen_and_real_image_http_are_isolated",
+        "tests.test_cf4_contracts::test_t32_single_answer_learning_keeps_full_context_without_unreadable_refs"
+      ]
+    },
+    "T33": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf2_contracts::test_t05_program_and_agent_share_broker_and_state",
+        "tests.test_cf3_takeover::test_t19_production_accepted_loop_and_new_document_windows[False]",
+        "tests.test_cf3_takeover::test_t19_production_accepted_loop_and_new_document_windows[True]",
+        "tests.test_cf4_contracts::test_t33_alf_model_task_omits_only_backend_and_keeps_state_catalog"
+      ]
+    },
+    "T34": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf2_realization::test_t39_file_trial_scores_produced_bundle_without_dynamic_solver[values0]",
+        "tests.test_cf2_realization::test_t39_file_trial_scores_produced_bundle_without_dynamic_solver[values1]",
+        "tests.test_file_interfaces::test_program_path_and_publication_name_remain_separate"
+      ]
+    },
+    "T35": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf2_realization::test_t33_new_case_fills_unused_trial_slot_and_duplicates_do_not",
+        "tests.test_cf2_realization::test_t38_saved_recovery_survives_crash_and_runtime_cap_is_unchanged",
+        "tests.test_cf2_realization::test_t40_episodes_seeds_frozen_and_real_image_http_are_isolated"
+      ]
+    },
+    "T36": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_campaign::test_t36_real_campaign_pause_resume_test_once_no_repeated_phase_cost",
+        "tests.test_cf4_campaign::test_t36_single_cell_dispatches_only_selected_model_benchmark_seed[searchqa]",
+        "tests.test_cf4_campaign::test_t36_single_cell_dispatches_only_selected_model_benchmark_seed[spreadsheetbench]",
+        "tests.test_cf4_campaign::test_t36_single_cell_dispatches_only_selected_model_benchmark_seed[officeqa]",
+        "tests.test_cf4_campaign::test_t36_single_cell_dispatches_only_selected_model_benchmark_seed[docvqa]",
+        "tests.test_cf4_campaign::test_t36_single_cell_dispatches_only_selected_model_benchmark_seed[livemath]",
+        "tests.test_cf4_campaign::test_t36_single_cell_dispatches_only_selected_model_benchmark_seed[alfworld]"
+      ]
+    },
+    "T37": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_campaign::test_t37_version_and_public_material_change_cannot_resume_old",
+        "tests.test_formal_alignment::test_all_canonical_members_fixed_and_run_seed_only_changes_train_order"
+      ]
+    },
+    "T38": {
+      "status": "passed_ours_engineering",
+      "tests": [
+        "tests.test_cf4_campaign::test_t38_repository_and_installed_module_help_are_real_entrypoints",
+        "tests.test_cf4_contracts::test_t38_public_wheel_contains_no_ours_and_installs_alone"
+      ]
+    }
+  },
+  "input_documents_sha256": {
+    "cf4_feasibility_checks.py": "e7de394b48a478d17f2548691c4bf19ef2b1755f9dc77c3e31e1c62a25115ff1",
+    "cf4_feasibility_results.json": "f750bf7a228326c9de62aa28a860d6401a36636e66de37fd1ac4a737de2085f2",
+    "README.md": "92ea9752e267be04f974b8525a8367a482e6cd13e54b6b949fbfa5370c5d04a2",
+    "SHA256SUMS.json": "13999883fc3dc21f2a88f3ea9f15ac6e594a1e88f2fe29a0020603dcf5e1d689",
+    "SkillCompiler_六Benchmark适配闭环与复用降本_修改实施文档_v3.1-CF4.md": "c1776a635f2de4c1eb2dead7574d58052bd271c84dab63015f33a74895b70f35"
+  },
+  "projection": {
+    "requests": 82,
+    "totals": {
+      "before_messages_bytes": 1963587,
+      "after_messages_bytes": 1888065,
+      "before_tool_schema_bytes": 379288,
+      "after_tool_schema_bytes": 379288,
+      "backend_identity_occurrences_before": 488,
+      "backend_identity_occurrences_after": 80,
+      "backend_identity_repeated_after": 0
+    },
+    "claim_limit": "Serialized bytes only; no measured token saving, cost saving, choice preference or new task success."
+  },
+  "baseline_integrations": "excluded by user; pending in matrix",
+  "native_program_diagnostic": "two naturally learned prior CF2 Programs, real ALFWorld/Docker, intercepted Planner, read-only frozen Bank",
+  "installed_main_wheel_sha256": "646af5c888bbba3fb477c3e4506603bc3647c5c99fe208b22d959632b888ee9d",
+  "removal_replacement": [
+    "LiveMath direct raw mcq.choices replaced by shared strict normalization; no split or scorer change.",
+    "Inline Office grep scan replaced by shared authorized scoped scanner; no orchestration/learning in public package.",
+    "Binding merge-before-usable check removed; pure classification precedes semantic preflight/persistence.",
+    "Post-save inapplicable binding filtering replaced by pre-save shared one-Extractor repair validation.",
+    "Whole Planner asset envelopes replaced by read-only planning cards and existing program menu.",
+    "Repeated Runtime task/interface/literal bodies replaced by readable partitions and stable episode refs.",
+    "No whole legacy or scientific method removal; CF3 executable routes and bounded recovery retained."
+  ]
+}
