@@ -146,7 +146,7 @@ def test_t08_t11_pending_handoff_is_patched_without_search_or_replan(tmp_path, m
     assert len(broker.events) == 1 and len(sent) == 4
     error = next(x for x in result['history'] if x.get('error') == 'handoff_error')
     assert error['feedback']['missing_fields'] == ['resource_id'] and result['pending_outputs'] == {}
-    pending = json.loads(sent[3]['messages'][1]['content'])['pending_outputs']
+    pending = json.loads(sent[3]['messages'][1]['content'])['handoff']['pending_outputs']
     assert pending['output_refs']['object_id']['path'] == ['data',0]
     assert result['attempts'][0]['outputs_consumed']
     s.close()

@@ -145,13 +145,13 @@ class Learner:
             'type': 'string', 'enum': ['$new', *skill_ids]}
         try:
             proposal = self._receive('learning_proposal', 'extractor', LEARNER_PROMPT, project('extractor',
-            {'experience': self._view(experience), 'related': related, 'tools': tools,
-             'completed_train_cases': [{'case_id': key, 'task': case.get('task', {'goal': t.goal, 'inputs': t.inputs}),
-                 'action_prefix': [{'name': e['name'], 'arguments': e['arguments']} for e in case.get('events', []) if e.get('backend_invoked', True)]}
-                 for key, (t, case) in sorted(cases.items(), key=lambda row: (
-                     -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0]))[:8]],
-             'selected_local_goal': focus}, task=task, adapter=s.adapter, context=s.task_context), 'submit_learning', schema,
-             validator=lambda p: self.validate_learning_proposal(p, cases), repair_limit=1)
+                {'experience': self._view(experience), 'related': related, 'tools': tools,
+                 'completed_train_cases': [{'case_id': key, 'task': case.get('task', {'goal': t.goal, 'inputs': t.inputs}),
+                     'action_prefix': [{'name': e['name'], 'arguments': e['arguments']} for e in case.get('events', []) if e.get('backend_invoked', True)]}
+                     for key, (t, case) in sorted(cases.items(), key=lambda row: (
+                         -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0]))[:8]],
+                 'selected_local_goal': focus}, task=task, adapter=s.adapter, context=s.task_context), 'submit_learning', schema,
+                validator=lambda p: self.validate_learning_proposal(p, cases), repair_limit=1)
             resolved = self.validate_learning_proposal(proposal, cases)
         except ValueError as exc:
             log.update(decision='rejected', errors=[str(exc)])

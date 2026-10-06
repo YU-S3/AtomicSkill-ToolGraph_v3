@@ -30,6 +30,7 @@ def project(stage, material, *, task=None, adapter=None, context=None):
     if stage == 'runtime' and 'node_interface' in value:
         public_task = value.pop('original_task')
         interface = value.pop('node_interface')
+        sources = interface.pop('args', {})
         node_goal = value.pop('node_goal')
         if interface.get('node_goal') == node_goal: interface.pop('node_goal')
         if node_goal == public_task['goal']: node_goal = {'task_field': 'goal'}
@@ -38,6 +39,9 @@ def project(stage, material, *, task=None, adapter=None, context=None):
             source = context.reference({'goal': task.goal, 'inputs': task.inputs}, 'task_inputs')
             inputs = {k: {**source, 'path': ['inputs', k]} if k in task.inputs and v == task.inputs[k]
                       else context.preview(v) for k, v in inputs.items()}
+        if context:
+            sources = {k: {'literal': context.reference(v['literal'], 'literal_input')} if 'literal' in v else v
+                       for k, v in sources.items()}
         state = value.pop('public_state')
         if task and state.get('inputs') == task.inputs: state.pop('inputs')
         if context and state.get('observation') and contains_exact(public_task, state['observation']):
@@ -59,7 +63,7 @@ def project(stage, material, *, task=None, adapter=None, context=None):
         # Memory stores query/scope/acceptance and the result ID; previews live in recent_results.
         return {'model_view_version': MODEL_VIEW_VERSION, 'task': public_task,
             'node': {'id': value.pop('node_id'), 'goal': node_goal, 'interface': interface},
-            'bindings': {'inputs': inputs, 'missing': value.pop('missing'),
+            'bindings': {'inputs': inputs, 'input_sources': sources, 'missing': value.pop('missing'),
                          'completed_results': completed},
             'handoff': {k: value.pop(k) for k in ('required_handoff_fields', 'handoff_consumers', 'return_example', 'pending_outputs')},
             'state': state,
@@ -68,7 +72,7 @@ def project(stage, material, *, task=None, adapter=None, context=None):
             'recovery': value}
     if stage == 'extractor' and task is not None:
         value['experience']['task'] = model_task(task, adapter)
-        if context:
+        if context and adapter.capabilities.interaction != 'single_answer':
             for case in value.get('completed_train_cases', []):
                 original = case['task']
                 case['task'] = context.preview(model_task(PublicTask('', '', original['goal'], original.get('inputs', {})), adapter))

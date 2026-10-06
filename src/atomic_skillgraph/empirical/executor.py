@@ -312,7 +312,8 @@ class Executor:
                         final = last_output['answer']
                     else:
                         try:
-                            step = self.agent('runtime', 'Submit the final answer using only acquired information. No tools, programs or replanning.',
+                            step = self.agent('runtime', 'Submit the final answer using only acquired information. No tools, programs or replanning. ' +
+                                getattr(adapter, 'answer_contract', lambda: '')(),
                                 {'original_goal': task.goal, 'public_state': public_view(adapter), 'working_memory': context.model_memory(),
                                  'recent': recent(), 'completed_results': values.model_view()}, 'finish_answer', FINISH,
                                 repair_limit=0, owner_state_version=owner_version)

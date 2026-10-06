@@ -93,6 +93,18 @@ def test_t15_ours_scoped_grep_matches_public_package(tmp_path):
     s.close()
 
 
+def test_t32_single_answer_learning_keeps_full_context_without_unreadable_refs(tmp_path, monkeypatch):
+    inputs = {'context': 'actual public context ' * 1000, 'version': 7, 'options': ['first', 'second']}
+    sent = transport(monkeypatch, [(None, '<answer>word</answer>'), ('submit_learning', {'decision': 'no_change'})])
+    s = EmpiricalSystem(config_for(tmp_path / 'bank'), harness=AnswerAdapter('searchqa', {'id': {'answers': ['word']}}))
+    s.run_task(PublicTask('id', 'physical', 'Which word?', inputs), learn=True)
+    material = json.loads(sent[1]['messages'][1]['content'])
+    assert material['experience']['task']['inputs'] == inputs
+    assert material['completed_train_cases'][0]['task']['inputs'] == inputs and material['tools'] == []
+    assert len(sent) == 2 and s.bank.jobs() == []
+    s.close()
+
+
 @pytest.mark.parametrize('benchmark', ['livemath', 'searchqa', 'docvqa'])
 def test_t05_t06_t07_actual_solver_http_contract_and_resume(tmp_path, monkeypatch, benchmark):
     item = normalize_livemath_item(raw())

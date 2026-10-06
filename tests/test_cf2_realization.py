@@ -237,11 +237,12 @@ def test_t38_saved_recovery_survives_crash_and_runtime_cap_is_unchanged(tmp_path
     s.close()
 
 
-def test_t39_file_trial_scores_produced_bundle_without_dynamic_solver(tmp_path,monkeypatch):
+@pytest.mark.parametrize('values', [[2, 7], [2, 7, 11]])
+def test_t39_file_trial_scores_produced_bundle_without_dynamic_solver(tmp_path,monkeypatch,values):
     import openpyxl
     if not __import__('os').environ.get('PROGRAM_IMAGE_DIGEST'): pytest.skip('requires real Docker')
     cases=[]
-    for index,value in enumerate([2,7]):
+    for index,value in enumerate(values):
         input_path=tmp_path/f'{index}_input.xlsx'; gold=tmp_path/f'{index}_gold.xlsx'
         wb=openpyxl.Workbook(); wb.active['A1']=value; wb.save(input_path); wb.active['B1']=value*2; wb.save(gold); wb.close()
         cases.append({'input':str(input_path),'gold':str(gold)})
@@ -256,7 +257,7 @@ def test_t39_file_trial_scores_produced_bundle_without_dynamic_solver(tmp_path,m
     p.update(allowed_tools=[],result_role='final_files'); p=s.bank.put('program',p)
     s.agent=lambda *a,**k: pytest.fail('final file trial must not solve a second time')
     trial=s.test_program(p,{},task,trial_id='actual-file-trial')
-    assert trial['outcome']=='positive' and trial['result']['score']['case_results']==[True,True]
+    assert trial['outcome']=='positive' and trial['result']['score']['case_results']==[True]*len(values)
     assert trial['result']['submission']=='direct_program_output'
     s.close()
 
