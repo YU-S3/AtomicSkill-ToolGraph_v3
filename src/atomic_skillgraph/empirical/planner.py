@@ -3,6 +3,7 @@ from .contracts import validate_workflow, normalize_workflow
 from .prompts import PLANNER_PROMPT, PLAN
 from .task_context import public_view
 from copy import deepcopy
+from .model_view import project
 
 
 def dynamic(task):
@@ -39,12 +40,13 @@ class Planner:
                 workflow = value.get('workflow', value)
             workflow = normalize_workflow(workflow, self.bank, value.get('node_modes'))
             return self.validate(workflow, completed_results or ())
-        materials = {'original_task': {"goal": task.goal, "inputs": task.inputs}, 'related_interfaces': related,
+        materials = {'original_task': {"goal": task.goal, "inputs": task.inputs}, 'related_interfaces': self.bank.planning_cards(task.goal),
                      'program_options': self.bank.program_options(task.goal),
                      'tool_definitions': getattr(adapter, 'tool_definitions', adapter.available_tools)(),
                      'current_tools': adapter.available_tools(), 'public_state': public_view(adapter)}
         if feedback or completed_results:
             materials.update(feedback=feedback or [], completed_results=completed_results or {})
+        materials = project('planner', materials, task=task, adapter=adapter)
         try:
             response = self.agent("planner", PLANNER_PROMPT, materials, "submit_plan", PLAN,
                               validator=instantiate, repair_limit=1,

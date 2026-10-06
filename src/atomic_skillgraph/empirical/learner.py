@@ -1,10 +1,12 @@
 """One Learner decision and one durable realization job per completed Train task."""
 from copy import deepcopy
+import json
 
 from .contracts import PublicTask, TrialCase, digest, validate_schema_instance
 from .prompts import BUILD, BUILDER_PROMPT, LEARNING, LEARNER_PROMPT
 from .task_context import TaskContext
 from .program_worker import public_program_abi
+from .model_view import project, model_task
 
 
 class Learner:
@@ -19,8 +21,12 @@ class Learner:
                 'program_calls': trace.get('execution', {}).get('attempts', [])}
 
     def _view(self, experience):
-        context = TaskContext(self.system.config['runtime'])
+        context = getattr(self.system, 'task_context', None) or TaskContext(self.system.config['runtime'])
+        self.system.task_context = context
         view = {k: v for k, v in experience.items() if k != 'events'}
+        original = experience.get('task')
+        if original:
+            view['task'] = model_task(PublicTask('', '', original['goal'], original.get('inputs', {})), self.system.adapter)
         view['events'] = []
         for index, event in enumerate(experience.get('events', [])):
             result_id = context.register(str(index), event.get('result', {}))
@@ -50,6 +56,62 @@ class Learner:
                 continue
             if reference not in known:
                 raise ValueError('Skill reference must be $new with a new Skill, or an existing Skill ID')
+
+    def _proposal_skill(self, proposal):
+        if proposal.get('skill'):
+            skill = deepcopy(proposal['skill'])
+            requested = proposal.get('generate_program', proposal['decision'] == 'propose_skill_and_program_spec')
+            skill.setdefault('execution_intent', 'program_requested' if requested and
+                self.system.adapter.capabilities.interaction != 'single_answer' else 'guidance_only')
+            skill.setdefault('result_role', 'intermediate')
+            skill.setdefault('id', 'skill_' + digest(skill))
+            return skill
+        return self.system.bank.get(proposal.get('existing_skill_id') or '')
+
+    def _resolve_realization_request(self, proposal):
+        """Classify against actual assets without merging bindings or writing."""
+        self._skill_references(proposal)
+        bank, skill = self.system.bank, self._proposal_skill(proposal)
+        request = proposal.get('realization_request')
+        if request:
+            skill = skill if request['skill_id'] == '$new' else bank.get(request['skill_id'])
+        job = next((j for j in bank.jobs() if skill and j['id'] == digest(['realization', skill['id']])), None)
+        program = bank.get(job.get('program_id') or '') if job else None
+        associated = skill and job and job['skill_id'] == skill['id'] and job['skill_version'] == skill['id'] and any(
+            i['skill_id'] == skill['id'] and i['program_id'] == job.get('program_id') for i in bank.all('implementation'))
+        return {'skill': skill, 'job': job, 'already_usable': bool(request and associated and program and
+            program['state'] == 'usable' and request['action'] in {'build', 'trial'})}
+
+    def validate_learning_proposal(self, proposal, cases=None):
+        resolved = self._resolve_realization_request(proposal)
+        request, skill, job = proposal.get('realization_request'), resolved['skill'], resolved['job']
+        if not request or resolved['already_usable']: return resolved
+        if not skill or 'input_schema' not in skill: raise ValueError('Unknown realization Skill')
+        if cases is None:
+            cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience'])
+                     for r in self.system.bank.train_cases()}
+        bindings, seen = request['case_bindings'], set()
+        fixed = {b['case_id']: b for b in job['case_bindings']} if job else {}
+        for index, binding in enumerate(bindings):
+            try:
+                if binding['case_id'] in seen: raise ValueError('Duplicate trial case')
+                seen.add(binding['case_id'])
+                self._preflight_binding(binding, skill, cases)
+                if binding['case_id'] in fixed and fixed[binding['case_id']] != binding and any(
+                    a['task_key'] == binding['case_id'] and a['origin'] == 'train_test' and a['outcome'] != 'inapplicable'
+                    for a in self.system.bank.attempts(job.get('program_id') or '')):
+                    raise ValueError('An executed trial binding cannot be changed')
+            except ValueError as exc:
+                feedback = {'code': 'trial_binding_invalid', 'path': f'realization_request.case_bindings[{index}].inputs',
+                    'case_id': binding['case_id'], 'missing_fields': sorted(set(skill['input_schema'].get('required', [])) - set(binding['inputs'])),
+                    'expected_schema': skill['input_schema'], 'detail': str(exc)}
+                error = ValueError(json.dumps(feedback, ensure_ascii=False))
+                error.feedback = feedback
+                error.repair_material = {'skill': skill, 'binding': binding, 'error': feedback,
+                    'completed_train_case': self._view(cases[binding['case_id']][1]) if binding['case_id'] in cases else None}
+                raise error from exc
+        if len(set(fixed) | seen) > 2: raise ValueError('A realization job has at most two fixed slots')
+        return resolved
 
     def learn(self, task, trace, *, focus=None):
         s, bank = self.system, self.system.bank
@@ -81,26 +143,28 @@ class Learner:
             properties['skill_id'] = {'type': 'string', 'enum': ['$new', *skill_ids]}
         schema['properties']['workflow']['properties']['nodes']['items']['properties']['reference_skill_ids']['items'] = {
             'type': 'string', 'enum': ['$new', *skill_ids]}
-        proposal = self._receive('learning_proposal', 'extractor', LEARNER_PROMPT,
+        try:
+            proposal = self._receive('learning_proposal', 'extractor', LEARNER_PROMPT, project('extractor',
             {'experience': self._view(experience), 'related': related, 'tools': tools,
              'completed_train_cases': [{'case_id': key, 'task': case.get('task', {'goal': t.goal, 'inputs': t.inputs}),
                  'action_prefix': [{'name': e['name'], 'arguments': e['arguments']} for e in case.get('events', []) if e.get('backend_invoked', True)]}
                  for key, (t, case) in sorted(cases.items(), key=lambda row: (
                      -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0]))[:8]],
-             'selected_local_goal': focus}, 'submit_learning', schema,
-             validator=self._skill_references, repair_limit=1)
-        self._skill_references(proposal)
+             'selected_local_goal': focus}, task=task, adapter=s.adapter, context=s.task_context), 'submit_learning', schema,
+             validator=lambda p: self.validate_learning_proposal(p, cases), repair_limit=1)
+            resolved = self.validate_learning_proposal(proposal, cases)
+        except ValueError as exc:
+            log.update(decision='rejected', errors=[str(exc)])
+            return log
         log['decision'] = proposal['decision']
         skill = None
         if proposal.get('skill'):
-            asset = deepcopy(proposal['skill'])
-            requested = proposal.get('generate_program', proposal['decision'] == 'propose_skill_and_program_spec')
-            asset.setdefault('execution_intent', 'program_requested' if requested and s.adapter.capabilities.interaction != 'single_answer' else 'guidance_only')
-            asset.setdefault('result_role', 'intermediate')
+            asset = self._proposal_skill(proposal)
             skill = bank.put('skill', asset)
         elif proposal.get('existing_skill_id'):
             skill = bank.get(proposal['existing_skill_id'])
             if not skill or 'input_schema' not in skill: raise ValueError('Unknown existing Skill')
+        new_skill = skill if proposal.get('skill') else None
         request = proposal.get('realization_request')
         if request:
             selected_id = skill['id'] if request['skill_id'] == '$new' and skill else request['skill_id']
@@ -118,41 +182,11 @@ class Learner:
                        'state': 'waiting_example', 'program_id': None, 'case_bindings': [], 'repair_used': False,
                        'generation_count': 0, 'epoch': 0, 'last_error_kind': None, 'trigger_task': task.physical_key}
             if request:
-                job['kind'] = request['action'] if request['action'] != 'defer' else job['kind']
-                bank.save_job(job)
-                applicable = []
-                for binding in request['case_bindings']:
-                    try: self._preflight_binding(binding, skill, cases)
-                    except ValueError as exc:
-                        job['last_error_kind'] = 'inapplicable: ' + str(exc)
-                        log.setdefault('inapplicable', []).append({'binding': binding, 'error': str(exc)})
-                    else: applicable.append(binding)
-                existing = {b['case_id']: b for b in job['case_bindings']}
-                prior_trials = bank.attempts(job['program_id']) if job.get('program_id') else []
-                for binding in applicable:
-                    if binding['case_id'] in existing and binding != existing[binding['case_id']] and any(
-                        a['task_key'] == binding['case_id'] and a['origin']=='train_test' and a['outcome']!='inapplicable' for a in prior_trials):
-                        raise ValueError('An executed trial binding cannot be changed')
-                new_binding = any(b['case_id'] not in existing for b in applicable)
-                existing.update({b['case_id']: deepcopy(b) for b in applicable})
-                if len(existing) > 2: raise ValueError('A realization job has at most two fixed slots')
-                job['case_bindings'] = list(existing.values())
-                related_new = new_experience and bool(bank.words(task.goal) & bank.words(skill['goal']))
-                errors = [a for a in experience['program_calls'] if a.get('program_id') == job.get('program_id') and
-                          (a.get('status') == 'execution_error' or a.get('outcome') == 'execution_failure')]
-                error_signal = digest(errors) if errors else None
-                new_error = error_signal and error_signal != job.get('error_signal')
-                eligible = related_new or new_binding or new_error
-                if new_error: job['error_signal'] = error_signal
-                current_program = bank.get(job.get('program_id') or '')
-                if current_program and current_program['state'] == 'usable' and request['action'] in {'build','trial'}:
-                    job.update(state='done', kind='trial')
-                elif request['action'] == 'defer': job['state'] = 'waiting_example'
-                elif job['state'] != 'deferred' or eligible:
-                    if job['generation_count'] and request['action'] in {'build','repair'} and job['state'] in {'done','deferred','waiting_example'} and eligible:
-                        job.update(epoch=job['epoch']+1, generation_count=0, repair_used=False, last_error_kind=None)
-                        job.pop('pending_generation', None)
-                    job['state'] = 'ready' if job['case_bindings'] else 'waiting_example'
+                if resolved['already_usable']:
+                    job['state'] = 'done'
+                    log['realization_skipped'] = 'already_usable'
+                else:
+                    self._merge_request(job, request, skill, cases, experience, new_experience, log)
             bank.save_job(job)
         ready = [j for j in bank.jobs() if j['state'] == 'ready' and (j['skill_id'] == (skill or {}).get('id') or
             bank.words(task.goal) & bank.words((bank.get(j['skill_id']) or {}).get('goal','')))]
@@ -171,19 +205,41 @@ class Learner:
             workflow = deepcopy(proposal['workflow'])
             for node in workflow['nodes']:
                 if node.get('skill_id') == '$new':
-                    if not skill: raise ValueError('Workflow references a missing Skill')
-                    node['skill_id'] = skill['id']
+                    node['skill_id'] = new_skill['id']
                 if '$new' in node.get('reference_skill_ids', []):
-                    if not skill: raise ValueError('Workflow references a missing Skill')
-                    node['reference_skill_ids'] = [skill['id'] if ref == '$new' else ref for ref in node['reference_skill_ids']]
+                    node['reference_skill_ids'] = [new_skill['id'] if ref == '$new' else ref for ref in node['reference_skill_ids']]
             try: log['workflow'] = bank.put('workflow', workflow)['id']
             except ValueError as exc: log['errors'].append('Workflow rejected: ' + str(exc))
         return log
+
+    def _merge_request(self, job, request, skill, cases, experience, new_experience, log):
+        bank = self.system.bank
+        job['kind'] = request['action'] if request['action'] != 'defer' else job['kind']
+        existing = {b['case_id']: b for b in job['case_bindings']}
+        new_binding = any(b['case_id'] not in existing for b in request['case_bindings'])
+        existing.update({b['case_id']: deepcopy(b) for b in request['case_bindings']})
+        job['case_bindings'] = list(existing.values())
+        related_new = new_experience and bool(bank.words(experience['task']['goal']) & bank.words(skill['goal']))
+        errors = [a for a in experience['program_calls'] if a.get('program_id') == job.get('program_id') and
+                  (a.get('status') == 'execution_error' or a.get('outcome') == 'execution_failure')]
+        error_signal = digest(errors) if errors else None
+        new_error = error_signal and error_signal != job.get('error_signal')
+        eligible = related_new or new_binding or new_error
+        if new_error: job['error_signal'] = error_signal
+        if request['action'] == 'defer': job['state'] = 'waiting_example'
+        elif job['state'] != 'deferred' or eligible:
+            if job['generation_count'] and request['action'] in {'build','repair'} and job['state'] in {'done','deferred','waiting_example'} and eligible:
+                job.update(epoch=job['epoch']+1, generation_count=0, repair_used=False, last_error_kind=None)
+                job.pop('pending_generation', None)
+            job['state'] = 'ready' if job['case_bindings'] else 'waiting_example'
 
     def _preflight_binding(self, binding, skill, cases):
         if binding['case_id'] not in cases: raise ValueError('TrialCase must be a completed Train case')
         validate_schema_instance(binding['inputs'], skill['input_schema'])
         task, experience = cases[binding['case_id']]
+        if task.split != 'train': raise ValueError('TrialCase must be a completed Train case')
+        if binding['start_mode'] == 'reset' and binding['prefix']:
+            raise ValueError('Reset trial cannot contain an action prefix')
         case = TrialCase(binding['case_id'], task.physical_key, task.task_id, deepcopy(binding['inputs']),
                          binding['start_mode'], tuple(binding['prefix']))
         actual = [{'name': e['name'], 'arguments': e['arguments']} for e in experience.get('events', [])

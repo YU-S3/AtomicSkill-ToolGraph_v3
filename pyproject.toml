@@ -22,6 +22,7 @@ skillcompiler-multibench = "atomic_skillgraph.experiments.run_multibench:main"
 skillcompiler-prepare = "atomic_skillgraph.experiments.prepare_benchmarks:main"
 skillcompiler-manifest = "atomic_skillgraph.experiments.canonical_manifest:main"
 skillcompiler-formal = "atomic_skillgraph.experiments.run_formal:main"
+skillcompiler-single-cell = "atomic_skillgraph.experiments.run_single_cell:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -33,6 +34,7 @@ namespaces = false
 
 [tool.setuptools.package-data]
 "atomic_skillgraph.harness.scorers" = ["LICENSE"]
+"skillcompiler_bench_contracts" = ["LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -12,6 +12,8 @@ from ..harness.registry import create_simple_harness
 from .canonical_manifest import ADAPTER_NAMES, BENCHMARKS, ordered_train, sha256, verify
 from .formal_log import FormalLog, tree_identity, utc
 from .run_empirical import code_identity, load_env, resolve_alfworld_tasks, run, write_json
+from skillcompiler_bench_contracts import source_identity
+from ..empirical import IMPLEMENTATION_REVISION, POLICY_DEFAULTS
 
 
 def resolved_config(base, profile, benchmark, seed, split, root, datasets, authority, corpus_root):
@@ -40,16 +42,23 @@ def resolved_config(base, profile, benchmark, seed, split, root, datasets, autho
     return validate_config(config)
 
 
-def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpus_root, *, resume=False):
+def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpus_root=None, *, resume=False, stop_after_val=False):
     root = Path(output).resolve()
     authority, datasets = Path(authority).resolve(), Path(datasets).resolve()
     manifest = verify(authority)
+    if benchmark not in BENCHMARKS or seed not in (42, 43, 44): raise ValueError('Unknown benchmark or run seed')
+    if benchmark == 'officeqa' and not corpus_root: raise ValueError('OfficeQA requires --corpus-root')
     materialized = json.loads((datasets / 'materialization.json').read_text())
     if materialized['authority_sha256'] != sha256(authority / 'manifest.json'):
         raise ValueError('Materialization belongs to a different public authority')
     for name, expected in materialized['files_sha256'].items():
         if sha256(datasets / name) != expected:
             raise ValueError('Materialized resource changed: ' + name)
+    from skillcompiler_bench_contracts.livemath import NORMALIZATION_VERSION
+    if materialized.get('livemath_normalization_version') != NORMALIZATION_VERSION:
+        raise ValueError('CF4 requires new public materialization; old checkpoints cannot be resumed')
+    if sha256(datasets / 'livemath_integrity.json') != materialized['integrity_sha256']:
+        raise ValueError('LiveMath integrity record changed')
     profile = profiles[ADAPTER_NAMES.get(benchmark, benchmark)]
     code = code_identity()
     if not code['git_sha'] or code['tracked_dirty']:
@@ -58,6 +67,10 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         'provider_model_id': base['llm']['model'], 'benchmark': benchmark, 'run_seed': seed, 'split_seed': 42,
         'source_commit': code['git_sha'], 'source_sha256': code['source_sha256'],
         'materialization_sha256': sha256(datasets / 'materialization.json'),
+        'benchmark_contracts_sha256': source_identity(),
+        'public_materialization_sha256': sha256(datasets / 'materialization.json'),
+        'implementation_revision': IMPLEMENTATION_REVISION,
+        'model_view_version': POLICY_DEFAULTS['runtime']['model_view_version'],
         'split_manifest_hash': sha256(authority / 'manifest.json'),
         'split_hashes': {k: v['sha256'] for k, v in manifest['benchmarks'][benchmark]['splits'].items()},
         'generation_seed_status': 'supported' if base['llm'].get('generation_seed_supported') else 'unsupported',
@@ -70,6 +83,14 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
     summaries, offset = {}, 0
     try:
         for split, settings in configurations.items():
+            phase = root / split
+            prior = phase / 'summary.json'
+            if resume and prior.exists() and json.loads(prior.read_text()).get('complete'):
+                summary = json.loads(prior.read_text())
+                summaries[split] = {k: summary[k] for k in ('complete', 'tasks', 'successes', 'known_total_tokens', 'unknown_billing_attempts', 'knowledge_digest')}
+                offset += summary['tasks']
+                if split == 'val' and stop_after_val: break
+                continue
             public = json.loads((authority / benchmark / (split + '.json')).read_text())['tasks']
             metadata = {r['task_id']: r['task_metadata'] for r in public}
             adapter = create_simple_harness(settings)
@@ -112,8 +133,10 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
                 offset += len(tasks)
             finally:
                 adapter.close()
-        log.finish('completed')
-        write_json(root / 'completion.json', {'status': 'completed', 'runs': summaries})
+            if split == 'val' and stop_after_val: break
+        status = 'awaiting_test' if stop_after_val else 'completed'
+        log.finish(status)
+        write_json(root / 'completion.json', {'status': status, 'completed_splits': list(summaries), 'runs': summaries})
         return summaries
     except BaseException as exc:
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
@@ -123,6 +146,20 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         log.finish(status)
         write_json(root / 'completion.json', {'status': status, 'error_type': type(exc).__name__, 'error': str(exc)})
         raise
+
+
+def configured_models(lock):
+    configured = [m for m in lock['formal_models'] if all(m.get(k) for k in ('model_id', 'endpoint', 'api_key_env', 'input_modalities'))]
+    return configured or [lock['current_test']]
+
+
+def model_settings(base, model):
+    settings = deepcopy(base)
+    settings['llm'].update(model=model['model_id'], display_name=model.get('display_name', model['model_id']),
+        base_url=model['endpoint'], api_key_env=model['api_key_env'], dialect=model.get('dialect', base['llm']['dialect']),
+        input_modalities=model['input_modalities'], token_limit_field=model.get('token_limit_field', 'max_tokens'),
+        generation_seed_supported=model.get('generation_seed_supported', False))
+    return settings
 
 
 def main():
@@ -143,7 +180,7 @@ def main():
     profiles = json.loads(Path(spec['benchmark_profiles']).read_text())['profiles']
     lock = json.loads(Path(spec['model_lock']).read_text())
     configured = [m for m in lock['formal_models'] if all(m.get(k) for k in ('model_id', 'endpoint', 'api_key_env', 'input_modalities'))]
-    models = configured or [lock['current_test']]
+    models = configured_models(lock)
     output = Path(args.output).resolve()
     matrix = {'schema': 'ours.formal-matrix.v1', 'authority_sha256': sha256(Path(spec['authority']) / 'manifest.json'),
         'configured_models': models, 'unconfigured_models': [m for m in lock['formal_models'] if m not in configured], 'cells': {}}
@@ -166,11 +203,7 @@ def main():
                     'reason': 'Locked model has no image capability' if unsupported else None, 'score': None, 'path': str(output / cell)})
     write_json(path, matrix)
     for model in models:
-        settings = deepcopy(base)
-        settings['llm'].update(model=model['model_id'], display_name=model.get('display_name', model['model_id']),
-            base_url=model['endpoint'], api_key_env=model['api_key_env'], dialect=model.get('dialect', base['llm']['dialect']),
-            input_modalities=model['input_modalities'], token_limit_field=model.get('token_limit_field', 'max_tokens'),
-            generation_seed_supported=model.get('generation_seed_supported', False))
+        settings = model_settings(base, model)
         for benchmark in spec['benchmarks']:
             for seed in spec['run_seeds']:
                 cell = model['model_id'] + '/' + benchmark + '/seed' + str(seed)

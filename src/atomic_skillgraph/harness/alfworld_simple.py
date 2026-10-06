@@ -40,7 +40,16 @@ class SimpleAlfWorld:
                                context.get("context", {}), context.get("metadata", {}))
         self.last = self.harness.reset(original)
         self._apply_public_result('reset', {}, self.last)
+        self.initial_observation = self.last.observation
         return self.observe()
+
+    def model_task(self, task=None):
+        task = task or self.task
+        environment = task.inputs.get('environment_task', {})
+        inputs = {'goal_roles': environment.get('context', {}).get('goal_roles', {})}
+        if self.task and task.goal == self.task.goal:
+            inputs['initial_observation'] = self.initial_observation
+        return {'goal': task.goal, 'inputs': {'environment_task': inputs}}
 
     def inherit_discovery(self, source):
         self.harness.inherit_discovery(source.harness)

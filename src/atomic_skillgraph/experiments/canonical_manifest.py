@@ -9,6 +9,7 @@ import random
 
 from .prepare_benchmarks import upstream_ids
 from .run_empirical import write_json
+from ..empirical.contracts import digest
 
 
 BENCHMARKS = ('searchqa', 'spreadsheetbench', 'officeqa', 'docvqa', 'livemath', 'alfworld')
@@ -220,6 +221,12 @@ def verify(authority):
 def materialize(authority, prepared_pool, output):
     authority, prepared_pool, output = Path(authority), Path(prepared_pool), Path(output)
     manifest = verify(authority)
+    from skillcompiler_bench_contracts.livemath import normalize_livemath_item, NORMALIZATION_VERSION, UPSTREAM_REVISION
+    lock = json.loads((prepared_pool / 'dataset_lock.json').read_text())
+    if lock.get('livemath_normalization_version') != NORMALIZATION_VERSION:
+        raise ValueError('CF4 requires a freshly normalized LiveMath resource pool')
+    integrity = json.loads((prepared_pool / 'livemath_integrity.json').read_text())
+    integrity.update(split_counts={}, public_choices_sha256={}, evaluator_choices_sha256={})
     for benchmark in BENCHMARKS:
         internal = ADAPTER_NAMES.get(benchmark, benchmark)
         records = {} if benchmark == 'alfworld' else json.loads((prepared_pool / internal / 'evaluator_records.json').read_text())
@@ -238,9 +245,19 @@ def materialize(authority, prepared_pool, output):
                 (authority / benchmark / (name + '.json')).read_text())['tasks']}
             if set(pool) != canonical_ids or set(records) != canonical_ids:
                 raise ValueError('Resource pool does not cover the canonical universe exactly')
+            if benchmark == 'livemath':
+                for task_id, task in pool.items():
+                    record = records[task_id]
+                    normalized = normalize_livemath_item({'id': task_id, 'question': task['goal'],
+                        'choices': task['inputs']['choices'], 'correct_choice': record['correct_choice']})
+                    if normalized['choices'] != task['inputs']['choices'] or record['choices'] != normalized['choices']:
+                        raise ValueError('LiveMath public/evaluator choices differ: ' + task_id)
+                    integrity['public_choices_sha256'][task_id] = digest(task['inputs']['choices'])
+                    integrity['evaluator_choices_sha256'][task_id] = digest(record['choices'])
         for name in SPLITS:
             source = authority / manifest['benchmarks'][benchmark]['splits'][name]['path']
             rows = json.loads(source.read_text())['tasks']
+            if benchmark == 'livemath': integrity['split_counts'][name] = len(rows)
             if benchmark != 'alfworld':
                 tasks = []
                 for r in rows:
@@ -256,7 +273,10 @@ def materialize(authority, prepared_pool, output):
             if benchmark != 'alfworld':
                 frozen_write(output / benchmark / ('evaluator_records_' + name + '.json'),
                              {r['task_id']: records[r['task_id']] for r in rows})
+    frozen_write(output / 'livemath_integrity.json', integrity)
     frozen_write(output / 'materialization.json', {'authority_sha256': sha256(authority / 'manifest.json'),
+        'livemath_normalization_version': NORMALIZATION_VERSION, 'livemath_upstream_revision': UPSTREAM_REVISION,
+        'integrity_sha256': sha256(output / 'livemath_integrity.json'),
         'files_sha256': {p.relative_to(output).as_posix(): sha256(p) for p in sorted(output.glob('*/*.json'))}})
 
 

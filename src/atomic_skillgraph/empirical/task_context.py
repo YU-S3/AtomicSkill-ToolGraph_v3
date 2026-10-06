@@ -86,13 +86,17 @@ class TaskContext:
             raise ValueError('Explicit values and result references conflict')
         return {**values, **{key: self.resolve(ref) for key, ref in refs.items()}}
 
+    def reference(self, value, source='model_value'):
+        result_id = self.register('model_source:' + digest([source, value]), value)
+        return {'result_id': result_id, 'path': []}
+
     def preview(self, value, ref=None):
         raw = json.dumps(value, ensure_ascii=False, allow_nan=False)
         if len(raw) <= self.settings['result_inline_max_chars'] and (not isinstance(value, list) or len(value) <= self.settings['result_preview_max_items']):
             return value
         preview = value[:self.settings['result_preview_max_items']] if isinstance(value, list) else value
         text = json.dumps(preview, ensure_ascii=False, allow_nan=False)
-        return {'ref': ref, 'type': type(value).__name__, 'size': len(value) if isinstance(value, (list, str, dict)) else len(raw),
+        return {'ref': ref or self.reference(value), 'type': type(value).__name__, 'size': len(value) if isinstance(value, (list, str, dict)) else len(raw),
                 'preview': text[:self.settings['result_inline_max_chars']], 'truncated': True}
 
     def view(self, result_id):

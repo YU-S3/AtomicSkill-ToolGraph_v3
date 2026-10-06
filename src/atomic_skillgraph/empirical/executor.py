@@ -9,6 +9,7 @@ from .planner import dynamic
 from .prompts import FINISH, PATCH, RUNTIME_PROMPT, STEP
 from .task_context import progress_key, public_view
 from ..harness.simple_protocol import UnknownSideEffect
+from .model_view import project
 
 
 class Executor:
@@ -87,6 +88,7 @@ class Executor:
 
         def fail(kind, interface, *, name='', arguments=None, detail=None):
             nonlocal recovery_needed
+            arguments = getattr(adapter, 'failure_arguments', lambda n, a: a)(name, arguments) if name else arguments
             signature = digest([kind, interface['execution_mode'], interface['bound_skill_id'],
                                 interface['bound_program_id'], name, arguments, progress_key(adapter)])
             failures[signature] = failures.get(signature, 0) + 1
@@ -324,9 +326,10 @@ class Executor:
                 elif submission_kind == 'files': final = {}
                 break
             references = interface['reference_skill_ids']
-            guidance = [self.bank.get(ref) for ref in references]
+            guidance = [self.bank.get(ref) for ref in dict.fromkeys(references)]
             if interface['bound_skill_id']:
-                guidance.insert(0, self.bank.get(interface['bound_skill_id']))
+                guidance = [self.bank.get(interface['bound_skill_id']), *[s for s in guidance if s and s['id'] != interface['bound_skill_id']]]
+            guidance = guidance[:3]
             if not guidance:
                 guidance = [s for s in self.bank.retrieve(interface['node_goal']) if 'guidance' in s][:3]
             requirements = handoff_requirements(plan, node['id'], completed)
@@ -342,6 +345,8 @@ class Executor:
                 'allowed_calls': '1-3 independent read_only/batchable calls; otherwise one operation' if any(t.get('batchable') for t in broker.available_tools()) else 'one operation',
                 'may_replan': replans == 0, 'may_escape': escapes == 0, 'loop_feedback': context.loop_feedback,
                 'completed_results': values.model_view()}
+            materials = project('runtime', materials, task=task, adapter=adapter, context=context)
+            save(pending_step)
             def validate_step(step):
                 context.bind(step.get('arguments', {}), step.get('argument_refs', {}))
                 context.bind(step.get('outputs', {}), step.get('output_refs', {}))
@@ -395,7 +400,7 @@ class Executor:
                     elif kind in {'call_program','call_tool'}:
                         name = action.get('name', '')
                         call_args = context.bind(action.get('arguments', {}), action.get('argument_refs', {}))
-                        signature = digest(['dispatch', name, call_args, progress_key(adapter)])
+                        signature = digest(['dispatch', name, getattr(adapter, 'failure_arguments', lambda n, a: a)(name, call_args), progress_key(adapter)])
                         if failures.get(signature, 0) >= 2:
                             recovery_needed = True
                             raise ValueError('Same known invalid operation already failed twice')

@@ -13,6 +13,8 @@ from ..empirical.program_worker import ProgramWorker
 from ..empirical.workspace import Workspace
 from .simple_protocol import Broker, Capabilities
 from .tool_spec import ToolSpec, result_schema
+from skillcompiler_bench_contracts.answer import answer_contract
+from skillcompiler_bench_contracts.office import ALL_PATHS, GREP_SCHEMA, canonical_scope, grep
 
 
 def truncate_context(context, max_chars=6000):
@@ -64,6 +66,12 @@ class AnswerAdapter:
     def available_tools(self): return []
     def tool_definitions(self): return []
     def close(self): pass
+
+    def model_task(self, task=None):
+        task = task or self.task
+        return {'goal': task.goal, 'inputs': task.inputs}
+
+    def answer_contract(self): return answer_contract(self.benchmark, self.task.inputs)
 
     def content_parts(self):
         parts = []
@@ -170,8 +178,8 @@ class OfficeAdapter(FileAdapter):
             ('glob', 'List matching relative corpus paths', object_schema({'pattern': {'type':'string'}}, ['pattern']), {'type': 'array', 'items': {'type': 'string'}}, 'read_only', True, {}),
             ('read', 'Read at most 12000 characters. offset is a zero-based decoded Unicode character index, not a line or byte position.',
              object_schema({'path': {'type':'string'}, 'offset': {'type':'integer','minimum':0}}, ['path','offset']), {'type': 'object'}, 'read_only', True, {'offset': 'unicode_codepoint_0_based'}),
-            ('grep', 'Search corpus; up to 40 hits. line is one-based display only; offset can be passed directly to read.',
-             object_schema({'pattern': {'type':'string'}}, ['pattern']), {'type': 'array', 'items': {'type': 'object'}}, 'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
+            ('grep', 'Search authorized text files; omit paths for all files, or pass relative paths (empty means none). At most 40 total hits; line is display only, offset is directly usable by read.',
+             GREP_SCHEMA, {'type': 'array', 'items': {'type': 'object'}}, 'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
             ('execute_python', 'Compute with acquired public values; no corpus or network mount.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
 
     def _path(self, relative):
@@ -191,6 +199,12 @@ class OfficeAdapter(FileAdapter):
             return {'accepted': False, 'observation': '', 'data': [] if name in {'glob','grep'} else {}, 'error': str(exc),
                     'error_code': 'invalid_corpus_input', 'done': False}
 
+    def failure_arguments(self, name, arguments):
+        if name != 'grep': return arguments
+        try: scope = canonical_scope(arguments.get('paths', ALL_PATHS))
+        except ValueError: return arguments
+        return {'pattern': arguments.get('pattern'), 'paths': scope}
+
     def _call(self, name, arguments):
         if name == 'execute_python': return self._python(arguments['source'], [])
         if name == 'glob':
@@ -201,16 +215,9 @@ class OfficeAdapter(FileAdapter):
             offset = arguments['offset']
             data = {'text': text[offset:offset+12000], 'next_offset': offset+12000 if len(text)>offset+12000 else None}
         elif name == 'grep':
-            pattern, data = re.compile(arguments['pattern'], re.I), []
-            for path in sorted(self.corpus.rglob('*.txt')):
-                path = self._path(path.relative_to(self.corpus).as_posix())
-                offset = 0
-                for index, line in enumerate(path.read_text(encoding='utf-8').splitlines(keepends=True)):
-                    if pattern.search(line):
-                        data.append({'path': path.relative_to(self.corpus).as_posix(), 'line': index+1, 'offset': offset, 'text': line.rstrip('\n')[:1000]})
-                        if len(data) == 40: break
-                    offset += len(line)
-                if len(data) == 40: break
+            data, audit = grep(self.corpus, arguments['pattern'], arguments.get('paths', ALL_PATHS))
+            return {'accepted': True, 'observation': '', 'data': data, 'error': None, 'done': False,
+                    'scope_audit': {'raw_paths': arguments.get('paths'), 'scope_omitted': 'paths' not in arguments, **audit}}
         else:
             raise ValueError('Unknown corpus tool')
         return {'accepted': True, 'observation': '', 'data': data, 'error': None, 'done': False}

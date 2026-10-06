@@ -51,7 +51,10 @@ PLAN = object_schema({'mode': {'enum': ['select','compose']}, 'workflow_id': TEX
     'workflow': WORKFLOW}, ['mode'])
 FINISH = object_schema({'action': {'enum': ['finish']}, 'answer': {}, 'detail': TEXT}, ['action','answer'])
 
-PLANNER_PROMPT = """Choose a short executable workflow for the original task. Use the supplied Skills/Workflows as
+PLANNER_PROMPT = """Choose a short executable workflow for the original task. Prefer compatible usable Programs or
+short compositions of them. execution_summary reports actual bindings; many dynamic nodes do not imply a mature
+executable workflow. Do not replace a dynamic reference with an execution binding without explicitly selecting it.
+Use the supplied Skills/Workflows as
 experience, not proof. Omit useless exploration and express dependencies only as explicit task/from/literal/unresolved
 references. Preserve the user's quantities and identities. Do not invent asset IDs. execution_mode=dynamic has a
 result goal and optional reference_skill_ids, but no skill_id/program_id execution binding. Reference guidance never

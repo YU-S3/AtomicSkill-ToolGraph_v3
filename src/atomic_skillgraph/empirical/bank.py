@@ -143,6 +143,29 @@ class Bank:
     @staticmethod
     def words(text): return set(re.findall(r'\w+', text.casefold(), flags=re.UNICODE))
 
+    def planning_cards(self, query):
+        cards = []
+        for asset in self.retrieve(query):
+            if 'guidance' in asset or 'input_schema' in asset:
+                card = {k: asset[k] for k in ('id', 'goal', 'guidance', 'input_schema', 'output_schema',
+                        'execution_intent', 'result_role', 'entry_constraints') if k in asset}
+                card['usable_program_ids'] = [p['id'] for p in self.routes({'execution_mode': 'skill', 'skill_id': asset['id']})]
+            else:
+                card = {k: asset[k] for k in ('id', 'goal', 'nodes', 'outputs', 'interface_version') if k in asset}
+                summary = dict.fromkeys(('dynamic_nodes', 'bound_skill_nodes_with_usable_program',
+                    'bound_skill_nodes_without_usable_program', 'explicit_usable_program_nodes'), 0)
+                for node in asset['nodes']:
+                    mode = resolve_node_interface(node, self)['execution_mode']
+                    if mode == 'dynamic': key = 'dynamic_nodes'
+                    elif mode == 'skill': key = 'bound_skill_nodes_with_usable_program' if self.routes(node) else 'bound_skill_nodes_without_usable_program'
+                    else:
+                        if not self.routes(node): continue
+                        key = 'explicit_usable_program_nodes'
+                    summary[key] += 1
+                card['execution_summary'] = summary
+            cards.append(card)
+        return cards
+
     def program_options(self, query, *, node=None, allow_candidate=False, excluded=(), limit=8):
         interface = resolve_node_interface(node, self) if node else None
         authorized = {p['id'] for p in self.routes(node, allow_candidate=allow_candidate)} if node else set()

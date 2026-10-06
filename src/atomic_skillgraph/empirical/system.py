@@ -149,6 +149,10 @@ class EmpiricalSystem:
 
     def agent(self, stage, prompt, materials, name, schema, *, validator=None, repair_limit=0,
               completion_override=None, repair_reason=None, job_key=None, owner_state_version=None):
+        from .model_view import callable_tools
+        if self.checkpoint and self.task_context:
+            self.checkpoint.advance(self.checkpoint.state['stage'], model_context={k: getattr(self.task_context, k)
+                for k in ('scope', 'results', 'sources', 'memory')})
         provider = self.provider(stage)
         tools = [NativeToolSpec(name, "Submit the requested result", schema)] if name else []
         messages = [{"role": "system", "content": prompt},
@@ -275,7 +279,7 @@ class EmpiricalSystem:
                         self.task_context.bind(call.arguments.get('arguments', {}), call.arguments.get('argument_refs', {})) if self.task_context else None
                         actions.append(call.arguments)
                     if len(actions) > 1:
-                        specs = {t['name']: t for t in materials.get('tools', [])}
+                        specs = {t['name']: t for t in callable_tools(materials)}
                         if len(actions) > self.config['runtime']['read_batch_max_calls'] or any(
                             a['action'] != 'call_tool' or not specs.get(a.get('name'), {}).get('batchable') or
                             specs.get(a.get('name'), {}).get('effect') != 'read_only' for a in actions):
@@ -301,6 +305,8 @@ class EmpiricalSystem:
                     if not runtime_owned: commit('rejected', repair)
                     raise
                 commit('prepared', repair + 1)
+                if hasattr(exc, 'repair_material'):
+                    messages[1] = {'role': 'user', 'content': json.dumps(exc.repair_material, ensure_ascii=False)}
                 messages.extend(repair_messages(turn, exc))
                 messages.append({"role": "user", "content": "Repair only the invalid structure. Preserve the requested goal and valid content. "
                     "If you returned JSON as text, submit those same arguments through the requested ToolCall: " + str(exc)[:2048]})
@@ -334,6 +340,9 @@ class EmpiricalSystem:
             return trace
         self.adapter.reset(task)
         self.task_context = TaskContext(self.config['runtime'])
+        if self.checkpoint:
+            for key, value in self.checkpoint.state.get('model_context', {}).items():
+                setattr(self.task_context, key, value)
         broker = Broker(self.adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
             step_limit=self.config.get('runtime', {}).get('environment_step_budget'),
             journal=self.checkpoint.native_events if self.checkpoint else None,
@@ -356,7 +365,8 @@ class EmpiricalSystem:
         try:
             if self.adapter.capabilities.interaction == "single_answer":
                 # No extra planning solve, and no protocol repair/re-solving.
-                answer = self.agent("runtime", "Answer the question once using only the public input and any supplied guidance.",
+                answer = self.agent("runtime", "Answer the question once using only the public input and any supplied guidance. " +
+                    getattr(self.adapter, 'answer_contract', lambda: '')(),
                     {"goal": task.goal, "inputs": task.inputs, "guidance": [{k: a.get(k,'') for k in ('goal','guidance')}
                         for a in self.bank.retrieve(task.goal) if 'guidance' in a][:3],
                      'content_parts': getattr(self.adapter, 'content_parts', lambda: [])()}, None, None,

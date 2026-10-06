@@ -2,10 +2,11 @@
 
 PROFILE = "skillcompiler.empirical.v1"
 
-IMPLEMENTATION_REVISION = 'empirical-v3.1-CF3'
+IMPLEMENTATION_REVISION = 'empirical-v3.1-CF4'
 POLICY_DEFAULTS = {
     'experiment': {'implementation_revision': IMPLEMENTATION_REVISION},
     'runtime': {'read_batch_max_calls': 3, 'result_inline_max_chars': 2048,
+                'model_view_version': 'empirical.model-view.cf4',
                 'result_preview_max_items': 40, 'result_read_window_chars': 12000,
                 'plan_execution_policy': 'empirical.recoverable-takeover.v1', 'dynamic_escape_limit': 1},
     'learning': {'builder_truncation_recovery_max_completion_tokens': 65536},

@@ -40,6 +40,9 @@ class FormalLog:
             self.manifest = json.loads(self.manifest_path.read_text())
             if self.manifest['identity'] != identity or not resume:
                 raise ValueError('Formal run identity mismatch, or --resume required')
+            if self.manifest['config_hash'] != digest(config):
+                raise ValueError('Formal resolved config changed')
+            self.manifest.update(run_status='running', end_time=None)
             self.emit('errors', {'event_id': 'resume:' + utc(), 'timestamp': utc(), 'event_type': 'resume',
                                 'normalized_error': None, 'native_checkpoint_resume': True})
         else:
