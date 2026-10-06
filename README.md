@@ -1,10 +1,10 @@
-# SkillCompiler empirical v3.1-CF4
+# SkillCompiler empirical v3.1-CF4-R1
 
 唯一生产入口为 `skillcompiler.empirical.v1`。流程是普通 Skill 接口与指导 → Python Program → 固定真实 Train 试用 → usable 版本 → Workflow/动态执行 → 冻结库与独立评分。
 
 本轮范围是 Ours。其他方法复现和更多模型 API 接入不在本轮范围；现有 DeepSeek 配置维持 high reasoning，实际模型 ID 如实记录。小样本 pilot 与正式实验使用独立 Bank，pilot 没有问题，也不需要为了正式划分重新跑。
 
-本轮实施规范为 [CF4](docs/specs/SkillCompiler_CF4.md)，[CF3](docs/specs/SkillCompiler_CF3.md)作为历史规范存档，其规划修订、程序自动接管、普通参数交接和有界恢复继续保留。公共 split、scorer、模型能力锁、high 推理和原预算维持原值。
+本轮实施规范为 [CF4-R1](docs/specs/SkillCompiler_CF4_R1.md)。预算耗尽后的文本收尾原样交给现有评分器；Builder 只提交 submit_program，未来 Program 权限、ABI 与 candidate 使用同源材料；single_answer 学习 guidance_only Skill，由同一次 solver 请求消费。[CF4](docs/specs/SkillCompiler_CF4.md)和[CF3](docs/specs/SkillCompiler_CF3.md)的公共契约、程序自动接管与有界纠偏继续保留。公共 split、scorer、模型能力锁、high 推理和原预算维持原值。
 
 CF4 的公共包 `skillcompiler_bench_contracts` 只含 LiveMath 正常化、答案格式契约和 Office 授权范围 grep，可单独打包供其他方法接入。Benchmark 规则留在包、Adapter 与准备层。Planner 使用只读能力卡片；Runtime/Learner 使用同一模型视图模块。实际输入、合法调用集合、原始轨迹和计费记录保留。已有 usable 版本的 build/trial 请求先判为幂等跳过，试用绑定在现有一次 Extractor 修复内校验；没有增加修复、模型角色或放宽晋升。
 
@@ -12,7 +12,7 @@ CF4 的公共包 `skillcompiler_bench_contracts` 只含 LiveMath 正常化、答
 
 CF3 节点明确区分 `dynamic/skill/program`：参考 Skill 不授予自动路线或输出约束；执行绑定读取真实资产接口，参数 ready 的 usable Program 继续自动接管并连续交接。局部 `patch_node` 只改本题实例，显式与系统重规划共用一次额度，之后最多一次剩余任务 Dynamic。逻辑决策 checkpoint 区分未完成响应恢复与新决策，未知在途副作用仍停止。
 
-新配置记录 `empirical-v3.1-CF3`、`empirical.recoverable-takeover.v1` 和 checkpoint v2。使用独立输出目录；不得续写旧策略 checkpoint 或自行启动新的收费试验。新版学习与成本效果需要按用户授权另行测量。
+新配置记录 `empirical-v3.1-CF4-R1`，CF4 model view、`empirical.recoverable-takeover.v1` 和 checkpoint v2 保持。新正式运行从独立空 Bank 开始；旧实验、Bank 和 checkpoint 保留。工程验收不代表新训练已经测得质量或成本效果。
 
 [CF3 交付报告](reports/CF3_交付报告.md)与[逐项核验](reports/cf3_verification.json)记录 160 项通过的最终回归，以及原自然学出的 Heat／双对象程序在真实 ALFWorld 的只读执行层核验。fresh CF3 学习和费用效果尚未测量。
 
@@ -60,12 +60,21 @@ skillcompiler-prepare --authority data/main_experiment_v1 --resources /path/to/r
 skillcompiler-formal --config configs/main_experiment_v1.yaml --datasets /path/to/formal/prepared --corpus-root /path/to/treasury_bulletins_parsed/transformed --output /path/to/new/formal --env-file .env
 ```
 
-先启动一个正式组合（首次审查停在完整 Val 后）：
+本轮正式计划为现有 DeepSeek 的 SearchQA、LiveMath、OfficeQA、SpreadsheetBench 四个 seed42 组合：完整 Train → Frozen → 完整 Val → awaiting_test。ALFWorld 暂停收费实验，当前文本模型的 DocVQA 为 unsupported。总规范仍保留六基准和三个 seed；本轮使用单 cell 选择器。
+
+已设置 CODE、PYTHON、DATASETS、CORPUS_ROOT、ENV_FILE、OUTPUT_ROOT、EXPECTED_SHA 后，薄启动器默认只打印命令；显式 --execute 才并行启动。每个 cell 独立输出、Bank、checkpoint、锁和 TMPDIR；一项失败不重启其他项，现有输出根拒绝重复启动。
 
 ```bash
-skillcompiler-single-cell --config configs/main_experiment_v1.yaml --benchmark alfworld --seed 42 --datasets /home/yangchengyu/main_experiment_v1_resources_cf4_20261006_v1 --output /path/to/new/alfworld_seed42 --env-file /path/to/.env --stop-after-val
+bash "$CODE/scripts/run_non_alfworld_formal.sh"
+bash "$CODE/scripts/run_non_alfworld_formal.sh" --execute
+```
+
+单个组合及同版本 Test 恢复：
+
+```bash
+skillcompiler-single-cell --config configs/main_experiment_v1.yaml --benchmark searchqa --seed 42 --datasets /home/yangchengyu/main_experiment_v1_resources_cf4_20261006_v1 --output /path/to/new/searchqa_seed42 --env-file /path/to/.env --stop-after-val
 # 同 commit/config/材料，去掉暂停标记后只补 Test：
-skillcompiler-single-cell --config configs/main_experiment_v1.yaml --benchmark alfworld --seed 42 --datasets /home/yangchengyu/main_experiment_v1_resources_cf4_20261006_v1 --output /path/to/new/alfworld_seed42 --env-file /path/to/.env --resume
+skillcompiler-single-cell --config configs/main_experiment_v1.yaml --benchmark searchqa --seed 42 --datasets /home/yangchengyu/main_experiment_v1_resources_cf4_20261006_v1 --output /path/to/new/searchqa_seed42 --env-file /path/to/.env --resume
 ```
 
 其他 Benchmark 替换 `--benchmark`；OfficeQA 另传 `--corpus-root`。多条完整模型锁需显式 `--model-key`。暂停状态为 `awaiting_test`，冻结库前后校验，科学配置哈希不包含暂停标记。`skillcompiler-formal` 仍是完整矩阵入口；单组合参数只属于新入口。
