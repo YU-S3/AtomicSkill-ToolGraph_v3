@@ -1,5 +1,6 @@
 """CF4-R1 production paths, intercepted HTTP and locked Docker; no paid model calls."""
 from copy import deepcopy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 import yaml
 
 from atomic_skillgraph.empirical import IMPLEMENTATION_REVISION
+from atomic_skillgraph.agents.provider import AgentProviderError
 from atomic_skillgraph.empirical.bank import Bank
 from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
 from atomic_skillgraph.empirical.contracts import PublicTask, object_schema
@@ -30,12 +32,22 @@ from test_empirical import config_for, program, worker
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def evidence(value):
+    if not os.environ.get('CF4_R1_EVIDENCE_DIR'): return
+    root = Path(os.environ['CF4_R1_EVIDENCE_DIR']); root.mkdir(parents=True, exist_ok=True)
+    name = hashlib.sha256(os.environ['PYTEST_CURRENT_TEST'].encode()).hexdigest()[:16]
+    (root / (name + '.json')).write_text(json.dumps(value, ensure_ascii=False, indent=2))
+
+
 def finish_fixture(tmp_path, monkeypatch, final):
     sent = http(monkeypatch, [response([{'action': 'call_tool', 'name': 'read',
         'arguments': {'path': 'a.txt', 'offset': 0}}]), final])
     s = office(tmp_path)
     s.checkpoint = s.executor.checkpoint = TaskCheckpoint(tmp_path / 'checkpoint')
     s.audit_path = tmp_path / 'usage.json'
+    formal = FormalLog(tmp_path / 'formal', {'fixture': 'finish'}, s.config)
+    formal.begin_task(s.adapter.task, 0, 'finish-task', {})
+    s.observer = formal
     broker = Broker(s.adapter, 1, context=s.task_context, journal=s.checkpoint.native_events)
     return s, broker, sent
 
@@ -52,6 +64,10 @@ def test_r01_r03_finish_text_reaches_unchanged_scorer(tmp_path, monkeypatch, ans
     assert s.requests[-1]['purpose'] == 'finish_only' and s.requests[-1]['response']['finish_reason'] == finish
     assert sum(e.to_dict()['total_tokens'] for e in s.usage.events) == 10
     assert s.checkpoint.state['decisions'][s.last_decision_id]['status'] == 'applied'
+    calls = s.observer.rows('llm_calls')
+    assert len(calls) == 2 and calls[-1]['purpose'] == 'finish_only' and calls[-1]['raw_usage']['total_tokens'] == 5
+    assert calls[-1]['phase'] == 'train' and not calls[-1]['request_tools']
+    evidence({'http': sent, 'requests': s.requests, 'execution': result, 'decisions': s.checkpoint.state['decisions']})
     s.close()
 
 
@@ -68,6 +84,7 @@ def test_r02_rejected_finish_does_not_execute_or_repair(tmp_path, monkeypatch, f
     assert len(sent) == 2 and len(broker.events) == 1
     assert sum(e.to_dict()['total_tokens'] for e in s.usage.events) == 10
     assert s.checkpoint.state['decisions'][s.last_decision_id]['status'] == 'rejected'
+    evidence({'http': sent, 'requests': s.requests, 'execution': result, 'decisions': s.checkpoint.state['decisions']})
     s.close()
 
 
@@ -99,7 +116,21 @@ def test_r04_finish_checkpoint_recovers_same_decision_once(tmp_path, monkeypatch
     assert sum(e.to_dict()['total_tokens'] for e in s.usage.events) == 10
     decisions = checkpoint.state['decisions']
     assert len(decisions) == 2 and decisions[decision_id]['status'] == 'applied'
+    assert len(s.observer.rows('llm_calls')) == 2
     assert s.executor.run(s.adapter.task, s.adapter, broker, dynamic(s.adapter.task)) == result
+    s.close()
+
+
+def test_r21_finish_missing_usage_keeps_unknown_cost(tmp_path, monkeypatch):
+    final = response(content='private', finish='stop'); final.pop('usage')
+    s, broker, sent = finish_fixture(tmp_path, monkeypatch, final)
+    with pytest.raises(AgentProviderError):
+        s.executor.run(s.adapter.task, s.adapter, broker, dynamic(s.adapter.task))
+    calls = s.observer.rows('llm_calls')
+    assert len(sent) == 2 and len(broker.events) == 1 and len(calls) == 2
+    assert calls[-1]['purpose'] == 'finish_only' and calls[-1]['raw_usage'] is None
+    assert calls[-1]['prompt_tokens'] is None and calls[-1]['completion_tokens'] is None
+    assert sum(e.to_dict()['total_tokens'] for e in s.usage.events) == 5
     s.close()
 
 
@@ -127,11 +158,17 @@ def test_r07_same_permission_source_and_broker_denies_recursive_python(tmp_path)
     a.close()
 
 
-@pytest.mark.parametrize('first', ['wrong_read', 'wrong_grep', 'multiple', 'length'])
+@pytest.mark.parametrize('first', ['wrong_read', 'wrong_grep', 'multiple', 'length', 'binding', 'syntax', 'trial'])
 def test_r06_r08_builder_generations_have_one_submission_tool(tmp_path, monkeypatch, first):
     first_turn = response([{'path': 'a.txt', 'offset': 0}], name='read') if first == 'wrong_read' else (
         response([{'pattern': 'target'}], name='grep') if first == 'wrong_grep' else
         response([generated(), generated()], name='submit_program') if first == 'multiple' else response(finish='length'))
+    if first == 'binding':
+        wrong = generated(); wrong['trial_inputs'][0]['case_id'] = 'not-the-fixed-case'
+        first_turn = response([wrong], name='submit_program')
+    if first in {'syntax', 'trial'}:
+        first_turn = response([generated('def run(' if first == 'syntax' else
+            "def run(ctx, inputs):\n    raise ValueError('controlled trial failure')")], name='submit_program')
     sent = http(monkeypatch, [response([requested_proposal()], name='submit_learning'), first_turn,
                              response([generated()], name='submit_program')])
     s = office(tmp_path); trial_factory(s)
@@ -143,14 +180,63 @@ def test_r06_r08_builder_generations_have_one_submission_tool(tmp_path, monkeypa
         assert [t['function']['name'] for t in payload['tools']] == ['submit_program']
         materials.append(json.loads(payload['messages'][1]['content']))
     assert materials[0]['future_program_api'] == materials[1]['future_program_api']
-    p = s.bank.all('program')[0]
+    p = s.bank.get(job['program_id'])
     assert p['allowed_tools'] == materials[0]['future_program_api']['allowed_names']
     assert p['allowed_tools'] == ['glob', 'grep', 'read', 'read_result']
-    assert materials[1]['previous_failure']['domain'] == 'builder_generation'
+    assert materials[1]['previous_failure']['domain'] == ('program_trial' if first == 'trial' else 'builder_generation')
     assert materials[0]['examples'][0]['case_id'] == 'office-physical'
-    if first != 'length': assert 'builder_submission_tool_mismatch' in log['errors'][0]
+    if first in {'wrong_read', 'wrong_grep', 'multiple'}: assert 'builder_submission_tool_mismatch' in log['errors'][0]
     assert sent[-1]['max_tokens'] == (65536 if first == 'length' else 32768)
     assert sum(e.to_dict()['total_tokens'] for e in s.usage.events) == 15
+    evidence({'http': sent, 'requests': s.requests, 'learning': log, 'job': job, 'program': p})
+    s.close()
+
+
+@pytest.mark.parametrize('first_length', [False, True])
+def test_r08_recorded_office_wrong_calls_stop_after_original_recovery(tmp_path, monkeypatch, first_length):
+    recorded = json.loads((ROOT / 'tests/fixtures/cf4_r1_office_builder_responses.json').read_text())['records']
+    def envelope(record):
+        original = record['response']
+        value = response(content=original['content'], finish=original['finish_reason'])
+        value['choices'][0]['message']['tool_calls'] = [{'id': c['id'], 'type': 'function',
+            'function': {'name': c['name'], 'arguments': json.dumps(c['arguments'])}} for c in original['tool_calls']]
+        value['usage'] = original['usage']
+        return value
+    first = response(finish='length') if first_length else envelope(recorded[0])
+    sent = http(monkeypatch, [response([requested_proposal()], name='submit_learning'), first, envelope(recorded[1])])
+    s = office(tmp_path)
+    # No isolated adapter/worker is reached because neither response is a Program proposal.
+    s.adapter.call = lambda *a, **k: pytest.fail('Builder must not dispatch a recorded tool call')
+    log = s.learner.learn(s.adapter.task, learning_trace())
+    job = s.bank.jobs()[0]
+    assert len(sent) == 3 and job['generation_count'] == 2 and job['repair_used'] and job['state'] == 'deferred'
+    assert not s.bank.all('program') and not s.worker.invocations
+    assert 'builder_submission_tool_mismatch' in log['errors'][-1]
+    evidence({'provenance': recorded, 'http': sent, 'requests': s.requests, 'learning': log, 'job': job})
+    s.close()
+
+
+def test_r10_filtered_program_preserves_scoped_grep_and_read_result(tmp_path, worker):
+    s = office(tmp_path)
+    context = s.task_context
+    permissions = program_permission_view(s.adapter.tool_definitions(), s.adapter.available_tools(), [context.tool()])
+    result_id = context.register('acquired', {'data': 'α' * 3000})
+    source = """def run(ctx, inputs):
+    match = ctx.call('grep', {'pattern':'target', 'paths':['a.txt']})
+    value = ctx.read_result(inputs['result_id'], path=['data'])
+    return {'status':'ok','outputs':{'text': value['data']}}
+"""
+    asset = program(source, inputs=object_schema({'result_id': {'type': 'string'}}, ['result_id']),
+        outputs=object_schema({'text': {'type': 'string'}}, ['text']))
+    asset['allowed_tools'] = permissions['allowed_names']
+    broker = Broker(s.adapter, 3, context=context)
+    p = s.bank.put('program', asset)
+    result = worker.execute(p, {'result_id': result_id}, broker)
+    assert result['status'] == 'ok' and result['outputs']['text'] == 'α' * 3000
+    assert broker.events[0]['arguments']['paths'] == ['a.txt'] and broker.events[0]['backend_invoked']
+    assert broker.events[1]['local_result_read'] and not broker.events[1]['backend_invoked']
+    assert broker.remaining_calls() == 1 and result['calls'] == 2 and broker.environment_steps == 1
+    evidence({'permissions': permissions, 'program': p, 'events': broker.events, 'result': result})
     s.close()
 
 
@@ -246,6 +332,8 @@ def test_r11_r14_guidance_actual_learn_revision_freeze_inject_and_replay(tmp_pat
     payload = json.loads(val_sent[0]['messages'][1]['content'])
     assert payload['guidance'] == [{'skill_id': child['id'], 'goal': child['goal'], 'guidance': child['guidance']}]
     assert trace['injected_guidance_ids'] == [child['id']] and trace['knowledge_before'] == trace['knowledge_after']
+    evidence({'train_http': sent, 'revision_http': second_sent, 'frozen_http': val_sent,
+        'old_skill': old, 'child_skill': child, 'artifacts': events, 'learning_events': updates, 'val_trace': trace})
     assert len(val_sent) == 1 and trace['score']['hard']; val.close()
 
 
@@ -291,6 +379,32 @@ def test_r15_guidance_filter_before_top_k_and_frozen_query_pure(tmp_path):
     before = frozen.digest()
     assert frozen.retrieve_guidance('math question', limit=3) == [sk] and frozen.digest() == before
     frozen.close()
+
+
+def test_r13_guidance_branch_leaves_legacy_jobs_unexecuted(tmp_path, monkeypatch):
+    s = qa_system(tmp_path)
+    pending = {'id': 'legacy', 'skill_id': 'unavailable', 'state': 'ready', 'kind': 'build'}
+    s.bank.save_job(pending)
+    sent = transport(monkeypatch, [(None, '<answer>word</answer>'), ('submit_learning', {'decision': 'no_change'})])
+    trace = s.run_task(PublicTask('train', 'train-physical', 'math question'), learn=True)
+    assert len(sent) == 2 and s.bank.jobs() == [pending] and not s.worker.invocations
+    assert trace['learning']['decision'] == 'no_change'; s.close()
+
+
+@pytest.mark.parametrize('layout', ['previous_failure', 'legacy'])
+def test_r06_program_revision_artifact_parent_survives_material_layout(tmp_path, layout):
+    s = office(tmp_path)
+    formal = FormalLog(tmp_path / 'formal', {'fixture': layout}, s.config)
+    formal.begin_task(s.adapter.task, 0, 'first', {})
+    s.bank.observer = formal
+    old = s.bank.put('program', program("def run(ctx, inputs):\n    return {'status':'not_found','outputs':{}}"))
+    material = {'previous_failure': {'domain': 'program_trial', 'source': old['source']}} if layout == 'previous_failure' else {'source': old['source']}
+    formal.requests_seen.append({'messages': [{'role': 'system', 'content': 'Build'},
+        {'role': 'user', 'content': json.dumps(material)}]})
+    child = s.bank.put('program', program(old['source'] + '\n# repaired version'))
+    records = formal.rows('artifacts')
+    assert records[-1]['logical_asset_id'] == child['id'] and records[-1]['parent_artifact_id'] == records[0]['artifact_id']
+    s.close()
 
 
 def test_r22_scientific_configuration_identical_to_cf4():

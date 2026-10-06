@@ -1,0 +1,100 @@
+{
+  "scope": "Projection of original recorded Office Builder response; no original files modified",
+  "records": [
+    {
+      "source_file": "/home/yangchengyu/cf4_deepseek_smoke_20261006_W6vRx9/officeqa/train/requests/officeqa:UID0170_attempt1.json",
+      "source_sha256": "1be01525e2384c0b0a03ba6df37be1c07727a2cc90c82c32b6d241fc6e2fe10f",
+      "request_id": "40ef77fa07564291a2b4e2c311736ef5",
+      "response": {
+        "content": "I'll explore the corpus to design a robust parser before writing the program.",
+        "finish_reason": "tool_calls",
+        "tool_calls": [
+          {
+            "id": "call_00_jOncO5jYXkeTaHIOoJ0y2689",
+            "name": "grep",
+            "arguments": {
+              "pattern": "Summary of Public Marketable Securities",
+              "paths": [
+                "treasury_bulletin_1960_03.txt"
+              ]
+            }
+          },
+          {
+            "id": "call_01_WWmH57etBvPJ5L4dz8qV7532",
+            "name": "read",
+            "arguments": {
+              "path": "treasury_bulletin_1960_03.txt",
+              "offset": 252000
+            }
+          },
+          {
+            "id": "call_02_4hASVUlNTwxP6LqIQ86t2516",
+            "name": "read",
+            "arguments": {
+              "path": "treasury_bulletin_1960_03.txt",
+              "offset": 254500
+            }
+          },
+          {
+            "id": "call_03_sBD0CcVOujop6mlutEx47061",
+            "name": "read",
+            "arguments": {
+              "path": "treasury_bulletin_1960_03.txt",
+              "offset": 278800
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 23210,
+          "completion_tokens": 25176,
+          "total_tokens": 48386,
+          "reasoning_tokens": 24929
+        }
+      }
+    },
+    {
+      "source_file": "/home/yangchengyu/cf4_deepseek_smoke_20261006_W6vRx9/officeqa/train/requests/officeqa:UID0208_attempt1.json",
+      "source_sha256": "9af6f654421207f13c004614546118c26acd7733030f2f244c415298e8fd290d",
+      "request_id": "eb527c8cfea64d65afc878a2a5915503",
+      "response": {
+        "content": "I'll explore the corpus to understand the AY-1 table layout and locate the monthly series.",
+        "finish_reason": "tool_calls",
+        "tool_calls": [
+          {
+            "id": "call_00_1iqqNGM8tvrNQQr6DSn58770",
+            "name": "glob",
+            "arguments": {
+              "pattern": "treasury_bulletin_1973_*.txt"
+            }
+          },
+          {
+            "id": "call_01_INHgCnWQazTE1y3MB9Kl5885",
+            "name": "grep",
+            "arguments": {
+              "pattern": "Table AY-1",
+              "paths": [
+                "treasury_bulletin_1973_08.txt"
+              ]
+            }
+          },
+          {
+            "id": "call_02_GRZBr0qH2h3HFp9efope8280",
+            "name": "grep",
+            "arguments": {
+              "pattern": "Average Yields of Long-Term",
+              "paths": [
+                "treasury_bulletin_1973_08.txt"
+              ]
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 24868,
+          "completion_tokens": 4820,
+          "total_tokens": 29688,
+          "reasoning_tokens": 4633
+        }
+      }
+    }
+  ]
+}

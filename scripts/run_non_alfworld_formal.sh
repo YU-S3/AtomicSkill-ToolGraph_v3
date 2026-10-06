@@ -64,7 +64,7 @@ cd "$CODE"
 # These imports and checks have no model calls. Canonical hashes are rechecked by campaign.
 CODE="$CODE" MODEL_KEY="$MODEL_KEY" PYTHONPATH="$CODE/src" "$PYTHON" - <<'PY'
 from pathlib import Path
-import json, os
+import json, os, subprocess
 import yaml
 import atomic_skillgraph.empirical as empirical
 from atomic_skillgraph.experiments.run_formal import configured_models
@@ -74,6 +74,20 @@ if not actual.is_relative_to(expected):
     raise SystemExit('Import resolves outside the chosen checkout')
 if empirical.IMPLEMENTATION_REVISION != 'empirical-v3.1-CF4-R1':
     raise SystemExit('CF4-R1 production patch not installed; refusing paid launch')
+untracked = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z']).decode().split('\0')
+if any(Path(name).suffix in {'.py', '.pyw', '.so', '.pyd'} for name in untracked if name):
+    raise SystemExit('Untracked executable source in the chosen checkout; inspect before launch')
+for process in Path('/proc').iterdir():
+    if not process.name.isdigit(): continue
+    try:
+        arguments = (process / 'cmdline').read_bytes().decode().split('\0')
+        if (process / 'cwd').resolve() != expected.parent: continue
+    except (OSError, UnicodeError):
+        continue
+    if any(a == 'atomic_skillgraph.experiments.run_single_cell' or a.endswith('/run_single_cell.py')
+           or a.endswith('/skillcompiler-single-cell') for a in arguments):
+        if '--seed' in arguments and arguments[arguments.index('--seed') + 1] == '42':
+            raise SystemExit('A seed42 cell is already running from this checkout; inspect before launch')
 spec = yaml.safe_load(Path('configs/main_experiment_v1.yaml').read_text())
 models = configured_models(json.loads(Path(spec['model_lock']).read_text()))
 selected = [m for m in models if os.environ['MODEL_KEY'] in (m.get('model_id'), m.get('display_name'))]
