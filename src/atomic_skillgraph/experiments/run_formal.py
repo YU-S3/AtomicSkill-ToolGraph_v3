@@ -81,6 +81,8 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         'candidate_sampling': 'deterministic existing algorithm; no random sampler'}
     configurations = {split: resolved_config(base, profile, benchmark, seed, split, root, datasets, authority, corpus_root)
                       for split in ('train', 'val', 'test')}
+    if stop_after_val and (root / 'test/summary.json').exists():
+        raise ValueError('--stop-after-val cannot relabel an existing Test run')
     log = FormalLog(root, identity, configurations, resume=resume)
     summaries, offset = {}, 0
     try:
@@ -88,8 +90,6 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         if frozen_manifest.exists():
             if tree_identity(root / 'train/frozen_bank')['sha256'] != json.loads(frozen_manifest.read_text())['final_artifact_hash']:
                 raise RuntimeError('Frozen snapshot changed before resume')
-        if stop_after_val and (root / 'test/summary.json').exists():
-            raise ValueError('--stop-after-val cannot relabel an existing Test run')
         for split, settings in configurations.items():
             phase = root / split
             prior = phase / 'summary.json'

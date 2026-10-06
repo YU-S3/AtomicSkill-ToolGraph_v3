@@ -87,7 +87,7 @@ def test_t05_t06_t07_actual_solver_http_contract_and_resume(tmp_path, monkeypatc
     s.checkpoint = TaskCheckpoint(tmp_path / 'checkpoint')
     task = PublicTask('id', 'physical', 'Which word?', inputs, split='val')
     trace = s.run_task(task, learn=False)
-    assert trace['score']['hard'] and len(sent) == 1 and not sent[0]['tools']
+    assert trace['score']['hard'] and len(sent) == 1 and not sent[0].get('tools')
     content = json.dumps(sent[0]['messages'])
     assert '<answer>' in content and 'correct_choice' not in content
     if benchmark == 'livemath': assert all(json.dumps(c) in sent[0]['messages'][1]['content'] for c in item['choices'])
