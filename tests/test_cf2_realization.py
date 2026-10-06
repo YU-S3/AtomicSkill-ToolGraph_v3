@@ -58,9 +58,9 @@ def test_t26_current_guidance_and_program_goal_reach_http(tmp_path,monkeypatch,w
     plan={'nodes':[{'id':'current','execution_mode':'skill','skill_id':sk['id'],'args':{}}]}
     s.executor.run(s.adapter.task,s.adapter,Broker(s.adapter,24,context=s.task_context),plan)
     material=json.loads(seen[0]['messages'][1]['content'])
-    assert material['guidance'][0]['guidance']==sk['guidance']
-    assert material['programs'][0]['capabilities'][0]['goal']==sk['goal']
-    assert 'source' not in material['programs'][0] and 'def run' not in json.dumps(material)
+    assert material['memory']['guidance'][0]['guidance']==sk['guidance']
+    assert material['calls']['programs'][0]['capabilities'][0]['goal']==sk['goal']
+    assert 'source' not in material['calls']['programs'][0] and 'def run' not in json.dumps(material)
     s.close()
 
 
@@ -137,9 +137,10 @@ def test_t32_missing_light_binding_waits_without_builder(tmp_path,monkeypatch):
     sk=skill('find light',inputs=object_schema({'light_source':{'type':'string'}},['light_source']))
     proposal={'decision':'propose_skill_and_program_spec','skill':sk,'realization_request':{'skill_id':'$new','action':'build',
         'case_bindings':[{'case_id':'office-physical','inputs':{},'start_mode':'reset','prefix':[]}]}}
-    seen=http(monkeypatch,[response([proposal],name='submit_learning')])
+    deferred=deepcopy(proposal); deferred['realization_request'].update(action='defer',case_bindings=[])
+    seen=http(monkeypatch,[response([proposal],name='submit_learning'),response([deferred],name='submit_learning')])
     log=s.learner.learn(s.adapter.task,learning_trace())
-    assert len(seen)==1 and log['program'] is None and log['inapplicable']
+    assert len(seen)==2 and log['program'] is None and 'trial_binding_invalid' in json.dumps(seen[1]['messages'])
     assert s.bank.jobs()[0]['state']=='waiting_example'
     s.close()
 

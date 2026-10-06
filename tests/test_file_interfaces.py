@@ -33,8 +33,8 @@ def test_recorded_unknown_skill_name_uses_existing_repair_limit_without_partial_
     seen = http(monkeypatch, [response([current_node_protocol(p)], name='submit_learning') for p in RECORDED['office_proposals']])
     system = office(tmp_path)
     try:
-        with pytest.raises(ValueError):
-            system.learner.learn(system.adapter.task, learning_trace())
+        result = system.learner.learn(system.adapter.task, learning_trace())
+        assert result['decision'] == 'rejected' and result['errors']
         assert len(seen) == 2
         assert system.bank.all('skill') == system.bank.jobs() == []
         schema = seen[-1]['tools'][0]['function']['parameters']

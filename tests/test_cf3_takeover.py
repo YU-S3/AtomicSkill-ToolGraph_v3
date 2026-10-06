@@ -82,8 +82,8 @@ def test_t01_t07_reference_skill_does_not_take_over_or_impose_output(tmp_path, m
     assert result['prediction'] == 'private' and len(sent) == 2
     assert [a['program_id'] for a in result['attempts']] == [p['id']]
     material = json.loads(sent[1]['messages'][1]['content'])
-    assert material['required_handoff_fields'] == ['resource_id']
-    assert material['node_interface']['output_schema'] is None
+    assert material['handoff']['required_handoff_fields'] == ['resource_id']
+    assert material['node']['interface']['output_schema'] is None
     assert s.bank.routes(plan['nodes'][0]) == []
     s.close()
 
@@ -290,7 +290,7 @@ def test_t19_production_accepted_loop_and_new_document_windows(tmp_path,monkeypa
     if loop:
         assert result['reason']=='repeated_unchanged_failure'
         assert result['plan_revisions']==result['dynamic_escapes']==1 and len(broker.events)<=5
-        assert json.loads(sent[2]['messages'][1]['content'])['loop_feedback']
+        assert json.loads(sent[2]['messages'][1]['content'])['recovery']['loop_feedback']
     else:
         assert result['prediction']=='private' and result['plan_revisions']==result['dynamic_escapes']==0
         assert len(broker.events)==3

@@ -453,6 +453,6 @@ def test_t26_file_public_input_contract_is_preserved_at_http(tmp_path,monkeypatc
     seen=http(monkeypatch,[response([{'action':'finish','answer':'done'}])])
     s.executor.run(s.adapter.task,s.adapter,Broker(s.adapter,24,context=s.task_context),dynamic(s.adapter.task))
     material=json.loads(seen[0]['messages'][1]['content'])
-    assert material['public_state']['inputs']==s.adapter.task.inputs
-    assert material['original_task']=={'goal':'Original instruction','inputs':s.adapter.task.inputs}
+    assert {k: material['task'][k] for k in ('goal', 'inputs')}=={'goal':'Original instruction','inputs':s.adapter.task.inputs}
+    assert 'inputs' not in material['state']
     s.close()

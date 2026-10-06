@@ -46,7 +46,8 @@ class Planner:
                      'current_tools': adapter.available_tools(), 'public_state': public_view(adapter)}
         if feedback or completed_results:
             materials.update(feedback=feedback or [], completed_results=completed_results or {})
-        materials = project('planner', materials, task=task, adapter=adapter)
+        context = getattr(getattr(self.agent, '__self__', None), 'task_context', None)
+        materials = project('planner', materials, task=task, adapter=adapter, context=context)
         try:
             response = self.agent("planner", PLANNER_PROMPT, materials, "submit_plan", PLAN,
                               validator=instantiate, repair_limit=1,

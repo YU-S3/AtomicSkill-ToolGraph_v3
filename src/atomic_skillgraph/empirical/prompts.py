@@ -115,7 +115,11 @@ For file workspaces, use /workspace/... paths inside Python as needed, but retur
 relative publication names, e.g. write /workspace/result.xlsx and declare files=["result.xlsx"]. An output_path
 field can retain the program path; do not copy that absolute value into files. Absolute publication paths,
 inputs/... and '..' paths are rejected; do not bypass those checks."""
-RUNTIME_PROMPT = """Execute the current node toward the original user's task, keeping exact resource identities and
+RUNTIME_PROMPT = """Materials are grouped as task, node, bindings, handoff, state, calls, memory, recovery.
+node.interface is the real I/O contract. A task_field points to the single displayed task field. Result references
+contain result_id/path: use argument_refs/output_refs, or bounded read_result when the preview is insufficient;
+do not pass a reference object as an ordinary business value. Follow task.answer_contract when supplied.
+Execute the current node toward the original user's task, keeping exact resource identities and
 quantity constraints. Prefer an existing program when inputs are ready; otherwise use a public tool, call a preparation
 program, or supply missing values. Only call currently provided tools with their normal arguments. The materials state
 the allowed call count; batch only independent read_only/batchable tools. Otherwise return one runtime_step

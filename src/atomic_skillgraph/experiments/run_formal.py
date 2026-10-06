@@ -54,6 +54,8 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
     for name, expected in materialized['files_sha256'].items():
         if sha256(datasets / name) != expected:
             raise ValueError('Materialized resource changed: ' + name)
+    for name, expected in materialized.get('external_files_sha256', {}).items():
+        if sha256(name) != expected: raise ValueError('Public input file changed: ' + name)
     from skillcompiler_bench_contracts.livemath import NORMALIZATION_VERSION
     if materialized.get('livemath_normalization_version') != NORMALIZATION_VERSION:
         raise ValueError('CF4 requires new public materialization; old checkpoints cannot be resumed')
@@ -82,6 +84,12 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
     log = FormalLog(root, identity, configurations, resume=resume)
     summaries, offset = {}, 0
     try:
+        frozen_manifest = root / 'final_frozen_manifest.json'
+        if frozen_manifest.exists():
+            if tree_identity(root / 'train/frozen_bank')['sha256'] != json.loads(frozen_manifest.read_text())['final_artifact_hash']:
+                raise RuntimeError('Frozen snapshot changed before resume')
+        if stop_after_val and (root / 'test/summary.json').exists():
+            raise ValueError('--stop-after-val cannot relabel an existing Test run')
         for split, settings in configurations.items():
             phase = root / split
             prior = phase / 'summary.json'

@@ -154,7 +154,11 @@ class Bank:
                 card = {k: asset[k] for k in ('id', 'goal', 'nodes', 'outputs', 'interface_version') if k in asset}
                 summary = dict.fromkeys(('dynamic_nodes', 'bound_skill_nodes_with_usable_program',
                     'bound_skill_nodes_without_usable_program', 'explicit_usable_program_nodes'), 0)
+                ambiguous = []
                 for node in asset['nodes']:
+                    if not node.get('execution_mode') and node.get('skill_id') and not node.get('program_id'):
+                        ambiguous.append(node['id'])
+                        continue
                     mode = resolve_node_interface(node, self)['execution_mode']
                     if mode == 'dynamic': key = 'dynamic_nodes'
                     elif mode == 'skill': key = 'bound_skill_nodes_with_usable_program' if self.routes(node) else 'bound_skill_nodes_without_usable_program'
@@ -163,6 +167,7 @@ class Bank:
                         key = 'explicit_usable_program_nodes'
                     summary[key] += 1
                 card['execution_summary'] = summary
+                if ambiguous: card['requires_explicit_node_modes'] = ambiguous
             cards.append(card)
         return cards
 

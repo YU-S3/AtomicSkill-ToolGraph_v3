@@ -227,6 +227,7 @@ def materialize(authority, prepared_pool, output):
         raise ValueError('CF4 requires a freshly normalized LiveMath resource pool')
     integrity = json.loads((prepared_pool / 'livemath_integrity.json').read_text())
     integrity.update(split_counts={}, public_choices_sha256={}, evaluator_choices_sha256={})
+    external = {}
     for benchmark in BENCHMARKS:
         internal = ADAPTER_NAMES.get(benchmark, benchmark)
         records = {} if benchmark == 'alfworld' else json.loads((prepared_pool / internal / 'evaluator_records.json').read_text())
@@ -245,6 +246,9 @@ def materialize(authority, prepared_pool, output):
                 (authority / benchmark / (name + '.json')).read_text())['tasks']}
             if set(pool) != canonical_ids or set(records) != canonical_ids:
                 raise ValueError('Resource pool does not cover the canonical universe exactly')
+            for task_id, task in pool.items():
+                for filename in [*task['inputs'].get('images', []), *records[task_id].get('public_files', {}).values()]:
+                    external[str(Path(filename).resolve())] = sha256(filename)
             if benchmark == 'livemath':
                 for task_id, task in pool.items():
                     record = records[task_id]
@@ -277,6 +281,7 @@ def materialize(authority, prepared_pool, output):
     frozen_write(output / 'materialization.json', {'authority_sha256': sha256(authority / 'manifest.json'),
         'livemath_normalization_version': NORMALIZATION_VERSION, 'livemath_upstream_revision': UPSTREAM_REVISION,
         'integrity_sha256': sha256(output / 'livemath_integrity.json'),
+        'external_files_sha256': external,
         'files_sha256': {p.relative_to(output).as_posix(): sha256(p) for p in sorted(output.glob('*/*.json'))}})
 
 

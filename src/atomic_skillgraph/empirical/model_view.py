@@ -16,6 +16,10 @@ def project(stage, material, *, task=None, adapter=None, context=None):
     value = deepcopy(material)
     if 'original_task' in value and task is not None:
         value['original_task'] = model_task(task, adapter)
+        contract = getattr(adapter, 'answer_contract', lambda: '')()
+        if contract: value['original_task']['answer_contract'] = contract
+        if context and adapter.capabilities.interaction != 'single_answer':
+            value['original_task']['inputs'] = {k: context.preview(v) for k, v in value['original_task']['inputs'].items()}
     if stage == 'runtime' and 'node_interface' in value:
         public_task = value.pop('original_task')
         interface = value.pop('node_interface')
@@ -23,21 +27,31 @@ def project(stage, material, *, task=None, adapter=None, context=None):
         if interface.get('node_goal') == node_goal: interface.pop('node_goal')
         if node_goal == public_task['goal']: node_goal = {'task_field': 'goal'}
         inputs = value.pop('inputs')
-        if context and task:
+        if context and task and inputs:
             source = context.reference({'goal': task.goal, 'inputs': task.inputs}, 'task_inputs')
             inputs = {k: {**source, 'path': ['inputs', k]} if k in task.inputs and v == task.inputs[k]
                       else context.preview(v) for k, v in inputs.items()}
         state = value.pop('public_state')
-        if state.get('inputs') == public_task.get('inputs'): state.pop('inputs')
+        if task and state.get('inputs') == task.inputs: state.pop('inputs')
         memory = value.pop('working_memory')
         recent = value.pop('recent')
-        shown = {r['result_id'] for r in recent if 'result_id' in r}
-        for row in memory:
-            if row.get('result_id') in shown: row['result'] = {'result_id': row['result_id'], 'path': []}
+        completed = value.pop('completed_results')
+        if context:
+            for row in recent:
+                rid = row.get('result_id')
+                if not rid: continue
+                original = context.results[rid]
+                if original.get('observation') and original.get('observation') == state.get('observation'):
+                    row['observation'] = {'result_id': rid, 'path': ['observation']}
+                for fields in completed.values():
+                    for key, field in fields.items():
+                        if key in original.get('outputs', {}) and field == original['outputs'][key]:
+                            fields[key] = {'result_id': rid, 'path': ['outputs', key]}
+        # Memory stores query/scope/acceptance and the result ID; previews live in recent_results.
         return {'model_view_version': MODEL_VIEW_VERSION, 'task': public_task,
             'node': {'id': value.pop('node_id'), 'goal': node_goal, 'interface': interface},
             'bindings': {'inputs': inputs, 'missing': value.pop('missing'),
-                         'completed_results': value.pop('completed_results')},
+                         'completed_results': completed},
             'handoff': {k: value.pop(k) for k in ('required_handoff_fields', 'handoff_consumers', 'return_example', 'pending_outputs')},
             'state': state,
             'calls': {k: value.pop(k) for k in ('tools', 'programs', 'remaining_calls', 'allowed_calls')},

@@ -55,7 +55,7 @@ class TaskContext:
     def register(self, event_id, result, *, name='', arguments=None):
         if event_id in self.sources:
             return self.sources[event_id]
-        result_id = self.scope + ':' + str(len(self.results))
+        result_id = self.scope + ':' + str(sum(rid.removeprefix(self.scope + ':').isdigit() for rid in self.results))
         self.results[result_id] = result
         self.sources[event_id] = result_id
         if name:
@@ -87,7 +87,9 @@ class TaskContext:
         return {**values, **{key: self.resolve(ref) for key, ref in refs.items()}}
 
     def reference(self, value, source='model_value'):
-        result_id = self.register('model_source:' + digest([source, value]), value)
+        key = 'model_source:' + digest([source, value])
+        result_id = self.sources.get(key, self.scope + ':source:' + digest([source, value]))
+        self.sources[key], self.results[result_id] = result_id, value
         return {'result_id': result_id, 'path': []}
 
     def preview(self, value, ref=None):
