@@ -6,6 +6,13 @@ from .contracts import PublicTask
 MODEL_VIEW_VERSION = POLICY_DEFAULTS['runtime']['model_view_version']
 
 
+def contains_exact(value, wanted):
+    if value == wanted: return True
+    if isinstance(value, dict): return any(contains_exact(v, wanted) for v in value.values())
+    if isinstance(value, list): return any(contains_exact(v, wanted) for v in value)
+    return False
+
+
 def model_task(task, adapter):
     if getattr(adapter, 'task', None) is not None and hasattr(adapter, 'model_task'):
         return deepcopy(adapter.model_task(task))
@@ -33,9 +40,8 @@ def project(stage, material, *, task=None, adapter=None, context=None):
                       else context.preview(v) for k, v in inputs.items()}
         state = value.pop('public_state')
         if task and state.get('inputs') == task.inputs: state.pop('inputs')
-        initial = public_task.get('inputs', {}).get('environment_task', {})
-        if context and isinstance(initial, dict) and state.get('observation') and state['observation'] == initial.get('initial_observation'):
-            state['observation'] = context.reference(state['observation'], 'initial_observation')
+        if context and state.get('observation') and contains_exact(public_task, state['observation']):
+            state['observation'] = context.reference(state['observation'], 'observation_already_shown')
         memory = value.pop('working_memory')
         recent = value.pop('recent')
         completed = value.pop('completed_results')

@@ -71,6 +71,28 @@ def test_t04_all_177_materialized_same_ids_keys_orders():
         assert (old / 'livemath' / (split + '.json')).read_bytes() != (new / 'livemath' / (split + '.json')).read_bytes()
 
 
+def test_t05_actual_materialized_livemath_reaches_final_http(tmp_path, monkeypatch):
+    root = Path(os.environ['CF4_DATASETS'])
+    task = PublicTask(**json.loads((root / 'livemath/train.json').read_text())['tasks'][0])
+    records = json.loads((root / 'livemath/evaluator_records_train.json').read_text())
+    label = records[task.task_id]['correct_choice']['label']
+    sent = transport(monkeypatch, [(None, '<answer>' + label + '</answer>')])
+    s = EmpiricalSystem(config_for(tmp_path / 'bank'), harness=AnswerAdapter('livemath', records))
+    s.run_task(task, learn=False)
+    material = json.loads(sent[0]['messages'][1]['content'])
+    assert material['inputs']['choices'] == records[task.task_id]['choices']
+    assert not any(k in material for k in ('correct_choice', 'theorem', 'sketch'))
+    s.close()
+
+
+def test_t15_ours_scoped_grep_matches_public_package(tmp_path):
+    s = office(tmp_path)
+    pure, audit = grep(s.adapter.corpus, 'target', ['a.txt'])
+    actual = s.adapter.call('grep', {'pattern': 'target', 'paths': ['a.txt']})
+    assert actual['data'] == pure and actual['scope_audit']['execution_paths'] == audit['execution_paths']
+    s.close()
+
+
 @pytest.mark.parametrize('benchmark', ['livemath', 'searchqa', 'docvqa'])
 def test_t05_t06_t07_actual_solver_http_contract_and_resume(tmp_path, monkeypatch, benchmark):
     item = normalize_livemath_item(raw())
