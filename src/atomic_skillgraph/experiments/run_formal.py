@@ -16,6 +16,12 @@ from skillcompiler_bench_contracts import source_identity
 from ..empirical import IMPLEMENTATION_REVISION, POLICY_DEFAULTS
 
 
+def corpus_identity(root):
+    from skillcompiler_bench_contracts.office import select_paths
+    files = {name: sha256(path) for name, path in select_paths(root)}
+    return {'sha256': digest(files), 'files_sha256': files}
+
+
 def resolved_config(base, profile, benchmark, seed, split, root, datasets, authority, corpus_root):
     config = deepcopy(base)
     phase = root / split
@@ -79,10 +85,13 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         'generation_seed': seed if base['llm'].get('generation_seed_supported') else None,
         'initial_bank': 'empty independent Bank', 'local_rng_seed': seed,
         'candidate_sampling': 'deterministic existing algorithm; no random sampler'}
+    if benchmark == 'officeqa':
+        identity['corpus_sha256'] = corpus_identity(corpus_root)['sha256']
     configurations = {split: resolved_config(base, profile, benchmark, seed, split, root, datasets, authority, corpus_root)
                       for split in ('train', 'val', 'test')}
     for config in configurations.values():
         config['experiment'].update({key: identity[key] for key in ('benchmark_contracts_sha256', 'public_materialization_sha256')})
+        if 'corpus_sha256' in identity: config['experiment']['corpus_sha256'] = identity['corpus_sha256']
     if stop_after_val and (root / 'test/summary.json').exists():
         raise ValueError('--stop-after-val cannot relabel an existing Test run')
     log = FormalLog(root, identity, configurations, resume=resume)

@@ -89,6 +89,10 @@ def test_t37_version_and_public_material_change_cannot_resume_old(tmp_path):
     with pytest.raises(ValueError, match='new public materialization'):
         run_formal.campaign(base, profiles, 'searchqa', 42, tmp_path / 'cell',
             '/home/yangchengyu/main_experiment_v1_resources_20261004', ROOT / 'data/main_experiment_v1')
+    corpus = tmp_path / 'corpus'; corpus.mkdir(); file = corpus / 'text.txt'; file.write_text('original public corpus')
+    before = run_formal.corpus_identity(corpus)
+    file.write_text('changed public corpus')
+    assert run_formal.corpus_identity(corpus)['sha256'] != before['sha256']
 
 
 def test_t38_repository_and_installed_module_help_are_real_entrypoints():
