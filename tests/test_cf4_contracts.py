@@ -227,7 +227,7 @@ def seed_job(s, state='usable'):
 def test_t16_t17_t19_usable_third_case_skips_but_saves_workflow_and_resume(tmp_path, monkeypatch):
     s = office(tmp_path); sk, p, job = seed_job(s)
     proposal = {'decision': 'reuse_existing', 'existing_skill_id': sk['id'],
-        'realization_request': {'skill_id': sk['id'], 'action': 'trial', 'case_bindings': [binding('office-physical')]},
+        'realization_request': {'skill_id': sk['id'], 'action': 'trial', 'case_bindings': [binding('office-physical'), binding('unused-case'), binding('another-unused-case')]},
         'workflow': workflow([{'id': 'gap', 'execution_mode': 'dynamic', 'goal': 'find target', 'args': {}, 'reference_skill_ids': [sk['id']]}])}
     sent = transport(monkeypatch, [('submit_learning', proposal)])
     s.checkpoint = TaskCheckpoint(tmp_path / 'checkpoint')

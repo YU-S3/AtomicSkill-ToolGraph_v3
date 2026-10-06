@@ -49,6 +49,8 @@ class SimpleAlfWorld:
         inputs = {'goal_roles': environment.get('context', {}).get('goal_roles', {})}
         if self.task and task.goal == self.task.goal:
             inputs['initial_observation'] = self.initial_observation
+        elif 'initial_observation' in environment.get('context', {}):
+            inputs['initial_observation'] = environment['context']['initial_observation']
         return {'goal': task.goal, 'inputs': {'environment_task': inputs}}
 
     def inherit_discovery(self, source):

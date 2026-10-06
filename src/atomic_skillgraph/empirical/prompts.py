@@ -23,7 +23,7 @@ LEARNING = object_schema({"decision": {"enum": ["no_change", "reuse_existing", "
     "propose_or_revise_workflow"]}, "skill": SKILL, "generate_program": {"type": "boolean"},
     "existing_skill_id": TEXT, "workflow": WORKFLOW, "rationale": TEXT,
     'realization_request': object_schema({'skill_id': TEXT, 'action': {'enum': ['build','repair','trial','defer']},
-        'case_bindings': {'type': 'array', 'maxItems': 2, 'items': object_schema({'case_id': TEXT,
+        'case_bindings': {'type': 'array', 'items': object_schema({'case_id': TEXT,
             'inputs': ANY_OBJECT, 'start_mode': {'enum': ['reset','prefix_replay']},
             'prefix': {'type': 'array', 'items': object_schema({'name': TEXT, 'arguments': ANY_OBJECT}, ['name','arguments'])}},
             ['case_id','inputs','start_mode','prefix'])}}, ['skill_id','action','case_bindings'])}, ["decision"])

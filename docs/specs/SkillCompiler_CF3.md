@@ -1,5 +1,7 @@
 # SkillCompiler：可纠正规划与已验证能力接管——修改实施文档
 
+> 历史规范存档。当前补丁规范为 [CF4](SkillCompiler_CF4.md)。本文的可纠正规划、已验证 Program 自动接管、普通参数传递、一次完整重规划与一次动态逃逸均继续保留；旧实验、Bank 和计费记录不迁移、不回填。
+
 **版本：v3.1-CF3**  
 **日期：2026-10-05**  
 **修改基线：`YU-S3/AtomicSkill-ToolGraph_v3@2528f53b222dfbb79a54e37ad7514eb3f160fd59`**  

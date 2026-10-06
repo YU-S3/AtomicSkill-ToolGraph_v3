@@ -14,7 +14,7 @@ def contains_exact(value, wanted):
 
 
 def model_task(task, adapter):
-    if getattr(adapter, 'task', None) is not None and hasattr(adapter, 'model_task'):
+    if hasattr(adapter, 'model_task'):
         return deepcopy(adapter.model_task(task))
     return {'goal': task.goal, 'inputs': deepcopy(task.inputs)}
 
@@ -65,9 +65,9 @@ def project(stage, material, *, task=None, adapter=None, context=None):
             'node': {'id': value.pop('node_id'), 'goal': node_goal, 'interface': interface},
             'bindings': {'inputs': inputs, 'input_sources': sources, 'missing': value.pop('missing'),
                          'completed_results': completed},
-            'handoff': {k: value.pop(k) for k in ('required_handoff_fields', 'handoff_consumers', 'return_example', 'pending_outputs')},
+            'handoff': {k: value.pop(k) for k in ('required_handoff_fields', 'handoff_consumers', 'return_example', 'pending_outputs', 'output_aliases')},
             'state': state,
-            'calls': {k: value.pop(k) for k in ('tools', 'programs', 'remaining_calls', 'allowed_calls')},
+            'calls': {k: value.pop(k) for k in ('tools', 'programs', 'allowed_calls')},
             'memory': {'guidance': value.pop('guidance'), 'operations': memory, 'recent_results': recent},
             'recovery': value}
     if stage == 'extractor' and task is not None:

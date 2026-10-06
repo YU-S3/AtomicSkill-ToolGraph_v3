@@ -339,6 +339,7 @@ class Executor:
                 'required_handoff_fields': requirements['required_fields'], 'handoff_consumers': requirements['consumers'],
                 'return_example': {k: '<actual ordinary value>' for k in requirements['required_fields']},
                 'pending_outputs': context.preview(context.pending_outputs.get(node['id'], {})),
+                'output_aliases': node.get('output_aliases', {}),
                 'public_state': public_view(adapter), 'tools': broker.available_tools(),
                 'programs': self.bank.program_options(task.goal, node=node, allow_candidate=not self.frozen, excluded=blocked),
                 'guidance': [{'goal': s.get('goal'), 'guidance': s.get('guidance','')} for s in guidance if s],

@@ -81,6 +81,8 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         'candidate_sampling': 'deterministic existing algorithm; no random sampler'}
     configurations = {split: resolved_config(base, profile, benchmark, seed, split, root, datasets, authority, corpus_root)
                       for split in ('train', 'val', 'test')}
+    for config in configurations.values():
+        config['experiment'].update({key: identity[key] for key in ('benchmark_contracts_sha256', 'public_materialization_sha256')})
     if stop_after_val and (root / 'test/summary.json').exists():
         raise ValueError('--stop-after-val cannot relabel an existing Test run')
     log = FormalLog(root, identity, configurations, resume=resume)

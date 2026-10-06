@@ -91,6 +91,7 @@ class Learner:
             cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience'])
                      for r in self.system.bank.train_cases()}
         bindings, seen = request['case_bindings'], set()
+        if len(bindings) > 2: raise ValueError('A realization request has at most two applicable Train bindings')
         fixed = {b['case_id']: b for b in job['case_bindings']} if job else {}
         for index, binding in enumerate(bindings):
             try:
