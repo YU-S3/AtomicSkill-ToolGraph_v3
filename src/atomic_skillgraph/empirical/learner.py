@@ -3,9 +3,9 @@ from copy import deepcopy
 import json
 
 from .contracts import PublicTask, TrialCase, digest, validate_schema_instance
-from .prompts import BUILD, BUILDER_PROMPT, LEARNING, LEARNER_PROMPT
+from .prompts import BUILD, BUILDER_PROMPT, LEARNING, LEARNER_PROMPT, GUIDANCE_LEARNING, GUIDANCE_LEARNER_PROMPT
 from .task_context import TaskContext
-from .program_worker import public_program_abi
+from .program_worker import program_permission_view
 from .model_view import project, model_task
 
 
@@ -122,6 +122,8 @@ class Learner:
             self.cases.append((task, experience))
         for case_task, case in self.cases:
             bank.save_case(case_task, case)
+        if s.adapter.capabilities.interaction == 'single_answer':
+            return self._learn_guidance(task, experience)
         cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()}
         jobs = bank.jobs()
         related = []
@@ -213,6 +215,57 @@ class Learner:
             except ValueError as exc: log['errors'].append('Workflow rejected: ' + str(exc))
         return log
 
+    def validate_guidance(self, proposal):
+        validate_schema_instance(proposal, GUIDANCE_LEARNING)
+        decision, old_id = proposal['decision'], proposal.get('existing_skill_id')
+        old = None
+        if 'existing_skill_id' in proposal or decision == 'reuse_existing':
+            old = next((a for a in self.system.bank.all('skill') if a['id'] == old_id), None)
+            if not old or old.get('execution_intent') != 'guidance_only' or not isinstance(old.get('guidance'), str) or not old['guidance'].strip():
+                raise ValueError('existing_skill_id must identify a real nonempty guidance Skill')
+        if decision == 'no_change' and ('existing_skill_id' in proposal or 'guidance_skill' in proposal):
+            raise ValueError('no_change must not supply asset fields')
+        if decision == 'reuse_existing' and 'guidance_skill' in proposal:
+            raise ValueError('reuse_existing must not replace content')
+        if decision == 'upsert_guidance':
+            guidance = proposal.get('guidance_skill')
+            if not guidance or any(not guidance[k].strip() for k in ('goal', 'guidance')):
+                raise ValueError('upsert_guidance requires nonempty goal and guidance')
+        return old
+
+    def _learn_guidance(self, task, experience):
+        s, bank = self.system, self.system.bank
+        if s.checkpoint and 'guidance_learning_result' in s.checkpoint.state:
+            return s.checkpoint.state['guidance_learning_result']
+        related = bank.retrieve_guidance(task.goal, limit=8)
+        log = {'decision': None, 'program': None, 'tests': [], 'errors': [], 'persisted_skill_id': None,
+               'reused_skill_id': None, 'parent_skill_id': None, 'learning_rejected_reason': None,
+               'retrieved_guidance_ids': [a['id'] for a in related],
+               'injected_guidance_ids': [a['id'] for a in related]}
+        try:
+            proposal = self._receive('guidance_learning_proposal', 'extractor', GUIDANCE_LEARNER_PROMPT,
+                {'experience': self._view(experience), 'related_guidance': related}, 'submit_learning',
+                GUIDANCE_LEARNING, validator=self.validate_guidance, repair_limit=1)
+            old = self.validate_guidance(proposal)
+            log['decision'] = proposal['decision']
+            if proposal['decision'] == 'reuse_existing':
+                log['reused_skill_id'] = old['id']
+            elif proposal['decision'] == 'upsert_guidance':
+                guidance = proposal['guidance_skill']
+                if old and all(old.get(k) == guidance[k] for k in ('goal', 'guidance')):
+                    log['reused_skill_id'] = old['id']
+                else:
+                    asset = {**guidance, 'execution_intent': 'guidance_only', 'result_role': 'final_answer',
+                             'input_schema': {'type': 'object'}, 'output_schema': {'type': 'object'}}
+                    if old: asset['parent_skill_id'] = old['id']
+                    saved = bank.put('skill', asset)
+                    log.update(persisted_skill_id=saved['id'], parent_skill_id=saved.get('parent_skill_id'))
+        except ValueError as exc:
+            log.update(decision='rejected', rejected=True, errors=[str(exc)], learning_rejected_reason=str(exc))
+        if s.checkpoint:
+            s.checkpoint.advance(s.checkpoint.state['stage'], guidance_learning_result=log)
+        return log
+
     def _merge_request(self, job, request, skill, cases, experience, new_experience, log):
         bank = self.system.bank
         job['kind'] = request['action'] if request['action'] != 'defer' else job['kind']
@@ -257,12 +310,23 @@ class Learner:
             job['state'] = 'waiting_example'; bank.save_job(job); return
         for binding in bindings: self._preflight_binding(binding, skill, cases)
         log['test_subjects'] = [b['case_id'] for b in bindings]
-        examples = [{'case_id': b['case_id'], 'fixed_binding': b, **self._view(cases[b['case_id']][1])} for b in bindings]
-        abi = public_program_abi(tools, current_tools=s.adapter.available_tools(), tool_surface=s.adapter.capabilities.tool_surface)
-        material = {'skill': skill, 'tools': tools, 'examples': examples, 'public_program_abi': abi}
+        examples = [{'case_id': b['case_id'], 'fixed_binding': b, 'history_domain': 'runtime_agent_operations',
+                     **self._view(cases[b['case_id']][1])} for b in bindings]
+        permissions = program_permission_view(tools, [*s.adapter.available_tools(), TaskContext(s.config['runtime']).tool()],
+            tool_surface=s.adapter.capabilities.tool_surface, workspace=getattr(s.adapter, 'workspace', None),
+            environment=s.config['program_environment'])
+        def build_material(previous_failure=None):
+            value = {'build_request': {'skill': skill, 'entry': 'def run(ctx, inputs)', 'fixed_bindings': bindings},
+                     'submission_contract': {'tool_name': 'submit_program', 'input_schema': BUILD},
+                     'future_program_api': {k: v for k, v in permissions.items() if k != 'workspace_capabilities'},
+                     'workspace_capabilities': permissions['workspace_capabilities'], 'examples': examples}
+            if previous_failure is not None: value['previous_failure'] = previous_failure
+            return value
+        material = build_material()
         if job['kind'] == 'repair' and job.get('program_id'):
             previous = bank.get(job['program_id'])
-            material.update(source=previous['source'], errors=[r.get('result', {}) for r in bank.attempts(previous['id'])[-2:]])
+            material = build_material({'domain': 'program_trial', 'source': previous['source'],
+                'errors': [r.get('result', {}) for r in bank.attempts(previous['id'])[-2:]]})
         program = bank.get(job.get('program_id') or '') if job['kind'] == 'trial' else None
         while True:
             if program is None:
@@ -284,7 +348,7 @@ class Learner:
                         raise ValueError('Builder changed fixed trial inputs/start')
                     candidate = {'source': generated['source'], 'entry': 'run', 'backend': 'sandbox_python_v1',
                         'input_schema': skill['input_schema'], 'output_schema': skill['output_schema'],
-                        'allowed_tools': [t['name'] for t in tools if t['name'] != 'execute_python'],
+                        'allowed_tools': permissions['allowed_names'],
                         'environment': s.config['program_environment'], 'result_role': skill.get('result_role','intermediate'),
                         'entry_constraints': skill.get('entry_constraints','undeclared')}
                     program = bank.put('program', candidate)
@@ -300,8 +364,7 @@ class Learner:
                         job.update(state='deferred', last_error_kind=getattr(exc,'finish_reason',None) or 'structure'); break
                     job.update(repair_used=True, last_error_kind=getattr(exc,'finish_reason',None) or 'structure')
                     bank.save_job(job)
-                    material = {'skill': skill, 'tools': tools, 'examples': examples, 'error': str(exc)[:2048],
-                                'public_program_abi': abi}
+                    material = build_material({'domain': 'builder_generation', 'error': str(exc)[:2048]})
                     continue
             log['program'] = program['id']
             failures = []
@@ -317,8 +380,7 @@ class Learner:
             if failures and not job['repair_used']:
                 job.update(repair_used=True, last_error_kind='execution')
                 bank.save_job(job)
-                material = {'skill': skill, 'tools': tools, 'examples': examples, 'source': program['source'],
-                            'errors': [s for s in failures], 'public_program_abi': abi}
+                material = build_material({'domain': 'program_trial', 'source': program['source'], 'errors': failures})
                 program = None
                 continue
             actual = [a for a in bank.attempts(program['id']) if a['origin']=='train_test' and a['outcome']!='inapplicable']

@@ -7,7 +7,7 @@ import os
 from uuid import uuid4
 
 from ..agents.protocol import AgentTurn, NativeToolSpec, validate_schema_instance
-from ..agents.provider import OpenAICompatibleConfig, OpenAICompatibleProvider, ProviderAgentProtocolError
+from ..agents.provider import OpenAICompatibleConfig, OpenAICompatibleProvider, ProviderAgentProtocolError, ProviderProtocolError
 from ..agents.usage import UsageLedger
 from ..agents.session import repair_messages
 from ..core.errors import BudgetExhausted, FailureLayer
@@ -148,7 +148,8 @@ class EmpiricalSystem:
         return self.providers[stage]
 
     def agent(self, stage, prompt, materials, name, schema, *, validator=None, repair_limit=0,
-              completion_override=None, repair_reason=None, job_key=None, owner_state_version=None):
+              completion_override=None, repair_reason=None, job_key=None, owner_state_version=None,
+              decision_purpose=None):
         from .model_view import callable_tools
         if self.checkpoint and self.task_context:
             self.checkpoint.advance(self.checkpoint.state['stage'], model_context={k: getattr(self.task_context, k)
@@ -163,11 +164,11 @@ class EmpiricalSystem:
                 raise ValueError('Model capability lock does not support image input')
             messages[1]['content'] = [{'type': 'text', 'text': json.dumps(
                 {k: v for k, v in materials.items() if k != 'content_parts'}, ensure_ascii=False)}, *content_parts]
-        purpose = 'finish_only' if name == 'finish_answer' else {'tool_builder': 'builder'}.get(stage, stage)
+        purpose = decision_purpose or ('finish_only' if name == 'finish_answer' else {'tool_builder': 'builder'}.get(stage, stage))
         scope = json.dumps([str(self.checkpoint.root) if self.checkpoint else '', self.budget_scope, job_key])
         decision_id = self.checkpoint.prepare_decision(scope, purpose, owner_state_version) if self.checkpoint else uuid4().hex
         self.last_decision_id = decision_id
-        runtime_owned = name == 'runtime_step' and owner_state_version is not None
+        runtime_owned = (name == 'runtime_step' or purpose == 'finish_only') and owner_state_version is not None
         def commit(status, repair):
             if self.checkpoint:
                 self.checkpoint.commit_decision(decision_id, status, repair_index=repair)
@@ -182,7 +183,7 @@ class EmpiricalSystem:
             turn = None
             completion_cap = completion_override or self.config['llm'].get(stage, {}).get('max_completion_tokens', 32768)
             if stage == 'tool_builder': completion_cap = min(completion_cap, cap-used)
-            response_key = digest({'scope': scope, 'logical_decision_id': decision_id, 'repair_index': repair,
+            response_key = digest({'scope': scope, 'purpose': purpose, 'logical_decision_id': decision_id, 'repair_index': repair,
                                    'stage': stage, 'phase': self.phase, 'budget_scope': self.budget_scope,
                                    'messages': messages, 'tools': [t.to_openai() for t in tools],
                                    'completion_cap': completion_cap, 'repair_reason': repair_reason, 'job_key': job_key,
@@ -222,6 +223,8 @@ class EmpiricalSystem:
                             'http_attempts': list(records(provider_offset)) if records else []})
                 commit('response_received', repair)
             except Exception as exc:
+                invalid_finish_text = (purpose == 'finish_only' and isinstance(exc, ProviderProtocolError)
+                                       and 'assistant content must be a string or null' in str(exc))
                 turn = getattr(exc, "usage_turn", None)
                 if turn is not None:
                     turn.provider_metadata['phase'] = self.phase
@@ -235,16 +238,17 @@ class EmpiricalSystem:
                     if self.checkpoint:
                         records = getattr(provider, 'request_records_since', None)
                         self.checkpoint.save_response(response_key, {'turn': asdict(turn), 'request_id': request_id,
-                            'protocol_error': str(exc) if isinstance(exc, ProviderAgentProtocolError) else None,
+                            'protocol_error': 'finish_only_invalid_text' if invalid_finish_text else
+                                str(exc) if isinstance(exc, ProviderAgentProtocolError) else None,
                             'http_attempts': recovered.get('http_attempts', []) if recovered else list(records(provider_offset)) if records else []})
                 record["error"] = str(exc)
                 self._save_requests()
-                if isinstance(exc, ProviderAgentProtocolError):
+                if isinstance(exc, ProviderAgentProtocolError) or invalid_finish_text:
                     if repair < repair_limit and turn.finish_reason != 'length':
                         commit('prepared', repair + 1)
                         messages.append({'role': 'user', 'content': 'Repair only the invalid ToolCall JSON: ' + str(exc)[:2048]})
                         continue
-                    failure = ValueError(str(exc))
+                    failure = ValueError('finish_only_invalid_text' if invalid_finish_text else str(exc))
                     failure.model_authored = True
                     failure.finish_reason = turn.finish_reason
                     failure.logical_decision_id = decision_id
@@ -270,6 +274,13 @@ class EmpiricalSystem:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Metered turn exceeded role budget', layer=FailureLayer.RUNTIME_AGENT)
             try:
                 if not name:
+                    if purpose == 'finish_only':
+                        if turn.tool_calls:
+                            raise ValueError('finish_only_unexpected_tool_call')
+                        if not isinstance(turn.content, str):
+                            raise ValueError('finish_only_invalid_text')
+                        if not turn.content.strip():
+                            raise ValueError('finish_only_empty_answer')
                     return accepted(turn.content, repair)
                 if name == 'runtime_step' and turn.tool_calls:
                     actions = []
@@ -291,6 +302,9 @@ class EmpiricalSystem:
                         if validator: validator(action)
                     return accepted(RuntimeDecision(tuple(actions), tuple(c.call_id for c in turn.tool_calls), request_id), repair)
                 if len(turn.tool_calls) != 1 or turn.tool_calls[0].name != name:
+                    if name == 'submit_program':
+                        raise ValueError('builder_submission_tool_mismatch: expected=[submit_program], received=' +
+                                         json.dumps([call.name for call in turn.tool_calls]))
                     raise ValueError("Expected one " + name + " ToolCall")
                 value = turn.tool_calls[0].arguments
                 validate_schema_instance(value, schema)
@@ -365,10 +379,13 @@ class EmpiricalSystem:
         try:
             if self.adapter.capabilities.interaction == "single_answer":
                 # No extra planning solve, and no protocol repair/re-solving.
+                guidance = self.bank.retrieve_guidance(task.goal, limit=3)
+                trace['retrieved_guidance_ids'] = [a['id'] for a in guidance]
+                trace['injected_guidance_ids'] = list(trace['retrieved_guidance_ids'])
                 answer = self.agent("runtime", "Answer the question once using only the public input and any supplied guidance. " +
                     getattr(self.adapter, 'answer_contract', lambda: '')(),
-                    {"goal": task.goal, "inputs": task.inputs, "guidance": [{k: a.get(k,'') for k in ('goal','guidance')}
-                        for a in self.bank.retrieve(task.goal) if 'guidance' in a][:3],
+                    {"goal": task.goal, "inputs": task.inputs, "guidance": [
+                        {'skill_id': a['id'], 'goal': a['goal'], 'guidance': a['guidance']} for a in guidance],
                      'content_parts': getattr(self.adapter, 'content_parts', lambda: [])()}, None, None,
                     owner_state_version='single_solver')
                 execution = {"prediction": answer, "reason": "single_answer", "attempts": []}

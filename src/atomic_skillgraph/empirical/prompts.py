@@ -49,7 +49,22 @@ PLAN = object_schema({'mode': {'enum': ['select','compose']}, 'workflow_id': TEX
     'node_args': {'type': 'object', 'additionalProperties': {'type': 'object', 'additionalProperties': REF}},
     'node_modes': {'type': 'object', 'additionalProperties': {'enum': ['dynamic', 'skill']}},
     'workflow': WORKFLOW}, ['mode'])
-FINISH = object_schema({'action': {'enum': ['finish']}, 'answer': {}, 'detail': TEXT}, ['action','answer'])
+def finish_text_prompt(contract):
+    return ('Return only the final answer as nonempty plain text, using information already acquired. '
+            'Do not call tools, execute programs, read more results or replan. ' + contract)
+
+
+GUIDANCE_LEARNING = object_schema({
+    'decision': {'enum': ['no_change', 'reuse_existing', 'upsert_guidance']},
+    'existing_skill_id': TEXT,
+    'guidance_skill': object_schema({'goal': TEXT, 'guidance': TEXT}, ['goal', 'guidance']),
+    'rationale': TEXT}, ['decision'])
+GUIDANCE_LEARNER_PROMPT = """Learn concise reusable guidance from this completed public Train experience.
+Use no_change if no useful general guidance was learned; reuse_existing only with a real supplied guidance Skill ID.
+For new or revised guidance, submit upsert_guidance with guidance_skill containing nonempty goal and guidance;
+an optional existing_skill_id identifies the real parent to revise. Do not invent IDs, workflows, Programs, jobs,
+trial cases, private gold answers or per-question answer lookup tables. Preserve the task's original scope.
+Only one submit_learning ToolCall is permitted; this request does not solve the task again."""
 
 PLANNER_PROMPT = """Choose a short executable workflow for the original task. Prefer compatible usable Programs or
 short compositions of them. execution_summary reports actual bindings; many dynamic nodes do not imply a mature
@@ -92,8 +107,13 @@ one related pending job and 0-2 actually applicable completed Train case_ids, fi
 prefix start. Required fields and needed public tools must exist in that case; do not select unrelated examples
 to fill two slots. If none applies, defer. Preserve requested scope and use result references for large resources.
 Return one submit_learning ToolCall."""
-BUILDER_PROMPT = """Generate a reusable restricted Python program: def run(ctx, inputs) -> dict. Use normal variables,
-branches and loops. Follow public_program_abi: exact_catalog ToolView supplies a list of complete current_arguments
+BUILDER_PROMPT = """Your current response must be exactly one submit_program ToolCall with the supplied submission_contract.
+Do not directly call grep, read, glob or execute_python during generation, including recovery.
+build_request declares the Skill and fixed bindings; future_program_api describes the generated Program's future RPC
+permissions, not tools for your current response. workspace_capabilities describes authorized local Python execution.
+Historical example calls describe Runtime Agent actions, not additional Program permissions.
+Generate a reusable restricted Python program: def run(ctx, inputs) -> dict. Use normal variables,
+branches and loops. Follow future_program_api.public_program_abi: exact_catalog ToolView supplies a list of complete current_arguments
 dictionaries; named_tools supplies input_schema without exhaustive arguments. Do not discard tools because top-level
 arguments/current_arguments is absent. Return the explicit status/outputs envelope, not a bare task output object.
 ctx.observe(), ctx.available_tools(), ctx.call(name, arguments), ctx.remaining_calls(), ctx.read_result() are the only
@@ -110,7 +130,9 @@ Support the declared entry_constraints: for mid-episode preparation, first inspe
 currently legal arguments instead of always restarting search. Preserve fixed trial bindings exactly.
 Prefer start_mode reset and prefix []; intermediate-state skills require the exact real public action prefix
 from that case's recorded experience. Implement the supplied Skill's local goal; do not expand it to solve the
-complete example task or add unrelated required targets. Only use the tool names supplied to you.
+complete example task or add unrelated required targets. Future RPC calls must use future_program_api.allowed_names.
+For a durable run(ctx, inputs), INPUT_PATH and OUTPUT_PATH globals are not supplied; use inputs or the authorized
+workspace. Those globals belong only to an independent solution.py replay contract, when explicitly requested.
 For file workspaces, use /workspace/... paths inside Python as needed, but return outputs.files/deleted_files as
 relative publication names, e.g. write /workspace/result.xlsx and declare files=["result.xlsx"]. An output_path
 field can retain the program path; do not copy that absolute value into files. Absolute publication paths,

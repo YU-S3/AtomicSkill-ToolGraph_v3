@@ -166,8 +166,8 @@ def test_t33_new_case_fills_unused_trial_slot_and_duplicates_do_not(tmp_path,mon
 
 
 def test_t34_qa_guidance_only_uses_one_normal_solver(tmp_path,monkeypatch):
-    seen=http(monkeypatch,[response(content='public answer',finish='stop'),response([{'decision':'propose_or_revise_workflow',
-        'skill':skill('QA guidance',execution_intent='guidance_only')}],name='submit_learning')])
+    seen=http(monkeypatch,[response(content='public answer',finish='stop'),response([{'decision':'upsert_guidance',
+        'guidance_skill':{'goal':'QA guidance', 'guidance':'Use public context.'}}],name='submit_learning')])
     config=config_for(tmp_path/'bank'); a=AnswerAdapter('searchqa',{'qa':{'answers':['public answer']}})
     s=EmpiricalSystem(config,harness=a)
     trace=s.run_task(PublicTask('qa','qa-physical','public question',{'context':'original public context'*1000,'options':['first','second']}))
@@ -189,7 +189,7 @@ def test_t35_both_length_paths_share_one_65536_recovery(tmp_path,monkeypatch,mal
     s=office(tmp_path); trial_factory(s)
     s.learner.learn(s.adapter.task,learning_trace())
     assert [p['max_tokens'] for p in seen[1:]]==[32768,65536]
-    abi=[json.loads(p['messages'][1]['content'])['public_program_abi'] for p in seen[1:]]
+    abi=[json.loads(p['messages'][1]['content'])['future_program_api']['public_program_abi'] for p in seen[1:]]
     assert abi[0]==abi[1] and abi[0]['current_tool_surface']=='named_tools'
     assert abi[0]['methods']['call']=='(name, arguments)' and abi[0]['program_result_schema']['required']==['status','outputs']
     job=s.bank.jobs()[0]
@@ -325,12 +325,12 @@ def test_t34_guidance_only_cannot_be_built_by_conflicting_trial_request(tmp_path
     asset=skill('QA guidance',execution_intent='guidance_only') if explicit_intent else skill('QA guidance')
     proposal={'decision':'propose_skill_and_program_spec','skill':asset,'generate_program':False,
               'realization_request':{'skill_id':'$new','action':'trial','case_bindings':[]}}
-    seen=http(monkeypatch,[response([proposal],name='submit_learning')])
+    seen=http(monkeypatch,[response([proposal],name='submit_learning')] * 2)
     a=AnswerAdapter('searchqa',{'qa':{'answers':['answer']}}); a.reset(PublicTask('qa','qa-physical','question'))
     s=EmpiricalSystem(config_for(tmp_path/'bank'),harness=a)
     log=s.learner.learn(a.task,learning_trace())
-    assert len(seen)==1 and not s.bank.jobs() and log['program'] is None
-    assert s.bank.all('skill')[0]['execution_intent']=='guidance_only'
+    assert len(seen)==2 and not s.bank.jobs() and log['program'] is None
+    assert log['decision']=='rejected' and s.bank.all('skill')==[]
     s.close()
 
 

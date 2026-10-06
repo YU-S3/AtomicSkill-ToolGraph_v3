@@ -6,7 +6,7 @@ import json
 from .contracts import (ResultRef, RuntimeDecision, ValueStore, digest, validate_schema_instance,
                         resolve_node_interface, handoff_requirements, output_view, HandoffError)
 from .planner import dynamic
-from .prompts import FINISH, PATCH, RUNTIME_PROMPT, STEP
+from .prompts import finish_text_prompt, PATCH, RUNTIME_PROMPT, STEP
 from .task_context import progress_key, public_view
 from ..harness.simple_protocol import UnknownSideEffect
 from .model_view import project
@@ -42,6 +42,7 @@ class Executor:
             producers, input_reads, replaced_inputs = saved['producers'], saved['input_reads'], saved['replaced_inputs']
             supplied_by = {(n, k): v for n, k, v in saved['supplied_by']}
             final, last_output, last_role = saved['final'], saved['last_output'], saved['last_role']
+            reason = saved.get('reason', reason)
             for key, value in saved['context'].items():
                 setattr(context, key, set(value) if key in {'progress_contents', 'progress_states'} else value)
             pending_step, pending_decision_id = saved['pending_step'], saved['pending_decision_id']
@@ -67,7 +68,7 @@ class Executor:
                 'abandoned': sorted(abandoned), 'blocked': sorted(blocked), 'attempted': sorted(attempted),
                 'consumed': sorted(consumed), 'producers': producers, 'input_reads': input_reads,
                 'replaced_inputs': replaced_inputs, 'supplied_by': [[n,k,v] for (n,k),v in supplied_by.items()],
-                'final': final, 'last_output': last_output, 'last_role': last_role, 'pending_step': encoded,
+                'final': final, 'reason': reason, 'last_output': last_output, 'last_role': last_role, 'pending_step': encoded,
                 'pending_decision_id': None if status else pending_decision_id, 'owner_version': owner_version,
                 'recovery_needed': recovery_needed,
                 'context': {k: sorted(getattr(context,k)) if k in {'progress_contents','progress_states'} else getattr(context,k)
@@ -251,6 +252,8 @@ class Executor:
 
         for _ in range(max(16, broker.call_limit * 4 + 16)):
             save(pending_step)
+            if reason.startswith('finish_only'):
+                break
             if broker.done:
                 reason = 'environment_terminal'; break
             if recovery_needed:
@@ -312,18 +315,20 @@ class Executor:
                         final = last_output['answer']
                     else:
                         try:
-                            step = self.agent('runtime', 'Submit the final answer using only acquired information. No tools, programs or replanning. ' +
-                                getattr(adapter, 'answer_contract', lambda: '')(),
+                            answer = self.agent('runtime', finish_text_prompt(getattr(adapter, 'answer_contract', lambda: '')()),
                                 {'original_goal': task.goal, 'public_state': public_view(adapter), 'working_memory': context.model_memory(),
-                                 'recent': recent(), 'completed_results': values.model_view()}, 'finish_answer', FINISH,
-                                repair_limit=0, owner_state_version=owner_version)
+                                 'recent': recent(), 'completed_results': values.model_view()}, None, None,
+                                repair_limit=0, owner_state_version=owner_version, decision_purpose='finish_only')
                             candidate_id = getattr(getattr(self.agent, '__self__', None), 'last_decision_id', None)
                             pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
-                            final, reason = step['answer'], 'finish_only'
+                            final, reason = answer, 'finish_only'
                             save(status='applied')
                         except ValueError as exc:
+                            candidate_id = getattr(exc, 'logical_decision_id', None)
+                            pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
                             history.append({'error': str(exc)})
-                            reason = 'finish_only_protocol_error'
+                            final, reason = '', str(exc) if str(exc).startswith('finish_only_') else 'finish_only_protocol_error'
+                            save(status='rejected')
                 elif submission_kind == 'files': final = {}
                 break
             references = interface['reference_skill_ids']

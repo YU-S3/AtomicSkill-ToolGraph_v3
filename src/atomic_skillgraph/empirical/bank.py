@@ -143,6 +143,14 @@ class Bank:
     @staticmethod
     def words(text): return set(re.findall(r'\w+', text.casefold(), flags=re.UNICODE))
 
+    def retrieve_guidance(self, query, limit=8):
+        assets = [a for a in self.all('skill') if a.get('execution_intent') == 'guidance_only'
+                  and isinstance(a.get('guidance'), str) and a['guidance'].strip()]
+        superseded = {a['parent_skill_id'] for a in assets if a.get('parent_skill_id')}
+        words = self.words(query)
+        return sorted((a for a in assets if a['id'] not in superseded), key=lambda a: (
+            -len(words & self.words(a.get('goal', '') + ' ' + a['guidance'])), a['id']))[:limit]
+
     def planning_cards(self, query):
         cards = []
         for asset in self.retrieve(query):

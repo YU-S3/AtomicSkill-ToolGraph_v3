@@ -245,11 +245,11 @@ def test_t14_intermediate_dictionary_is_not_an_answer(tmp_path):
 
 def test_t15_last_read_gets_one_finish_only_without_more_retrieval(tmp_path,monkeypatch):
     seen=http(monkeypatch,[response([{'action':'call_tool','name':'read','arguments':{'path':'a.txt','offset':0}}]),
-                           response([{'action':'finish','answer':'target'}],name='finish_answer')])
+                           response(content='target', finish='stop')])
     s=office(tmp_path); broker=Broker(s.adapter,1,context=s.task_context)
     result=s.executor.run(s.adapter.task,s.adapter,broker,dynamic(s.adapter.task))
     assert len(broker.events)==1 and result['prediction']=='target' and len(seen)==2
-    assert seen[-1]['tools'][0]['function']['parameters']['properties']['action']['enum']==['finish']
+    assert not seen[-1].get('tools') and 'tool_choice' not in seen[-1]
     assert len(s.requests)==2 and all(r['repair']==0 for r in s.requests)
     s.close()
 
@@ -369,7 +369,7 @@ def test_t25_result_read_is_local_counted_and_untruncated(tmp_path):
 @pytest.mark.parametrize('failure',['budget','infrastructure'])
 def test_t22_batch_remaining_calls_are_explicitly_not_executed(tmp_path,monkeypatch,failure):
     actions=[{'action':'call_tool','name':'read','arguments':{'path':'a.txt','offset':i}} for i in [0,6,8]]
-    seen=http(monkeypatch,[response(actions),response([{'action':'finish','answer':'done'}],name='finish_answer')])
+    seen=http(monkeypatch,[response(actions),response(content='done', finish='stop')])
     s=office(tmp_path); checkpoint=TaskCheckpoint(tmp_path/'checkpoint'); s.executor.checkpoint=checkpoint
     broker=Broker(s.adapter,1 if failure=='budget' else 24,context=s.task_context,journal=checkpoint.native_events)
     if failure=='infrastructure':

@@ -29,9 +29,33 @@ class Context:
         return self._rpc('read_result', **values)
 
 
+def program_permission_view(definitions, current, context_tools=(), *, tool_surface=None, workspace=False, environment=None):
+    from copy import deepcopy
+    from ..harness.simple_protocol import PROGRAM_FORBIDDEN_TOOLS
+    catalog = {t['name']: deepcopy(t) for t in [*definitions, *context_tools]
+               if t['name'] not in PROGRAM_FORBIDDEN_TOOLS}
+    names = sorted(catalog)
+    ready = [deepcopy(t) for t in current if t['name'] in catalog][:2]
+    return {'allowed_names': names, 'runtime_tool_definitions': [catalog[n] for n in names],
+            'current_runtime_tools': ready,
+            'public_program_abi': public_program_abi([catalog[n] for n in names],
+                current_tools=ready, tool_surface=tool_surface),
+            'workspace_capabilities': {'available': bool(workspace),
+                'root': '/workspace' if workspace else None,
+                'readonly_inputs': '/workspace/inputs' if workspace else None,
+                'environment': {k: v for k, v in (environment or {}).items()
+                                if k in {'python', 'dependencies', 'image_digest', 'adapter_abi'}},
+                'publication': 'files/deleted_files are relative names under /workspace, excluding inputs and ..',
+                'local_python': 'Use the locked container libraries directly; no recursive execute_python RPC.'}}
+
+
 def public_program_abi(tools=(), *, current_tools=(), tool_surface=None):
     import inspect
     from ..harness.tool_spec import result_schema
+    from ..harness.simple_protocol import PROGRAM_FORBIDDEN_TOOLS
+    allowed = {t['name'] for t in tools if t['name'] not in PROGRAM_FORBIDDEN_TOOLS}
+    tools = [t for t in tools if t['name'] in allowed]
+    current_tools = [t for t in current_tools if t['name'] in allowed]
     methods = ['observe', 'available_tools', 'call', 'remaining_calls', 'read_result']
     return {'entry': 'def run(ctx, inputs)',
             'methods': {name: str(inspect.signature(getattr(Context, name))).replace('self, ', '').replace('self', '')

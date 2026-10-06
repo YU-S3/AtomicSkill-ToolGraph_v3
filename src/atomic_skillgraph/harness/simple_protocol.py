@@ -8,6 +8,8 @@ from typing import Protocol
 
 from ..agents.protocol import validate_schema_instance
 
+PROGRAM_FORBIDDEN_TOOLS = frozenset({'execute_python'})
+
 
 @dataclass(frozen=True)
 class Capabilities:
@@ -117,7 +119,8 @@ class Broker:
         if method == 'observe':
             result = self.observe()
         elif method == 'available_tools':
-            result = [t for t in self.available_tools() if t['name'] in allowed_tools]
+            result = [t for t in self.available_tools() if t['name'] in allowed_tools
+                      and t['name'] not in PROGRAM_FORBIDDEN_TOOLS]
         elif method == 'remaining_calls':
             result = self.remaining_calls()
         elif method == 'call':
@@ -172,7 +175,7 @@ class Broker:
                 self.journal(self.events)
             specs = {tool["name"]: tool for tool in self.available_tools()}
             try:
-                if allowed_tools is not None and (name not in allowed_tools or name == 'execute_python'):
+                if allowed_tools is not None and (name not in allowed_tools or name in PROGRAM_FORBIDDEN_TOOLS):
                     raise ValueError('Program tool is not authorized')
                 if name not in specs:
                     raise ValueError("tool is not currently available")

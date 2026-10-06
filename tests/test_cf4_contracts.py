@@ -100,7 +100,7 @@ def test_t32_single_answer_learning_keeps_full_context_without_unreadable_refs(t
     s.run_task(PublicTask('id', 'physical', 'Which word?', inputs), learn=True)
     material = json.loads(sent[1]['messages'][1]['content'])
     assert material['experience']['task']['inputs'] == inputs
-    assert material['completed_train_cases'][0]['task']['inputs'] == inputs and material['tools'] == []
+    assert material['related_guidance'] == [] and 'completed_train_cases' not in material and 'tools' not in material
     assert len(sent) == 2 and s.bank.jobs() == []
     s.close()
 

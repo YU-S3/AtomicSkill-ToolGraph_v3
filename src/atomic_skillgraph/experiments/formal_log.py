@@ -170,9 +170,15 @@ class FormalLog:
         return self.active_learning
 
     def learning_end(self, observation, result):
+        if result is None:
+            self.active_learning = None
+            return
+        details = {k: result[k] for k in ('decision', 'persisted_skill_id', 'reused_skill_id', 'parent_skill_id',
+            'retrieved_guidance_ids', 'injected_guidance_ids', 'learning_rejected_reason') if result and k in result}
         self.training(observation['id'], 'learning_update', observation['start'], utc(), len(observation['subjects']),
-                      'rejected' if result and result.get('rejected') else 'completed',
-                      result.get('error') if result else None, consumed_physical_keys=sorted(observation['subjects']))
+                      'rejected' if result and (result.get('rejected') or result.get('decision') == 'rejected') else 'completed',
+                      result.get('learning_rejected_reason', result.get('error')) if result else None,
+                      consumed_physical_keys=sorted(observation['subjects']), **details)
         self.active_learning = None
 
     def trial_end(self, observation, events, record, result, audit):
@@ -188,12 +194,15 @@ class FormalLog:
         if previous and previous['artifact_hash'] == content_hash:
             return
         parent = previous['artifact_id'] if previous else None
+        if not parent and kind == 'skill' and asset.get('parent_skill_id'):
+            parent = self.versions.get(asset['parent_skill_id'], {}).get('artifact_id')
         if not parent and kind == 'program' and self.requests_seen:
             request = self.requests_seen[-1]
             material = json.loads(request['messages'][1]['content'])
-            if material.get('source'):
+            source = material.get('previous_failure', {}).get('source', material.get('source'))
+            if source:
                 for row in self.versions.values():
-                    if row['artifact_kind'] == 'program' and json.loads(Path(row['artifact_path']).read_text()).get('source') == material['source']:
+                    if row['artifact_kind'] == 'program' and json.loads(Path(row['artifact_path']).read_text()).get('source') == source:
                         parent = row['artifact_id']
                         break
         artifact_id = asset['id'] + ':' + content_hash
@@ -224,6 +233,8 @@ class FormalLog:
         self.emit('episodes', {'event_id': task['attempt_id'], **task, 'task_end_time': utc(),
             'official_score': trace['score']['raw_score'], 'success': trace['score']['hard'],
             'terminal_reason': trace['execution']['reason'], 'environment_step_count': trace.get('environment_steps', 0),
+            'retrieved_guidance_ids': trace.get('retrieved_guidance_ids', []),
+            'injected_guidance_ids': trace.get('injected_guidance_ids', []),
             'task_llm_call_count': calls, 'task_infrastructure_error': infrastructure,
             'task_error_type': error.get('code') if error else None, 'task_error_message': error.get('message') if error else None})
         if task['split'] == 'train':
