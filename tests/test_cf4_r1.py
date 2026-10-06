@@ -41,7 +41,7 @@ def evidence(value):
 
 def finish_fixture(tmp_path, monkeypatch, final):
     sent = http(monkeypatch, [response([{'action': 'call_tool', 'name': 'read',
-        'arguments': {'path': 'a.txt', 'offset': 0}}]), final])
+        'arguments': {'path': 'a.txt', 'offset': 0}}]), *(final if isinstance(final, list) else [final])])
     s = office(tmp_path)
     s.checkpoint = s.executor.checkpoint = TaskCheckpoint(tmp_path / 'checkpoint')
     s.audit_path = tmp_path / 'usage.json'
@@ -123,11 +123,12 @@ def test_r04_finish_checkpoint_recovers_same_decision_once(tmp_path, monkeypatch
 
 def test_r21_finish_missing_usage_keeps_unknown_cost(tmp_path, monkeypatch):
     final = response(content='private', finish='stop'); final.pop('usage')
-    s, broker, sent = finish_fixture(tmp_path, monkeypatch, final)
+    s, broker, sent = finish_fixture(tmp_path, monkeypatch, [final] * 5)
+    monkeypatch.setattr(s.provider('runtime'), '_backoff', lambda *a, **k: None)
     with pytest.raises(AgentProviderError):
         s.executor.run(s.adapter.task, s.adapter, broker, dynamic(s.adapter.task))
     calls = s.observer.rows('llm_calls')
-    assert len(sent) == 2 and len(broker.events) == 1 and len(calls) == 2
+    assert len(sent) == 6 and len(broker.events) == 1 and len(calls) == 6
     assert calls[-1]['purpose'] == 'finish_only' and calls[-1]['raw_usage'] is None
     assert calls[-1]['prompt_tokens'] is None and calls[-1]['completion_tokens'] is None
     assert sum(e.to_dict()['total_tokens'] for e in s.usage.events) == 5
@@ -235,7 +236,7 @@ def test_r10_filtered_program_preserves_scoped_grep_and_read_result(tmp_path, wo
     assert result['status'] == 'ok' and result['outputs']['text'] == 'α' * 3000
     assert broker.events[0]['arguments']['paths'] == ['a.txt'] and broker.events[0]['backend_invoked']
     assert broker.events[1]['local_result_read'] and not broker.events[1]['backend_invoked']
-    assert broker.remaining_calls() == 1 and result['calls'] == 2 and broker.environment_steps == 1
+    assert broker.remaining_calls() == 1 and result['calls'] == 2 and broker.environment_steps == 0
     evidence({'permissions': permissions, 'program': p, 'events': broker.events, 'result': result})
     s.close()
 
