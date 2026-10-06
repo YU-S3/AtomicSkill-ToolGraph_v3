@@ -6,6 +6,8 @@
 
 本轮实施规范为 [CF4-R1](docs/specs/SkillCompiler_CF4_R1.md)。预算耗尽后的文本收尾原样交给现有评分器；Builder 只提交 submit_program，未来 Program 权限、ABI 与 candidate 使用同源材料；single_answer 学习 guidance_only Skill，由同一次 solver 请求消费。[CF4](docs/specs/SkillCompiler_CF4.md)和[CF3](docs/specs/SkillCompiler_CF3.md)的公共契约、程序自动接管与有界纠偏继续保留。公共 split、scorer、模型能力锁、high 推理和原预算维持原值。
 
+[CF4-R1 交付报告](reports/CF4_R1_交付报告.md)与[逐项核验](reports/cf4_r1_verification.json)记录最终 252 项通过的回归及启动身份；本轮没有自动启动收费实验，新版本自然学习、成本和质量尚未测量。
+
 CF4 的公共包 `skillcompiler_bench_contracts` 只含 LiveMath 正常化、答案格式契约和 Office 授权范围 grep，可单独打包供其他方法接入。Benchmark 规则留在包、Adapter 与准备层。Planner 使用只读能力卡片；Runtime/Learner 使用同一模型视图模块。实际输入、合法调用集合、原始轨迹和计费记录保留。已有 usable 版本的 build/trial 请求先判为幂等跳过，试用绑定在现有一次 Extractor 修复内校验；没有增加修复、模型角色或放宽晋升。
 
 新版本从独立空 Bank 开始，不能续用 CF3 checkpoint。旧 Frozen 可在新目录只读做执行诊断。工程核验与未接入的比较方法见 [CF4 交付报告](reports/CF4_交付报告.md)和[公共契约矩阵](reports/cf4_public_contract_matrix.json)。本轮没有自动启动收费实验。
