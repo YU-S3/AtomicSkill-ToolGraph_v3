@@ -318,7 +318,9 @@ def test_invalid_optional_workflow_preserves_tested_program(tmp_path, monkeypatc
                              'args': {'x': {'from': 'missing', 'field': 'x'}}}]}},
                          {'source': "def run(ctx, inputs):\n    return {'status':'ok','outputs':{}}", 'trial_inputs': [{'case_id': key, 'inputs': {}, 'start_mode': 'reset', 'prefix': []} for key in ['p1','p2']]}])
     config = config_for(tmp_path)
-    system = EmpiricalSystem(config, harness=AnswerAdapter(), provider=provider)
+    adapter = AnswerAdapter()
+    adapter.capabilities = Capabilities(interaction='tool_loop')
+    system = EmpiricalSystem(config, harness=adapter, provider=provider)
     def trial(program, inputs, task, trial_id, **kwargs):
         row = {'id': trial_id, 'program_id': program['id'], 'task_key': task.physical_key,
                'origin': 'train_test', 'outcome': 'positive', 'basis': 'local_check'}

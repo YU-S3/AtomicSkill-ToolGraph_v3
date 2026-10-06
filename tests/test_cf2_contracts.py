@@ -88,7 +88,7 @@ def http(monkeypatch, responses):
             root=Path(os.environ['CF2_EVIDENCE_DIR']); root.mkdir(parents=True,exist_ok=True)
             test=os.environ.get('PYTEST_CURRENT_TEST','fixture')
             value={'test':test,'transport':'intercepted production requests.post; no model call','payload':seen[-1],
-                   'finish_reason':response['choices'][0]['finish_reason'],'usage':response['usage']}
+                   'finish_reason':response['choices'][0]['finish_reason'],'usage':response.get('usage')}
             (root/(hashlib.sha256(test.encode()).hexdigest()[:16]+'_'+str(len(seen))+'.json')).write_text(json.dumps(value,ensure_ascii=False,indent=2))
         return SimpleNamespace(status_code=200, ok=True, headers={}, json=lambda: response)
     monkeypatch.setattr('atomic_skillgraph.agents.provider.requests.post', post)
