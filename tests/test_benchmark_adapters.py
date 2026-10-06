@@ -71,9 +71,11 @@ def test_office_learner_builder_and_program_share_public_tools(tmp_path, worker,
     monkeypatch.setattr(system,'test_program',lambda *a,**kw:{'outcome':'inapplicable'})
     try:
         log=system.learner.learn(task,{'tools':[],'score':{},'execution':{}})
-        for messages in provider.calls:
-            tools=json.loads(messages[1]['content'])['tools']
-            assert {t['name'] for t in tools}=={'glob','read','grep','execute_python','read_result'}
+        for index,messages in enumerate(provider.calls):
+            material=json.loads(messages[1]['content'])
+            tools=material['tools'] if index==0 else material['future_program_api']['runtime_tool_definitions']
+            expected={'glob','read','grep','read_result'} | ({'execute_python'} if index==0 else set())
+            assert {t['name'] for t in tools}==expected
         program=system.bank.get(log['program'])
         assert set(program['allowed_tools'])=={'glob','read','grep','read_result'}
         broker=Broker(adapter,2)

@@ -39,10 +39,11 @@ def evidence(value):
     (root / (name + '.json')).write_text(json.dumps(value, ensure_ascii=False, indent=2))
 
 
-def finish_fixture(tmp_path, monkeypatch, final):
+def finish_fixture(tmp_path, monkeypatch, final, *, native_budget=None):
     sent = http(monkeypatch, [response([{'action': 'call_tool', 'name': 'read',
         'arguments': {'path': 'a.txt', 'offset': 0}}]), *(final if isinstance(final, list) else [final])])
     s = office(tmp_path)
+    if native_budget is not None: s.config['runtime']['global_action_budget'] = native_budget
     s.checkpoint = s.executor.checkpoint = TaskCheckpoint(tmp_path / 'checkpoint')
     s.audit_path = tmp_path / 'usage.json'
     formal = FormalLog(tmp_path / 'formal', {'fixture': 'finish'}, s.config)
@@ -133,6 +134,45 @@ def test_r21_finish_missing_usage_keeps_unknown_cost(tmp_path, monkeypatch):
     assert calls[-1]['prompt_tokens'] is None and calls[-1]['completion_tokens'] is None
     assert sum(e.to_dict()['total_tokens'] for e in s.usage.events) == 5
     s.close()
+
+
+@pytest.mark.parametrize('boundary', ['response_saved', 'answer_committed'])
+def test_r04_fresh_system_resumes_durable_text_finalization(tmp_path, monkeypatch, boundary):
+    s, _, sent = finish_fixture(tmp_path, monkeypatch, response(content='private', finish='stop'), native_budget=1)
+    task = s.adapter.task
+    s.config['runtime']['global_action_budget'] = 1
+    checkpoint = s.checkpoint
+    if boundary == 'response_saved':
+        original = checkpoint.save_response
+        def stop(key, value):
+            original(key, value)
+            if value['turn']['content'] == 'private': raise KeyboardInterrupt('after response')
+        monkeypatch.setattr(checkpoint, 'save_response', stop)
+    else:
+        original = checkpoint.commit_decision
+        def stop(key, status, **values):
+            original(key, status, **values)
+            if key and checkpoint.state['decisions'][key]['purpose'] == 'finish_only' and status == 'applied':
+                raise KeyboardInterrupt('after commit')
+        monkeypatch.setattr(checkpoint, 'commit_decision', stop)
+    with pytest.raises(KeyboardInterrupt): s.run_task(task, learn=False, attempt_id='persistent-task')
+    logical_id = s.last_decision_id
+    s.close()
+    # Reconstruct every owner from files; preserve only the intercepted external transport counter.
+    restored = office(tmp_path)
+    restored.config['runtime']['global_action_budget'] = 1
+    restored.checkpoint = restored.executor.checkpoint = TaskCheckpoint(tmp_path / 'checkpoint')
+    restored.audit_path = tmp_path / 'usage.json'
+    restored.observer = FormalLog(tmp_path / 'formal', {'fixture': 'finish'}, restored.config, resume=True)
+    restored.observer.begin_task(task, 0, 'finish-task', {})
+    trace = restored.run_task(task, learn=False, attempt_id='persistent-task')
+    assert trace['execution']['prediction'] == 'private' and trace['score']['hard']
+    assert len(sent) == 2 and trace['native_call_attempts'] == 1
+    assert restored.checkpoint.state['decisions'][logical_id]['status'] == 'applied'
+    assert len(restored.observer.rows('llm_calls')) == 2
+    assert sum(e['total_tokens'] for e in trace['usage']) == 10
+    evidence({'http': sent, 'trace': trace, 'decisions': restored.checkpoint.state['decisions']})
+    restored.close()
 
 
 def test_r07_same_permission_source_and_broker_denies_recursive_python(tmp_path):
