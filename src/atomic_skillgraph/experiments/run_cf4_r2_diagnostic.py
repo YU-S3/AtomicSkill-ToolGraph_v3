@@ -225,7 +225,7 @@ def d2(task_id, manifest, root, governor):
         answer,audit=finalize_text(system.agent,context,material,prompt,owner_state_version='cf4-r2-new-finish',allowed_result_ids=allowed)
         return {'status':'completed','answer':answer,'finish_evidence':audit,
                 **classify_answer(answer,system.requests[-1]['response']['finish_reason']),
-                'tokens':sum(e.total_tokens for e in system.usage.events),'old_score_unchanged':True}
+                'tokens':sum(e.to_dict()['total_tokens'] for e in system.usage.events),'old_score_unchanged':True}
     except Exception as exc: return {'status':'failed','error_type':type(exc).__name__,'error':str(exc),'old_score_unchanged':True}
     finally: system.close()
 

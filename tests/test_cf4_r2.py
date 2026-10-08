@@ -19,7 +19,7 @@ from atomic_skillgraph.empirical.system import EmpiricalSystem, validate_config
 from atomic_skillgraph.empirical.task_context import TaskContext
 from atomic_skillgraph.experiments.episode_projection import episode_projection
 from atomic_skillgraph.experiments.recover_empirical import inspect_source, recover, read
-from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import verify_d3_wire, prepare
+from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import verify_d3_wire, prepare, d2
 from atomic_skillgraph.experiments.run_empirical import run
 from atomic_skillgraph.harness.benchmarks import SpreadsheetAdapter
 from atomic_skillgraph.harness.simple_protocol import Broker
@@ -247,6 +247,19 @@ def test_z13_d3_exact_historical_wire_and_wrong_resume(tmp_path):
     write_json(tmp_path/'phase/execution_manifest.json',{'wrong_identity':True})
     with pytest.raises(ValueError,match='identity'):
         run(config,[task],tmp_path/'phase',resume=True,adapter=adapter)
+
+
+def test_z11_d2_production_entry_meters_saved_finish(tmp_path,monkeypatch):
+    if not REVIEW.exists(): pytest.skip('Requires archived finish snapshot')
+    seen=http(monkeypatch,[response(content='<answer>42</answer>',finish='stop')])
+    from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import settings
+    def fixture_settings(*a,**k):
+        config=settings(*a,**k); config['llm']['api_key_env']='MODEL_API_KEY'; return config
+    monkeypatch.setattr('atomic_skillgraph.experiments.run_cf4_r2_diagnostic.settings',fixture_settings)
+    result=d2('officeqa:UID0115',{'review_source':str(REVIEW)},tmp_path,
+              BudgetGovernor(tmp_path/'ledger.json'))
+    assert result['status']=='completed' and result['tokens']==5 and len(seen)==1
+    assert seen[0]['max_tokens']==512 and seen[0]['thinking']=={'type':'disabled'}
 
 
 def test_z14_new_commit_boundary_skips_history_and_no_freeze(tmp_path,monkeypatch):
