@@ -72,8 +72,8 @@ expected = Path(os.environ['CODE']).resolve() / 'src'
 actual = Path(empirical.__file__).resolve()
 if not actual.is_relative_to(expected):
     raise SystemExit('Import resolves outside the chosen checkout')
-if empirical.IMPLEMENTATION_REVISION != 'empirical-v3.1-CF4-R1':
-    raise SystemExit('CF4-R1 production patch not installed; refusing paid launch')
+if empirical.IMPLEMENTATION_REVISION != 'empirical-v3.1-CF4-R2':
+    raise SystemExit('CF4-R2 production patch not installed; refusing paid launch')
 untracked = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z']).decode().split('\0')
 if any(Path(name).suffix in {'.py', '.pyw', '.so', '.pyd'} for name in untracked if name):
     raise SystemExit('Untracked executable source in the chosen checkout; inspect before launch')

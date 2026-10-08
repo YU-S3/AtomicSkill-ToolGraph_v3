@@ -35,7 +35,9 @@ def effective_output_schema(declared_schema, *, result_role, publication_contrac
             for name, reserved in PUBLICATION_FIELDS.items():
                 if name in props:
                     field = props[name]
-                    if not supported or field.get('type') != 'array' or field.get('items', {}).get('type') != 'string':
+                    if supported and field.get('type') == 'array' and 'items' not in field:
+                        field['items'] = {'type':'string'}
+                    if supported and (field.get('type') != 'array' or field.get('items', {}).get('type') != 'string'):
                         raise ProgramContractError('program_publication_field_conflict', name, 'declaration')
                 elif supported:
                     props[name] = deepcopy(reserved)

@@ -238,6 +238,10 @@ def d3(benchmark, manifest, root, governor):
         for entry in tasks:
             task=PublicTask(**entry); original=read(source/'val/traces'/(task.task_id+'.json'))
             item={'task_id':task.task_id,'on_score':original['score'],'on_tokens':sum(e['total_tokens'] for e in original['usage'])}
+            if governor.state['unknown_billing']:
+                item.update(status='pair_incomplete',error='unknown_billing_stop')
+                result.append(item); write_json(destination/'results.json',result)
+                continue
             system.checkpoint=TaskCheckpoint(destination/'checkpoints'/task.task_id)
             system.audit_path=destination/'requests'/(task.task_id+'.json')
             system.request_attribution={'parent_task_id':task.task_id,'diagnostic_phase':'D3'}
@@ -282,7 +286,7 @@ def verify_d3_wire(manifest):
     return checks
 
 
-def d4(benchmark, candidate, manifest, root, governor):
+def d4(benchmark, candidate, manifest, root, governor, *, select_only=False):
     if not candidate.get('usable'): return {'status':'not_applicable','reason':'Current candidate did not form a verified executable capability'}
     source=Path(manifest['review_source'])/'runs'/benchmark/'seed42'
     snapshot=root/'D1'/benchmark/'diagnostic_snapshot'
@@ -296,6 +300,7 @@ def d4(benchmark, candidate, manifest, root, governor):
     selection={'task_id':chosen,'eligible_ids':eligible,'snapshot_tree':tree_identity(snapshot),
                'predicate_hash':manifest['D4']['predicate_hash']}
     write_json(root/'D4'/benchmark/'selection.json',selection)
+    if select_only: return {'status':'selected',**selection}
     # Runtime material uses the same canonical PublicTask, not the selector's observations.
     materialized=read(source/'val/execution_manifest.json')['tasks'] if (source/'val/execution_manifest.json').exists() else None
     if materialized is None:
@@ -324,6 +329,12 @@ def d4(benchmark, candidate, manifest, root, governor):
 def execute(manifest_path):
     manifest_path=Path(manifest_path); manifest=read(manifest_path); root=manifest_path.parent
     if manifest['source'] != code_identity(): raise ValueError('Diagnostic source identity changed')
+    for benchmark,declared in manifest['D1'].items():
+        bank_path=Path(manifest['review_source'])/'runs'/benchmark/'seed42/train/bank'
+        if tree_identity(bank_path) != declared['bank_tree']: raise ValueError('D1 source Bank changed')
+    for benchmark,declared in manifest['D3'].items():
+        bank_path=Path(manifest['review_source'])/'runs'/benchmark/'seed42/train/frozen_bank'
+        if tree_identity(bank_path) != declared['bank_tree']: raise ValueError('D3 source Frozen changed')
     if (root/'diagnostic_results.json').exists() or (root/'STARTED.json').exists():
         raise ValueError('This fixed diagnostic has already started; paid slots cannot reset')
     checks=verify_d3_wire(manifest); write_json(root/'D3_wire_checks.json',checks)
@@ -332,16 +343,20 @@ def execute(manifest_path):
     result={'D0':'offline checks and zero-provider recovery reported separately','D1':{},'D2':{},'D3':{},'D4':{}}
     try:
         for benchmark in CANDIDATES:
-            result['D1'][benchmark]=d1(benchmark,manifest,root,governor)
+            result['D1'][benchmark]={'status':'not_run_unknown_billing','usable':False} if governor.state['unknown_billing'] else d1(benchmark,manifest,root,governor)
             write_json(root/'diagnostic_results.json',result)
+        manifest['D4']['selections']={benchmark:d4(benchmark,result['D1'][benchmark],manifest,root,governor,select_only=True)
+                                    for benchmark in CANDIDATES}
+        write_json(manifest_path,manifest)
         for tid in manifest['D2']['task_ids']:
-            result['D2'][tid]=d2(tid,manifest,root,governor)
+            result['D2'][tid]={'status':'not_run_unknown_billing'} if governor.state['unknown_billing'] else d2(tid,manifest,root,governor)
             write_json(root/'diagnostic_results.json',result)
         for benchmark in manifest['D3']:
-            result['D3'][benchmark]=d3(benchmark,manifest,root,governor)
+            result['D3'][benchmark]=[{'task_id':tid,'status':'pair_incomplete','error':'unknown_billing_stop'}
+                for tid in manifest['D3'][benchmark]['task_ids']] if governor.state['unknown_billing'] else d3(benchmark,manifest,root,governor)
             write_json(root/'diagnostic_results.json',result)
         for benchmark in CANDIDATES:
-            result['D4'][benchmark]=d4(benchmark,result['D1'][benchmark],manifest,root,governor)
+            result['D4'][benchmark]={'status':'not_run_unknown_billing'} if governor.state['unknown_billing'] else d4(benchmark,result['D1'][benchmark],manifest,root,governor)
     finally:
         result['budget']=governor.state; result['ended_at']=utc(); result['formal_tail_started']=False
         write_json(root/'diagnostic_results.json',result)

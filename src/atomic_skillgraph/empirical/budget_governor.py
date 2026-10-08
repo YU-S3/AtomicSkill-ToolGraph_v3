@@ -19,6 +19,9 @@ class BudgetGovernor:
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {
             'limits': self.limits, 'attempts': {}, 'unknown_billing': False}
         if self.state['limits'] != self.limits: raise ValueError('Governor identity changed')
+        if any(a['status'] == 'admitted' for a in self.state['attempts'].values()):
+            self.state['unknown_billing'] = True
+            save_json(self.path,self.state)
 
     def admit(self, audit_id, payload, context):
         with self.lock:

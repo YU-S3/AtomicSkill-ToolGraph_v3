@@ -225,7 +225,8 @@ def test_t38_saved_recovery_survives_crash_and_runtime_cap_is_unchanged(tmp_path
     original=s.checkpoint.advance
     def interrupt(stage,**kwargs):
         original(stage,**kwargs)
-        if any(key.startswith('builder_') for key in kwargs): raise KeyboardInterrupt('after saved recovery')
+        if any(key.startswith('builder_') and not key.endswith(('_request_material','_semantics')) for key in kwargs):
+            raise KeyboardInterrupt('after saved recovery')
     monkeypatch.setattr(s.checkpoint,'advance',interrupt)
     with pytest.raises(KeyboardInterrupt): s.learner.learn(s.adapter.task,learning_trace())
     assert s.bank.jobs()[0]['repair_used']
