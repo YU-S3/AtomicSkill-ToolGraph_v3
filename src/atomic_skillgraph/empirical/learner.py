@@ -130,17 +130,8 @@ class Learner:
         if len(set(fixed) | seen) > 2: raise ValueError('A realization job has at most two fixed slots')
         return resolved
 
-    def learn(self, task, trace, *, focus=None):
-        s, bank = self.system, self.system.bank
-        experience = self._experience(task, trace)
-        new_experience = not any(r['task']['physical_key'] == task.physical_key for r in bank.train_cases())
-        if not any(t.physical_key == task.physical_key for t, _ in self.cases):
-            self.cases.append((task, experience))
-        for case_task, case in self.cases:
-            bank.save_case(case_task, case)
-        if s.adapter.capabilities.interaction == 'single_answer':
-            return self._learn_guidance(task, experience)
-        cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()}
+    def related_candidates(self, task):
+        bank = self.system.bank
         jobs = bank.jobs()
         related = []
         priority = []
@@ -164,6 +155,21 @@ class Learner:
                 'execution_intent': asset.get('execution_intent', 'program_requested' if pending else 'guidance_only'),
                 'usable_programs': [p['id'] for p in bank.routes({'execution_mode': 'skill', 'skill_id': asset['id']})]
                 if 'guidance' in asset else []})
+        return related
+
+    def learn(self, task, trace, *, focus=None):
+        s, bank = self.system, self.system.bank
+        experience = self._experience(task, trace)
+        new_experience = not any(r['task']['physical_key'] == task.physical_key for r in bank.train_cases())
+        if not any(t.physical_key == task.physical_key for t, _ in self.cases):
+            self.cases.append((task, experience))
+        for case_task, case in self.cases:
+            bank.save_case(case_task, case)
+        if s.adapter.capabilities.interaction == 'single_answer':
+            return self._learn_guidance(task, experience)
+        cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()}
+        jobs = bank.jobs()
+        related = self.related_candidates(task)
         tools = getattr(s.adapter, 'tool_definitions', s.adapter.available_tools)()
         if s.adapter.capabilities.interaction != 'single_answer':
             tools = [*tools, TaskContext(s.config['runtime']).tool()]

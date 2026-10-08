@@ -5,6 +5,25 @@ from pathlib import Path
 import shutil
 
 from .contracts import digest
+from ..core.errors import AtomicSkillGraphError, BudgetExhausted, FailureLayer
+from .program_submission import ProgramContractError
+
+
+def host_call(operation, function, *args, trial_context=None, **kwargs):
+    """Classify faults only at an explicit host operation boundary."""
+    try:
+        return function(*args, **kwargs)
+    except (BudgetExhausted, ProgramContractError):
+        raise
+    except AtomicSkillGraphError as exc:
+        if exc.layer == FailureLayer.INFRASTRUCTURE and not hasattr(exc, 'trial_context'):
+            exc.trial_context = {**(trial_context or {}), 'operation': operation,
+                                 'cause_type': type(exc.__cause__ or exc).__name__}
+        raise
+    except Exception as exc:
+        failure = AtomicSkillGraphError('infrastructure_failure', str(exc), layer=FailureLayer.INFRASTRUCTURE)
+        failure.trial_context = {**(trial_context or {}), 'operation': operation, 'cause_type': type(exc).__name__}
+        raise failure from exc
 
 
 def seal_trial_workspace(adapter, destination):
@@ -40,5 +59,9 @@ def restore_trial_workspace(adapter, receipt):
 
 
 def exception_details(exc, stage):
+    context = getattr(exc, 'trial_context', {})
+    infrastructure = (exc.layer == FailureLayer.INFRASTRUCTURE if isinstance(exc, AtomicSkillGraphError)
+                      else not isinstance(exc, (ValueError, SyntaxError))) and not isinstance(exc, BudgetExhausted)
     return {'code': getattr(exc, 'code', type(exc).__name__), 'message': str(exc),
-            'stage': stage, 'repair_target': 'host', 'infrastructure_error': True}
+            'stage': stage, 'repair_target': 'host' if infrastructure else None,
+            'infrastructure_error': infrastructure, 'outer_stage': stage, **context}

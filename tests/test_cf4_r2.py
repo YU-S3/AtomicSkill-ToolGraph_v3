@@ -24,7 +24,7 @@ from atomic_skillgraph.experiments.run_empirical import run
 from atomic_skillgraph.harness.benchmarks import SpreadsheetAdapter
 from atomic_skillgraph.harness.simple_protocol import Broker
 from atomic_skillgraph.agents.provider import OpenAICompatibleConfig, OpenAICompatibleProvider
-from atomic_skillgraph.core.errors import BudgetExhausted
+from atomic_skillgraph.core.errors import AtomicSkillGraphError, BudgetExhausted
 from test_empirical import config_for, program, worker
 from test_cf2_contracts import office, http, response
 
@@ -153,7 +153,12 @@ def test_z07_worker_finished_resumes_scoring_not_worker(tmp_path,worker):
         return a
     s.adapter_factory=factory; s.worker=worker
     p=s.bank.put('program',{**program("def run(ctx, inputs):\n    return {'status':'ok','outputs':{'answer':'42'}}",outputs=object_schema({'answer':{'type':'string'}},['answer'])),'result_role':'final_answer','allowed_tools':[]})
-    with pytest.raises(OSError): s.test_program(p,{},s.adapter.task,trial_id='saved-worker',continuation=False)
+    trace={'score':{'hard':True,'raw_score':1},'execution':{'attempts':[]}}
+    s.learner.learn=lambda task, trace:s.test_program(p,{},task,trial_id='saved-worker',continuation=False)
+    with pytest.raises(AtomicSkillGraphError) as failure: s.learn_trace(s.adapter.task,trace)
+    assert isinstance(failure.value.__cause__,OSError)
+    assert trace['learning_status']=='failed_engineering' and trace['score']=={'hard':True,'raw_score':1}
+    assert trace['learning_error']['stage']=='worker_finished' and trace['learning_error']['operation']=='evaluate'
     count=len(worker.invocations)
     record=s.test_program(p,{},s.adapter.task,trial_id='saved-worker',continuation=False)
     assert record['outcome']=='positive' and len(worker.invocations)==count

@@ -21,7 +21,7 @@ from .learner import Learner
 from .planner import Planner, dynamic
 from .program_worker import ProgramWorker
 from .program_submission import normalize_program_result, positive_eligible
-from .trial_snapshot import seal_trial_workspace, restore_trial_workspace, exception_details
+from .trial_snapshot import seal_trial_workspace, restore_trial_workspace, exception_details, host_call
 
 
 STAGE_BUCKETS = {"planner": "planner_p1", "runtime": "runtime_dynamic", "extractor": "extractor_e1",
@@ -235,6 +235,8 @@ class EmpiricalSystem:
                       "phase": self.phase, 'budget_scope': self.budget_scope,
                       "messages": messages, "tools": [t.to_openai() for t in tools]}
             record.update(completion_cap=completion_cap, repair_reason=repair_reason, job_key=job_key)
+            if stage == 'extractor' and 'candidate_view_version' in materials:
+                record.update({k: deepcopy(materials[k]) for k in ('candidate_view_version', 'candidate_view_audit')})
             record['effective_call_settings_hash'] = digest(settings)
             # Trace messages omit replay-private reasoning. The immediate repair
             # retains the actual assistant envelope in process only.
@@ -524,7 +526,7 @@ class EmpiricalSystem:
             for attempt in trace["execution"]["attempts"]:
                 if attempt["status"] == "ok" and attempt.get('output_contract_status') == 'valid' and (attempt["outputs_consumed"] or attempt.get("terminal_by_program", False) or attempt.get('submission_by_program', False)) and trace["score"]["hard"] and attempt["local_check"] == "unavailable":
                     attempt.update(outcome="positive", basis="task_outcome")
-                self.bank.record(attempt)
+                host_call('bank_record', self.bank.record, attempt, trial_context={'stage': 'learning'})
             trace["learning"] = self.learner.learn(task, trace)
             result = trace['learning'] or {}
             trace['learning_status'] = 'rejected' if result.get('rejected') or result.get('decision') == 'rejected' else 'completed'
@@ -536,7 +538,8 @@ class EmpiricalSystem:
             trace['learning_error'] = exception_details(exc, 'learning')
             trace['learning'] = {'error': str(exc), 'exception': trace['learning_error']}
             if self.checkpoint:
-                self.checkpoint.advance('task_execution_finished', trace=trace)
+                host_call('checkpoint_save', self.checkpoint.advance, 'task_execution_finished', trace=trace,
+                          trial_context=getattr(exc, 'trial_context', {'stage': 'learning'}))
             raise
         finally:
             if self.observer:
@@ -549,41 +552,48 @@ class EmpiricalSystem:
         if self.adapter_factory is None:
             return {"id": trial_id, "program_id": program["id"], "task_key": task.physical_key,
                     "origin": "train_test", "outcome": "inapplicable", "error": "No isolated Adapter factory"}
+        stage, execution_id = 'trial_lookup', None
+        def host(operation, function, *args, **kwargs):
+            return host_call(operation, function, *args, trial_context={
+                'stage': stage, 'trial_id': trial_id, 'trial_execution_id': execution_id}, **kwargs)
         existing = next((a for a in self.bank.attempts(program['id']) if a['id'] == trial_id), None)
         if existing and not new_execution:
             return existing
         from .checkpoint import TaskCheckpoint
-        logical = TaskCheckpoint(self.checkpoint.root / 'trials' / trial_id) if self.checkpoint else None
+        logical = host('checkpoint_load', TaskCheckpoint, self.checkpoint.root / 'trials' / trial_id) if self.checkpoint else None
         if logical and logical.state.get('record') and not new_execution:
-            self.bank.record(logical.state['record'])
+            host('bank_record', self.bank.record, logical.state['record'])
             return logical.state['record']
         execution_id = (logical.state.get('execution_id') if logical and not new_execution else None) or uuid4().hex
-        trial_checkpoint = TaskCheckpoint(logical.root / 'executions' / execution_id) if logical else None
+        trial_checkpoint = host('checkpoint_load', TaskCheckpoint, logical.root / 'executions' / execution_id) if logical else None
         if trial_checkpoint and trial_checkpoint.state.get('record'):
             record = trial_checkpoint.state['record']
-            self.bank.record(record)
-            logical.advance('bank_recorded', record=record)
+            host('bank_record', self.bank.record, record)
+            host('checkpoint_save', logical.advance, 'bank_recorded', record=record)
             return record
         resume_worker = bool(trial_checkpoint and trial_checkpoint.state.get('worker_result'))
+        stage = 'worker_finished' if resume_worker else 'trial_started'
         if trial_checkpoint and trial_checkpoint.path.exists() and not resume_worker:
             raise RuntimeError('Interrupted trial has unknown side effects; an explicit new execution is required')
         if resume_worker and not trial_checkpoint.state.get('artifacts'):
             raise RuntimeError('Interrupted trial workspace is unrecoverable; no worker replay or positive credit')
         if logical:
-            logical.advance('trial_started', execution_id=execution_id)
+            host('checkpoint_save', logical.advance, 'trial_started', execution_id=execution_id)
             if not resume_worker:
-                trial_checkpoint.advance('trial_started', trial_id=trial_id, execution_id=execution_id,
+                host('checkpoint_save', trial_checkpoint.advance, 'trial_started', trial_id=trial_id, execution_id=execution_id,
                                          program_id=program['id'], task_key=task.physical_key, inputs=inputs)
         def finish(record):
+            nonlocal stage
+            stage = 'trial_finished'
             record['logical_trial_id'] = trial_id
             if new_execution: record['id'] = trial_id + ':' + execution_id
             record['trial_execution_id'] = execution_id
             if trial_checkpoint:
-                trial_checkpoint.advance('trial_finished', record=record)
-            self.bank.record(record)
+                host('checkpoint_save', trial_checkpoint.advance, 'trial_finished', record=record)
+            host('bank_record', self.bank.record, record)
             if logical:
-                trial_checkpoint.advance('bank_recorded', record=record)
-                logical.advance('bank_recorded', record=record)
+                host('checkpoint_save', trial_checkpoint.advance, 'bank_recorded', record=record)
+                host('checkpoint_save', logical.advance, 'bank_recorded', record=record)
             return record
         previous_phase = self.phase
         previous_checkpoint = self.checkpoint
@@ -595,26 +605,27 @@ class EmpiricalSystem:
         self.checkpoint = trial_checkpoint
         self.planner.checkpoint = trial_checkpoint
         self.budget_scope = trial_id
-        adapter = self.adapter_factory()
-        trial_observation = self.observer.trial_start(trial_id + ':' + execution_id, task) if self.observer else None
+        adapter, broker, trial_observation = None, None, None
         previous_runtime_start = self._runtime_start
         self._runtime_start = len(self.usage.events)
-        broker = Broker(adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
-            step_limit=self.config.get('runtime', {}).get('environment_step_budget'),
-            journal=trial_checkpoint.native_events if trial_checkpoint else None,
-            observer=self.observer.native_observer(trial_id) if self.observer else None,
-            context=self.task_context)
         try:
+            adapter = host('adapter_create', self.adapter_factory)
+            trial_observation = host('trial_start', self.observer.trial_start, trial_id + ':' + execution_id, task) if self.observer else None
+            broker = host('broker_create', Broker, adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
+                step_limit=self.config.get('runtime', {}).get('environment_step_budget'),
+                journal=trial_checkpoint.native_events if trial_checkpoint else None,
+                observer=self.observer.native_observer(trial_id) if self.observer else None,
+                context=self.task_context)
             inherit = getattr(adapter, 'inherit_discovery', None)
             if inherit:
-                inherit(self.adapter)
-            adapter.reset(task)
+                host('inherit_discovery', inherit, self.adapter)
+            host('adapter_reset', adapter.reset, task)
             if trial_observation:
                 trial_observation['consumed'] = True
             if resume_worker:
-                restore_trial_workspace(adapter, trial_checkpoint.state.get('artifacts'))
+                host('restore_workspace', restore_trial_workspace, adapter, trial_checkpoint.state.get('artifacts'))
                 native_path = trial_checkpoint.root / 'native_events.json'
-                broker.events[:] = json.loads(native_path.read_text()) if native_path.exists() else []
+                broker.events[:] = host('native_events_restore', lambda: json.loads(native_path.read_text())) if native_path.exists() else []
             if trial_case and not resume_worker:
                 if trial_case.physical_task_key != task.physical_key or task.split != 'train':
                     raise ValueError('TrialCase physical task/split mismatch')
@@ -631,7 +642,7 @@ class EmpiricalSystem:
                     return finish(record)
             start = len(broker.events)
             was_terminal = broker.done
-            workspace_before = adapter.observe().get('workspace', {})
+            workspace_before = host('adapter_observe', adapter.observe).get('workspace', {})
             try:
                 validate_schema_instance(inputs, program["input_schema"])
                 if len(json.dumps(inputs, ensure_ascii=False).encode()) > self.worker.settings['max_rpc_message_bytes']:
@@ -647,20 +658,21 @@ class EmpiricalSystem:
                     start = trial_checkpoint.state['native_event_start']
                     workspace_before = trial_checkpoint.state['workspace_before']
                 else:
-                    result = normalize_program_result(adapter, program, self.worker.execute(program, inputs, broker),
+                    result = normalize_program_result(adapter, program, host('worker_execute', self.worker.execute, program, inputs, broker),
                                                       workspace_before=workspace_before)
                     result['terminal_by_program'] = not was_terminal and broker.done
+                    stage = 'worker_finished'
                     if trial_checkpoint:
-                        artifacts = seal_trial_workspace(adapter, trial_checkpoint.root / 'artifacts')
-                        trial_checkpoint.advance('worker_finished', worker_result=result, artifacts=artifacts,
+                        artifacts = host('seal_workspace', seal_trial_workspace, adapter, trial_checkpoint.root / 'artifacts')
+                        host('checkpoint_save', trial_checkpoint.advance, 'worker_finished', worker_result=result, artifacts=artifacts,
                             native_event_start=start, workspace_before=workspace_before)
-                local = broker.check_local(inputs, result.get("outputs", {}), start) if positive_eligible(result) else "unavailable"
+                local = host('local_check', broker.check_local, inputs, result.get('outputs', {}), start) if positive_eligible(result) else "unavailable"
                 result['local_check'] = local
                 basis, outcome = None, "normal"
                 if result["status"] == "execution_error":
                     outcome = "execution_failure"
                 elif result['terminal_by_program'] and positive_eligible(result):
-                    score = adapter.evaluate(adapter.submit(result.get('outputs', {})))
+                    score = host('evaluate', adapter.evaluate, host('submit', adapter.submit, result.get('outputs', {})))
                     result['score'] = score
                     if score['hard'] and result['status'] == 'ok': basis, outcome = 'task_outcome', 'positive'
                     elif result['status'] == 'execution_error': outcome = 'execution_failure'
@@ -673,8 +685,8 @@ class EmpiricalSystem:
                     preparation = result.get('submission_preparation', {})
                     ready = preparation.get('status') == 'ready'
                     if ready:
-                        sealed = adapter.submit(preparation['payload'])
-                        score = adapter.evaluate(sealed)
+                        sealed = host('submit', adapter.submit, preparation['payload'])
+                        score = host('evaluate', adapter.evaluate, sealed)
                         result.update(score=score, submission='direct_program_output')
                         if score['hard']: basis, outcome = 'task_outcome', 'positive'
                     if role in {'final_answer', 'final_files'}:
@@ -696,7 +708,7 @@ class EmpiricalSystem:
                     continuation["nodes"][0]["args"] = {k: {"literal": v} for k, v in result.get("outputs", {}).items()}
                     rest = executor.run(task, adapter, broker, continuation)
                     result["continuation"] = rest
-                    score = adapter.evaluate(adapter.submit(rest["prediction"]))
+                    score = host('evaluate', adapter.evaluate, host('submit', adapter.submit, rest['prediction']))
                     result["score"] = score
                     node_id = continuation['nodes'][0]['id']
                     if score["hard"] and result.get('outputs') and node_id in rest['input_reads'] and not rest['replaced_inputs'].get(node_id):
@@ -707,19 +719,21 @@ class EmpiricalSystem:
             return finish(record)
         except Exception as exc:
             if trial_checkpoint:
-                trial_checkpoint.advance('trial_exception', exception=exception_details(exc, trial_checkpoint.state['stage']))
+                host('checkpoint_save', trial_checkpoint.advance, 'trial_exception', exception=exception_details(exc, stage))
             raise
         finally:
-            if self.observer:
-                self.observer.trial_end(trial_observation, broker.events, locals().get('record'), locals().get('result'),
-                                        getattr(adapter, 'score_audit', {}))
-            self._runtime_start = previous_runtime_start
-            self.phase = previous_phase
-            self.checkpoint = previous_checkpoint
-            self.planner.checkpoint = previous_planner_checkpoint
-            self.budget_scope = previous_scope
-            self.task_context = previous_context
-            adapter.close()
+            try:
+                if self.observer:
+                    host('trial_end', self.observer.trial_end, trial_observation, broker.events if broker else [],
+                         locals().get('record'), locals().get('result'), getattr(adapter, 'score_audit', {}))
+            finally:
+                self._runtime_start = previous_runtime_start
+                self.phase = previous_phase
+                self.checkpoint = previous_checkpoint
+                self.planner.checkpoint = previous_planner_checkpoint
+                self.budget_scope = previous_scope
+                self.task_context = previous_context
+                if adapter: host('adapter_close', adapter.close)
 
     def close(self):
         self.adapter.close()

@@ -1,9 +1,60 @@
 """Readable, public stage projections. Execution and scoring use original values."""
 from copy import deepcopy
+import json
 from . import POLICY_DEFAULTS
 from .contracts import PublicTask
 
 MODEL_VIEW_VERSION = POLICY_DEFAULTS['runtime']['model_view_version']
+CANDIDATE_VIEW_VERSION = 'candidate.v1'
+
+
+def canonical_bytes(value):
+    return len(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8'))
+
+
+def project_related_candidates(related):
+    """Project already selected candidates; never mutate assets or judge eligibility."""
+    def fields(row, names):
+        return {key: deepcopy(row[key]) for key in names.split() if key in row}
+    def job(row):
+        return fields(row, 'id skill_id skill_version program_id kind state case_bindings generation_count repair_used epoch last_error_kind contract_quarantine')
+    def failure(row):
+        if isinstance(row, str): return {'message': row[:512]}
+        if not isinstance(row, dict): return None
+        result = fields(row, 'code error_code repair_target infrastructure_error stage operation cause_type trial_execution_id')
+        for key in ('message', 'error', 'detail', 'reason'):
+            if isinstance(row.get(key), str): result[key] = row[key][:512]
+        return result
+    value = deepcopy(related)
+    for asset in value:
+        if asset.get('current_program'):
+            asset['current_program'] = fields(asset['current_program'],
+                'id state entry backend input_schema output_schema result_role entry_constraints allowed_tools environment')
+        if asset.get('current_job'):
+            asset['current_job'] = job(asset['current_job'])
+            bindings = asset['current_job'].get('case_bindings', [])
+            used = set(asset.get('used_physical_tasks', []))
+            asset['trial_slots'] = {'limit': 2, 'fixed_case_count': len(bindings),
+                'unfilled_slot_count': 2 - len(bindings),
+                'untried_case_ids': [b['case_id'] for b in bindings if b['case_id'] not in used]}
+        if 'pending' in asset: asset['pending'] = [job(row) for row in asset['pending']]
+        if 'independent_results' in asset:
+            records = []
+            for row in asset['independent_results']:
+                summary = fields(row, 'id logical_trial_id trial_execution_id program_id task_key origin split outcome basis status local_check output_contract_status')
+                result = row.get('result', {})
+                summary.update(fields(result, 'status local_check output_contract_status contract_status error_code'))
+                if isinstance(result.get('submission_preparation'), dict):
+                    summary['submission_preparation'] = fields(result['submission_preparation'], 'status error_code repair_target')
+                if isinstance(result.get('score'), dict):
+                    summary['score'] = fields(result['score'], 'hard raw_score')
+                for key, source in (('error', row.get('error')), ('result_error', result.get('error')),
+                                    ('exception', row.get('exception')), ('diagnostic', result.get('diagnostic'))):
+                    error = failure(source)
+                    if error: summary[key] = error
+                records.append(summary)
+            asset['independent_results'] = records
+    return value
 
 
 def contains_exact(value, wanted):
@@ -70,6 +121,12 @@ def project(stage, material, *, task=None, adapter=None, context=None):
             'calls': {k: value.pop(k) for k in ('tools', 'programs', 'allowed_calls')},
             'memory': {'guidance': value.pop('guidance'), 'operations': memory, 'recent_results': recent},
             'recovery': value}
+    if stage == 'extractor' and 'related' in value:
+        before = canonical_bytes(value['related'])
+        value['related'] = project_related_candidates(value['related'])
+        value['candidate_view_version'] = CANDIDATE_VIEW_VERSION
+        value['candidate_view_audit'] = {'version': CANDIDATE_VIEW_VERSION, 'before_bytes': before,
+            'after_bytes': canonical_bytes(value['related']), 'candidate_ids': [a['id'] for a in value['related']]}
     if stage == 'extractor' and task is not None:
         value['experience']['task'] = model_task(task, adapter)
         if context and adapter.capabilities.interaction != 'single_answer':
