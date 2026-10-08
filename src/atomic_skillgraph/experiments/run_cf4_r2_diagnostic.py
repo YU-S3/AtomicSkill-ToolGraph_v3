@@ -82,13 +82,17 @@ def prepare(review, output):
     manifest = {'schema':'cf4-r2.diagnostic.v1', 'source':code_identity(), 'review_source':str(review),
         'created_at':utc(),'strategy':'historical_on_new_guidance_off',
         'budget':{'token_limit':5000000,'finish_reserve':500000,'request_limit':205},
-        'D1':{},'D2':{'task_ids':['officeqa:UID0115','officeqa:UID0148'],'max_http':2}, 'D3':{},
+        'config_sources':{},
+        'D1':{},'D2':{'task_ids':['officeqa:UID0115','officeqa:UID0148'],'max_http':2,
+            'finish_settings':{'thinking_type':'disabled','max_completion_tokens':512,'max_retries':0}}, 'D3':{},
         'D4':{'predicate_source':inspect.getsource(applicable),'predicate_hash':digest(inspect.getsource(applicable)),
               'tie_rule':'sha256("cf4-r2|" + benchmark + "|" + task_id)', 'max_http_per_episode':40},
         'stop':'D0-D4 only; no formal tail, no Test, no replacement samples or retries'}
     for benchmark,candidate in CANDIDATES.items():
         runroot=root/benchmark/'seed42'
-        dataset=Path(read(runroot/'train/config.json')['harness']['evaluator_records']).parent
+        config_path=runroot/'train/config.json'; config=read(config_path)
+        manifest['config_sources'][benchmark+'/train']={'path':str(config_path),'config_hash':digest(config),'llm':config['llm']}
+        dataset=Path(config['harness']['evaluator_records']).parent
         public_path=dataset/'val.json'
         manifest['D4'].setdefault('public_sources',{})[benchmark]={'path':str(public_path),'sha256':digest(read(public_path))}
         bank=Bank(runroot/'train/bank',readonly=True)
@@ -101,6 +105,8 @@ def prepare(review, output):
         finally: bank.close()
     for benchmark in ('searchqa','livemath'):
         runroot=root/benchmark/'seed42'
+        config_path=runroot/'val/config.json'; config=read(config_path)
+        manifest['config_sources'][benchmark+'/val']={'path':str(config_path),'config_hash':digest(config),'llm':config['llm']}
         tasks=read(runroot/'val/execution_manifest.json')['tasks']
         manifest['D3'][benchmark]={'task_ids':[t['task_id'] for t in tasks], 'max_http':len(tasks),
             'bank_tree':tree_identity(runroot/'train/frozen_bank'), 'source_run_manifest':digest(read(runroot/'run_manifest.json'))}
@@ -111,6 +117,11 @@ def prepare(review, output):
 def system_for(config, *, governor, readonly=False, view=None):
     return EmpiricalSystem(config,readonly=readonly,adapter_factory=lambda:create_simple_harness(config),
         bank_view_factory=(lambda b:BankView(b,view)) if view else None,budget_governor=governor)
+
+
+def view_identity(system, mode):
+    return {'source_bank_digest':system.bank.digest(),'view_mode':mode,
+            'view_version':BankView.version,'view_hash':digest([BankView.version,mode])}
 
 
 def d1(benchmark, manifest, root, governor):
@@ -237,6 +248,7 @@ def d3(benchmark, manifest, root, governor):
     destination=root/'D3'/benchmark
     config=settings(read(source/'val/config.json'),destination,source/'train/frozen_bank',readonly=True)
     system=system_for(config,governor=governor,readonly=True,view='guidance_off')
+    write_json(destination/'bank_view.json',view_identity(system,'guidance_off'))
     try:
         for entry in tasks:
             task=PublicTask(**entry); original=read(source/'val/traces'/(task.task_id+'.json'))
@@ -317,6 +329,7 @@ def d4(benchmark, candidate, manifest, root, governor, *, select_only=False):
         config=settings(read(source/'train/config.json'),destination,snapshot,readonly=True)
         config['harness']['evaluator_records']=config['harness']['evaluator_records'].replace('evaluator_records_train.json','evaluator_records_val.json')
         system=system_for(config,governor=governor,readonly=True,view='learned_assets_off' if arm=='off' else None)
+        write_json(destination/'bank_view.json',view_identity(system,'learned_assets_off' if arm=='off' else 'on'))
         system.checkpoint=TaskCheckpoint(destination/'checkpoint'); system.audit_path=destination/'requests.json'
         system.request_attribution={'parent_task_id':chosen,'diagnostic_phase':'D4','episode_scope':benchmark+':'+arm,'episode_request_limit':40}
         try:
@@ -332,6 +345,9 @@ def d4(benchmark, candidate, manifest, root, governor, *, select_only=False):
 def execute(manifest_path):
     manifest_path=Path(manifest_path); manifest=read(manifest_path); root=manifest_path.parent
     if manifest['source'] != code_identity(): raise ValueError('Diagnostic source identity changed')
+    for name,declared in manifest['config_sources'].items():
+        if digest(read(declared['path'])) != declared['config_hash']:
+            raise ValueError('Diagnostic source config changed: '+name)
     for benchmark,declared in manifest['D1'].items():
         bank_path=Path(manifest['review_source'])/'runs'/benchmark/'seed42/train/bank'
         if tree_identity(bank_path) != declared['bank_tree']: raise ValueError('D1 source Bank changed')

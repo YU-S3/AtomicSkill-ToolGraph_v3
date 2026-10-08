@@ -19,7 +19,7 @@ from atomic_skillgraph.empirical.system import EmpiricalSystem, validate_config
 from atomic_skillgraph.empirical.task_context import TaskContext
 from atomic_skillgraph.experiments.episode_projection import episode_projection
 from atomic_skillgraph.experiments.recover_empirical import inspect_source, recover, read
-from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import verify_d3_wire, prepare, d1, d2
+from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import verify_d3_wire, prepare, execute, view_identity, d1, d2
 from atomic_skillgraph.experiments.run_empirical import run
 from atomic_skillgraph.harness.benchmarks import SpreadsheetAdapter
 from atomic_skillgraph.harness.simple_protocol import Broker
@@ -168,6 +168,9 @@ def test_z10_views_block_direct_ids_and_preserve_digest(tmp_path):
     bank.freeze(tmp_path/'frozen'); bank.close()
     frozen=Bank(tmp_path/'frozen',readonly=True); before=frozen.digest(); view=BankView(frozen,'learned_assets_off')
     assert view.get(p['id']) is None and view.all('skill')==[] and view.train_cases()==[] and view.digest()==before
+    identities=[view_identity(SimpleNamespace(bank=frozen),mode) for mode in ('on','guidance_off','learned_assets_off')]
+    assert len({i['view_hash'] for i in identities})==3
+    assert {i['source_bank_digest'] for i in identities}=={before}
     with pytest.raises(RuntimeError): view.save_case(None,None)
     frozen.close()
 
@@ -273,6 +276,16 @@ def test_z12_rejected_builder_still_counts_actual_http(tmp_path,monkeypatch):
     result=d1('officeqa',manifest,tmp_path/'diagnostic',BudgetGovernor(tmp_path/'ledger.json'))
     assert result['status']=='failed' and 'builder_submission_tool_mismatch' in result['error']
     assert result['builder_http']==1 and len(seen)==1 and not result['usable']
+
+
+def test_z13_diagnostic_rejects_config_drift_before_http(tmp_path,monkeypatch):
+    if not REVIEW.exists(): pytest.skip('Requires archived source config')
+    root=tmp_path/'diagnostic'; manifest=prepare(REVIEW,root)
+    next(iter(manifest['config_sources'].values()))['config_hash']='changed'
+    (root/'diagnostic_manifest.json').write_text(json.dumps(manifest))
+    monkeypatch.setattr('atomic_skillgraph.agents.provider.requests.post',lambda *a,**k:pytest.fail('Config drift must not send HTTP'))
+    with pytest.raises(ValueError,match='Diagnostic source config changed'): execute(root/'diagnostic_manifest.json')
+    assert not (root/'STARTED.json').exists()
 
 
 def test_z14_new_commit_boundary_skips_history_and_no_freeze(tmp_path,monkeypatch):
