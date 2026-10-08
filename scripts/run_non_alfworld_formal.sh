@@ -13,7 +13,7 @@ case "${1:-}" in
 Usage: bash run_non_alfworld_formal.sh [--execute]
 Export CODE PYTHON DATASETS CORPUS_ROOT ENV_FILE OUTPUT_ROOT EXPECTED_SHA first.
 Optional MODEL_KEY (default deepseek-v4-flash).
-Default prints commands only. --execute requires a clean CF4-R1 checkout and a new
+Default prints commands only. --execute requires a clean CF4-R2 checkout and a new
 output root, then starts four independent seed42 Train->Frozen->Val cells.
 No automatic retries/resume/Test. Inspect completion.json in each cell afterwards.
 HELP

@@ -178,7 +178,9 @@ def d1(benchmark, manifest, root, governor):
         generated=system.agent('tool_builder',BUILDER_PROMPT,material,'submit_program',BUILD,
             repair_limit=0,owner_state_version='diagnostic-revision',job_key=['cf4-r2',job['id']],repair_reason='execution')
         result['builder_http']=1
-        if generated['trial_inputs'] != bindings: raise ValueError('Diagnostic Builder changed the fixed public bindings')
+        actual={b['case_id']:b for b in generated['trial_inputs']}
+        if len(actual) != len(generated['trial_inputs']) or actual != {b['case_id']:b for b in bindings}:
+            raise ValueError('Diagnostic Builder changed the fixed public bindings')
         asset={**{k:program[k] for k in ('entry','backend','input_schema','output_schema','allowed_tools','environment','result_role','entry_constraints') if k in program},
                'source':generated['source']}
         asset=validate_program_declaration(asset,submission_contract(system.adapter))
