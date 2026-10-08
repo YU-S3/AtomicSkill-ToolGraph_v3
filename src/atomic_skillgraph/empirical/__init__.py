@@ -2,7 +2,7 @@
 
 PROFILE = "skillcompiler.empirical.v1"
 
-IMPLEMENTATION_REVISION = 'empirical-v3.1-CF4-R1'
+IMPLEMENTATION_REVISION = 'empirical-v3.1-CF4-R2'
 POLICY_DEFAULTS = {
     'experiment': {'implementation_revision': IMPLEMENTATION_REVISION},
     'runtime': {'read_batch_max_calls': 3, 'result_inline_max_chars': 2048,

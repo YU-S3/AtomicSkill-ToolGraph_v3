@@ -25,6 +25,13 @@ def write_json(path, value):
     os.replace(temporary, path)
 
 
+def commit_trace(output, task_id, trace, database, checkpoint, **checkpoint_values):
+    write_json(Path(output)/'traces'/(task_id+'.json'), trace)
+    with database:
+        database.execute("UPDATE tasks SET status='completed',result=? WHERE id=?", (json.dumps(trace), task_id))
+    checkpoint.advance('task_committed', trace=trace, **checkpoint_values)
+
+
 def load_env(path):
     """Explicit opt-in loading; credentials never enter config or subprocess args."""
     for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
@@ -93,10 +100,15 @@ def resolve_alfworld_tasks(adapter, entries, *, mapping_path=None, canonical_spl
 
 
 def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, adapter_factory=None,
-        formal_log=None, task_metadata=None, order_offset=0, stop_after_tasks=None):
+        formal_log=None, task_metadata=None, order_offset=0, stop_after_tasks=None,
+        max_new_tasks=None, stop_at_task_id=None, bank_view_factory=None, budget_governor=None):
     if stop_after_tasks is not None and (type(stop_after_tasks) is not int or stop_after_tasks < 1):
         raise ValueError('stop_after_tasks must be a positive completed-task count')
     config = validate_config(config)
+    if max_new_tasks is not None and (type(max_new_tasks) is not int or max_new_tasks < 1):
+        raise ValueError('max_new_tasks must be positive')
+    if stop_at_task_id is not None and stop_at_task_id not in {t.task_id for t in tasks}:
+        raise ValueError('Unknown task boundary')
     print(json.dumps({'event': 'resolved_config', 'config': config}, ensure_ascii=False), flush=True)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -112,12 +124,14 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
             raise ValueError("Cannot resume a run without its execution manifest")
         write_json(identity_path, identity)
         write_json(output / "config.json", config)
-    system = EmpiricalSystem(config, harness=adapter, readonly=readonly, adapter_factory=adapter_factory)
+    system = EmpiricalSystem(config, harness=adapter, readonly=readonly, adapter_factory=adapter_factory,
+                             bank_view_factory=bank_view_factory, budget_governor=budget_governor)
     system.observer = formal_log
     system.bank.observer = formal_log
     state = sqlite3.connect(output / "run.sqlite3")
     state.execute("CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,attempts INTEGER,status TEXT,result TEXT)")
     cases = []
+    new_commits = 0
     try:
         for task_index, task in enumerate(tasks):
             if (output / 'STOP_AFTER_TASK').exists():
@@ -130,10 +144,9 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
             if row and row[1] == "completed":
                 trace = json.loads(row[2])
                 cases.append(trace)
-                if not readonly:
-                    system.learner.cases.append((task, {"task": {"goal": task.goal, "inputs": task.inputs},
-                        "events": trace["tools"], "score": trace["score"], "result": trace["execution"]}))
                 continue
+            if max_new_tasks is not None and new_commits >= max_new_tasks:
+                break
             count = row[0] if row and row[1] == 'running' else (row[0] if row else 0) + 1
             if count > config.get('experiment', {}).get('max_task_attempts', 3):
                 raise RuntimeError('Task attempts exhausted')
@@ -149,7 +162,6 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
             with state:
                 state.execute("INSERT INTO tasks VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET attempts=excluded.attempts,status=excluded.status",
                               (task.task_id, count, 'running', None))
-            trace_path = output / "traces" / (task.task_id + ".json")
             system.audit_path = output / "requests" / (task.task_id + "_attempt" + str(count) + ".json")
             attempt_id = task.task_id + ":" + str(count)
             if formal_log:
@@ -174,13 +186,13 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
                     raise
             if formal_log:
                 formal_log.end_task(trace)
-            write_json(trace_path, trace)
-            with state:
-                state.execute("UPDATE tasks SET status='completed',result=? WHERE id=?", (json.dumps(trace), task.task_id))
-            checkpoint.advance('task_committed', trace=trace)
+            commit_trace(output, task.task_id, trace, state, checkpoint)
             cases.append(trace)
+            new_commits += 1
             print(json.dumps({"task": task.task_id, "completed": len(cases), "score": trace["score"],
                               "tokens": sum(u["total_tokens"] for u in trace["usage"])}), flush=True)
+            if task.task_id == stop_at_task_id:
+                break
         complete = len(cases) == len(tasks)
         frozen = None
         if not readonly and complete:

@@ -9,6 +9,7 @@ from uuid import uuid4
 from ..empirical.contracts import digest
 from .canonical_manifest import sha256
 from .run_empirical import write_json
+from .episode_projection import episode_projection, terminal_episode
 
 
 LOGS = ('episodes', 'llm_calls', 'interactions', 'training_events', 'validation_events',
@@ -125,6 +126,8 @@ class FormalLog:
                     'retry_index': attempt['retry_count'], 'structural_repair_index': request['repair'], 'call_status': status})
                 if status != 'success':
                     self.emit('errors', {'event_id': call_id, 'task_id': task_id,
+                        'stage': request['stage'], 'purpose': request.get('purpose'),
+                        'logical_decision_id': request.get('logical_decision_id'), 'structural_repair_index': request['repair'],
                         'timestamp': utc(attempt['ended_at']), 'event_type': 'llm_request_error', 'normalized_error': code,
                         'message': attempt.get('sanitized_error'), 'retry_index': attempt['retry_count'],
                         'http_status': attempt.get('http_status'),
@@ -145,7 +148,12 @@ class FormalLog:
 
     def training(self, event_id, unit_type, start, end, examples, status, error=None, **details):
         if event_id in self.ids['training_events']:
-            return
+            prior = next(r for r in self.rows('training_events') if r['event_id'] == event_id)
+            if prior['training_event_status'] != 'exception' or status == 'exception': return
+            details.update(supersedes_event_id=event_id, is_resume_resolution=True)
+            event_id += ':resolution:' + digest([status, error, details])
+            examples = 0
+            if event_id in self.ids['training_events']: return
         self.training_index += 1
         self.consumed += examples
         self.emit('training_events', {'event_id': event_id, 'training_event_id': event_id,
@@ -170,13 +178,10 @@ class FormalLog:
         return self.active_learning
 
     def learning_end(self, observation, result):
-        if result is None:
-            self.active_learning = None
-            return
         details = {k: result[k] for k in ('decision', 'persisted_skill_id', 'reused_skill_id', 'parent_skill_id',
             'retrieved_guidance_ids', 'injected_guidance_ids', 'learning_rejected_reason') if result and k in result}
         self.training(observation['id'], 'learning_update', observation['start'], utc(), len(observation['subjects']),
-                      'rejected' if result and (result.get('rejected') or result.get('decision') == 'rejected') else 'completed',
+                      'exception' if result is None or result.get('exception') else 'rejected' if result and (result.get('rejected') or result.get('decision') == 'rejected') else 'completed',
                       result.get('learning_rejected_reason', result.get('error')) if result else None,
                       consumed_physical_keys=sorted(observation['subjects']), **details)
         self.active_learning = None
@@ -230,13 +235,13 @@ class FormalLog:
         calls = self.task_call_counts[(task['task_id'], task['split'])]
         infrastructure = task['task_id'] in self.infrastructure_tasks
         error = trace.get('error')
-        self.emit('episodes', {'event_id': task['attempt_id'], **task, 'task_end_time': utc(),
-            'official_score': trace['score']['raw_score'], 'success': trace['score']['hard'],
-            'terminal_reason': trace['execution']['reason'], 'environment_step_count': trace.get('environment_steps', 0),
+        self.emit('episodes', {'event_id': task['attempt_id'], **terminal_episode(task,trace,utc()),
+            'environment_step_count': trace.get('environment_steps', 0),
             'retrieved_guidance_ids': trace.get('retrieved_guidance_ids', []),
             'injected_guidance_ids': trace.get('injected_guidance_ids', []),
             'task_llm_call_count': calls, 'task_infrastructure_error': infrastructure,
             'task_error_type': error.get('code') if error else None, 'task_error_message': error.get('message') if error else None})
+        write_json(self.root/'episode_projection.json',episode_projection(self.rows('episodes')))
         if task['split'] == 'train':
             self.training(task['attempt_id'], 'trajectory', task['task_start_time'], utc(), 1, 'completed',
                           learning_result=trace.get('learning'))
@@ -251,7 +256,8 @@ class FormalLog:
             'timestamp': utc(), 'event_type': 'task_error', 'normalized_error': code,
             'message': str(exc), 'infrastructure_error': infrastructure})
         if self.current_task and not getattr(exc, 'model_authored', False):
-            self.emit('episodes', {'event_id': self.current_task['attempt_id'], **self.current_task,
+            self.emit('episodes', {'event_id': 'error-episode:' + self.current_task['attempt_id'] + ':' + utc(), **self.current_task,
+                'episode_event_type': 'error',
                 'task_end_time': utc(), 'official_score': None, 'success': None,
                 'terminal_reason': 'infrastructure_error' if infrastructure else 'execution_error',
                 'environment_step_count': None, 'task_llm_call_count': self.task_call_counts[(self.current_task['task_id'], self.current_task['split'])],

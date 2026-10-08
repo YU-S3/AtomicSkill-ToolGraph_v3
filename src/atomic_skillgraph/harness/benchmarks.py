@@ -73,6 +73,14 @@ class AnswerAdapter:
 
     def answer_contract(self): return answer_contract(self.benchmark, self.task.inputs)
 
+    def valid_answer_format(self, prediction):
+        if not isinstance(prediction, str): return False
+        if self.benchmark == 'livemath':
+            from .scorers.livemath import parse_choice_label, normalize_label
+            choices = self.task.inputs['choices']
+            return parse_choice_label(prediction, choices) in {normalize_label(c['label']) for c in choices}
+        return True
+
     def content_parts(self):
         parts = []
         for path in self.task.inputs.get('images', []):
@@ -99,6 +107,12 @@ class FileAdapter(AnswerAdapter):
 
     def tool_definitions(self): return [spec.view() for spec in self.specs.values()]
     def available_tools(self): return self.tool_definitions()
+
+    def program_submission_contract(self):
+        from ..empirical.program_submission import CONTRACT_VERSION
+        return {'version': CONTRACT_VERSION, 'final_submission_kind': self.capabilities.final_submission_kind,
+                'publication_contract': {'supported': True, 'required_files': [],
+                    'reserved_fields': ['files', 'deleted_files'], 'path_kind': 'workspace_relative'}}
 
     def model_state(self):
         return {'inputs': self.task.inputs,
@@ -225,6 +239,11 @@ class OfficeAdapter(FileAdapter):
 
 class SpreadsheetAdapter(FileAdapter):
     capabilities = Capabilities(input_modalities=('text','files'), checkpoint_mode='workspace_copy', final_submission_kind='files')
+
+    def program_submission_contract(self):
+        contract = super().program_submission_contract()
+        contract['publication_contract']['required_files'] = ['solution.py', 'case1_result.xlsx']
+        return contract
 
     def __init__(self, records, config):
         super().__init__('spreadsheet', records, config)

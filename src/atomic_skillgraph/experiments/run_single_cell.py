@@ -20,6 +20,8 @@ def main(argv=None):
     parser.add_argument('--model-key')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--stop-after-val', action='store_true')
+    parser.add_argument('--max-new-tasks', type=int)
+    parser.add_argument('--stop-at-task-id')
     args = parser.parse_args(argv)
     if args.env_file: load_env(args.env_file)
     spec = yaml.safe_load(Path(args.config).read_text())
@@ -41,7 +43,8 @@ def main(argv=None):
     base = model_settings(yaml.safe_load(Path(spec['base_config']).read_text()), model)
     profiles = json.loads(Path(spec['benchmark_profiles']).read_text())['profiles']
     return campaign(base, profiles, args.benchmark, args.seed, args.output, args.datasets, spec['authority'],
-                    args.corpus_root, resume=args.resume, stop_after_val=args.stop_after_val)
+                    args.corpus_root, resume=args.resume, stop_after_val=args.stop_after_val,
+                    max_new_tasks=args.max_new_tasks, stop_at_task_id=args.stop_at_task_id)
 
 
 if __name__ == '__main__': main()

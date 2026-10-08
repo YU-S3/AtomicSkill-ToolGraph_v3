@@ -37,7 +37,7 @@ class Workspace:
             (public / name).chmod(0o444)
         return directory
 
-    def publish(self, stage, declared, deleted=()):
+    def publish(self, stage, declared, deleted=(), *, invocation_id=None):
         stage = Path(stage).resolve(strict=True)
         if stage.parent != self.root or not stage.name.startswith('stage-'):
             raise ValueError('Not an owned staging directory')
@@ -65,6 +65,7 @@ class Workspace:
                 raise ValueError('Cannot delete an unregistered output')
         for relative in declared:
             candidate = stage / relative
+            if not candidate.exists(): raise ValueError('Declared output does not exist: ' + relative)
             resolved = candidate.resolve(strict=True)
             if not resolved.is_relative_to(stage) or not resolved.is_file():
                 raise ValueError('Declared output escapes stage or is not a file')
@@ -77,6 +78,8 @@ class Workspace:
         content_hash = digest({'files': hashes, 'outputs': outputs})
         if previous and previous.get('content_hash') == content_hash:
             self.discard(stage)
+            self.publication_receipt = {'invocation_id': invocation_id, 'host_verified': True,
+                'declared': declared, 'deleted': deleted, 'before': previous, 'after': previous}
             return previous
         version = 'version-' + uuid4().hex
         os.rename(stage, self.root / version)
@@ -89,6 +92,8 @@ class Workspace:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, self.root / 'manifest.json')
+        self.publication_receipt = {'invocation_id': invocation_id, 'host_verified': True,
+            'declared': declared, 'deleted': deleted, 'before': previous or {}, 'after': manifest}
         return manifest
 
     def discard(self, stage):

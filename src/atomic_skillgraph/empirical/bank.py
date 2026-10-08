@@ -213,6 +213,25 @@ class Bank:
         self.db.commit()
         return job
 
+    def quarantine_program(self, program_id, reason, recovery_id):
+        self._writable()
+        program = self.get(program_id)
+        if not program or 'source' not in program: raise ValueError('Unknown quarantine Program')
+        key = 'quarantine:' + program_id
+        event = {'program_id': program_id, 'reason': reason, 'recovery_id': recovery_id}
+        old = self.db.execute('SELECT value FROM metadata WHERE key=?', (key,)).fetchone()
+        if old and json.loads(old[0]) != event: raise ValueError('Quarantine identity mismatch')
+        with self.db:
+            program['state'] = 'disabled'
+            self.db.execute('UPDATE assets SET payload=? WHERE id=?', (json.dumps(program), program_id))
+            self.db.execute('INSERT OR IGNORE INTO metadata VALUES(?,?)', (key, json.dumps(event)))
+            for job in self.jobs():
+                if job.get('program_id') == program_id:
+                    job.update(state='deferred', contract_quarantine=event, last_error_kind='declaration_contract')
+                    self.db.execute('UPDATE realization_jobs SET payload=? WHERE id=?', (json.dumps(job), job['id']))
+        if self.observer: self.observer.asset('program', program)
+        return event
+
     def save_case(self, task, experience):
         from dataclasses import asdict
         self._writable()

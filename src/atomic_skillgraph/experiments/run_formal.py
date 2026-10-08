@@ -48,7 +48,8 @@ def resolved_config(base, profile, benchmark, seed, split, root, datasets, autho
     return validate_config(config)
 
 
-def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpus_root=None, *, resume=False, stop_after_val=False):
+def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpus_root=None, *, resume=False, stop_after_val=False,
+             max_new_tasks=None, stop_at_task_id=None):
     root = Path(output).resolve()
     authority, datasets = Path(authority).resolve(), Path(datasets).resolve()
     manifest = verify(authority)
@@ -87,6 +88,12 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         'candidate_sampling': 'deterministic existing algorithm; no random sampler'}
     if benchmark == 'officeqa':
         identity['corpus_sha256'] = corpus_identity(corpus_root)['sha256']
+    continuation = root/'continuation_manifest.json'
+    if continuation.exists():
+        lineage = json.loads(continuation.read_text())
+        if lineage.get('child_source') != code:
+            raise ValueError('Recovery continuation source identity changed')
+        identity.update(initial_bank=lineage['initial_bank'], recovery_id=lineage['recovery_id'])
     configurations = {split: resolved_config(base, profile, benchmark, seed, split, root, datasets, authority, corpus_root)
                       for split in ('train', 'val', 'test')}
     for config in configurations.values():
@@ -136,8 +143,14 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
                 phase = root / split
                 summary = run(settings, tasks, phase, resume=resume and (phase / 'execution_manifest.json').exists(),
                     readonly=split != 'train', adapter=adapter, adapter_factory=lambda settings=settings: create_simple_harness(settings),
-                    formal_log=log, task_metadata=metadata, order_offset=offset)
+                    formal_log=log, task_metadata=metadata, order_offset=offset,
+                    max_new_tasks=max_new_tasks if split == 'train' else None,
+                    stop_at_task_id=stop_at_task_id if split == 'train' else None)
                 summaries[split] = {k: summary[k] for k in ('complete', 'tasks', 'successes', 'known_total_tokens', 'unknown_billing_attempts', 'knowledge_digest')}
+                if not summary['complete']:
+                    log.finish('stopped_at_task_boundary')
+                    write_json(root / 'completion.json', {'status': 'stopped_at_task_boundary', 'runs': summaries})
+                    return summaries
                 if split == 'val':
                     log.emit('validation_events', {'event_id': 'frozen-validation', 'validation_event_id': 'frozen-validation',
                         'candidate_or_snapshot_id': frozen['final_artifact_id'], 'validation_size': len(tasks),

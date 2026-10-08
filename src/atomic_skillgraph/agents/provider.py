@@ -140,6 +140,7 @@ class OpenAICompatibleProvider:
         self._request_records: list[dict[str, Any]] = []
         self._records_lock = threading.RLock()
         self._request_context = threading.local()
+        self.budget_governor = None
 
     def snapshot(self) -> dict[str, Any]:
         value = self.config.snapshot()
@@ -163,10 +164,10 @@ class OpenAICompatibleProvider:
             return tuple(copy.deepcopy(self._request_records[start_index:]))
 
     def set_request_context(self, *, session_id: str, stage: str,
-                            request_sequence: int | None = None, repair: bool | None = None) -> None:
+                            request_sequence: int | None = None, repair: bool | None = None, **attribution) -> None:
         """Set thread-local audit attribution without changing the formal protocol."""
         self._request_context.value = {"session_id": str(session_id), "stage": str(stage),
-            "request_sequence": request_sequence, "repair": repair}
+            "request_sequence": request_sequence, "repair": repair, **attribution}
 
     def _build_payload(
         self, messages: list[AgentMessage], tools: list[NativeToolSpec] | None,
@@ -266,6 +267,8 @@ class OpenAICompatibleProvider:
             self._request_context.response_diagnostic = {}
             self._request_context.raw_usage = None
             self._request_context.public_response = None
+            if self.budget_governor:
+                self.budget_governor.admit(audit_id, payload, getattr(self._request_context, 'value', {}))
             try:
                 response = requests.post(
                     self.config.endpoint,
@@ -563,6 +566,7 @@ class OpenAICompatibleProvider:
             "request_id": audit_id,
             "provider_request_id": provider_request_id,
             "session_id": str(context.get("session_id", "")),
+            "request_context": copy.deepcopy(context),
             "stage": str(context.get("stage", "")),
             "request_sequence": context.get('request_sequence'),
             "repair_in_progress": context.get('repair'),
@@ -603,6 +607,8 @@ class OpenAICompatibleProvider:
         }
         with self._records_lock:
             self._request_records.append(record)
+        if self.budget_governor:
+            self.budget_governor.complete(record)
 
     def _backoff(self, retry_index: int, *, response: requests.Response | None = None) -> None:
         retry_after = _retry_after_seconds(response, self.config.max_retry_after_seconds)

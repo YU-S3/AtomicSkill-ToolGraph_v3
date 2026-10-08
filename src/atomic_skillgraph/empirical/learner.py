@@ -7,12 +7,13 @@ from .prompts import BUILD, BUILDER_PROMPT, LEARNING, LEARNER_PROMPT, GUIDANCE_L
 from .task_context import TaskContext
 from .program_worker import program_permission_view
 from .model_view import project, model_task
+from .program_submission import validate_program_declaration, submission_contract, ProgramContractError
 
 
 class Learner:
     def __init__(self, system):
         self.system = system
-        self.cases = []
+        self.cases = [(PublicTask(**row['task']), row['experience']) for row in system.bank.train_cases()]
 
     def _experience(self, task, trace):
         return {'task': {'goal': task.goal, 'inputs': task.inputs}, 'events': trace.get('tools', []),
@@ -36,11 +37,22 @@ class Learner:
 
     def _receive(self, key, stage, prompt, material, name, schema, **kwargs):
         s = self.system
+        if s.checkpoint:
+            snapshot = s.checkpoint.state.get(key + '_request_material')
+            if snapshot is None:
+                s.checkpoint.advance(s.checkpoint.state['stage'], **{key + '_request_material': material})
+            else:
+                material = snapshot
+        semantics = digest([stage, prompt, material, name, schema,
+            {k:v for k,v in kwargs.items() if k in ('completion_override','repair_limit','repair_reason','job_key')},
+            s.config['experiment']['implementation_revision']])
         if s.checkpoint and key in s.checkpoint.state:
+            if s.checkpoint.state.get(key + '_semantics') != semantics:
+                raise ValueError('Cached learning response semantics changed')
             return s.checkpoint.state[key]
         value = s.agent(stage, prompt, material, name, schema, owner_state_version=key, **kwargs)
         if s.checkpoint:
-            s.checkpoint.commit_decision(s.last_decision_id, 'applied', **{key: value})
+            s.checkpoint.commit_decision(s.last_decision_id, 'applied', **{key: value, key + '_semantics': semantics})
         return value
 
     def _skill_references(self, proposal):
@@ -64,6 +76,7 @@ class Learner:
             skill.setdefault('execution_intent', 'program_requested' if requested and
                 self.system.adapter.capabilities.interaction != 'single_answer' else 'guidance_only')
             skill.setdefault('result_role', 'intermediate')
+            skill = validate_program_declaration(skill, submission_contract(self.system.adapter))
             skill.setdefault('id', 'skill_' + digest(skill))
             return skill
         return self.system.bank.get(proposal.get('existing_skill_id') or '')
@@ -85,6 +98,9 @@ class Learner:
     def validate_learning_proposal(self, proposal, cases=None):
         resolved = self._resolve_realization_request(proposal)
         request, skill, job = proposal.get('realization_request'), resolved['skill'], resolved['job']
+        if skill: validate_program_declaration(skill, submission_contract(self.system.adapter))
+        if job and job.get('contract_quarantine'):
+            raise ProgramContractError('program_quarantined', 'Create a validated new declaration version', 'declaration')
         if not request or resolved['already_usable']: return resolved
         if not skill or 'input_schema' not in skill: raise ValueError('Unknown realization Skill')
         if cases is None:
@@ -127,7 +143,22 @@ class Learner:
         cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()}
         jobs = bank.jobs()
         related = []
-        for asset in bank.retrieve(task.goal):
+        priority = []
+        for job in jobs:
+            program = bank.get(job.get('program_id') or '')
+            linked = any(i['skill_id'] == job['skill_id'] and i['program_id'] == job.get('program_id')
+                         for i in bank.all('implementation'))
+            positives = {a['task_key'] for a in bank.attempts(job.get('program_id') or '') if a['outcome'] == 'positive'}
+            tried = {a['task_key'] for a in bank.attempts(job.get('program_id') or '') if a['outcome'] != 'inapplicable'}
+            if linked and program and program['state'] == 'candidate' and len(positives) == 1 and job['state'] not in {'done','deferred'} and not job.get('contract_quarantine') and (
+                    len(job['case_bindings']) < 2 or any(b['case_id'] not in tried for b in job['case_bindings'])):
+                asset = bank.get(job['skill_id'])
+                priority.append((job, {**asset, 'current_program': program, 'current_job': job,
+                    'used_physical_tasks': sorted(tried), 'independent_results': bank.attempts(program['id'])}))
+        priority.sort(key=lambda row: (-len(bank.words(task.goal) & bank.words(row[1]['goal'])), row[0]['id']))
+        ordered = [a for _, a in priority]
+        ordered += [a for a in bank.retrieve(task.goal) if a['id'] not in {x['id'] for x in ordered}]
+        for asset in ordered[:8]:
             pending = [j for j in jobs if j['skill_id'] == asset['id'] and j['state'] != 'done']
             related.append({**asset, 'pending': pending,
                 'execution_intent': asset.get('execution_intent', 'program_requested' if pending else 'guidance_only'),
@@ -149,6 +180,7 @@ class Learner:
         try:
             proposal = self._receive('learning_proposal', 'extractor', LEARNER_PROMPT, project('extractor',
                 {'experience': self._view(experience), 'related': related, 'tools': tools,
+                 'program_submission_contract': submission_contract(s.adapter),
                  'completed_train_cases': [{'case_id': key, 'task': case.get('task', {'goal': t.goal, 'inputs': t.inputs}),
                      'action_prefix': [{'name': e['name'], 'arguments': e['arguments']} for e in case.get('events', []) if e.get('backend_invoked', True)]}
                      for key, (t, case) in sorted(cases.items(), key=lambda row: (
@@ -268,6 +300,9 @@ class Learner:
 
     def _merge_request(self, job, request, skill, cases, experience, new_experience, log):
         bank = self.system.bank
+        if job.get('contract_quarantine'):
+            raise ProgramContractError('program_quarantined', 'Quarantined job cannot be reactivated', 'declaration')
+        if request['action'] == 'repair': job['stage'] = 'source_repair'
         job['kind'] = request['action'] if request['action'] != 'defer' else job['kind']
         existing = {b['case_id']: b for b in job['case_bindings']}
         new_binding = any(b['case_id'] not in existing for b in request['case_bindings'])
@@ -305,6 +340,13 @@ class Learner:
     def _realize(self, job, task, cases, tools, log):
         s, bank = self.system, self.system.bank
         skill = bank.get(job['skill_id'])
+        try:
+            validate_program_declaration(skill, submission_contract(s.adapter))
+        except ProgramContractError as exc:
+            job.update(state='deferred', last_error_kind='declaration_contract')
+            bank.save_job(job)
+            log['errors'].append(str(exc))
+            return
         bindings = job['case_bindings']
         if not bindings:
             job['state'] = 'waiting_example'; bank.save_job(job); return
@@ -316,18 +358,20 @@ class Learner:
             tool_surface=s.adapter.capabilities.tool_surface, workspace=getattr(s.adapter, 'workspace', None),
             environment=s.config['program_environment'])
         def build_material(previous_failure=None):
-            value = {'build_request': {'skill': skill, 'entry': 'def run(ctx, inputs)', 'fixed_bindings': bindings},
-                     'submission_contract': {'tool_name': 'submit_program', 'input_schema': BUILD},
-                     'future_program_api': {k: v for k, v in permissions.items() if k != 'workspace_capabilities'},
-                     'workspace_capabilities': permissions['workspace_capabilities'], 'examples': examples}
-            if previous_failure is not None: value['previous_failure'] = previous_failure
-            return value
+            return self.builder_material(skill, bindings, examples, permissions, previous_failure)
         material = build_material()
         if job['kind'] == 'repair' and job.get('program_id'):
             previous = bank.get(job['program_id'])
             material = build_material({'domain': 'program_trial', 'source': previous['source'],
                 'errors': [r.get('result', {}) for r in bank.attempts(previous['id'])[-2:]]})
-        program = bank.get(job.get('program_id') or '') if job['kind'] == 'trial' else None
+        program = bank.get(job.get('program_id') or '') if job.get('program_id') and (
+            job['kind'] == 'trial' or job.get('stage') == 'program_ready' or job['kind'] == 'build') else None
+        if job.get('pending_candidate'):
+            program = bank.put('program', job['pending_candidate'])
+            bank.put('implementation', {'skill_id': skill['id'], 'program_id': program['id']})
+            job.update(program_id=program['id'], stage='program_ready')
+            job.pop('pending_candidate')
+            bank.save_job(job)
         while True:
             if program is None:
                 generation = job.get('pending_generation', job['generation_count'])
@@ -351,9 +395,14 @@ class Learner:
                         'allowed_tools': permissions['allowed_names'],
                         'environment': s.config['program_environment'], 'result_role': skill.get('result_role','intermediate'),
                         'entry_constraints': skill.get('entry_constraints','undeclared')}
+                    candidate = validate_program_declaration(candidate, submission_contract(s.adapter))
+                    job['pending_candidate'] = candidate
+                    bank.save_job(job)
                     program = bank.put('program', candidate)
                     bank.put('implementation', {'skill_id': skill['id'], 'program_id': program['id']})
-                    job['program_id'] = program['id']; job.pop('pending_generation', None)
+                    job.update(program_id=program['id'], stage='program_ready', next_trial=0)
+                    job.pop('pending_generation', None)
+                    job.pop('pending_candidate', None)
                     bank.save_job(job)
                     log['trial_inputs'] = bindings
                     log['example_inputs'] = bindings[0]['inputs']
@@ -368,7 +417,7 @@ class Learner:
                     continue
             log['program'] = program['id']
             failures = []
-            for binding in bindings:
+            for trial_index, binding in enumerate(bindings):
                 if any(a['task_key'] == binding['case_id'] and a['origin']=='train_test' and a['outcome']!='inapplicable'
                        for a in bank.attempts(program['id'])): continue
                 trial_case = self._preflight_binding(binding, skill, cases)
@@ -376,9 +425,11 @@ class Learner:
                 trial = s.test_program(program, trial_case.inputs, test_task,
                     trial_id=digest([program['id'], test_task.physical_key, binding, 'train_test']), trial_case=trial_case)
                 log['tests'].append(trial)
+                job['next_trial'] = trial_index + 1
+                bank.save_job(job)
                 if trial['outcome'] == 'execution_failure': failures.append(trial)
             if failures and not job['repair_used']:
-                job.update(repair_used=True, last_error_kind='execution')
+                job.update(repair_used=True, last_error_kind='execution', stage='source_repair')
                 bank.save_job(job)
                 material = build_material({'domain': 'program_trial', 'source': program['source'], 'errors': failures})
                 program = None
@@ -390,3 +441,12 @@ class Learner:
             break
         bank.save_job(job)
         if s.checkpoint: s.checkpoint.advance(s.checkpoint.state['stage'], realization_job=job)
+
+    def builder_material(self, skill, bindings, examples, permissions, previous_failure=None):
+        value = {'build_request': {'skill': skill, 'entry': 'def run(ctx, inputs)', 'fixed_bindings': bindings},
+                 'submission_contract': {'tool_name': 'submit_program', 'input_schema': BUILD},
+                 'program_submission_contract': submission_contract(self.system.adapter),
+                 'future_program_api': {k:v for k,v in permissions.items() if k != 'workspace_capabilities'},
+                 'workspace_capabilities': permissions['workspace_capabilities'], 'examples': examples}
+        if previous_failure is not None: value['previous_failure'] = previous_failure
+        return value

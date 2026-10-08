@@ -526,6 +526,7 @@ def test_t14_isolated_trial_replan_owns_trial_checkpoint_not_parent(tmp_path,mon
         ('submit_plan',{'mode':'compose','workflow':plan}),('runtime_step',{'action':'finish','answer':'private'})])
     record=s.test_program(p,{},s.adapter.task,trial_id='trial_scope')
     trial=TaskCheckpoint(parent.root/'trials/trial_scope')
+    trial=TaskCheckpoint(trial.root/'executions'/trial.state['execution_id'])
     planner=next(d for d in trial.state['decisions'].values() if d['purpose']=='planner')
     assert planner['owner_state_version']==2 and 'trial_scope' in planner['scope']
     assert s.checkpoint is parent and s.planner.checkpoint is parent and not parent.state['decisions']

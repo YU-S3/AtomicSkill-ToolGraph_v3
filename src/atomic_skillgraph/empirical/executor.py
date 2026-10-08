@@ -10,6 +10,11 @@ from .prompts import finish_text_prompt, PATCH, RUNTIME_PROMPT, STEP
 from .task_context import progress_key, public_view
 from ..harness.simple_protocol import UnknownSideEffect
 from .model_view import project
+from .finish_evidence import finalize_text
+from .trial_snapshot import seal_trial_workspace, restore_trial_workspace
+from ..core.errors import BudgetExhausted
+from .program_submission import (effective_output_schema, submission_contract,
+                                 normalize_program_result, prepare_program_submission, positive_eligible)
 
 
 class Executor:
@@ -25,10 +30,16 @@ class Executor:
         producers, supplied_by, consumed = {}, {}, set()
         input_reads, replaced_inputs = [], {}
         reason, final, last_output, last_role = 'completed', None, {}, 'intermediate'
+        last_producer, submission_producer_attempt_id = None, None
+        finish_evidence = None
         pending_step, pending_decision_id, owner_version, recovery_needed = None, None, 0, False
         checkpoint = getattr(self, 'checkpoint', None)
         submission_kind = adapter.capabilities.final_submission_kind
         if checkpoint and checkpoint.state.get('executor_finished'):
+            receipt = checkpoint.state.get('executor_finished_workspace')
+            if receipt: restore_trial_workspace(adapter, receipt)
+            elif checkpoint.state['executor_finished'].get('submission_producer_attempt_id') and getattr(adapter,'workspace',None):
+                raise UnknownSideEffect('Program submission lacks a reconstructible public workspace')
             return checkpoint.state['executor_finished']
         saved = checkpoint.state.get('executor_state') if checkpoint else None
         if saved:
@@ -42,6 +53,8 @@ class Executor:
             producers, input_reads, replaced_inputs = saved['producers'], saved['input_reads'], saved['replaced_inputs']
             supplied_by = {(n, k): v for n, k, v in saved['supplied_by']}
             final, last_output, last_role = saved['final'], saved['last_output'], saved['last_role']
+            last_producer = saved.get('last_producer')
+            submission_producer_attempt_id = saved.get('submission_producer_attempt_id')
             reason = saved.get('reason', reason)
             for key, value in saved['context'].items():
                 setattr(context, key, set(value) if key in {'progress_contents', 'progress_states'} else value)
@@ -69,6 +82,7 @@ class Executor:
                 'consumed': sorted(consumed), 'producers': producers, 'input_reads': input_reads,
                 'replaced_inputs': replaced_inputs, 'supplied_by': [[n,k,v] for (n,k),v in supplied_by.items()],
                 'final': final, 'reason': reason, 'last_output': last_output, 'last_role': last_role, 'pending_step': encoded,
+                'last_producer': last_producer, 'submission_producer_attempt_id': submission_producer_attempt_id,
                 'pending_decision_id': None if status else pending_decision_id, 'owner_version': owner_version,
                 'recovery_needed': recovery_needed,
                 'context': {k: sorted(getattr(context,k)) if k in {'progress_contents','progress_states'} else getattr(context,k)
@@ -80,12 +94,45 @@ class Executor:
             else:
                 checkpoint.advance(checkpoint.state['stage'], executor_state=state)
 
-        def submission(output, role='intermediate'):
+        def submission(output, role='intermediate', producer=None):
+            if producer:
+                attempt = next(a for a in attempts if a['id'] == producer)
+                result = context.results[attempt['result_id']]
+                program = self.bank.get(attempt['program_id'])
+                prepared = prepare_program_submission(adapter, program, result,
+                    workspace_before=attempt.get('workspace_before'))
+                return prepared['status'] == 'ready' or (prepared['output_contract_status'] == 'valid'
+                    and program.get('result_role', 'intermediate') == 'intermediate' and role == 'final_answer'
+                    and getattr(adapter, 'submission_ready', lambda *a, **k: False)(output, result_role=role))
             return getattr(adapter, 'submission_ready', lambda *a, **k: False)(output, result_role=role)
 
         def recent():
             return [context.view(row['result_id']) if 'result_id' in row else
                     {k: context.preview(v) for k,v in row.items()} for row in history[-3:]]
+
+        def finalize():
+            nonlocal final, reason, pending_decision_id, finish_evidence, submission_producer_attempt_id
+            if submission(last_output, last_role, last_producer):
+                final = last_output['answer']
+                submission_producer_attempt_id = last_producer
+                return
+            try:
+                final, finish_evidence = finalize_text(self.agent, context,
+                    {'original_goal': task.goal, 'public_state': public_view(adapter),
+                     'working_memory': context.model_memory(), 'recent': recent(),
+                     'completed_results': values.model_view(), 'pending_outputs': context.pending_outputs},
+                    finish_text_prompt(getattr(adapter, 'answer_contract', lambda: '')()),
+                    owner_state_version=owner_version)
+                candidate_id = getattr(getattr(self.agent, '__self__', None), 'last_decision_id', None)
+                pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
+                reason = 'finish_only'
+                save(status='applied')
+            except ValueError as exc:
+                candidate_id = getattr(exc, 'logical_decision_id', None)
+                pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
+                history.append({'error': str(exc)})
+                final, reason = '', str(exc) if str(exc).startswith('finish_only_') else 'finish_only_protocol_error'
+                save(status='rejected')
 
         def fail(kind, interface, *, name='', arguments=None, detail=None):
             nonlocal recovery_needed
@@ -126,7 +173,7 @@ class Executor:
             return escape()
 
         def complete(node, outputs, origin, *, refs=None, producer=None, result_role=None):
-            nonlocal node_index, last_output, last_role
+            nonlocal node_index, last_output, last_role, last_producer
             interface = resolve_node_interface(node, self.bank)
             actual = context.bind(outputs, refs or {})
             requirements = handoff_requirements(plan, node['id'], completed)
@@ -136,11 +183,13 @@ class Executor:
             view = actual
             try:
                 if interface['output_schema']:
-                    validate_schema_instance(actual, interface['output_schema'])
+                    schema = effective_output_schema(interface['output_schema'], result_role=role,
+                        publication_contract=submission_contract(adapter)['publication_contract']) if producer else interface['output_schema']
+                    validate_schema_instance(actual, schema)
                 view = output_view(actual, node.get('output_aliases'))
                 if set(requirements['required_fields']) - set(view):
                     raise ValueError('Required handoff fields are absent')
-                if escapes and node['id'] == plan['nodes'][-1]['id'] and not broker.done and not submission(actual, role):
+                if escapes and node['id'] == plan['nodes'][-1]['id'] and not broker.done and not submission(actual, role, producer):
                     raise ValueError('Remaining task is not terminal or ready for submission')
             except ValueError as exc:
                 raise HandoffError({'node_id': node['id'], 'execution_mode': interface['execution_mode'],
@@ -154,6 +203,7 @@ class Executor:
             context.mark_progress('handoff', actual)
             completed.add(node['id'])
             last_output, last_role = actual, role
+            last_producer = producer
             node_index += 1
 
         def patch(value):
@@ -230,20 +280,25 @@ class Executor:
 
         def invoke(program, arguments, node_id):
             start, was_terminal = len(broker.events), broker.done
+            workspace_before = adapter.observe().get('workspace', {})
             if checkpoint:
                 checkpoint.advance(checkpoint.state['stage'], program_started=True)
             result = self.worker.execute(program, arguments, broker)
+            result = normalize_program_result(adapter, program, result, workspace_before=workspace_before)
             local = broker.check_local(arguments, result.get('outputs', {}), start) if result['status'] == 'ok' else 'unavailable'
             result['local_check'] = local
             if local == 'failed' or result['status'] == 'execution_error':
                 blocked.add(program['id'])
                 outcome = 'execution_failure'
             else:
-                outcome = 'positive' if result['status'] == 'ok' and local == 'passed' else 'normal'
+                outcome = 'positive' if positive_eligible(result) and local == 'passed' else 'normal'
             attempt = {'id': uuid4().hex, 'program_id': program['id'], 'task_key': task.physical_key,
                 'origin': 'online', 'split': task.split, 'outcome': outcome, 'calls': len(broker.events)-start,
                 'status': result['status'], 'local_check': local, 'basis': 'local_check' if outcome == 'positive' else None,
                 'node': node_id, 'outputs_consumed': False, 'terminal_by_program': not was_terminal and broker.done}
+            attempt.update(worker_status=result.get('worker_status'), output_contract_status=result['output_contract_status'],
+                publication_receipt=result.get('publication_receipt'), workspace_before=workspace_before,
+                error_code=result.get('error_code'), submission_by_program=False)
             attempts.append(attempt)
             result_id = context.register(attempt['id'], result, name=program['id'], arguments=arguments)
             history.append({'program': program['id'], 'arguments': deepcopy(arguments), 'result_id': result_id})
@@ -262,10 +317,17 @@ class Executor:
                 save(status='applied')
             if node_index >= len(plan['nodes']):
                 final_values, _ = values.resolve(plan.get('outputs', {}))
-                if submission_kind == 'text' and ('answer' in final_values or submission(last_output, last_role)):
-                    final, reason = final_values.get('answer', last_output.get('answer')), 'plan_submitted'; break
-                if submission_kind == 'files' and submission(last_output, last_role):
-                    final, reason = final_values, 'plan_submitted'; break
+                answer_ref = plan.get('outputs', {}).get('answer', {})
+                answer_producer = producers.get(answer_ref.get('from')) if answer_ref.get('field') else None
+                if submission_kind == 'text' and (('answer' in final_values and (not answer_producer or
+                        submission(final_values, 'final_answer', answer_producer))) or submission(last_output, last_role, last_producer)):
+                    final, reason = final_values.get('answer', last_output.get('answer')), 'plan_submitted'
+                    submission_producer_attempt_id = answer_producer if 'answer' in final_values else last_producer
+                    break
+                if submission_kind == 'files' and submission(last_output, last_role, last_producer):
+                    final, reason = final_values, 'plan_submitted'
+                    submission_producer_attempt_id = last_producer
+                    break
                 if final is not None or adapter.capabilities.interaction == 'single_answer':
                     break
                 if not escape():
@@ -311,24 +373,7 @@ class Executor:
             if broker.remaining_calls() <= 0:
                 reason = 'tool_budget_exhausted'
                 if submission_kind == 'text':
-                    if submission(last_output, last_role):
-                        final = last_output['answer']
-                    else:
-                        try:
-                            answer = self.agent('runtime', finish_text_prompt(getattr(adapter, 'answer_contract', lambda: '')()),
-                                {'original_goal': task.goal, 'public_state': public_view(adapter), 'working_memory': context.model_memory(),
-                                 'recent': recent(), 'completed_results': values.model_view()}, None, None,
-                                repair_limit=0, owner_state_version=owner_version, decision_purpose='finish_only')
-                            candidate_id = getattr(getattr(self.agent, '__self__', None), 'last_decision_id', None)
-                            pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
-                            final, reason = answer, 'finish_only'
-                            save(status='applied')
-                        except ValueError as exc:
-                            candidate_id = getattr(exc, 'logical_decision_id', None)
-                            pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
-                            history.append({'error': str(exc)})
-                            final, reason = '', str(exc) if str(exc).startswith('finish_only_') else 'finish_only_protocol_error'
-                            save(status='rejected')
+                    finalize()
                 elif submission_kind == 'files': final = {}
                 break
             references = interface['reference_skill_ids']
@@ -367,6 +412,10 @@ class Executor:
                     pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
                 save(step)
                 pending_step = None
+            except BudgetExhausted as exc:
+                if exc.code != 'runtime_finish_reserved' or submission_kind != 'text': raise
+                finalize()
+                break
             except ValueError as exc:
                 candidate_id = getattr(exc, 'logical_decision_id', None)
                 pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
@@ -389,6 +438,7 @@ class Executor:
                 try:
                     if kind == 'finish':
                         final, reason, finish = action.get('answer'), 'agent_submitted', True
+                        submission_producer_attempt_id = None
                     elif kind == 'revise_plan':
                         if replans:
                             if not escape():
@@ -481,10 +531,15 @@ class Executor:
                     consumed.add(producers[ref['from']])
         for attempt in attempts:
             attempt['outputs_consumed'] = attempt['id'] in consumed
+            attempt['submission_by_program'] = attempt['id'] == submission_producer_attempt_id
         result = {'prediction': final if final is not None else final_values, 'reason': reason,
                   'values': values.history, 'history': history, 'attempts': attempts, 'plan': plan,
                   'plan_revisions': replans, 'dynamic_escapes': escapes, 'abandoned': sorted(abandoned),
                   'pending_outputs': context.pending_outputs, 'input_reads': input_reads, 'replaced_inputs': replaced_inputs}
+        result['submission_producer_attempt_id'] = submission_producer_attempt_id
+        result['finish_evidence'] = finish_evidence
         if checkpoint:
-            checkpoint.advance(checkpoint.state['stage'], executor_finished=result, program_started=False)
+            receipt = seal_trial_workspace(adapter, checkpoint.root/'executor_finished_workspace') if getattr(adapter,'workspace',None) else None
+            checkpoint.advance(checkpoint.state['stage'], executor_finished=result, program_started=False,
+                               executor_finished_workspace=receipt)
         return result

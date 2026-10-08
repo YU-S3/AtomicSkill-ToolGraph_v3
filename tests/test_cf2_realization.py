@@ -314,7 +314,8 @@ def test_t39_empty_final_files_cannot_claim_an_old_bundle(tmp_path,worker):
     asset.update(allowed_tools=[],result_role='final_files'); asset=s.bank.put('program',asset)
     s.agent=lambda *a,**k: pytest.fail('incomplete final bundle must not trigger another solve')
     trial=s.test_program(asset,{},task,trial_id='empty-output-trial')
-    assert trial['outcome']=='normal' and 'score' not in trial['result']
+    assert trial['outcome']=='execution_failure' and 'score' not in trial['result']
+    assert trial['result']['error_code']=='program_publication_incomplete'
     assert s.bank.get(asset['id'])['state']=='candidate'
     s.close()
 

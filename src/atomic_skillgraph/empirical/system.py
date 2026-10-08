@@ -20,6 +20,8 @@ from .executor import Executor
 from .learner import Learner
 from .planner import Planner, dynamic
 from .program_worker import ProgramWorker
+from .program_submission import normalize_program_result, positive_eligible
+from .trial_snapshot import seal_trial_workspace, restore_trial_workspace, exception_details
 
 
 STAGE_BUCKETS = {"planner": "planner_p1", "runtime": "runtime_dynamic", "extractor": "extractor_e1",
@@ -30,6 +32,16 @@ def validate_config(config):
     if config.get("mechanism_profile") != PROFILE:
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
+    overrides = config.get('llm', {}).get('purpose_overrides', {})
+    if set(overrides) - {'finish_only'}:
+        raise ValueError('Unsupported purpose override')
+    for settings in overrides.values():
+        if set(settings) - {'protocol', 'max_completion_tokens', 'reasoning_effort'}:
+            raise ValueError('Unsupported purpose setting')
+        if set(settings.get('protocol', {})) - {'thinking_type'} or settings.get('protocol', {}).get('thinking_type', 'enabled') not in {'enabled','disabled'}:
+            raise ValueError('Invalid purpose protocol')
+        if type(settings.get('max_completion_tokens', 512)) is not int or settings.get('max_completion_tokens', 512) < 1:
+            raise ValueError('Invalid purpose completion cap')
     for section, defaults in POLICY_DEFAULTS.items():
         config[section] = {**defaults, **config.get(section, {})}
         for key, value in defaults.items():
@@ -66,11 +78,17 @@ def validate_config(config):
 
 
 class EmpiricalSystem:
-    def __init__(self, config, *, harness=None, provider=None, readonly=None, adapter_factory=None):
+    def __init__(self, config, *, harness=None, provider=None, readonly=None, adapter_factory=None,
+                 bank_view_factory=None, budget_governor=None):
         self.config = validate_config(config)
         self.readonly = bool(self.config.get("experiment", {}).get("runtime_mode") == "frozen") if readonly is None else readonly
         self.bank = Bank(self.config["data_dir"], readonly=self.readonly,
                          seed=self.config.get("experiment", {}).get("seed", 42))
+        if bank_view_factory:
+            if not self.readonly: raise ValueError('Bank views require readonly evaluation')
+            self.bank = bank_view_factory(self.bank)
+        self.budget_governor = budget_governor
+        self.request_attribution = {}
         self.adapter_factory = adapter_factory
         if harness is None:
             from ..harness.registry import create_simple_harness
@@ -128,24 +146,35 @@ class EmpiricalSystem:
             if self.observer:
                 self.observer.requests(list(requests.values()))
 
-    def provider(self, stage):
+    def resolve_call_settings(self, stage, purpose):
+        llm = self.config['llm']
+        settings = {**llm, **llm.get(stage, {})}
+        override = llm.get('purpose_overrides', {}).get(purpose, {})
+        settings.update({k:v for k,v in override.items() if k != 'protocol'})
+        settings['protocol'] = {**llm.get('protocol', {}), **override.get('protocol', {})}
+        return settings
+
+    def provider(self, stage, purpose=None):
         if self.provider_override is not None:
             return self.provider_override.get(stage) if isinstance(self.provider_override, dict) else self.provider_override
-        if stage not in self.providers:
+        settings = self.resolve_call_settings(stage, purpose)
+        key = (stage, purpose, digest(settings))
+        if key not in self.providers:
             llm = self.config["llm"]
-            settings = {**llm, **llm.get(stage, {})}
-            self.providers[stage] = OpenAICompatibleProvider(OpenAICompatibleConfig(
+            self.providers[key] = OpenAICompatibleProvider(OpenAICompatibleConfig(
                 base_url=llm["base_url"], model=llm["model"], api_key_env=llm["api_key_env"],
                 dialect=llm.get('dialect', 'deepseek_v4_chat'),
                 input_modalities=tuple(llm.get('input_modalities', ['text'])),
                 token_limit_field=llm.get('token_limit_field', 'max_tokens'),
                 generation_seed=self.config['experiment']['seed'] if llm.get('generation_seed_supported') is True else None,
                 max_completion_tokens=settings["max_completion_tokens"],
-                thinking_type=llm.get("protocol", {}).get("thinking_type", "enabled"),
+                thinking_type=settings.get("protocol", {}).get("thinking_type", "enabled"),
                 reasoning_effort=settings.get("reasoning_effort", "high"),
                 request_timeout_seconds=settings.get("request_timeout_seconds", 180),
                 max_retries=llm.get("max_retries", 4)))
-        return self.providers[stage]
+        provider = self.providers[key]
+        provider.budget_governor = self.budget_governor
+        return provider
 
     def agent(self, stage, prompt, materials, name, schema, *, validator=None, repair_limit=0,
               completion_override=None, repair_reason=None, job_key=None, owner_state_version=None,
@@ -154,7 +183,9 @@ class EmpiricalSystem:
         if self.checkpoint and self.task_context:
             self.checkpoint.advance(self.checkpoint.state['stage'], model_context={k: getattr(self.task_context, k)
                 for k in ('scope', 'results', 'sources', 'memory')})
-        provider = self.provider(stage)
+        purpose = decision_purpose or ('finish_only' if name == 'finish_answer' else {'tool_builder': 'builder'}.get(stage, stage))
+        settings = self.resolve_call_settings(stage, purpose)
+        provider = self.provider(stage, purpose)
         tools = [NativeToolSpec(name, "Submit the requested result", schema)] if name else []
         messages = [{"role": "system", "content": prompt},
                     {"role": "user", "content": json.dumps(materials, ensure_ascii=False, allow_nan=False)}]
@@ -164,7 +195,6 @@ class EmpiricalSystem:
                 raise ValueError('Model capability lock does not support image input')
             messages[1]['content'] = [{'type': 'text', 'text': json.dumps(
                 {k: v for k, v in materials.items() if k != 'content_parts'}, ensure_ascii=False)}, *content_parts]
-        purpose = decision_purpose or ('finish_only' if name == 'finish_answer' else {'tool_builder': 'builder'}.get(stage, stage))
         scope = json.dumps([str(self.checkpoint.root) if self.checkpoint else '', self.budget_scope, job_key])
         decision_id = self.checkpoint.prepare_decision(scope, purpose, owner_state_version) if self.checkpoint else uuid4().hex
         self.last_decision_id = decision_id
@@ -181,13 +211,19 @@ class EmpiricalSystem:
             if used >= cap:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Role token budget exhausted', layer=FailureLayer.RUNTIME_AGENT)
             turn = None
-            completion_cap = completion_override or self.config['llm'].get(stage, {}).get('max_completion_tokens', 32768)
+            completion_cap = completion_override or settings.get('max_completion_tokens', 32768)
             if stage == 'tool_builder': completion_cap = min(completion_cap, cap-used)
+            if stage == 'runtime' and self.adapter.capabilities.final_submission_kind == 'text' and self.adapter.capabilities.interaction != 'single_answer':
+                from .budget_governor import input_token_bound
+                reserve = 0 if purpose == 'finish_only' else 65536 + self.resolve_call_settings(stage, 'finish_only').get('max_completion_tokens', 32768)
+                if used + input_token_bound({'messages': messages, 'tools': [t.to_openai() for t in tools]}) + completion_cap + reserve > cap:
+                    raise BudgetExhausted('runtime_finish_reserved', 'Runtime admission preserves a bounded finish', layer=FailureLayer.RUNTIME_AGENT)
             response_key = digest({'scope': scope, 'purpose': purpose, 'logical_decision_id': decision_id, 'repair_index': repair,
                                    'stage': stage, 'phase': self.phase, 'budget_scope': self.budget_scope,
                                    'messages': messages, 'tools': [t.to_openai() for t in tools],
                                    'completion_cap': completion_cap, 'repair_reason': repair_reason, 'job_key': job_key,
                                    'model_identity': self.config['llm'],
+                                   'effective_call_settings': settings,
                                    'policy': self.config['runtime']['plan_execution_policy'],
                                    'implementation_revision': self.config['experiment']['implementation_revision']})
             recovered = self.checkpoint.response(response_key) if self.checkpoint else None
@@ -199,6 +235,7 @@ class EmpiricalSystem:
                       "phase": self.phase, 'budget_scope': self.budget_scope,
                       "messages": messages, "tools": [t.to_openai() for t in tools]}
             record.update(completion_cap=completion_cap, repair_reason=repair_reason, job_key=job_key)
+            record['effective_call_settings_hash'] = digest(settings)
             # Trace messages omit replay-private reasoning. The immediate repair
             # retains the actual assistant envelope in process only.
             record["messages"] = [{k: v for k, v in m.items() if k != "reasoning_content"} for m in messages]
@@ -215,6 +252,12 @@ class EmpiricalSystem:
                     if recovered.get('protocol_error'):
                         raise ProviderAgentProtocolError('runtime_agent_schema_error', recovered['protocol_error'], usage_turn=turn)
                 else:
+                    if hasattr(provider, 'set_request_context'):
+                        provider.set_request_context(session_id=request_id, stage=stage, repair=repair,
+                            purpose=purpose, logical_decision_id=decision_id, parent_task_id=self.request_attribution.get('parent_task_id'),
+                            trial_id=self.budget_scope if self.phase == 'trial' else None,
+                            trial_execution_id=self.checkpoint.state.get('execution_id') if self.phase == 'trial' and self.checkpoint else None,
+                            **{k:v for k,v in self.request_attribution.items() if k != 'parent_task_id'})
                     kwargs = {'max_completion_tokens': completion_cap} if isinstance(provider, OpenAICompatibleProvider) or completion_override is not None else {}
                     turn = provider.complete(messages, tools=tools, **kwargs)
                     if self.checkpoint:
@@ -269,6 +312,8 @@ class EmpiricalSystem:
             record["response"] = {"content": turn.content, "finish_reason": turn.finish_reason,
                 "tool_calls": [{"id": c.call_id, "name": c.name, "arguments": c.arguments} for c in turn.tool_calls],
                 "usage": {k: getattr(turn, k) for k in ("prompt_tokens", "completion_tokens", "total_tokens", "reasoning_tokens")}}
+            from .answer_status import classify_answer
+            record.update(classify_answer(turn.content, turn.finish_reason))
             self._save_requests()
             if self._budget(stage)[0] > cap:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Metered turn exceeded role budget', layer=FailureLayer.RUNTIME_AGENT)
@@ -336,8 +381,10 @@ class EmpiricalSystem:
         self._runtime_start = self._task_start
         self._request_start = request_start
         trace = {"schema": "empirical.trace.v1", "task": asdict(task), "attempt_id": attempt_id or uuid4().hex,
-                 "knowledge_before": before, "tools": [], "execution": {}, "score": None}
+                 "knowledge_before": before, "tools": [], "execution": {}, "score": None,
+                 "solve_status": "not_started", "learning_status": "not_started", "learning_error": None}
         self.budget_scope = trace['attempt_id']
+        self.request_attribution['parent_task_id'] = task.task_id
         self.last_decision_id = None
         self.prior_usage = json.loads(Path(self.audit_path).read_text())['usage'] if self.audit_path and Path(self.audit_path).exists() else []
         self.phase = task.split
@@ -345,6 +392,16 @@ class EmpiricalSystem:
         if self.checkpoint and self.checkpoint.state['stage'] in {'task_execution_finished', 'learning_finished', 'task_committed'}:
             trace = self.checkpoint.state['trace']
             if learn and self.checkpoint.state['stage'] == 'task_execution_finished':
+                receipt = self.checkpoint.state.get('learning_workspace')
+                if receipt:
+                    self.adapter.reset(task)
+                    restore_trial_workspace(self.adapter, receipt)
+                elif getattr(self.adapter, 'workspace', None):
+                    raise RuntimeError('Saved learning boundary lacks a public workspace; use explicit recovery')
+                self.task_context = TaskContext(self.config['runtime'])
+                context_state = self.checkpoint.state.get('executor_state', {}).get('context', self.checkpoint.state.get('model_context', {}))
+                for key in ('scope','results','sources','memory','local_reads'):
+                    if key in context_state: setattr(self.task_context,key,context_state[key])
                 self.learn_trace(task, trace)
                 self.checkpoint.advance('learning_finished', trace=trace)
             trace['knowledge_after'] = self.bank.digest()
@@ -370,8 +427,9 @@ class EmpiricalSystem:
         if native_path and native_path.exists():
             prior_events = json.loads(native_path.read_text())
             specs = {t['name']: t for t in broker.available_tools()}
+            sealed_workspace = self.checkpoint.state.get('executor_finished_workspace')
             if self.adapter.capabilities.checkpoint_mode != 'workspace_copy' or any(
-                e['state'] != 'finished' or specs.get(e['name'], {}).get('effect') != 'read_only' for e in prior_events):
+                e['state'] != 'finished' or (not sealed_workspace and specs.get(e['name'], {}).get('effect') != 'read_only') for e in prior_events):
                 from ..harness.simple_protocol import UnknownSideEffect
                 raise UnknownSideEffect('Interrupted stateful or unknown operation requires explicit reconstruction')
             broker.events = prior_events
@@ -389,6 +447,10 @@ class EmpiricalSystem:
                      'content_parts': getattr(self.adapter, 'content_parts', lambda: [])()}, None, None,
                     owner_state_version='single_solver')
                 execution = {"prediction": answer, "reason": "single_answer", "attempts": []}
+                from .answer_status import classify_answer
+                response = self.requests[-1].get('response', {})
+                execution.update(classify_answer(answer, response.get('finish_reason'),
+                    valid_format=getattr(self.adapter, 'valid_answer_format', lambda a: True)(answer)))
             else:
                 plan = self.checkpoint.state['executor_state']['plan'] if self.checkpoint and self.checkpoint.state.get('executor_state') else (
                     self.checkpoint.state.get('initial_plan') if self.checkpoint else None) or self.planner.plan(task, self.adapter)
@@ -397,24 +459,35 @@ class EmpiricalSystem:
                 trace["initial_plan"] = plan
                 execution = self.executor.run(task, self.adapter, broker, plan)
             sealed = self.adapter.submit(execution["prediction"])
+            producer = execution.get('submission_producer_attempt_id')
+            if producer:
+                execution['submission_seal'] = {'producer_attempt_id': producer,
+                    'sealed_digest': digest(sealed), 'workspace': self.adapter.observe().get('workspace', {})}
             score = self.adapter.evaluate(sealed)
             trace.update(execution=execution, score=score, tools=broker.events)
+            trace['solve_status'] = 'completed'
             trace['episode_result'] = asdict(EpisodeResult(task.task_id, task.split, sealed, score,
                 execution['reason'], cost_path=str(self.audit_path) if self.audit_path else None))
             trace['native_call_attempts'] = len(broker.events)
             trace['environment_steps'] = broker.environment_steps
             if self.checkpoint:
+                receipt = seal_trial_workspace(self.adapter, self.checkpoint.root/'learning_workspace') if learn and getattr(self.adapter,'workspace',None) else None
                 self.checkpoint.commit_decision(self.last_decision_id if self.adapter.capabilities.interaction == 'single_answer'
-                    else None, 'applied', stage='task_execution_finished', trace=trace)
+                    else None, 'applied', stage='task_execution_finished', trace=trace, learning_workspace=receipt)
             if learn:
                 self.learn_trace(task, trace)
             if self.checkpoint:
                 self.checkpoint.advance('learning_finished', trace=trace)
         except BudgetExhausted as exc:
+            if exc.code == 'diagnostic_budget_exhausted':
+                raise
+            if trace.get('solve_status') == 'completed':
+                raise
             trace["error"] = {"code": exc.code, "message": str(exc)}
             trace["tools"] = broker.events
             sealed = self.adapter.submit(None)
             trace["score"] = self.adapter.evaluate(sealed)
+            trace['solve_status'] = 'completed'
             trace['execution'].setdefault('attempts', [])
             trace['execution'].update(prediction=None, reason='token_budget_exhausted')
             trace['native_call_attempts'], trace['environment_steps'] = len(broker.events), broker.environment_steps
@@ -446,38 +519,71 @@ class EmpiricalSystem:
         if self.readonly or task.split != 'train':
             raise RuntimeError('Only Train may learn')
         learning_observation = self.observer.learning_start(task) if self.observer else None
-        for attempt in trace["execution"]["attempts"]:
-            if attempt["status"] == "ok" and (attempt["outputs_consumed"] or attempt.get("terminal_by_program", False)) and trace["score"]["hard"] and attempt["local_check"] == "unavailable":
-                attempt.update(outcome="positive", basis="task_outcome")
-            self.bank.record(attempt)
         self._learning_start = len(self.usage.events)
         try:
+            for attempt in trace["execution"]["attempts"]:
+                if attempt["status"] == "ok" and attempt.get('output_contract_status') == 'valid' and (attempt["outputs_consumed"] or attempt.get("terminal_by_program", False) or attempt.get('submission_by_program', False)) and trace["score"]["hard"] and attempt["local_check"] == "unavailable":
+                    attempt.update(outcome="positive", basis="task_outcome")
+                self.bank.record(attempt)
             trace["learning"] = self.learner.learn(task, trace)
+            result = trace['learning'] or {}
+            trace['learning_status'] = 'rejected' if result.get('rejected') or result.get('decision') == 'rejected' else 'completed'
         except (ValueError, SyntaxError, BudgetExhausted) as exc:
             trace["learning"] = {"error": str(exc), "rejected": True}
+            trace['learning_status'] = 'rejected'
+        except Exception as exc:
+            trace['learning_status'] = 'failed_engineering'
+            trace['learning_error'] = exception_details(exc, 'learning')
+            trace['learning'] = {'error': str(exc), 'exception': trace['learning_error']}
+            if self.checkpoint:
+                self.checkpoint.advance('task_execution_finished', trace=trace)
+            raise
         finally:
             if self.observer:
                 self.observer.learning_end(learning_observation, trace.get('learning'))
             self._learning_start = None
 
-    def test_program(self, program, inputs, task, *, trial_id, trial_case=None):
+    def test_program(self, program, inputs, task, *, trial_id, trial_case=None,
+                     continuation=True, new_execution=False):
         if self.readonly or task.split != 'train': raise ValueError('Program trials require Train')
         if self.adapter_factory is None:
             return {"id": trial_id, "program_id": program["id"], "task_key": task.physical_key,
                     "origin": "train_test", "outcome": "inapplicable", "error": "No isolated Adapter factory"}
         existing = next((a for a in self.bank.attempts(program['id']) if a['id'] == trial_id), None)
-        if existing:
+        if existing and not new_execution:
             return existing
         from .checkpoint import TaskCheckpoint
-        trial_checkpoint = TaskCheckpoint(self.checkpoint.root / 'trials' / trial_id) if self.checkpoint else None
+        logical = TaskCheckpoint(self.checkpoint.root / 'trials' / trial_id) if self.checkpoint else None
+        if logical and logical.state.get('record') and not new_execution:
+            self.bank.record(logical.state['record'])
+            return logical.state['record']
+        execution_id = (logical.state.get('execution_id') if logical and not new_execution else None) or uuid4().hex
+        trial_checkpoint = TaskCheckpoint(logical.root / 'executions' / execution_id) if logical else None
         if trial_checkpoint and trial_checkpoint.state.get('record'):
-            self.bank.record(trial_checkpoint.state['record'])
-            return trial_checkpoint.state['record']
-        if trial_checkpoint and (trial_checkpoint.root / 'native_events.json').exists():
-            record = {'id': trial_id, 'program_id': program['id'], 'task_key': task.physical_key,
-                      'origin': 'train_test', 'outcome': 'inapplicable', 'basis': None,
-                      'error': 'Interrupted trial side effects; no replay or positive credit'}
+            record = trial_checkpoint.state['record']
             self.bank.record(record)
+            logical.advance('bank_recorded', record=record)
+            return record
+        resume_worker = bool(trial_checkpoint and trial_checkpoint.state.get('worker_result'))
+        if trial_checkpoint and trial_checkpoint.path.exists() and not resume_worker:
+            raise RuntimeError('Interrupted trial has unknown side effects; an explicit new execution is required')
+        if resume_worker and not trial_checkpoint.state.get('artifacts'):
+            raise RuntimeError('Interrupted trial workspace is unrecoverable; no worker replay or positive credit')
+        if logical:
+            logical.advance('trial_started', execution_id=execution_id)
+            if not resume_worker:
+                trial_checkpoint.advance('trial_started', trial_id=trial_id, execution_id=execution_id,
+                                         program_id=program['id'], task_key=task.physical_key, inputs=inputs)
+        def finish(record):
+            record['logical_trial_id'] = trial_id
+            if new_execution: record['id'] = trial_id + ':' + execution_id
+            record['trial_execution_id'] = execution_id
+            if trial_checkpoint:
+                trial_checkpoint.advance('trial_finished', record=record)
+            self.bank.record(record)
+            if logical:
+                trial_checkpoint.advance('bank_recorded', record=record)
+                logical.advance('bank_recorded', record=record)
             return record
         previous_phase = self.phase
         previous_checkpoint = self.checkpoint
@@ -490,7 +596,7 @@ class EmpiricalSystem:
         self.planner.checkpoint = trial_checkpoint
         self.budget_scope = trial_id
         adapter = self.adapter_factory()
-        trial_observation = self.observer.trial_start(trial_id, task) if self.observer else None
+        trial_observation = self.observer.trial_start(trial_id + ':' + execution_id, task) if self.observer else None
         previous_runtime_start = self._runtime_start
         self._runtime_start = len(self.usage.events)
         broker = Broker(adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
@@ -505,7 +611,11 @@ class EmpiricalSystem:
             adapter.reset(task)
             if trial_observation:
                 trial_observation['consumed'] = True
-            if trial_case:
+            if resume_worker:
+                restore_trial_workspace(adapter, trial_checkpoint.state.get('artifacts'))
+                native_path = trial_checkpoint.root / 'native_events.json'
+                broker.events[:] = json.loads(native_path.read_text()) if native_path.exists() else []
+            if trial_case and not resume_worker:
                 if trial_case.physical_task_key != task.physical_key or task.split != 'train':
                     raise ValueError('TrialCase physical task/split mismatch')
                 for action in trial_case.prefix:
@@ -513,14 +623,12 @@ class EmpiricalSystem:
                         record = {'id': trial_id, 'program_id': program['id'], 'task_key': task.physical_key,
                                   'origin': 'train_test', 'outcome': 'inapplicable', 'basis': None,
                                   'error': 'Prefix could not reconstruct an active start state'}
-                        self.bank.record(record)
-                        return record
+                        return finish(record)
                 if broker.done:
                     record = {'id': trial_id, 'program_id': program['id'], 'task_key': task.physical_key,
                               'origin': 'train_test', 'outcome': 'inapplicable', 'basis': None,
                               'error': 'Trial prefix reached terminal'}
-                    self.bank.record(record)
-                    return record
+                    return finish(record)
             start = len(broker.events)
             was_terminal = broker.done
             workspace_before = adapter.observe().get('workspace', {})
@@ -534,28 +642,38 @@ class EmpiricalSystem:
             except ValueError as exc:
                 outcome, result, basis = "inapplicable", {"error": str(exc)}, None
             else:
-                result = self.worker.execute(program, inputs, broker)
-                local = broker.check_local(inputs, result.get("outputs", {}), start) if result["status"] == "ok" else "unavailable"
+                if resume_worker:
+                    result = trial_checkpoint.state['worker_result']
+                    start = trial_checkpoint.state['native_event_start']
+                    workspace_before = trial_checkpoint.state['workspace_before']
+                else:
+                    result = normalize_program_result(adapter, program, self.worker.execute(program, inputs, broker),
+                                                      workspace_before=workspace_before)
+                    result['terminal_by_program'] = not was_terminal and broker.done
+                    if trial_checkpoint:
+                        artifacts = seal_trial_workspace(adapter, trial_checkpoint.root / 'artifacts')
+                        trial_checkpoint.advance('worker_finished', worker_result=result, artifacts=artifacts,
+                            native_event_start=start, workspace_before=workspace_before)
+                local = broker.check_local(inputs, result.get("outputs", {}), start) if positive_eligible(result) else "unavailable"
                 result['local_check'] = local
-                result['terminal_by_program'] = not was_terminal and broker.done
                 basis, outcome = None, "normal"
-                if result['terminal_by_program']:
+                if result["status"] == "execution_error":
+                    outcome = "execution_failure"
+                elif result['terminal_by_program'] and positive_eligible(result):
                     score = adapter.evaluate(adapter.submit(result.get('outputs', {})))
                     result['score'] = score
                     if score['hard'] and result['status'] == 'ok': basis, outcome = 'task_outcome', 'positive'
                     elif result['status'] == 'execution_error': outcome = 'execution_failure'
-                elif result["status"] == "execution_error" or local == "failed":
+                elif local == "failed":
                     outcome = "execution_failure"
                 elif result["status"] == "ok" and local == "passed":
                     basis, outcome = "local_check", "positive"
                 elif result["status"] == "ok":
                     role = program.get('result_role', 'intermediate')
-                    readiness = {'result_role': role}
-                    if role == 'final_files': readiness['previous_workspace'] = workspace_before
-                    ready = getattr(adapter, 'submission_ready', lambda *a, **k: False)(result.get('outputs', {}), **readiness)
+                    preparation = result.get('submission_preparation', {})
+                    ready = preparation.get('status') == 'ready'
                     if ready:
-                        outputs = result.get('outputs', {})
-                        sealed = adapter.submit(outputs['answer'] if role == 'final_answer' else outputs)
+                        sealed = adapter.submit(preparation['payload'])
                         score = adapter.evaluate(sealed)
                         result.update(score=score, submission='direct_program_output')
                         if score['hard']: basis, outcome = 'task_outcome', 'positive'
@@ -563,9 +681,13 @@ class EmpiricalSystem:
                         record = {"id": trial_id, "program_id": program["id"], "task_key": task.physical_key,
                             "origin": "train_test", "split": "train", "outcome": outcome, "basis": basis,
                             "calls": len(broker.events), "result": result, "tools": broker.events}
-                        if trial_checkpoint: trial_checkpoint.advance('trial_finished', record=record)
-                        self.bank.record(record)
-                        return record
+                        return finish(record)
+                    if not continuation:
+                        record = {'id': trial_id, 'program_id': program['id'], 'task_key': task.physical_key,
+                                  'origin': 'train_test', 'split': 'train', 'outcome': 'inapplicable',
+                                  'basis': None, 'error': 'Pure trial requires a terminal Program',
+                                  'result': result, 'tools': broker.events, 'calls': len(broker.events)}
+                        return finish(record)
                     # Without a local oracle, run the remainder from the actual
                     # Train state; this is billed training, not replay credit.
                     executor = Executor(self.bank, self.agent, self.worker, self.planner)
@@ -582,10 +704,11 @@ class EmpiricalSystem:
             record = {"id": trial_id, "program_id": program["id"], "task_key": task.physical_key,
                       "origin": "train_test", "split": "train", "outcome": outcome,
                       "basis": basis, "calls": len(broker.events), "result": result, "tools": broker.events}
+            return finish(record)
+        except Exception as exc:
             if trial_checkpoint:
-                trial_checkpoint.advance('trial_finished', record=record)
-            self.bank.record(record)
-            return record
+                trial_checkpoint.advance('trial_exception', exception=exception_details(exc, trial_checkpoint.state['stage']))
+            raise
         finally:
             if self.observer:
                 self.observer.trial_end(trial_observation, broker.events, locals().get('record'), locals().get('result'),

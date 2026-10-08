@@ -4,7 +4,7 @@ benchmark_profile: alfworld.public-discovery.v2
 manifest: data/baseline_manifests/train_120.json
 data_dir: runs/empirical_seed42/bank
 experiment:
-  implementation_revision: empirical-v3.1-CF4-R1
+  implementation_revision: empirical-v3.1-CF4-R2
   seed: 42
   benchmark: alfworld
   runtime_mode: online

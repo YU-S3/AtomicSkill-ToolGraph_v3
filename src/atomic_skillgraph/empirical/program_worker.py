@@ -136,8 +136,18 @@ class ProgramWorker:
 
     def execute(self, program, inputs, broker):
         from .contracts import validate_schema_instance
+        from .program_submission import (validate_program_declaration, submission_contract,
+                                         ProgramContractError, normalize_program_result)
         from ..harness.simple_protocol import UnknownSideEffect
         validate_schema_instance(inputs, program['input_schema'])
+        try:
+            validate_program_declaration(program, submission_contract(broker.adapter))
+        except ProgramContractError as exc:
+            result = {'status':'execution_error', 'worker_status':'not_started', 'worker_result':None,
+                'output_contract_status':'invalid','error_code':exc.code,'repair_target':exc.repair_target,
+                'detail':str(exc),'calls':0,'program_id':program['id'],'elapsed_seconds':0}
+            self.invocations.append(result)
+            return result
         image = program.get('environment', {}).get('image_digest')
         if not isinstance(image, str) or not (image.startswith('sha256:') or '@sha256:' in image):
             raise RuntimeError('Program requires a locked container image digest')
@@ -151,6 +161,7 @@ class ProgramWorker:
         started = time.monotonic()
         deadline = started + s['wall_timeout_seconds']
         workspace = getattr(broker.adapter, 'workspace', None)
+        workspace_before = broker.adapter.observe().get('workspace', {}) if workspace else {}
         stage = workspace.stage() if workspace else None
         broker.open_lease(container)
         try:
@@ -212,7 +223,7 @@ class ProgramWorker:
                                 process.stdin.flush()
                 except UnknownSideEffect:
                     raise
-                except (ValueError, OSError, RuntimeError, TypeError, KeyError) as exc:
+                except (ValueError, RuntimeError, TypeError, KeyError) as exc:
                     result = {'status': 'execution_error', 'detail': str(exc)}
                 finally:
                     broker.close_lease(container)
@@ -222,20 +233,30 @@ class ProgramWorker:
                     if process.poll() is None: process.kill()
                     process.wait(timeout=10)
                     for stream in (process.stdin, process.stdout, process.stderr): stream.close()
+                if not finished and process.returncode and b'docker:' in diagnostic:
+                    raise OSError('Docker control failed: ' + diagnostic.decode(errors='replace'))
             if not isinstance(result, dict) or result.get('status') != 'execution_error':
                 validate_return(result)
             if result['status'] == 'ok':
-                validate_schema_instance(result.get('outputs'), program['output_schema'])
+                effective = validate_program_declaration(program, submission_contract(broker.adapter))
+                validate_schema_instance(result.get('outputs'), effective['output_schema'])
+                if program.get('result_role') == 'final_answer' and not result['outputs']['answer'].strip():
+                    raise ProgramContractError('program_answer_empty', 'answer must be nonempty')
                 if workspace:
                     result['workspace'] = workspace.publish(stage, broker.adapter.declared_outputs(result['outputs']),
-                                                            result['outputs'].get('deleted_files', []))
+                                                            result['outputs'].get('deleted_files', []), invocation_id=container)
+                    result['publication_receipt'] = workspace.publication_receipt
                     stage = None
+                result = normalize_program_result(broker.adapter, program, result, workspace_before=workspace_before)
             else:
                 result.pop('outputs', None)
         except UnknownSideEffect:
             raise
-        except (ValueError, OSError, TypeError, KeyError) as exc:
-            result = {'status': 'execution_error', 'detail': str(exc)}
+        except (ValueError, TypeError, KeyError) as exc:
+            result = {'status': 'execution_error', 'detail': str(exc),
+                'error_code': getattr(exc, 'code', 'program_output_contract_invalid'),
+                'repair_target': getattr(exc, 'repair_target', 'source'), 'output_contract_status': 'invalid',
+                'worker_status': result.get('status'), 'worker_result': result}
         finally:
             broker.close_lease(container)
             if stage is not None: workspace.discard(stage)
