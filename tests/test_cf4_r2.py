@@ -19,7 +19,7 @@ from atomic_skillgraph.empirical.system import EmpiricalSystem, validate_config
 from atomic_skillgraph.empirical.task_context import TaskContext
 from atomic_skillgraph.experiments.episode_projection import episode_projection
 from atomic_skillgraph.experiments.recover_empirical import inspect_source, recover, read
-from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import verify_d3_wire, prepare, d2
+from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import verify_d3_wire, prepare, d1, d2
 from atomic_skillgraph.experiments.run_empirical import run
 from atomic_skillgraph.harness.benchmarks import SpreadsheetAdapter
 from atomic_skillgraph.harness.simple_protocol import Broker
@@ -260,6 +260,19 @@ def test_z11_d2_production_entry_meters_saved_finish(tmp_path,monkeypatch):
               BudgetGovernor(tmp_path/'ledger.json'))
     assert result['status']=='completed' and result['tokens']==5 and len(seen)==1
     assert seen[0]['max_tokens']==512 and seen[0]['thinking']=={'type':'disabled'}
+
+
+def test_z12_rejected_builder_still_counts_actual_http(tmp_path,monkeypatch):
+    if not REVIEW.exists(): pytest.skip('Requires archived candidate snapshot')
+    seen=http(monkeypatch,[response(content='',finish='length')])
+    from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import settings
+    def fixture_settings(*a,**k):
+        config=settings(*a,**k); config['llm']['api_key_env']='MODEL_API_KEY'; return config
+    monkeypatch.setattr('atomic_skillgraph.experiments.run_cf4_r2_diagnostic.settings',fixture_settings)
+    manifest=prepare(REVIEW,tmp_path/'diagnostic')
+    result=d1('officeqa',manifest,tmp_path/'diagnostic',BudgetGovernor(tmp_path/'ledger.json'))
+    assert result['status']=='failed' and 'builder_submission_tool_mismatch' in result['error']
+    assert result['builder_http']==1 and len(seen)==1 and not result['usable']
 
 
 def test_z14_new_commit_boundary_skips_history_and_no_freeze(tmp_path,monkeypatch):

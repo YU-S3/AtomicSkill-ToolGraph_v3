@@ -177,7 +177,6 @@ def d1(benchmark, manifest, root, governor):
              else 'Derive row matching from line_item_label and table_title_pattern; respect distinct accounting rows and units.'})
         generated=system.agent('tool_builder',BUILDER_PROMPT,material,'submit_program',BUILD,
             repair_limit=0,owner_state_version='diagnostic-revision',job_key=['cf4-r2',job['id']],repair_reason='execution')
-        result['builder_http']=1
         actual={b['case_id']:b for b in generated['trial_inputs']}
         if len(actual) != len(generated['trial_inputs']) or actual != {b['case_id']:b for b in bindings}:
             raise ValueError('Diagnostic Builder changed the fixed public bindings')
@@ -196,6 +195,8 @@ def d1(benchmark, manifest, root, governor):
         result.update(status='failed',error_type=type(exc).__name__,error=str(exc),usable=False)
         return result
     finally:
+        result['builder_http']=sum(len(r.get('http_attempts',[])) for r in system.requests
+            if r['stage']=='tool_builder' and not r.get('recovered_response'))
         result['bank_digest']=system.bank.digest()
         write_json(destination/'result.json',result); system.close()
 
