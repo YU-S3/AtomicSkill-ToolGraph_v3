@@ -26,11 +26,17 @@ def select_paths(corpus, paths=ALL_PATHS):
     if not root.is_dir(): raise RuntimeError('Authorized corpus root is unavailable')
     scope = canonical_scope(paths)
     names = scope if scope is not None else sorted(p.relative_to(root).as_posix() for p in root.rglob('*.txt'))
-    selected = {}
+    selected, parents = {}, {}
     for name in names:
-        path = (root / name).resolve()
+        candidate = root / name
+        # Resolve each parent once per selection; individual symlinks still
+        # require resolution before the authorization check.
+        if candidate.parent not in parents:
+            parents[candidate.parent] = candidate.parent.resolve()
+        path = parents[candidate.parent] / candidate.name
+        if path.is_symlink(): path = path.resolve()
         if not path.is_relative_to(root): raise ValueError('Corpus path is not authorized')
-        if not path.exists() or not path.is_file(): raise ValueError('Corpus file is missing or not a file')
+        if not path.is_file(): raise ValueError('Corpus file is missing or not a file')
         if path.suffix != '.txt': raise ValueError('Corpus path must name a text file')
         selected[path.relative_to(root).as_posix()] = path
     return [(name, selected[name]) for name in sorted(selected)]

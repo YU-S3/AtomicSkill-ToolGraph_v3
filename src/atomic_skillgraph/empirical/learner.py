@@ -40,9 +40,13 @@ class Learner:
         if s.checkpoint:
             snapshot = s.checkpoint.state.get(key + '_request_material')
             if snapshot is None:
-                s.checkpoint.advance(s.checkpoint.state['stage'], **{key + '_request_material': material})
+                s.checkpoint.advance(s.checkpoint.state['stage'], **{
+                    key + '_request_material': material, key + '_request_schema': schema})
             else:
                 material = snapshot
+                # A completed decision retains its original dynamic ID enum,
+                # even when applying that decision has added assets to Bank.
+                schema = s.checkpoint.state.get(key + '_request_schema', schema)
         semantics = digest([stage, prompt, material, name, schema,
             {k:v for k,v in kwargs.items() if k in ('completion_override','repair_limit','repair_reason','job_key')},
             s.config['experiment']['implementation_revision']])

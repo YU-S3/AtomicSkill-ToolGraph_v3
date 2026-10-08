@@ -530,6 +530,7 @@ class EmpiricalSystem:
             trace["learning"] = self.learner.learn(task, trace)
             result = trace['learning'] or {}
             trace['learning_status'] = 'rejected' if result.get('rejected') or result.get('decision') == 'rejected' else 'completed'
+            if trace.get('learning_error'): trace['learning_error'] = None
         except (ValueError, SyntaxError, BudgetExhausted) as exc:
             trace["learning"] = {"error": str(exc), "rejected": True}
             trace['learning_status'] = 'rejected'
@@ -564,8 +565,11 @@ class EmpiricalSystem:
         if logical and logical.state.get('record') and not new_execution:
             host('bank_record', self.bank.record, logical.state['record'])
             return logical.state['record']
+        if logical and logical.state.get('new_execution_authorization'):
+            new_execution = True
         execution_id = (logical.state.get('execution_id') if logical and not new_execution else None) or uuid4().hex
         trial_checkpoint = host('checkpoint_load', TaskCheckpoint, logical.root / 'executions' / execution_id) if logical else None
+        distinct_execution = new_execution or bool(trial_checkpoint and trial_checkpoint.state.get('new_execution'))
         if trial_checkpoint and trial_checkpoint.state.get('record'):
             record = trial_checkpoint.state['record']
             host('bank_record', self.bank.record, record)
@@ -578,15 +582,17 @@ class EmpiricalSystem:
         if resume_worker and not trial_checkpoint.state.get('artifacts'):
             raise RuntimeError('Interrupted trial workspace is unrecoverable; no worker replay or positive credit')
         if logical:
-            host('checkpoint_save', logical.advance, 'trial_started', execution_id=execution_id)
+            host('checkpoint_save', logical.advance, 'trial_started', execution_id=execution_id,
+                 new_execution_authorization=None)
             if not resume_worker:
                 host('checkpoint_save', trial_checkpoint.advance, 'trial_started', trial_id=trial_id, execution_id=execution_id,
-                                         program_id=program['id'], task_key=task.physical_key, inputs=inputs)
+                                         program_id=program['id'], task_key=task.physical_key, inputs=inputs,
+                                         new_execution=distinct_execution)
         def finish(record):
             nonlocal stage
             stage = 'trial_finished'
             record['logical_trial_id'] = trial_id
-            if new_execution: record['id'] = trial_id + ':' + execution_id
+            if distinct_execution: record['id'] = trial_id + ':' + execution_id
             record['trial_execution_id'] = execution_id
             if trial_checkpoint:
                 host('checkpoint_save', trial_checkpoint.advance, 'trial_finished', record=record)
@@ -614,7 +620,7 @@ class EmpiricalSystem:
             broker = host('broker_create', Broker, adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
                 step_limit=self.config.get('runtime', {}).get('environment_step_budget'),
                 journal=trial_checkpoint.native_events if trial_checkpoint else None,
-                observer=self.observer.native_observer(trial_id) if self.observer else None,
+                observer=self.observer.native_observer(trial_id + ':' + execution_id) if self.observer else None,
                 context=self.task_context)
             inherit = getattr(adapter, 'inherit_discovery', None)
             if inherit:
