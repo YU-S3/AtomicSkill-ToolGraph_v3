@@ -1,0 +1,66 @@
+{
+  "implementation_revision": "empirical-v3.1-CF4-R3",
+  "tested_source": {
+    "git_sha": "e4639192cf0daf1ab8b3228fc9f9be440b50072c",
+    "tracked_dirty": false,
+    "source_sha256": "a1d0f844789834e4e134d95a010f546c085f1b9fb20498760c57c70c33164941"
+  },
+  "publication_path_fix_source": {
+    "git_sha": "6bbfbed17915e01247eb593aab330ae047a3ab1e",
+    "tracked_dirty": false,
+    "source_sha256": "84ee56dcb5e0b0e3db4d6c96dac152580b25e47c3b23c5d5c27a10df17f28fdc"
+  },
+  "formal_matrix_resumed": false,
+  "offline": {
+    "passed": 112,
+    "skipped": 12,
+    "skip_reasons": [
+      "container tests require Linux, Docker and PROGRAM_IMAGE_DIGEST"
+    ],
+    "publication_path_regression": "passed",
+    "guidance_payload_intercept": "passed, zero LLM"
+  },
+  "scoring_recovery": {
+    "task_id": "spreadsheet:283-32",
+    "completed_prefix": 90,
+    "hard": true,
+    "soft": 1.0,
+    "case_count": 1,
+    "inherited_requests": 12,
+    "inherited_tokens": 295093,
+    "new_model_calls": 0,
+    "learning_status": "deferred",
+    "task_committed": false,
+    "bank_digest": "58eed5860c19e33e409c5459f931b17018d4813272c7cd4775b20c333f391efe",
+    "case_receipt_idempotent": true,
+    "publication_path_correction_recorded": true,
+    "additional_isolated_operations": "one LibreOffice prediction recalculation; no extra variant cases"
+  },
+  "diagnostic": {
+    "status": "completed_fixed_batch",
+    "http_attempts": 2,
+    "tokens": 27786,
+    "unknown_billing": false,
+    "source_correct": 0,
+    "source_count": 2,
+    "extractor_http": 0,
+    "guidance_created": 0,
+    "transfer_pairs_executed": 0,
+    "skipped_pairs": 2,
+    "method_limit": "No guidance transfer or Program benefit measured; no additional paid batch"
+  },
+  "public_materialization": {
+    "path": "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1",
+    "sha256": "74098a4ee88fab7399820aac864c1091f9e6cb39238b2fd8fb924d1227e6b586",
+    "authority_sha256": "b85e0c2e442ca6b97ef98ece895719d4231f18db29682b0fcb6fdf3f91c37c95"
+  },
+  "historical_preservation": {
+    "source_run_unchanged": true,
+    "source_exposure_events": 367,
+    "affected_actual_materials": 19,
+    "affected_programs": 9,
+    "usable_qualifications_retained": 2,
+    "old_livemath_protocol": "original A177; retain results/Bank without relabeling",
+    "budget_ended_old_training": "80 historical not_started tasks unchanged"
+  }
+}
