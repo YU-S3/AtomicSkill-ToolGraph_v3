@@ -67,9 +67,20 @@ class Executor:
                     if result_id != event['result_id']:
                         raise ValueError('Recovered result identity differs')
 
+        def snapshot(prediction=None):
+            result = deepcopy({'prediction': prediction, 'reason': reason,
+                'values': values.history, 'history': history, 'attempts': attempts, 'plan': plan,
+                'plan_revisions': replans, 'dynamic_escapes': escapes, 'abandoned': sorted(abandoned),
+                'pending_outputs': context.pending_outputs, 'input_reads': input_reads, 'replaced_inputs': replaced_inputs,
+                'submission_producer_attempt_id': submission_producer_attempt_id, 'finish_evidence': finish_evidence})
+            for attempt in result['attempts']:
+                attempt['outputs_consumed'] = attempt['id'] in consumed
+                attempt['submission_by_program'] = attempt['id'] == submission_producer_attempt_id
+            return result
+
         def save(step=None, status=None):
             nonlocal owner_version, pending_decision_id
-            self.partial_execution = {'attempts': deepcopy(attempts)}
+            self.partial_execution = snapshot(final)
             if status:
                 owner_version += 1
             if not checkpoint:
@@ -531,15 +542,7 @@ class Executor:
             for ref in plan.get('outputs', {}).values():
                 if ref.get('from') in producers and ref.get('field') in values.results.get(ref['from'], {}):
                     consumed.add(producers[ref['from']])
-        for attempt in attempts:
-            attempt['outputs_consumed'] = attempt['id'] in consumed
-            attempt['submission_by_program'] = attempt['id'] == submission_producer_attempt_id
-        result = {'prediction': final if final is not None else final_values, 'reason': reason,
-                  'values': values.history, 'history': history, 'attempts': attempts, 'plan': plan,
-                  'plan_revisions': replans, 'dynamic_escapes': escapes, 'abandoned': sorted(abandoned),
-                  'pending_outputs': context.pending_outputs, 'input_reads': input_reads, 'replaced_inputs': replaced_inputs}
-        result['submission_producer_attempt_id'] = submission_producer_attempt_id
-        result['finish_evidence'] = finish_evidence
+        result = snapshot(final if final is not None else final_values)
         if checkpoint:
             receipt = seal_trial_workspace(adapter, checkpoint.root/'executor_finished_workspace') if getattr(adapter,'workspace',None) else None
             checkpoint.advance(checkpoint.state['stage'], executor_finished=result, program_started=False,

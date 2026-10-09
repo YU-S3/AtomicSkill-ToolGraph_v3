@@ -161,7 +161,7 @@
     "livemath.py": "97c92063a38228e91bbb6a12cad7a783374900c9975610654b50b3a4eb997488",
     "officeqa.py": "49dad2a2bdede9665541102fe47ca74ab2a0cc05ad84d2f8ca047f223c1b4aef",
     "searchqa.py": "b69136fa727fedeede7ab257144f4dc937877bd1792f13c5c596d566df66fbd3",
-    "spreadsheet.py": "341dd5a5e6109460fce41b336d78a897bd691159c5410a5fd98701de713dd162"
+    "spreadsheet.py": "fe2703a5fd80f8be412fc41e9906d248bf8deb17adf3d4e57ca76e3aea3bc834"
   },
   "canonical_authority": "data/main_experiment_v1/manifest.json"
 }
