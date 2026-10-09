@@ -56,7 +56,10 @@ def test_scoring_recovery_after_score_is_zero_llm_and_preserves_source(tmp_path,
     db.execute('INSERT INTO tasks VALUES(?,1,?,NULL)',('office','running')); db.commit(); db.close()
     before=tree_identity(source); scored=[]
     original=OfficeAdapter.evaluate
-    def count(self,sealed): scored.append(True); return original(self,sealed)
+    def count(self,sealed):
+        scored.append(True); result=original(self,sealed)
+        self.score_audit['fixture_receipts']=str(self.evaluation_receipts)
+        return result
     monkeypatch.setattr(OfficeAdapter,'evaluate',count)
     monkeypatch.setattr(EmpiricalSystem,'agent',lambda *a,**k:pytest.fail('Recovery must not call a model'))
     output=tmp_path/'child'
@@ -68,6 +71,8 @@ def test_scoring_recovery_after_score_is_zero_llm_and_preserves_source(tmp_path,
     child=TaskCheckpoint(output/'train/checkpoints/office/1')
     assert child.state['stage']=='task_execution_finished' and child.state['learning_workspace']
     assert json.loads((output/'train/requests/office_attempt1.json').read_text())==audit
+    assert json.loads((child.root/'recovery_evaluation.json').read_text())['sealed']==child.state['trace']['episode_result']['sealed_prediction']
+    assert result['scoring_audit']['fixture_receipts']==str(child.root/'evaluation_receipts')
 
 
 def test_choices_are_identity_based_immutable_and_idempotent():

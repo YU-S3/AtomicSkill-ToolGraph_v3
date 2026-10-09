@@ -165,6 +165,7 @@ def recover(source, output, task_id, *, dry_run=False, interrupt_after=None):
     execution.update(config=config, code=code_identity())
     write_json(staging/'train/execution_manifest.json', execution)
     cp.advance('task_execution_finished', **remap({k:v for k,v in cp.state.items() if k not in {'stage','schema'}}))
+    write_json(evaluation_path, remap(read(evaluation_path)))
     snapshot = cp.root/'executor_finished_workspace/snapshot.json'
     write_json(snapshot, cp.state['executor_finished_workspace'])
     if (cp.root/'learning_workspace/snapshot.json').exists(): write_json(cp.root/'learning_workspace/snapshot.json', cp.state['learning_workspace'])
@@ -181,7 +182,7 @@ def recover(source, output, task_id, *, dry_run=False, interrupt_after=None):
                 'new_model_calls': 0, 'task_end_time': utc()})
             events_path.write_text(''.join(json.dumps(e)+'\n' for e in events))
         write_json(staging/'episode_projection.json', episode_projection(events))
-    receipt = {**report, 'scored_task_id': task_id, 'score': score, 'scoring_audit': adapter.score_audit,
+    receipt = {**report, 'scored_task_id': task_id, 'score': score, 'scoring_audit': remap(adapter.score_audit),
         'completed_tasks': len(report['prefix']), 'learning_status': 'deferred', 'task_committed': False,
         'status': 'scored_pending_learning', 'new_model_calls': 0, 'new_train_examples_consumed': 0,
         'path_mapping': {str(source): str(output)}, 'time': utc()}
