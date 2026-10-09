@@ -151,6 +151,12 @@ class Bank:
         return sorted((a for a in assets if a['id'] not in superseded), key=lambda a: (
             -len(words & self.words(a.get('goal', '') + ' ' + a['guidance'])), a['id']))[:limit]
 
+    def guidance_retrieval_audit(self, query, assets):
+        words = self.words(query)
+        return [{'rank': i, 'skill_id': a['id'], 'matched_words': sorted(words & self.words(a.get('goal', '')+' '+a['guidance'])),
+                 'injected_chars': len(a['guidance']), 'source_evidence': a.get('evidence_source')}
+                for i, a in enumerate(assets)]
+
     def planning_cards(self, query):
         cards = []
         for asset in self.retrieve(query):

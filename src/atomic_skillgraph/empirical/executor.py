@@ -23,6 +23,7 @@ class Executor:
         self.frozen = frozen
 
     def run(self, task, adapter, broker, plan):
+        self.partial_execution = {'attempts': []}
         context = broker.context
         values, attempts = ValueStore(task, context), []
         blocked, attempted, failures, history = set(), set(), {}, []
@@ -68,6 +69,7 @@ class Executor:
 
         def save(step=None, status=None):
             nonlocal owner_version, pending_decision_id
+            self.partial_execution = {'attempts': deepcopy(attempts)}
             if status:
                 owner_version += 1
             if not checkpoint:

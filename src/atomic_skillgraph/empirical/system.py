@@ -33,7 +33,7 @@ def validate_config(config):
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
     overrides = config.get('llm', {}).get('purpose_overrides', {})
-    if set(overrides) - {'finish_only'}:
+    if set(overrides) - {'finish_only', 'guidance_learning'}:
         raise ValueError('Unsupported purpose override')
     for settings in overrides.values():
         if set(settings) - {'protocol', 'max_completion_tokens', 'reasoning_effort'}:
@@ -47,6 +47,12 @@ def validate_config(config):
         for key, value in defaults.items():
             if config[section][key] != value:
                 raise ValueError('Unsupported execution policy ' + section + '.' + key)
+    learning = config['learning']
+    learning.setdefault('guidance_repair_limit', 1)
+    if type(learning['guidance_repair_limit']) is not int or learning['guidance_repair_limit'] not in {0, 1}:
+        raise ValueError('Guidance repair limit must be 0 or 1')
+    if type(learning['min_distinct_train_cases_before_first_build']) is not int or learning['min_distinct_train_cases_before_first_build'] != 2:
+        raise ValueError('First build requires two independent Train cases')
     if config.get("schema_version") != "empirical.v1":
         raise ValueError("Empirical System requires a fresh empirical.v1 schema")
     allowed = {'mechanism_profile', 'schema_version', 'data_dir', 'experiment', 'harness', 'runtime',
@@ -422,6 +428,9 @@ class EmpiricalSystem:
             observer=self.observer.native_observer(trace['attempt_id']) if self.observer else None,
             context=self.task_context)
         self.executor.checkpoint = self.checkpoint
+        self.executor.partial_execution = {'attempts': []}
+        if self.checkpoint and hasattr(self.adapter, 'evaluation_receipts'):
+            self.adapter.evaluation_receipts = self.checkpoint.root/'evaluation_receipts'
         if self.checkpoint and self.checkpoint.state.get('program_started'):
             from ..harness.simple_protocol import UnknownSideEffect
             raise UnknownSideEffect('Interrupted Program/workspace execution requires explicit reconstruction')
@@ -442,6 +451,7 @@ class EmpiricalSystem:
                 guidance = self.bank.retrieve_guidance(task.goal, limit=3)
                 trace['retrieved_guidance_ids'] = [a['id'] for a in guidance]
                 trace['injected_guidance_ids'] = list(trace['retrieved_guidance_ids'])
+                trace['guidance_retrieval_audit'] = self.bank.guidance_retrieval_audit(task.goal, guidance)
                 answer = self.agent("runtime", "Answer the question once using only the public input and any supplied guidance. " +
                     getattr(self.adapter, 'answer_contract', lambda: '')(),
                     {"goal": task.goal, "inputs": task.inputs, "guidance": [
@@ -460,45 +470,17 @@ class EmpiricalSystem:
                     self.checkpoint.commit_decision(getattr(self.planner, 'last_decision_id', None), 'applied', initial_plan=plan)
                 trace["initial_plan"] = plan
                 execution = self.executor.run(task, self.adapter, broker, plan)
-            sealed = self.adapter.submit(execution["prediction"])
-            producer = execution.get('submission_producer_attempt_id')
-            if producer:
-                execution['submission_seal'] = {'producer_attempt_id': producer,
-                    'sealed_digest': digest(sealed), 'workspace': self.adapter.observe().get('workspace', {})}
-            score = self.adapter.evaluate(sealed)
-            trace.update(execution=execution, score=score, tools=broker.events)
-            trace['solve_status'] = 'completed'
-            trace['episode_result'] = asdict(EpisodeResult(task.task_id, task.split, sealed, score,
-                execution['reason'], cost_path=str(self.audit_path) if self.audit_path else None))
-            trace['native_call_attempts'] = len(broker.events)
-            trace['environment_steps'] = broker.environment_steps
-            if self.checkpoint:
-                receipt = seal_trial_workspace(self.adapter, self.checkpoint.root/'learning_workspace') if learn and getattr(self.adapter,'workspace',None) else None
-                self.checkpoint.commit_decision(self.last_decision_id if self.adapter.capabilities.interaction == 'single_answer'
-                    else None, 'applied', stage='task_execution_finished', trace=trace, learning_workspace=receipt)
-            if learn:
-                self.learn_trace(task, trace)
-            if self.checkpoint:
-                self.checkpoint.advance('learning_finished', trace=trace)
+            self.complete_execution(task, trace, broker, execution, learn=learn)
         except BudgetExhausted as exc:
             if exc.code == 'diagnostic_budget_exhausted':
                 raise
             if trace.get('solve_status') == 'completed':
                 raise
             trace["error"] = {"code": exc.code, "message": str(exc)}
-            trace["tools"] = broker.events
-            sealed = self.adapter.submit(None)
-            trace["score"] = self.adapter.evaluate(sealed)
-            trace['solve_status'] = 'completed'
-            trace['execution'].setdefault('attempts', [])
-            trace['execution'].update(prediction=None, reason='token_budget_exhausted')
-            trace['native_call_attempts'], trace['environment_steps'] = len(broker.events), broker.environment_steps
-            trace['episode_result'] = asdict(EpisodeResult(task.task_id, task.split, sealed, trace['score'],
-                'token_budget_exhausted', cost_path=str(self.audit_path) if self.audit_path else None))
-            if self.checkpoint:
-                decision = self.checkpoint.state['decisions'].get(self.last_decision_id, {})
-                self.checkpoint.commit_decision(self.last_decision_id if decision.get('status') in {'prepared','response_received'}
-                    else None, 'rejected', stage='learning_finished', trace=trace)
+            partial = deepcopy(getattr(self.executor, 'partial_execution', {}))
+            partial.update(prediction=None, reason='token_budget_exhausted')
+            partial.setdefault('attempts', [])
+            self.complete_execution(task, trace, broker, partial, learn=learn, decision_status='rejected')
         finally:
             native_ids = {e.get('result_id') for e in broker.events}
             trace['result_store'] = {'native_index': [{'result_id': e.get('result_id'), 'event_id': e.get('event_id'), 'index': e['index']}
@@ -517,6 +499,32 @@ class EmpiricalSystem:
                 raise RuntimeError("Frozen Bank changed during evaluation")
         return trace
 
+    def complete_execution(self, task, trace, broker, execution, *, learn, decision_status='applied',
+                           sealed=None, score=None):
+        """One durable solve/score boundary for normal, budget and explicit recovery endings."""
+        sealed = self.adapter.submit(execution.get('prediction')) if sealed is None else sealed
+        score = self.adapter.evaluate(sealed) if score is None else score
+        producer = execution.get('submission_producer_attempt_id')
+        if producer:
+            execution['submission_seal'] = {'producer_attempt_id': producer, 'sealed_digest': digest(sealed),
+                'workspace': self.adapter.observe().get('workspace', {})}
+        trace.update(execution=execution, score=score, tools=broker.events, solve_status='completed',
+            native_call_attempts=len(broker.events), environment_steps=broker.environment_steps,
+            scoring_audit=getattr(self.adapter, 'score_audit', {}))
+        trace['episode_result'] = asdict(EpisodeResult(task.task_id, task.split, sealed, score,
+            execution['reason'], cost_path=str(self.audit_path) if self.audit_path else None))
+        if self.checkpoint:
+            receipt = self.checkpoint.state.get('learning_workspace')
+            if learn and getattr(self.adapter, 'workspace', None) and not receipt:
+                receipt = seal_trial_workspace(self.adapter, self.checkpoint.root/'learning_workspace')
+            decision = self.checkpoint.state['decisions'].get(self.last_decision_id, {})
+            key = self.last_decision_id if decision.get('status') in {'prepared','response_received'} else None
+            self.checkpoint.commit_decision(key, decision_status, stage='task_execution_finished',
+                trace=trace, learning_workspace=receipt)
+        if learn: self.learn_trace(task, trace)
+        else: trace['learning_status'] = 'frozen' if self.readonly else 'deferred'
+        if self.checkpoint and learn: self.checkpoint.advance('learning_finished', trace=trace)
+
     def learn_trace(self, task, trace):
         if self.readonly or task.split != 'train':
             raise RuntimeError('Only Train may learn')
@@ -529,9 +537,14 @@ class EmpiricalSystem:
                 host_call('bank_record', self.bank.record, attempt, trial_context={'stage': 'learning'})
             trace["learning"] = self.learner.learn(task, trace)
             result = trace['learning'] or {}
-            trace['learning_status'] = 'rejected' if result.get('rejected') or result.get('decision') == 'rejected' else 'completed'
+            trace['learning_status'] = ('skipped_policy' if result.get('decision_origin') == 'host' else
+                'rejected' if result.get('rejected') or result.get('decision') == 'rejected' else 'completed')
             if trace.get('learning_error'): trace['learning_error'] = None
-        except (ValueError, SyntaxError, BudgetExhausted) as exc:
+        except BudgetExhausted as exc:
+            if exc.code == 'diagnostic_budget_exhausted': raise
+            trace['learning'] = {'error': str(exc), 'reason': 'budget_unavailable', 'decision_origin': 'host'}
+            trace['learning_status'] = 'deferred_budget'
+        except (ValueError, SyntaxError) as exc:
             trace["learning"] = {"error": str(exc), "rejected": True}
             trace['learning_status'] = 'rejected'
         except Exception as exc:

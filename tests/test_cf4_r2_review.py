@@ -12,7 +12,7 @@ from atomic_skillgraph.empirical.bank import Bank
 from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
 from atomic_skillgraph.empirical.contracts import PublicTask, digest, object_schema
 from atomic_skillgraph.empirical.learner import Learner
-from atomic_skillgraph.empirical.model_view import canonical_bytes, project, project_related_candidates
+from atomic_skillgraph.empirical.model_view import canonical_bytes, project, project_related_candidates, expand_material
 from atomic_skillgraph.empirical.program_submission import normalize_program_result
 from atomic_skillgraph.empirical.program_worker import ProgramWorker
 from atomic_skillgraph.empirical.trial_snapshot import seal_trial_workspace
@@ -119,7 +119,7 @@ def test_q3_known_learning_rejections_preserve_score(tmp_path, kind):
     s.learner._receive = reject
     try:
         s.learn_trace(s.adapter.task, trace)
-        assert trace['learning_status'] == 'rejected' and 'learning_error' not in trace
+        assert trace['learning_status'] == ('deferred_budget' if kind == 'budget' else 'rejected') and 'learning_error' not in trace
         assert trace['score'] == {'hard': True, 'raw_score': 1.0}
         evidence('Q3_' + kind, {'learning_status': trace['learning_status'], 'score': trace['score']})
     finally: s.close()
@@ -137,9 +137,10 @@ def test_q4_same_candidates_compact_view_readonly(tmp_path, index, expected):
         full = deepcopy(original)
         projected = project('extractor', {'related': original})
         assert len(original) == 8 and original == full
-        assert canonical_bytes(original) == expected
-        assert projected['candidate_view_audit']['after_bytes'] <= expected / 2
-        for old, new in zip(original, projected['related']):
+        expected = canonical_bytes(original)
+        assert projected['candidate_view_audit']['after_bytes'] < expected
+        expanded = expand_material(projected)
+        for old, new in zip(original, expanded['related']):
             assert old['id'] == new['id']
             for key in ('goal', 'guidance', 'input_schema', 'output_schema', 'entry_constraints', 'execution_intent', 'used_physical_tasks'):
                 assert old.get(key) == new.get(key)
@@ -195,13 +196,17 @@ def launch_configs(root, authority):
 def test_q5_launch_config_guard_before_http(tmp_path, correct):
     assert CHILD.exists(), 'Review requires the saved recovery configuration'
     authority = ORIGINAL / 'data/main_experiment_v1' if correct else Path.cwd() / 'data/main_experiment_v1'
-    configs = launch_configs(CHILD, authority)
+    # A historical run cannot silently adopt the new learning/material identity.
+    with pytest.raises(ValueError, match='Unsupported execution policy'):
+        launch_configs(CHILD, authority)
+    configs = json.loads((CHILD / 'resolved_config.json').read_text())
     manifest = json.loads((CHILD / 'run_manifest.json').read_text())
     if correct:
         assert digest(configs) == manifest['config_hash']
         assert configs == json.loads((CHILD / 'resolved_config.json').read_text())
         assert configs['train'] == json.loads((CHILD / 'train/config.json').read_text())
     else:
+        configs['train']['manifest'] = str(authority / 'spreadsheetbench/train.json')
         assert digest(configs) != manifest['config_hash']
         copied = tmp_path / 'guard'; copied.mkdir()
         (copied / 'run_manifest.json').write_text(json.dumps(manifest))

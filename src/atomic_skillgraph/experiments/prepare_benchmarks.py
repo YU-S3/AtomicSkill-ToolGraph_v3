@@ -8,7 +8,8 @@ import tarfile
 from atomic_skillgraph.empirical.contracts import PublicTask, digest
 from atomic_skillgraph.harness.benchmarks import truncate_context
 from .run_empirical import write_json
-from skillcompiler_bench_contracts.livemath import normalize_livemath_item, NORMALIZATION_VERSION, UPSTREAM_REVISION
+from skillcompiler_bench_contracts.livemath import (normalize_livemath_item, permute_livemath_choices,
+    NORMALIZATION_VERSION, UPSTREAM_REVISION, CHOICE_PROJECTION_VERSION, CHOICE_SEED)
 
 
 def upstream_ids(upstream, dataset):
@@ -77,15 +78,18 @@ def prepare_resources(resources, output, case_map=None):
         for row in json.loads(path.read_text()):
             normalized = normalize_livemath_item(row)
             if len(normalized['choices']) > len(row['mcq']['choices']): repaired.append('livemath:' + normalized['id'])
+            normalized = permute_livemath_choices(normalized, choice_seed=CHOICE_SEED, stable_item_id=normalized['id'])
             label = normalized['correct_choice']['label']
             label_counts[label] = label_counts.get(label, 0) + 1
             mathematics.append({'id':normalized['id'], 'goal':normalized['question'],
                 'inputs':{'choices':normalized['choices']}, 'choices':normalized['choices'],
-                'correct_choice':normalized['correct_choice'], 'labels':[str(row['month']), *row['theorem_type']]})
+                'correct_choice':normalized['correct_choice'], 'choice_projection':normalized['choice_projection'],
+                'labels':[str(row['month']), *row['theorem_type']]})
     if len(mathematics) != 177: raise ValueError('LiveMath Universe must contain 177 tasks')
     datasets['livemath'] = {'all': mathematics}
     write_json(output/'livemath_integrity.json', {'normalization_version': NORMALIZATION_VERSION,
-        'upstream_revision': UPSTREAM_REVISION, 'pool_count': len(mathematics), 'repaired_missing_choice_ids': repaired,
+        'upstream_revision': UPSTREAM_REVISION, 'choice_projection_version': CHOICE_PROJECTION_VERSION,
+        'choice_seed': CHOICE_SEED, 'pool_count': len(mathematics), 'repaired_missing_choice_ids': repaired,
         'repaired_missing_choice_count': len(repaired), 'duplicate_ids': [], 'conflicting_ids': [], 'unresolved_ids': [],
         'correct_label_distribution': label_counts})
     extracted = resources/'extracted/spreadsheetbench_verified_400'
@@ -136,7 +140,8 @@ def prepare_resources(resources, output, case_map=None):
     write_json(output/'dataset_lock.json',{'upstream':'SkillOpt@fa4ca184573e42ec11472959dd57422381418096',
         'resource_pool_only':True,'counts':counts,'docvqa_split_unit':'question',
         'officeqa_information':'full_offline_no_oracle','livemath_use_theorem':False,'livemath_use_sketch':False,
-        'livemath_normalization_version': NORMALIZATION_VERSION, 'livemath_upstream_revision': UPSTREAM_REVISION})
+        'livemath_normalization_version': NORMALIZATION_VERSION, 'livemath_upstream_revision': UPSTREAM_REVISION,
+        'livemath_choice_projection_version': CHOICE_PROJECTION_VERSION, 'livemath_choice_seed': CHOICE_SEED})
     return counts
 
 

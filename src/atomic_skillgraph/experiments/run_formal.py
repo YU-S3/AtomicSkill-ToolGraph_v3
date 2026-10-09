@@ -63,9 +63,11 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
             raise ValueError('Materialized resource changed: ' + name)
     for name, expected in materialized.get('external_files_sha256', {}).items():
         if sha256(name) != expected: raise ValueError('Public input file changed: ' + name)
-    from skillcompiler_bench_contracts.livemath import NORMALIZATION_VERSION
+    from skillcompiler_bench_contracts.livemath import NORMALIZATION_VERSION, CHOICE_PROJECTION_VERSION, CHOICE_SEED
     if materialized.get('livemath_normalization_version') != NORMALIZATION_VERSION:
         raise ValueError('CF4 requires new public materialization; old checkpoints cannot be resumed')
+    if materialized.get('livemath_choice_projection_version') != CHOICE_PROJECTION_VERSION or materialized.get('livemath_choice_seed') != CHOICE_SEED:
+        raise ValueError('CF4-R3 requires the frozen public choice projection')
     if sha256(datasets / 'livemath_integrity.json') != materialized['integrity_sha256']:
         raise ValueError('LiveMath integrity record changed')
     profile = profiles[ADAPTER_NAMES.get(benchmark, benchmark)]

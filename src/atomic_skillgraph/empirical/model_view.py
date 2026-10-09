@@ -5,11 +5,74 @@ from . import POLICY_DEFAULTS
 from .contracts import PublicTask
 
 MODEL_VIEW_VERSION = POLICY_DEFAULTS['runtime']['model_view_version']
-CANDIDATE_VIEW_VERSION = 'candidate.v1'
+CANDIDATE_VIEW_VERSION = 'candidate.v2'
+CONTRACT_FIELDS = ('input_schema', 'output_schema', 'result_role', 'entry_constraints')
+
+
+def pack_material(material):
+    """Intern only identical contracts/jobs; every referenced value stays in this request."""
+    groups = {'contracts': {}, 'jobs': {}}
+    def candidates(v):
+        if isinstance(v, dict):
+            if 'input_schema' in v and 'output_schema' in v:
+                yield 'contracts', {k:v[k] for k in CONTRACT_FIELDS if k in v}
+            if all(k in v for k in ('id', 'skill_id', 'case_bindings', 'state', 'generation_count')):
+                yield 'jobs', v
+            for x in v.values(): yield from candidates(x)
+        elif isinstance(v, list):
+            for x in v: yield from candidates(x)
+    def key(v): return json.dumps(v, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+    for kind, v in candidates(material):
+        serial = key(v)
+        groups[kind][serial] = groups[kind].get(serial, 0) + 1
+    refs, tables = {}, {'contracts': {}, 'jobs': {}}
+    for kind, counts in groups.items():
+        for serial, count in counts.items():
+            if count > 1:
+                ref = kind[0] + str(len(tables[kind]))
+                refs[(kind, serial)] = ref
+                tables[kind][ref] = json.loads(serial)
+    if not any(tables.values()): return deepcopy(material)
+    def pack(v):
+        if isinstance(v, list): return [pack(x) for x in v]
+        if not isinstance(v, dict): return deepcopy(v)
+        if all(k in v for k in ('id', 'skill_id', 'case_bindings', 'state', 'generation_count')):
+            ref = refs.get(('jobs', key(v)))
+            if ref: return {'job_ref': ref}
+        result = dict(v)
+        if 'input_schema' in v and 'output_schema' in v:
+            contract = {k:v[k] for k in CONTRACT_FIELDS if k in v}
+            ref = refs.get(('contracts', key(contract)))
+            if ref:
+                result = {k:x for k,x in v.items() if k not in contract}
+                result['contract_ref'] = ref
+        return {k:pack(x) for k,x in result.items()}
+    return {**pack(material), 'material_tables': tables,
+        'material_reference_note': 'contract_ref merges fields from material_tables.contracts; job_ref replaces the object with material_tables.jobs. All evidence is here; these are not read_result IDs.'}
+
+
+def expand_material(material):
+    tables = material.get('material_tables', {})
+    def expand(v):
+        if isinstance(v, list): return [expand(x) for x in v]
+        if not isinstance(v, dict): return deepcopy(v)
+        if set(v) == {'job_ref'}: return deepcopy(tables['jobs'][v['job_ref']])
+        result = {k:expand(x) for k,x in v.items() if k != 'contract_ref'}
+        if 'contract_ref' in v: result.update(deepcopy(tables['contracts'][v['contract_ref']]))
+        return result
+    return expand({k:v for k,v in material.items() if k not in {'material_tables','material_reference_note'}})
 
 
 def canonical_bytes(value):
     return len(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8'))
+
+
+def learning_preview(context, value):
+    preview = context.preview(value)
+    # Learner/Builder cannot dereference episode-local pointers; keep the readable window.
+    if isinstance(preview, dict) and preview.get('truncated') and 'preview' in preview:
+        preview = {k:v for k,v in preview.items() if k != 'ref'}
+    return preview
 
 
 def project_related_candidates(related):
@@ -112,7 +175,7 @@ def project(stage, material, *, task=None, adapter=None, context=None):
                         if key in original.get('outputs', {}) and field == original['outputs'][key]:
                             fields[key] = {'result_id': rid, 'path': ['outputs', key]}
         # Memory stores query/scope/acceptance and the result ID; previews live in recent_results.
-        return {'model_view_version': MODEL_VIEW_VERSION, 'task': public_task,
+        return pack_material({'model_view_version': MODEL_VIEW_VERSION, 'task': public_task,
             'node': {'id': value.pop('node_id'), 'goal': node_goal, 'interface': interface},
             'bindings': {'inputs': inputs, 'input_sources': sources, 'missing': value.pop('missing'),
                          'completed_results': completed},
@@ -120,7 +183,7 @@ def project(stage, material, *, task=None, adapter=None, context=None):
             'state': state,
             'calls': {k: value.pop(k) for k in ('tools', 'programs', 'allowed_calls')},
             'memory': {'guidance': value.pop('guidance'), 'operations': memory, 'recent_results': recent},
-            'recovery': value}
+            'recovery': value})
     if stage == 'extractor' and 'related' in value:
         before = canonical_bytes(value['related'])
         value['related'] = project_related_candidates(value['related'])
@@ -132,10 +195,11 @@ def project(stage, material, *, task=None, adapter=None, context=None):
         if context and adapter.capabilities.interaction != 'single_answer':
             for case in value.get('completed_train_cases', []):
                 original = case['task']
-                case['task'] = context.preview(model_task(PublicTask('', '', original['goal'], original.get('inputs', {})), adapter))
-                case['action_prefix'] = context.preview(case['action_prefix'])
-    return value
+                case['task'] = learning_preview(context, model_task(PublicTask('', '', original['goal'], original.get('inputs', {})), adapter))
+                case['action_prefix'] = learning_preview(context, case['action_prefix'])
+    return pack_material(value)
 
 
 def callable_tools(material):
+    material = expand_material(material)
     return material.get('calls', {}).get('tools', material.get('tools', []))

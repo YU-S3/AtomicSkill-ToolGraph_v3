@@ -57,13 +57,19 @@ def finish_text_prompt(contract):
 GUIDANCE_LEARNING = object_schema({
     'decision': {'enum': ['no_change', 'reuse_existing', 'upsert_guidance']},
     'existing_skill_id': TEXT,
-    'guidance_skill': object_schema({'goal': TEXT, 'guidance': TEXT}, ['goal', 'guidance']),
-    'rationale': TEXT}, ['decision'])
+    'guidance_skill': object_schema({'goal': {'type': 'string', 'minLength': 1, 'maxLength': 256},
+        'guidance': {'type': 'string', 'minLength': 1, 'maxLength': 1600}}, ['goal', 'guidance']),
+    'rationale': {'type': 'string', 'minLength': 1, 'maxLength': 512}}, ['decision'])
 GUIDANCE_LEARNER_PROMPT = """Learn concise reusable guidance from this completed public Train experience.
 Use no_change if no useful general guidance was learned; reuse_existing only with a real supplied guidance Skill ID.
 For new or revised guidance, submit upsert_guidance with guidance_skill containing nonempty goal and guidance;
 an optional existing_skill_id identifies the real parent to revise. Do not invent IDs, workflows, Programs, jobs,
 trial cases, private gold answers or per-question answer lookup tables. Preserve the task's original scope.
+guidance_skill contains only goal (<=256 characters) and guidance (<=1600 characters); existing_skill_id stays
+outside it and must be a real supplied ID. rationale is <=512 characters. State applicability, an executable
+approach and limits; a successful label is evidence for that submission, not proof of every mathematical claim.
+Do not infer a replacement answer or theorem from scalar failure feedback. Necessary evidence and any material
+tables are included in this request; you cannot call read_result here.
 Only one submit_learning ToolCall is permitted; this request does not solve the task again."""
 
 PLANNER_PROMPT = """Choose a short executable workflow for the original task. Prefer compatible usable Programs or
@@ -76,13 +82,16 @@ result goal and optional reference_skill_ids, but no skill_id/program_id executi
 grants an automatic route or completion schema. execution_mode=skill selects skill_id; execution_mode=program
 selects program_id. Bound nodes have no goal: their full goal and I/O come from the actual asset. Put parent intent
 in optional purpose. Unknown locations/values are unresolved or producer references, not discovered facts.
-Stable tool_definitions explain semantics; only current_tools are callable now. Legal different operations may achieve
+Stable tool_definitions and current_tools describe future environment execution; you cannot call them now.
+Your only current response tool is submit_plan. Legal different operations may achieve
 the same result goal. New combinations of usable Programs execute without whole-workflow trials or node confirmation.
 Return one submit_plan ToolCall: mode=select with a retrieved workflow_id and explicit node_args overrides, or
 mode=compose with a complete short workflow. Selecting a workflow preserves its node goals and structure.
 A from reference must name an earlier node's actual output field. output_aliases maps actual fields to handoff aliases
 while retaining originals. Selecting an old ambiguous Skill-only Workflow also supplies node_modes dynamic/skill in
-this same response; selecting a native v2 Workflow needs no node_modes."""
+this same response; selecting a native v2 Workflow needs no node_modes.
+REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
+{"literal":3}, {"unresolved":"location not yet known"}. Bare strings are invalid REF values."""
 LEARNER_PROMPT = """Learn a reusable capability or workflow from this real Train experience, including its failures.
 Choose no_change, reuse_existing, propose_skill_and_program_spec, or propose_or_revise_workflow. At most one new
 program specification. Prefer a useful local goal including necessary search/preparation, ordinary I/O and concise
@@ -143,8 +152,10 @@ contain result_id/path: use argument_refs/output_refs, or bounded read_result wh
 do not pass a reference object as an ordinary business value. Follow task.answer_contract when supplied.
 Execute the current node toward the original user's task, keeping exact resource identities and
 quantity constraints. Prefer an existing program when inputs are ready; otherwise use a public tool, call a preparation
-program, or supply missing values. Only call currently provided tools with their normal arguments. The materials state
-the allowed call count; batch only independent read_only/batchable tools. Otherwise return one runtime_step
+program, or supply missing values. Your callable response tool is runtime_step; calls.tools describes environment
+operations to put inside runtime_step, not direct response ToolCalls. The materials state
+the allowed call count; batch independent read_only/batchable operations as multiple runtime_step ToolCalls.
+Otherwise return one runtime_step
 ToolCall: call_tool(name,arguments), call_program(name=program_id,arguments,output_mapping), complete_node(outputs,output_refs), revise_plan(workflow),
 patch_node(patch), or finish(answer). Node completion and a program's ok do not establish official success. Use resolved
 node_interface: dynamic requires only required_handoff_fields; bound nodes retain the asset's full I/O. Reference
@@ -161,4 +172,9 @@ and replaces its supplied result, list that field in replaced_inputs; do not cre
 Runtime outputs are ordinary values, never plan literal wrappers. Use output_refs/argument_refs with result_id and
 field/index path for large acquired values; do not copy whole documents or lists. Fields cannot appear in both values
 and references. output_mapping maps preparation output fields to current node inputs; replacing known inputs must be
-declared in replaced_inputs. No references to future results or other calls in the same batch."""
+declared in replaced_inputs. No references to future results or other calls in the same batch.
+read_result is wrapped as a runtime_step with
+{"action":"call_tool","name":"read_result","arguments":{"result_id":"EXISTING_RESULT_ID","path":[]}}.
+EXISTING_RESULT_ID is a placeholder: replace it with a real supplied result ID, never invent one.
+Plan REF values are objects, e.g. {"task":"field"}, {"from":"node","field":"output"},
+{"literal":3}, {"unresolved":"reason"}; never bare strings."""

@@ -302,6 +302,18 @@ class OpenAICompatibleProvider:
             }
             provider_request_id = _provider_request_id(response, {})
             if not response.ok:
+                try:
+                    error = response.json().get('error', {})
+                    public_error = {}
+                    for field in ('code', 'type', 'message'):
+                        if field in error:
+                            value = str(error[field]).replace(api_key, '[redacted]')
+                            value = re.sub(r'(?i)(?:bearer\s+\S+|sk-[A-Za-z0-9_-]+)', '[redacted]', value)
+                            public_error[field] = value[:1024]
+                            if len(value) > 1024: public_error['truncated'] = True
+                    self._request_context.response_diagnostic['error'] = public_error
+                except (ValueError, TypeError, AttributeError):
+                    self._request_context.response_diagnostic['error_unparseable'] = True
                 code = _http_error_code(response.status_code, response.text)
                 message = f"HTTP {response.status_code} from LLM provider"
                 self._append_request_record(

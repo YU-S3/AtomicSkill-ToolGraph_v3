@@ -22,6 +22,14 @@ import os
 import re
 
 import openpyxl
+from ...core.errors import AtomicSkillGraphError, FailureLayer
+
+SCORER_VERSION = 'spreadsheet.ranges.v2'
+
+
+class EvaluatorContractError(AtomicSkillGraphError):
+    def __init__(self, message):
+        super().__init__('evaluator_data_contract', message, layer=FailureLayer.INFRASTRUCTURE)
 
 
 # ---------- value transform / compare (official port) ----------
@@ -64,7 +72,7 @@ def _compare_cell_value(v1, v2) -> bool:
     return v1 == v2
 
 
-# ---------- range parsing (official port) ----------
+# ---------- strict ranges, including bounded whole-column comparison ----------
 
 def _col_num2name(n: int) -> str:
     name = ""
@@ -82,20 +90,33 @@ def _col_name2num(name: str) -> int:
 
 
 def _parse_range(range_str: str):
-    start_cell, end_cell = range_str.split(":")
-    sc = "".join(ch for ch in start_cell if ch.isalpha())
-    sr = "".join(ch for ch in start_cell if ch.isdigit())
-    ec = "".join(ch for ch in end_cell if ch.isalpha())
-    er = "".join(ch for ch in end_cell if ch.isdigit())
-    return (_col_name2num(sc), int(sr)), (_col_name2num(ec), int(er))
+    parts = range_str.split(':')
+    if len(parts) not in {1, 2}: raise EvaluatorContractError('Invalid scoring range: ' + range_str)
+    cells = []
+    for part in parts:
+        match = re.fullmatch(r'\$?([A-Za-z]{1,3})(?:\$?([0-9]+))?', part, flags=re.ASCII)
+        if not match: raise EvaluatorContractError('Invalid scoring endpoint: ' + part)
+        col, row = _col_name2num(match[1].upper()), int(match[2]) if match[2] else None
+        if not 1 <= col <= 16384 or row is not None and not 1 <= row <= 1048576:
+            raise EvaluatorContractError('Scoring range exceeds Excel bounds')
+        cells.append((col, row))
+    if len(cells) == 1:
+        if cells[0][1] is None: raise EvaluatorContractError('Whole columns require two endpoints')
+        cells *= 2
+    (sc, sr), (ec, er) = cells
+    if (sr is None) != (er is None) or sc > ec or sr is not None and sr > er:
+        raise EvaluatorContractError('Incomplete or reversed scoring range')
+    return cells[0], cells[1]
 
 
-def _generate_cell_names(range_str: str):
-    if ":" not in range_str:
-        return [range_str]
+def _generate_cell_names(range_str: str, *, row_limit=None):
     (sc, sr), (ec, er) = _parse_range(range_str)
-    cols = [_col_num2name(i) for i in range(sc, ec + 1)]
-    return [f"{c}{r}" for c in cols for r in range(sr, er + 1)]
+    if sr is None:
+        if type(row_limit) is not int or not 1 <= row_limit <= 1048576:
+            raise EvaluatorContractError('Whole columns require a worksheet row bound')
+        sr, er = 1, row_limit
+    for col in range(sc, ec + 1):
+        for row in range(sr, er + 1): yield f'{_col_num2name(col)}{row}'
 
 
 def _cell_level_compare(wb_gt, wb_proc, sheet_name: str, cell_range: str):
@@ -103,7 +124,7 @@ def _cell_level_compare(wb_gt, wb_proc, sheet_name: str, cell_range: str):
         return False, f"worksheet not found: {sheet_name}"
     ws_gt = wb_gt[sheet_name]
     ws_proc = wb_proc[sheet_name]
-    for cn in _generate_cell_names(cell_range):
+    for cn in _generate_cell_names(cell_range, row_limit=max(ws_gt.max_row, ws_proc.max_row)):
         cg = ws_gt[cn]
         cp = ws_proc[cn]
         if not _compare_cell_value(cg.value, cp.value):
@@ -115,27 +136,31 @@ def _cell_level_compare(wb_gt, wb_proc, sheet_name: str, cell_range: str):
 
 def compare_workbooks(gt_file: str, proc_file: str, answer_position: str) -> tuple[bool, str]:
     """Return (ok, msg). Single test-case comparison, official semantics."""
-    if not os.path.exists(proc_file):
-        return False, "file not exist"
     try:
         wb_gt = openpyxl.load_workbook(filename=gt_file, data_only=True)
-        wb_proc = openpyxl.load_workbook(filename=proc_file, data_only=True)
-    except Exception as e:  # noqa: BLE001
-        return False, f"load error: {e}"
+    except Exception as exc:
+        raise EvaluatorContractError('Gold workbook unavailable or invalid') from exc
+    wb_proc = None
     try:
+        if not isinstance(answer_position, str) or not answer_position.strip():
+            raise EvaluatorContractError('Empty answer_position')
+        ranges = []
+        for scr in answer_position.split(','):
+            if not scr.strip(): raise EvaluatorContractError('Empty scoring range')
+            if '!' in scr:
+                sheet_name, cell_range = scr.split('!', 1)
+                sheet_name = sheet_name.strip().strip("'\"")
+            else: sheet_name, cell_range = wb_gt.sheetnames[0], scr
+            cell_range = cell_range.strip().strip("'\"")
+            _parse_range(cell_range)
+            if sheet_name not in wb_gt.sheetnames: raise EvaluatorContractError('Gold worksheet not found: ' + sheet_name)
+            ranges.append((sheet_name, cell_range))
+        if not os.path.exists(proc_file): return False, 'file not exist'
+        try: wb_proc = openpyxl.load_workbook(filename=proc_file, data_only=True)
+        except Exception as exc: return False, f'load error: {exc}'
         ok_all = True
         msg_first = ""
-        for scr in (answer_position or "").split(","):
-            scr = scr.strip()
-            if not scr:
-                continue
-            if "!" in scr:
-                sheet_name, cell_range = scr.split("!", 1)
-                sheet_name = sheet_name.strip().strip("'\"")
-            else:
-                sheet_name = wb_gt.sheetnames[0]
-                cell_range = scr
-            cell_range = cell_range.strip().strip("'\"")
+        for sheet_name, cell_range in ranges:
             ok, msg = _cell_level_compare(wb_gt, wb_proc, sheet_name, cell_range)
             if not ok:
                 ok_all = False
@@ -144,7 +169,7 @@ def compare_workbooks(gt_file: str, proc_file: str, answer_position: str) -> tup
         return ok_all, msg_first
     finally:
         wb_gt.close()
-        wb_proc.close()
+        if wb_proc: wb_proc.close()
 
 
 def evaluate(pred_path: str, gold_path: str,

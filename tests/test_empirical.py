@@ -280,8 +280,9 @@ def test_single_answer_uses_one_solve_and_independent_score_and_frozen(tmp_path)
     provider = Provider(['I declare success', {'decision': 'no_change'}])
     system = EmpiricalSystem(config, harness=AnswerAdapter(), provider=provider)
     trace = system.run_task(PublicTask('t', 'p', 'question'))
-    assert not trace['score']['hard'] and len(provider.calls) == 2
-    assert [r['stage'] for r in trace['requests']] == ['runtime', 'extractor']
+    assert not trace['score']['hard'] and len(provider.calls) == 1
+    assert trace['learning_status'] == 'skipped_policy' and trace['learning']['decision_origin'] == 'host'
+    assert [r['stage'] for r in trace['requests']] == ['runtime']
     system.bank.freeze(tmp_path / 'frozen')
     system.close()
     config['data_dir'] = str(tmp_path / 'frozen')

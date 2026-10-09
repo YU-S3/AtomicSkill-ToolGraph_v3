@@ -52,8 +52,12 @@ class TaskContext:
                                       'hits': self.loop_hits[key], 'operations': [x['name'] for x in self.progress_observations[-length:]]}
                 break
 
-    def register(self, event_id, result, *, name='', arguments=None):
+    def register(self, event_id, result, *, name='', arguments=None, verify_source=False):
         if event_id in self.sources:
+            if verify_source and self.results[self.sources[event_id]] != result:
+                from ..core.errors import AtomicSkillGraphError, FailureLayer
+                raise AtomicSkillGraphError('learner_case_source_conflict',
+                    'Immutable learning source has conflicting content', layer=FailureLayer.INFRASTRUCTURE)
             return self.sources[event_id]
         result_id = self.scope + ':' + str(sum(rid.removeprefix(self.scope + ':').isdigit() for rid in self.results))
         self.results[result_id] = result

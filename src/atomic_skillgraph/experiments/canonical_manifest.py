@@ -221,11 +221,16 @@ def verify(authority):
 def materialize(authority, prepared_pool, output):
     authority, prepared_pool, output = Path(authority), Path(prepared_pool), Path(output)
     manifest = verify(authority)
-    from skillcompiler_bench_contracts.livemath import normalize_livemath_item, NORMALIZATION_VERSION, UPSTREAM_REVISION
+    from skillcompiler_bench_contracts.livemath import (permute_livemath_choices, NORMALIZATION_VERSION,
+        UPSTREAM_REVISION, CHOICE_PROJECTION_VERSION, CHOICE_SEED)
     lock = json.loads((prepared_pool / 'dataset_lock.json').read_text())
     if lock.get('livemath_normalization_version') != NORMALIZATION_VERSION:
         raise ValueError('CF4 requires a freshly normalized LiveMath resource pool')
     integrity = json.loads((prepared_pool / 'livemath_integrity.json').read_text())
+    if lock.get('livemath_choice_projection_version') != CHOICE_PROJECTION_VERSION or lock.get('livemath_choice_seed') != CHOICE_SEED:
+        raise ValueError('LiveMath choice projection lock differs')
+    if integrity.get('choice_projection_version') != CHOICE_PROJECTION_VERSION or integrity.get('choice_seed') != CHOICE_SEED:
+        raise ValueError('LiveMath choice integrity differs')
     integrity.update(split_counts={}, public_choices_sha256={}, evaluator_choices_sha256={})
     external = {}
     for benchmark in BENCHMARKS:
@@ -252,10 +257,16 @@ def materialize(authority, prepared_pool, output):
             if benchmark == 'livemath':
                 for task_id, task in pool.items():
                     record = records[task_id]
-                    normalized = normalize_livemath_item({'id': task_id, 'question': task['goal'],
-                        'choices': task['inputs']['choices'], 'correct_choice': record['correct_choice']})
+                    projection = record.get('choice_projection')
+                    if not projection: raise ValueError('LiveMath lacks canonical projection provenance')
+                    normalized = permute_livemath_choices(projection['canonical'], choice_seed=CHOICE_SEED,
+                        stable_item_id=task_id.removeprefix('livemath:'))
+                    if normalized['choice_projection'] != projection:
+                        raise ValueError('LiveMath projection identity differs: ' + task_id)
                     if normalized['choices'] != task['inputs']['choices'] or record['choices'] != normalized['choices']:
                         raise ValueError('LiveMath public/evaluator choices differ: ' + task_id)
+                    if record['correct_choice'] != normalized['correct_choice'] or task['goal'] != normalized['question']:
+                        raise ValueError('LiveMath question/gold projection differs: ' + task_id)
                     integrity['public_choices_sha256'][task_id] = digest(task['inputs']['choices'])
                     integrity['evaluator_choices_sha256'][task_id] = digest(record['choices'])
         for name in SPLITS:
@@ -280,6 +291,7 @@ def materialize(authority, prepared_pool, output):
     frozen_write(output / 'livemath_integrity.json', integrity)
     frozen_write(output / 'materialization.json', {'authority_sha256': sha256(authority / 'manifest.json'),
         'livemath_normalization_version': NORMALIZATION_VERSION, 'livemath_upstream_revision': UPSTREAM_REVISION,
+        'livemath_choice_projection_version': CHOICE_PROJECTION_VERSION, 'livemath_choice_seed': CHOICE_SEED,
         'integrity_sha256': sha256(output / 'livemath_integrity.json'),
         'external_files_sha256': external,
         'files_sha256': {p.relative_to(output).as_posix(): sha256(p) for p in sorted(output.glob('*/*.json'))}})

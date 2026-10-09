@@ -4,7 +4,7 @@ benchmark_profile: alfworld.public-discovery.v2
 manifest: data/baseline_manifests/train_120.json
 data_dir: runs/empirical_seed42/bank
 experiment:
-  implementation_revision: empirical-v3.1-CF4-R2
+  implementation_revision: empirical-v3.1-CF4-R3
   seed: 42
   benchmark: alfworld
   runtime_mode: online
@@ -16,7 +16,7 @@ harness:
   max_steps: 100
   public_discovery_version: alfworld.public-discovery.v2
 runtime:
-  model_view_version: empirical.model-view.cf4
+  model_view_version: empirical.model-view.cf4-r3
   plan_execution_policy: empirical.recoverable-takeover.v1
   dynamic_escape_limit: 1
   read_batch_max_calls: 3
@@ -27,6 +27,10 @@ runtime:
   repeated_unchanged_failure_limit: 2
   environment_step_budget: 100
 learning:
+  material_version: learner.material.cf4-r3.v1
+  guidance_policy_version: guidance.public-evidence.v1
+  guidance_repair_limit: 1
+  min_distinct_train_cases_before_first_build: 2
   builder_truncation_recovery_max_completion_tokens: 65536
   max_new_programs_per_task: 1
   builder_repair_limit: 1
@@ -50,6 +54,11 @@ program_environment:
   adapter_abi: simple.v2
   image_digest: sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783
 llm:
+  purpose_overrides:
+    guidance_learning:
+      protocol:
+        thinking_type: disabled
+      max_completion_tokens: 4096
   provider: openai_compatible
   dialect: deepseek_v4_chat
   base_url: https://api.deepseek.com

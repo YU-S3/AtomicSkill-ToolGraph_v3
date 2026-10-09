@@ -155,7 +155,11 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
                 native = json.loads((checkpoint.root/'native_events.json').read_text())
                 surface = adapter or system.adapter
                 specs = {t['name']: t for t in surface.available_tools()}
-                if surface.capabilities.checkpoint_mode != 'workspace_copy' or any(
+                finished = checkpoint.state.get('executor_finished')
+                if finished:
+                    from ..empirical.trial_snapshot import validate_finished_execution
+                    validate_finished_execution(checkpoint)
+                elif surface.capabilities.checkpoint_mode != 'workspace_copy' or any(
                     e['state'] != 'finished' or specs.get(e['name'], {}).get('effect') != 'read_only' for e in native):
                     raise UnknownSideEffect('Interrupted environment execution requires explicit new attempt; no blind replay')
             system.checkpoint = checkpoint

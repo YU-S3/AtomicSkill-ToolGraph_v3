@@ -247,6 +247,7 @@ class SpreadsheetAdapter(FileAdapter):
 
     def __init__(self, records, config):
         super().__init__('spreadsheet', records, config)
+        self.evaluation_receipts = None
         spec = ToolSpec('execute_python', 'Run Python in the shared sandbox. INPUT_PATH and OUTPUT_PATH are predefined. '
             'Write solution.py using INPUT_PATH/OUTPUT_PATH and case1_result.xlsx. Program paths can be absolute '
             'inside /workspace; files/deleted_files must be publication names relative to /workspace, '
@@ -295,13 +296,27 @@ class SpreadsheetAdapter(FileAdapter):
 
     def evaluate(self, sealed):
         from .scorers.spreadsheet import evaluate
+        from .scorers.spreadsheet import EvaluatorContractError
+        from ..empirical.checkpoint import save_json
         if sealed['task_id'] != self.task.task_id: raise ValueError('Submission task mismatch')
         record = self._records[self.task.task_id]
         cases = record['cases']
+        if not cases: raise EvaluatorContractError('Task has no evaluator cases')
+        scorer_version = hashlib.sha256(Path(importlib.import_module('.scorers.spreadsheet', __package__).__file__).read_bytes()).hexdigest()
+        receipt_root = getattr(self, 'evaluation_receipts', None)
+        if receipt_root: Path(receipt_root).mkdir(parents=True, exist_ok=True)
         outcomes = []
         raw_outputs = []
+        evaluated_prediction = None
         def record_score(calculated, case):
+            nonlocal evaluated_prediction
             raw = evaluate(str(calculated), case['gold'], record['instruction_type'], record['answer_position'])
+            evaluated_prediction = Path(calculated)
+            if receipt_path:
+                import shutil
+                saved = receipt_path.with_suffix('.xlsx')
+                shutil.copyfile(evaluated_prediction, saved)
+                evaluated_prediction = saved
             raw_outputs.append(raw)
             return bool(raw['ok'])
         bundle = Path(sealed['bundle']) if sealed.get('bundle') else None
@@ -310,6 +325,32 @@ class SpreadsheetAdapter(FileAdapter):
             if lock['code_sha256'] != hashlib.sha256((bundle/'solution.py').read_bytes()).hexdigest() or lock['image_digest'] != self.config['program_environment']['image_digest']:
                 raise ValueError('Sealed solution code/image changed')
         for index, case in enumerate(cases):
+            evaluated_prediction = None
+            try:
+                input_hash = hashlib.sha256(Path(case['input']).read_bytes()).hexdigest()
+                gold_hash = hashlib.sha256(Path(case['gold']).read_bytes()).hexdigest()
+            except (KeyError, OSError) as exc:
+                raise EvaluatorContractError('Evaluator input/gold file unavailable') from exc
+            identity = {'task_id': self.task.task_id, 'case_id': case.get('case_id', case.get('id', str(index))),
+                'case_index': index, 'input_sha256': input_hash, 'gold_sha256': gold_hash,
+                'scorer_version': scorer_version, 'answer_position': record['answer_position'],
+                'instruction_type': record['instruction_type'],
+                'solution_sha256': hashlib.sha256((bundle/'solution.py').read_bytes()).hexdigest() if bundle else None,
+                'first_prediction_sha256': hashlib.sha256((bundle/'case1_result.xlsx').read_bytes()).hexdigest() if bundle else None,
+                'image_digest': self.config['program_environment']['image_digest']}
+            receipt_path = Path(receipt_root)/(digest(identity)+'.json') if receipt_root else None
+            if receipt_path and receipt_path.exists():
+                receipt = json.loads(receipt_path.read_text())
+                if receipt['identity'] != identity: raise EvaluatorContractError('Case receipt identity differs')
+                saved = receipt.get('prediction_file')
+                if saved:
+                    saved_path = (receipt_path.parent/saved).resolve()
+                    if not saved_path.is_relative_to(receipt_path.parent.resolve()):
+                        raise EvaluatorContractError('Case receipt prediction escapes its directory')
+                    if not saved_path.is_file() or hashlib.sha256(saved_path.read_bytes()).hexdigest() != receipt['prediction_sha256']:
+                        raise EvaluatorContractError('Case receipt prediction changed')
+                raw_outputs.append(receipt['raw_score']); outcomes.append(receipt['ok'])
+                continue
             predicted = bundle/'case1_result.xlsx' if bundle else None
             if bundle and index:
                 evaluator = SpreadsheetAdapter({self.task.task_id: {**record, 'public_files': {'input.xlsx': case['input']}}}, self.config)
@@ -338,9 +379,20 @@ class SpreadsheetAdapter(FileAdapter):
             else:
                 outcomes.append(False)
                 raw_outputs.append({'not_scored': 'missing_prediction'})
+            if receipt_path:
+                saved_name = None
+                predicted_hash = None
+                if evaluated_prediction:
+                    import shutil
+                    saved_name = receipt_path.stem+'.xlsx'
+                    if evaluated_prediction != receipt_path.parent/saved_name:
+                        shutil.copyfile(evaluated_prediction, receipt_path.parent/saved_name)
+                    predicted_hash = hashlib.sha256((receipt_path.parent/saved_name).read_bytes()).hexdigest()
+                save_json(receipt_path, {'identity': identity, 'raw_score': raw_outputs[-1], 'ok': outcomes[-1],
+                    'prediction_file': saved_name, 'prediction_sha256': predicted_hash})
         soft = sum(outcomes)/len(cases) if cases else 0
-        self.score_audit = {'raw_scorer_output': raw_outputs, 'scorer_version': hashlib.sha256(
-            Path(importlib.import_module('.scorers.spreadsheet', __package__).__file__).read_bytes()).hexdigest()}
+        self.score_audit = {'raw_scorer_output': raw_outputs, 'scorer_version': scorer_version,
+            'case_count': len(cases), 'case_receipts': str(receipt_root) if receipt_root else None}
         return {'hard': bool(cases) and all(outcomes), 'soft': soft, 'raw_score': soft,
                 'scorer': 'spreadsheet.skillopt-all-cases', 'case_results': outcomes}
 
