@@ -1,0 +1,40 @@
+{
+  "schema": "cf4-r3-m4-validation.v1",
+  "code_commit": "e3bb33d4a20468485dafff31f4f41603d694c43a",
+  "scope": "Executor snapshot aggregation; Spreadsheet scorer release hash; fresh formal launcher",
+  "offline": {
+    "new_state_cases": 4,
+    "reused_parameter_cases": 5,
+    "passed": 9,
+    "skipped": 0,
+    "elapsed_seconds": 1.31,
+    "real_tasks": 0,
+    "model_http": 0,
+    "generated_source_execution": 0,
+    "worker": "inert literal result",
+    "score": "synthetic state-transition score, not benchmark performance",
+    "without_checkpoint_case": "unused output with successful synthetic score"
+  },
+  "formal_preflight": {
+    "entrypoint": "atomic_skillgraph.experiments.run_single_cell",
+    "model": "deepseek-v4-flash",
+    "benchmarks": ["searchqa", "livemath", "officeqa", "spreadsheetbench"],
+    "seeds": [42, 43, 44],
+    "phase_configurations": 36,
+    "isolated_train_bank_paths": 12,
+    "train_members_same_across_seeds": true,
+    "train_orders_different_across_seeds": true,
+    "initial_bank": "fresh empty per cell",
+    "phases": ["train", "val", "test"],
+    "passed": true,
+    "paid_load_test_performed": false,
+    "experiments_launched": false
+  },
+  "canonical_manifest_sha256": "b85e0c2e442ca6b97ef98ece895719d4231f18db29682b0fcb6fdf3f91c37c95",
+  "public_materialization_sha256": "74098a4ee88fab7399820aac864c1091f9e6cb39238b2fd8fb924d1227e6b586",
+  "spreadsheet_scorer_sha256": "fe2703a5fd80f8be412fc41e9906d248bf8deb17adf3d4e57ca76e3aea3bc834",
+  "pinned_code": "/home/yangchengyu/asg_cf4_r3_m4_fixed_20261009",
+  "output_root": "/home/yangchengyu/cf4_r3_fresh_formal_deepseek_4bench_3seed_20261009_m4",
+  "formal_launch_ready": true,
+  "old_runs_modified": false
+}
