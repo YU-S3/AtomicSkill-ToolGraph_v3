@@ -24,10 +24,11 @@ LEARNING = object_schema({"decision": {"enum": ["no_change", "reuse_existing", "
     "existing_skill_id": TEXT, "workflow": WORKFLOW, "rationale": TEXT,
     'realization_request': object_schema({'skill_id': TEXT, 'action': {'enum': ['build','repair','trial','defer']},
         'case_bindings': {'type': 'array', 'items': object_schema({'case_id': TEXT,
-            'inputs': ANY_OBJECT, 'start_mode': {'enum': ['reset','prefix_replay']},
+            'inputs': ANY_OBJECT, 'local_evidence_ref': TEXT, 'reference_fields': {'type':'object','additionalProperties':{'type':'array'}}, 'start_mode': {'enum': ['reset','prefix_replay']},
             'prefix': {'type': 'array', 'items': object_schema({'name': TEXT, 'arguments': ANY_OBJECT}, ['name','arguments'])}},
             ['case_id','inputs','start_mode','prefix'])}}, ['skill_id','action','case_bindings'])}, ["decision"])
-TRIAL_INPUT = object_schema({'case_id': TEXT, 'inputs': ANY_OBJECT,
+TRIAL_INPUT = object_schema({'case_id': TEXT, 'inputs': ANY_OBJECT, 'local_evidence_ref':TEXT,
+    'reference_fields':{'type':'object','additionalProperties':{'type':'array'}},
     'start_mode': {'enum': ['reset', 'prefix_replay']},
     'prefix': {'type': 'array', 'items': object_schema({'name': TEXT, 'arguments': ANY_OBJECT}, ['name', 'arguments'])}},
     ['case_id', 'inputs', 'start_mode', 'prefix'])
@@ -108,13 +109,13 @@ while repairing a response's structure. A new Skill has no assigned ID yet: use 
 and workflow node skill_id. Existing references must be real supplied Skill IDs, never an invented name or alias.
 For file workspaces, program paths may be absolute inside /workspace; files/deleted_files are publication names
 relative to /workspace, without a leading slash, inputs prefix or '..'. Keep output_path separate from files.
-execution_intent is guidance_only for single-answer QA; tool capabilities can be program_requested.
+execution_intent depends on real local evidence, not the final answer interface. A single-answer operation can be program_requested.
 guidance_only does not request a Program job: set generate_program=false and omit realization_request.
 Declare result_role intermediate/final_answer/final_files in the Skill. A missing Program is pending work, not
 completion. reuse_existing with generate_program=true still requests a build. Use realization_request for at most
 one related pending job and 0-2 actually applicable completed Train case_ids, fixing each input and reset or real
 prefix start. Required fields and needed public tools must exist in that case; do not select unrelated examples
-to fill two slots. If none applies, defer. Preserve requested scope and use result references for large resources.
+to fill slots. One real local binding is sufficient. Each binding requires an existing host local_evidence_ref and reference_fields mapping output names to paths in its reference. If none applies, defer. Preserve requested scope and use result references for large resources.
 Return one submit_learning ToolCall."""
 BUILDER_PROMPT = """Your current response must be exactly one submit_program ToolCall with the supplied submission_contract.
 Do not directly call grep, read, glob or execute_python during generation, including recovery.

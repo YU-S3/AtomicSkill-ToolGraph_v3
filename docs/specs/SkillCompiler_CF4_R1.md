@@ -1,5 +1,7 @@
 # SkillCompiler：非 ALFWorld 收尾修复与并行正式运行实施文档
 
+> 历史规范：2026-10-10 的统一方法规范替换本文件的 single_answer guidance-only 限制与通用两来源资格。原实验与报告保留当时语义，新运行使用 empirical-v3.2-atomic-unified。
+
 **版本：v3.1-CF4-R1｜日期：2026-10-06**  
 **源码基线：`YU-S3/AtomicSkill-ToolGraph_v3@65718eb506c0add39983f77f3a2a8d59b198843c`**  
 **受测生产父提交：`8550285a19da9b56a885728fa0ee65eaeab33f41`。**  

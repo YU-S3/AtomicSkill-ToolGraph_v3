@@ -103,7 +103,12 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         if 'corpus_sha256' in identity: config['experiment']['corpus_sha256'] = identity['corpus_sha256']
     if stop_after_val and (root / 'test/summary.json').exists():
         raise ValueError('--stop-after-val cannot relabel an existing Test run')
+    from ..empirical.budget_governor import BudgetGovernor
+    limits = base.get('budget')
+    if not limits: raise ValueError('A new unified campaign requires an explicit total HTTP/token budget')
     log = FormalLog(root, identity, configurations, resume=resume)
+    governor = BudgetGovernor(root/'budget.json',**{k:v for k,v in limits.items()
+                              if k in {'token_limit','finish_reserve','request_limit','validation_limit'}})
     summaries, offset = {}, 0
     try:
         frozen_manifest = root / 'final_frozen_manifest.json'
@@ -146,6 +151,7 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
                 summary = run(settings, tasks, phase, resume=resume and (phase / 'execution_manifest.json').exists(),
                     readonly=split != 'train', adapter=adapter, adapter_factory=lambda settings=settings: create_simple_harness(settings),
                     formal_log=log, task_metadata=metadata, order_offset=offset,
+                    budget_governor=governor,
                     max_new_tasks=max_new_tasks if split == 'train' else None,
                     stop_at_task_id=stop_at_task_id if split == 'train' else None)
                 summaries[split] = {k: summary[k] for k in ('complete', 'tasks', 'successes', 'known_total_tokens', 'unknown_billing_attempts', 'knowledge_digest')}
@@ -193,7 +199,21 @@ def model_settings(base, model):
         base_url=model['endpoint'], api_key_env=model['api_key_env'], dialect=model.get('dialect', base['llm']['dialect']),
         input_modalities=model['input_modalities'], token_limit_field=model.get('token_limit_field', 'max_tokens'),
         generation_seed_supported=model.get('generation_seed_supported', False))
+    for key in ('reasoning_effort', 'request_timeout_seconds', 'max_retries', 'capability_profile'):
+        if key in model:
+            settings['llm'][key] = deepcopy(model[key])
+    if 'thinking_type' in model:
+        settings['llm']['protocol'] = {**settings['llm'].get('protocol', {}), 'thinking_type': model['thinking_type']}
+    for stage in ('planner', 'runtime', 'extractor', 'tool_builder'):
+        if 'reasoning_effort' in model: settings['llm'].setdefault(stage, {})['reasoning_effort'] = model['reasoning_effort']
     return settings
+
+
+def run_label(model):
+    import re
+    label = model.get('run_label') or re.sub(r'[^A-Za-z0-9_.-]+','-',model['model_id']).strip('.-') + '-' + digest(model['model_id'])[:8]
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}',label): raise ValueError('Invalid safe model run_label')
+    return label
 
 
 def main():
@@ -227,11 +247,9 @@ def main():
             raise ValueError('Matrix identity changed')
         matrix = old
     for model in models:
-        if Path(model['model_id']).name != model['model_id']:
-            raise ValueError('Model ID must be a safe single directory name')
         for benchmark in spec['benchmarks']:
             for seed in spec['run_seeds']:
-                cell = model['model_id'] + '/' + benchmark + '/seed' + str(seed)
+                cell = run_label(model) + '/' + benchmark + '/seed' + str(seed)
                 unsupported = benchmark == 'docvqa' and 'image' not in model['input_modalities']
                 matrix['cells'].setdefault(cell, {'status': 'unsupported' if unsupported else 'queued',
                     'reason': 'Locked model has no image capability' if unsupported else None, 'score': None, 'path': str(output / cell)})
@@ -240,7 +258,7 @@ def main():
         settings = model_settings(base, model)
         for benchmark in spec['benchmarks']:
             for seed in spec['run_seeds']:
-                cell = model['model_id'] + '/' + benchmark + '/seed' + str(seed)
+                cell = run_label(model) + '/' + benchmark + '/seed' + str(seed)
                 if matrix['cells'][cell]['status'] in {'completed', 'unsupported', 'execution_failed'}:
                     continue
                 matrix['cells'][cell].update(status='running', started_at=utc())

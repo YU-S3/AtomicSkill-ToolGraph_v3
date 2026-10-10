@@ -24,7 +24,7 @@ from atomic_skillgraph.harness.scorers.spreadsheet import (
     EvaluatorContractError, _parse_range, _generate_cell_names, _compare_cell_value, compare_workbooks)
 from skillcompiler_bench_contracts.livemath import normalize_livemath_item, permute_livemath_choices
 from test_cf2_contracts import office, http, response
-from test_empirical import config_for, program
+from test_empirical import config_for, program, worker
 
 
 def test_scoring_recovery_after_score_is_zero_llm_and_preserves_source(tmp_path,monkeypatch):
@@ -287,50 +287,45 @@ def test_guidance_purpose_reaches_actual_http_payload(tmp_path,monkeypatch):
     finally:s.close()
 
 
-@pytest.mark.parametrize('count', [0,1,2])
+@pytest.mark.parametrize('count',[0,1,2])
 def test_first_build_threshold_and_unbuilt_supplement_queue(tmp_path,count):
+    from test_cf2_realization import skill as make_skill,generated,learning_trace
     s=office(tmp_path)
-    skill=s.bank.put('skill',{'goal':'find target','guidance':'public','input_schema':object_schema(), 'output_schema':object_schema(),
-        'result_role':'intermediate','execution_intent':'program_requested','entry_constraints':'public'})
-    cases={str(i):(PublicTask(str(i),str(i),'find target'),experience('output')) for i in range(count)}
-    bindings=[{'case_id':str(i),'inputs':{},'start_mode':'reset','prefix':[]} for i in range(count)]
-    job={'id':'job','skill_id':skill['id'],'skill_version':skill['id'],'case_bindings':[], 'state':'waiting_example',
-         'kind':'build','generation_count':0,'epoch':0,'program_id':None,'repair_used':False}
-    request={'action':'build','case_bindings':bindings}
+    skill=s.bank.put('skill',make_skill('find target',execution_intent='program_requested'))
+    cases={str(i):(PublicTask(str(i),str(i),'find target'),s.learner._experience(
+        PublicTask(str(i),str(i),'find target'),learning_trace(s))) for i in range(count)}
+    bindings=[{**generated()['trial_inputs'][0],'case_id':str(i)} for i in range(count)]
+    job={'id':'job','skill_id':skill['id'],'skill_version':skill['id'],'case_bindings':[],'state':'waiting_example',
+        'kind':'build','generation_count':0,'epoch':0,'program_id':None,'repair_used':False}
     try:
-        s.learner._merge_request(job,request,skill,cases,experience('output'),True,{})
-        assert job['state']==('ready' if count==2 else 'waiting_example')
+        s.learner._merge_request(job,{'action':'build','case_bindings':bindings},skill,cases,
+            s.learner._experience(s.adapter.task,learning_trace(s)),True,{})
+        assert job['state']==('ready' if count else 'waiting_example')
         s.bank.save_job(job)
         if count==1:
-            candidate=s.learner.related_candidates(PublicTask('new','new','find target'))[0]
-            assert candidate['build_status']=='unbuilt_unverified' and candidate['current_program'] is None
+            card=s.learner.related_candidates(PublicTask('new','new','find target'))[0]
+            assert card['current_job']['state']=='ready' and card['current_program'] is None
         calls=[]
-        def builder(*a,**k): calls.append(True); raise ValueError('fixture stops before execution')
+        def builder(*a,**k):calls.append(True);raise ValueError('fixture stops before execution')
         s.learner._receive=builder
         s.learner._realize(job,PublicTask('new','new','find target'),cases,[],{'errors':[]})
-        assert bool(calls)==(count==2)
+        assert bool(calls)==bool(count)
     finally:s.close()
 
 
-def test_existing_candidate_trials_second_binding_without_rebuilding(tmp_path):
-    s=office(tmp_path)
-    skill=s.bank.put('skill',{'goal':'find','guidance':'g','input_schema':object_schema(),'output_schema':object_schema(),
-        'result_role':'intermediate','execution_intent':'program_requested','entry_constraints':'public'})
-    p=s.bank.put('program',{**program('def run(ctx, inputs):\n return {}'),'allowed_tools':[], 'entry_constraints':'public'})
+def test_existing_candidate_validates_one_binding_without_rebuilding(tmp_path,worker):
+    from test_cf2_realization import skill as make_skill,generated,learning_trace,trial_factory
+    s=office(tmp_path);trial_factory(s);s.worker=worker
+    skill=s.bank.put('skill',make_skill('find target',execution_intent='program_requested'))
+    p=s.bank.put('program',{**program(generated()['source'],outputs=skill['output_schema']),
+        'allowed_tools':['read'],'environment':s.config['program_environment']})
     s.bank.put('implementation',{'skill_id':skill['id'],'program_id':p['id']})
-    cases={str(i):(PublicTask(str(i),str(i),'find'),experience('output')) for i in range(2)}
-    bindings=[{'case_id':str(i),'inputs':{},'start_mode':'reset','prefix':[]} for i in range(2)]
-    job={'id':'j','skill_id':skill['id'],'skill_version':skill['id'],'case_bindings':bindings,'state':'ready','kind':'build',
-         'generation_count':1,'epoch':0,'program_id':p['id'],'repair_used':False}
-    s.learner._receive=lambda *a,**kw: pytest.fail('Existing candidate must be trialed first')
-    calls=[]
-    def trial(prog,inputs,task,**kwargs):
-        calls.append(task.physical_key)
-        record={'id':task.physical_key,'program_id':prog['id'],'task_key':task.physical_key,'origin':'train_test',
-                'outcome':'positive','basis':'local_check','result':{'status':'ok'}}
-        s.bank.record(record); return record
-    s.test_program=trial
+    cases={s.adapter.task.physical_key:(s.adapter.task,s.learner._experience(s.adapter.task,learning_trace(s)))}
+    job={'id':'j','skill_id':skill['id'],'skill_version':skill['id'],'case_bindings':generated()['trial_inputs'],
+        'state':'ready','kind':'build','generation_count':1,'epoch':0,'program_id':p['id'],'repair_used':False}
+    s.learner._receive=lambda *a,**kw:pytest.fail('Existing candidate must be validated first')
     try:
-        s.learner._realize(job,cases['1'][0],cases,[],{'errors':[],'tests':[]})
-        assert calls==['0','1'] and s.bank.get(p['id'])['state']=='usable'
+        s.learner._realize(job,s.adapter.task,cases,s.adapter.available_tools(),{'errors':[],'tests':[]})
+        assert len(s.bank.attempts(p['id']))==1 and s.bank.program_eligible(s.bank.get(p['id']))
+        assert s.bank.jobs()[0]['generation_count']==1
     finally:s.close()

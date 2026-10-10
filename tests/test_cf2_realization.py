@@ -24,12 +24,13 @@ def usable(bank,asset,cost=1):
     for index in range(2):
         bank.record({'id':p['id']+str(index),'program_id':p['id'],'task_key':'fixture'+str(index),
             'origin':'train_test','outcome':'positive','basis':'local_check','calls':cost})
-    return bank.get(p['id'])
+    from unified_fixture import qualify
+    return qualify(bank,p)
 
 
 def skill(goal='read target',inputs=None,outputs=None,**extra):
     return {'goal':goal,'guidance':'Use current public identities and character offsets.',
-            'input_schema':inputs or object_schema(),'output_schema':outputs or object_schema(),**extra}
+            'input_schema':inputs or object_schema(),'output_schema':outputs or object_schema({'text':{'type':'string'}},['text']),**extra}
 
 
 def requested_proposal(goal='prepare',**extra):
@@ -38,11 +39,19 @@ def requested_proposal(goal='prepare',**extra):
 
 
 def generated(source=None):
-    return {'source':source or "def run(ctx, inputs):\n    return {'status':'needs_input','outputs':{}}",
-            'trial_inputs':[{'case_id':'office-physical','inputs':{},'start_mode':'reset','prefix':[]}]}
+    return {'source':source or "def run(ctx, inputs):\n    r=ctx.call('read',{'path':'a.txt','offset':0})\n    return {'status':'ok','outputs':{'text':r['data']['text']}}",
+            'trial_inputs':[{'case_id':'office-physical','inputs':{},'start_mode':'reset','prefix':[],
+                'local_evidence_ref':'local:fixture-read','reference_fields':{'text':['data','text']}}]}
 
 
-def learning_trace(): return {'tools':[],'score':{'hard':False},'execution':{'prediction':None,'reason':'completed'}}
+def learning_trace(s=None):
+    events=[]
+    if s and any(t['name']=='read' for t in s.adapter.available_tools()):
+        broker=Broker(s.adapter,24)
+        broker.call('read',{'path':'a.txt','offset':0})
+        events=broker.events;events[0]['event_id']='fixture-read'
+    return {'tools':events,'score':{'hard':False},'execution':{'prediction':'answer','reason':'completed',
+        'answer_status':'valid','empty_answer':False,'completion_truncated':False}}
 
 
 def trial_factory(s):
@@ -127,7 +136,7 @@ def test_t31_reuse_existing_can_build_a_missing_program(tmp_path,monkeypatch):
     seen=http(monkeypatch,[response([{'decision':'reuse_existing','existing_skill_id':sk['id'],'generate_program':True,
         'realization_request':{'skill_id':sk['id'],'action':'build','case_bindings':generated()['trial_inputs']}}],name='submit_learning'),
                            response([generated()],name='submit_program')])
-    log=s.learner.learn(s.adapter.task,learning_trace())
+    log=s.learner.learn(s.adapter.task,learning_trace(s))
     assert log['program'] and len(seen)==2 and len(s.bank.jobs())==1
     s.close()
 
@@ -139,7 +148,7 @@ def test_t32_missing_light_binding_waits_without_builder(tmp_path,monkeypatch):
         'case_bindings':[{'case_id':'office-physical','inputs':{},'start_mode':'reset','prefix':[]}]}}
     deferred=deepcopy(proposal); deferred['realization_request'].update(action='defer',case_bindings=[])
     seen=http(monkeypatch,[response([proposal],name='submit_learning'),response([deferred],name='submit_learning')])
-    log=s.learner.learn(s.adapter.task,learning_trace())
+    log=s.learner.learn(s.adapter.task,learning_trace(s))
     assert len(seen)==2 and log['program'] is None and 'trial_binding_invalid' in json.dumps(seen[1]['messages'])
     assert s.bank.jobs()[0]['state']=='waiting_example'
     s.close()
@@ -148,20 +157,22 @@ def test_t32_missing_light_binding_waits_without_builder(tmp_path,monkeypatch):
 def test_t33_new_case_fills_unused_trial_slot_and_duplicates_do_not(tmp_path,monkeypatch):
     s=office(tmp_path); trial_factory(s)
     sk=s.bank.put('skill',skill('find target'))
-    p=s.bank.put('program',program("def run(ctx, inputs):\n    return {'status':'needs_input','outputs':{}}"))
+    asset=program(generated()['source'],outputs=sk['output_schema']);asset['allowed_tools']=['read']
+    asset['environment']=s.config['program_environment']
+    p=s.bank.put('program',asset)
     s.bank.put('implementation',{'skill_id':sk['id'],'program_id':p['id']})
-    first={'case_id':'office-physical','inputs':{},'start_mode':'reset','prefix':[]}
+    first=generated()['trial_inputs'][0]
     s.bank.save_job({'id':digest(['realization',sk['id']]),'skill_id':sk['id'],'skill_version':sk['id'],'kind':'trial','state':'ready','program_id':p['id'],
         'case_bindings':[first],'repair_used':False,'generation_count':1,'epoch':0,'trigger_task':'office-physical'})
     seen=http(monkeypatch,[response([{'decision':'no_change'}],name='submit_learning')])
-    s.learner.learn(s.adapter.task,learning_trace())
+    s.learner.learn(s.adapter.task,learning_trace(s))
     assert len(s.bank.attempts(p['id']))==1
     next_task=PublicTask('office','new-physical','find target')
     request={'decision':'reuse_existing','existing_skill_id':sk['id'],'realization_request':{'skill_id':sk['id'],'action':'trial',
-        'case_bindings':[{'case_id':'new-physical','inputs':{},'start_mode':'reset','prefix':[]}]}}
+        'case_bindings':[{**first,'case_id':'new-physical'}]}}
     http(monkeypatch,[response([request],name='submit_learning'),response([request],name='submit_learning')])
-    s.learner.learn(next_task,learning_trace()); s.learner.learn(next_task,learning_trace())
-    assert len(s.bank.attempts(p['id']))==2 and s.bank.get(p['id'])['state']=='candidate'
+    s.learner.learn(next_task,learning_trace(s)); s.learner.learn(next_task,learning_trace(s))
+    assert len(s.bank.attempts(p['id']))==1 and s.bank.get(p['id'])['state']=='usable'
     s.close()
 
 
@@ -179,7 +190,7 @@ def test_t34_qa_guidance_only_uses_one_normal_solver(tmp_path,monkeypatch):
 
 
 @pytest.mark.parametrize('malformed',[False,True])
-def test_t35_both_length_paths_share_one_65536_recovery(tmp_path,monkeypatch,malformed):
+def test_t35_both_length_paths_share_one_32768_recovery(tmp_path,monkeypatch,malformed):
     first=response(finish='length')
     if malformed:
         first=response([{'placeholder':0}],name='submit_program',finish='length')
@@ -187,8 +198,8 @@ def test_t35_both_length_paths_share_one_65536_recovery(tmp_path,monkeypatch,mal
     seen=http(monkeypatch,[response([requested_proposal()],name='submit_learning'),first,
                            response([generated()],name='submit_program')])
     s=office(tmp_path); trial_factory(s)
-    s.learner.learn(s.adapter.task,learning_trace())
-    assert [p['max_tokens'] for p in seen[1:]]==[32768,65536]
+    s.learner.learn(s.adapter.task,learning_trace(s))
+    assert [p['max_tokens'] for p in seen[1:]]==[16384,32768]
     abi=[json.loads(p['messages'][1]['content'])['future_program_api']['public_program_abi'] for p in seen[1:]]
     assert abi[0]==abi[1] and abi[0]['current_tool_surface']=='named_tools'
     assert abi[0]['methods']['call']=='(name, arguments)' and abi[0]['program_result_schema']['required']==['status','outputs']
@@ -203,7 +214,7 @@ def test_t36_recovery_then_syntax_failure_cannot_generate_third(tmp_path,monkeyp
     seen=http(monkeypatch,[response([requested_proposal()],name='submit_learning'),response(finish='length'),
                            response([generated('def run(')],name='submit_program')])
     s=office(tmp_path)
-    log=s.learner.learn(s.adapter.task,learning_trace())
+    log=s.learner.learn(s.adapter.task,learning_trace(s))
     assert len(seen)==3 and log['program'] is None and s.bank.jobs()[0]['state']=='deferred'
     s.close()
 
@@ -212,7 +223,7 @@ def test_t37_valid_length_submission_does_not_regenerate(tmp_path,monkeypatch):
     seen=http(monkeypatch,[response([requested_proposal()],name='submit_learning'),
                            response([generated()],name='submit_program',finish='length')])
     s=office(tmp_path); trial_factory(s)
-    s.learner.learn(s.adapter.task,learning_trace())
+    s.learner.learn(s.adapter.task,learning_trace(s))
     assert len(seen)==2 and not s.bank.jobs()[0]['repair_used']
     s.close()
 
@@ -225,13 +236,13 @@ def test_t38_saved_recovery_survives_crash_and_runtime_cap_is_unchanged(tmp_path
     original=s.checkpoint.advance
     def interrupt(stage,**kwargs):
         original(stage,**kwargs)
-        if any(key.startswith('builder_') and not key.endswith(('_request_material','_semantics')) for key in kwargs):
+        if any(key.startswith('builder_') and not key.endswith(('_request_material','_request_schema','_semantics')) for key in kwargs):
             raise KeyboardInterrupt('after saved recovery')
     monkeypatch.setattr(s.checkpoint,'advance',interrupt)
-    with pytest.raises(KeyboardInterrupt): s.learner.learn(s.adapter.task,learning_trace())
+    with pytest.raises(KeyboardInterrupt): s.learner.learn(s.adapter.task,learning_trace(s))
     assert s.bank.jobs()[0]['repair_used']
     monkeypatch.setattr(s.checkpoint,'advance',original)
-    s.learner.learn(s.adapter.task,learning_trace())
+    s.learner.learn(s.adapter.task,learning_trace(s))
     s.agent('runtime','Answer once',{'goal':'public'},None,None)
     assert len(seen)==4 and seen[-1]['max_tokens']==32768 and s.bank.jobs()[0]['generation_count']==2
     assert sum(u['total_tokens'] for u in json.loads(Path(s.audit_path).read_text())['usage'])==20
@@ -330,8 +341,9 @@ def test_t34_guidance_only_cannot_be_built_by_conflicting_trial_request(tmp_path
     seen=http(monkeypatch,[response([proposal],name='submit_learning')] * 2)
     a=AnswerAdapter('searchqa',{'qa':{'answers':['answer']}}); a.reset(PublicTask('qa','qa-physical','question'))
     s=EmpiricalSystem(config_for(tmp_path/'bank'),harness=a)
-    log=s.learner.learn(a.task,learning_trace())
-    assert len(seen)==2 and not s.bank.jobs() and log['program'] is None
+    trace=learning_trace(s);trace['score']['hard']=True
+    log=s.learner.learn(a.task,trace)
+    assert len(seen)==2 and not s.bank.jobs() and log.get('program') is None
     assert log['decision']=='rejected' and s.bank.all('skill')==[]
     s.close()
 

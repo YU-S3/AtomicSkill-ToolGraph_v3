@@ -9,6 +9,7 @@ from .task_context import TaskContext
 from .program_worker import program_permission_view
 from .model_view import project, model_task, pack_material, learning_preview
 from .program_submission import validate_program_declaration, submission_contract, ProgramContractError
+from .local_validation import evidence_from_trace
 from . import (LEARNING_MATERIAL_VERSION, GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_MATERIAL_VERSION,
                CHOICE_GUIDANCE_POLICY_VERSION)
 
@@ -24,12 +25,20 @@ class Learner:
                 'termination_reason': trace.get('execution', {}).get('reason'),
                 **{k: trace.get('execution', {}).get(k) for k in
                    ('answer_status', 'empty_answer', 'completion_truncated', 'provider_finish_reason')},
-                'program_calls': trace.get('execution', {}).get('attempts', [])}
+                'program_calls': trace.get('execution', {}).get('attempts', []),
+                'result_store':deepcopy(trace.get('result_store',{})),
+                'local_evidence':evidence_from_trace(
+                    task,trace,self.system.config['program_environment'])}
 
     def _view(self, experience, *, source_id):
         context = getattr(self.system, 'task_context', None) or TaskContext(self.system.config['runtime'])
         self.system.task_context = context
-        view = {k: v for k, v in experience.items() if k != 'events'}
+        view = {k: v for k, v in experience.items() if k not in {'events','result_store','local_evidence','program_calls'}}
+        view['local_evidence'] = deepcopy(experience.get('local_evidence', [])[-3:])
+        view['program_calls'] = deepcopy(experience.get('program_calls', [])[-2:])
+        view['projection_audit'] = {'original_event_count':len(experience.get('events',[])),
+            'original_evidence_count':len(experience.get('local_evidence',[])),
+            'original_utf8_bytes':len(json.dumps(experience,ensure_ascii=False).encode())}
         snapshot = digest(experience.get('events', []))
         view['case_source'] = {'physical_case_id': source_id, 'events_snapshot_sha256': snapshot,
                                'material_version': LEARNING_MATERIAL_VERSION}
@@ -37,7 +46,8 @@ class Learner:
         if original:
             view['task'] = model_task(PublicTask('', '', original['goal'], original.get('inputs', {})), self.system.adapter)
         view['events'] = []
-        for index, event in enumerate(experience.get('events', [])):
+        events = experience.get('events', [])
+        for index, event in list(enumerate(events))[-6:]:
             result_id = context.register(f'learner_case:{source_id}:{snapshot}:{index}',
                                         deepcopy(event.get('result', {})), verify_source=True)
             view['events'].append({'name': event['name'], 'arguments': learning_preview(context, event['arguments']),
@@ -48,6 +58,8 @@ class Learner:
         s = self.system
         version = material_version or LEARNING_MATERIAL_VERSION
         material = {**material, 'learning_material_version': version}
+        if stage=='extractor' and 'image' in s.adapter.capabilities.input_modalities:
+            material['content_parts']=s.adapter.content_parts()
         # Old paid responses remain attached to their original material. Migration is explicit.
         if s.checkpoint and key in s.checkpoint.state:
             raise ValueError('Legacy learning response requires explicit recovery/defer; no cross-version reuse')
@@ -107,8 +119,7 @@ class Learner:
         if proposal.get('skill'):
             skill = deepcopy(proposal['skill'])
             requested = proposal.get('generate_program', proposal['decision'] == 'propose_skill_and_program_spec')
-            skill.setdefault('execution_intent', 'program_requested' if requested and
-                self.system.adapter.capabilities.interaction != 'single_answer' else 'guidance_only')
+            skill.setdefault('execution_intent', 'program_requested' if requested else 'guidance_only')
             skill.setdefault('result_role', 'intermediate')
             skill = validate_program_declaration(skill, submission_contract(self.system.adapter))
             skill.setdefault('id', 'skill_' + digest(skill))
@@ -127,7 +138,7 @@ class Learner:
         associated = skill and job and job['skill_id'] == skill['id'] and job['skill_version'] == skill['id'] and any(
             i['skill_id'] == skill['id'] and i['program_id'] == job.get('program_id') for i in bank.all('implementation'))
         return {'skill': skill, 'job': job, 'already_usable': bool(request and associated and program and
-            program['state'] == 'usable' and request['action'] in {'build', 'trial'})}
+            bank.program_eligible(program) and request['action'] in {'build', 'trial'})}
 
     def validate_learning_proposal(self, proposal, cases=None):
         resolved = self._resolve_realization_request(proposal)
@@ -168,25 +179,15 @@ class Learner:
         bank = self.system.bank
         jobs = bank.jobs()
         related = []
-        priority = []
-        for job in jobs:
-            program = bank.get(job.get('program_id') or '')
-            linked = any(i['skill_id'] == job['skill_id'] and i['program_id'] == job.get('program_id')
-                         for i in bank.all('implementation'))
-            positives = {a['task_key'] for a in bank.attempts(job.get('program_id') or '') if a['outcome'] == 'positive'}
-            tried = {a['task_key'] for a in bank.attempts(job.get('program_id') or '') if a['outcome'] != 'inapplicable'}
-            unbuilt = not program and len(job['case_bindings']) == 1 and job['state'] == 'waiting_example'
-            if not job.get('contract_quarantine') and (unbuilt or (linked and program and program['state'] == 'candidate' and len(positives) == 1 and job['state'] not in {'done','deferred'} and (
-                    len(job['case_bindings']) < 2 or any(b['case_id'] not in tried for b in job['case_bindings'])))):
-                asset = bank.get(job['skill_id'])
-                priority.append((job, {**asset, 'current_program': program, 'current_job': job,
-                    'build_status': 'unbuilt_unverified' if unbuilt else 'candidate_needs_example',
-                    'used_physical_tasks': sorted(tried), 'independent_results': bank.attempts(program['id']) if program else []}))
-        priority.sort(key=lambda row: (-len(bank.words(task.goal) & bank.words(row[1]['goal'])), row[0]['id']))
-        ordered = [a for _, a in priority]
-        ordered += [a for a in bank.retrieve(task.goal) if a['id'] not in {x['id'] for x in ordered}]
+        ordered = bank.retrieve(task.goal)
         for asset in ordered[:8]:
             pending = [j for j in jobs if j['skill_id'] == asset['id'] and j['state'] != 'done']
+            current = next((j for j in jobs if j['skill_id']==asset['id']),None)
+            if current:
+                program=bank.get(current.get('program_id') or '')
+                attempts=bank.attempts(program['id']) if program else []
+                asset={**asset,'current_job':current,'current_program':program,'independent_results':attempts,
+                    'used_physical_tasks':sorted({a['task_key'] for a in attempts})}
             related.append({**asset, 'pending': pending,
                 'execution_intent': asset.get('execution_intent', 'program_requested' if pending else 'guidance_only'),
                 'usable_programs': [p['id'] for p in bank.routes({'execution_mode': 'skill', 'skill_id': asset['id']})]
@@ -201,7 +202,7 @@ class Learner:
             self.cases.append((task, experience))
         for case_task, case in self.cases:
             bank.save_case(case_task, case)
-        if s.adapter.capabilities.interaction == 'single_answer':
+        if s.adapter.capabilities.interaction == 'single_answer' and not experience['local_evidence']:
             if s.config['learning'].get('choice_guidance', {}).get('enabled') is True and 'choices' in task.inputs:
                 bank.update_choice_statistics()
                 return self._learn_grounded_choice_guidance(task, experience)
@@ -227,7 +228,7 @@ class Learner:
                 {'experience': self._view(experience, source_id=task.physical_key), 'related': related, 'tools': tools,
                  'program_submission_contract': submission_contract(s.adapter),
                  'completed_train_cases': [{'case_id': key, 'task': case.get('task', {'goal': t.goal, 'inputs': t.inputs}),
-                     'action_prefix': [{'name': e['name'], 'arguments': e['arguments']} for e in case.get('events', []) if e.get('backend_invoked', True)]}
+                     'local_evidence':case.get('local_evidence',[])[-3:]}
                      for key, (t, case) in sorted(cases.items(), key=lambda row: (
                          -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0]))[:8]],
                  'selected_local_goal': focus}, task=task, adapter=s.adapter, context=s.task_context), 'submit_learning', schema,
@@ -240,6 +241,11 @@ class Learner:
         skill = None
         if proposal.get('skill'):
             asset = self._proposal_skill(proposal)
+            # Choice guidance retains its checked-source contract. General operation
+            # learning may publish code, but cannot bypass that contract with new text.
+            if s.config['learning'].get('choice_guidance',{}).get('enabled') and 'choices' in task.inputs:
+                asset['guidance'] = ''
+                log['text_publication'] = 'withheld_unchecked_choice_guidance'
             skill = bank.put('skill', asset)
         elif proposal.get('existing_skill_id'):
             skill = bank.get(proposal['existing_skill_id'])
@@ -458,7 +464,7 @@ class Learner:
         if request['action'] == 'defer': job['state'] = 'waiting_example'
         elif job['state'] != 'deferred' or eligible:
             if job['generation_count'] and request['action'] in {'build','repair'} and job['state'] in {'done','deferred','waiting_example'} and eligible:
-                job.update(epoch=job['epoch']+1, generation_count=0, repair_used=False, last_error_kind=None)
+                job.update(epoch=job['epoch']+1, last_error_kind=None)
                 job.pop('pending_generation', None)
             job['state'] = 'ready' if job['case_bindings'] else 'waiting_example'
         if not job.get('program_id') and len({cases[b['case_id']][0].physical_key for b in job['case_bindings']}) < self.system.config['learning']['min_distinct_train_cases_before_first_build']:
@@ -468,6 +474,8 @@ class Learner:
         if binding['case_id'] not in cases: raise ValueError('TrialCase must be a completed Train case')
         validate_schema_instance(binding['inputs'], skill['input_schema'])
         task, experience = cases[binding['case_id']]
+        from .local_validation import resolve_evidence
+        resolve_evidence(binding,experience,skill)
         if task.split != 'train': raise ValueError('TrialCase must be a completed Train case')
         if binding['start_mode'] == 'reset' and binding['prefix']:
             raise ValueError('Reset trial cannot contain an action prefix')
@@ -481,6 +489,11 @@ class Learner:
 
     def _realize(self, job, task, cases, tools, log):
         s, bank = self.system, self.system.bank
+        if s.budget_governor and not s.budget_governor.validation_available():
+            job.update(state='deferred', last_error_kind='local_validation_budget_exhausted')
+            bank.save_job(job)
+            log['realization_skipped'] = 'local_validation_budget_exhausted'
+            return
         skill = bank.get(job['skill_id'])
         try:
             validate_program_declaration(skill, submission_contract(s.adapter))
@@ -492,12 +505,19 @@ class Learner:
         bindings = job['case_bindings']
         if not bindings:
             job['state'] = 'waiting_example'; bank.save_job(job); return
-        for binding in bindings: self._preflight_binding(binding, skill, cases)
+        try:
+            for binding in bindings: self._preflight_binding(binding, skill, cases)
+        except ValueError as exc:
+            job.update(state='deferred', last_error_kind='local_binding_invalid')
+            bank.save_job(job)
+            log['errors'].append(str(exc))
+            return
         if not job.get('program_id') and len({cases[b['case_id']][0].physical_key for b in bindings}) < s.config['learning']['min_distinct_train_cases_before_first_build']:
             job['state'] = 'waiting_example'; bank.save_job(job); return
         log['test_subjects'] = [b['case_id'] for b in bindings]
-        examples = [{'case_id': b['case_id'], 'fixed_binding': b, 'history_domain': 'runtime_agent_operations',
-                     **self._view(cases[b['case_id']][1], source_id=b['case_id'])} for b in bindings]
+        from .local_validation import resolve_evidence
+        examples = [{'case_id':b['case_id'],'fixed_binding':b,'history_domain':'source_local_operation',
+                     'local_evidence':resolve_evidence(b,cases[b['case_id']][1],skill)} for b in bindings]
         permissions = program_permission_view(tools, [*s.adapter.available_tools(), TaskContext(s.config['runtime']).tool()],
             tool_surface=s.adapter.capabilities.tool_surface, workspace=getattr(s.adapter, 'workspace', None),
             environment=s.config['program_environment'])
@@ -524,7 +544,7 @@ class Learner:
                 if 'pending_generation' not in job:
                     job.update(pending_generation=generation, generation_count=generation+1, trigger_task=task.physical_key)
                     bank.save_job(job)
-                cap = s.config['learning']['builder_truncation_recovery_max_completion_tokens'] if job.get('last_error_kind') == 'length' else None
+                cap = s.config['learning']['builder_truncation_recovery_max_completion_tokens'] if job.get('repair_used') or job['kind']=='repair' else None
                 try:
                     generated = self._receive('builder_' + job['id'] + '_' + str(job['epoch']) + '_' + str(generation),
                         'tool_builder', BUILDER_PROMPT, material, 'submit_program', BUILD, repair_limit=0,
@@ -567,7 +587,8 @@ class Learner:
                 trial_case = self._preflight_binding(binding, skill, cases)
                 test_task = cases[binding['case_id']][0]
                 trial = s.test_program(program, trial_case.inputs, test_task,
-                    trial_id=digest([program['id'], test_task.physical_key, binding, 'train_test']), trial_case=trial_case)
+                    trial_id=digest([program['id'], test_task.physical_key, binding, 'train_test']), trial_case=trial_case,
+                    local_binding=binding,source_experience=cases[binding['case_id']][1])
                 log['tests'].append(trial)
                 job['next_trial'] = trial_index + 1
                 bank.save_job(job)
@@ -579,7 +600,7 @@ class Learner:
                 program = None
                 continue
             actual = [a for a in bank.attempts(program['id']) if a['origin']=='train_test' and a['outcome']!='inapplicable']
-            job['state'] = 'done' if len({a['task_key'] for a in actual}) >= 2 else 'waiting_example'
+            job['state'] = 'done'
             job['kind'] = 'trial'
             if failures: job['state'] = 'deferred'
             break
@@ -592,6 +613,10 @@ class Learner:
                  'program_submission_contract': submission_contract(self.system.adapter),
                  'future_program_api': {k:v for k,v in permissions.items() if k != 'workspace_capabilities'},
                  'workspace_capabilities': permissions['workspace_capabilities'], 'examples': examples}
+        if 'image' in self.system.adapter.capabilities.input_modalities:
+            from ..harness.benchmarks import image_content_parts
+            paths=list(dict.fromkeys(path for e in examples for path in e['local_evidence']['public_task']['inputs'].get('images',[])))
+            value['content_parts']=image_content_parts(paths)
         if previous_failure is not None: value['previous_failure'] = self._failure_view(previous_failure)
         return pack_material(value)
 

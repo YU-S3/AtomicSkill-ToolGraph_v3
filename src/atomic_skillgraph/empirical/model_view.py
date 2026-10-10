@@ -196,7 +196,8 @@ def project(stage, material, *, task=None, adapter=None, context=None):
             for case in value.get('completed_train_cases', []):
                 original = case['task']
                 case['task'] = learning_preview(context, model_task(PublicTask('', '', original['goal'], original.get('inputs', {})), adapter))
-                case['action_prefix'] = learning_preview(context, case['action_prefix'])
+                if 'action_prefix' in case:
+                    case['action_prefix'] = learning_preview(context, case['action_prefix'])
     return pack_material(value)
 
 

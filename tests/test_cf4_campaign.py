@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_t36_real_campaign_pause_resume_test_once_no_repeated_phase_cost(tmp_path, monkeypatch):
     base = yaml.safe_load((ROOT / 'configs/default.yaml').read_text())
+    base['budget']={'token_limit':6000000,'finish_reserve':0,'request_limit':600}
+    monkeypatch.setattr(run_formal,'code_identity',lambda:{'git_sha':'fixture','tracked_dirty':False,'source_sha256':'fixture'})
     profiles = json.loads((ROOT / 'benchmark_profiles.json').read_text())['profiles']
     datasets = Path(os.environ['CF4_DATASETS'])
     calls = []

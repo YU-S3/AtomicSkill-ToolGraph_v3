@@ -7,7 +7,6 @@ import shutil
 import sqlite3
 from types import SimpleNamespace
 
-from ..empirical import POLICY_DEFAULTS
 from ..empirical.bank import Bank
 from ..empirical.checkpoint import TaskCheckpoint
 from ..empirical.contracts import PublicTask, digest
@@ -100,7 +99,6 @@ def recover(source, output, task_id, *, dry_run=False, interrupt_after=None):
     receipt = deepcopy(original_receipt)
     receipt['root'] = str(cp.root/'executor_finished_workspace')
     config = deepcopy(read(source/'train/config.json'))
-    for section, defaults in POLICY_DEFAULTS.items(): config[section] = {**config.get(section, {}), **defaults}
     config['data_dir'] = str(staging/'train/bank')
     config['experiment']['output_dir'] = str(staging/'train')
     config = validate_config(config)
@@ -137,12 +135,17 @@ def recover(source, output, task_id, *, dry_run=False, interrupt_after=None):
         native_path = cp.root/'native_events.json'
         native_events = read(native_path) if native_path.exists() else []
         context = cp.state.get('executor_state', {}).get('context', {})
+        from ..empirical.task_context import TaskContext
+        system.task_context = TaskContext(config['runtime'])
+        for key in ('scope','results','sources','memory','local_reads'):
+            if key in context: setattr(system.task_context,key,deepcopy(context[key]))
         native_ids = {e.get('result_id') for e in native_events}
         trace['result_store'] = {'native_index':[{'result_id':e.get('result_id'), 'event_id':e.get('event_id'), 'index':e['index']}
             for e in native_events if e.get('result_id')], 'program_results':{rid:v for rid,v in context.get('results', {}).items() if rid not in native_ids},
             'local_reads':context.get('local_reads', [])}
         system.complete_execution(task, trace,
             SimpleNamespace(events=native_events,
+                context=system.task_context,
                 environment_steps=sum(e.get('environment_step', 0) for e in native_events)),
             cp.state['executor_finished'], learn=False, sealed=sealed, score=score)
         # Learning remains a real pending boundary, with a verified public workspace.

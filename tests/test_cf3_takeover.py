@@ -524,7 +524,7 @@ def test_t14_isolated_trial_replan_owns_trial_checkpoint_not_parent(tmp_path,mon
     plan=workflow([{'id':'recover','execution_mode':'dynamic','goal':'Answer from acquired public information','args':{}}])
     sent=transport(monkeypatch,[('runtime_step',invalid),('runtime_step',invalid),
         ('submit_plan',{'mode':'compose','workflow':plan}),('runtime_step',{'action':'finish','answer':'private'})])
-    record=s.test_program(p,{},s.adapter.task,trial_id='trial_scope')
+    record=s.test_program(p,{},s.adapter.task,trial_id='trial_scope',continuation=True)
     trial=TaskCheckpoint(parent.root/'trials/trial_scope')
     trial=TaskCheckpoint(trial.root/'executions'/trial.state['execution_id'])
     planner=next(d for d in trial.state['decisions'].values() if d['purpose']=='planner')

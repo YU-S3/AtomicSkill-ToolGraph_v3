@@ -51,6 +51,13 @@
     }
   ],
   "current_test": {
+    "run_label": "deepseek-v4-flash",
+    "capability_profile": {
+      "tools": true,
+      "thinking": true,
+      "reasoning_effort": true,
+      "generation_seed": false
+    },
     "model_id": "deepseek-v4-flash",
     "endpoint": "https://api.deepseek.com/chat/completions",
     "api_key_env": "MODEL_API_KEY",

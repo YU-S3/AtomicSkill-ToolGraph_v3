@@ -234,7 +234,12 @@ def summarize(output, result):
               'incomplete_fixed_batch' if len(paired) != 17 else
               'positive_small_sample_signal' if b_only > a_only and exposed_gain else
               'degradation' if b_only < a_only else 'no_observed_net_benefit')
-    return {'arms': arms, 'B_only_correct': b_only, 'A_only_correct': a_only, 'net_gain': b_only - a_only,
+    comparison = 'not_run_no_exposure' if result.get('no_method_exposure') else 'complete' if len(paired) == 17 else 'incomplete'
+    return {'arms': arms, 'method_comparison_status': comparison, 'paired_n': len(paired),
+            'B_only_correct': b_only if comparison == 'complete' else None,
+            'A_only_correct': a_only if comparison == 'complete' else None,
+            'net_gain': b_only - a_only if comparison == 'complete' else None,
+            'observed_pairs': {'B_only_correct': b_only, 'A_only_correct': a_only},
             'paired': paired, 'descriptive_strata': strata, 'method_signal': signal,
             'cost_reference_arm': high_arm, 'cost_comparison_complete': cost_complete,
             'candidate_effort': 'low' if low_selected else 'high',

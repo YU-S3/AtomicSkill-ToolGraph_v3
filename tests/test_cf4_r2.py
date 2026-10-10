@@ -1,3 +1,4 @@
+from atomic_skillgraph.experiments.formal_log import tree_identity
 """CF4 R2 Z01–Z14: production modules, saved records, intercepted HTTP only."""
 from copy import deepcopy
 import json
@@ -108,6 +109,8 @@ def test_z05_worker_complete_strict_and_direct_provenance(tmp_path,worker):
     config,adapter,task=sheet(tmp_path); bank=Bank(tmp_path/'bank')
     p=bank.put('program',file_program())
     for i in range(2): bank.record({'id':str(i),'program_id':p['id'],'task_key':str(i),'origin':'train_test','outcome':'positive','basis':'local_check'})
+    from unified_fixture import qualify
+    qualify(bank,p)
     executor=Executor(bank,lambda *a,**k:pytest.fail('Ready Program must bypass Agent'),worker,object())
     executor.checkpoint=TaskCheckpoint(tmp_path/'checkpoint')
     result=executor.run(task,adapter,Broker(adapter,24),{'nodes':[{'id':'files','execution_mode':'program','program_id':p['id'],'args':{}}]})
@@ -120,22 +123,13 @@ def test_z05_worker_complete_strict_and_direct_provenance(tmp_path,worker):
 
 
 @pytest.mark.parametrize('interruption',['copy','before_commit','after_commit'])
-def test_z06_z08_z09_recovery_zero_provider_and_idempotence(tmp_path,monkeypatch,interruption):
-    if not SOURCE.exists(): pytest.skip('Requires original stopped task57')
-    monkeypatch.setattr(EmpiricalSystem,'run_task',lambda *a,**k:pytest.fail('Recovery must not solve'))
-    monkeypatch.setattr(EmpiricalSystem,'agent',lambda *a,**k:pytest.fail('Recovery must not call a model'))
-    output=tmp_path/'child'
-    with pytest.raises(InterruptedError): recover(SOURCE,output,'spreadsheet:51-12',interrupt_after=interruption)
-    receipt=recover(SOURCE,output,'spreadsheet:51-12')
-    assert receipt['committed_tasks']==57 and receipt['successes']==44 and receipt['learning_cases']==42
-    assert receipt['inherited_task_tokens']==397659 and len(receipt['original_request_ids'])==12
-    assert receipt['new_model_calls']==0 and recover(SOURCE,output,'spreadsheet:51-12')==receipt
-    projection=read(output/'episode_projection.json'); assert len(projection)==57
-    bank=Bank(output/'train/bank',readonly=True)
-    assert len(bank.train_cases())==42
-    bad='program_f9b533e5085af63f923d3914aa6b1562ad1eabe197cfc0975e508a8dec06acb3'
-    assert bank.get(bad)['state']=='disabled' and not any(p['id']==bad for p in bank.program_options('count',allow_candidate=True))
-    bank.close()
+def test_z06_z08_z09_old_method_recovery_is_refused_without_http(tmp_path,monkeypatch,interruption):
+    if not SOURCE.exists():pytest.skip('Requires archived source')
+    monkeypatch.setattr('atomic_skillgraph.agents.provider.requests.post',lambda *a,**k:pytest.fail('Old method cannot send HTTP'))
+    before=tree_identity(SOURCE)
+    with pytest.raises(ValueError,match='Unsupported execution policy'):
+        recover(SOURCE,tmp_path/'child','spreadsheet:51-12',interrupt_after=interruption)
+    assert tree_identity(SOURCE)==before
 
 
 def test_z07_worker_finished_resumes_scoring_not_worker(tmp_path,worker):
@@ -246,7 +240,7 @@ def test_z12_runtime_reserve_admits_only_one_finish(tmp_path,monkeypatch):
 def test_z13_d3_exact_historical_wire_and_wrong_resume(tmp_path):
     if not REVIEW.exists(): pytest.skip('Requires archived responses')
     manifest=prepare(REVIEW,tmp_path/'diagnostic')
-    assert len(verify_d3_wire(manifest))==41
+    with pytest.raises(ValueError,match='Unsupported execution policy'):verify_d3_wire(manifest)
     config=config_for(tmp_path/'bank'); config['experiment']['output_dir']=str(tmp_path/'phase')
     task=PublicTask('x','physical','question',split='val')
     from atomic_skillgraph.harness.benchmarks import AnswerAdapter
@@ -257,30 +251,14 @@ def test_z13_d3_exact_historical_wire_and_wrong_resume(tmp_path):
         run(config,[task],tmp_path/'phase',resume=True,adapter=adapter)
 
 
-def test_z11_d2_production_entry_meters_saved_finish(tmp_path,monkeypatch):
-    if not REVIEW.exists(): pytest.skip('Requires archived finish snapshot')
-    seen=http(monkeypatch,[response(content='<answer>42</answer>',finish='stop')])
-    from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import settings
-    def fixture_settings(*a,**k):
-        config=settings(*a,**k); config['llm']['api_key_env']='MODEL_API_KEY'; return config
-    monkeypatch.setattr('atomic_skillgraph.experiments.run_cf4_r2_diagnostic.settings',fixture_settings)
-    result=d2('officeqa:UID0115',{'review_source':str(REVIEW)},tmp_path,
-              BudgetGovernor(tmp_path/'ledger.json'))
-    assert result['status']=='completed' and result['tokens']==5 and len(seen)==1
-    assert seen[0]['max_tokens']==512 and seen[0]['thinking']=={'type':'disabled'}
-
-
-def test_z12_rejected_builder_still_counts_actual_http(tmp_path,monkeypatch):
-    if not REVIEW.exists(): pytest.skip('Requires archived candidate snapshot')
-    seen=http(monkeypatch,[response(content='',finish='length')])
-    from atomic_skillgraph.experiments.run_cf4_r2_diagnostic import settings
-    def fixture_settings(*a,**k):
-        config=settings(*a,**k); config['llm']['api_key_env']='MODEL_API_KEY'; return config
-    monkeypatch.setattr('atomic_skillgraph.experiments.run_cf4_r2_diagnostic.settings',fixture_settings)
+@pytest.mark.parametrize('function',[d1,d2])
+def test_old_diagnostic_method_cannot_be_silently_upgraded(tmp_path,monkeypatch,function):
+    if not REVIEW.exists():pytest.skip('Requires archived source')
+    monkeypatch.setattr('atomic_skillgraph.agents.provider.requests.post',lambda *a,**k:pytest.fail('Old protocol cannot send HTTP'))
     manifest=prepare(REVIEW,tmp_path/'diagnostic')
-    result=d1('officeqa',manifest,tmp_path/'diagnostic',BudgetGovernor(tmp_path/'ledger.json'))
-    assert result['status']=='failed' and 'builder_submission_tool_mismatch' in result['error']
-    assert result['builder_http']==1 and len(seen)==1 and not result['usable']
+    task='officeqa' if function is d1 else 'officeqa:UID0115'
+    with pytest.raises(ValueError,match='Unsupported execution policy'):
+        function(task,manifest,tmp_path/'diagnostic',BudgetGovernor(tmp_path/'ledger.json'))
 
 
 def test_z13_diagnostic_rejects_config_drift_before_http(tmp_path,monkeypatch):

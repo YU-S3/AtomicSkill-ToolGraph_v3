@@ -102,14 +102,17 @@ def _worker():
     source = Path('/program/source.py').read_text()
     inputs = json.loads(Path('/program/inputs.json').read_text())
     sys.stdout = sys.stderr
+    clock = time.process_time
+    cpu_start = clock()
     try:
         namespace = {'__name__': 'generated_program'}
         exec(compile(source, '/program/source.py', 'exec'), namespace)
         result = namespace['run'](Context(rpc), inputs)
         validate_return(result)
-        send({'kind': 'done', 'result': result})
+        send({'kind': 'done', 'result': result, 'cpu_seconds':clock()-cpu_start})
     except BaseException as exc:
-        send({'kind': 'done', 'result': {'status': 'execution_error', 'detail': str(exc)[:2048]}})
+        send({'kind': 'done', 'result': {'status': 'execution_error', 'detail': str(exc)[:2048]},
+              'cpu_seconds':clock()-cpu_start})
 
 
 class ProgramWorker:
@@ -134,7 +137,7 @@ class ProgramWorker:
                        'python', '-I', '-u', '/program/worker.py', '--worker',
                        str(s['max_rpc_message_bytes']), container]
 
-    def execute(self, program, inputs, broker):
+    def execute(self, program, inputs, broker, *, before_publish=None):
         from .contracts import validate_schema_instance
         from .program_submission import (validate_program_declaration, submission_contract,
                                          ProgramContractError, normalize_program_result)
@@ -163,6 +166,7 @@ class ProgramWorker:
         workspace = getattr(broker.adapter, 'workspace', None)
         workspace_before = broker.adapter.observe().get('workspace', {}) if workspace else {}
         stage = workspace.stage() if workspace else None
+        cpu_seconds = None
         broker.open_lease(container)
         try:
             with tempfile.TemporaryDirectory(prefix='skillcompiler-program-') as directory:
@@ -200,6 +204,7 @@ class ProgramWorker:
                                 request = json.loads(line)
                                 if request.get('kind') == 'done':
                                     result, finished = request['result'], True
+                                    cpu_seconds = request.get('cpu_seconds')
                                     break
                                 if request.get('invocation_id') != container or not isinstance(request.get('sequence'), int):
                                     raise ValueError('Invalid invocation RPC identity')
@@ -243,6 +248,7 @@ class ProgramWorker:
                 if program.get('result_role') == 'final_answer' and not result['outputs']['answer'].strip():
                     raise ProgramContractError('program_answer_empty', 'answer must be nonempty')
                 if workspace:
+                    if before_publish is not None: before_publish(stage, result['outputs'])
                     result['workspace'] = workspace.publish(stage, broker.adapter.declared_outputs(result['outputs']),
                                                             result['outputs'].get('deleted_files', []), invocation_id=container)
                     result['publication_receipt'] = workspace.publication_receipt
@@ -261,6 +267,7 @@ class ProgramWorker:
             broker.close_lease(container)
             if stage is not None: workspace.discard(stage)
         result = {**result, 'calls': calls, 'elapsed_seconds': time.monotonic() - started,
+                  'cpu_seconds':cpu_seconds,
                   'diagnostic': diagnostic.decode(errors='replace'), 'program_id': program['id']}
         self.invocations.append(result)
         return result

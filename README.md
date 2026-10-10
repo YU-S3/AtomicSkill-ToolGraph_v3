@@ -1,12 +1,18 @@
-# SkillCompiler empirical v3.1-CF4-R1
+# AtomicSkill empirical v3.2 atomic-unified
 
 唯一生产入口为 `skillcompiler.empirical.v1`。流程是普通 Skill 接口与指导 → Python Program → 固定真实 Train 试用 → usable 版本 → Workflow/动态执行 → 冻结库与独立评分。
 
 本轮范围是 Ours。其他方法复现和更多模型 API 接入不在本轮范围；现有 DeepSeek 配置维持 high reasoning，实际模型 ID 如实记录。小样本 pilot 与正式实验使用独立 Bank，pilot 没有问题，也不需要为了正式划分重新跑。
 
-本轮实施规范为 [CF4-R1](docs/specs/SkillCompiler_CF4_R1.md)。预算耗尽后的文本收尾原样交给现有评分器；Builder 只提交 submit_program，未来 Program 权限、ABI 与 candidate 使用同源材料；single_answer 学习 guidance_only Skill，由同一次 solver 请求消费。[CF4](docs/specs/SkillCompiler_CF4.md)和[CF3](docs/specs/SkillCompiler_CF3.md)的公共契约、程序自动接管与有界纠偏继续保留。公共 split、scorer、模型能力锁、high 推理和原预算维持原值。
+当前采用 [统一方法规范](docs/specs/AtomicSkill_多基准多模型统一方法适配与Program复用实现文档_20261010.md)。single_answer 只约束最终提交；原 Runtime 可以直接回答、临时计算或调用局部验收通过的 Program，无额外 Planner。一个真实源局部绑定即可构建，独立参照的局部验收决定 usable；跨题成功只用于复用统计。candidate 不进入 Runtime 菜单或 Frozen。
 
-[CF4-R1 交付报告](reports/CF4_R1_交付报告.md)与[逐项核验](reports/cf4_r1_verification.json)记录最终 252 项通过的回归及启动身份；本轮没有自动启动收费实验，新版本自然学习、成本和质量尚未测量。
+四项 DeepSeek 有限验证入口为 `python -m atomic_skillgraph.experiments.run_atomic_unified_validation`，依次使用 prepare、check-offline、run。固定 12 Train、16 Val 物理题的三臂共 48 Val 执行；全批 6M tokens、600 HTTP、24 次局部验收，Train 父任务 200K、每个 Val 臂 96K。所有角色与重试共享同一 Governor，原正式实验保持暂停。新正式 campaign 必须提供显式总预算，不能继承旧方法 Bank 或 checkpoint。
+
+LM1 收尾用 `python -m atomic_skillgraph.experiments.review_lm1_archive` 只读回放旧批次，解释字段写入独立目录；不改旧请求、分数、资产或费用。LiveMath 的文字 guidance 继续执行来源检查和原选择规则。其他模型仍留空，文本 DeepSeek 对 DocVQA 标记 unsupported；视觉 fixture 不代表真实模型接入。
+
+以下为历史版本说明与历史结果。
+
+[CF4-R1 交付报告](reports/CF4_R1_交付报告.md)与[逐项核验](reports/cf4_r1_verification.json)记录当时 252 项通过的回归及启动身份；该版本发布时未自动启动收费实验。
 
 CF4 的公共包 `skillcompiler_bench_contracts` 只含 LiveMath 正常化、答案格式契约和 Office 授权范围 grep，可单独打包供其他方法接入。Benchmark 规则留在包、Adapter 与准备层。Planner 使用只读能力卡片；Runtime/Learner 使用同一模型视图模块。实际输入、合法调用集合、原始轨迹和计费记录保留。已有 usable 版本的 build/trial 请求先判为幂等跳过，试用绑定在现有一次 Extractor 修复内校验；没有增加修复、模型角色或放宽晋升。
 
@@ -96,7 +102,7 @@ skillcompiler-single-cell --config configs/main_experiment_v1.yaml --benchmark s
 - `benchmark_profiles.json`、`models.lock.json`、`splits/`：资源条件、模型能力与固定 ID 清单；完整公开输入和私有 evaluator 记录留在本地资源目录。
 - `cleanup_manifest.json`：逐文件删除与迁移分类；[历史版本](docs/history/README.md)保存旧实现与结果来源。
 
-每个 seed 独立空 Bank；两个不同物理 Train 任务正向实测才成为 usable，repair 不继承旧版本成功。冻结仅包含 usable Program 和普通指导/策略；Val/Test 不更新 Bank。模型自报成功、文件存在与正式评分分别记录。
+每个 seed 独立空 Bank；usable 要绑定实际局部验收、源码、接口、权限与环境身份，修复不继承旧版本验收。冻结仅包含合格 Program 和普通指导/策略；Val/Test 不更新 Bank。模型自报成功、文件存在与正式评分分别记录。下文 CF2–CF4 历史报告保留当时语义，旧两来源及 single_answer guidance-only 条款由本轮统一规范替换。
 
 用户在本轮明确补充了整题终止分支：Program 正常返回并实际使环境由未终止转为终止，独立评分通过且没有 Agent 补做时，允许记为 `task_outcome` 正向；无需虚构下游输出消费。旧运行记录保持原样，CF2 只执行规范第 18 节的固定诊断，不新增 Train12 pilot。
 

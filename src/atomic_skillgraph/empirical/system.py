@@ -52,8 +52,8 @@ def validate_config(config):
     learning.setdefault('guidance_repair_limit', 1)
     if type(learning['guidance_repair_limit']) is not int or learning['guidance_repair_limit'] not in {0, 1}:
         raise ValueError('Guidance repair limit must be 0 or 1')
-    if type(learning['min_distinct_train_cases_before_first_build']) is not int or learning['min_distinct_train_cases_before_first_build'] != 2:
-        raise ValueError('First build requires two independent Train cases')
+    if type(learning['min_distinct_train_cases_before_first_build']) is not int or learning['min_distinct_train_cases_before_first_build'] != 1:
+        raise ValueError('First build requires one real locally bound Train case')
     if config.get("schema_version") != "empirical.v1":
         raise ValueError("Empirical System requires a fresh empirical.v1 schema")
     choices = {
@@ -73,17 +73,30 @@ def validate_config(config):
             if type(value) is not type(expected) or (key != 'enabled' and value != expected):
                 raise ValueError('Invalid choice_guidance policy: ' + key)
         config[section]['choice_guidance'] = supplied
+    if (config['learning'].get('choice_guidance', {}).get('enabled') is True and
+            config['runtime'].get('choice_guidance', {}).get('enabled') is not True):
+        raise ValueError('Choice guidance learning requires choice guidance runtime selection')
     if config['learning'].get('choice_guidance', {}).get('enabled'):
         for purpose, cap in [('guidance_learning', 2048), ('guidance_grounding', 1536)]:
             settings = overrides.get(purpose, {})
             if settings.get('protocol', {}).get('thinking_type') != 'disabled' or settings.get('max_completion_tokens') != cap:
                 raise ValueError('Choice guidance requires bounded disabled-thinking override: ' + purpose)
     allowed = {'mechanism_profile', 'schema_version', 'data_dir', 'experiment', 'harness', 'runtime',
-               'learning', 'planning', 'program_worker', 'program_environment', 'llm', 'benchmark_profile', 'manifest'}
+               'learning', 'planning', 'program_worker', 'program_environment', 'llm', 'benchmark_profile', 'manifest', 'budget'}
     if set(config) - allowed:
         raise ValueError('Legacy or unsupported configuration keys: ' + ', '.join(sorted(set(config) - allowed)))
     if not config.get('llm', {}).get('model') or not config['llm'].get('api_key_env'):
         raise ValueError('Actual model ID and key environment variable name are required')
+    for stage in STAGE_BUCKETS:
+        if config['llm'].get(stage,{}).get('model',config['llm']['model']) != config['llm']['model']:
+            raise ValueError('All roles must use the same configured backbone')
+    if 'budget' in config:
+        limits = config['budget']
+        if (not isinstance(limits,dict) or set(limits)-{'token_limit','request_limit','finish_reserve','validation_limit','train_task_tokens','eval_task_tokens'}
+                or any(type(v) is not int or v < (0 if k=='finish_reserve' else 1) for k,v in limits.items())
+                or not all(k in limits for k in ('token_limit','request_limit','finish_reserve'))
+                or limits['finish_reserve'] >= limits['token_limit']):
+            raise ValueError('Invalid explicit whole-run budget')
     experiment = config.get('experiment', {})
     if experiment.get('seed') not in {42, 43, 44} or experiment.get('runtime_mode') not in {'online', 'frozen'} or not experiment.get('output_dir'):
         raise ValueError('Explicit seed, output directory and online/frozen mode are required')
@@ -112,11 +125,14 @@ class EmpiricalSystem:
         self.config = validate_config(config)
         self.readonly = bool(self.config.get("experiment", {}).get("runtime_mode") == "frozen") if readonly is None else readonly
         self.bank = Bank(self.config["data_dir"], readonly=self.readonly,
-                         seed=self.config.get("experiment", {}).get("seed", 42))
+                         seed=self.config.get("experiment", {}).get("seed", 42),environment=self.config['program_environment'])
         if bank_view_factory:
             if not self.readonly: raise ValueError('Bank views require readonly evaluation')
             self.bank = bank_view_factory(self.bank)
-        self.budget_governor = budget_governor
+        from .budget_governor import BudgetGovernor
+        budget = self.config.get('budget')
+        self.budget_governor = budget_governor or (BudgetGovernor(Path(self.config['experiment']['output_dir'])/'budget.json',
+            **{k:v for k,v in budget.items() if k in {'token_limit','request_limit','finish_reserve','validation_limit'}}) if budget else None)
         self.request_attribution = {}
         self.adapter_factory = adapter_factory
         if harness is None:
@@ -124,6 +140,9 @@ class EmpiricalSystem:
             self.adapter_factory = self.adapter_factory or (lambda: create_simple_harness(self.config))
             harness = self.adapter_factory()
         self.adapter = harness
+        if 'image' in self.adapter.capabilities.input_modalities and 'image' not in self.config['llm'].get('input_modalities',['text']):
+            self.bank.close()
+            raise ValueError('Model capability lock does not support image input')
         self.provider_override = provider
         self.providers = {}
         self.usage = UsageLedger()
@@ -180,7 +199,9 @@ class EmpiricalSystem:
         settings = {**llm, **llm.get(stage, {})}
         override = llm.get('purpose_overrides', {}).get(purpose, {})
         settings.update({k:v for k,v in override.items() if k != 'protocol'})
-        settings['protocol'] = {**llm.get('protocol', {}), **override.get('protocol', {})}
+        settings['protocol'] = {**llm.get('protocol', {}), **llm.get(stage, {}).get('protocol', {}), **override.get('protocol', {})}
+        if settings['model'] != llm['model']:
+            raise ValueError('All roles must use the same configured backbone')
         return settings
 
     def provider(self, stage, purpose=None):
@@ -200,7 +221,7 @@ class EmpiricalSystem:
                 thinking_type=settings.get("protocol", {}).get("thinking_type", "enabled"),
                 reasoning_effort=settings.get("reasoning_effort", "high"),
                 request_timeout_seconds=settings.get("request_timeout_seconds", 180),
-                max_retries=llm.get("max_retries", 4)))
+                max_retries=settings.get("max_retries", 4), capability_profile=settings.get('capability_profile')))
         provider = self.providers[key]
         provider.budget_governor = self.budget_governor
         return provider
@@ -235,7 +256,7 @@ class EmpiricalSystem:
         scope = json.dumps([str(self.checkpoint.root) if self.checkpoint else '', self.budget_scope, job_key])
         decision_id = self.checkpoint.prepare_decision(scope, purpose, owner_state_version) if self.checkpoint else uuid4().hex
         self.last_decision_id = decision_id
-        runtime_owned = (name == 'runtime_step' or purpose == 'finish_only') and owner_state_version is not None
+        runtime_owned = (name in {'runtime_step','answer_step'} or purpose == 'finish_only') and owner_state_version is not None
         def commit(status, repair):
             if self.checkpoint:
                 self.checkpoint.commit_decision(decision_id, status, repair_index=repair)
@@ -252,7 +273,7 @@ class EmpiricalSystem:
             if stage == 'tool_builder': completion_cap = min(completion_cap, cap-used)
             if stage == 'runtime' and self.adapter.capabilities.final_submission_kind == 'text' and self.adapter.capabilities.interaction != 'single_answer':
                 from .budget_governor import input_token_bound
-                reserve = 0 if purpose == 'finish_only' else 65536 + self.resolve_call_settings(stage, 'finish_only').get('max_completion_tokens', 32768)
+                reserve = 0 if purpose == 'finish_only' else input_token_bound({'goal': materials.get('original_task',{}).get('goal',''), 'answer_contract':getattr(self.adapter,'answer_contract',lambda:'')()}) + self.resolve_call_settings(stage,'finish_only').get('max_completion_tokens',2048)
                 if used + input_token_bound({'messages': messages, 'tools': [t.to_openai() for t in tools]}) + completion_cap + reserve > cap:
                     raise BudgetExhausted('runtime_finish_reserved', 'Runtime admission preserves a bounded finish', layer=FailureLayer.RUNTIME_AGENT)
             response_key = digest({'scope': scope, 'purpose': purpose, 'logical_decision_id': decision_id, 'repair_index': repair,
@@ -281,6 +302,9 @@ class EmpiricalSystem:
             if stage == 'extractor' and 'candidate_view_version' in materials:
                 record.update({k: deepcopy(materials[k]) for k in ('candidate_view_version', 'candidate_view_audit')})
             record['effective_call_settings_hash'] = digest(settings)
+            record['material_audit'] = {'projected_utf8_bytes':len(json.dumps(materials,ensure_ascii=False).encode()),
+                'local_evidence_count':len(materials.get('experience',{}).get('local_evidence',[])),
+                **materials.get('experience',{}).get('projection_audit',{})}
             # Trace messages omit replay-private reasoning. The immediate repair
             # retains the actual assistant envelope in process only.
             record["messages"] = [{k: v for k, v in m.items() if k != "reasoning_content"} for m in messages]
@@ -298,11 +322,18 @@ class EmpiricalSystem:
                         raise ProviderAgentProtocolError('runtime_agent_schema_error', recovered['protocol_error'], usage_turn=turn)
                 else:
                     if hasattr(provider, 'set_request_context'):
+                        from .budget_governor import input_token_bound
+                        finish_reserve = 0
+                        if stage=='runtime' and purpose!='finish_only' and self.request_attribution.get('parent_token_limit'):
+                            finish_material={k:v for k,v in materials.items() if k in {
+                                'goal','inputs','local_results','local_reads','task','state','memory','handoff','bindings'}}
+                            finish_reserve=input_token_bound(finish_material)+self.resolve_call_settings('runtime','finish_only').get('max_completion_tokens',2048)
                         provider.set_request_context(session_id=request_id, stage=stage, repair=repair,
                             purpose=purpose, logical_decision_id=decision_id, parent_task_id=self.request_attribution.get('parent_task_id'),
                             trial_id=self.budget_scope if self.phase == 'trial' else None,
                             trial_execution_id=self.checkpoint.state.get('execution_id') if self.phase == 'trial' and self.checkpoint else None,
-                            **{k:v for k,v in self.request_attribution.items() if k != 'parent_task_id'},
+                            **{k:v for k,v in self.request_attribution.items() if k != 'parent_task_id' and v is not None},
+                            parent_finish_reserve=finish_reserve,
                             **({'decision_purpose': record['decision_purpose']} if choice_learning else {}))
                     kwargs = {'max_completion_tokens': completion_cap} if isinstance(provider, OpenAICompatibleProvider) or completion_override is not None else {}
                     if tool_choice is not None: kwargs['tool_choice'] = tool_choice
@@ -373,6 +404,8 @@ class EmpiricalSystem:
             try:
                 if choice_learning and turn.finish_reason == 'length':
                     raise ValueError('Truncated choice guidance response')
+                if name == 'answer_step' and not turn.tool_calls:
+                    return accepted({'action':'finish','answer':turn.content or ''},repair)
                 if not name:
                     if purpose == 'finish_only':
                         if turn.tool_calls:
@@ -450,6 +483,9 @@ class EmpiricalSystem:
                  "knowledge_before": before, "tools": [], "execution": {}, "score": None,
                  "solve_status": "not_started", "learning_status": "not_started", "learning_error": None}
         self.budget_scope = trace['attempt_id']
+        budget = self.config.get('budget',{})
+        self.request_attribution.update(parent_scope=str(self.config['experiment']['output_dir'])+':'+trace['attempt_id'],
+            parent_token_limit=budget.get('train_task_tokens' if task.split=='train' else 'eval_task_tokens'))
         self.request_attribution['parent_task_id'] = task.task_id
         self.last_decision_id = None
         self.prior_usage = json.loads(Path(self.audit_path).read_text())['usage'] if self.audit_path and Path(self.audit_path).exists() else []
@@ -505,27 +541,16 @@ class EmpiricalSystem:
             broker.environment_steps = sum(e.get('environment_step', 0) for e in prior_events)
         try:
             if self.adapter.capabilities.interaction == "single_answer":
-                # No extra planning solve, and no protocol repair/re-solving.
                 from .choice_guidance import valid_choices, render
-                from .prompts import single_answer_prompt
+                from .answer_executor import AnswerExecutor
                 semantic = self.config['runtime'].get('choice_guidance', {}).get('enabled') is True and valid_choices(task)
-                selection = self.bank.select_guidance(task, self.config['runtime']['choice_guidance']) if semantic else None
-                guidance = selection['selected'] if selection else self.bank.retrieve_guidance(task.goal, limit=3)
+                selection = self.bank.select_guidance(task,self.config['runtime']['choice_guidance']) if semantic else None
+                guidance = selection['selected'] if selection else self.bank.retrieve_guidance(task.goal,limit=3)
                 trace['retrieved_guidance_ids'] = [a['id'] for a in guidance]
-                trace['injected_guidance_ids'] = list(trace['retrieved_guidance_ids'])
-                trace['guidance_retrieval_audit'] = selection if selection else self.bank.guidance_retrieval_audit(task.goal, guidance)
-                if semantic: trace['single_answer_prompt_version'] = SINGLE_ANSWER_PROMPT_VERSION
-                answer = self.agent("runtime", single_answer_prompt(
-                    getattr(self.adapter, 'answer_contract', lambda: '')(), semantic=semantic),
-                    {"goal": task.goal, "inputs": task.inputs, "guidance": [render(a) if semantic else
-                        {'skill_id': a['id'], 'goal': a['goal'], 'guidance': a['guidance']} for a in guidance],
-                     'content_parts': getattr(self.adapter, 'content_parts', lambda: [])()}, None, None,
-                    owner_state_version='single_solver')
-                execution = {"prediction": answer, "reason": "single_answer", "attempts": []}
-                from .answer_status import classify_answer
-                response = self.requests[-1].get('response', {})
-                execution.update(classify_answer(answer, response.get('finish_reason'),
-                    valid_format=getattr(self.adapter, 'valid_answer_format', lambda a: True)(answer)))
+                trace['injected_guidance_ids'] = trace['retrieved_guidance_ids'][:]
+                trace['guidance_retrieval_audit'] = selection if selection else self.bank.guidance_retrieval_audit(task.goal,guidance)
+                execution = AnswerExecutor(self).run(task,broker,[render(a) if semantic else
+                    {'skill_id':a['id'],'goal':a['goal'],'guidance':a['guidance']} for a in guidance],semantic)
             else:
                 plan = self.checkpoint.state['executor_state']['plan'] if self.checkpoint and self.checkpoint.state.get('executor_state') else (
                     self.checkpoint.state.get('initial_plan') if self.checkpoint else None) or self.planner.plan(task, self.adapter)
@@ -541,7 +566,8 @@ class EmpiricalSystem:
                 raise
             trace["error"] = {"code": exc.code, "message": str(exc)}
             partial = deepcopy(getattr(self.executor, 'partial_execution', {}))
-            partial.update(prediction=None, reason='token_budget_exhausted')
+            partial.setdefault('prediction',None)
+            partial.update(reason='token_budget_exhausted',budget_censored=True)
             partial.setdefault('attempts', [])
             self.complete_execution(task, trace, broker, partial, learn=learn, decision_status='rejected')
         finally:
@@ -599,6 +625,7 @@ class EmpiricalSystem:
         if producer:
             execution['submission_seal'] = {'producer_attempt_id': producer, 'sealed_digest': digest(sealed),
                 'workspace': self.adapter.observe().get('workspace', {})}
+        trace['result_store'] = {'program_results':deepcopy(broker.context.results), 'local_reads':deepcopy(broker.context.local_reads)}
         trace.update(execution=execution, score=score, tools=broker.events, solve_status='completed',
             native_call_attempts=len(broker.events), environment_steps=broker.environment_steps,
             scoring_audit=getattr(self.adapter, 'score_audit', {}))
@@ -652,7 +679,10 @@ class EmpiricalSystem:
             self._learning_start = None
 
     def test_program(self, program, inputs, task, *, trial_id, trial_case=None,
-                     continuation=True, new_execution=False):
+                     continuation=False, new_execution=False, local_binding=None, source_experience=None):
+        if local_binding is not None:
+            from .local_validation import validate_on_source
+            return validate_on_source(self,program,local_binding,task,source_experience,trial_id)
         if self.readonly or task.split != 'train': raise ValueError('Program trials require Train')
         if self.adapter_factory is None:
             return {"id": trial_id, "program_id": program["id"], "task_key": task.physical_key,
@@ -714,7 +744,7 @@ class EmpiricalSystem:
         self.phase = 'trial'
         self.checkpoint = trial_checkpoint
         self.planner.checkpoint = trial_checkpoint
-        self.budget_scope = trial_id
+        self.budget_scope = previous_scope
         adapter, broker, trial_observation = None, None, None
         previous_runtime_start = self._runtime_start
         self._runtime_start = len(self.usage.events)

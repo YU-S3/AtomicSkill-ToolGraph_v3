@@ -1,3 +1,4 @@
 # Public split SHA256 is over these exact LF bytes on Windows and WSL.
 data/main_experiment_v1/**/*.json text eol=lf
 data/main_experiment_v1/manifest.json text eol=lf
+*.sh text eol=lf

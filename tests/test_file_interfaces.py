@@ -143,7 +143,7 @@ def test_completed_task_boundary_preserves_full_membership_and_does_not_freeze(t
     sent = []
     def post(*args, **kwargs):
         sent.append(kwargs['json'])
-        if kwargs['json'].get('tools'):
+        if kwargs['json'].get('tools') and kwargs['json']['tools'][0]['function']['name']=='submit_learning':
             return Response(response([{'decision': 'no_change'}], name='submit_learning'))
         return Response(response(content='correct', finish='stop'))
     monkeypatch.setattr('atomic_skillgraph.agents.provider.requests.post', post)

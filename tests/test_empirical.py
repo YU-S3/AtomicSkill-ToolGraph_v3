@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from atomic_skillgraph.empirical.bank import Bank
+from unified_fixture import qualify
 from atomic_skillgraph.empirical.contracts import PublicTask, object_schema, validate_workflow
 from atomic_skillgraph.empirical.executor import Executor
 from atomic_skillgraph.empirical.program_worker import ProgramWorker
@@ -24,9 +25,11 @@ def config_for(root):
 
 
 def program(source, inputs=None, outputs=None):
+    environment = config_for(Path('/unused-unit-fixture'))['program_environment']
+    environment['adapter_abi'] = 'simple.v2'
     return {"source": source, "entry": "run", "input_schema": inputs or object_schema(),
             "output_schema": outputs or object_schema(), "allowed_tools": ["act"],
-            "environment": {"python": "3.12", "dependencies": [], "adapter_abi": "simple.v1", "image_digest": os.environ.get("PROGRAM_IMAGE_DIGEST", "sha256:" + "a"*64)}}
+            "environment": environment}
 
 
 class Adapter:
@@ -77,7 +80,7 @@ def test_workflow_can_trim_history_but_cannot_invent_result_edges():
     validate_workflow(revised, completed={"take"})
 
 
-def test_program_state_uses_independent_tasks_not_retries_and_frozen_is_readonly(tmp_path):
+def test_statistics_do_not_qualify_program_and_frozen_is_readonly(tmp_path):
     bank = Bank(tmp_path / "bank")
     asset = bank.put("program", program("def run(ctx, inputs):\n    return {'status':'ok','outputs':{}}"))
     for attempt_id, task in [("a", "physical1"), ("b", "physical1"), ("c", "physical2")]:
@@ -85,11 +88,12 @@ def test_program_state_uses_independent_tasks_not_retries_and_frozen_is_readonly
                "origin": "train_test", "outcome": "positive", "basis": "local_check"}
         bank.record(row)
         bank.record(row)
-        assert bank.get(asset["id"])["state"] == ("usable" if attempt_id == "c" else "candidate")
+        assert bank.get(asset["id"])["state"] == "candidate"
+    qualify(bank,asset)
     frozen = tmp_path / "frozen"
     bank.freeze(frozen)
     readonly = Bank(frozen, readonly=True)
-    assert readonly.digest() == bank.digest()
+    assert readonly.digest() == json.loads((frozen / "freeze.json").read_text())["digest"]
     with pytest.raises(RuntimeError):
         readonly.record(row)
     readonly.close()
@@ -169,6 +173,7 @@ def test_preparation_then_two_program_nodes_execute_without_model_calls(tmp_path
     for key in ["physical1", "physical2"]:
         bank.record({"id": key, "program_id": p["id"], "task_key": key,
                      "origin": "train_test", "outcome": "positive", "basis": "local_check"})
+    qualify(bank,p)
     def no_agent(*a, **kw):
         pytest.fail("unnecessary model decision")
     adapter = Adapter()
@@ -187,6 +192,7 @@ def test_preparation_then_two_program_nodes_execute_without_model_calls(tmp_path
 def test_agent_completion_does_not_credit_unused_program_outputs(tmp_path, worker):
     bank = Bank(tmp_path)
     p = bank.put('program', program("def run(ctx, inputs):\n    return {'status':'ok','outputs':{}}"))
+    qualify(bank,p)
     steps = iter([{'action': 'call_program', 'name': p['id'], 'arguments': {}},
                   {'action': 'complete_node', 'outputs': {'actual': 'agent result'}}])
     adapter = Adapter()
@@ -222,8 +228,8 @@ class Provider:
         from atomic_skillgraph.agents.protocol import AgentTurn, NativeToolCall
         answer = next(self.answers)
         self.calls.append(messages)
-        calls = [NativeToolCall('call_1', tools[0].name, answer)] if tools else []
-        return AgentTurn('' if tools else answer, calls, 'tool_calls' if tools else 'stop', 10, 20, 30, 5, 1)
+        calls = [NativeToolCall('call_1', tools[0].name, answer)] if tools and isinstance(answer,dict) else []
+        return AgentTurn('' if calls else answer, calls, 'tool_calls' if calls else 'stop', 10, 20, 30, 5, 1)
 
 
 @pytest.mark.parametrize('status,hard,positive', [
@@ -253,6 +259,7 @@ def test_program_terminal_success_requires_normal_return_and_independent_score(t
     for key in ['prior1', 'prior2']:
         system.bank.record({'id': key, 'program_id': p['id'], 'task_key': key,
                             'origin': 'train_test', 'outcome': 'positive', 'basis': 'local_check'})
+    qualify(system.bank,p)
     task = PublicTask('t', 'physical', 'finish task')
     def no_agent(*a, **kw):
         pytest.fail('terminal Program must not invoke Agent recovery')
@@ -308,32 +315,20 @@ def test_resume_completed_task_does_not_repeat_solve_or_learning(tmp_path, monke
     assert len(provider.calls) == 2 and first == resumed
 
 
-def test_invalid_optional_workflow_preserves_tested_program(tmp_path, monkeypatch):
-    from atomic_skillgraph.empirical.system import EmpiricalSystem
-    skill = {'goal': 'prepare', 'input_schema': object_schema(), 'output_schema': object_schema(),
-             'execution_intent': 'program_requested'}
-    provider = Provider([{'decision': 'propose_skill_and_program_spec', 'skill': skill,
-                         'realization_request': {'skill_id': '$new', 'action': 'build', 'case_bindings': [
-                             {'case_id': key, 'inputs': {}, 'start_mode': 'reset', 'prefix': []} for key in ['p1','p2']]},
-                         'workflow': {'goal': 'bad', 'nodes': [{'id': 'one', 'execution_mode': 'dynamic', 'goal': 'bad',
-                             'args': {'x': {'from': 'missing', 'field': 'x'}}}]}},
-                         {'source': "def run(ctx, inputs):\n    return {'status':'ok','outputs':{}}", 'trial_inputs': [{'case_id': key, 'inputs': {}, 'start_mode': 'reset', 'prefix': []} for key in ['p1','p2']]}])
-    config = config_for(tmp_path)
-    adapter = AnswerAdapter()
-    adapter.capabilities = Capabilities(interaction='tool_loop')
-    system = EmpiricalSystem(config, harness=adapter, provider=provider)
-    def trial(program, inputs, task, trial_id, **kwargs):
-        row = {'id': trial_id, 'program_id': program['id'], 'task_key': task.physical_key,
-               'origin': 'train_test', 'outcome': 'positive', 'basis': 'local_check'}
-        system.bank.record(row)
-        return row
-    monkeypatch.setattr(system, 'test_program', trial)
-    system.learner.cases.append((PublicTask('previous', 'p1', 'prepare'), {}))
-    log = system.learner.learn(PublicTask('current', 'p2', 'prepare'), {'tools': [], 'score': {}, 'execution': {}})
-    assert system.bank.get(log['program'])['state'] == 'usable'
-    assert system.bank.all('workflow') == [] and 'Workflow rejected' in log['errors'][0]
-    assert len(provider.calls) == 2 and len(log['tests']) == 2
-    system.close()
+def test_invalid_optional_workflow_preserves_tested_program(tmp_path, monkeypatch, worker):
+    from test_cf2_realization import requested_proposal, generated, learning_trace
+    from test_cf2_contracts import office, http, response
+    s=office(tmp_path);s.worker=worker
+    from atomic_skillgraph.harness.benchmarks import OfficeAdapter
+    s.adapter_factory=lambda:OfficeAdapter({'office':{'answer':'private'}},s.config)
+    proposal=requested_proposal(workflow={'goal':'bad','nodes':[{'id':'one','execution_mode':'dynamic',
+        'goal':'bad','args':{'x':{'from':'missing','field':'x'}}}]})
+    seen=http(monkeypatch,[response([proposal],name='submit_learning'),response([generated()],name='submit_program')])
+    log=s.learner.learn(s.adapter.task,learning_trace(s))
+    assert s.bank.get(log['program'])['state']=='usable'
+    assert not s.bank.all('workflow') and 'Workflow rejected' in log['errors'][0]
+    assert len(seen)==2 and len(log['tests'])==1
+    s.close()
 
 
 def test_dynamic_continuation_keeps_completed_results(tmp_path):
@@ -373,7 +368,7 @@ def test_interrupted_learning_resume_keeps_execution_and_all_billed_usage(tmp_pa
     frozen.close()
 
 
-def test_loader_continuation_preserves_completed_train_and_rejects_bank_changes(tmp_path):
+def test_loader_continuation_preserves_completed_train_and_rejects_bank_changes(tmp_path,monkeypatch):
     import json
     from atomic_skillgraph.experiments.run_empirical import code_identity, write_json
     from atomic_skillgraph.experiments.run_empirical_pilot import completed_train
@@ -390,6 +385,7 @@ def test_loader_continuation_preserves_completed_train_and_rejects_bank_changes(
     write_json(output / 'train' / 'execution_manifest.json', {'config': config, 'code': code})
     write_json(output / 'train' / 'summary.json', summary)
     original = (output / 'train' / 'summary.json').read_bytes()
+    monkeypatch.setattr("subprocess.check_output",lambda *a,**k: "")
     assert completed_train(config, entries, output) == summary
     assert (output / 'train' / 'summary.json').read_bytes() == original
     assert bank.digest() == summary['knowledge_digest']

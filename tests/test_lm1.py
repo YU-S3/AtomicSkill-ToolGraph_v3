@@ -234,8 +234,8 @@ def test_config_versions_budgets_strict_and_old_defaults_unchanged(tmp_path):
     for section, field, value in [('runtime', 'max_items', 3), ('learning', 'source_check_required', False), ('learning', 'material_version', 'old')]:
         c = config(tmp_path); c[section]['choice_guidance'][field] = value
         with pytest.raises(ValueError): validate_config(c)
-    c = config(tmp_path); c['learning']['min_distinct_train_cases_before_first_build'] = 1
-    with pytest.raises(ValueError, match='policy|two independent'): validate_config(c)
+    c = config(tmp_path); c['learning']['min_distinct_train_cases_before_first_build'] = 2
+    with pytest.raises(ValueError, match='policy|one real'): validate_config(c)
 
 
 def fixed_review(tmp_path, monkeypatch, *, no_change=False):

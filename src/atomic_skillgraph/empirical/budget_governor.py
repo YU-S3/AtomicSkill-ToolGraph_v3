@@ -14,11 +14,12 @@ def input_token_bound(payload):
 
 class BudgetGovernor:
     def __init__(self, path, *, token_limit=5000000, finish_reserve=500000, request_limit=205,
-                 proposal_repair_limit=None):
+                 proposal_repair_limit=None, validation_limit=None):
         self.path, self.lock = Path(path), RLock()
         self.limits = dict(token_limit=token_limit, finish_reserve=finish_reserve, request_limit=request_limit)
         if proposal_repair_limit is not None:
             self.limits['proposal_repair_limit'] = proposal_repair_limit
+        if validation_limit is not None: self.limits['validation_limit'] = validation_limit
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {
             'limits': self.limits, 'attempts': {}, 'unknown_billing': False}
         if self.state['limits'] != self.limits: raise ValueError('Governor identity changed')
@@ -40,11 +41,30 @@ class BudgetGovernor:
             exhausted = (self.state['unknown_billing'] or len(attempts) >= self.limits['request_limit']
                 or used + reserved > cap or (per_episode is not None and sum(
                     a['context'].get('episode_scope') == scope for a in attempts.values()) >= per_episode))
+            parent = context.get('parent_scope')
+            parent_cap = context.get('parent_token_limit')
+            parent_used = sum(a.get('accounted_tokens',a['reserved_tokens']) for a in attempts.values()
+                              if parent and a['context'].get('parent_scope') == parent)
+            if parent_cap is not None and parent_used + reserved + context.get('parent_finish_reserve',0) > parent_cap:
+                raise BudgetExhausted('parent_task_budget_exhausted','Parent task HTTP admission refused')
             if exhausted:
                 raise BudgetExhausted('diagnostic_budget_exhausted', 'HTTP admission refused', layer=FailureLayer.RUNTIME_AGENT)
             attempts[audit_id] = {'reserved_tokens': reserved, 'input_estimate': input_token_bound(payload),
                 'estimate_method': 'utf8_byte_upper_bound_text', 'context': dict(context), 'status': 'admitted'}
             save_json(self.path, self.state)
+
+    def admit_validation(self, identity):
+        with self.lock:
+            rows = self.state.setdefault('worker_validations', [])
+            if identity in rows: raise RuntimeError('Unresolved local validation execution; no blind replay')
+            if self.limits.get('validation_limit') is not None and len(rows) >= self.limits['validation_limit']:
+                raise BudgetExhausted('local_validation_budget_exhausted','Local validation execution limit reached')
+            rows.append(identity)
+            save_json(self.path,self.state)
+
+    def validation_available(self):
+        limit = self.limits.get('validation_limit')
+        return limit is None or len(self.state.get('worker_validations', [])) < limit
 
     def repair_available(self):
         limit = self.limits.get('proposal_repair_limit')

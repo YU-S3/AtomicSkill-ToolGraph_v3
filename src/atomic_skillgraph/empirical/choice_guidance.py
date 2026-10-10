@@ -87,7 +87,7 @@ def validate_proposal(proposal, source, related, schema):
     decision = proposal.get('decision')
     body = {'goal', 'guidance', 'scope_terms', 'applicability'}
     old_id = proposal.get('existing_skill_id')
-    if old_id is not None and old_id not in {a['id'] for a in related}: errors.append('existing_skill_id was not offered as a checked related asset')
+    if old_id is not None and (not isinstance(old_id, str) or old_id not in {a['id'] for a in related}): errors.append('existing_skill_id was not offered as a checked related asset')
     if decision == 'no_change' and (body & proposal.keys() or 'existing_skill_id' in proposal): errors.append('no_change must not supply asset fields')
     if decision == 'reuse_existing' and (body & proposal.keys() or old_id is None): errors.append('reuse_existing requires an offered ID and no new body')
     if decision == 'upsert_guidance':
@@ -99,7 +99,7 @@ def validate_proposal(proposal, source, related, schema):
             normalized = [words(t) for t in terms]
             if any(len(t) != 1 or not t <= words(source['source_goal']) for t in normalized): errors.append('scope_terms must each locate one normalized topic word in source_goal')
             if len(set().union(*normalized)) != len(terms): errors.append('scope_terms must be distinct after normalization')
-        if re.search(r'\b(?i:select|choose|answer|option)\s+[A-Z]\b', proposal.get('guidance', '')): errors.append('guidance must not bind instructions to an answer label')
+        if isinstance(proposal.get('guidance'), str) and re.search(r'\b(?i:select|choose|answer|option)\s+[A-Z]\b', proposal['guidance']): errors.append('guidance must not bind instructions to an answer label')
     if errors: raise ValueError('; '.join(errors))
     return next((a for a in related if a['id'] == old_id), None)
 

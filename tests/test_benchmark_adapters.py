@@ -54,23 +54,29 @@ def test_office_learner_builder_and_program_share_public_tools(tmp_path, worker,
     (corpus/'source.txt').write_text('public evidence')
     config=config_for(tmp_path/'bank'); config['harness']['corpus_root']=str(corpus)
     adapter=OfficeAdapter({'o':{'answer':'private gold'}},config)
-    task=PublicTask('o','physical','read public evidence')
+    task=PublicTask('o','physical','read public evidence',{'pattern':'*.txt'})
     adapter.reset(task)
-    skill={'goal':task.goal,'input_schema':object_schema(),
+    skill={'goal':task.goal,'input_schema':object_schema({'pattern':{'type':'string'}},['pattern']),
            'output_schema':object_schema({'text':{'type':'string'}},['text'])}
     source="""def run(ctx, inputs):
-    paths = ctx.call('glob', {'pattern': '*.txt'})['data']
+    paths = ctx.call('glob', {'pattern': inputs['pattern']})['data']
     text = ctx.call('read', {'path': paths[0], 'offset': 0})['data']['text']
     return {'status': 'ok', 'outputs': {'text': text}}
 """
+    broker=Broker(adapter,2);broker.call('read',{'path':'source.txt','offset':0})
+    from atomic_skillgraph.empirical.local_validation import evidence_from_trace
+    config['program_environment']['adapter_abi']='simple.v2'
+    event=evidence_from_trace(task,{'tools':broker.events},config['program_environment'])[0]
+    binding={'case_id':task.physical_key,'inputs':{'pattern':'*.txt'},'start_mode':'reset','prefix':[],
+        'local_evidence_ref':event['id'],'reference_fields':{'text':['data','text']}}
     provider=Provider([{'decision':'propose_skill_and_program_spec','skill':skill,
         'realization_request':{'skill_id':'$new','action':'build','case_bindings':[
-            {'case_id':task.physical_key,'inputs':{},'start_mode':'reset','prefix':[]}]}},
-        {'source':source,'trial_inputs':[{'case_id':task.physical_key,'inputs':{},'start_mode':'reset','prefix':[]}]}])
+            binding]}},
+        {'source':source,'trial_inputs':[binding]}])
     system=EmpiricalSystem(config,harness=adapter,provider=provider)
     monkeypatch.setattr(system,'test_program',lambda *a,**kw:{'outcome':'inapplicable'})
     try:
-        log=system.learner.learn(task,{'tools':[],'score':{},'execution':{}})
+        log=system.learner.learn(task,{'tools':broker.events,'score':{},'execution':{}})
         for index,messages in enumerate(provider.calls):
             material=json.loads(messages[1]['content'])
             tools=material['tools'] if index==0 else material['future_program_api']['runtime_tool_definitions']
@@ -79,7 +85,7 @@ def test_office_learner_builder_and_program_share_public_tools(tmp_path, worker,
         program=system.bank.get(log['program'])
         assert set(program['allowed_tools'])=={'glob','read','grep','read_result'}
         broker=Broker(adapter,2)
-        result=worker.execute(program,{},broker)
+        result=worker.execute(program,{'pattern':'*.txt'},broker)
         assert result['status']=='ok' and result['outputs']=={'text':'public evidence'},result
         assert [e['name'] for e in broker.events]==['glob','read']
         assert program['state']=='candidate'

@@ -93,7 +93,8 @@ class FormalLog:
         self.requests_seen = requests
         for request in requests:
             if self.active_learning and request['stage'] == 'tool_builder':
-                material = json.loads(request['messages'][1]['content'])
+                content=request['messages'][1]['content']
+                material = json.loads(content if isinstance(content,str) else content[0]['text'])
                 self.active_learning['subjects'].update(r['case_id'] for r in material.get('examples', []))
             task_id = self.trial_tasks.get(request.get('budget_scope'), self.current_task['task_id'] if self.current_task else None)
             for attempt in request.get('http_attempts', []):
@@ -203,7 +204,8 @@ class FormalLog:
             parent = self.versions.get(asset['parent_skill_id'], {}).get('artifact_id')
         if not parent and kind == 'program' and self.requests_seen:
             request = self.requests_seen[-1]
-            material = json.loads(request['messages'][1]['content'])
+            content=request['messages'][1]['content']
+            material = json.loads(content if isinstance(content,str) else content[0]['text'])
             source = material.get('previous_failure', {}).get('source', material.get('source'))
             if source:
                 for row in self.versions.values():

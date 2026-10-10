@@ -92,6 +92,8 @@ def recover(source, output, task_id, *, dry_run=False, interrupt_after=None):
     if dry_run:
         write_json(output, report)
         return report
+    # This entry point resumes one method identity; it cannot upgrade old training.
+    validate_config(read(Path(source)/'train/config.json'))
     if output.exists():
         receipt = read(output/'recovery_receipt.json')
         if receipt['recovery_id'] != report['recovery_id']: raise ValueError('Recovery output identity differs')

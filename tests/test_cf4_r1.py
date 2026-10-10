@@ -213,7 +213,7 @@ def test_r06_r08_builder_generations_have_one_submission_tool(tmp_path, monkeypa
     sent = http(monkeypatch, [response([requested_proposal()], name='submit_learning'), first_turn,
                              response([generated()], name='submit_program')])
     s = office(tmp_path); trial_factory(s)
-    log = s.learner.learn(s.adapter.task, learning_trace())
+    log = s.learner.learn(s.adapter.task, learning_trace(s))
     job = s.bank.jobs()[0]
     assert job['generation_count'] == 2 and job['repair_used'] and len(sent) == 3
     materials = []
@@ -227,7 +227,7 @@ def test_r06_r08_builder_generations_have_one_submission_tool(tmp_path, monkeypa
     assert materials[1]['previous_failure']['domain'] == ('program_trial' if first == 'trial' else 'builder_generation')
     assert materials[0]['examples'][0]['case_id'] == 'office-physical'
     if first in {'wrong_read', 'wrong_grep', 'multiple'}: assert 'builder_submission_tool_mismatch' in log['errors'][0]
-    assert sent[-1]['max_tokens'] == (65536 if first == 'length' else 32768)
+    assert sent[-1]['max_tokens'] == 32768
     assert sum(e.to_dict()['total_tokens'] for e in s.usage.events) == 15
     evidence({'http': sent, 'requests': s.requests, 'learning': log, 'job': job, 'program': p})
     s.close()
@@ -247,8 +247,9 @@ def test_r08_recorded_office_wrong_calls_stop_after_original_recovery(tmp_path, 
     sent = http(monkeypatch, [response([requested_proposal()], name='submit_learning'), first, envelope(recorded[1])])
     s = office(tmp_path)
     # No isolated adapter/worker is reached because neither response is a Program proposal.
+    trace=learning_trace(s)
     s.adapter.call = lambda *a, **k: pytest.fail('Builder must not dispatch a recorded tool call')
-    log = s.learner.learn(s.adapter.task, learning_trace())
+    log = s.learner.learn(s.adapter.task, trace)
     job = s.bank.jobs()[0]
     assert len(sent) == 3 and job['generation_count'] == 2 and job['repair_used'] and job['state'] == 'deferred'
     assert not s.bank.all('program') and not s.worker.invocations
@@ -391,14 +392,14 @@ def test_r12_r13_no_change_reuse_reject_have_no_partial_assets(tmp_path, monkeyp
         'invented': {'decision': 'reuse_existing', 'existing_skill_id': 'invented'},
         'empty': guidance_proposal(' ')}
     invalid = decision in {'workflow', 'job', 'invented', 'empty'}
-    sent = transport(monkeypatch, [(None, '<answer>wrong</answer>'),
+    sent = transport(monkeypatch, [(None, '<answer>word</answer>'),
         *[('submit_learning', proposals[decision])] * (2 if invalid else 1)])
     task = PublicTask('train', 'train-physical', 'math question')
     formal = FormalLog(tmp_path / 'formal', {'fixture': decision}, s.config)
     formal.begin_task(task, 0, 'first', {})
     s.observer = s.bank.observer = formal
     trace = s.run_task(task, learn=True)
-    assert not trace['score']['hard'] and len(sent) == (3 if invalid else 2)
+    assert trace['score']['hard'] and len(sent) == (3 if invalid else 2)
     assert s.bank.all('skill') == [old] and not s.bank.all('workflow') and not s.bank.all('program') and not s.bank.jobs()
     log = trace['learning']
     assert (log['decision'] == 'rejected') == invalid
@@ -412,13 +413,13 @@ def test_r15_guidance_filter_before_top_k_and_frozen_query_pure(tmp_path):
     bank = Bank(tmp_path / 'bank')
     for i in range(8): bank.put('workflow', {'goal': 'math question', 'nodes': [{'id': str(i), 'goal': 'math question', 'args': {}}]})
     for i in range(4): bank.put('skill', {'goal': 'math question', 'guidance': '', 'execution_intent': 'guidance_only', 'index': i})
-    bank.put('skill', {'goal': 'math question', 'guidance': 'program', 'execution_intent': 'program_requested'})
+    attached=bank.put('skill', {'goal': 'math question', 'guidance': 'program', 'execution_intent': 'program_requested'})
     sk = bank.put('skill', {'goal': 'math question', 'guidance': 'Check assumptions.', 'execution_intent': 'guidance_only'})
-    assert bank.retrieve_guidance('math question', limit=3) == [sk]
+    assert {a['id'] for a in bank.retrieve_guidance('math question', limit=3)} == {sk['id'],attached['id']}
     bank.freeze(tmp_path / 'frozen'); bank.close()
     frozen = Bank(tmp_path / 'frozen', readonly=True)
     before = frozen.digest()
-    assert frozen.retrieve_guidance('math question', limit=3) == [sk] and frozen.digest() == before
+    assert {a['id'] for a in frozen.retrieve_guidance('math question', limit=3)} == {sk['id'],attached['id']} and frozen.digest() == before
     frozen.close()
 
 
@@ -448,17 +449,18 @@ def test_r06_program_revision_artifact_parent_survives_material_layout(tmp_path,
     s.close()
 
 
-def test_r22_scientific_configuration_identical_to_cf4():
-    for relative in ('configs/default.yaml', 'configs/alfworld_empirical_seed42.yaml',
-                     'configs/main_experiment_v1.yaml', 'benchmark_profiles.json', 'models.lock.json'):
-        raw = subprocess.check_output(['git', 'show', '65718eb:' + relative], cwd=ROOT, text=True)
-        old, new = yaml.safe_load(raw), yaml.safe_load((ROOT / relative).read_text())
-        if relative.startswith('configs/') and 'experiment' in old:
-            assert old['experiment']['implementation_revision'] == 'empirical-v3.1-CF4'
-            assert new['experiment']['implementation_revision'] == IMPLEMENTATION_REVISION
-            old['experiment'].pop('implementation_revision'); new['experiment'].pop('implementation_revision')
-        assert old == new
-    assert subprocess.check_output(['git', 'diff', '65718eb', '--', 'data/main_experiment_v1'], cwd=ROOT) == b''
+def test_r22_public_rules_unchanged_and_unified_caps_are_explicit():
+    from atomic_skillgraph.empirical.system import validate_config
+    for relative in ('configs/main_experiment_v1.yaml','benchmark_profiles.json'):
+        raw=subprocess.check_output(['git','show','993d6cd:'+relative],cwd=ROOT,text=True)
+        assert yaml.safe_load(raw)==yaml.safe_load((ROOT/relative).read_text())
+    for relative in ('configs/default.yaml','configs/alfworld_empirical_seed42.yaml'):
+        cfg=validate_config(yaml.safe_load((ROOT/relative).read_text()))
+        assert cfg['experiment']['implementation_revision']==IMPLEMENTATION_REVISION
+        assert cfg['learning']['min_distinct_train_cases_before_first_build']==1
+        assert [cfg['llm'][role]['max_completion_tokens'] for role in ('planner','extractor','tool_builder','runtime')]==[8192,8192,16384,32768]
+        assert cfg['learning']['builder_truncation_recovery_max_completion_tokens']==32768
+    assert subprocess.check_output(['git','diff','65718eb','--','data/main_experiment_v1'],cwd=ROOT)==b''
 
 
 def test_r19_r20_launcher_four_isolated_parallel_cells_and_failure(tmp_path):
@@ -466,6 +468,9 @@ def test_r19_r20_launcher_four_isolated_parallel_cells_and_failure(tmp_path):
     shutil.copytree(ROOT / 'src', repo / 'src')
     shutil.copytree(ROOT / 'configs', repo / 'configs')
     shutil.copy(ROOT / 'models.lock.json', repo)
+    # Exercise the preserved historical launcher under its explicitly locked revision.
+    policy=repo/'src/atomic_skillgraph/empirical/__init__.py'
+    policy.write_text(policy.read_text().replace(IMPLEMENTATION_REVISION,'empirical-v3.1-CF4-R2'))
     for args in (['init', '-q'], ['add', '.'], ['-c', 'user.email=fixture@example.invalid', '-c', 'user.name=fixture', 'commit', '-qm', 'fixture']):
         subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True)
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip()

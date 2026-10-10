@@ -19,6 +19,9 @@ class Capabilities:
     checkpoint_mode: str = "none"
     local_check: str = "unavailable"
     final_submission_kind: str = 'environment'
+    internal_execution: str = 'sandbox_python_v1'
+    public_resources: str = 'adapter_public_only'
+    capability_version: str = 'atomic.capabilities.v1'
 
 
 @dataclass
@@ -139,8 +142,7 @@ class Broker:
     def available_tools(self):
         if self.done: return []
         tools = self.adapter.available_tools()
-        if self.adapter.capabilities.interaction != 'single_answer':
-            tools = [*tools, self.context.tool()]
+        tools = [*tools, self.context.tool()]
         return tools
 
     def remaining_calls(self):

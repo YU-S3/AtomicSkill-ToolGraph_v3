@@ -96,7 +96,7 @@ def test_actual_http_retry_and_raw_usage_recorded_without_private_reasoning(monk
     assert calls[1]['reasoning_tokens'] is None and calls[1]['cached_tokens'] is None
     assert all(c['request_messages'] == sent['messages'] for c, sent in zip(calls, seen))
     assert 'private-reasoning' not in json.dumps(calls) and 'private-key' not in json.dumps(calls)
-    supported = OpenAICompatibleProvider(OpenAICompatibleConfig('https://example.invalid', 'actual-model', 'TEST_KEY', 32, generation_seed=43))
+    supported = OpenAICompatibleProvider(OpenAICompatibleConfig('https://example.invalid', 'actual-model', 'TEST_KEY', 32, generation_seed=43,capability_profile={'generation_seed':True}))
     assert supported._build_payload([{'role': 'user', 'content': 'question'}], [])['seed'] == 43
     assert 'seed' not in seen[0]
 
@@ -123,7 +123,7 @@ def test_formal_native_run_logs_no_extra_calls_and_frozen_hash_is_unchanged(monk
         sent.append(payload)
         message = {'content': 'correct', 'reasoning_content': 'private'}
         reason = 'stop'
-        if payload.get('tools'):
+        if payload.get('tools') and payload['tools'][0]['function']['name']=='submit_learning':
             name = payload['tools'][0]['function']['name']
             message.update(content='', tool_calls=[{'id': 'submit', 'type': 'function', 'function': {'name': name, 'arguments': json.dumps({'decision': 'no_change'})}}])
             reason = 'tool_calls'

@@ -23,6 +23,8 @@ def test_budget_snapshot_preserves_actual_contribution(tmp_path, monkeypatch, co
     asset = s.bank.put('program', program(
         "def run(ctx, inputs):\n    raise AssertionError('Fixture source must never execute')",
         outputs=object_schema({'path': {'type': 'string'}}, ['path'])))
+    from unified_fixture import qualify
+    asset = qualify(s.bank,asset)
     plan = {'goal': 'find target', 'nodes': [
         {'id': 'producer', 'execution_mode': 'dynamic', 'goal': 'find path', 'args': {}},
         {'id': 'consumer', 'execution_mode': 'dynamic', 'goal': 'read path',
@@ -64,8 +66,8 @@ def test_budget_snapshot_preserves_actual_contribution(tmp_path, monkeypatch, co
         assert not attempt['submission_by_program'] and not attempt['terminal_by_program']
         assert attempt['output_contract_status'] == 'valid' and attempt['local_check'] == 'unavailable'
         assert (attempt['outcome'], attempt['basis']) == (('positive', 'task_outcome') if positive else ('normal', None))
-        assert records == [attempt] == s.bank.attempts(asset['id'])
-        assert s.bank.get(asset['id'])['state'] == 'candidate'
+        assert records == [attempt] == s.bank.attempts(asset['id'])[-1:]
+        assert s.bank.get(asset['id'])['state'] == 'usable'
         assert execution['plan'] == plan and execution['values'][0]['node'] == 'producer'
         assert [h.get('program') or h.get('tool') for h in execution['history']] == [asset['id'], 'read']
         assert execution['input_reads'] == (['consumer'] if used else [])

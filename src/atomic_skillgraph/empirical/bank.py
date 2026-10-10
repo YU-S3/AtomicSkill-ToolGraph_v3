@@ -8,8 +8,9 @@ from .contracts import digest, program_digest, validate_program, validate_workfl
 
 
 class Bank:
-    def __init__(self, root, *, readonly=False, seed=42):
+    def __init__(self, root, *, readonly=False, seed=42, environment=None):
         self.root, self.readonly = Path(root), readonly
+        self.environment=environment
         self.observer = None
         if readonly:
             self.db = sqlite3.connect(f"{(self.root / 'bank.sqlite3').resolve().as_uri()}?mode=ro", uri=True)
@@ -26,6 +27,12 @@ class Bank:
             """)
             self.db.execute("INSERT OR IGNORE INTO metadata VALUES('schema','empirical.bank.v1')")
             self.db.execute("INSERT OR IGNORE INTO metadata VALUES('seed',?)", (str(seed),))
+            from .local_validation import POLICY
+            stored_policy = self.db.execute("SELECT value FROM metadata WHERE key='program_qualification_policy'").fetchone()
+            if not stored_policy and self.db.execute('SELECT 1 FROM assets LIMIT 1').fetchone():
+                raise ValueError('Old training Bank requires a separate explicit derivation; use a fresh Bank')
+            if stored_policy and stored_policy != (POLICY,): raise ValueError('Program qualification policy changed')
+            self.db.execute("INSERT OR IGNORE INTO metadata VALUES('program_qualification_policy',?)",(POLICY,))
             self.db.commit()
         schema = self.db.execute("SELECT value FROM metadata WHERE key='schema'").fetchone()
         stored_seed = self.db.execute("SELECT value FROM metadata WHERE key='seed'").fetchone()
@@ -83,8 +90,7 @@ class Bank:
         refs = [interface['bound_program_id']] if interface['execution_mode'] == 'program' else [
             i["program_id"] for i in self.all("implementation") if i["skill_id"] == interface['bound_skill_id']]
         routes = [self.get(ref) for ref in refs]
-        routes = [p for p in routes if p and (p["state"] == "usable" or (
-            allow_candidate and not self.readonly and p["state"] == "candidate"))]
+        routes = [p for p in routes if p and self.program_eligible(p)]
         def order(program):
             rows = self.attempts(program["id"])
             valid = [a for a in rows if a["outcome"] in {"positive", "execution_failure"}]
@@ -118,9 +124,6 @@ class Bank:
             self.db.execute("INSERT INTO attempts VALUES(?,?,?,?,?,?)", (
                 attempt["id"], attempt["program_id"], attempt["task_key"], attempt["origin"], attempt["outcome"], payload))
             rows = self.attempts(program["id"])
-            positives = {a["task_key"] for a in rows if a["outcome"] == "positive"}
-            if len(positives) >= 2 and program["state"] != "disabled":
-                program["state"] = "usable"
             failures = 0
             for row in reversed(rows):
                 if row["outcome"] == "positive":
@@ -135,6 +138,27 @@ class Bank:
         if self.observer:
             self.observer.asset('program', program)
 
+    def program_eligible(self,program):
+        from .local_validation import qualification
+        return bool(program and qualification(program) and (self.environment is None or program['environment']==self.environment))
+
+    def record_validation(self, program_id, validation):
+        self._writable()
+        program = self.get(program_id)
+        from .local_validation import POLICY
+        if not program or validation.get('policy') != POLICY or not any(
+                a.get('validation') == validation for a in self.attempts(program_id)):
+            raise ValueError('Qualification requires a recorded host local execution')
+        from .contracts import program_digest
+        if validation.get('program_digest') != program_digest(program) or validation.get('environment_hash') != digest(program['environment']):
+            raise ValueError('Program validation identity changed')
+        program['local_validation'] = dict(validation)
+        if validation['passed'] and program['state'] != 'disabled': program['state'] = 'usable'
+        self.db.execute('UPDATE assets SET payload=? WHERE id=?', (json.dumps(program, ensure_ascii=False), program_id))
+        self.db.commit()
+        if self.observer: self.observer.asset('program', program)
+        return program
+
     def retrieve(self, query, limit=8):
         words = self.words(query)
         assets = [*self.all("skill"), *self.all("workflow")]
@@ -144,8 +168,7 @@ class Bank:
     def words(text): return set(re.findall(r'\w+', text.casefold(), flags=re.UNICODE))
 
     def retrieve_guidance(self, query, limit=8):
-        assets = [a for a in self.all('skill') if a.get('execution_intent') == 'guidance_only'
-                  and isinstance(a.get('guidance'), str) and a['guidance'].strip()]
+        assets = [a for a in self.all('skill') if isinstance(a.get('guidance'), str) and a['guidance'].strip()]
         superseded = {a['parent_skill_id'] for a in assets if a.get('parent_skill_id')}
         words = self.words(query)
         return sorted((a for a in assets if a['id'] not in superseded), key=lambda a: (
@@ -205,7 +228,7 @@ class Bank:
         skills = {s['id']: s for s in self.all('skill')}
         cards = []
         for p in self.all('program'):
-            if p['id'] in excluded or p['state'] == 'disabled' or (p['state'] != 'usable' and not (allow_candidate and not self.readonly)):
+            if p['id'] in excluded or not self.program_eligible(p):
                 continue
             capabilities = [{'skill_id': i['skill_id'], 'goal': skills.get(i['skill_id'], {}).get('goal', '')}
                             for i in self.all('implementation') if i['program_id'] == p['id']]
@@ -281,7 +304,7 @@ class Bank:
         self.db.backup(target)
         target.execute('DROP TABLE IF EXISTS realization_jobs')
         target.execute('DROP TABLE IF EXISTS train_cases')
-        usable = {p['id'] for p in self.all('program') if p['state'] == 'usable'}
+        usable = {p['id'] for p in self.all('program') if self.program_eligible(p)}
         for kind, asset_id, payload in target.execute('SELECT kind,id,payload FROM assets').fetchall():
             asset = json.loads(payload)
             if (kind == 'program' and asset_id not in usable) or (
@@ -312,7 +335,11 @@ class Bank:
         target.commit()
         seed = int(self.db.execute("SELECT value FROM metadata WHERE key='seed'").fetchone()[0])
         frozen = Bank(destination, readonly=True, seed=seed)
+        from .local_validation import POLICY
+        from . import IMPLEMENTATION_REVISION, LEARNING_MATERIAL_VERSION
         manifest = {"schema": "empirical.bank.v1", "digest": frozen.digest(), 'source_digest': self.digest(),
+                    'program_qualification_policy':POLICY,'implementation_revision':IMPLEMENTATION_REVISION,
+                    'learning_material_version':LEARNING_MATERIAL_VERSION,
                     "programs": [{"id": p["id"], "state": p["state"]} for p in frozen.all("program")]}
         frozen.close()
         target.close()

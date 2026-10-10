@@ -294,6 +294,9 @@ class Executor:
         def invoke(program, arguments, node_id):
             start, was_terminal = len(broker.events), broker.done
             workspace_before = adapter.observe().get('workspace', {})
+            if not self.bank.program_eligible(program): raise ValueError('Program lacks local qualification')
+            expected=getattr(getattr(self.agent,'__self__',None),'config',{}).get('program_environment',program['environment'])
+            if program['environment']!=expected:raise ValueError('Program environment is incompatible')
             if checkpoint:
                 checkpoint.advance(checkpoint.state['stage'], program_started=True)
             result = self.worker.execute(program, arguments, broker)
@@ -310,12 +313,15 @@ class Executor:
                 'status': result['status'], 'local_check': local, 'basis': 'local_check' if outcome == 'positive' else None,
                 'node': node_id, 'outputs_consumed': False, 'terminal_by_program': not was_terminal and broker.done}
             attempt.update(worker_status=result.get('worker_status'), output_contract_status=result['output_contract_status'],
+                worker_cpu_seconds=result.get('cpu_seconds'), worker_seconds=result.get('elapsed_seconds'),
                 publication_receipt=result.get('publication_receipt'), workspace_before=workspace_before,
                 error_code=result.get('error_code'), submission_by_program=False)
             attempts.append(attempt)
             result_id = context.register(attempt['id'], result, name=program['id'], arguments=arguments)
             history.append({'program': program['id'], 'arguments': deepcopy(arguments), 'result_id': result_id})
             attempt.update(result_id=result_id, native_event_start=start, native_event_end=len(broker.events))
+            attempt.update(arguments=deepcopy(arguments),source=program['source'],input_schema=program['input_schema'],
+                output_schema=program['output_schema'],environment=program['environment'])
             return result
 
         for _ in range(max(16, broker.call_limit * 4 + 16)):
@@ -426,7 +432,7 @@ class Executor:
                 save(step)
                 pending_step = None
             except BudgetExhausted as exc:
-                if exc.code != 'runtime_finish_reserved' or submission_kind != 'text': raise
+                if exc.code not in {'runtime_finish_reserved','parent_task_budget_exhausted'} or submission_kind != 'text': raise
                 finalize()
                 break
             except ValueError as exc:
@@ -476,12 +482,15 @@ class Executor:
                             raise ValueError('Same known invalid operation already failed twice')
                         if kind == 'call_program':
                             program = self.bank.get(name)
-                            if not program or 'source' not in program or name in blocked or program['state'] == 'disabled' or self.frozen and program['state'] != 'usable':
+                            if not self.bank.program_eligible(program) or name in blocked or program['environment'] != getattr(getattr(self.agent,'__self__',None),'config',{}).get('program_environment',program['environment']):
                                 raise ValueError('Program is unavailable in this task')
                             result = invoke(program, call_args, node['id'])
                             accepted = result['status'] == 'ok' and result['local_check'] != 'failed'
                             if accepted and (name in {p['id'] for p in routes} or interface['execution_mode'] == 'dynamic' and
-                                'output_mapping' not in action and set(requirements['required_fields']).issubset(result['outputs'])):
+                                bool(requirements['required_fields']) and set(requirements['required_fields']) <= set(result['outputs']) and
+                                'output_mapping' not in action or interface['execution_mode'] == 'dynamic' and
+                                program.get('result_role') in {'final_answer','final_files'} and
+                                'output_mapping' not in action and submission(result['outputs'],program['result_role'],attempts[-1]['id'])):
                                 complete(node, result['outputs'], 'program', producer=attempts[-1]['id'], result_role=program.get('result_role'))
                             elif accepted:
                                 supplied = result['outputs']

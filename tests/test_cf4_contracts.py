@@ -121,7 +121,8 @@ def test_t05_t06_t07_actual_solver_http_contract_and_resume(tmp_path, monkeypatc
     s.checkpoint = TaskCheckpoint(tmp_path / 'checkpoint')
     task = PublicTask('id', 'physical', 'Which word?', inputs, split='val')
     trace = s.run_task(task, learn=False)
-    assert trace['score']['hard'] and len(sent) == 1 and not sent[0].get('tools')
+    assert trace['score']['hard'] and len(sent) == 1
+    assert [t['function']['name'] for t in sent[0]['tools']]==['answer_step']
     content = json.dumps(sent[0]['messages'])
     assert '<answer>' in content and 'correct_choice' not in content
     if benchmark == 'livemath': assert all(json.dumps(c) in sent[0]['messages'][1]['content'] for c in item['choices'])
@@ -272,23 +273,20 @@ def test_t20_t22_missing_input_repaired_to_defer_before_asset_write(tmp_path, mo
     s.close()
 
 
-def test_t21_t24_binding_repair_then_two_actual_train_trials(tmp_path, monkeypatch):
-    s = office(tmp_path); trial_factory(s)
-    sk = skill('find target', inputs=object_schema({'resource': {'type': 'string'}}, ['resource']),
-        outputs=object_schema({'answer': {'type': 'string'}}, ['answer']), result_role='final_answer')
-    valid = {'decision': 'propose_skill_and_program_spec', 'skill': sk,
-        'realization_request': {'skill_id': '$new', 'action': 'build', 'case_bindings': [binding('office-physical')]}}
-    invalid = deepcopy(valid); invalid['realization_request']['case_bindings'][0]['inputs'] = {}
-    generated = {'source': "def run(ctx, inputs): return {'status':'ok','outputs':{'answer':'private'}}", 'trial_inputs': [binding('office-physical')]}
-    sent = transport(monkeypatch, [('submit_learning', invalid), ('submit_learning', valid), ('submit_program', generated)])
-    result = s.learner.learn(s.adapter.task, learning_trace()); p = result['program']
-    assert len(sent) == 3 and s.bank.get(p)['state'] == 'candidate'
-    skill_id = s.bank.all('skill')[0]['id']
-    request = {'decision': 'reuse_existing', 'existing_skill_id': skill_id, 'realization_request': {'skill_id': skill_id, 'action': 'trial', 'case_bindings': [binding('second')]}}
-    second = transport(monkeypatch, [('submit_learning', request)])
-    s.learner.learn(PublicTask('office', 'second', 'find target'), learning_trace())
-    assert len(second) == 1 and s.bank.get(p)['state'] == 'usable'
-    assert len({a['task_key'] for a in s.bank.attempts(p) if a['outcome'] == 'positive'}) == 2
+def test_t21_t24_binding_repair_then_one_actual_source_qualification(tmp_path,monkeypatch,worker):
+    from test_cf2_realization import generated, requested_proposal
+    s=office(tmp_path);trial_factory(s);s.worker=worker
+    valid=requested_proposal();invalid=deepcopy(valid)
+    invalid['realization_request']['case_bindings'][0]['local_evidence_ref']='invented'
+    sent=transport(monkeypatch,[('submit_learning',invalid),('submit_learning',valid),('submit_program',generated())])
+    result=s.learner.learn(s.adapter.task,learning_trace(s));p=result['program']
+    assert len(sent)==3 and s.bank.get(p)['state']=='usable'
+    skill_id=s.bank.all('skill')[0]['id']
+    request={'decision':'reuse_existing','existing_skill_id':skill_id,'realization_request':{
+        'skill_id':skill_id,'action':'trial','case_bindings':[{**generated()['trial_inputs'][0],'case_id':'second'}]}}
+    second=transport(monkeypatch,[('submit_learning',request)])
+    s.learner.learn(PublicTask('office','second','find target'),learning_trace(s))
+    assert len(second)==1 and len(s.bank.attempts(p))==1 and s.bank.get(p)['state']=='usable'
     s.close()
 
 

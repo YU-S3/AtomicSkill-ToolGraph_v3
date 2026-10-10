@@ -65,8 +65,17 @@ class OpenAICompatibleConfig:
     input_modalities: tuple[str, ...] = ('text',)
     token_limit_field: str = 'max_tokens'
     generation_seed: int | None = None
+    capability_profile: dict | None = None
 
     def __post_init__(self) -> None:
+        defaults = {'tools':True, 'thinking':self.dialect=='deepseek_v4_chat',
+                    'reasoning_effort':self.dialect=='deepseek_v4_chat', 'generation_seed':False}
+        if self.capability_profile is not None and (not isinstance(self.capability_profile,dict) or
+                set(self.capability_profile)-set(defaults) or any(type(v) is not bool for v in self.capability_profile.values())):
+            raise ValueError('Invalid provider capability profile')
+        object.__setattr__(self, 'capability_profile', {**defaults, **(self.capability_profile or {})})
+        if self.generation_seed is not None and not self.capability_profile['generation_seed']:
+            raise ValueError('Provider generation seed unsupported')
         parsed = urlparse(self.base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("base_url must be an absolute http(s) URL")
@@ -123,12 +132,13 @@ class OpenAICompatibleConfig:
             "model": self.model,
             "api_key_env": self.api_key_env,
             "max_completion_tokens": self.max_completion_tokens,
-            "http_token_limit_field": "max_tokens",
-            "thinking_type": self.thinking_type,
-            "reasoning_effort": self.reasoning_effort,
+            "http_token_limit_field": self.token_limit_field,
+            "thinking_type": self.thinking_type if self.capability_profile['thinking'] else None,
+            "reasoning_effort": self.reasoning_effort if self.capability_profile['reasoning_effort'] else None,
             "connect_timeout_seconds": self.connect_timeout_seconds,
             "request_timeout_seconds": self.request_timeout_seconds,
             "max_retries": self.max_retries,
+            "capability_profile": dict(self.capability_profile),
         }
 
 
@@ -174,6 +184,8 @@ class OpenAICompatibleProvider:
         tool_choice: dict | None = None,
     ) -> dict[str, Any]:
         normalized_messages = _validate_deepseek_messages(messages, allow_images='image' in self.config.input_modalities)
+        if self.config.dialect != 'deepseek_v4_chat':
+            normalized_messages = [{k:v for k,v in m.items() if k != 'reasoning_content'} for m in normalized_messages]
         normalized_tools = list(tools or [])
         if not all(isinstance(tool, NativeToolSpec) for tool in normalized_tools):
             raise TypeError("tools must contain NativeToolSpec values")
@@ -183,11 +195,13 @@ class OpenAICompatibleProvider:
             "model": self.config.model,
             "messages": normalized_messages,
             self.config.token_limit_field: self.config.max_completion_tokens,
-            "reasoning_effort": self.config.reasoning_effort,
         }
-        if self.config.dialect == 'deepseek_v4_chat':
+        if self.config.capability_profile['reasoning_effort']:
+            payload['reasoning_effort'] = self.config.reasoning_effort
+        if self.config.capability_profile['thinking']:
             payload['thinking'] = {'type': self.config.thinking_type}
         if normalized_tools:
+            if not self.config.capability_profile['tools']: raise ValueError('Provider native tools unsupported')
             payload["tools"] = [tool.to_openai() for tool in normalized_tools]
         if tool_choice is not None:
             if (not isinstance(tool_choice, dict) or set(tool_choice) != {'type', 'function'} or

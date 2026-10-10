@@ -48,11 +48,23 @@ def score_answer(benchmark, prediction, record, *, audit=None):
     return {'hard': hard, 'soft': soft, 'raw_score': soft, 'scorer': name}
 
 
+def image_content_parts(paths):
+    parts=[]
+    for path in paths:
+        path=Path(path);mime='image/png' if path.suffix.lower()=='.png' else 'image/jpeg'
+        parts.append({'type':'image_url','image_url':{'url':'data:'+mime+';base64,'+
+            base64.b64encode(path.read_bytes()).decode(),'detail':'high'}})
+    return parts
+
+
 class AnswerAdapter:
     capabilities = Capabilities(interaction='single_answer', tool_surface='none', final_submission_kind='single_answer')
 
-    def __init__(self, benchmark, records):
+    def __init__(self, benchmark, records, config=None):
         self.benchmark, self._records = benchmark, records
+        self.config = config or {}
+        self._answer_workspace_tmp = None
+        self.worker_resources = {}
         if benchmark == 'docvqa':
             self.capabilities = Capabilities(interaction='single_answer', input_modalities=('text','image'), tool_surface='none', final_submission_kind='single_answer')
 
@@ -60,12 +72,24 @@ class AnswerAdapter:
         self.task = task
         if task.task_id not in self._records:
             raise ValueError('Unknown evaluator task')
+        if self._answer_workspace_tmp: self.close()
+        if task.inputs.get('images'):
+            self._answer_workspace_tmp = tempfile.TemporaryDirectory(prefix='atomic-public-images-')
+            images = {'image_'+str(i)+Path(path).suffix:Path(path) for i,path in enumerate(task.inputs['images'])}
+            self.workspace = Workspace(self._answer_workspace_tmp.name, images)
+            self.worker_resources = {name:'/workspace/inputs/'+name for name in images}
         return self.observe()
 
     def observe(self): return {'goal': self.task.goal, 'inputs': self.task.inputs}
     def available_tools(self): return []
     def tool_definitions(self): return []
-    def close(self): pass
+    def close(self):
+        if self._answer_workspace_tmp:
+            for path in Path(self._answer_workspace_tmp.name).rglob('*'):
+                if not path.is_symlink(): path.chmod(0o755 if path.is_dir() else 0o644)
+            self._answer_workspace_tmp.cleanup()
+            self._answer_workspace_tmp = None
+    def declared_outputs(self, outputs): return outputs.get('files', [])
 
     def model_task(self, task=None):
         task = task or self.task
@@ -82,13 +106,7 @@ class AnswerAdapter:
         return True
 
     def content_parts(self):
-        parts = []
-        for path in self.task.inputs.get('images', []):
-            path = Path(path)
-            mime = 'image/png' if path.suffix.lower() == '.png' else 'image/jpeg'
-            parts.append({'type': 'image_url', 'image_url': {'url': 'data:' + mime + ';base64,' +
-                base64.b64encode(path.read_bytes()).decode(), 'detail': 'high'}})
-        return parts
+        return image_content_parts(self.task.inputs.get('images',[]))
 
     def call(self, name, arguments):
         raise ValueError('Single-answer tasks have no native tools')
@@ -179,7 +197,14 @@ shutil.copyfile('/tmp/recalculated/input.xlsx', OUTPUT_PATH)
             'output_schema': object_schema(output_fields, ['files', 'deleted_files']),
             'allowed_tools': [], 'environment': self.config['program_environment']}
         result = self.worker.execute(program, {'files': files, 'deleted_files': list(deleted_files)}, Broker(self, 1))
-        return {'accepted': result['status'] == 'ok', 'observation': result.get('diagnostic', ''),
+        from ..empirical.local_validation import artifact_identity
+        pointer = self.workspace.root/'manifest.json'
+        published = self.workspace.root/json.loads(pointer.read_text())['version'] if pointer.exists() else None
+        identities = {name:artifact_identity(published/name) for name in files} if result['status']=='ok' and published else {}
+        return {'local_artifact_identities':identities,
+                'worker_cpu_seconds':result.get('cpu_seconds'), 'worker_seconds':result.get('elapsed_seconds'),
+                'local_artifact_hashes':self.observe().get('workspace',{}).get('hashes',{}) if result['status']=='ok' else {},
+                'accepted': result['status'] == 'ok', 'observation': result.get('diagnostic', ''),
                 'data': result.get('outputs', {}), 'error': result.get('detail'), 'done': False}
 
 
@@ -402,5 +427,5 @@ def create_adapter(config):
     records = json.loads(Path(config['harness']['evaluator_records']).read_text())
     if name == 'officeqa': return OfficeAdapter(records, config)
     if name == 'spreadsheet': return SpreadsheetAdapter(records, config)
-    if name in {'searchqa','docvqa','livemath'}: return AnswerAdapter(name, records)
+    if name in {'searchqa','docvqa','livemath'}: return AnswerAdapter(name, records, config)
     raise ValueError('Unknown simple adapter: ' + name)
