@@ -176,6 +176,66 @@ def test_local_validation_uses_stable_public_permissions(tmp_path,worker):
     finally:s.close()
 
 
+def test_local_validation_requires_actual_source_operation(tmp_path,worker):
+    class NativeAdapter(AnswerAdapter):
+        def tool_definitions(self):
+            return [{'name':name,'input_schema':SCHEMA if name=='advance' else object_schema(),
+                     'output_schema':object_schema({'accepted':{'type':'boolean'}},['accepted']),
+                     'effect':effect} for name,effect in [('advance','stateful'),('peek','read_only')]]
+        def available_tools(self):return self.tool_definitions()
+        def call(self,name,arguments):return {'accepted':True,'done':False,'observation':'public native result'}
+    s,t=setup(tmp_path);s.worker=worker
+    records={t.task_id:{'answers':['6']}}
+    s.adapter=NativeAdapter('searchqa',records,s.config)
+    s.adapter_factory=lambda:NativeAdapter('searchqa',records,s.config)
+    s.adapter.reset(t)
+    try:
+        broker=Broker(s.adapter,10);broker.call('advance',{'n':3})
+        evidence=evidence_from_trace(t,{'tools':broker.events},s.config['program_environment'])
+        binding={'inputs':{'n':3},'prefix':[],'local_evidence_ref':evidence[0]['id'],
+                 'reference_fields':{'accepted':['accepted']}}
+        sources=[
+            ("ctx.call('advance',{'n':inputs['n']})",True),
+            ("unused=inputs['n'];ctx.call('peek',{})",False),
+            ("unused=inputs['n']",False),
+            ("ctx.call('advance',{'n':inputs['n']});ctx.call('advance',{'n':4})",False)]
+        for index,(action,passed) in enumerate(sources):
+            p=s.bank.put('program',{'source':"def run(ctx, inputs):\n    "+action+
+                "\n    return {'status':'ok','outputs':{'accepted':True}}",'entry':'run',
+                'input_schema':SCHEMA,'output_schema':object_schema({'accepted':{'type':'boolean'}},['accepted']),
+                'allowed_tools':['advance','peek'],'environment':s.config['program_environment']})
+            row=validate_on_source(s,p,binding,t,{'local_evidence':evidence},'native:'+str(index))
+            assert row['validation']['passed'] is passed
+            assert s.bank.program_eligible(s.bank.get(p['id'])) is passed
+            if not passed:assert row['validation']['reason']=='source_operation_mismatch'
+            else:
+                old=deepcopy(s.bank.get(p['id']));old['local_validation']['policy']='atomic.local-validation.v1'
+                assert not s.bank.program_eligible(old)
+    finally:s.close()
+
+
+def test_literal_json_is_not_parameterized_local_evidence(tmp_path,worker):
+    s,t=setup(tmp_path);s.worker=worker;s.adapter.reset(t)
+    try:
+        schema=object_schema({'text':{'type':'string'}},['text'])
+        out=object_schema({'value':{'type':'string'}},['value'])
+        source="def run(ctx, inputs):\n    return {'status':'ok','outputs':{'value':inputs['text'].upper()}}"
+        p=s.bank.put('program',{'source':source,'entry':'run','input_schema':schema,'output_schema':out,
+            'allowed_tools':[],'environment':s.config['program_environment']})
+        reference=worker.execute(p,{'text':'x'},Broker(s.adapter,1))
+        e={'id':'text-reference','kind':'executed_python','source_physical_key':t.physical_key,
+            'source_trace_sha256':digest(reference),'prefix':[],'public_task':{'inputs':{'text':'x'}},
+            'environment_identity':s.config['program_environment'],
+            'operation':{'source':source,'inputs':{'text':'x'},'input_schema':schema,'output_schema':out},
+            'reference':reference['outputs']}
+        bad=s.bank.put('program',{**{k:v for k,v in p.items() if k!='id'},'source':
+            "def run(ctx, inputs):\n    unused=inputs['text']\n    return {'status':'ok','outputs':{'value':'X'}}"})
+        row=validate_on_source(s,bad,{'inputs':{'text':'x'},'prefix':[],'local_evidence_ref':e['id'],
+            'reference_fields':{'value':['value']}},t,{'local_evidence':[e]},'literal-output')
+        assert not row['validation']['passed'] and row['validation']['reason']=='constant_local_output'
+    finally:s.close()
+
+
 def test_parent_budget_is_shared_across_roles_retries_and_trial(tmp_path):
     gov=BudgetGovernor(tmp_path/'budget.json',token_limit=1000,finish_reserve=0,request_limit=8,validation_limit=2)
     ctx={'parent_scope':'one','parent_token_limit':130}

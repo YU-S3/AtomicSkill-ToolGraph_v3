@@ -94,6 +94,10 @@ def test_recorded_absolute_file_declaration_remains_execution_failure(tmp_path, 
 
 
 def test_program_path_and_publication_name_remain_separate(tmp_path, worker):
+    # This checks publication semantics under the production wall bound, not
+    # the shared two-second timeout fixture used by runaway-code tests.
+    from atomic_skillgraph.empirical.program_worker import ProgramWorker
+    worker = ProgramWorker({'wall_timeout_seconds':60})
     config = config_for(tmp_path / 'bank')
     adapter = SpreadsheetAdapter({'file': {}}, config)
     adapter.reset(PublicTask('file', 'file-physical', 'interface regression only'))
@@ -106,7 +110,7 @@ def test_program_path_and_publication_name_remain_separate(tmp_path, worker):
     artifact.update(id='publication-interface-fixture', allowed_tools=[])
     try:
         result = worker.execute(artifact, {'output_path': '/workspace/report.txt'}, Broker(adapter, 1))
-        assert result['status'] == 'ok'
+        assert result['status'] == 'ok', result
         assert result['outputs']['output_path'] == '/workspace/report.txt'
         assert result['workspace']['outputs'] == ['report.txt']
         before = (adapter.workspace.root / 'manifest.json').read_bytes()

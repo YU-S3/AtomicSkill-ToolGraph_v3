@@ -7,7 +7,7 @@ from copy import deepcopy
 
 from .contracts import digest, program_digest, validate_schema_instance
 
-POLICY = 'atomic.local-validation.v1'
+POLICY = 'atomic.local-validation.v2'
 
 
 def artifact_identity(path):
@@ -103,7 +103,8 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
         if inherit: inherit(system.adapter)
         adapter.reset(task)
         broker = Broker(adapter, system.config['runtime']['global_action_budget'], context=TaskContext(system.config['runtime']))
-        allowed={t['name'] for t in [*adapter.tool_definitions(),*broker.available_tools()]}-PROGRAM_FORBIDDEN_TOOLS
+        specs={t['name']:t for t in [*adapter.tool_definitions(),*broker.available_tools()]}
+        allowed=set(specs)-PROGRAM_FORBIDDEN_TOOLS
         if set(program['allowed_tools'])-allowed:raise ValueError('Program permissions exceed the public Adapter surface')
         for action in evidence['prefix']:
             replay = broker.call(action['name'], action['arguments'])
@@ -127,9 +128,27 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
         if passed and outputs.get('files'):
             passed = bool(file_refs)
             reason = 'source_file_effect_match' if passed else 'source_file_effect_mismatch'
+        # An acceptance flag is not evidence that the intended operation ran.
+        # Compare actual broker calls as well as values; allow extra read-only
+        # checks, but not additional writes outside the recorded local contract.
+        calls = [e for e in broker.events[start:] if e.get('backend_invoked')]
+        operation = evidence['operation']
+        native_match = None
+        if passed and evidence['kind'] == 'native_operation':
+            if operation['name'] not in PROGRAM_FORBIDDEN_TOOLS:
+                native_match = any(e['name'] == operation['name'] and e['arguments'] == operation['arguments']
+                    and e.get('result', {}).get('accepted') for e in calls)
+                writes = [e for e in calls if specs.get(e['name'], {}).get('effect') != 'read_only']
+                expected_writes = [] if specs.get(operation['name'], {}).get('effect') == 'read_only' else [operation]
+                native_match = native_match and [{'name':e['name'],'arguments':e['arguments']} for e in writes] == expected_writes
+                passed = native_match
+                if not passed: reason = 'source_operation_mismatch'
+            elif not outputs.get('files') and all(path and path[0] in {
+                    'accepted','status','done','won','new_revision'} for path in fields.values()):
+                passed = False
+                reason = 'missing_local_effect_reference'
         # Pure JSON compilation additionally replays one schema-valid parameter change,
         # when the original executed operation supplies an independent executable reference.
-        operation = evidence['operation']
         numeric = next((k for k,v in binding['inputs'].items() if type(v) in (int,float) and k in operation.get('inputs', {})), None)
         variation = None
         if passed and evidence['kind'] == 'executed_python' and numeric:
@@ -149,6 +168,15 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
                     replay['outputs'].get(k) == at(original['outputs'], path) for k,path in fields.items())
                 if not passed: reason = 'parameterized_replay_mismatch'
         tree = ast.parse(program['source'])
+        if passed and native_match is not True and not outputs.get('files'):
+            returns = [n.value for f in tree.body if isinstance(f,ast.FunctionDef) and f.name == program['entry']
+                       for n in ast.walk(f) if isinstance(n,ast.Return)]
+            try: literals = [ast.literal_eval(value) for value in returns]
+            except (ValueError,TypeError): pass
+            else:
+                if literals and all(value == literals[0] for value in literals):
+                    passed = False
+                    reason = 'constant_local_output'
         parameterized = any(isinstance(n,ast.Name) and n.id in {'inputs','ctx'} and isinstance(n.ctx,ast.Load) for n in ast.walk(tree))
         passed = passed and parameterized and bool(binding['inputs'] or program['allowed_tools'])
         validation = {'policy':POLICY, 'passed':passed, 'program_digest':program_digest(program),
@@ -156,7 +184,9 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
             'source_physical_key':task.physical_key, 'evidence_id':evidence['id'],
             'operation_contract_hash':digest([program['input_schema'],program['output_schema'],program.get('entry_constraints')]),
             'reference_hash':digest(expected), 'input_hash':digest(binding['inputs']), 'output_hash':digest(outputs),
-            'reason':reason if parameterized else 'missing_parameterized_input', 'variation':variation}
+            'reason':reason if parameterized else 'missing_parameterized_input', 'variation':variation,
+            'native_operation_match':native_match,
+            'actual_operation_hash':digest([{'name':e['name'],'arguments':e['arguments']} for e in calls])}
         record = {'id':trial_id, 'program_id':program['id'], 'task_key':task.physical_key, 'origin':'train_test',
             'split':'train', 'outcome':'positive' if passed else 'execution_failure', 'basis':'local_check' if passed else None,
             'calls':len(broker.events)-start, 'result':result, 'tools':broker.events, 'validation':validation}
