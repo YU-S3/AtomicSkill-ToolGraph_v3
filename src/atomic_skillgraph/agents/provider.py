@@ -243,6 +243,9 @@ class OpenAICompatibleProvider:
                 except (TypeError, ValueError):
                     policy_segments.append({'parse_failed': True, 'sha256': hashlib.sha256(public.encode()).hexdigest()})
         self._request_context.final_payload_audit = {
+            'serialized_parameters': {k:copy.deepcopy(v) for k,v in payload.items()
+                                      if k not in {'messages','tools'}},
+            'provider_snapshot': self.config.snapshot(),
             'messages': [{k: copy.deepcopy(v) for k, v in m.items() if k != 'reasoning_content'}
                          for m in payload['messages']],
             'private_reasoning_redacted': any('reasoning_content' in m for m in payload['messages']),

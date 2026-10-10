@@ -22,6 +22,22 @@ def corpus_identity(root):
     return {'sha256': digest(files), 'files_sha256': files}
 
 
+def allocate_campaign_budgets(limits, cells):
+    """Static independent-cell caps sum to the declared matrix allowance."""
+    if not limits: raise ValueError('A unified matrix requires an explicit total budget')
+    if len(cells) != len(set(cells)): raise ValueError('Duplicate matrix budget owner')
+    for key in ('token_limit','request_limit'):
+        if type(limits.get(key)) is not int or limits[key] < len(cells):
+            raise ValueError('Matrix budget cannot fund each cell: '+key)
+    result={cell:deepcopy(limits) for cell in cells}
+    for key in ('token_limit','request_limit','finish_reserve','validation_limit'):
+        if key not in limits: continue
+        if type(limits[key]) is not int or limits[key] < 0: raise ValueError('Invalid matrix budget: '+key)
+        quotient,remainder=divmod(limits[key],len(cells)) if cells else (0,0)
+        for i,cell in enumerate(cells):result[cell][key]=quotient+(i<remainder)
+    return result
+
+
 def resolved_config(base, profile, benchmark, seed, split, root, datasets, authority, corpus_root):
     config = deepcopy(base)
     phase = root / split
@@ -238,6 +254,11 @@ def main():
     output = Path(args.output).resolve()
     matrix = {'schema': 'ours.formal-matrix.v1', 'authority_sha256': sha256(Path(spec['authority']) / 'manifest.json'),
         'configured_models': models, 'unconfigured_models': [m for m in lock['formal_models'] if m not in configured], 'cells': {}}
+    owners=[run_label(model)+'/'+benchmark+'/seed'+str(seed) for model in models
+        for benchmark in spec['benchmarks'] for seed in spec['run_seeds']
+        if benchmark!='docvqa' or 'image' in model['input_modalities']]
+    allocation=allocate_campaign_budgets(base.get('budget'),owners)
+    matrix['budget_allocation']={'total_limits':base['budget'],'cells':allocation}
     path = output / 'matrix.json'
     if path.exists():
         if not args.resume:
@@ -264,7 +285,8 @@ def main():
                 matrix['cells'][cell].update(status='running', started_at=utc())
                 write_json(path, matrix)
                 try:
-                    result = campaign(settings, profiles, benchmark, seed, output / cell, args.datasets, spec['authority'],
+                    cell_settings=deepcopy(settings);cell_settings['budget']=allocation[cell]
+                    result = campaign(cell_settings, profiles, benchmark, seed, output / cell, args.datasets, spec['authority'],
                                       args.corpus_root, resume=args.resume and (output / cell / 'run_manifest.json').exists())
                     matrix['cells'][cell].update(status='completed', runs=result, ended_at=utc())
                 except Exception as exc:

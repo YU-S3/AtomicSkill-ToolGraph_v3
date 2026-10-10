@@ -114,6 +114,8 @@ class FormalLog:
                     'logical_decision_id': request.get('logical_decision_id'), 'decision_scope': request.get('decision_scope'),
                     'owner_state_version': request.get('owner_state_version'), 'purpose': request.get('purpose'),
                     'model_id': attempt['model_id'], 'request_messages': attempt['final_payload_audit']['messages'],
+                    'serialized_parameters': attempt['final_payload_audit'].get('serialized_parameters'),
+                    'provider_snapshot': attempt['final_payload_audit'].get('provider_snapshot'),
                     'request_tools': attempt['final_payload_audit'].get('tools', []),
                     'private_reasoning_redacted': attempt['final_payload_audit'].get('private_reasoning_redacted', False),
                     'actual_payload_sha256': attempt['payload_fingerprint'], 'response_text': message.get('content'),

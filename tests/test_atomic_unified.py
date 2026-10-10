@@ -161,6 +161,19 @@ def test_parent_budget_is_shared_across_roles_retries_and_trial(tmp_path):
     with pytest.raises(BudgetExhausted):gov.admit_validation('extra')
 
 
+def test_matrix_static_allocations_do_not_multiply_total_budget():
+    from atomic_skillgraph.experiments.run_formal import allocate_campaign_budgets
+    limits={'token_limit':101,'request_limit':17,'finish_reserve':8,'validation_limit':4,'train_task_tokens':50}
+    rows=allocate_campaign_budgets(limits,['one','two','three'])
+    assert rows==allocate_campaign_budgets(limits,['one','two','three'])
+    for key in ('token_limit','request_limit','finish_reserve','validation_limit'):
+        assert sum(r[key] for r in rows.values())==limits[key]
+    assert all(r['train_task_tokens']==50 for r in rows.values())
+    with pytest.raises(ValueError):allocate_campaign_budgets(None,['one'])
+    with pytest.raises(ValueError):allocate_campaign_budgets(limits,['one','one'])
+    with pytest.raises(ValueError):allocate_campaign_budgets({'token_limit':1,'request_limit':1},['one','two'])
+
+
 def test_effective_settings_and_safe_model_label(tmp_path):
     from atomic_skillgraph.experiments.run_formal import model_settings,run_label
     cfg=config_for(tmp_path)
@@ -211,6 +224,10 @@ def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypa
         trace=s.run_task(t,learn=True)
         assert trace['learning_status']=='completed',trace['learning']
         assert len(sent)==4 and [q['tools'][0]['function']['name'] for q in sent]==['answer_step','answer_step','submit_learning','submit_program']
+        for request,payload in zip(trace['requests'],sent):
+            audit=request['http_attempts'][0]['final_payload_audit']
+            assert audit['serialized_parameters']=={k:v for k,v in payload.items() if k not in {'messages','tools'}}
+            assert audit['provider_snapshot']['http_token_limit_field']=='max_tokens'
         p=s.bank.get(trace['learning']['program'])
         assert s.bank.program_eligible(p) and len(s.bank.train_cases())==1 and len(s.bank.attempts(p['id']))==1
         assert s.bank.jobs()[0]['state']=='done' and s.bank.jobs()[0]['generation_count']==1
