@@ -1,0 +1,13 @@
+base_config: configs/default.yaml
+benchmark_profiles: benchmark_profiles.json
+model_lock: models.lock.json
+authority: data/main_experiment_v1
+budget_allocation: configs/atomic_unified_seed42_budget.json
+split_seed: 42
+run_seeds: [42, 43, 44]
+benchmarks: [searchqa, spreadsheetbench, officeqa, docvqa, livemath, alfworld]
+train_order: shuffle_with_run_seed
+evaluation_order: canonical
+initial_bank: empty_per_model_benchmark_seed
+validation: frozen_readonly_no_selection
+test: frozen_readonly

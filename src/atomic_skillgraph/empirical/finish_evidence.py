@@ -6,9 +6,10 @@ from .contracts import digest
 
 
 def wire_bytes(prompt, materials):
-    return len(json.dumps({'messages': [{'role': 'system', 'content': prompt},
+    from .budget_governor import input_token_bound
+    return input_token_bound({'messages': [{'role': 'system', 'content': prompt},
         {'role': 'user', 'content': json.dumps(materials, ensure_ascii=False, allow_nan=False)}],
-        'tools': []}, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+        'tools': []})
 
 
 def build_finish_evidence(context, materials, prompt, *, max_bytes=65536, window_chars=12000,

@@ -126,7 +126,7 @@ def test_program_path_and_publication_name_remain_separate(tmp_path, worker):
 
 
 def test_publication_contract_reaches_builder_http(tmp_path, monkeypatch):
-    seen = http(monkeypatch, [response([{'source': "def run(ctx, inputs): pass", 'trial_inputs': []}], name='submit_program')])
+    seen = http(monkeypatch, [response([{'source': "def run(ctx, inputs): pass"}], name='submit_program')])
     system = office(tmp_path)
     try:
         from atomic_skillgraph.empirical.prompts import BUILDER_PROMPT

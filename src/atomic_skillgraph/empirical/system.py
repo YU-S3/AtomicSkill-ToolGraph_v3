@@ -34,7 +34,11 @@ def validate_config(config):
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
     overrides = config.get('llm', {}).get('purpose_overrides', {})
-    if set(overrides) - {'finish_only', 'guidance_learning', 'guidance_grounding'}:
+    config['llm'].setdefault('purpose_overrides',overrides)
+    overrides.setdefault('learning_structure_repair',{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048})
+    if overrides['learning_structure_repair'] != {'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
+        raise ValueError('Structural learning repair requires disabled thinking and 2048 completion')
+    if set(overrides) - {'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair'}:
         raise ValueError('Unsupported purpose override')
     for settings in overrides.values():
         if set(settings) - {'protocol', 'max_completion_tokens', 'reasoning_effort'}:
@@ -92,11 +96,15 @@ def validate_config(config):
             raise ValueError('All roles must use the same configured backbone')
     if 'budget' in config:
         limits = config['budget']
-        if (not isinstance(limits,dict) or set(limits)-{'token_limit','request_limit','finish_reserve','validation_limit','train_task_tokens','eval_task_tokens'}
+        if (not isinstance(limits,dict) or set(limits)-{'token_limit','request_limit','finish_reserve','validation_limit','train_task_tokens','eval_task_tokens','train_solve_tokens','train_learning_tokens'}
                 or any(type(v) is not int or v < (0 if k=='finish_reserve' else 1) for k,v in limits.items())
                 or not all(k in limits for k in ('token_limit','request_limit','finish_reserve'))
                 or limits['finish_reserve'] >= limits['token_limit']):
             raise ValueError('Invalid explicit whole-run budget')
+        pools=('train_solve_tokens','train_learning_tokens')
+        if any(k in limits for k in pools) and (not all(k in limits for k in (*pools,'train_task_tokens')) or
+                sum(limits[k] for k in pools)>limits['train_task_tokens']):
+            raise ValueError('Train pools must fit the explicit parent budget')
     experiment = config.get('experiment', {})
     if experiment.get('seed') not in {42, 43, 44} or experiment.get('runtime_mode') not in {'online', 'frozen'} or not experiment.get('output_dir'):
         raise ValueError('Explicit seed, output directory and online/frozen mode are required')
@@ -228,21 +236,19 @@ class EmpiricalSystem:
 
     def agent(self, stage, prompt, materials, name, schema, *, validator=None, repair_limit=0,
               completion_override=None, repair_reason=None, job_key=None, owner_state_version=None,
-              decision_purpose=None):
+              decision_purpose=None, finish_request_material=None):
         from .model_view import callable_tools
         if self.checkpoint and self.task_context:
             self.checkpoint.advance(self.checkpoint.state['stage'], model_context={k: getattr(self.task_context, k)
                 for k in ('scope', 'results', 'sources', 'memory')})
         purpose = decision_purpose or ('finish_only' if name == 'finish_answer' else {'tool_builder': 'builder'}.get(stage, stage))
-        settings = self.resolve_call_settings(stage, purpose)
-        provider = self.provider(stage, purpose)
+        if purpose=='finish_only':name=None
+        original_purpose=purpose
         tools = [NativeToolSpec(name, "Submit the requested result", schema)] if name else []
         choice_learning = (self.config['learning'].get('choice_guidance', {}).get('enabled') is True and
                            self.adapter.capabilities.interaction == 'single_answer' and
                            materials.get('learning_material_version') == CHOICE_GUIDANCE_MATERIAL_VERSION and
                            purpose in {'guidance_learning', 'guidance_grounding'})
-        tool_choice = ({'type': 'function', 'function': {'name': name}} if choice_learning and
-                       settings.get('protocol', {}).get('thinking_type') == 'disabled' and name else None)
         def repair_available():
             return not choice_learning or not self.budget_governor or self.budget_governor.repair_available()
         messages = [{"role": "system", "content": prompt},
@@ -265,12 +271,40 @@ class EmpiricalSystem:
                 commit('applied', repair)
             return value
         for repair in range(repair_limit + 1):
+            purpose='learning_structure_repair' if repair and stage=='extractor' and name=='submit_learning' and not choice_learning else original_purpose
+            round_schema=deepcopy(schema)
+            if purpose=='learning_structure_repair':
+                pending=json.loads(messages[1]['content']).get('proposal') or {}
+                if 'workflow' not in pending:round_schema['properties'].pop('workflow',None)
+            tools=[NativeToolSpec(name,'Submit the requested result',round_schema)] if name else []
+            settings=self.resolve_call_settings(stage,purpose)
+            provider=self.provider(stage,purpose)
+            tool_choice=({'type':'function','function':{'name':name}} if name and
+                (choice_learning or purpose=='learning_structure_repair') and settings.get('protocol',{}).get('thinking_type')=='disabled' else None)
             used, cap = self._budget(stage)
             if used >= cap:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Role token budget exhausted', layer=FailureLayer.RUNTIME_AGENT)
             turn = None
-            completion_cap = completion_override or settings.get('max_completion_tokens', 32768)
+            completion_cap = settings.get('max_completion_tokens',2048) if purpose=='learning_structure_repair' else completion_override or settings.get('max_completion_tokens', 32768)
             if stage == 'tool_builder': completion_cap = min(completion_cap, cap-used)
+            payload_max=None
+            if stage in {'extractor','tool_builder'}:
+                key='structural_repair_payload_max_bytes' if purpose=='learning_structure_repair' else 'builder_payload_max_bytes' if stage=='tool_builder' else 'extractor_payload_max_bytes'
+                payload_max=self.config['learning'][key]
+                if isinstance(provider,OpenAICompatibleProvider):
+                    from .model_view import pack_material, expand_material
+                    from .budget_governor import input_token_bound
+                    while True:
+                        payload=provider._build_payload(messages,tools,tool_choice)
+                        payload[provider.config.token_limit_field]=completion_cap
+                        if input_token_bound(payload)<=payload_max:break
+                        # Only optional complete history/candidate records may be removed.
+                        try: projected=expand_material(json.loads(messages[1]['content']))
+                        except (TypeError,ValueError):break
+                        removable=next((k for k in ('completed_train_cases','related','related_guidance') if projected.get(k)),None)
+                        if removable is None:break
+                        projected[removable].pop()
+                        messages[1]={'role':'user','content':json.dumps(pack_material(projected),ensure_ascii=False,separators=(',',':'))}
             if stage == 'runtime' and self.adapter.capabilities.final_submission_kind == 'text' and self.adapter.capabilities.interaction != 'single_answer':
                 from .budget_governor import input_token_bound
                 reserve = 0 if purpose == 'finish_only' else input_token_bound({'goal': materials.get('original_task',{}).get('goal',''), 'answer_contract':getattr(self.adapter,'answer_contract',lambda:'')()}) + self.resolve_call_settings(stage,'finish_only').get('max_completion_tokens',2048)
@@ -281,7 +315,7 @@ class EmpiricalSystem:
                                    'messages': messages, 'tools': [t.to_openai() for t in tools],
                                    'completion_cap': completion_cap, 'repair_reason': repair_reason, 'job_key': job_key,
                                    'model_identity': self.config['llm'],
-                                   'effective_call_settings': settings,
+                                   'effective_call_settings': settings, 'tool_choice':tool_choice,
                                    'policy': self.config['runtime']['plan_execution_policy'],
                                    'implementation_revision': self.config['experiment']['implementation_revision']})
             if choice_learning:
@@ -296,6 +330,10 @@ class EmpiricalSystem:
                       "phase": self.phase, 'budget_scope': self.budget_scope,
                       "messages": messages, "tools": [t.to_openai() for t in tools]}
             record.update(completion_cap=completion_cap, repair_reason=repair_reason, job_key=job_key)
+            pool='learning' if self._learning_start is not None or self.phase=='trial' or stage in {'extractor','tool_builder'} else 'solve'
+            pool_limit=self.config.get('budget',{}).get('train_'+pool+'_tokens') if self.request_attribution.get('train_parent') else None
+            record.update(budget_pool=pool,budget_pool_limit=pool_limit,payload_max_bytes=payload_max,
+                          effective_call_settings=settings,tool_choice=tool_choice)
             if choice_learning:
                 record.update(tool_choice=tool_choice, decision_purpose=('repair' if repair else
                     'grounding' if purpose == 'guidance_grounding' else 'proposal'))
@@ -324,16 +362,26 @@ class EmpiricalSystem:
                     if hasattr(provider, 'set_request_context'):
                         from .budget_governor import input_token_bound
                         finish_reserve = 0
-                        if stage=='runtime' and purpose!='finish_only' and self.request_attribution.get('parent_token_limit'):
-                            finish_material={k:v for k,v in materials.items() if k in {
-                                'goal','inputs','local_results','local_reads','task','state','memory','handoff','bindings'}}
-                            finish_reserve=input_token_bound(finish_material)+self.resolve_call_settings('runtime','finish_only').get('max_completion_tokens',2048)
+                        if pool=='solve' and stage=='runtime' and purpose!='finish_only' and self.request_attribution.get('parent_token_limit') and self.adapter.capabilities.final_submission_kind in {'text','single_answer'}:
+                            from .prompts import finish_text_prompt
+                            finish_prompt=finish_text_prompt(self.adapter.answer_contract())
+                            finish_material=finish_request_material or {k:v for k,v in materials.items() if k in {
+                                'goal','inputs','local_results','local_reads'}}
+                            if self.adapter.capabilities.interaction!='single_answer':
+                                from .finish_evidence import build_finish_evidence
+                                finish_material,_=build_finish_evidence(self.task_context,finish_material,finish_prompt)
+                            finish_provider=self.provider('runtime','finish_only')
+                            finish_messages=[{'role':'system','content':finish_prompt},{'role':'user','content':json.dumps(finish_material,ensure_ascii=False)}]
+                            finish_cap=self.resolve_call_settings('runtime','finish_only').get('max_completion_tokens',2048)
+                            wire=finish_provider._build_payload(finish_messages,[]) if isinstance(finish_provider,OpenAICompatibleProvider) else {'messages':finish_messages,'max_tokens':finish_cap}
+                            finish_reserve=input_token_bound(wire)+finish_cap
                         provider.set_request_context(session_id=request_id, stage=stage, repair=repair,
                             purpose=purpose, logical_decision_id=decision_id, parent_task_id=self.request_attribution.get('parent_task_id'),
                             trial_id=self.budget_scope if self.phase == 'trial' else None,
                             trial_execution_id=self.checkpoint.state.get('execution_id') if self.phase == 'trial' and self.checkpoint else None,
                             **{k:v for k,v in self.request_attribution.items() if k != 'parent_task_id' and v is not None},
                             parent_finish_reserve=finish_reserve,
+                            budget_pool=pool,budget_pool_limit=pool_limit,payload_max_bytes=payload_max,
                             **({'decision_purpose': record['decision_purpose']} if choice_learning else {}))
                     kwargs = {'max_completion_tokens': completion_cap} if isinstance(provider, OpenAICompatibleProvider) or completion_override is not None else {}
                     if tool_choice is not None: kwargs['tool_choice'] = tool_choice
@@ -367,6 +415,21 @@ class EmpiricalSystem:
                 self._save_requests()
                 if isinstance(exc, ProviderAgentProtocolError) or invalid_finish_text:
                     if repair < repair_limit and turn.finish_reason != 'length' and repair_available():
+                        if name=='submit_learning' and stage=='extractor' and not choice_learning:
+                            # A missing/invalid envelope cannot supply a candidate to repair.
+                            if len(turn.tool_calls)!=1 or not isinstance(turn.tool_calls[0].arguments,dict):
+                                failure=ValueError('learning_structure_unrecoverable: '+str(exc))
+                                failure.model_authored=True
+                                failure.finish_reason=turn.finish_reason
+                                if not runtime_owned:commit('rejected',repair)
+                                raise failure from exc
+                            from .model_view import structure_repair_material
+                            short=structure_repair_material(turn.tool_calls[0].arguments,
+                                [{'binding_index':None,'errors':[{'code':'output_type','detail':str(exc)[:200]}]}],[])
+                            messages=[{'role':'system','content':'Repair only this proposal structure. Preserve its goal; submit one submit_learning ToolCall. Do not solve the task again.'},
+                                      {'role':'user','content':json.dumps(short,ensure_ascii=False,separators=(',',':'))}]
+                            commit('prepared',repair+1)
+                            continue
                         commit('prepared', repair + 1)
                         messages.append({'role': 'user', 'content': 'Repair only the invalid ToolCall JSON: ' + str(exc)[:2048]})
                         continue
@@ -452,8 +515,9 @@ class EmpiricalSystem:
                 if choice_learning and validator:
                     validator(value)
                 else:
-                    validate_schema_instance(value, schema)
-                    if validator: validator(value)
+                    if validator and name=='submit_learning':validator(value)
+                    validate_schema_instance(value, round_schema)
+                    if validator and name!='submit_learning': validator(value)
                 return accepted(value, repair)
             except ValueError as exc:
                 if repair == repair_limit or (turn.finish_reason == 'length' and not turn.tool_calls) or not repair_available():
@@ -463,6 +527,15 @@ class EmpiricalSystem:
                     if not runtime_owned: commit('rejected', repair)
                     raise
                 commit('prepared', repair + 1)
+                if name=='submit_learning' and stage=='extractor' and not choice_learning:
+                    from .model_view import structure_repair_material
+                    repaired=getattr(exc,'repair_material',None)
+                    if repaired is None:
+                        repaired=structure_repair_material(turn.tool_calls[0].arguments if len(turn.tool_calls)==1 else {},
+                            [{'binding_index':None,'errors':[{'code':'output_type','detail':str(exc)[:200]}]}],[])
+                    messages=[{'role':'system','content':'Repair only this learning proposal structure and binding references. Preserve the local goal. Submit exactly one submit_learning ToolCall. Host supplies replay start and identity; do not solve the task again.'},
+                              {'role':'user','content':json.dumps(repaired,ensure_ascii=False,separators=(',',':'))}]
+                    continue
                 if hasattr(exc, 'repair_material'):
                     messages[1] = {'role': 'user', 'content': json.dumps(exc.repair_material, ensure_ascii=False)}
                 messages.extend(repair_messages(turn, exc))
@@ -479,6 +552,9 @@ class EmpiricalSystem:
             'learning_material_version':self.config['learning']['material_version'],
             'local_validation_policy':self.config['learning']['local_validation_policy'],
             'answer_protocol_version':self.config['runtime']['answer_protocol_version'],
+            'binding_policy':self.config['learning']['binding_policy'],
+            'file_effect_version':self.config['learning']['file_effect_version'],
+            'budget_policy':self.config['experiment']['budget_policy'],
             'budget':{'path':str(self.budget_governor.path),'limits':self.budget_governor.limits} if self.budget_governor else None}
         if self.checkpoint:
             if self.checkpoint.state.get('method_identity',identity) != identity:
@@ -494,8 +570,8 @@ class EmpiricalSystem:
                  'method_identity':identity}
         self.budget_scope = trace['attempt_id']
         budget = self.config.get('budget',{})
-        self.request_attribution.update(parent_scope=str(self.config['experiment']['output_dir'])+':'+trace['attempt_id'],
-            parent_token_limit=budget.get('train_task_tokens' if task.split=='train' else 'eval_task_tokens'))
+        self.request_attribution.update(parent_scope=str(self.config['experiment']['output_dir'])+':'+task.physical_key,
+            parent_token_limit=budget.get('train_task_tokens' if task.split=='train' else 'eval_task_tokens'),train_parent=task.split=='train')
         self.request_attribution['parent_task_id'] = task.task_id
         self.last_decision_id = None
         self.prior_usage = json.loads(Path(self.audit_path).read_text())['usage'] if self.audit_path and Path(self.audit_path).exists() else []

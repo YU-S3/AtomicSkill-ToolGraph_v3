@@ -1,0 +1,46 @@
+{
+  "policy": "canonical per-task ceilings; retries included, no automatic borrowing",
+  "total_limits": {
+    "token_limit": 315232000,
+    "request_limit": 934815,
+    "finish_reserve": 0
+  },
+  "cells": {
+    "searchqa": {
+      "train_task_tokens": 200000,
+      "train_solve_tokens": 120000,
+      "train_learning_tokens": 80000,
+      "eval_task_tokens": 96000,
+      "token_limit": 196704000,
+      "request_limit": 83580,
+      "finish_reserve": 0
+    },
+    "livemath": {
+      "train_task_tokens": 200000,
+      "train_solve_tokens": 120000,
+      "train_learning_tokens": 80000,
+      "eval_task_tokens": 96000,
+      "token_limit": 23232000,
+      "request_limit": 9165,
+      "finish_reserve": 0
+    },
+    "officeqa": {
+      "train_task_tokens": 200000,
+      "train_solve_tokens": 120000,
+      "train_learning_tokens": 80000,
+      "eval_task_tokens": 96000,
+      "token_limit": 36096000,
+      "request_limit": 284070,
+      "finish_reserve": 0
+    },
+    "spreadsheetbench": {
+      "train_task_tokens": 200000,
+      "train_solve_tokens": 120000,
+      "train_learning_tokens": 80000,
+      "eval_task_tokens": 96000,
+      "token_limit": 59200000,
+      "request_limit": 558000,
+      "finish_reserve": 0
+    }
+  }
+}

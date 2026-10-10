@@ -7,7 +7,7 @@ from .contracts import PublicTask, TrialCase, digest, validate_schema_instance
 from .prompts import BUILD, BUILDER_PROMPT, LEARNING, LEARNER_PROMPT, GUIDANCE_LEARNING, GUIDANCE_LEARNER_PROMPT
 from .task_context import TaskContext
 from .program_worker import program_permission_view
-from .model_view import project, model_task, pack_material, learning_preview
+from .model_view import project, model_task, pack_material, learning_preview, learning_case, builder_example
 from .program_submission import validate_program_declaration, submission_contract, ProgramContractError
 from .local_validation import evidence_from_trace
 from . import (LEARNING_MATERIAL_VERSION, GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_MATERIAL_VERSION,
@@ -31,6 +31,8 @@ class Learner:
                     task,trace,self.system.config['program_environment'])}
 
     def _view(self, experience, *, source_id):
+        if experience.get('local_evidence'):
+            return learning_case(experience,source_id)
         context = getattr(self.system, 'task_context', None) or TaskContext(self.system.config['runtime'])
         self.system.task_context = context
         view = {k: v for k, v in experience.items() if k not in {'events','result_store','local_evidence','program_calls'}}
@@ -144,6 +146,11 @@ class Learner:
             bank.program_eligible(program) and request['action'] in {'build', 'trial'})}
 
     def validate_learning_proposal(self, proposal, cases=None):
+        shape=deepcopy(LEARNING)
+        binding_shape=shape['properties']['realization_request']['properties']['case_bindings']['items']
+        binding_shape['required']=['case_id','inputs','local_evidence_ref','reference_fields']
+        binding_shape['additionalProperties']=True
+        validate_schema_instance(proposal,shape)
         resolved = self._resolve_realization_request(proposal)
         request, skill, job = proposal.get('realization_request'), resolved['skill'], resolved['job']
         if skill: validate_program_declaration(skill, submission_contract(self.system.adapter))
@@ -154,28 +161,35 @@ class Learner:
         if cases is None:
             cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience'])
                      for r in self.system.bank.train_cases()}
-        bindings, seen = request['case_bindings'], set()
+        bindings, seen, canonical, errors = request['case_bindings'], set(), [], []
         if len(bindings) > 2: raise ValueError('A realization request has at most two applicable Train bindings')
         fixed = {b['case_id']: b for b in job['case_bindings']} if job else {}
         for index, binding in enumerate(bindings):
             try:
                 if binding['case_id'] in seen: raise ValueError('Duplicate trial case')
                 seen.add(binding['case_id'])
-                self._preflight_binding(binding, skill, cases)
-                if binding['case_id'] in fixed and fixed[binding['case_id']] != binding and any(
+                if binding['case_id'] not in cases:raise ValueError('TrialCase must be a completed Train case')
+                from .local_validation import canonical_binding
+                locked=canonical_binding(binding,cases[binding['case_id']][1],skill)
+                self._preflight_binding(locked, skill, cases)
+                canonical.append(locked)
+                if binding['case_id'] in fixed and fixed[binding['case_id']] != locked and any(
                     a['task_key'] == binding['case_id'] and a['origin'] == 'train_test' and a['outcome'] != 'inapplicable'
                     for a in self.system.bank.attempts(job.get('program_id') or '')):
                     raise ValueError('An executed trial binding cannot be changed')
             except ValueError as exc:
-                feedback = {'code': 'trial_binding_invalid', 'path': f'realization_request.case_bindings[{index}].inputs',
-                    'case_id': binding['case_id'], 'missing_fields': sorted(set(skill['input_schema'].get('required', [])) - set(binding['inputs'])),
-                    'expected_schema': skill['input_schema'], 'detail': str(exc)}
-                error = ValueError(json.dumps(feedback, ensure_ascii=False))
-                error.feedback = feedback
-                error.repair_material = {'skill': skill, 'binding': binding, 'error': feedback,
-                    'completed_train_case': self._view(cases[binding['case_id']][1], source_id=binding['case_id']) if binding['case_id'] in cases else None}
-                raise error from exc
+                feedback=getattr(exc,'feedback',{'code':'trial_binding_invalid','errors':[{'code':'invalid_binding','detail':str(exc)}]})
+                errors.append({'binding_index':index,'case_id':binding['case_id'],**feedback})
+        if errors:
+            error=ValueError(json.dumps(errors,ensure_ascii=False))
+            error.feedback=errors
+            from .model_view import structure_repair_material
+            error.repair_material=structure_repair_material(proposal,errors,
+                [self._view(cases[b['case_id']][1],source_id=b['case_id'])['local_evidence']
+                 for b in bindings if b['case_id'] in cases])
+            raise error
         if len(set(fixed) | seen) > 2: raise ValueError('A realization job has at most two fixed slots')
+        resolved['canonical_bindings']=canonical
         return resolved
 
     def related_candidates(self, task):
@@ -231,15 +245,14 @@ class Learner:
             proposal = self._receive('learning_proposal', 'extractor', LEARNER_PROMPT, project('extractor',
                 {'experience': self._view(experience, source_id=task.physical_key), 'related': related, 'tools': tools,
                  'program_submission_contract': submission_contract(s.adapter),
-                 'completed_train_cases': [{'case_id': key, 'task': case.get('task', {'goal': t.goal, 'inputs': t.inputs}),
-                     'local_evidence':case.get('local_evidence',[])[-3:]}
+                 'completed_train_cases': [learning_case(case,key)
                      for key, (t, case) in sorted(cases.items(), key=lambda row: (
-                         -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0]))[:8]],
+                         -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0])) if key!=task.physical_key][:2],
                  'selected_local_goal': focus}, task=task, adapter=s.adapter, context=s.task_context), 'submit_learning', schema,
                 validator=lambda p: self.validate_learning_proposal(p, cases), repair_limit=1)
             resolved = self.validate_learning_proposal(proposal, cases)
         except ValueError as exc:
-            log.update(decision='rejected', errors=[str(exc)])
+            log.update(decision='rejected', reason=getattr(exc,'code','proposal_invalid'), errors=[str(exc)])
             return log
         log['decision'] = proposal['decision']
         skill = None
@@ -275,7 +288,7 @@ class Learner:
                     job['state'] = 'done'
                     log['realization_skipped'] = 'already_usable'
                 else:
-                    self._merge_request(job, request, skill, cases, experience, new_experience, log)
+                    self._merge_request(job, {**request,'case_bindings':resolved['canonical_bindings']}, skill, cases, experience, new_experience, log)
             bank.save_job(job)
         ready = [j for j in bank.jobs() if j['state'] == 'ready' and (j['skill_id'] == (skill or {}).get('id') or
             bank.words(task.goal) & bank.words((bank.get(j['skill_id']) or {}).get('goal','')))]
@@ -519,8 +532,7 @@ class Learner:
             job['state'] = 'waiting_example'; bank.save_job(job); return
         log['test_subjects'] = [b['case_id'] for b in bindings]
         from .local_validation import resolve_evidence
-        examples = [{'case_id':b['case_id'],'fixed_binding':b,'history_domain':'source_local_operation',
-                     'local_evidence':resolve_evidence(b,cases[b['case_id']][1],skill)} for b in bindings]
+        examples = [builder_example(b,resolve_evidence(b,cases[b['case_id']][1],skill)) for b in bindings]
         permissions = program_permission_view(tools, [*s.adapter.available_tools(), TaskContext(s.config['runtime']).tool()],
             tool_surface=s.adapter.capabilities.tool_surface, workspace=getattr(s.adapter, 'workspace', None),
             environment=s.config['program_environment'])
@@ -552,11 +564,8 @@ class Learner:
                     generated = self._receive('builder_' + job['id'] + '_' + str(job['epoch']) + '_' + str(generation),
                         'tool_builder', BUILDER_PROMPT, material, 'submit_program', BUILD, repair_limit=0,
                         completion_override=cap, repair_reason=job.get('last_error_kind'), job_key=[job['id'],job['epoch'],generation])
-                    generated_bindings = {b['case_id']: b for b in generated['trial_inputs']}
-                    if len(generated_bindings) != len(bindings) or set(generated_bindings) != {b['case_id'] for b in bindings}:
-                        raise ValueError('Builder must bind exactly the fixed Train cases')
-                    if generated_bindings != {b['case_id']: b for b in bindings}:
-                        raise ValueError('Builder changed fixed trial inputs/start')
+                    if generated.get('binding_hash',digest(bindings)) != digest(bindings):
+                        raise ValueError('Builder changed Host binding identity')
                     candidate = {'source': generated['source'], 'entry': 'run', 'backend': 'sandbox_python_v1',
                         'input_schema': skill['input_schema'], 'output_schema': skill['output_schema'],
                         'allowed_tools': permissions['allowed_names'],
@@ -576,6 +585,8 @@ class Learner:
                 except (ValueError, SyntaxError) as exc:
                     log['errors'].append(str(exc))
                     job.pop('pending_generation', None)
+                    if getattr(exc,'code',None)=='material_too_large':
+                        job.update(state='deferred',last_error_kind='material_too_large'); break
                     if job['repair_used']:
                         job.update(state='deferred', last_error_kind=getattr(exc,'finish_reason',None) or 'structure'); break
                     job.update(repair_used=True, last_error_kind=getattr(exc,'finish_reason',None) or 'structure')
@@ -611,14 +622,14 @@ class Learner:
         if s.checkpoint: s.checkpoint.advance(s.checkpoint.state['stage'], realization_job=job)
 
     def builder_material(self, skill, bindings, examples, permissions, previous_failure=None):
-        value = {'build_request': {'skill': skill, 'entry': 'def run(ctx, inputs)', 'fixed_bindings': bindings},
-                 'submission_contract': {'tool_name': 'submit_program', 'input_schema': BUILD},
+        value = {'build_request': {'skill': skill, 'entry': 'def run(ctx, inputs)', 'binding_hash':digest(bindings)},
                  'program_submission_contract': submission_contract(self.system.adapter),
                  'future_program_api': {k:v for k,v in permissions.items() if k != 'workspace_capabilities'},
                  'workspace_capabilities': permissions['workspace_capabilities'], 'examples': examples}
         if 'image' in self.system.adapter.capabilities.input_modalities:
             from ..harness.benchmarks import image_content_parts
-            paths=list(dict.fromkeys(path for e in examples for path in e['local_evidence']['public_task']['inputs'].get('images',[])))
+            paths=list(dict.fromkeys(path for b in bindings for t,case in self.cases if t.physical_key==b['case_id']
+                                    for path in t.inputs.get('images',[])))
             value['content_parts']=image_content_parts(paths)
         if previous_failure is not None: value['previous_failure'] = self._failure_view(previous_failure)
         return pack_material(value)

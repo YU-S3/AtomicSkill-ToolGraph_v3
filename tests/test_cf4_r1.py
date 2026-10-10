@@ -205,7 +205,7 @@ def test_r06_r08_builder_generations_have_one_submission_tool(tmp_path, monkeypa
         response([{'pattern': 'target'}], name='grep') if first == 'wrong_grep' else
         response([generated(), generated()], name='submit_program') if first == 'multiple' else response(finish='length'))
     if first == 'binding':
-        wrong = generated(); wrong['trial_inputs'][0]['case_id'] = 'not-the-fixed-case'
+        wrong = generated(); wrong['binding_hash'] = 'not-the-host-binding'
         first_turn = response([wrong], name='submit_program')
     if first in {'syntax', 'trial'}:
         first_turn = response([generated('def run(' if first == 'syntax' else

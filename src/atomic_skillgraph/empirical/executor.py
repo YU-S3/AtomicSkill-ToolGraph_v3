@@ -426,7 +426,10 @@ class Executor:
                     step = RuntimeDecision(tuple(pending_step['actions']), tuple(pending_step['call_ids']), pending_step['response_id']) if 'actions' in pending_step else pending_step
                 else:
                     step = self.agent('runtime', RUNTIME_PROMPT, materials, 'runtime_step', STEP,
-                                      repair_limit=1, validator=validate_step, owner_state_version=owner_version)
+                                      repair_limit=1, validator=validate_step, owner_state_version=owner_version,
+                                      finish_request_material={'original_goal':task.goal,'public_state':public_view(adapter),
+                                          'working_memory':context.model_memory(),'recent':recent(),
+                                          'completed_results':values.model_view(),'pending_outputs':context.pending_outputs})
                     candidate_id = getattr(getattr(self.agent, '__self__', None), 'last_decision_id', None)
                     pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
                 save(step)

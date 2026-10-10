@@ -26,7 +26,7 @@ from skillcompiler_bench_contracts import source_identity
 BENCHMARKS = ('searchqa','livemath','officeqa','spreadsheetbench')
 ARMS = ('NoSkill','Guidance-only','Atomic-full')
 LIMITS = {'token_limit':6000000,'finish_reserve':0,'request_limit':600,'validation_limit':24}
-PARENT_LIMITS = {'train_task_tokens':200000,'eval_task_tokens':96000}
+PARENT_LIMITS = {'train_task_tokens':200000,'train_solve_tokens':120000,'train_learning_tokens':80000,'eval_task_tokens':96000}
 
 
 def read(path): return json.loads(Path(path).read_text())
@@ -70,11 +70,6 @@ def prepare(config_path, datasets, authority, corpus, output):
         for split,size in (('train',3),('val',4)):
             cfg=resolved_config(base,profiles[benchmark if benchmark!='spreadsheetbench' else 'spreadsheet'],
                 benchmark,42,split,output/benchmark,datasets,authority,corpus)
-            if benchmark=='livemath':
-                cfg['learning']['choice_guidance']={'enabled':True}
-                cfg['runtime']['choice_guidance']={'enabled':True}
-                cfg['llm']['purpose_overrides'].update({p:{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':cap}
-                    for p,cap in (('guidance_learning',2048),('guidance_grounding',1536))})
             cfg=validate_config(cfg)
             rows=[PublicTask(**r) for r in read(datasets/benchmark/(split+'.json'))['tasks']]
             canonical=read(authority/benchmark/(split+'.json'))['tasks']

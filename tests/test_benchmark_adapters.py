@@ -67,12 +67,12 @@ def test_office_learner_builder_and_program_share_public_tools(tmp_path, worker,
     from atomic_skillgraph.empirical.local_validation import evidence_from_trace
     config['program_environment']['adapter_abi']='simple.v2'
     event=evidence_from_trace(task,{'tools':broker.events},config['program_environment'])[0]
-    binding={'case_id':task.physical_key,'inputs':{'pattern':'*.txt'},'start_mode':'reset','prefix':[],
+    binding={'case_id':task.physical_key,'inputs':{'pattern':'*.txt'},'input_refs':{'pattern':{'kind':'public_json','path':['inputs','pattern']}},
         'local_evidence_ref':event['id'],'reference_fields':{'text':['data','text']}}
     provider=Provider([{'decision':'propose_skill_and_program_spec','skill':skill,
         'realization_request':{'skill_id':'$new','action':'build','case_bindings':[
             binding]}},
-        {'source':source,'trial_inputs':[binding]}])
+        {'source':source}])
     system=EmpiricalSystem(config,harness=adapter,provider=provider)
     monkeypatch.setattr(system,'test_program',lambda *a,**kw:{'outcome':'inapplicable'})
     try:

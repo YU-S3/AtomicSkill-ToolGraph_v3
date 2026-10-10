@@ -144,7 +144,7 @@ def test_t06_parser_tool_spec_and_actual_http_preserve_semantics(monkeypatch,tmp
     a=alf()
     name,args,_,_=parse_alfworld_action('heat apple 1 with microwave 1')
     assert name=='HEAT' and args=={'object':'apple_1','station':'microwave_1'}
-    seen=http(monkeypatch,[response([{'source':'def run(ctx, inputs): return {}','trial_inputs':[]}],name='submit_program')])
+    seen=http(monkeypatch,[response([{'source':'def run(ctx, inputs): return {}'}],name='submit_program')])
     s=EmpiricalSystem(config_for(tmp_path/'bank'),harness=a)
     s.agent('tool_builder','Build',{'tools':a.tool_definitions(),'state':a.model_state()},'submit_program',BUILD)
     sent=json.loads(seen[0]['messages'][1]['content'])

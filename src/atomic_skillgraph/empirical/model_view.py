@@ -75,12 +75,80 @@ def learning_preview(context, value):
     return preview
 
 
+def operation_directory(evidence, case_id):
+    from .local_validation import input_sources
+    reference=evidence.get('reference',{})
+    files=sorted(reference.get('local_artifact_identities',{})) if reference.get('accepted',True) else []
+    outputs=[{'kind':'json','path':[k],'type':type(v).__name__} for k,v in reference.items()
+             if k not in {'local_artifact_identities','local_artifact_hashes','observation','error'}]
+    outputs += [{'kind':'json','path':[k,child],'type':type(value).__name__}
+                for k,v in reference.items() if k=='data' and isinstance(v,dict) for child,value in v.items()]
+    if files:
+        outputs += [{'kind':'publication','field':'files','value':files},
+                    *[{'kind':'publication','field':'file','name':n,'value':n} for n in files]]
+    sources=[r for r in input_sources(evidence) if canonical_bytes(r)<=512]
+    return {'case_id':case_id,'local_evidence_ref':evidence['id'],'kind':evidence['kind'],
+        'operation_name':evidence['operation'].get('name','executed_python'),
+        'effect':'published_files' if files else 'inspection_or_json',
+        'success':reference.get('accepted',True),'published_files':files,
+        'input_sources':sources[:32], 'input_source_count':len(sources), 'output_references':outputs,
+        'source_content_available_to_builder':True}
+
+
+def learning_case(experience, case_id):
+    """No replay prefix, raw result or repeated public task enters the directory."""
+    task=experience.get('task',{})
+    evidence=experience.get('local_evidence',[])
+    selected=sorted(evidence,key=lambda e:(not bool(e['reference'].get('local_artifact_identities')),
+        canonical_bytes(e['operation']),e['id']))[:1]
+    return {'case_source':{'physical_case_id':case_id},'task':{'goal':task.get('goal','')},
+        **{k:deepcopy(experience.get(k)) for k in ('score','termination_reason','answer_status','completion_truncated')},
+        'local_evidence':[operation_directory(e,case_id) for e in selected],
+        'directory_selection':'verified publication first, then complete operation bytes and ID',
+        'projection_audit':{'original_event_count':len(experience.get('events',[])),
+            'original_evidence_count':len(experience.get('local_evidence',[])),
+            'original_utf8_bytes':canonical_bytes(experience)}, 'compact_learning_directory':True}
+
+
+def builder_example(binding, evidence):
+    return {'case_id':binding['case_id'],'binding_hash':binding['binding_hash'],
+        'inputs':deepcopy(binding['inputs']), 'reference_fields':deepcopy(binding['reference_fields']),
+        'operation':deepcopy(evidence['operation']), 'kind':evidence['kind'],
+        'public_task':{'goal':evidence['public_task'].get('goal','')},
+        'local_evidence_ref':evidence['id']}
+
+
+def structure_repair_material(proposal, errors, directories):
+    """Keep the proposed scope and contracts; remove explanatory duplication."""
+    value=deepcopy(proposal)
+    value.pop('rationale',None)
+    if value.get('skill'):value['skill'].pop('guidance',None)
+    def contract(v):
+        if isinstance(v,dict):return {k:contract(x) for k,x in v.items() if k not in {'description','title','examples'}}
+        if isinstance(v,list):return [contract(x) for x in v]
+        return v
+    if value.get('skill'):
+        for k in ('input_schema','output_schema'):value['skill'][k]=contract(value['skill'][k])
+    inputs=[v for b in value.get('realization_request',{}).get('case_bindings',[]) for v in b.get('inputs',{}).values()]
+    operations=[]
+    for rows in directories:
+        for row in rows:
+            operations.append({k:deepcopy(row[k]) for k in ('case_id','local_evidence_ref','kind','effect','published_files','output_references')})
+            operations[-1]['input_sources']=[r for r in row['input_sources'] if r['value'] in inputs]
+    short=[{'binding_index':row['binding_index'],'errors':[{'code':e['code'],'field':e.get('field'),
+        **({'expected':e['detail'][:200]} if e['code'] in {'input_type','output_type'} else {})} for e in row['errors']]} for row in errors]
+    return {'proposal':value,'errors':short,'legal_operations':operations,
+            'note':'Host start/identity fields must be removed. No matching source value means omit or reject the unsupported input; do not invent provenance.'}
+
+
 def project_related_candidates(related):
     """Project already selected candidates; never mutate assets or judge eligibility."""
     def fields(row, names):
         return {key: deepcopy(row[key]) for key in names.split() if key in row}
     def job(row):
-        return fields(row, 'id skill_id skill_version program_id kind state case_bindings generation_count repair_used epoch last_error_kind contract_quarantine')
+        result=fields(row, 'id skill_id skill_version program_id kind state generation_count repair_used epoch last_error_kind contract_quarantine')
+        result['case_bindings']=[fields(b,'case_id local_evidence_ref binding_hash') for b in row.get('case_bindings',[])]
+        return result
     def failure(row):
         if isinstance(row, str): return {'message': row[:512]}
         if not isinstance(row, dict): return None
@@ -190,7 +258,7 @@ def project(stage, material, *, task=None, adapter=None, context=None):
         value['candidate_view_version'] = CANDIDATE_VIEW_VERSION
         value['candidate_view_audit'] = {'version': CANDIDATE_VIEW_VERSION, 'before_bytes': before,
             'after_bytes': canonical_bytes(value['related']), 'candidate_ids': [a['id'] for a in value['related']]}
-    if stage == 'extractor' and task is not None:
+    if stage == 'extractor' and task is not None and not value['experience'].get('compact_learning_directory'):
         value['experience']['task'] = model_task(task, adapter)
         if context and adapter.capabilities.interaction != 'single_answer':
             for case in value.get('completed_train_cases', []):

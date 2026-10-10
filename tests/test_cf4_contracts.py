@@ -21,7 +21,7 @@ from atomic_skillgraph.harness.benchmarks import AnswerAdapter
 from atomic_skillgraph.harness.simple_protocol import Broker
 from test_empirical import config_for, program, worker
 from test_cf2_contracts import office, alf, http, response
-from test_cf2_realization import skill, usable, learning_trace, trial_factory
+from test_cf2_realization import skill, usable, learning_trace, trial_factory, model_bindings
 from test_cf3_takeover import transport, workflow
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,7 +94,7 @@ def test_t15_ours_scoped_grep_matches_public_package(tmp_path):
 
 
 def test_t32_single_answer_learning_keeps_full_context_without_unreadable_refs(tmp_path, monkeypatch):
-    inputs = {'context': 'actual public context ' * 1000, 'version': 7, 'options': ['first', 'second']}
+    inputs = {'context': 'actual public context ' * 100, 'version': 7, 'options': ['first', 'second']}
     sent = transport(monkeypatch, [(None, '<answer>word</answer>'), ('submit_learning', {'decision': 'no_change'})])
     s = EmpiricalSystem(config_for(tmp_path / 'bank'), harness=AnswerAdapter('searchqa', {'id': {'answers': ['word']}}))
     s.run_task(PublicTask('id', 'physical', 'Which word?', inputs), learn=True)
@@ -196,7 +196,7 @@ def test_t13_scoped_read_batch_resume_no_repeat(tmp_path, monkeypatch):
 def test_t14_same_schema_in_planner_runtime_builder_http(tmp_path, monkeypatch):
     s = office(tmp_path); s.bank.put('skill', skill('find target'))
     sent = transport(monkeypatch, [('submit_plan', {'mode': 'compose', 'workflow': dynamic(s.adapter.task)}),
-        ('runtime_step', {'action': 'finish', 'answer': 'private'}), ('submit_program', {'source': 'def run(ctx, inputs): pass', 'trial_inputs': []})])
+        ('runtime_step', {'action': 'finish', 'answer': 'private'}), ('submit_program', {'source': 'def run(ctx, inputs): pass'})])
     plan = s.planner.plan(s.adapter.task, s.adapter)
     s.executor.run(s.adapter.task, s.adapter, Broker(s.adapter, 24, context=s.task_context), plan)
     from atomic_skillgraph.empirical.prompts import BUILD
@@ -209,7 +209,8 @@ def test_t14_same_schema_in_planner_runtime_builder_http(tmp_path, monkeypatch):
 
 
 def binding(case_id, resource='a.txt'):
-    return {'case_id': case_id, 'inputs': {'resource': resource}, 'start_mode': 'reset', 'prefix': []}
+    return {'case_id': case_id, 'inputs': {'resource': resource}, 'input_refs':{},
+            'local_evidence_ref':'local:fixture-read','reference_fields':{'text':['data','text']}}
 
 
 def seed_job(s, state='usable'):
@@ -268,7 +269,7 @@ def test_t20_t22_missing_input_repaired_to_defer_before_asset_write(tmp_path, mo
     log = s.learner.learn(s.adapter.task, learning_trace())
     assert len(sent) == 2 and log['program'] is None and s.bank.jobs()[0]['state'] == 'waiting_example'
     repair = json.loads(sent[1]['messages'][1]['content'])
-    assert repair['error']['code'] == 'trial_binding_invalid' and repair['error']['missing_fields'] == ['resource']
+    assert any(e['code']=='input_type' and 'resource' in e['expected'] for row in repair['errors'] for e in row['errors'])
     assert len(s.bank.all('skill')) == 1
     s.close()
 
@@ -283,7 +284,7 @@ def test_t21_t24_binding_repair_then_one_actual_source_qualification(tmp_path,mo
     assert len(sent)==3 and s.bank.get(p)['state']=='usable'
     skill_id=s.bank.all('skill')[0]['id']
     request={'decision':'reuse_existing','existing_skill_id':skill_id,'realization_request':{
-        'skill_id':skill_id,'action':'trial','case_bindings':[{**generated()['trial_inputs'][0],'case_id':'second'}]}}
+        'skill_id':skill_id,'action':'trial','case_bindings':model_bindings('second')}}
     second=transport(monkeypatch,[('submit_learning',request)])
     s.learner.learn(PublicTask('office','second','find target'),learning_trace(s))
     assert len(second)==1 and len(s.bank.attempts(p))==1 and s.bank.get(p)['state']=='usable'

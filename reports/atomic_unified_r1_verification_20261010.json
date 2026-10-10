@@ -1,0 +1,125 @@
+{
+  "implementation_revision": "empirical-v3.2-atomic-unified-r1",
+  "verification_time": "2026-10-10T22:56:37.7354568+08:00",
+  "paid_http_requests": 0,
+  "production_docker_worker": true,
+  "regression": {
+    "unique_counts": {
+      "skipped": 2,
+      "passed": 390
+    },
+    "full_suite": {
+      "skipped": 2,
+      "passed": 389,
+      "failed": 1
+    },
+    "fixture_resolution": "Historical Learner regression now loads its pinned historical prompt schema; final targeted run passed.",
+    "final_targeted": {
+      "skipped": 0,
+      "passed": 21,
+      "failed": 0
+    }
+  },
+  "recorded_payloads": {
+    "officeqa_UID0170": {
+      "extractor_bytes": 14092,
+      "builder_bytes": 13417,
+      "source_evidence_id": "local:49c4618a46f9404880fbebab899bbd8f:call_00_BhEwcnjBHjIFdHRR2FmJ6162",
+      "source_operation_hash": "3d3127309060946733df31ec91de26ee3ae0d8c6263e30f22613a86a61f2803e",
+      "reserved_learning_tokens": 52085,
+      "result": {
+        "decision": "no_change",
+        "program": null,
+        "tests": [],
+        "errors": []
+      }
+    },
+    "spreadsheet_58032": {
+      "extractor_bytes": 12972,
+      "builder_bytes": 7944,
+      "source_evidence_id": "local:f9e6d2b035064ffb847b6c6ce967cae8:call_00_ElC0BjUDvTh4VPv3ZrIC1402",
+      "source_operation_hash": "a49d5b2a415f720a76f5fd91da7f37e6e0266c861fb0cfa4e45acf7bd861f349",
+      "reserved_learning_tokens": 45492,
+      "result": {
+        "decision": "no_change",
+        "program": null,
+        "tests": [],
+        "errors": []
+      }
+    },
+    "officeqa_UID0221": {
+      "extractor_bytes": 13954,
+      "builder_bytes": 13279,
+      "source_evidence_id": "local:6fe00a4315054d5da028018ab0932fc6:call_00_2N6kPbTZVKozXQuT2E7h9318",
+      "source_operation_hash": "3d3127309060946733df31ec91de26ee3ae0d8c6263e30f22613a86a61f2803e",
+      "reserved_learning_tokens": 51809,
+      "result": {
+        "decision": "no_change",
+        "program": null,
+        "tests": [],
+        "errors": []
+      }
+    },
+    "spreadsheet_44296": {
+      "extractor_bytes": 13017,
+      "builder_bytes": 7581,
+      "source_evidence_id": "local:c736887f336c4c7b84a4d0e29a0c672c:call_00_m1lsfKrkFdt0OXIss7gf9229",
+      "source_operation_hash": "f6b6098f5e3788c319c179dc9c9b3dc3fe6623e72209a580db5acc0b756c73bf",
+      "reserved_learning_tokens": 45174,
+      "result": {
+        "decision": "no_change",
+        "program": null,
+        "tests": [],
+        "errors": []
+      }
+    }
+  },
+  "frozen_budget": {
+    "policy": "canonical per-task ceilings; retries included, no automatic borrowing",
+    "total_limits": {
+      "token_limit": 315232000,
+      "request_limit": 934815,
+      "finish_reserve": 0
+    },
+    "cells": {
+      "searchqa": {
+        "train_task_tokens": 200000,
+        "train_solve_tokens": 120000,
+        "train_learning_tokens": 80000,
+        "eval_task_tokens": 96000,
+        "token_limit": 196704000,
+        "request_limit": 83580,
+        "finish_reserve": 0
+      },
+      "livemath": {
+        "train_task_tokens": 200000,
+        "train_solve_tokens": 120000,
+        "train_learning_tokens": 80000,
+        "eval_task_tokens": 96000,
+        "token_limit": 23232000,
+        "request_limit": 9165,
+        "finish_reserve": 0
+      },
+      "officeqa": {
+        "train_task_tokens": 200000,
+        "train_solve_tokens": 120000,
+        "train_learning_tokens": 80000,
+        "eval_task_tokens": 96000,
+        "token_limit": 36096000,
+        "request_limit": 284070,
+        "finish_reserve": 0
+      },
+      "spreadsheetbench": {
+        "train_task_tokens": 200000,
+        "train_solve_tokens": 120000,
+        "train_learning_tokens": 80000,
+        "eval_task_tokens": 96000,
+        "token_limit": 59200000,
+        "request_limit": 558000,
+        "finish_reserve": 0
+      }
+    }
+  },
+  "historical_review_zip_sha256": "6b2d297093666e4d3db2327e3fc8d6ffab25c8c3393b3873485376e9e0a97433",
+  "evidence_directory": "D:\\T3S_exp\\deliveries\\outputs\\atomic_unified_r1_verification_20261010"
+}

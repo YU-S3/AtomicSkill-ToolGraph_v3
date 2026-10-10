@@ -230,6 +230,13 @@ class OpenAICompatibleProvider:
             if type(max_completion_tokens) is not int or max_completion_tokens <= 0:
                 raise ValueError('Request completion cap must be positive')
             payload[self.config.token_limit_field] = max_completion_tokens
+        from ..empirical.budget_governor import input_token_bound
+        payload_bytes = input_token_bound(payload)
+        maximum = getattr(self._request_context, 'value', {}).get('payload_max_bytes')
+        if maximum is not None and payload_bytes > maximum:
+            error = ValueError('material_too_large: complete provider payload ' + str(payload_bytes) + ' > ' + str(maximum))
+            error.code = 'material_too_large'
+            raise error
         # This observes the final serialized HTTP surface, after all Session
         # edits. Store only public policy segments, schema and hashes; never
         # headers or provider-private assistant reasoning/envelopes.
@@ -265,6 +272,7 @@ class OpenAICompatibleProvider:
                 for segment in policy_segments],
             'tools': copy.deepcopy(payload.get('tools', [])),
             'captured_after_build_payload': True,
+            'serialized_payload_utf8_bytes': payload_bytes,
         }
         if tool_choice is not None:
             self._request_context.final_payload_audit['tool_choice'] = copy.deepcopy(payload['tool_choice'])

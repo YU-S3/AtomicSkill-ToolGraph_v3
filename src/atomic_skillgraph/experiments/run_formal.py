@@ -14,6 +14,8 @@ from .formal_log import FormalLog, tree_identity, utc
 from .run_empirical import code_identity, load_env, resolve_alfworld_tasks, run, write_json
 from skillcompiler_bench_contracts import source_identity
 from ..empirical import IMPLEMENTATION_REVISION, POLICY_DEFAULTS
+from .benchmark_config import benchmark_config
+from ..core.errors import BudgetExhausted
 
 
 def corpus_identity(root):
@@ -39,7 +41,7 @@ def allocate_campaign_budgets(limits, cells):
 
 
 def resolved_config(base, profile, benchmark, seed, split, root, datasets, authority, corpus_root):
-    config = deepcopy(base)
+    config = benchmark_config(base,benchmark)
     phase = root / split
     config['data_dir'] = str(root / 'train' / ('bank' if split == 'train' else 'frozen_bank'))
     config['manifest'] = str(authority / benchmark / (split + '.json'))
@@ -195,7 +197,9 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         write_json(root / 'completion.json', {'status': status, 'completed_splits': list(summaries), 'runs': summaries})
         return summaries
     except BaseException as exc:
-        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+        if isinstance(exc, BudgetExhausted):
+            status = 'budget_stopped'
+        elif isinstance(exc, (KeyboardInterrupt, SystemExit)):
             status = 'interrupted'
         else:
             status = 'infrastructure_failed' if log.task_error(exc) else 'execution_failed'

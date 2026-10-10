@@ -19,21 +19,24 @@ SKILL = object_schema({"goal": TEXT, "guidance": TEXT, "input_schema": ANY_OBJEC
     "output_schema": ANY_OBJECT, 'execution_intent': {'enum': ['guidance_only', 'program_requested']},
     'result_role': {'enum': ['intermediate', 'final_answer', 'final_files']}, 'entry_constraints': TEXT},
     ["goal", "input_schema", "output_schema"])
+SOURCE_REF = object_schema({'kind':{'enum':['public_json','public_span','operation_json','source_literal']},
+    'path':{'type':'array'},'start':{'type':'integer'},'end':{'type':'integer'},'value':{}}, ['kind','path'])
+OUTPUT_REF = {'oneOf':[{'type':'array'},object_schema({'kind':{'enum':['json','publication']},
+    'path':{'type':'array'},'field':TEXT,'name':TEXT},['kind'])]}
 LEARNING = object_schema({"decision": {"enum": ["no_change", "reuse_existing", "propose_skill_and_program_spec",
     "propose_or_revise_workflow"]}, "skill": SKILL, "generate_program": {"type": "boolean"},
     "existing_skill_id": TEXT, "workflow": WORKFLOW, "rationale": TEXT,
     'realization_request': object_schema({'skill_id': TEXT, 'action': {'enum': ['build','repair','trial','defer']},
         'case_bindings': {'type': 'array', 'items': object_schema({'case_id': TEXT,
-            'inputs': ANY_OBJECT, 'local_evidence_ref': TEXT, 'reference_fields': {'type':'object','additionalProperties':{'type':'array'}}, 'start_mode': {'enum': ['reset','prefix_replay']},
-            'prefix': {'type': 'array', 'items': object_schema({'name': TEXT, 'arguments': ANY_OBJECT}, ['name','arguments'])}},
-            ['case_id','inputs','start_mode','prefix'])}}, ['skill_id','action','case_bindings'])}, ["decision"])
+            'inputs': ANY_OBJECT, 'input_refs':{'type':'object','additionalProperties':SOURCE_REF}, 'local_evidence_ref': TEXT,
+            'reference_fields': {'type':'object','additionalProperties':OUTPUT_REF}}, ['case_id','inputs','input_refs','local_evidence_ref','reference_fields'])}},
+        ['skill_id','action','case_bindings'])}, ["decision"])
 TRIAL_INPUT = object_schema({'case_id': TEXT, 'inputs': ANY_OBJECT, 'local_evidence_ref':TEXT,
     'reference_fields':{'type':'object','additionalProperties':{'type':'array'}},
     'start_mode': {'enum': ['reset', 'prefix_replay']},
     'prefix': {'type': 'array', 'items': object_schema({'name': TEXT, 'arguments': ANY_OBJECT}, ['name', 'arguments'])}},
     ['case_id', 'inputs', 'start_mode', 'prefix'])
-BUILD = object_schema({"source": TEXT, "example_inputs": ANY_OBJECT,
-    'trial_inputs': {'type': 'array', 'items': TRIAL_INPUT, 'maxItems': 2}}, ['source', 'trial_inputs'])
+BUILD = object_schema({'source': TEXT, 'binding_hash': TEXT}, ['source'])
 PATCH = object_schema({'target_node': TEXT, 'kind': {'enum': ['args', 'handoff', 'detach']}, 'reason': TEXT,
     'args': {'type': 'object', 'additionalProperties': REF}, 'output_aliases': ALIASES,
     'consumer_refs': {'type': 'object', 'additionalProperties': {'type': 'object', 'additionalProperties': REF}},
@@ -113,9 +116,13 @@ execution_intent depends on real local evidence, not the final answer interface.
 guidance_only does not request a Program job: set generate_program=false and omit realization_request.
 Declare result_role intermediate/final_answer/final_files in the Skill. A missing Program is pending work, not
 completion. reuse_existing with generate_program=true still requests a build. Use realization_request for at most
-one related pending job and 0-2 actually applicable completed Train case_ids, fixing each input and reset or real
-prefix start. Required fields and needed public tools must exist in that case; do not select unrelated examples
-to fill slots. One real local binding is sufficient. Each binding requires an existing host local_evidence_ref and reference_fields mapping output names to paths in its reference. If none applies, defer. Preserve requested scope and use result references for large resources.
+one related pending job and 0-2 actually applicable completed Train case_ids, selecting existing local_evidence_ref.
+Host freezes prefix, start_mode, environment and trace identity; never submit those fields. Required inputs and tools must exist; do not select unrelated examples
+to fill slots. One real local binding is sufficient. input_refs maps each input to a catalog public_json/operation_json/source_literal path,
+or a public_span path with exact start/end. A span proves provenance, not parameter semantics. Optional branch defaults are not validated facts.
+reference_fields maps outputs to typed json path or publication files/file selectors from the directory.
+final_files requires files (array) and deleted_files (array); every other required output also needs a real reference.
+An inspection has no published files; a declared filename is not publication evidence. If none applies, defer.
 Return one submit_learning ToolCall."""
 BUILDER_PROMPT = """Your current response must be exactly one submit_program ToolCall with the supplied submission_contract.
 Do not directly call grep, read, glob or execute_python during generation, including recovery.
@@ -132,14 +139,13 @@ execute_python recursively: use Python directly in the authorized /workspace wit
 is available. Calls consume the same task budget. Return status ok/not_found/needs_input/blocked and an outputs dict
 matching the supplied schema. ok is not official success. Consult actual public feedback and current tool availability;
 search can return not_found. Return exact resource IDs from the current tool arguments for subsequent calls; display
-labels are not tool IDs. Do not hardcode example object instances/locations. Generate source plus ordinary
-trial_inputs with one submit_program ToolCall. Provide one independent binding for each supplied case_id.
+labels are not tool IDs. Do not hardcode example object instances/locations. Generate source with one submit_program
+ToolCall; an optional binding_hash must equal build_request.binding_hash. Host alone supplies fixed trial inputs and replay start.
 Use each case's public task to construct its own inputs; never copy concrete objects or file paths from another case.
 ctx.read_result(result_id, offset=0, limit=None, path=None) reads only results already obtained in this episode.
 Support the declared entry_constraints: for mid-episode preparation, first inspect current public state/results and
-currently legal arguments instead of always restarting search. Preserve fixed trial bindings exactly.
-Prefer start_mode reset and prefix []; intermediate-state skills require the exact real public action prefix
-from that case's recorded experience. Implement the supplied Skill's local goal; do not expand it to solve the
+currently legal arguments instead of always restarting search. Do not emit trial_inputs or replace a selected source.
+Implement the supplied Skill's local goal; do not expand it to solve the
 complete example task or add unrelated required targets. Future RPC calls must use future_program_api.allowed_names.
 For a durable run(ctx, inputs), INPUT_PATH and OUTPUT_PATH globals are not supplied; use inputs or the authorized
 workspace. Those globals belong only to an independent solution.py replay contract, when explicitly requested.

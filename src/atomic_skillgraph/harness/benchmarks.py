@@ -197,10 +197,10 @@ shutil.copyfile('/tmp/recalculated/input.xlsx', OUTPUT_PATH)
             'output_schema': object_schema(output_fields, ['files', 'deleted_files']),
             'allowed_tools': [], 'environment': self.config['program_environment']}
         result = self.worker.execute(program, {'files': files, 'deleted_files': list(deleted_files)}, Broker(self, 1))
-        from ..empirical.local_validation import artifact_identity
+        from ..empirical.local_validation import artifact_record
         pointer = self.workspace.root/'manifest.json'
         published = self.workspace.root/json.loads(pointer.read_text())['version'] if pointer.exists() else None
-        identities = {name:artifact_identity(published/name) for name in files} if result['status']=='ok' and published else {}
+        identities = {name:artifact_record(published/name) for name in files} if result['status']=='ok' and published else {}
         return {'local_artifact_identities':identities,
                 'worker_cpu_seconds':result.get('cpu_seconds'), 'worker_seconds':result.get('elapsed_seconds'),
                 'local_artifact_hashes':self.observe().get('workspace',{}).get('hashes',{}) if result['status']=='ok' else {},

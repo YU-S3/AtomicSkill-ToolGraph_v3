@@ -14,6 +14,8 @@ from atomic_skillgraph.experiments.canonical_manifest import BENCHMARKS, COUNTS,
 from atomic_skillgraph.experiments.formal_log import FormalLog, tree_identity
 from atomic_skillgraph.experiments.run_empirical import run
 from atomic_skillgraph.experiments.run_formal import resolved_config
+from atomic_skillgraph.experiments.benchmark_config import benchmark_config
+from atomic_skillgraph.empirical.system import validate_config
 from atomic_skillgraph.harness.benchmarks import AnswerAdapter
 from atomic_skillgraph.harness.simple_protocol import Broker
 from test_empirical import Adapter, config_for, program
@@ -62,10 +64,11 @@ def test_formal_benchmark_config_keeps_method_caps_and_isolates_gold_and_state(t
     profiles = json.loads((ROOT / 'benchmark_profiles.json').read_text())['profiles']
     for benchmark in BENCHMARKS:
         profile = profiles['spreadsheet' if benchmark == 'spreadsheetbench' else benchmark]
+        expected = validate_config(benchmark_config(base, benchmark))
         for seed in (42, 43, 44):
             root = tmp_path / benchmark / str(seed)
             configs = [resolved_config(base, profile, benchmark, seed, split, root, tmp_path / 'datasets', AUTHORITY, tmp_path / 'corpus') for split in ('train', 'val', 'test')]
-            assert all(c['learning'] == base['learning'] and c['planning'] == base['planning'] and c['llm'] == base['llm'] for c in configs)
+            assert all(c['learning'] == expected['learning'] and c['planning'] == expected['planning'] and c['llm'] == expected['llm'] for c in configs)
             assert configs[0]['data_dir'] != configs[1]['data_dir'] == configs[2]['data_dir']
             assert all(c['experiment']['seed'] == seed for c in configs)
             if benchmark != 'alfworld':

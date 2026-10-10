@@ -18,7 +18,17 @@ def original_learner(tmp_path):
     path = tmp_path / 'original_learner.py'; path.write_text(source)
     spec = importlib.util.spec_from_file_location('atomic_skillgraph.empirical.cf3_original_learner', path)
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    prompt_path = tmp_path / 'original_prompts.py'
+    prompt_path.write_text(subprocess.check_output(['git', 'show',
+        'bc63d02bc3bb0988cdbd15a203a068fc162f0b9b:src/atomic_skillgraph/empirical/prompts.py'], cwd=ROOT, text=True))
+    prompt_spec = importlib.util.spec_from_file_location('atomic_skillgraph.empirical.cf3_original_prompts', prompt_path)
+    prompts = importlib.util.module_from_spec(prompt_spec); prompt_spec.loader.exec_module(prompts)
+    module.LEARNING = prompts.LEARNING
     return module.Learner
+
+
+def historical_binding(case_id):
+    return {'case_id': case_id, 'inputs': binding(case_id)['inputs'], 'start_mode': 'reset', 'prefix': []}
 
 
 def test_t01_real_raw_old_candidates_lack_correct_label():
@@ -30,7 +40,7 @@ def test_t01_real_raw_old_candidates_lack_correct_label():
 def test_t16_original_production_learner_overflows_usable_fixed_slots(tmp_path, monkeypatch):
     s = office(tmp_path); sk, p, job = seed_job(s)
     proposal = {'decision': 'reuse_existing', 'existing_skill_id': sk['id'], 'realization_request': {
-        'skill_id': sk['id'], 'action': 'trial', 'case_bindings': [binding('office-physical')]}}
+        'skill_id': sk['id'], 'action': 'trial', 'case_bindings': [historical_binding('office-physical')]}}
     transport(monkeypatch, [('submit_learning', proposal)])
     old = original_learner(tmp_path)(s)
     with pytest.raises(ValueError, match='at most two fixed slots'): old.learn(s.adapter.task, learning_trace())
@@ -41,7 +51,7 @@ def test_t16_original_production_learner_overflows_usable_fixed_slots(tmp_path, 
 def test_t20_original_production_learner_saves_invalid_skill_before_preflight(tmp_path, monkeypatch):
     s = office(tmp_path)
     proposal = {'decision': 'propose_skill_and_program_spec', 'skill': skill('find target', inputs=object_schema({'resource': {'type': 'string'}}, ['resource'])),
-        'realization_request': {'skill_id': '$new', 'action': 'build', 'case_bindings': [binding('office-physical')]}}
+        'realization_request': {'skill_id': '$new', 'action': 'build', 'case_bindings': [historical_binding('office-physical')]}}
     proposal['realization_request']['case_bindings'][0]['inputs'] = {}
     sent = transport(monkeypatch, [('submit_learning', proposal)])
     result = original_learner(tmp_path)(s).learn(s.adapter.task, learning_trace())

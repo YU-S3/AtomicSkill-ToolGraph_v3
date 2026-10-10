@@ -1,4 +1,4 @@
-# AtomicSkill empirical v3.2 atomic-unified
+# AtomicSkill empirical v3.2 atomic-unified-r1
 
 唯一生产入口为 `skillcompiler.empirical.v1`。流程是真实局部经验 → Skill 接口与指导 → Python Program → 源局部验收 → usable 版本 → Workflow/动态执行 → 冻结库与独立评分。
 
@@ -10,7 +10,11 @@
 
 LM1 收尾用 `python -m atomic_skillgraph.experiments.review_lm1_archive` 只读回放旧批次，解释字段写入独立目录；不改旧请求、分数、资产或费用。LiveMath 的文字 guidance 继续执行来源检查和原选择规则。其他模型仍留空，文本 DeepSeek 对 DocVQA 标记 unsupported；视觉 fixture 不代表真实模型接入。
 
-本轮结果见[统一方法交付报告](reports/Atomic_Unified_20261010_交付报告.md)与[零模型回归记录](reports/atomic_unified_20261010_verification.json)。唯一收费批次完成 60/60 episode、267 HTTP、2,147,418 tokens；没有自然 Program 生成或消费，因此本轮不扩大正式矩阵。实际受测源码与后续离线修复源码分别保留身份，旧正式实验继续暂停。
+上一轮结果见[统一方法交付报告](reports/Atomic_Unified_20261010_交付报告.md)。收费批次完成 60/60 episode、267 HTTP、2,147,418 tokens；没有自然 Program 生成或消费。旧结果保留原身份。
+
+当前采用[统一方法复审规范](docs/specs/AtomicSkill_统一方法复审_最小修复与单seed启动实施文档_20261010.md)：学习使用有界操作目录，Host 固定局部绑定，Train 200K 分为 solve 120K／learning 80K；最终 HTTP 输入按实际 JSON 序列化检查。结构修复一次、disabled thinking、2048 completion；XLSX 文件效果仅规范化 modified 保存时间，保留原始 SHA256。首次局部资格仍须真实 Worker 验收，candidate 不进入 Runtime／Frozen。
+
+单 seed 入口使用 `configs/atomic_unified_seed42.yaml`，共享适配设置与 `configs/atomic_unified_seed42_budget.json` 的四个独立账本分配。累计 token 上限按用户确认的每题上限求和，请求数按既有循环和重试上限计算；额度不足记为 budget_stopped。工程回归通过后从各自空 Bank 开始 seed42，前五题是正式 Train 的正常前缀，同版本／同配置／同目录 resume；不额外重跑旧三臂批次或 12+6，也不以自然 Program 数／分数作为工程放行门槛。ALFWorld 暂缓，文本模型 DocVQA 为 unsupported。
 
 以下为历史版本说明与历史结果。
 

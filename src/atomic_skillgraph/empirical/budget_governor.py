@@ -9,7 +9,8 @@ from .checkpoint import save_json
 
 def input_token_bound(payload):
     # Byte fallback is conservative for text BPE; no model tokenizer is assumed.
-    return len(json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+    # Match requests' json= transport serialization, including escaping and spaces.
+    return len(json.dumps(payload, allow_nan=False).encode('utf-8'))
 
 
 class BudgetGovernor:
@@ -45,6 +46,15 @@ class BudgetGovernor:
             parent_cap = context.get('parent_token_limit')
             parent_used = sum(a.get('accounted_tokens',a['reserved_tokens']) for a in attempts.values()
                               if parent and a['context'].get('parent_scope') == parent)
+            pool, pool_cap = context.get('budget_pool'), context.get('budget_pool_limit')
+            if pool_cap is not None:
+                if not parent or pool not in {'solve', 'learning'}:
+                    raise ValueError('Train pool requires an explicit parent and owner')
+                pool_used = sum(a.get('accounted_tokens', a['reserved_tokens']) for a in attempts.values()
+                    if a['context'].get('parent_scope') == parent and a['context'].get('budget_pool') == pool)
+                reserve = context.get('parent_finish_reserve', 0) if pool == 'solve' else 0
+                if pool_used + reserved + reserve > pool_cap:
+                    raise BudgetExhausted('parent_task_budget_exhausted', pool + ' pool HTTP admission refused')
             if parent_cap is not None and parent_used + reserved + context.get('parent_finish_reserve',0) > parent_cap:
                 raise BudgetExhausted('parent_task_budget_exhausted','Parent task HTTP admission refused')
             if exhausted:

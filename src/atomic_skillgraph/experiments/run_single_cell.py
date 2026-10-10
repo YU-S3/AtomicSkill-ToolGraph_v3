@@ -42,6 +42,14 @@ def main(argv=None):
         return
     base = model_settings(yaml.safe_load(Path(spec['base_config']).read_text()), model)
     profiles = json.loads(Path(spec['benchmark_profiles']).read_text())['profiles']
+    if spec.get('budget_allocation'):
+        from .seed42_budget import allocation
+        frozen=json.loads(Path(spec['budget_allocation']).read_text())
+        expected=allocation(verify(spec['authority']),profiles,base['llm'].get('max_retries',4))
+        if frozen!=expected:raise ValueError('Frozen single-seed budget allocation changed')
+        if args.seed!=42 or args.benchmark not in frozen['cells']:
+            raise ValueError('This allocation covers only the four authorized seed42 cells')
+        base['budget']=frozen['cells'][args.benchmark]
     return campaign(base, profiles, args.benchmark, args.seed, args.output, args.datasets, spec['authority'],
                     args.corpus_root, resume=args.resume, stop_after_val=args.stop_after_val,
                     max_new_tasks=args.max_new_tasks, stop_at_task_id=args.stop_at_task_id)

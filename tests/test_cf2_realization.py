@@ -35,13 +35,21 @@ def skill(goal='read target',inputs=None,outputs=None,**extra):
 
 def requested_proposal(goal='prepare',**extra):
     return {'decision':'propose_skill_and_program_spec','skill':skill(goal),
-            'realization_request':{'skill_id':'$new','action':'build','case_bindings':generated()['trial_inputs']},**extra}
+            'realization_request':{'skill_id':'$new','action':'build','case_bindings':model_bindings()},**extra}
+
+
+def model_bindings(case_id='office-physical'):
+    return [{'case_id':case_id,'inputs':{},'input_refs':{},
+             'local_evidence_ref':'local:fixture-read','reference_fields':{'text':['data','text']}}]
+
+
+def locked_binding(system, skill, case_id='office-physical', experience=None):
+    from atomic_skillgraph.empirical.local_validation import canonical_binding
+    return canonical_binding(model_bindings(case_id)[0],experience or system.learner._experience(system.adapter.task,learning_trace(system)),skill)
 
 
 def generated(source=None):
-    return {'source':source or "def run(ctx, inputs):\n    r=ctx.call('read',{'path':'a.txt','offset':0})\n    return {'status':'ok','outputs':{'text':r['data']['text']}}",
-            'trial_inputs':[{'case_id':'office-physical','inputs':{},'start_mode':'reset','prefix':[],
-                'local_evidence_ref':'local:fixture-read','reference_fields':{'text':['data','text']}}]}
+    return {'source':source or "def run(ctx, inputs):\n    r=ctx.call('read',{'path':'a.txt','offset':0})\n    return {'status':'ok','outputs':{'text':r['data']['text']}}"}
 
 
 def learning_trace(s=None):
@@ -134,7 +142,7 @@ def test_t31_reuse_existing_can_build_a_missing_program(tmp_path,monkeypatch):
     s=office(tmp_path); trial_factory(s)
     sk=s.bank.put('skill',skill('prepare'))
     seen=http(monkeypatch,[response([{'decision':'reuse_existing','existing_skill_id':sk['id'],'generate_program':True,
-        'realization_request':{'skill_id':sk['id'],'action':'build','case_bindings':generated()['trial_inputs']}}],name='submit_learning'),
+        'realization_request':{'skill_id':sk['id'],'action':'build','case_bindings':model_bindings()}}],name='submit_learning'),
                            response([generated()],name='submit_program')])
     log=s.learner.learn(s.adapter.task,learning_trace(s))
     assert log['program'] and len(seen)==2 and len(s.bank.jobs())==1
@@ -145,11 +153,11 @@ def test_t32_missing_light_binding_waits_without_builder(tmp_path,monkeypatch):
     s=office(tmp_path)
     sk=skill('find light',inputs=object_schema({'light_source':{'type':'string'}},['light_source']))
     proposal={'decision':'propose_skill_and_program_spec','skill':sk,'realization_request':{'skill_id':'$new','action':'build',
-        'case_bindings':[{'case_id':'office-physical','inputs':{},'start_mode':'reset','prefix':[]}]}}
+        'case_bindings':model_bindings()}}
     deferred=deepcopy(proposal); deferred['realization_request'].update(action='defer',case_bindings=[])
     seen=http(monkeypatch,[response([proposal],name='submit_learning'),response([deferred],name='submit_learning')])
     log=s.learner.learn(s.adapter.task,learning_trace(s))
-    assert len(seen)==2 and log['program'] is None and 'trial_binding_invalid' in json.dumps(seen[1]['messages'])
+    assert len(seen)==2 and log['program'] is None and 'input_type' in json.dumps(seen[1]['messages'])
     assert s.bank.jobs()[0]['state']=='waiting_example'
     s.close()
 
@@ -161,15 +169,16 @@ def test_t33_new_case_fills_unused_trial_slot_and_duplicates_do_not(tmp_path,mon
     asset['environment']=s.config['program_environment']
     p=s.bank.put('program',asset)
     s.bank.put('implementation',{'skill_id':sk['id'],'program_id':p['id']})
-    first=generated()['trial_inputs'][0]
+    trace=learning_trace(s)
+    first=locked_binding(s,sk,experience=s.learner._experience(s.adapter.task,trace))
     s.bank.save_job({'id':digest(['realization',sk['id']]),'skill_id':sk['id'],'skill_version':sk['id'],'kind':'trial','state':'ready','program_id':p['id'],
         'case_bindings':[first],'repair_used':False,'generation_count':1,'epoch':0,'trigger_task':'office-physical'})
     seen=http(monkeypatch,[response([{'decision':'no_change'}],name='submit_learning')])
-    s.learner.learn(s.adapter.task,learning_trace(s))
+    s.learner.learn(s.adapter.task,trace)
     assert len(s.bank.attempts(p['id']))==1
     next_task=PublicTask('office','new-physical','find target')
     request={'decision':'reuse_existing','existing_skill_id':sk['id'],'realization_request':{'skill_id':sk['id'],'action':'trial',
-        'case_bindings':[{**first,'case_id':'new-physical'}]}}
+        'case_bindings':model_bindings('new-physical')}}
     http(monkeypatch,[response([request],name='submit_learning'),response([request],name='submit_learning')])
     s.learner.learn(next_task,learning_trace(s)); s.learner.learn(next_task,learning_trace(s))
     assert len(s.bank.attempts(p['id']))==1 and s.bank.get(p['id'])['state']=='usable'
@@ -181,11 +190,11 @@ def test_t34_qa_guidance_only_uses_one_normal_solver(tmp_path,monkeypatch):
         'guidance_skill':{'goal':'QA guidance', 'guidance':'Use public context.'}}],name='submit_learning')])
     config=config_for(tmp_path/'bank'); a=AnswerAdapter('searchqa',{'qa':{'answers':['public answer']}})
     s=EmpiricalSystem(config,harness=a)
-    trace=s.run_task(PublicTask('qa','qa-physical','public question',{'context':'original public context'*1000,'options':['first','second']}))
+    trace=s.run_task(PublicTask('qa','qa-physical','public question',{'context':'original public context'*100,'options':['first','second']}))
     assert trace['score']['hard'] and [r['stage'] for r in s.requests]==['runtime','extractor']
     assert not s.bank.jobs() and not s.bank.all('program') and len(seen)==2
     material=json.loads(seen[0]['messages'][1]['content'])
-    assert material['inputs']['context']=='original public context'*1000 and material['inputs']['options']==['first','second']
+    assert material['inputs']['context']=='original public context'*100 and material['inputs']['options']==['first','second']
     s.close()
 
 

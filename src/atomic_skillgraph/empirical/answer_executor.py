@@ -66,7 +66,8 @@ class AnswerExecutor:
                 'content_parts':getattr(s.adapter,'content_parts',lambda:[])(), 'answer_protocol_version':VERSION}
             from ..core.errors import BudgetExhausted
             try:
-                step = s.agent('runtime',prompt,material,'answer_step',STEP,repair_limit=0,owner_state_version=VERSION+':'+str(index))
+                step = s.agent('runtime',prompt,material,'answer_step',STEP,repair_limit=0,owner_state_version=VERSION+':'+str(index),
+                    finish_request_material={k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}})
             except ValueError as exc:
                 if not getattr(exc,'model_authored',False):raise
                 return finish('','runtime_model_failure')

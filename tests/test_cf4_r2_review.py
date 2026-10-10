@@ -144,8 +144,10 @@ def test_q4_same_candidates_compact_view_readonly(tmp_path, index, expected):
             assert old['id'] == new['id']
             for key in ('goal', 'guidance', 'input_schema', 'output_schema', 'entry_constraints', 'execution_intent', 'used_physical_tasks'):
                 assert old.get(key) == new.get(key)
-            assert old['current_job']['case_bindings'] == new['current_job']['case_bindings']
-            for key in new['current_job']: assert old['current_job'][key] == new['current_job'][key]
+            assert [{k:b[k] for k in ('case_id','local_evidence_ref','binding_hash') if k in b}
+                    for b in old['current_job']['case_bindings']] == new['current_job']['case_bindings']
+            for key in new['current_job']:
+                if key != 'case_bindings': assert old['current_job'][key] == new['current_job'][key]
             for key in new['current_program']: assert old['current_program'][key] == new['current_program'][key]
             for a, b in zip(old['independent_results'], new['independent_results']):
                 for key in ('id', 'program_id', 'task_key', 'outcome', 'basis'): assert a.get(key) == b.get(key)

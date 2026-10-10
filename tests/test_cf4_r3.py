@@ -289,12 +289,13 @@ def test_guidance_purpose_reaches_actual_http_payload(tmp_path,monkeypatch):
 
 @pytest.mark.parametrize('count',[0,1,2])
 def test_first_build_threshold_and_unbuilt_supplement_queue(tmp_path,count):
-    from test_cf2_realization import skill as make_skill,generated,learning_trace
+    from test_cf2_realization import skill as make_skill,generated,learning_trace,model_bindings
     s=office(tmp_path)
     skill=s.bank.put('skill',make_skill('find target',execution_intent='program_requested'))
     cases={str(i):(PublicTask(str(i),str(i),'find target'),s.learner._experience(
         PublicTask(str(i),str(i),'find target'),learning_trace(s))) for i in range(count)}
-    bindings=[{**generated()['trial_inputs'][0],'case_id':str(i)} for i in range(count)]
+    from atomic_skillgraph.empirical.local_validation import canonical_binding
+    bindings=[canonical_binding(model_bindings(str(i))[0],cases[str(i)][1],skill) for i in range(count)]
     job={'id':'job','skill_id':skill['id'],'skill_version':skill['id'],'case_bindings':[],'state':'waiting_example',
         'kind':'build','generation_count':0,'epoch':0,'program_id':None,'repair_used':False}
     try:
@@ -314,14 +315,14 @@ def test_first_build_threshold_and_unbuilt_supplement_queue(tmp_path,count):
 
 
 def test_existing_candidate_validates_one_binding_without_rebuilding(tmp_path,worker):
-    from test_cf2_realization import skill as make_skill,generated,learning_trace,trial_factory
+    from test_cf2_realization import skill as make_skill,generated,learning_trace,trial_factory,locked_binding
     s=office(tmp_path);trial_factory(s);s.worker=worker
     skill=s.bank.put('skill',make_skill('find target',execution_intent='program_requested'))
     p=s.bank.put('program',{**program(generated()['source'],outputs=skill['output_schema']),
         'allowed_tools':['read'],'environment':s.config['program_environment']})
     s.bank.put('implementation',{'skill_id':skill['id'],'program_id':p['id']})
     cases={s.adapter.task.physical_key:(s.adapter.task,s.learner._experience(s.adapter.task,learning_trace(s)))}
-    job={'id':'j','skill_id':skill['id'],'skill_version':skill['id'],'case_bindings':generated()['trial_inputs'],
+    job={'id':'j','skill_id':skill['id'],'skill_version':skill['id'],'case_bindings':[locked_binding(s,skill,experience=cases[s.adapter.task.physical_key][1])],
         'state':'ready','kind':'build','generation_count':1,'epoch':0,'program_id':p['id'],'repair_used':False}
     s.learner._receive=lambda *a,**kw:pytest.fail('Existing candidate must be validated first')
     try:

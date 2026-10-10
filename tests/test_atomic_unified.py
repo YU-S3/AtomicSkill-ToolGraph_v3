@@ -59,7 +59,7 @@ def test_single_source_real_worker_freeze_and_consumption(tmp_path,monkeypatch,w
         trace = s.run_task(t,learn=False)
         assert trace['score']['hard'] and len(seen)==2 and not trace.get('initial_plan')
         assert s.checkpoint.state['method_identity']==trace['method_identity']
-        assert s.config['learning']['local_validation_policy']=='atomic.local-validation.v2'
+        assert s.config['learning']['local_validation_policy']=='atomic.local-validation.v3'
         original_cap=s.config['llm']['runtime']['max_completion_tokens']
         s.config['llm']['runtime']['max_completion_tokens']=original_cap+1
         with pytest.raises(ValueError,match='Checkpoint method identity changed'):s.run_task(t,learn=False)
@@ -118,7 +118,7 @@ def test_docvqa_actual_pixels_learner_payload_and_readonly_worker(tmp_path,monke
     adapter=AnswerAdapter('docvqa',{'doc':{'answers':['image']}},cfg)
     s=EmpiricalSystem(cfg,harness=adapter);s.worker=worker
     seen=http(monkeypatch,[response(content='image',finish='stop'),response([{'decision':'no_change'}],name='submit_learning'),
-        response([{'source':SOURCE,'trial_inputs':[]}],name='submit_program')])
+        response([{'source':SOURCE}],name='submit_program')])
     try:
         trace=s.run_task(task)
         assert trace['score']['hard'] and len(seen)==2
@@ -132,9 +132,9 @@ def test_docvqa_actual_pixels_learner_payload_and_readonly_worker(tmp_path,monke
         result=worker.execute(p,{'path':adapter.worker_resources['image_0.png']},Broker(adapter,1))
         assert result['status']=='ok' and result['outputs']['width']==17
         from atomic_skillgraph.empirical.prompts import BUILD,BUILDER_PROMPT
-        local={'public_task':{'inputs':task.inputs}}
-        material=s.learner.builder_material({'goal':'read image width'},[],[{'local_evidence':local}],
+        material=s.learner.builder_material({'goal':'read image width'},[{'case_id':task.physical_key}],[],
             {'workspace_capabilities':{},'allowed_names':[]})
+        s.learner.cases=[(task,{})]
         s.agent('tool_builder',BUILDER_PROMPT,material,'submit_program',BUILD)
         assert len(seen)==3 and seen[-1]['messages'][1]['content'][1]['image_url']['url'].startswith('data:image/png;base64,')
         write_fixture('docvqa_pixels',{'payloads':seen,'worker':result,'actual_model_connected':False})
@@ -310,11 +310,12 @@ def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypa
             value={'decision':'propose_skill_and_program_spec','skill':{'goal':'double an integer','guidance':'Use explicit integer inputs.',
                 'input_schema':SCHEMA,'output_schema':OUT,'execution_intent':'program_requested','result_role':'intermediate'},
                 'realization_request':{'skill_id':'$new','action':'build','case_bindings':[{'case_id':t.physical_key,
-                    'inputs':{'n':3},'prefix':[],'start_mode':'reset','local_evidence_ref':e['id'],'reference_fields':{'value':['value']}}]}}
+                    'inputs':{'n':3},'input_refs':{'n':{'kind':'public_json','path':['inputs','n']}},
+                    'local_evidence_ref':e['local_evidence_ref'],'reference_fields':{'value':['value']}}]}}
         else:
             from atomic_skillgraph.empirical.model_view import expand_material
             material=expand_material(material)
-            value={'source':SOURCE,'trial_inputs':material['build_request']['fixed_bindings']}
+            value={'source':SOURCE,'binding_hash':material['build_request']['binding_hash']}
         return SimpleNamespace(status_code=200,ok=True,headers={},json=lambda:response([value],name=name))
     monkeypatch.setenv('MODEL_API_KEY','intercepted-only')
     monkeypatch.setattr('atomic_skillgraph.agents.provider.requests.post',post)
@@ -345,7 +346,7 @@ def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypa
 
 def test_file_validation_rejects_wrong_effect_before_publication(tmp_path,worker):
     from atomic_skillgraph.harness.benchmarks import SpreadsheetAdapter
-    from atomic_skillgraph.empirical.local_validation import artifact_identity
+    from atomic_skillgraph.empirical.local_validation import artifact_identity, artifact_record
     cfg=config_for(tmp_path/'bank');cfg['harness']={'adapter':'spreadsheet'}
     task=PublicTask('sheet','sheet-source','Create a public file')
     adapter=SpreadsheetAdapter({'sheet':{}},cfg)
@@ -362,7 +363,7 @@ def test_file_validation_rejects_wrong_effect_before_publication(tmp_path,worker
         published=adapter.workspace.root/original['workspace']['version']/'report.txt'
         before=published.read_bytes()
         ref={'outputs':original['outputs'],'local_artifact_identities':{
-            'report.txt':artifact_identity(published)}}
+            'report.txt':artifact_record(published)}}
         e={'id':'local:effect','kind':'native_operation','source_physical_key':task.physical_key,
             'source_trace_sha256':'actual-worker-fixture','prefix':[],
             'public_task':{'inputs':{'text':'public source'}},'operation':{'name':'execute_python','arguments':{'text':'public source'}},
