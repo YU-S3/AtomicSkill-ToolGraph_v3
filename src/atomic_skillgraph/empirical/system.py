@@ -475,13 +475,23 @@ class EmpiricalSystem:
         learn = not self.readonly if learn is None else learn
         if learn and (self.readonly or task.split != "train"):
             raise RuntimeError("Only Train may update the empirical Bank")
+        identity = {'config_hash':digest(self.config),'implementation_revision':self.config['experiment']['implementation_revision'],
+            'learning_material_version':self.config['learning']['material_version'],
+            'local_validation_policy':self.config['learning']['local_validation_policy'],
+            'answer_protocol_version':self.config['runtime']['answer_protocol_version'],
+            'budget':{'path':str(self.budget_governor.path),'limits':self.budget_governor.limits} if self.budget_governor else None}
+        if self.checkpoint:
+            if self.checkpoint.state.get('method_identity',identity) != identity:
+                raise ValueError('Checkpoint method identity changed')
+            self.checkpoint.advance(self.checkpoint.state['stage'],method_identity=identity)
         before = self.bank.digest()
         self._task_start, request_start = len(self.usage.events), len(self.requests)
         self._runtime_start = self._task_start
         self._request_start = request_start
         trace = {"schema": "empirical.trace.v1", "task": asdict(task), "attempt_id": attempt_id or uuid4().hex,
                  "knowledge_before": before, "tools": [], "execution": {}, "score": None,
-                 "solve_status": "not_started", "learning_status": "not_started", "learning_error": None}
+                 "solve_status": "not_started", "learning_status": "not_started", "learning_error": None,
+                 'method_identity':identity}
         self.budget_scope = trace['attempt_id']
         budget = self.config.get('budget',{})
         self.request_attribution.update(parent_scope=str(self.config['experiment']['output_dir'])+':'+trace['attempt_id'],

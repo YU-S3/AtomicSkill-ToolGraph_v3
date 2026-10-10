@@ -6,8 +6,9 @@ import zipfile
 from copy import deepcopy
 
 from .contracts import digest, program_digest, validate_schema_instance
+from . import LOCAL_VALIDATION_POLICY_VERSION
 
-POLICY = 'atomic.local-validation.v2'
+POLICY = LOCAL_VALIDATION_POLICY_VERSION
 
 
 def artifact_identity(path):

@@ -50,12 +50,21 @@ def candidate(system,source=SOURCE):
 def test_single_source_real_worker_freeze_and_consumption(tmp_path,monkeypatch,worker):
     s,t = setup(tmp_path)
     s.worker = worker
+    from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
+    s.checkpoint=TaskCheckpoint(tmp_path/'checkpoint')
     seen = http(monkeypatch,[response([{'action':'execute_python','source':SOURCE,'arguments':{'n':3},
         'input_schema':SCHEMA,'output_schema':OUT}],name='answer_step'),
         response([{'action':'finish','answer':'6','used_results':[]}],name='answer_step')])
     try:
         trace = s.run_task(t,learn=False)
         assert trace['score']['hard'] and len(seen)==2 and not trace.get('initial_plan')
+        assert s.checkpoint.state['method_identity']==trace['method_identity']
+        assert s.config['learning']['local_validation_policy']=='atomic.local-validation.v2'
+        original_cap=s.config['llm']['runtime']['max_completion_tokens']
+        s.config['llm']['runtime']['max_completion_tokens']=original_cap+1
+        with pytest.raises(ValueError,match='Checkpoint method identity changed'):s.run_task(t,learn=False)
+        assert len(seen)==2
+        s.config['llm']['runtime']['max_completion_tokens']=original_cap
         assert trace['execution']['temporary_executions'][0]['status']=='ok'
         evidence = evidence_from_trace(t,trace,s.config['program_environment'])
         p = candidate(s)
@@ -68,7 +77,9 @@ def test_single_source_real_worker_freeze_and_consumption(tmp_path,monkeypatch,w
         assert s.bank.program_eligible(p) and len(s.bank.attempts(p['id']))==1
         changed = deepcopy(p); changed['source']+='\n# new version'
         assert not s.bank.program_eligible(changed)
-        frozen = tmp_path/'frozen'; s.bank.freeze(frozen)
+        frozen = tmp_path/'frozen'; freeze=s.bank.freeze(frozen)
+        assert freeze['program_qualification_policy']==trace['method_identity']['local_validation_policy']
+        assert freeze['answer_protocol_version']==trace['method_identity']['answer_protocol_version']
         readonly = Bank(frozen,readonly=True)
         before = readonly.digest()
         for mode in ('learned_assets_off','guidance_only'):

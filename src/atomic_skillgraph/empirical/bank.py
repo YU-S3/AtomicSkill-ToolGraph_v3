@@ -336,10 +336,11 @@ class Bank:
         seed = int(self.db.execute("SELECT value FROM metadata WHERE key='seed'").fetchone()[0])
         frozen = Bank(destination, readonly=True, seed=seed)
         from .local_validation import POLICY
-        from . import IMPLEMENTATION_REVISION, LEARNING_MATERIAL_VERSION
+        from . import IMPLEMENTATION_REVISION, LEARNING_MATERIAL_VERSION, ANSWER_PROTOCOL_VERSION
         manifest = {"schema": "empirical.bank.v1", "digest": frozen.digest(), 'source_digest': self.digest(),
                     'program_qualification_policy':POLICY,'implementation_revision':IMPLEMENTATION_REVISION,
                     'learning_material_version':LEARNING_MATERIAL_VERSION,
+                    'answer_protocol_version':ANSWER_PROTOCOL_VERSION,
                     "programs": [{"id": p["id"], "state": p["state"]} for p in frozen.all("program")]}
         frozen.close()
         target.close()

@@ -6,8 +6,9 @@ from .contracts import digest, object_schema, validate_program, validate_schema_
 from .prompts import single_answer_prompt
 from .program_submission import normalize_program_result, prepare_program_submission
 from .trial_snapshot import seal_trial_workspace, restore_trial_workspace
+from . import ANSWER_PROTOCOL_VERSION
 
-VERSION = 'atomic.answer-executor.v1'
+VERSION = ANSWER_PROTOCOL_VERSION
 STEP = object_schema({'action':{'enum':['finish','execute_python','call_program','read_result']},
     'answer':{'type':'string'}, 'name':{'type':'string'}, 'source':{'type':'string'},
     'arguments':{'type':'object'}, 'input_schema':{'type':'object'}, 'output_schema':{'type':'object'},
