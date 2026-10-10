@@ -82,8 +82,19 @@ def input_sources(evidence):
     return rows
 
 
+def json_reference_path(selector):
+    """Resolve legacy and typed JSON selectors; publications remain separate."""
+    if isinstance(selector,list): return selector
+    if isinstance(selector,dict) and selector.get('kind')=='json':
+        path=selector.get('path')
+        if not isinstance(path,list):raise ValueError('JSON output reference requires a path list')
+        return path
+    return None
+
+
 def reference_value(evidence, selector):
-    if isinstance(selector,list): return at(evidence['reference'],selector)
+    path=json_reference_path(selector)
+    if path is not None:return at(evidence['reference'],path)
     if not isinstance(selector,dict):raise ValueError('Output reference must be a typed selector or JSON path')
     if selector.get('kind')=='publication':
         files=sorted(evidence['reference'].get('local_artifact_identities',{}))
@@ -93,7 +104,6 @@ def reference_value(evidence, selector):
         if field=='files':return files
         if field=='file' and selector.get('name') in files:return selector['name']
         raise ValueError('Unknown publication projection')
-    if selector.get('kind')=='json':return at(evidence['reference'],selector['path'])
     raise ValueError('Unknown output reference kind')
 
 
@@ -277,6 +287,10 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
         if passed and outputs.get('files'):
             passed = bool(file_refs)
             reason = 'source_file_effect_match' if passed else 'source_file_effect_mismatch'
+        if passed and not outputs.get('files') and any(
+                isinstance(selector,dict) and selector.get('kind')=='publication' for selector in fields.values()):
+            passed = False
+            reason = 'missing_local_effect_reference'
         # An acceptance flag is not evidence that the intended operation ran.
         # Compare actual broker calls as well as values; allow extra read-only
         # checks, but not additional writes outside the recorded local contract.
@@ -293,7 +307,8 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
                 passed = native_match
                 if not passed: reason = 'source_operation_mismatch'
             elif not outputs.get('files') and all(path and path[0] in {
-                    'accepted','status','done','won','new_revision'} for path in fields.values() if isinstance(path,list)):
+                    'accepted','status','done','won','new_revision'}
+                    for path in (json_reference_path(selector) for selector in fields.values())):
                 passed = False
                 reason = 'missing_local_effect_reference'
         # Pure JSON compilation additionally replays one schema-valid parameter change,
@@ -313,8 +328,17 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
                 replay = system.worker.execute(program, changed, broker)
                 variation = {'input_hash':digest(changed), 'reference_hash':digest(original), 'actual_hash':digest(replay),
                     'reference_cpu_seconds':original.get('cpu_seconds'), 'candidate_cpu_seconds':replay.get('cpu_seconds')}
-                passed = original.get('status') == replay.get('status') == 'ok' and all(
-                    replay['outputs'].get(k) == at(original['outputs'], path) for k,path in fields.items())
+                passed = original.get('status') == replay.get('status') == 'ok'
+                if passed:
+                    try:
+                        varied_evidence = {'reference':original['outputs']}
+                        varied_expected = {key:reference_value(varied_evidence,selector) for key,selector in fields.items()}
+                        actual = replay['outputs']
+                        passed = isinstance(actual,dict) and all(
+                            key in actual and actual[key] == value for key,value in varied_expected.items())
+                    except (ValueError,TypeError,KeyError) as exc:
+                        passed = False
+                        variation['reference_error'] = str(exc)
                 if not passed: reason = 'parameterized_replay_mismatch'
         tree = ast.parse(program['source'])
         if passed and native_match is not True and not outputs.get('files'):

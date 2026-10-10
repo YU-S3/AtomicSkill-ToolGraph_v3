@@ -47,7 +47,8 @@ def candidate(system,source=SOURCE):
         'allowed_tools':[],'environment':system.config['program_environment'],'result_role':'intermediate'})
 
 
-def test_single_source_real_worker_freeze_and_consumption(tmp_path,monkeypatch,worker):
+@pytest.mark.parametrize('typed',[False,True],ids=['legacy','typed-json'])
+def test_single_source_real_worker_freeze_and_consumption(tmp_path,monkeypatch,worker,typed):
     s,t = setup(tmp_path)
     s.worker = worker
     from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
@@ -70,7 +71,7 @@ def test_single_source_real_worker_freeze_and_consumption(tmp_path,monkeypatch,w
         p = candidate(s)
         assert s.bank.program_options(t.goal)==[]
         binding = {'case_id':t.physical_key,'inputs':{'n':3},'start_mode':'reset','prefix':[],
-            'local_evidence_ref':evidence[0]['id'],'reference_fields':{'value':['value']}}
+            'local_evidence_ref':evidence[0]['id'],'reference_fields':{'value':{'kind':'json','path':['value']} if typed else ['value']}}
         record = validate_on_source(s,p,binding,t,{'local_evidence':evidence},'trial')
         assert record['validation']['passed'] and record['validation']['variation']
         p = s.bank.get(p['id'])
@@ -103,7 +104,7 @@ def test_single_source_real_worker_freeze_and_consumption(tmp_path,monkeypatch,w
             result=full.run_task(val,learn=False)
             assert result['score']['hard'] and result['execution']['attempts'][0]['outputs_consumed']
             assert readonly.digest()==before==full.bank.digest()
-            write_fixture('source_freeze_non_source_consumption',{'source_trace':trace,'local_validation':record,
+            write_fixture('source_freeze_non_source_consumption_'+('typed' if typed else 'legacy'),{'source_trace':trace,'local_validation':record,
                 'frozen_sha256':before,'val_trace':result})
         finally:full.close();readonly.close()
     finally:s.close()
@@ -143,7 +144,8 @@ def test_docvqa_actual_pixels_learner_payload_and_readonly_worker(tmp_path,monke
     finally:s.close()
 
 
-def test_constant_source_rejected_by_actual_parameter_variation(tmp_path,worker):
+@pytest.mark.parametrize('typed',[False,True],ids=['legacy','typed-json'])
+def test_constant_source_rejected_by_actual_parameter_variation(tmp_path,worker,typed):
     s,t=setup(tmp_path);s.worker=worker;s.adapter.reset(t)
     try:
         operation={'id':'local:actual','kind':'executed_python','source_physical_key':t.physical_key,
@@ -152,7 +154,8 @@ def test_constant_source_rejected_by_actual_parameter_variation(tmp_path,worker)
             'operation':{'source':SOURCE,'inputs':{'n':3},'input_schema':SCHEMA,'output_schema':OUT},
             'reference':worker.execute(candidate(s),{'n':3},Broker(s.adapter,1))['outputs']}
         constant=candidate(s,"def run(ctx, inputs):\n    unused=inputs['n']\n    return {'status':'ok','outputs':{'value':6}}")
-        binding={'inputs':{'n':3},'prefix':[],'local_evidence_ref':operation['id'],'reference_fields':{'value':['value']}}
+        binding={'inputs':{'n':3},'prefix':[],'local_evidence_ref':operation['id'],
+            'reference_fields':{'value':{'kind':'json','path':['value']} if typed else ['value']}}
         row=validate_on_source(s,constant,binding,t,{'local_evidence':[operation]},'constant')
         assert not row['validation']['passed'] and row['validation']['reason']=='parameterized_replay_mismatch'
         assert not s.bank.program_eligible(s.bank.get(constant['id']))
@@ -292,7 +295,8 @@ def test_effective_settings_and_safe_model_label(tmp_path):
 
 
 @pytest.mark.parametrize('choice',[False,True])
-def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypatch,worker,choice):
+@pytest.mark.parametrize('typed',[False,True],ids=['legacy','directory-json'])
+def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypatch,worker,choice,typed):
     s,t=setup(tmp_path);s.worker=worker;sent=[]
     if choice:
         s.config['learning'].setdefault('choice_guidance',{})['enabled']=True
@@ -307,11 +311,13 @@ def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypa
                 'action':'execute_python','source':SOURCE,'arguments':{'n':3},'input_schema':SCHEMA,'output_schema':OUT}
         elif name=='submit_learning':
             e=material['experience']['local_evidence'][0]
+            selector=next(r for r in e['output_references'] if r.get('path')==['value'])
+            selector={k:v for k,v in selector.items() if k!='type'} if typed else selector['path']
             value={'decision':'propose_skill_and_program_spec','skill':{'goal':'double an integer','guidance':'Use explicit integer inputs.',
                 'input_schema':SCHEMA,'output_schema':OUT,'execution_intent':'program_requested','result_role':'intermediate'},
                 'realization_request':{'skill_id':'$new','action':'build','case_bindings':[{'case_id':t.physical_key,
                     'inputs':{'n':3},'input_refs':{'n':{'kind':'public_json','path':['inputs','n']}},
-                    'local_evidence_ref':e['local_evidence_ref'],'reference_fields':{'value':['value']}}]}}
+                    'local_evidence_ref':e['local_evidence_ref'],'reference_fields':{'value':selector}}]}}
         else:
             from atomic_skillgraph.empirical.model_view import expand_material
             material=expand_material(material)
@@ -330,6 +336,9 @@ def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypa
         p=s.bank.get(trace['learning']['program'])
         assert s.bank.program_eligible(p) and len(s.bank.train_cases())==1 and len(s.bank.attempts(p['id']))==1
         assert s.bank.jobs()[0]['state']=='done' and s.bank.jobs()[0]['generation_count']==1
+        locked=s.bank.jobs()[0]['case_bindings'][0]
+        assert locked['reference_fields']['value']==({'kind':'json','path':['value']} if typed else ['value'])
+        assert locked['binding_hash'] and p['local_validation']['variation']
         if choice:
             from atomic_skillgraph.empirical.choice_guidance import STATS_KEY
             stats=json.loads(s.bank.db.execute('SELECT value FROM metadata WHERE key=?',(STATS_KEY,)).fetchone()[0])
@@ -340,7 +349,7 @@ def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypa
         b=Bank(tmp_path/'frozen',readonly=True)
         try:assert len(b.all('program'))==len(b.all('implementation'))==1 and b.get(p['id'])['local_validation']['passed']
         finally:b.close()
-        write_fixture('full_learning_chain_choice' if choice else 'full_learning_chain',{'payloads':sent,'trace':trace,'program':p,'job':s.bank.jobs()[0]})
+        write_fixture('full_learning_chain_'+str(choice)+'_'+str(typed),{'payloads':sent,'trace':trace,'program':p,'job':s.bank.jobs()[0]})
     finally:s.close()
 
 

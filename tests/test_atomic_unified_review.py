@@ -360,4 +360,84 @@ def test_xlsx_publication_real_worker_with_host_binding(tmp_path,worker):
         assert s.bank.program_eligible(s.bank.get(p['id']))
         assert checked['validation']['file_effect_version']==artifact_record(path)['algorithm']
         record('xlsx_worker_publication',{'source_event':event,'canonical_binding':locked,'validation':checked})
+        declaration={**declaration,'output_schema':object_schema({'output_file':{'type':'string'}},['output_file'])}
+        binding={**binding,'reference_fields':{'output_file':binding['reference_fields']['output_file']}}
+        locked=canonical_binding(binding,{'local_evidence':[e]},declaration)
+        source="def run(ctx, inputs):\n    unused=inputs['cell']\n    return {'status':'ok','outputs':{'output_file':'case1_result.xlsx'}}"
+        fake=s.bank.put('program',{**declaration,'source':source,'entry':'run','allowed_tools':[], 'environment':s.config['program_environment']})
+        rejected=validate_on_source(s,fake,locked,task,{'local_evidence':[e]},'publication-without-file')
+        assert rejected['validation']['reason']=='missing_local_effect_reference'
+        assert not s.bank.program_eligible(s.bank.get(fake['id']))
+        assert len(s.bank.attempts(fake['id']))==1
+        record('publication_without_file',rejected)
+    finally:s.close()
+
+
+@pytest.mark.parametrize('typed',[False,True],ids=['legacy','typed-json'])
+@pytest.mark.parametrize('success_only',[False,True],ids=['computed-value','success-flag'])
+def test_native_python_without_files_selector_guard(tmp_path,worker,typed,success_only):
+    from atomic_skillgraph.empirical.system import EmpiricalSystem
+    from atomic_skillgraph.harness.benchmarks import OfficeAdapter
+    from atomic_skillgraph.harness.simple_protocol import Broker
+    class NativeComputeFixture(OfficeAdapter):
+        # Use the real Worker result channel, not timing-dependent diagnostic stdout.
+        def _python(self,source,files,deleted_files=()):
+            program={'id':'native-compute-fixture','source':source,'entry':'run','input_schema':SCHEMA,'output_schema':OUT,
+                'allowed_tools':[],'environment':self.config['program_environment']}
+            result=self.worker.execute(program,self.task.inputs,Broker(self,1))
+            return {'accepted':result['status']=='ok','data':result.get('outputs',{}),'done':False}
+    cfg=config_for(tmp_path/'bank');cfg['harness']={'adapter':'officeqa','corpus_root':str(tmp_path)}
+    task=PublicTask('native','native-physical','Double the given integer',{'n':3})
+    records={task.task_id:{}}
+    adapter=NativeComputeFixture(records,cfg)
+    s=EmpiricalSystem(cfg,harness=adapter,adapter_factory=lambda:NativeComputeFixture(records,cfg));s.worker=worker;adapter.worker=worker
+    try:
+        adapter.reset(task)
+        broker=Broker(adapter,10);broker.call('execute_python',{'source':SOURCE})
+        e=evidence_from_trace(task,{'tools':broker.events},s.config['program_environment'])[0]
+        assert e['reference']['data']=={'value':6} and not e['reference'].get('local_artifact_identities')
+        key='accepted' if success_only else 'value'
+        path=['accepted'] if success_only else ['data','value']
+        output=object_schema({key:{'type':'boolean' if success_only else 'integer'}},[key])
+        source="def run(ctx, inputs):\n    return {'status':'ok','outputs':{"+repr(key)+":"+(
+            "inputs['n']>0" if success_only else "inputs['n']*2")+"}}"
+        p=s.bank.put('program',{'source':source,'entry':'run','input_schema':SCHEMA,'output_schema':output,
+            'allowed_tools':[],'environment':s.config['program_environment']})
+        binding={'case_id':task.physical_key,'inputs':{'n':3},'input_refs':{'n':{'kind':'public_json','path':['inputs','n']}},
+            'local_evidence_ref':e['id'],'reference_fields':{key:{'kind':'json','path':path} if typed else path}}
+        locked=canonical_binding(binding,{'local_evidence':[e]},p)
+        row=validate_on_source(s,p,locked,task,{'local_evidence':[e]},'native-python')
+        assert row['validation']['passed'] is not success_only,row
+        assert s.bank.program_eligible(s.bank.get(p['id'])) is not success_only
+        assert len(s.bank.attempts(p['id']))==1
+        if success_only:assert row['validation']['reason']=='missing_local_effect_reference'
+        record('native_python_'+str(success_only)+'_'+str(typed),{'source_event':broker.events[0],'trial':row})
+    finally:s.close()
+
+
+@pytest.mark.parametrize('missing',['candidate','reference'])
+@pytest.mark.parametrize('typed',[False,True],ids=['legacy','typed-json'])
+def test_parameter_variation_missing_field_records_negative_trial(tmp_path,worker,missing,typed):
+    s,t=setup(tmp_path);s.worker=worker;s.adapter.reset(t)
+    output=object_schema({'value':{'type':'integer'}})
+    incomplete="def run(ctx, inputs):\n    return {'status':'ok','outputs':{'value':inputs['n']*2} if inputs['n']==3 else {}}"
+    reference_source=incomplete if missing=='reference' else SOURCE
+    candidate_source=incomplete if missing=='candidate' else SOURCE
+    asset={'entry':'run','input_schema':SCHEMA,'output_schema':output,'allowed_tools':[], 'environment':s.config['program_environment']}
+    from atomic_skillgraph.harness.simple_protocol import Broker
+    try:
+        reference=worker.execute({**asset,'id':'original','source':reference_source},{'n':3},Broker(s.adapter,1))
+        e={'id':'local:missing','kind':'executed_python','source_physical_key':t.physical_key,
+            'source_trace_sha256':digest(reference),'prefix':[],'public_task':{'inputs':t.inputs},
+            'environment_identity':asset['environment'],'reference':reference['outputs'],
+            'operation':{'source':reference_source,'inputs':{'n':3},'input_schema':SCHEMA,'output_schema':output}}
+        p=s.bank.put('program',{**asset,'source':candidate_source})
+        binding={'case_id':t.physical_key,'inputs':{'n':3},'input_refs':{'n':{'kind':'public_json','path':['inputs','n']}},
+            'local_evidence_ref':e['id'],'reference_fields':{'value':{'kind':'json','path':['value']} if typed else ['value']}}
+        row=validate_on_source(s,p,canonical_binding(binding,{'local_evidence':[e]},p),t,{'local_evidence':[e]},'missing-field')
+        assert row['validation']['reason']=='parameterized_replay_mismatch' and row['validation']['variation'],row
+        if missing=='reference':assert row['validation']['variation']['reference_error']=='Local evidence path does not exist'
+        assert not s.bank.program_eligible(s.bank.get(p['id']))
+        assert len(s.bank.attempts(p['id']))==1 and row['outcome']=='execution_failure'
+        record('missing_field_'+missing+'_'+str(typed),row)
     finally:s.close()

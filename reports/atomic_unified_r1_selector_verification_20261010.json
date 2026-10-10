@@ -1,0 +1,408 @@
+{
+  "scope": "test_atomic_unified, test_atomic_unified_review, test_cf2_realization, test_formal_alignment",
+  "passed": 74,
+  "failed": 0,
+  "skipped": 0,
+  "paid_model_requests": 0,
+  "test_accounting": "70 unchanged cases from the four-module run plus 4 corrected native fixture cases; deduplicated, not 73+4",
+  "native_fixture": "Native Broker compute adapter fixture backed by the production Docker Worker result channel",
+  "docker_image": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783",
+  "cases": [
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_single_source_real_worker_freeze_and_consumption[legacy]",
+      "time": "8.151"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_single_source_real_worker_freeze_and_consumption[typed-json]",
+      "time": "8.062"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_docvqa_actual_pixels_learner_payload_and_readonly_worker",
+      "time": "2.254"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_constant_source_rejected_by_actual_parameter_variation[legacy]",
+      "time": "6.462"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_constant_source_rejected_by_actual_parameter_variation[typed-json]",
+      "time": "6.499"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_local_validation_uses_stable_public_permissions",
+      "time": "6.525"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_local_validation_requires_actual_source_operation",
+      "time": "6.522"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_literal_json_is_not_parameterized_local_evidence",
+      "time": "3.272"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_parent_budget_is_shared_across_roles_retries_and_trial",
+      "time": "0.025"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_matrix_static_allocations_do_not_multiply_total_budget",
+      "time": "0.000"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_effective_settings_and_safe_model_label",
+      "time": "0.047"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_actual_trace_extractor_builder_one_binding_and_freeze[legacy-False]",
+      "time": "6.497"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_actual_trace_extractor_builder_one_binding_and_freeze[legacy-True]",
+      "time": "6.579"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_actual_trace_extractor_builder_one_binding_and_freeze[directory-json-False]",
+      "time": "6.606"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_actual_trace_extractor_builder_one_binding_and_freeze[directory-json-True]",
+      "time": "6.570"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_file_validation_rejects_wrong_effect_before_publication",
+      "time": "4.281"
+    },
+    {
+      "classname": "tests.test_atomic_unified",
+      "name": "test_fixed_runner_60_episodes_share_budget_and_resume_without_http",
+      "time": "2.956"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_recorded_complete_payloads_fit_learning_pool[officeqa-officeqa:UID0170]",
+      "time": "0.219"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_recorded_complete_payloads_fit_learning_pool[officeqa-officeqa:UID0221]",
+      "time": "0.218"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_recorded_complete_payloads_fit_learning_pool[spreadsheetbench-spreadsheet:44296]",
+      "time": "0.121"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_recorded_complete_payloads_fit_learning_pool[spreadsheetbench-spreadsheet:58032]",
+      "time": "0.163"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_old_sheet_proposal_errors_aggregate_and_source_is_not_replaced",
+      "time": "0.109"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_input_provenance_and_host_binding",
+      "time": "0.001"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_structural_repair_actual_purpose_payload_and_recovery",
+      "time": "0.080"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_recorded_sheet_proposal_one_short_repair",
+      "time": "0.110"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_irrecoverable_truncation_and_repair_reasoning_only_reject",
+      "time": "0.160"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_final_payload_too_large_refused_without_http",
+      "time": "0.043"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_train_pools_finish_learning_retry_and_identity",
+      "time": "0.021"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_actual_solve_reservation_preserves_finish_and_learning_pool",
+      "time": "0.058"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_office_runtime_reservation_uses_finish_evidence_contract",
+      "time": "0.070"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_xlsx_effect_time_and_semantic_changes",
+      "time": "0.194"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_formal_and_finite_resolve_same_method_and_static_budget[searchqa]",
+      "time": "0.455"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_formal_and_finite_resolve_same_method_and_static_budget[livemath]",
+      "time": "0.438"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_formal_and_finite_resolve_same_method_and_static_budget[officeqa]",
+      "time": "0.436"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_formal_and_finite_resolve_same_method_and_static_budget[spreadsheetbench]",
+      "time": "0.447"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_xlsx_publication_real_worker_with_host_binding",
+      "time": "6.956"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_parameter_variation_missing_field_records_negative_trial[legacy-candidate]",
+      "time": "6.553"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_parameter_variation_missing_field_records_negative_trial[legacy-reference]",
+      "time": "6.474"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_parameter_variation_missing_field_records_negative_trial[typed-json-candidate]",
+      "time": "6.405"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_parameter_variation_missing_field_records_negative_trial[typed-json-reference]",
+      "time": "6.472"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t26_current_guidance_and_program_goal_reach_http",
+      "time": "0.100"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t27_ninth_relevant_program_enters_menu_and_frozen_filters",
+      "time": "0.389"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t28_second_authorized_route_ready_runs_without_runtime",
+      "time": "2.348"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t29_explicit_output_mapping_automatically_continues",
+      "time": "4.405"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t30_revision_only_cannot_reset_rejected_call_limit",
+      "time": "0.054"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t31_reuse_existing_can_build_a_missing_program",
+      "time": "2.238"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t32_missing_light_binding_waits_without_builder",
+      "time": "0.073"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t33_new_case_fills_unused_trial_slot_and_duplicates_do_not",
+      "time": "2.225"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t34_qa_guidance_only_uses_one_normal_solver",
+      "time": "0.066"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t35_both_length_paths_share_one_32768_recovery[False]",
+      "time": "2.217"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t35_both_length_paths_share_one_32768_recovery[True]",
+      "time": "2.230"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t36_recovery_then_syntax_failure_cannot_generate_third",
+      "time": "0.100"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t37_valid_length_submission_does_not_regenerate",
+      "time": "2.202"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t38_saved_recovery_survives_crash_and_runtime_cap_is_unchanged",
+      "time": "2.555"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t39_file_trial_scores_produced_bundle_without_dynamic_solver[values0]",
+      "time": "11.751"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t39_file_trial_scores_produced_bundle_without_dynamic_solver[values1]",
+      "time": "16.388"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t40_episodes_seeds_frozen_and_real_image_http_are_isolated",
+      "time": "0.229"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t30_real_workspace_progress_allows_a_new_attempt",
+      "time": "0.055"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t39_empty_final_files_cannot_claim_an_old_bundle",
+      "time": "2.210"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t34_guidance_only_cannot_be_built_by_conflicting_trial_request[True]",
+      "time": "0.057"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t34_guidance_only_cannot_be_built_by_conflicting_trial_request[False]",
+      "time": "0.056"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t40_stopped_train_smoke_does_not_start_val_or_another_benchmark",
+      "time": "0.028"
+    },
+    {
+      "classname": "tests.test_cf2_realization",
+      "name": "test_t26_planner_uses_an_object_root_at_actual_http_boundary",
+      "time": "0.049"
+    },
+    {
+      "classname": "tests.test_formal_alignment",
+      "name": "test_all_canonical_members_fixed_and_run_seed_only_changes_train_order",
+      "time": "0.707"
+    },
+    {
+      "classname": "tests.test_formal_alignment",
+      "name": "test_category_quotas_and_preserved_search_and_alf_evaluation_ids",
+      "time": "0.038"
+    },
+    {
+      "classname": "tests.test_formal_alignment",
+      "name": "test_formal_benchmark_config_keeps_method_caps_and_isolates_gold_and_state",
+      "time": "0.015"
+    },
+    {
+      "classname": "tests.test_formal_alignment",
+      "name": "test_actual_http_retry_and_raw_usage_recorded_without_private_reasoning",
+      "time": "0.098"
+    },
+    {
+      "classname": "tests.test_formal_alignment",
+      "name": "test_native_logging_preserves_public_feedback_exactly",
+      "time": "0.003"
+    },
+    {
+      "classname": "tests.test_formal_alignment",
+      "name": "test_formal_native_run_logs_no_extra_calls_and_frozen_hash_is_unchanged",
+      "time": "0.206"
+    },
+    {
+      "classname": "tests.test_formal_alignment",
+      "name": "test_real_artifact_versions_keep_parents_and_candidates_are_not_accepted",
+      "time": "0.075"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_native_python_without_files_selector_guard[computed-value-legacy]",
+      "time": "4.229"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_native_python_without_files_selector_guard[computed-value-typed-json]",
+      "time": "4.241"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_native_python_without_files_selector_guard[success-flag-legacy]",
+      "time": "4.225"
+    },
+    {
+      "classname": "tests.test_atomic_unified_review",
+      "name": "test_native_python_without_files_selector_guard[success-flag-typed-json]",
+      "time": "4.269"
+    }
+  ],
+  "files_sha256": {
+    "src/atomic_skillgraph/empirical/local_validation.py": "1c47fb42d442cc1038b31554fac465e79c879cdc96880e12a75bda70f150932c",
+    "tests/test_atomic_unified.py": "78fd452d6d9fbaa8f2a9465cae119e7b1d9757399d646e64ae56814a7c9bc31a",
+    "tests/test_atomic_unified_review.py": "0e0f97a9ef9f038ad38902bee207c77a80a6c4ed1e25d5414642e16b92cf56c9"
+  },
+  "checks": [
+    "legacy and directory typed JSON -> actual proposal validation -> Host binding -> parameter variation -> usable -> Frozen",
+    "non-source consumption with Frozen unchanged",
+    "native compute accepted, success-only flags rejected, both encodings",
+    "wrong variation values, missing candidate/reference fields recorded as negative trials",
+    "actual XLSX publication passes; filename without published file fails; wrong native operation fails"
+  ],
+  "formal_runs_launched": false,
+  "new_bank_inheritance": false,
+  "new_paid_diagnostic_batch": false,
+  "old_prefixes_retained": 19,
+  "carried_tokens": 571010,
+  "carried_http_attempts": 79,
+  "original_total_limits": {
+    "token_limit": 315232000,
+    "request_limit": 934815
+  },
+  "remaining_limits": {
+    "token_limit": 314660990,
+    "request_limit": 934736
+  }
+}
