@@ -122,6 +122,9 @@ class Learner:
             skill.setdefault('execution_intent', 'program_requested' if requested else 'guidance_only')
             skill.setdefault('result_role', 'intermediate')
             skill = validate_program_declaration(skill, submission_contract(self.system.adapter))
+            if self.system.config['learning'].get('choice_guidance',{}).get('enabled') and 'choices' in getattr(
+                    getattr(self.system.adapter,'task',None),'inputs',{}):
+                skill['guidance'] = ''
             skill.setdefault('id', 'skill_' + digest(skill))
             return skill
         return self.system.bank.get(proposal.get('existing_skill_id') or '')
@@ -202,9 +205,10 @@ class Learner:
             self.cases.append((task, experience))
         for case_task, case in self.cases:
             bank.save_case(case_task, case)
+        if s.config['learning'].get('choice_guidance',{}).get('enabled') and 'choices' in task.inputs:
+            bank.update_choice_statistics()
         if s.adapter.capabilities.interaction == 'single_answer' and not experience['local_evidence']:
             if s.config['learning'].get('choice_guidance', {}).get('enabled') is True and 'choices' in task.inputs:
-                bank.update_choice_statistics()
                 return self._learn_grounded_choice_guidance(task, experience)
             return self._learn_guidance(task, experience)
         cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()}
@@ -244,7 +248,6 @@ class Learner:
             # Choice guidance retains its checked-source contract. General operation
             # learning may publish code, but cannot bypass that contract with new text.
             if s.config['learning'].get('choice_guidance',{}).get('enabled') and 'choices' in task.inputs:
-                asset['guidance'] = ''
                 log['text_publication'] = 'withheld_unchecked_choice_guidance'
             skill = bank.put('skill', asset)
         elif proposal.get('existing_skill_id'):

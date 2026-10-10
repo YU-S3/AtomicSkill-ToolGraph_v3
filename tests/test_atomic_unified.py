@@ -180,8 +180,14 @@ def test_effective_settings_and_safe_model_label(tmp_path):
     finally:s.close()
 
 
-def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypatch,worker):
+@pytest.mark.parametrize('choice',[False,True])
+def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypatch,worker,choice):
     s,t=setup(tmp_path);s.worker=worker;sent=[]
+    if choice:
+        s.config['learning'].setdefault('choice_guidance',{})['enabled']=True
+        s.config['runtime'].setdefault('choice_guidance',{})['enabled']=True
+        from dataclasses import replace
+        t=replace(t,inputs={**t.inputs,'choices':[{'label':'A','text':'6'},{'label':'B','text':'8'}]})
     def post(*a,**kw):
         payload=kw['json'];sent.append(payload);name=payload['tools'][0]['function']['name']
         material=json.loads(payload['messages'][1]['content'])
@@ -208,11 +214,17 @@ def test_actual_trace_extractor_builder_one_binding_and_freeze(tmp_path,monkeypa
         p=s.bank.get(trace['learning']['program'])
         assert s.bank.program_eligible(p) and len(s.bank.train_cases())==1 and len(s.bank.attempts(p['id']))==1
         assert s.bank.jobs()[0]['state']=='done' and s.bank.jobs()[0]['generation_count']==1
+        if choice:
+            from atomic_skillgraph.empirical.choice_guidance import STATS_KEY
+            stats=json.loads(s.bank.db.execute('SELECT value FROM metadata WHERE key=?',(STATS_KEY,)).fetchone()[0])
+            assert stats['N']==1
+            asset=s.bank.all('skill')[0]
+            assert asset['guidance']=='' and asset['id']=='skill_'+digest({k:v for k,v in asset.items() if k!='id'})
         s.bank.freeze(tmp_path/'frozen')
         b=Bank(tmp_path/'frozen',readonly=True)
         try:assert len(b.all('program'))==len(b.all('implementation'))==1 and b.get(p['id'])['local_validation']['passed']
         finally:b.close()
-        write_fixture('full_learning_chain',{'payloads':sent,'trace':trace,'program':p,'job':s.bank.jobs()[0]})
+        write_fixture('full_learning_chain_choice' if choice else 'full_learning_chain',{'payloads':sent,'trace':trace,'program':p,'job':s.bank.jobs()[0]})
     finally:s.close()
 
 
