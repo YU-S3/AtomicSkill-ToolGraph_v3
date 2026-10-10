@@ -1,0 +1,154 @@
+{
+  "verification": {
+    "new_api_calls": 0,
+    "status": "passed",
+    "fixed_batch_status": "completed_fixed_batch",
+    "sources": 60,
+    "eligible": 16,
+    "host_skip": 44,
+    "qualified_guidance": 9,
+    "statistics_N": 60,
+    "no_val_exposure": true,
+    "new_test_calls": 0,
+    "source_runtime_replays": 0,
+    "derived_program_calls": 0,
+    "physical_http_count": 65,
+    "purpose_counts": {
+      "proposal": 16,
+      "grounding": 11,
+      "repair": 4,
+      "runtime": 34
+    },
+    "incremental_tokens": 688595,
+    "unredacted_payload_fingerprints_verified": 61,
+    "redacted_repair_payloads": 4,
+    "frozen_digest": "329a6318e0c983fe16a52973adae9ff7f05b04590b3f51f5ed3e4d43edca0db7",
+    "frozen_unchanged": true,
+    "original_formal_processes_running": [],
+    "offline_regression": "109 passed, 3 skipped",
+    "checkpoint_private_replay_excluded": true
+  },
+  "decision": {
+    "arms": {
+      "A": {
+        "completed": 17,
+        "correct": 4,
+        "empty": 4,
+        "tokens": 365818,
+        "exposed_tasks": 0
+      },
+      "B": {
+        "completed": 0,
+        "correct": 0,
+        "empty": 0,
+        "tokens": 0,
+        "exposed_tasks": 0
+      },
+      "C": {
+        "completed": 17,
+        "correct": 2,
+        "empty": 1,
+        "tokens": 234951,
+        "exposed_tasks": 0
+      }
+    },
+    "B_only_correct": 0,
+    "A_only_correct": 0,
+    "net_gain": 0,
+    "paired": [],
+    "descriptive_strata": {
+      "meta_option": [],
+      "ordinary": []
+    },
+    "method_signal": "no_effective_method_intervention",
+    "cost_reference_arm": "A",
+    "cost_comparison_complete": true,
+    "candidate_effort": "high",
+    "interpretation": "Fixed Val17 diagnostic; not statistical superiority/equivalence or fresh online Train"
+  },
+  "code": {
+    "git_sha": "0099b4a44f415a8e7e418a003ef36d95028ed9b1",
+    "tracked_dirty": false,
+    "source_sha256": "4581c3441de0811b6c4fea76f6232a723810d392204a6f0aaca3499a0a9f4ed3"
+  },
+  "manifest_hash": "258ea04e39b885bdcf0de4392996ac3b51798aac4961fe679f79dc75378610cf",
+  "source_run_id": "555c2e4b69e84ed4b58efe4eacebab26",
+  "config_hash": "242130bb05dfea78e0d325d2770e8d916e2045079e8350655792d5e3f9a39315",
+  "program_status_seed42": [
+    {
+      "benchmark": "livemath",
+      "programs": 0,
+      "states": {},
+      "versions": []
+    },
+    {
+      "benchmark": "searchqa",
+      "programs": 0,
+      "states": {},
+      "versions": []
+    },
+    {
+      "benchmark": "officeqa",
+      "programs": 1,
+      "states": {
+        "candidate": 1
+      },
+      "versions": [
+        {
+          "id": "program_75afdfd145ea8965f1eca03155763aa77495474c20bac14e6239443418ec099f",
+          "state": "candidate",
+          "positive_physical_tasks": []
+        }
+      ]
+    },
+    {
+      "benchmark": "spreadsheetbench",
+      "programs": 2,
+      "states": {
+        "usable": 1,
+        "candidate": 1
+      },
+      "versions": [
+        {
+          "id": "program_242dedb557bff3eaf21d581f67d386bb1484dbe587a74395f32da743b753c5a8",
+          "state": "usable",
+          "positive_physical_tasks": [
+            "279e8e37ab0f96c9243ef13eb0f8dfb2b246272553a8bd1751271e844a93602e",
+            "c3afcf9938e633544f55c016188eedbf1fa6aee78b96790cddb72b86c6d3ba45"
+          ]
+        },
+        {
+          "id": "program_d886e7f49fd63f53d476042a2815350a066f0d627d6d50f87f62763a9ee27b2b",
+          "state": "candidate",
+          "positive_physical_tasks": [
+            "1f5a7abac8b1609171e24f5b482db7b063f4614e4bb31a37efa5a62840381573"
+          ]
+        }
+      ]
+    }
+  ],
+  "incremental_recompile_tokens": 87826,
+  "parent_train_runtime_tokens": 1247149,
+  "parent_total_train_tokens": 1411603,
+  "submission_structure": {
+    "by_physical_submission": {
+      "proposal": {
+        "total": 16,
+        "named_tool_call": 16,
+        "schema_valid": 13
+      },
+      "grounding": {
+        "total": 11,
+        "named_tool_call": 11,
+        "schema_valid": 10
+      },
+      "repair": {
+        "total": 4,
+        "named_tool_call": 4,
+        "schema_valid": 4
+      }
+    },
+    "final_proposal_schema_valid": 15,
+    "final_proposal_sources": 16
+  }
+}
