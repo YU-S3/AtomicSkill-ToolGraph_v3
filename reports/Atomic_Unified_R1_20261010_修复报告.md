@@ -14,7 +14,7 @@
 
 ## 无 LLM 核验
 
-完整生产代码回归得到 389 passed、1 failed、2 skipped；唯一失败来自历史 Learner 测试仍使用当前接口。将该夹具改为同时加载固定旧提交的真实 prompt schema 后，对本轮与历史模块重跑得到 21 passed。按不同用例合并为 **390 passed、0 failed、2 skipped**。两项跳过需要通过 `CF3_REVIEW_RUN` 指定旧 CF2 自然 Bank；本次没有指定该路径。
+完整生产代码回归得到 389 passed、1 failed、2 skipped；唯一失败来自历史 Learner 测试仍使用当前接口。将该夹具改为同时加载固定旧提交的真实 prompt schema 后，对本轮与历史模块重跑得到 21 passed。真实启动发现下述收尾返回值问题，修复后新增 Office 完整生产入口回归，对受影响模块再跑得到 **126 passed**。按不同用例合并为 **391 passed、0 failed、2 skipped**。两项跳过需要通过 `CF3_REVIEW_RUN` 指定旧 CF2 自然 Bank；本次没有指定该路径。
 
 回放真实 Office 截断与 Spreadsheet reasoning-only 响应，保留已存公开内容和 raw usage；归档已删除私有 reasoning，仅为 HTTP 夹具补空的 reasoning 字符串，不重构私有内容。未恢复结构受控拒绝，没有额外求解或晋升。
 
@@ -47,25 +47,24 @@
 
 仅当前 DeepSeek、四个 benchmark、seed42，新目录与独立空 Bank。ALFWorld 暂缓收费；文本模型的 DocVQA 仍为 unsupported；seed43／44 不启动。
 
-WSL 启动环境固定为：
+初次前缀使用提交 `7e4225e1d2d138a9620f6660967d62dcf7bbc602`，在 `/home/yangchengyu/asg_atomic_unified_r1_20261010` 的独立源码副本运行。输出为 `/home/yangchengyu/atomic_unified_r1_seed42_formal_20261010`。前五题是正常 Train 前缀，不追加 Val；已有 Bank 和请求保持原身份。
+
+真实启动确认 OfficeQA 的 Runtime 收尾预留将 `build_finish_evidence` 返回字典错误地解包为二元组，在 HTTP 前发生 `too many values to unpack`。这是 Host 工程错误，不是模型执行失败或预算拒绝。现改为读取真实 `materials` 字段，新增实际 `run_task` + HTTP 截获回归，确认可以正常完成 Runtime 与评分且实际 solve/finish 预留被记录。
+
+OfficeQA 已通过 `STOP_AFTER_TASK` 在第 4 题后停止，原记录、原分数和费用不改。已有 **73,749 tokens、9 HTTP**，均已计量；`SystemExit(75)` 是任务边界停止。旧 Office Bank 不作为修复后空 Bank 的初始资产。仅 Office 在修复提交下新建 run、累计旧费用且不扩大原额度的处理方式已发出确认请求；收到确认前不发出重开请求。
+
+SearchQA、LiveMath 的前五题已完成，SpreadsheetBench 当时仍在执行正常前缀。这三项保留原固定源码和目录。**当前不使用旧四项一键 resume 继续 OfficeQA**。对已完成且工程记录正常的其他 cell，可分别使用真实 CLI 继续同一 Train→Frozen→Val→Test，例如：
 
 ```bash
-export CODE=/home/yangchengyu/asg_atomic_unified_r1_20261010
-export PYTHON=/home/yangchengyu/asg_alfworld_venv/bin/python
-export DATASETS=/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1
-export CORPUS_ROOT=/mnt/d/T3S_exp/SkillCompiler_resources_20261003/raw/officeqa/treasury_bulletins_parsed/transformed
-export ENV_FILE=/mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env
-export OUTPUT_ROOT=/home/yangchengyu/atomic_unified_r1_seed42_formal_20261010
-export EXPECTED_SHA=$(git -C "$CODE" rev-parse HEAD)
-bash "$CODE/scripts/run_atomic_seed42.sh" --print
-bash "$CODE/scripts/run_atomic_seed42.sh" --execute
+cd /home/yangchengyu/asg_atomic_unified_r1_20261010
+PYTHONPATH="$PWD/src" /home/yangchengyu/asg_alfworld_venv/bin/python -m atomic_skillgraph.experiments.run_single_cell \
+  --config configs/atomic_unified_seed42.yaml --benchmark searchqa --seed 42 \
+  --model-key deepseek-v4-flash \
+  --datasets /home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1 \
+  --output /home/yangchengyu/atomic_unified_r1_seed42_formal_20261010/searchqa/seed42 \
+  --env-file /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env --resume
 ```
 
-`--execute` 并行运行各自前五个正常 Train，最多 20 题，随后在任务边界停下，不追加 Val。它们属于正式 Train，后续不重跑、不重建 Bank。检查真实配置、费用、日志与合同记录后，用同提交／同配置／同目录继续余下 Train→Frozen→Val→Test：
-
-```bash
-export EXPECTED_SHA=$(cat "$OUTPUT_ROOT/source_commit.txt")
-bash "$CODE/scripts/run_atomic_seed42.sh" --resume
-```
+LiveMath／SpreadsheetBench 只替换对应 benchmark 和输出目录，先确认前缀进程结束。不要在同一 cell 上同时运行两个进程。通用薄启动器仍用于干净的新四项启动；默认只打印，`--execute` 前五题、`--resume` 同目录后续。使用修复提交启动的新运行必须在实际 source manifest 中明确该提交，不能热改旧 checkout 或旧 manifest。
 
 观察 `logs/<benchmark>.seed42.log`、各 cell 的 `run_manifest.json`、`episodes.jsonl`、`llm_calls.jsonl`、`train/summary.json` 和 `completion.json`。状态和费用以这些实际记录为准。没有自然 Program、正常失败或低分不构成工程停止门槛；确认合同、账本或基础设施错误时只停止受影响 cell。

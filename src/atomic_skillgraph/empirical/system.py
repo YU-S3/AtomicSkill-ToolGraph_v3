@@ -369,7 +369,7 @@ class EmpiricalSystem:
                                 'goal','inputs','local_results','local_reads'}}
                             if self.adapter.capabilities.interaction!='single_answer':
                                 from .finish_evidence import build_finish_evidence
-                                finish_material,_=build_finish_evidence(self.task_context,finish_material,finish_prompt)
+                                finish_material=build_finish_evidence(self.task_context,finish_material,finish_prompt)['materials']
                             finish_provider=self.provider('runtime','finish_only')
                             finish_messages=[{'role':'system','content':finish_prompt},{'role':'user','content':json.dumps(finish_material,ensure_ascii=False)}]
                             finish_cap=self.resolve_call_settings('runtime','finish_only').get('max_completion_tokens',2048)

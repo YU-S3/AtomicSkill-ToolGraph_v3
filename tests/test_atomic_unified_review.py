@@ -250,6 +250,23 @@ def test_actual_solve_reservation_preserves_finish_and_learning_pool(tmp_path,mo
     finally:s.close()
 
 
+def test_office_runtime_reservation_uses_finish_evidence_contract(tmp_path,monkeypatch):
+    from test_cf2_contracts import office
+    s=office(tmp_path)
+    s.config['budget']={'token_limit':200000,'request_limit':20,'finish_reserve':0,
+        'train_task_tokens':200000,'train_solve_tokens':120000,'train_learning_tokens':80000,'eval_task_tokens':96000}
+    s.budget_governor=BudgetGovernor(tmp_path/'budget.json',token_limit=200000,request_limit=20,finish_reserve=0)
+    sent=http(monkeypatch,[response([{'action':'finish','answer':'private'}])])
+    try:
+        trace=s.run_task(s.adapter.task,learn=False)
+        assert trace['score']['hard'] and len(sent)==1
+        assert len(trace['requests'])==1 and not trace['requests'][0].get('error')
+        admission=next(iter(s.budget_governor.state['attempts'].values()))['context']
+        assert admission['budget_pool']=='solve' and admission['budget_pool_limit']==120000
+        assert admission['parent_finish_reserve']>2048
+    finally:s.close()
+
+
 def test_xlsx_effect_time_and_semantic_changes(tmp_path):
     from openpyxl import Workbook, load_workbook
     from datetime import datetime

@@ -5,8 +5,8 @@
   "production_docker_worker": true,
   "regression": {
     "unique_counts": {
-      "skipped": 2,
-      "passed": 390
+      "passed": 391,
+      "skipped": 2
     },
     "full_suite": {
       "skipped": 2,
@@ -17,6 +17,11 @@
     "final_targeted": {
       "skipped": 0,
       "passed": 21,
+      "failed": 0
+    },
+    "finish_contract_regressions": {
+      "passed": 126,
+      "skipped": 0,
       "failed": 0
     }
   },
@@ -121,5 +126,19 @@
     }
   },
   "historical_review_zip_sha256": "6b2d297093666e4d3db2327e3fc8d6ffab25c8c3393b3873485376e9e0a97433",
-  "evidence_directory": "D:\\T3S_exp\\deliveries\\outputs\\atomic_unified_r1_verification_20261010"
+  "evidence_directory": "D:\\T3S_exp\\deliveries\\outputs\\atomic_unified_r1_verification_20261010",
+  "initial_paid_prefix": {
+    "root": "/home/yangchengyu/atomic_unified_r1_seed42_formal_20261010",
+    "officeqa": {
+      "status": "stopped at task boundary",
+      "completed": 4,
+      "fix": "Read materials field; production Office run_task regression passed",
+      "unknown_billing": false,
+      "http_attempts": 9,
+      "known_tokens": 73749,
+      "error": "Host unpacked build_finish_evidence dictionary as a pair before Runtime HTTP",
+      "restart_status": "user confirmation pending; no new Office requests"
+    },
+    "source_commit": "7e4225e1d2d138a9620f6660967d62dcf7bbc602"
+  }
 }
