@@ -103,7 +103,7 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
         if inherit: inherit(system.adapter)
         adapter.reset(task)
         broker = Broker(adapter, system.config['runtime']['global_action_budget'], context=TaskContext(system.config['runtime']))
-        allowed={t['name'] for t in broker.available_tools()}-PROGRAM_FORBIDDEN_TOOLS
+        allowed={t['name'] for t in [*adapter.tool_definitions(),*broker.available_tools()]}-PROGRAM_FORBIDDEN_TOOLS
         if set(program['allowed_tools'])-allowed:raise ValueError('Program permissions exceed the public Adapter surface')
         for action in evidence['prefix']:
             replay = broker.call(action['name'], action['arguments'])

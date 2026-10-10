@@ -149,6 +149,33 @@ def test_constant_source_rejected_by_actual_parameter_variation(tmp_path,worker)
     finally:s.close()
 
 
+def test_local_validation_uses_stable_public_permissions(tmp_path,worker):
+    class FutureAdapter(AnswerAdapter):
+        def tool_definitions(self):
+            return [{'name':'future_action','input_schema':object_schema(),'output_schema':object_schema()}]
+    s,t=setup(tmp_path);s.worker=worker
+    records={t.task_id:{'answers':['6']}}
+    s.adapter=FutureAdapter('searchqa',records,s.config)
+    s.adapter_factory=lambda:FutureAdapter('searchqa',records,s.config)
+    s.adapter.reset(t)
+    try:
+        original=worker.execute(candidate(s),{'n':3},Broker(s.adapter,1))
+        e={'id':'source','kind':'executed_python','source_physical_key':t.physical_key,
+            'source_trace_sha256':digest(original),'prefix':[],'public_task':{'inputs':t.inputs},
+            'environment_identity':s.config['program_environment'],
+            'operation':{'source':SOURCE,'inputs':{'n':3},'input_schema':SCHEMA,'output_schema':OUT},
+            'reference':original['outputs']}
+        binding={'inputs':{'n':3},'prefix':[],'local_evidence_ref':'source','reference_fields':{'value':['value']}}
+        p=s.bank.put('program',{**{k:v for k,v in candidate(s).items() if k!='id'},'allowed_tools':['future_action']})
+        result=validate_on_source(s,p,binding,t,{'local_evidence':[e]},'future-tools')
+        assert result['validation']['passed'] and s.bank.program_eligible(s.bank.get(p['id']))
+        assert not Broker(s.adapter,1).call('future_action',{})['accepted']
+        p=s.bank.put('program',{**{k:v for k,v in p.items() if k!='id'},'allowed_tools':['private_action']})
+        with pytest.raises(ValueError,match='public Adapter surface'):
+            validate_on_source(s,p,binding,t,{'local_evidence':[e]},'private-tools')
+    finally:s.close()
+
+
 def test_parent_budget_is_shared_across_roles_retries_and_trial(tmp_path):
     gov=BudgetGovernor(tmp_path/'budget.json',token_limit=1000,finish_reserve=0,request_limit=8,validation_limit=2)
     ctx={'parent_scope':'one','parent_token_limit':130}
