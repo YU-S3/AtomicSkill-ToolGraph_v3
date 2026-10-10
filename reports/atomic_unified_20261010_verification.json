@@ -1,0 +1,28 @@
+{
+  "full_suite_source_commit": "8bb36b6b08d0c8bf002672b4916e18beea3a808b",
+  "delivered_source_commit": "79aa1c006e39987d88b664cb2ae75d8c1e49be5d",
+  "tests": 374,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 2,
+  "passed": 372,
+  "identity_update_affected_checks": [
+    {
+      "log": "atomic_unified_identity_tests_20261010.log",
+      "passed": 27
+    },
+    {
+      "log": "atomic_unified_identity_lifecycle_tests_20261010.log",
+      "passed": 69
+    }
+  ],
+  "zero_real_model_http": true,
+  "lm1_type_matrix": {
+    "accepted": 4,
+    "ValueError": 52,
+    "TypeError": 0
+  },
+  "lm1_config_combinations": 6,
+  "lm1_old_config_checked": true,
+  "skip_reason": "Two old CF3 natural 12+6 artifact integration fixtures have no configured artifact directory"
+}

@@ -1,14 +1,16 @@
 # AtomicSkill empirical v3.2 atomic-unified
 
-唯一生产入口为 `skillcompiler.empirical.v1`。流程是普通 Skill 接口与指导 → Python Program → 固定真实 Train 试用 → usable 版本 → Workflow/动态执行 → 冻结库与独立评分。
+唯一生产入口为 `skillcompiler.empirical.v1`。流程是真实局部经验 → Skill 接口与指导 → Python Program → 源局部验收 → usable 版本 → Workflow/动态执行 → 冻结库与独立评分。
 
-本轮范围是 Ours。其他方法复现和更多模型 API 接入不在本轮范围；现有 DeepSeek 配置维持 high reasoning，实际模型 ID 如实记录。小样本 pilot 与正式实验使用独立 Bank，pilot 没有问题，也不需要为了正式划分重新跑。
+本轮范围是 Ours。其他方法复现和更多模型 API 接入不在本轮范围；现有 DeepSeek 配置维持 high reasoning，实际模型 ID 如实记录。小样本 pilot 与正式实验使用独立 Bank，正式实验按 canonical manifest 从空 Bank 开始。
 
 当前采用 [统一方法规范](docs/specs/AtomicSkill_多基准多模型统一方法适配与Program复用实现文档_20261010.md)。single_answer 只约束最终提交；原 Runtime 可以直接回答、临时计算或调用局部验收通过的 Program，无额外 Planner。一个真实源局部绑定即可构建，独立参照的局部验收决定 usable；跨题成功只用于复用统计。candidate 不进入 Runtime 菜单或 Frozen。
 
 四项 DeepSeek 有限验证入口为 `python -m atomic_skillgraph.experiments.run_atomic_unified_validation`，依次使用 prepare、check-offline、run。固定 12 Train、16 Val 物理题的三臂共 48 Val 执行；全批 6M tokens、600 HTTP、24 次局部验收，Train 父任务 200K、每个 Val 臂 96K。所有角色与重试共享同一 Governor，原正式实验保持暂停。新正式 campaign 必须提供显式总预算，不能继承旧方法 Bank 或 checkpoint。
 
 LM1 收尾用 `python -m atomic_skillgraph.experiments.review_lm1_archive` 只读回放旧批次，解释字段写入独立目录；不改旧请求、分数、资产或费用。LiveMath 的文字 guidance 继续执行来源检查和原选择规则。其他模型仍留空，文本 DeepSeek 对 DocVQA 标记 unsupported；视觉 fixture 不代表真实模型接入。
+
+本轮结果见[统一方法交付报告](reports/Atomic_Unified_20261010_交付报告.md)与[零模型回归记录](reports/atomic_unified_20261010_verification.json)。唯一收费批次完成 60/60 episode、267 HTTP、2,147,418 tokens；没有自然 Program 生成或消费，因此本轮不扩大正式矩阵。实际受测源码与后续离线修复源码分别保留身份，旧正式实验继续暂停。
 
 以下为历史版本说明与历史结果。
 
