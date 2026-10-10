@@ -99,6 +99,8 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
     if system.adapter_factory is None: raise RuntimeError('Local validation requires an isolated Adapter factory')
     adapter = system.adapter_factory()
     try:
+        inherit = getattr(adapter, 'inherit_discovery', None)
+        if inherit: inherit(system.adapter)
         adapter.reset(task)
         broker = Broker(adapter, system.config['runtime']['global_action_budget'], context=TaskContext(system.config['runtime']))
         allowed={t['name'] for t in broker.available_tools()}-PROGRAM_FORBIDDEN_TOOLS
