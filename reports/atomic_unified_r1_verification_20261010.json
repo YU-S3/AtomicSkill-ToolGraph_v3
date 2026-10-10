@@ -137,8 +137,9 @@
       "http_attempts": 9,
       "known_tokens": 73749,
       "error": "Host unpacked build_finish_evidence dictionary as a pair before Runtime HTTP",
-      "restart_status": "user confirmation pending; no new Office requests"
+      "restart_status": "User explicitly deferred restart; original run remains stopped. No new OfficeQA paid requests."
     },
-    "source_commit": "7e4225e1d2d138a9620f6660967d62dcf7bbc602"
+    "source_commit": "7e4225e1d2d138a9620f6660967d62dcf7bbc602",
+    "current_status": "All four cells stopped; SearchQA, LiveMath and SpreadsheetBench each completed five Train tasks; OfficeQA completed four affected tasks."
   }
 }

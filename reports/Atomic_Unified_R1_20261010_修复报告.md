@@ -51,9 +51,9 @@
 
 真实启动确认 OfficeQA 的 Runtime 收尾预留将 `build_finish_evidence` 返回字典错误地解包为二元组，在 HTTP 前发生 `too many values to unpack`。这是 Host 工程错误，不是模型执行失败或预算拒绝。现改为读取真实 `materials` 字段，新增实际 `run_task` + HTTP 截获回归，确认可以正常完成 Runtime 与评分且实际 solve/finish 预留被记录。
 
-OfficeQA 已通过 `STOP_AFTER_TASK` 在第 4 题后停止，原记录、原分数和费用不改。已有 **73,749 tokens、9 HTTP**，均已计量；`SystemExit(75)` 是任务边界停止。旧 Office Bank 不作为修复后空 Bank 的初始资产。仅 Office 在修复提交下新建 run、累计旧费用且不扩大原额度的处理方式已发出确认请求；收到确认前不发出重开请求。
+OfficeQA 已通过 `STOP_AFTER_TASK` 在第 4 题后停止，原记录、原分数和费用不改。已有 **73,749 tokens、9 HTTP**，均已计量；`SystemExit(75)` 是任务边界停止。收尾接口修复提交为 `724d3e91fab82c7f63e0eb4ad7d43540d094f097`。用户随后明确要求“先不重开 OfficeQA”；保持停止，没有新建收费 run，也没有继承旧 Office Bank。
 
-SearchQA、LiveMath 的前五题已完成，SpreadsheetBench 当时仍在执行正常前缀。这三项保留原固定源码和目录。**当前不使用旧四项一键 resume 继续 OfficeQA**。对已完成且工程记录正常的其他 cell，可分别使用真实 CLI 继续同一 Train→Frozen→Val→Test，例如：
+SearchQA、LiveMath、SpreadsheetBench 均已完成各自五题前缀，并在任务边界停止。这三项保留原固定源码和目录；当前无实验进程在运行。**当前不使用旧四项一键 resume 继续 OfficeQA**。对已完成且工程记录正常的其他 cell，可分别使用真实 CLI 继续同一 Train→Frozen→Val→Test，例如：
 
 ```bash
 cd /home/yangchengyu/asg_atomic_unified_r1_20261010
