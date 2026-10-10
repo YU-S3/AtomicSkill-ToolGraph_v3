@@ -13,9 +13,12 @@ def input_token_bound(payload):
 
 
 class BudgetGovernor:
-    def __init__(self, path, *, token_limit=5000000, finish_reserve=500000, request_limit=205):
+    def __init__(self, path, *, token_limit=5000000, finish_reserve=500000, request_limit=205,
+                 proposal_repair_limit=None):
         self.path, self.lock = Path(path), RLock()
         self.limits = dict(token_limit=token_limit, finish_reserve=finish_reserve, request_limit=request_limit)
+        if proposal_repair_limit is not None:
+            self.limits['proposal_repair_limit'] = proposal_repair_limit
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {
             'limits': self.limits, 'attempts': {}, 'unknown_billing': False}
         if self.state['limits'] != self.limits: raise ValueError('Governor identity changed')
@@ -27,6 +30,8 @@ class BudgetGovernor:
         with self.lock:
             attempts = self.state['attempts']
             if audit_id in attempts: raise ValueError('Duplicate HTTP audit identity')
+            if context.get('decision_purpose') == 'repair' and not self.repair_available():
+                raise ValueError('Batch proposal repair limit reached')
             reserved = input_token_bound(payload) + payload.get('max_tokens', payload.get('max_completion_tokens', 0))
             used = sum(a.get('accounted_tokens', a['reserved_tokens']) for a in attempts.values())
             cap = self.limits['token_limit'] - (0 if context.get('purpose') == 'finish_only' else self.limits['finish_reserve'])
@@ -40,6 +45,11 @@ class BudgetGovernor:
             attempts[audit_id] = {'reserved_tokens': reserved, 'input_estimate': input_token_bound(payload),
                 'estimate_method': 'utf8_byte_upper_bound_text', 'context': dict(context), 'status': 'admitted'}
             save_json(self.path, self.state)
+
+    def repair_available(self):
+        limit = self.limits.get('proposal_repair_limit')
+        return limit is None or sum(a['context'].get('decision_purpose') == 'repair'
+                                   for a in self.state['attempts'].values()) < limit
 
     def complete(self, record):
         with self.lock:

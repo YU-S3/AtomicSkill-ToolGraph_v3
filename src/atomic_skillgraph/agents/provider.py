@@ -171,6 +171,7 @@ class OpenAICompatibleProvider:
 
     def _build_payload(
         self, messages: list[AgentMessage], tools: list[NativeToolSpec] | None,
+        tool_choice: dict | None = None,
     ) -> dict[str, Any]:
         normalized_messages = _validate_deepseek_messages(messages, allow_images='image' in self.config.input_modalities)
         normalized_tools = list(tools or [])
@@ -188,6 +189,15 @@ class OpenAICompatibleProvider:
             payload['thinking'] = {'type': self.config.thinking_type}
         if normalized_tools:
             payload["tools"] = [tool.to_openai() for tool in normalized_tools]
+        if tool_choice is not None:
+            if (not isinstance(tool_choice, dict) or set(tool_choice) != {'type', 'function'} or
+                tool_choice.get('type') != 'function' or not isinstance(tool_choice.get('function'), dict) or
+                set(tool_choice['function']) != {'name'} or
+                tool_choice['function']['name'] not in {tool.name for tool in normalized_tools}):
+                raise ValueError('Named tool_choice must identify an actual request tool')
+            if self.config.dialect == 'deepseek_v4_chat' and self.config.thinking_type != 'disabled':
+                raise ValueError('Named tool_choice requires disabled thinking')
+            payload['tool_choice'] = copy.deepcopy(tool_choice)
         if self.config.generation_seed is not None:
             payload['seed'] = self.config.generation_seed
         return payload
@@ -198,9 +208,10 @@ class OpenAICompatibleProvider:
         *,
         tools: list[NativeToolSpec] | None = None,
         max_completion_tokens: int | None = None,
+        tool_choice: dict | None = None,
     ) -> AgentTurn:
         normalized_tools = list(tools or [])
-        payload = self._build_payload(messages, normalized_tools)
+        payload = self._build_payload(messages, normalized_tools, tool_choice) if tool_choice is not None else self._build_payload(messages, normalized_tools)
         if max_completion_tokens is not None:
             if type(max_completion_tokens) is not int or max_completion_tokens <= 0:
                 raise ValueError('Request completion cap must be positive')
@@ -238,6 +249,8 @@ class OpenAICompatibleProvider:
             'tools': copy.deepcopy(payload.get('tools', [])),
             'captured_after_build_payload': True,
         }
+        if tool_choice is not None:
+            self._request_context.final_payload_audit['tool_choice'] = copy.deepcopy(payload['tool_choice'])
         if payload.get('tools', []) != [tool.to_openai() for tool in normalized_tools]:
             raise ValueError('Final provider tools differ from requested tools')
         api_key = self.config.resolve_api_key()

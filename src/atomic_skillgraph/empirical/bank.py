@@ -151,6 +151,20 @@ class Bank:
         return sorted((a for a in assets if a['id'] not in superseded), key=lambda a: (
             -len(words & self.words(a.get('goal', '') + ' ' + a['guidance'])), a['id']))[:limit]
 
+    def update_choice_statistics(self):
+        from .choice_guidance import retrieval_stats, STATS_KEY
+        self._writable()
+        stats = retrieval_stats(self.train_cases())
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO metadata VALUES(?,?)',
+                            (STATS_KEY, json.dumps(stats, ensure_ascii=False, sort_keys=True)))
+        return stats
+
+    def select_guidance(self, task, policy):
+        from .choice_guidance import select, STATS_KEY
+        row = self.db.execute('SELECT value FROM metadata WHERE key=?', (STATS_KEY,)).fetchone()
+        return select(self.all('skill'), json.loads(row[0]) if row else None, task, policy)
+
     def guidance_retrieval_audit(self, query, assets):
         words = self.words(query)
         return [{'rank': i, 'skill_id': a['id'], 'matched_words': sorted(words & self.words(a.get('goal', '')+' '+a['guidance'])),

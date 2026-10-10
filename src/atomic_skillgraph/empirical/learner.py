@@ -9,7 +9,8 @@ from .task_context import TaskContext
 from .program_worker import program_permission_view
 from .model_view import project, model_task, pack_material, learning_preview
 from .program_submission import validate_program_declaration, submission_contract, ProgramContractError
-from . import LEARNING_MATERIAL_VERSION, GUIDANCE_POLICY_VERSION
+from . import (LEARNING_MATERIAL_VERSION, GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_MATERIAL_VERSION,
+               CHOICE_GUIDANCE_POLICY_VERSION)
 
 
 class Learner:
@@ -43,9 +44,10 @@ class Learner:
                 'result': {'result_id': result_id, **{k:learning_preview(context,v) for k,v in context.results[result_id].items()}}})
         return view
 
-    def _receive(self, key, stage, prompt, material, name, schema, **kwargs):
+    def _receive(self, key, stage, prompt, material, name, schema, *, material_version=None, **kwargs):
         s = self.system
-        material = {**material, 'learning_material_version': LEARNING_MATERIAL_VERSION}
+        version = material_version or LEARNING_MATERIAL_VERSION
+        material = {**material, 'learning_material_version': version}
         # Old paid responses remain attached to their original material. Migration is explicit.
         if s.checkpoint and key in s.checkpoint.state:
             raise ValueError('Legacy learning response requires explicit recovery/defer; no cross-version reuse')
@@ -58,20 +60,26 @@ class Learner:
                 paid = paid or any(q.get('owner_state_version') == key and q.get('http_attempts')
                                    for q in prior.get('requests', []))
             if paid: raise ValueError('Paid legacy material requires explicit recovery/defer')
-        key += '_' + LEARNING_MATERIAL_VERSION.replace('.', '_').replace('-', '_')
+        key += '_' + version.replace('.', '_').replace('-', '_')
         if s.checkpoint:
             snapshot = s.checkpoint.state.get(key + '_request_material')
             if snapshot is None:
                 s.checkpoint.advance(s.checkpoint.state['stage'], **{
                     key + '_request_material': material, key + '_request_schema': schema})
             else:
+                if version == CHOICE_GUIDANCE_MATERIAL_VERSION and (snapshot != material or
+                    s.checkpoint.state.get(key + '_request_schema') != schema):
+                    raise ValueError('Choice guidance source/material/schema changed across recovery')
                 material = snapshot
                 # A completed decision retains its original dynamic ID enum,
                 # even when applying that decision has added assets to Bank.
                 schema = s.checkpoint.state.get(key + '_request_schema', schema)
         semantics = digest([stage, prompt, material, name, schema,
             {k:v for k,v in kwargs.items() if k in ('completion_override','repair_limit','repair_reason','job_key','decision_purpose')},
-            s.config['experiment']['implementation_revision'], LEARNING_MATERIAL_VERSION, GUIDANCE_POLICY_VERSION])
+            s.config['experiment']['implementation_revision'], version, GUIDANCE_POLICY_VERSION])
+        if version == CHOICE_GUIDANCE_MATERIAL_VERSION:
+            semantics = digest([semantics, s.config['learning']['choice_guidance'],
+                                s.config['llm'], s.resolve_call_settings(stage, kwargs.get('decision_purpose'))])
         if s.checkpoint and key in s.checkpoint.state:
             if s.checkpoint.state.get(key + '_semantics') != semantics:
                 raise ValueError('Cached learning response semantics changed')
@@ -194,6 +202,9 @@ class Learner:
         for case_task, case in self.cases:
             bank.save_case(case_task, case)
         if s.adapter.capabilities.interaction == 'single_answer':
+            if s.config['learning'].get('choice_guidance', {}).get('enabled') is True and 'choices' in task.inputs:
+                bank.update_choice_statistics()
+                return self._learn_grounded_choice_guidance(task, experience)
             return self._learn_guidance(task, experience)
         cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()}
         jobs = bank.jobs()
@@ -354,6 +365,78 @@ class Learner:
         if s.checkpoint:
             s.checkpoint.advance(s.checkpoint.state['stage'], **{result_key: log})
         return log
+
+    def _learn_grounded_choice_guidance(self, task, experience):
+        from .choice_guidance import build_verified_public_source, validate_proposal, validate_check, render, words
+        from .prompts import CHOICE_PROPOSAL, GUIDANCE_CHECK, CHOICE_LEARNER_PROMPT, GUIDANCE_CHECK_PROMPT
+        s, bank = self.system, self.system.bank
+        key = 'choice_guidance_result_v1'
+        if s.checkpoint and key in s.checkpoint.state: return s.checkpoint.state[key]
+        source = build_verified_public_source(task, experience, {
+            'projection_version': s.request_attribution.get('projection_version') or
+                                  s.config['experiment'].get('choice_projection_version'),
+            'source_run_id': s.request_attribution.get('source_run_id') or s.config['experiment'].get('run_id') or
+                             getattr(s.observer, 'manifest', {}).get('run_id'),
+            'source_record_hash': s.request_attribution.get('source_record_hash')})
+        log = {'decision': None, 'program': None, 'tests': [], 'errors': [], 'evidence': source,
+               'guidance_policy_version': CHOICE_GUIDANCE_POLICY_VERSION, 'persisted_skill_id': None}
+        def finish():
+            if s.checkpoint: s.checkpoint.advance(s.checkpoint.state['stage'], **{key: log})
+            return log
+        if not source['eligible']:
+            log.update(decision='no_change', decision_origin='host', reason=source['reason'])
+            return finish()
+        policy = {**s.config['runtime'].get('choice_guidance', {}),
+                  'max_items': s.config['learning']['choice_guidance']['max_related_assets'], 'max_total_chars': 2400}
+        selection = bank.select_guidance(task, policy)
+        related = selection['selected']
+        context = {'source': source, 'related': related, 'selection': selection}
+        if s.checkpoint:
+            saved = s.checkpoint.state.get('choice_guidance_context_v1')
+            if saved:
+                if saved['source'] != source: raise ValueError('Choice source changed across recovery')
+                context = saved
+            else: s.checkpoint.advance(s.checkpoint.state['stage'], choice_guidance_context_v1=context)
+        related, selection = context['related'], context['selection']
+        log['selection_audit'] = selection
+        schema = deepcopy(CHOICE_PROPOSAL)
+        if related: schema['properties']['existing_skill_id']['enum'] = [a['id'] for a in related]
+        else: schema['properties'].pop('existing_skill_id')
+        validator = lambda p: validate_proposal(p, source, related, schema)
+        material = {'source': deepcopy(source), 'public_choices': deepcopy(task.inputs['choices']),
+                    'source_context': deepcopy(task.inputs), 'related_guidance': [render(a) for a in related],
+                    'normalized_source_topic_words': sorted(words(task.goal)), 'normalizer_version': 'choice-guidance.normalizer.v1'}
+        try:
+            proposal = self._receive('choice_guidance_proposal', 'extractor', CHOICE_LEARNER_PROMPT, material,
+                'submit_learning', schema, validator=validator, repair_limit=s.config['learning']['guidance_repair_limit'],
+                decision_purpose='guidance_learning', material_version=CHOICE_GUIDANCE_MATERIAL_VERSION)
+            old = validator(proposal)
+            log.update(decision=proposal['decision'], proposal=proposal, proposal_hash=digest(proposal))
+            if proposal['decision'] == 'reuse_existing':
+                log.update(reused_skill_id=old['id'], source_association={'source': source, 'skill_id': old['id'],
+                           'qualification': 'association_not_additional_proof'})
+            elif proposal['decision'] == 'upsert_guidance':
+                check = self._receive('choice_guidance_grounding_' + digest(proposal), 'extractor', GUIDANCE_CHECK_PROMPT,
+                    {'source': deepcopy(source), 'public_choices': deepcopy(task.inputs['choices']), 'proposal': proposal,
+                     'proposal_hash': digest(proposal), 'policy_version': CHOICE_GUIDANCE_POLICY_VERSION},
+                    'submit_guidance_check', GUIDANCE_CHECK,
+                    validator=lambda c: validate_check(c, proposal, source, GUIDANCE_CHECK), repair_limit=0,
+                    decision_purpose='guidance_grounding', material_version=CHOICE_GUIDANCE_MATERIAL_VERSION)
+                log['grounding_check'] = check
+                if not validate_check(check, proposal, source, GUIDANCE_CHECK):
+                    log.update(decision='rejected', rejected=True, reason='grounding_' + check['status'])
+                else:
+                    asset = {k: deepcopy(proposal[k]) for k in ('goal', 'guidance', 'scope_terms', 'applicability')}
+                    asset.update(evidence_source=deepcopy(source), grounding_check={**check, 'source_hash': digest(source)},
+                        grounded_proposal=deepcopy(proposal), guidance_policy_version=CHOICE_GUIDANCE_POLICY_VERSION,
+                        execution_intent='guidance_only', result_role='final_answer',
+                        input_schema={'type': 'object'}, output_schema={'type': 'object'})
+                    if old: asset['parent_skill_id'] = old['id']
+                    saved = bank.put('skill', asset)
+                    log.update(persisted_skill_id=saved['id'], parent_skill_id=saved.get('parent_skill_id'))
+        except ValueError as exc:
+            log.update(decision='rejected', rejected=True, reason='proposal_or_grounding_invalid', errors=[str(exc)])
+        return finish()
 
     def _merge_request(self, job, request, skill, cases, experience, new_experience, log):
         bank = self.system.bank

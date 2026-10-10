@@ -12,7 +12,8 @@ from ..agents.usage import UsageLedger
 from ..agents.session import repair_messages
 from ..core.errors import BudgetExhausted, FailureLayer
 from ..harness.simple_protocol import Broker, EpisodeResult
-from . import PROFILE, POLICY_DEFAULTS
+from . import (PROFILE, POLICY_DEFAULTS, CHOICE_GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_MATERIAL_VERSION,
+               CHOICE_GUIDANCE_SELECTION_VERSION, SINGLE_ANSWER_PROMPT_VERSION)
 from .bank import Bank
 from .contracts import PublicTask, RuntimeDecision, digest
 from .task_context import TaskContext
@@ -33,7 +34,7 @@ def validate_config(config):
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
     overrides = config.get('llm', {}).get('purpose_overrides', {})
-    if set(overrides) - {'finish_only', 'guidance_learning'}:
+    if set(overrides) - {'finish_only', 'guidance_learning', 'guidance_grounding'}:
         raise ValueError('Unsupported purpose override')
     for settings in overrides.values():
         if set(settings) - {'protocol', 'max_completion_tokens', 'reasoning_effort'}:
@@ -55,6 +56,28 @@ def validate_config(config):
         raise ValueError('First build requires two independent Train cases')
     if config.get("schema_version") != "empirical.v1":
         raise ValueError("Empirical System requires a fresh empirical.v1 schema")
+    choices = {
+        'learning': {'enabled': False, 'policy_version': CHOICE_GUIDANCE_POLICY_VERSION,
+                     'material_version': CHOICE_GUIDANCE_MATERIAL_VERSION, 'max_related_assets': 2,
+                     'source_check_required': True},
+        'runtime': {'enabled': False, 'selection_version': CHOICE_GUIDANCE_SELECTION_VERSION,
+                    'prompt_version': SINGLE_ANSWER_PROMPT_VERSION, 'max_items': 2, 'max_total_chars': 2400}}
+    for section, defaults in choices.items():
+        supplied = config[section].get('choice_guidance')
+        if supplied is None: continue
+        if not isinstance(supplied, dict) or set(supplied) - set(defaults):
+            raise ValueError('Invalid ' + section + '.choice_guidance fields')
+        supplied = {**defaults, **supplied}
+        for key, expected in defaults.items():
+            value = supplied[key]
+            if type(value) is not type(expected) or (key != 'enabled' and value != expected):
+                raise ValueError('Invalid choice_guidance policy: ' + key)
+        config[section]['choice_guidance'] = supplied
+    if config['learning'].get('choice_guidance', {}).get('enabled'):
+        for purpose, cap in [('guidance_learning', 2048), ('guidance_grounding', 1536)]:
+            settings = overrides.get(purpose, {})
+            if settings.get('protocol', {}).get('thinking_type') != 'disabled' or settings.get('max_completion_tokens') != cap:
+                raise ValueError('Choice guidance requires bounded disabled-thinking override: ' + purpose)
     allowed = {'mechanism_profile', 'schema_version', 'data_dir', 'experiment', 'harness', 'runtime',
                'learning', 'planning', 'program_worker', 'program_environment', 'llm', 'benchmark_profile', 'manifest'}
     if set(config) - allowed:
@@ -193,6 +216,14 @@ class EmpiricalSystem:
         settings = self.resolve_call_settings(stage, purpose)
         provider = self.provider(stage, purpose)
         tools = [NativeToolSpec(name, "Submit the requested result", schema)] if name else []
+        choice_learning = (self.config['learning'].get('choice_guidance', {}).get('enabled') is True and
+                           self.adapter.capabilities.interaction == 'single_answer' and
+                           materials.get('learning_material_version') == CHOICE_GUIDANCE_MATERIAL_VERSION and
+                           purpose in {'guidance_learning', 'guidance_grounding'})
+        tool_choice = ({'type': 'function', 'function': {'name': name}} if choice_learning and
+                       settings.get('protocol', {}).get('thinking_type') == 'disabled' and name else None)
+        def repair_available():
+            return not choice_learning or not self.budget_governor or self.budget_governor.repair_available()
         messages = [{"role": "system", "content": prompt},
                     {"role": "user", "content": json.dumps(materials, ensure_ascii=False, allow_nan=False)}]
         content_parts = materials.get('content_parts') if isinstance(materials, dict) else None
@@ -232,6 +263,9 @@ class EmpiricalSystem:
                                    'effective_call_settings': settings,
                                    'policy': self.config['runtime']['plan_execution_policy'],
                                    'implementation_revision': self.config['experiment']['implementation_revision']})
+            if choice_learning:
+                response_key = digest([response_key, tool_choice, self.config['learning']['choice_guidance'],
+                                       self.config['runtime'].get('choice_guidance')])
             recovered = self.checkpoint.response(response_key) if self.checkpoint else None
             request_id = recovered['request_id'] if recovered else uuid4().hex
             provider_offset = getattr(provider, "request_record_count", 0)
@@ -241,6 +275,9 @@ class EmpiricalSystem:
                       "phase": self.phase, 'budget_scope': self.budget_scope,
                       "messages": messages, "tools": [t.to_openai() for t in tools]}
             record.update(completion_cap=completion_cap, repair_reason=repair_reason, job_key=job_key)
+            if choice_learning:
+                record.update(tool_choice=tool_choice, decision_purpose=('repair' if repair else
+                    'grounding' if purpose == 'guidance_grounding' else 'proposal'))
             if stage == 'extractor' and 'candidate_view_version' in materials:
                 record.update({k: deepcopy(materials[k]) for k in ('candidate_view_version', 'candidate_view_audit')})
             record['effective_call_settings_hash'] = digest(settings)
@@ -265,8 +302,10 @@ class EmpiricalSystem:
                             purpose=purpose, logical_decision_id=decision_id, parent_task_id=self.request_attribution.get('parent_task_id'),
                             trial_id=self.budget_scope if self.phase == 'trial' else None,
                             trial_execution_id=self.checkpoint.state.get('execution_id') if self.phase == 'trial' and self.checkpoint else None,
-                            **{k:v for k,v in self.request_attribution.items() if k != 'parent_task_id'})
+                            **{k:v for k,v in self.request_attribution.items() if k != 'parent_task_id'},
+                            **({'decision_purpose': record['decision_purpose']} if choice_learning else {}))
                     kwargs = {'max_completion_tokens': completion_cap} if isinstance(provider, OpenAICompatibleProvider) or completion_override is not None else {}
+                    if tool_choice is not None: kwargs['tool_choice'] = tool_choice
                     turn = provider.complete(messages, tools=tools, **kwargs)
                     if self.checkpoint:
                         records = getattr(provider, 'request_records_since', None)
@@ -280,6 +319,7 @@ class EmpiricalSystem:
                 if turn is not None:
                     turn.provider_metadata['phase'] = self.phase
                     turn.provider_metadata['budget_scope'] = self.budget_scope
+                    if choice_learning: turn.provider_metadata['decision_purpose'] = record['decision_purpose']
                     prior = json.loads(Path(self.audit_path).read_text())['usage'] if self.audit_path and Path(self.audit_path).exists() else []
                     if not any(e['session_id'] == request_id for e in prior) and not any(e.session_id == request_id for e in self.usage.events):
                         self.usage.record_turn(session_id=request_id, turn_index=0, bucket=STAGE_BUCKETS[stage], turn=turn)
@@ -295,7 +335,7 @@ class EmpiricalSystem:
                 record["error"] = str(exc)
                 self._save_requests()
                 if isinstance(exc, ProviderAgentProtocolError) or invalid_finish_text:
-                    if repair < repair_limit and turn.finish_reason != 'length':
+                    if repair < repair_limit and turn.finish_reason != 'length' and repair_available():
                         commit('prepared', repair + 1)
                         messages.append({'role': 'user', 'content': 'Repair only the invalid ToolCall JSON: ' + str(exc)[:2048]})
                         continue
@@ -311,11 +351,16 @@ class EmpiricalSystem:
                 if records and not recovered:
                     record["http_attempts"] = list(records(provider_offset))
                 self._save_requests()
+            if self.budget_governor and (self.budget_governor.state['unknown_billing'] or sum(
+                a.get('accounted_tokens', a['reserved_tokens']) for a in self.budget_governor.state['attempts'].values()
+            ) > self.budget_governor.limits['token_limit']):
+                raise BudgetExhausted('diagnostic_budget_exhausted', 'Batch stopped before applying an unmetered or over-budget response')
             prior_usage = json.loads(Path(self.audit_path).read_text())['usage'] if self.audit_path and Path(self.audit_path).exists() else []
             if not any(e['session_id'] == request_id for e in prior_usage) and not any(
                     e.session_id == request_id for e in self.usage.events):
                 turn.provider_metadata['phase'] = self.phase
                 turn.provider_metadata['budget_scope'] = self.budget_scope
+                if choice_learning: turn.provider_metadata['decision_purpose'] = record['decision_purpose']
                 self.usage.record_turn(session_id=request_id, turn_index=0, bucket=STAGE_BUCKETS[stage], turn=turn)
             record["response"] = {"content": turn.content, "finish_reason": turn.finish_reason,
                 "tool_calls": [{"id": c.call_id, "name": c.name, "arguments": c.arguments} for c in turn.tool_calls],
@@ -326,6 +371,8 @@ class EmpiricalSystem:
             if self._budget(stage)[0] > cap:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Metered turn exceeded role budget', layer=FailureLayer.RUNTIME_AGENT)
             try:
+                if choice_learning and turn.finish_reason == 'length':
+                    raise ValueError('Truncated choice guidance response')
                 if not name:
                     if purpose == 'finish_only':
                         if turn.tool_calls:
@@ -358,14 +405,25 @@ class EmpiricalSystem:
                     if name == 'submit_program':
                         raise ValueError('builder_submission_tool_mismatch: expected=[submit_program], received=' +
                                          json.dumps([call.name for call in turn.tool_calls]))
-                    raise ValueError("Expected one " + name + " ToolCall")
+                    details = ''
+                    if choice_learning and isinstance(turn.content, str):
+                        try:
+                            from ..agents.protocol import parse_json_strict
+                            text_value = parse_json_strict(turn.content)
+                            if validator: validator(text_value)
+                            else: validate_schema_instance(text_value, schema)
+                        except (ValueError, TypeError) as field_error:
+                            details = '; text arguments: ' + str(field_error)
+                    raise ValueError("Expected one " + name + " ToolCall" + details)
                 value = turn.tool_calls[0].arguments
-                validate_schema_instance(value, schema)
-                if validator:
+                if choice_learning and validator:
                     validator(value)
+                else:
+                    validate_schema_instance(value, schema)
+                    if validator: validator(value)
                 return accepted(value, repair)
             except ValueError as exc:
-                if repair == repair_limit or (turn.finish_reason == 'length' and not turn.tool_calls):
+                if repair == repair_limit or (turn.finish_reason == 'length' and not turn.tool_calls) or not repair_available():
                     exc.model_authored = True
                     exc.finish_reason = turn.finish_reason
                     exc.logical_decision_id = decision_id
@@ -448,13 +506,18 @@ class EmpiricalSystem:
         try:
             if self.adapter.capabilities.interaction == "single_answer":
                 # No extra planning solve, and no protocol repair/re-solving.
-                guidance = self.bank.retrieve_guidance(task.goal, limit=3)
+                from .choice_guidance import valid_choices, render
+                from .prompts import single_answer_prompt
+                semantic = self.config['runtime'].get('choice_guidance', {}).get('enabled') is True and valid_choices(task)
+                selection = self.bank.select_guidance(task, self.config['runtime']['choice_guidance']) if semantic else None
+                guidance = selection['selected'] if selection else self.bank.retrieve_guidance(task.goal, limit=3)
                 trace['retrieved_guidance_ids'] = [a['id'] for a in guidance]
                 trace['injected_guidance_ids'] = list(trace['retrieved_guidance_ids'])
-                trace['guidance_retrieval_audit'] = self.bank.guidance_retrieval_audit(task.goal, guidance)
-                answer = self.agent("runtime", "Answer the question once using only the public input and any supplied guidance. " +
-                    getattr(self.adapter, 'answer_contract', lambda: '')(),
-                    {"goal": task.goal, "inputs": task.inputs, "guidance": [
+                trace['guidance_retrieval_audit'] = selection if selection else self.bank.guidance_retrieval_audit(task.goal, guidance)
+                if semantic: trace['single_answer_prompt_version'] = SINGLE_ANSWER_PROMPT_VERSION
+                answer = self.agent("runtime", single_answer_prompt(
+                    getattr(self.adapter, 'answer_contract', lambda: '')(), semantic=semantic),
+                    {"goal": task.goal, "inputs": task.inputs, "guidance": [render(a) if semantic else
                         {'skill_id': a['id'], 'goal': a['goal'], 'guidance': a['guidance']} for a in guidance],
                      'content_parts': getattr(self.adapter, 'content_parts', lambda: [])()}, None, None,
                     owner_state_version='single_solver')
@@ -498,6 +561,34 @@ class EmpiricalSystem:
             if self.readonly and trace["knowledge_after"] != before:
                 raise RuntimeError("Frozen Bank changed during evaluation")
         return trace
+
+    def learn_from_completed_record(self, task, experience, identity):
+        """Explicit paid recompile event; inherited submission is never a new Runtime answer."""
+        if self.readonly or task.split != 'train' or self.adapter.capabilities.interaction != 'single_answer':
+            raise ValueError('Recompile requires a writable single-answer Train event')
+        if not self.checkpoint or not self.audit_path: raise ValueError('Recompile requires a durable event checkpoint and audit')
+        if self.checkpoint.state.get('source_identity') not in (None, identity): raise ValueError('Recompile source identity changed')
+        self.checkpoint.advance(self.checkpoint.state['stage'], source_identity=identity)
+        self._task_start = self._runtime_start = len(self.usage.events)
+        self._request_start = len(self.requests)
+        self._learning_start = None
+        self.phase, self.budget_scope = 'train', 'recompile:' + identity['source_record_hash']
+        self.prior_usage = json.loads(Path(self.audit_path).read_text())['usage'] if Path(self.audit_path).exists() else []
+        self.task_context = TaskContext(self.config['runtime'])
+        self.request_attribution = {**identity, 'parent_task_id': task.task_id}
+        if self.checkpoint.state.get('recompile_result'): return self.checkpoint.state['recompile_result']
+        trace = {'execution': {'prediction': experience['submission'], 'attempts': [],
+                 **{k: experience.get(k) for k in ('answer_status', 'empty_answer', 'completion_truncated', 'provider_finish_reason')}},
+                 'score': experience['score'], 'tools': [], 'inherited_experience': deepcopy(experience)}
+        try:
+            self.learn_trace(task, trace)
+            self._save_requests()
+            audit = json.loads(Path(self.audit_path).read_text()) if Path(self.audit_path).exists() else {'requests': [], 'usage': []}
+            result = {**trace, **audit, 'source_identity': identity, 'derivation_mode': 'offline_recompile_from_completed_train'}
+            self.checkpoint.advance('learning_finished', recompile_result=result)
+            return result
+        finally:
+            self._save_requests()
 
     def complete_execution(self, task, trace, broker, execution, *, learn, decision_status='applied',
                            sealed=None, score=None):

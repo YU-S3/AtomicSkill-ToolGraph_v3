@@ -146,6 +146,48 @@ For file workspaces, use /workspace/... paths inside Python as needed, but retur
 relative publication names, e.g. write /workspace/result.xlsx and declare files=["result.xlsx"]. An output_path
 field can retain the program path; do not copy that absolute value into files. Absolute publication paths,
 inputs/... and '..' paths are rejected; do not bypass those checks."""
+CHOICE_PROPOSAL = object_schema({
+    'decision': {'type': 'string', 'enum': ['no_change', 'reuse_existing', 'upsert_guidance']},
+    'existing_skill_id': {'type': 'string'},
+    'goal': {'type': 'string', 'maxLength': 160},
+    'guidance': {'type': 'string', 'maxLength': 1000},
+    'scope_terms': {'type': 'array', 'minItems': 2, 'maxItems': 4, 'uniqueItems': True,
+                    'items': {'type': 'string', 'minLength': 2}},
+    'applicability': {'type': 'string', 'maxLength': 240},
+    'rationale': {'type': 'string', 'maxLength': 240}}, ['decision'])
+GUIDANCE_CHECK = object_schema({
+    'status': {'type': 'string', 'enum': ['supported', 'contradicted', 'insufficient_evidence']},
+    'policy_version': {'type': 'string'}, 'proposal_hash': {'type': 'string'},
+    'proposal_quote': {'type': 'string', 'minLength': 1, 'maxLength': 1000},
+    'source_quote': {'type': 'string', 'minLength': 1, 'maxLength': 2000},
+    'reason': {'type': 'string', 'minLength': 1, 'maxLength': 400}},
+    ['status', 'policy_version', 'proposal_hash', 'proposal_quote', 'source_quote', 'reason'])
+CHOICE_LEARNER_PROMPT = """Submit one flat submit_learning ToolCall using the supplied schema.
+The host source is a verified submission under the source question's premises, not a general mathematical proof.
+Extract a short reusable conditional observation or operation compatible with that source; do not reverse its
+conclusion, broaden premises, infer failed examples' answers, or preserve option letters as lookup instructions.
+scope_terms must be 2-4 distinct topic words actually occurring in source_goal after the supplied normalization.
+Use no_change if there is no reusable operation beyond the correct answer, or reuse_existing only for an offered
+checked related ID. For upsert_guidance supply goal, guidance, scope_terms, applicability at the top level.
+Respect all lengths without truncating conditions or formulas. Related cards are advisory, not proofs."""
+GUIDANCE_CHECK_PROMPT = """Return exactly one submit_guidance_check ToolCall. Independently check the proposal
+against the host-bound source_goal and verified selected_choice_text under their explicit premises. Do not solve
+the mathematical question anew or use other options as verified facts. Reject reversal or unsupported extension
+of the source. Choose supported, contradicted, or insufficient_evidence. Quote exact nonempty substrings from
+the proposal and the source; return the supplied policy_version and proposal_hash unchanged. This is a bounded
+source compatibility check, not a theorem proof. Do not rewrite or repair the proposal."""
+
+
+def single_answer_prompt(contract, *, semantic=False):
+    if not semantic:
+        return 'Answer the question once using only the public input and any supplied guidance. ' + contract
+    return ('Answer once from the public question and the actual meaning of every option. Check quantifiers and '
+            'premises; distinguish a true statement from the strongest conclusion that can be proved. Examine '
+            'options that assess other options\' sufficiency or strength on the same terms as other candidates. '
+            'Consult guidance only when its applicability matches; it cannot override the question or establish '
+            'facts by authority. Each guidance item is a limited source-checked observation, not a general proof. ' + contract)
+
+
 RUNTIME_PROMPT = """Materials are grouped as task, node, bindings, handoff, state, calls, memory, recovery.
 node.interface is the real I/O contract. A task_field points to the single displayed task field. Result references
 contain result_id/path: use argument_refs/output_refs, or bounded read_result when the preview is insufficient;
