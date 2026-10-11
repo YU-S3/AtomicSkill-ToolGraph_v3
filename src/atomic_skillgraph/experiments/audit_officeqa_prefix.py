@@ -45,10 +45,9 @@ def audit(root):
                 body=expand_material(json.loads(wire['messages'][1]['content']))
                 if request['stage']=='runtime':
                     # Business columns with this name are permitted; a Host root ref is not.
-                    text=wire['messages'][1]['content']
-                    assert 'execution_paths' not in text and 'scope_omitted' not in text, 'Host scope audit reached model'
                     for window in request.get('displayed_windows',[]):
                         assert window['unit'] in {'array_item_0_based','unicode_codepoint_0_based'}
+                        assert window['source_ref']['path'][:1]!=['scope_audit'], 'Host scope audit reached model'
                     if request['purpose']=='finish_only':
                         counters['finish_requests']+=1
                         assert wire['serialized_payload_utf8_bytes']<=16384 and settings.get('max_tokens',settings.get('max_completion_tokens'))==2048

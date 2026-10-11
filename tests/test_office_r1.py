@@ -286,3 +286,29 @@ def test_learning_input_removes_history_before_code_card(tmp_path,monkeypatch):
         assert not actual['completed_train_cases'] and not actual['related']
         assert actual['experience']['local_evidence'][0]['local_evidence_ref']=='recorded-code'
     finally:s.close()
+
+
+def test_actual_fresh_prefix_extractor_wire_and_host_receipts(tmp_path,monkeypatch):
+    root=os.environ.get('OFFICE_R1_FRESH_PREFIX')
+    if not root:pytest.skip('Fresh formal prefix not configured')
+    root=Path(root);config=json.loads((root/'train/config.json').read_text())
+    from atomic_skillgraph.empirical import LEARNING_MATERIAL_VERSION
+    config['learning']['material_version']=LEARNING_MATERIAL_VERSION
+    db=sqlite3.connect((root/'train/run.sqlite3').as_uri()+'?mode=ro',uri=True)
+    trace=json.loads(db.execute("SELECT result FROM tasks WHERE status='completed' ORDER BY rowid LIMIT 1").fetchone()[0]);db.close()
+    config['data_dir']=str(tmp_path/'fixture-bank');config['experiment']['output_dir']=str(tmp_path/'fixture-train')
+    task=PublicTask(**trace['task']);adapter=OfficeAdapter({task.task_id:{'answer':'fixture'}},config)
+    s=EmpiricalSystem(config,harness=adapter);s.phase='train';s._learning_start=0
+    s.request_attribution={'parent_scope':'fixture-prefix','parent_token_limit':200000,'train_parent':True}
+    sent=http(monkeypatch,[response([{'decision':'no_change'}],name='submit_learning')])
+    try:
+        log=s.learner.learn(task,trace)
+        assert log['decision']=='no_change' and len(sent)==1
+        material=expand_material(json.loads(sent[0]['messages'][1]['content']))
+        assert input_token_bound(sent[0])<=16384
+        assert 'projection_audit' not in material['experience']
+        audit=s.requests[0]['material_audit']
+        assert audit['available'] and audit['included']==[c['local_evidence_ref'] for c in material['experience']['local_evidence']]
+        assert audit['original_evidence_count']==len(s.learner._experience(task,trace)['local_evidence'])
+        record('fresh_prefix_extractor_replay',{'payload_bytes':input_token_bound(sent[0]),'material_audit':audit,'decision':log['decision']})
+    finally:s.close()

@@ -290,8 +290,10 @@ class EmpiricalSystem:
                            purpose in {'guidance_learning', 'guidance_grounding'})
         def repair_available():
             return not choice_learning or not self.budget_governor or self.budget_governor.repair_available()
+        from .model_view import learning_payload
+        wire_material = learning_payload(materials) if stage=='extractor' else materials
         messages = [{"role": "system", "content": prompt},
-                    {"role": "user", "content": json.dumps(materials, ensure_ascii=False, allow_nan=False)}]
+                    {"role": "user", "content": json.dumps(wire_material, ensure_ascii=False, allow_nan=False)}]
         content_parts = materials.get('content_parts') if isinstance(materials, dict) else None
         if content_parts:
             if 'image' not in self.config.get('llm', {}).get('input_modalities', ['text']):
@@ -361,10 +363,7 @@ class EmpiricalSystem:
                         else:
                             cards = projected.get('experience',{}).get('local_evidence',[])
                             if len(cards) <= 1: break
-                            removed = cards.pop()
-                            audit = projected['experience'].setdefault('projection_audit',{})
-                            audit.setdefault('omitted',[]).append({'local_evidence_ref':removed['local_evidence_ref'], 'reason':'full_payload_input_limit'})
-                            audit['included'] = [c['local_evidence_ref'] for c in cards]
+                            cards.pop()
                         messages[1]={'role':'user','content':json.dumps(pack_material(projected),ensure_ascii=False,separators=(',',':'))}
             if stage == 'runtime' and preserve_finish:
                 from .budget_governor import input_token_bound
@@ -446,7 +445,14 @@ class EmpiricalSystem:
                 [sent_material.get('experience',{}), *sent_material.get('completed_train_cases',[])]]
             record['material_audit'] = {'projected_utf8_bytes':len(json.dumps(sent_material,ensure_ascii=False).encode()),
                 'local_evidence_count':len(sent_material.get('experience',{}).get('local_evidence',[])),
-                **sent_material.get('experience',{}).get('projection_audit',{})}
+                **materials.get('experience',{}).get('projection_audit',{})}
+            if materials.get('experience',{}).get('compact_learning_directory'):
+                before={r['local_evidence_ref'] for r in materials['experience']['local_evidence']}
+                after=[r['local_evidence_ref'] for r in (sent_material.get('legal_operations',[]) if purpose=='learning_structure_repair'
+                    else sent_material.get('experience',{}).get('local_evidence',[]))]
+                audit=record['material_audit'];audit['included']=after
+                audit['omitted']=[*audit.get('omitted',[]), *[{'local_evidence_ref':ref,'reason':'repair_reference_scope' if purpose=='learning_structure_repair' else 'full_payload_input_limit'}
+                    for ref in sorted(before-set(after))]]
             # Trace messages omit replay-private reasoning. The immediate repair
             # retains the actual assistant envelope in process only.
             record["messages"] = [{k: v for k, v in m.items() if k != "reasoning_content"} for m in messages]

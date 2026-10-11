@@ -135,6 +135,14 @@ def learning_case(experience, case_id):
             'original_utf8_bytes':canonical_bytes(experience), **audit}, 'compact_learning_directory':True}
 
 
+def learning_payload(material):
+    """Selection receipts are Host audit; selectable cards are the model's directory."""
+    value=expand_material(material)
+    for case in [value.get('experience',{}), *value.get('completed_train_cases',[])]:
+        if case.get('compact_learning_directory'):case.pop('projection_audit',None)
+    return pack_material(value)
+
+
 def builder_example(binding, evidence):
     return {'case_id':binding['case_id'],'binding_hash':binding['binding_hash'],
         'inputs':deepcopy(binding['inputs']), 'reference_fields':deepcopy(binding['reference_fields']),
