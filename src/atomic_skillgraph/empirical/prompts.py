@@ -177,12 +177,23 @@ scope_terms must be 2-4 distinct topic words actually occurring in source_goal a
 Use no_change if there is no reusable operation beyond the correct answer, or reuse_existing only for an offered
 checked related ID. For upsert_guidance supply goal, guidance, scope_terms, applicability at the top level.
 Respect all lengths without truncating conditions or formulas. Related cards are advisory, not proofs."""
+PUBLIC_CHOICE_LEARNER_PROMPT=CHOICE_LEARNER_PROMPT+"""
+Every upsert_guidance must supply knowledge_type. Choose procedural_advisory only from actual
+source.public_process_evidence: give goal, guidance, applicability, operation_intent, prerequisites and an exact
+source_process_quote at the top level; omit scope_terms for this type. Keep the entire rendered advisory under
+512 characters: prefer guidance under 180 and applicability under 80 characters. It is a conditional operation,
+not a theorem or answer guarantee. No process evidence means no_change. domain_fact retains the narrow
+2-4 source topic words and source premises; do not turn a correct label into a reusable proof."""
 GUIDANCE_CHECK_PROMPT = """Return exactly one submit_guidance_check ToolCall. Independently check the proposal
 against the host-bound source_goal and verified selected_choice_text under their explicit premises. Do not solve
 the mathematical question anew or use other options as verified facts. Reject reversal or unsupported extension
 of the source. Choose supported, contradicted, or insufficient_evidence. Quote exact nonempty substrings from
 the proposal and the source; return the supplied policy_version and proposal_hash unchanged. This is a bounded
 source compatibility check, not a theorem proof. Do not rewrite or repair the proposal."""
+PUBLIC_GUIDANCE_CHECK_PROMPT=GUIDANCE_CHECK_PROMPT+"""
+For procedural_advisory, quote the actual public_process, and check the operation/prerequisite boundary.
+A self_reported_process is not independent execution or a mathematical proof: reject theorem claims or
+invented operations. Your result means only quote_matched/source_compatible, never mathematically_proved."""
 
 
 def single_answer_prompt(contract, *, semantic=False):

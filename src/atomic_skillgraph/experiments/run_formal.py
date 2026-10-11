@@ -108,6 +108,12 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         'candidate_sampling': 'deterministic existing algorithm; no random sampler'}
     if benchmark == 'officeqa':
         identity['corpus_sha256'] = corpus_identity(corpus_root)['sha256']
+    if benchmark=='livemath':
+        identity.update(choice_projection_version=materialized['livemath_choice_projection_version'],
+                        choice_seed=materialized['livemath_choice_seed'])
+        if base['experiment'].get('choice_method_version'):
+            identity['choice_method_version']=base['experiment']['choice_method_version']
+            identity['choice_bounded_finalization']=base['runtime']['choice_bounded_finalization']
     continuation = root/'continuation_manifest.json'
     if continuation.exists():
         lineage = json.loads(continuation.read_text())
@@ -119,6 +125,8 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
     for config in configurations.values():
         config['experiment'].update({key: identity[key] for key in ('benchmark_contracts_sha256', 'public_materialization_sha256')})
         if 'corpus_sha256' in identity: config['experiment']['corpus_sha256'] = identity['corpus_sha256']
+        if benchmark=='livemath':
+            config['experiment'].update({k:identity[k] for k in ('choice_projection_version','choice_seed')})
     if stop_after_val and (root / 'test/summary.json').exists():
         raise ValueError('--stop-after-val cannot relabel an existing Test run')
     from ..empirical.budget_governor import BudgetGovernor

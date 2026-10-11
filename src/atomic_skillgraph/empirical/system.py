@@ -14,6 +14,7 @@ from ..core.errors import BudgetExhausted, FailureLayer
 from ..harness.simple_protocol import Broker, EpisodeResult
 from . import (PROFILE, POLICY_DEFAULTS, CHOICE_GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_MATERIAL_VERSION,
                CHOICE_GUIDANCE_SELECTION_VERSION, SINGLE_ANSWER_PROMPT_VERSION)
+from . import PUBLIC_CHOICE_POLICY_VERSION, PUBLIC_CHOICE_MATERIAL_VERSION
 from .bank import Bank
 from .contracts import PublicTask, RuntimeDecision, digest
 from .task_context import TaskContext
@@ -69,20 +70,34 @@ def validate_config(config):
     choices = {
         'learning': {'enabled': False, 'policy_version': CHOICE_GUIDANCE_POLICY_VERSION,
                      'material_version': CHOICE_GUIDANCE_MATERIAL_VERSION, 'max_related_assets': 2,
-                     'source_check_required': True},
+                     'source_check_required': True, 'public_process': False},
         'runtime': {'enabled': False, 'selection_version': CHOICE_GUIDANCE_SELECTION_VERSION,
-                    'prompt_version': SINGLE_ANSWER_PROMPT_VERSION, 'max_items': 2, 'max_total_chars': 2400}}
+                    'prompt_version': SINGLE_ANSWER_PROMPT_VERSION, 'max_items': 2, 'max_total_chars': 2400,
+                    'public_process':False}}
     for section, defaults in choices.items():
         supplied = config[section].get('choice_guidance')
         if supplied is None: continue
         if not isinstance(supplied, dict) or set(supplied) - set(defaults):
             raise ValueError('Invalid ' + section + '.choice_guidance fields')
+        if supplied.get('public_process'):
+            if section=='learning':defaults={**defaults,'policy_version':PUBLIC_CHOICE_POLICY_VERSION,'material_version':PUBLIC_CHOICE_MATERIAL_VERSION}
+            else:defaults={**defaults,'selection_version':'choice-guidance.procedure-scope.v2','prompt_version':'single-answer.public-process.v3'}
         supplied = {**defaults, **supplied}
         for key, expected in defaults.items():
             value = supplied[key]
-            if type(value) is not type(expected) or (key != 'enabled' and value != expected):
+            if type(value) is not type(expected) or (key not in {'enabled','public_process'} and value != expected):
                 raise ValueError('Invalid choice_guidance policy: ' + key)
         config[section]['choice_guidance'] = supplied
+    from .public_process import VERSION, FINALIZATION_VERSION
+    if config['learning'].get('choice_guidance',{}).get('public_process',False) != config['runtime'].get('choice_guidance',{}).get('public_process',False):
+        raise ValueError('Public process learning/runtime policies must agree')
+    if config['runtime'].get('choice_guidance',{}).get('public_process'):
+        if config['experiment'].get('choice_method_version')!=VERSION:
+            raise ValueError('Public process requires an explicit fresh method identity')
+    finalizer=runtime.setdefault('choice_bounded_finalization',{'enabled':False,'version':FINALIZATION_VERSION})
+    if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=FINALIZATION_VERSION or
+        finalizer['enabled'] and not config['runtime'].get('choice_guidance',{}).get('public_process')):
+        raise ValueError('Invalid explicitly versioned choice finalization policy')
     if (config['learning'].get('choice_guidance', {}).get('enabled') is True and
             config['runtime'].get('choice_guidance', {}).get('enabled') is not True):
         raise ValueError('Choice guidance learning requires choice guidance runtime selection')
@@ -140,6 +155,11 @@ class EmpiricalSystem:
         self.readonly = bool(self.config.get("experiment", {}).get("runtime_mode") == "frozen") if readonly is None else readonly
         self.bank = Bank(self.config["data_dir"], readonly=self.readonly,
                          seed=self.config.get("experiment", {}).get("seed", 42),environment=self.config['program_environment'])
+        if self.config['runtime'].get('choice_guidance',{}).get('public_process'):
+            try:self.bank.bind_choice_method(self.config['experiment']['choice_method_version'])
+            except Exception:
+                self.bank.close()
+                raise
         if bank_view_factory:
             if not self.readonly: raise ValueError('Bank views require readonly evaluation')
             self.bank = bank_view_factory(self.bank)
@@ -214,6 +234,8 @@ class EmpiricalSystem:
         override = llm.get('purpose_overrides', {}).get(purpose, {})
         settings.update({k:v for k,v in override.items() if k != 'protocol'})
         settings['protocol'] = {**llm.get('protocol', {}), **llm.get(stage, {}).get('protocol', {}), **override.get('protocol', {})}
+        if stage=='runtime' and purpose=='finish_only' and self.config['runtime']['choice_bounded_finalization']['enabled']:
+            settings['max_retries']=0
         if settings['model'] != llm['model']:
             raise ValueError('All roles must use the same configured backbone')
         return settings
@@ -286,7 +308,7 @@ class EmpiricalSystem:
         tools = [NativeToolSpec(name, "Submit the requested result", schema)] if name else []
         choice_learning = (self.config['learning'].get('choice_guidance', {}).get('enabled') is True and
                            self.adapter.capabilities.interaction == 'single_answer' and
-                           materials.get('learning_material_version') == CHOICE_GUIDANCE_MATERIAL_VERSION and
+                           materials.get('learning_material_version') in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION} and
                            purpose in {'guidance_learning', 'guidance_grounding'})
         def repair_available():
             return not choice_learning or not self.budget_governor or self.budget_governor.repair_available()
@@ -343,7 +365,19 @@ class EmpiricalSystem:
                     finish_reserve = self.config['runtime']['finish_input_max_bytes'] + finish['output_cap']
                 else:
                     from .budget_governor import input_token_bound
-                    finish_reserve = input_token_bound({k:v for k,v in materials.items() if k in {'goal','inputs','local_results','local_reads'}}) + self.resolve_call_settings('runtime','finish_only').get('max_completion_tokens',2048)
+                    finish_material={k:v for k,v in materials.items() if k in {'goal','inputs','local_results','local_reads'}}
+                    finish_cap=self.resolve_call_settings('runtime','finish_only').get('max_completion_tokens',2048)
+                    if self.config['runtime']['choice_bounded_finalization']['enabled']:
+                        from .prompts import finish_text_prompt
+                        finish_provider=self.provider('runtime','finish_only')
+                        finish_messages=[{'role':'system','content':finish_text_prompt(self.adapter.answer_contract())},
+                            {'role':'user','content':json.dumps(finish_material,ensure_ascii=False,allow_nan=False)}]
+                        finish_wire=finish_provider._build_payload(finish_messages,[]) if isinstance(finish_provider,OpenAICompatibleProvider) else {'messages':finish_messages}
+                        finish_wire[finish_provider.config.token_limit_field if isinstance(finish_provider,OpenAICompatibleProvider) else 'max_tokens']=finish_cap
+                        # Reserve the bounded newly reported process as well as the actual base finish wire.
+                        finish_reserve=input_token_bound(finish_wire)+finish_cap+4096
+                    else:
+                        finish_reserve=input_token_bound(finish_material)+finish_cap
             payload_max=None
             if stage in {'extractor','tool_builder'}:
                 key='structural_repair_payload_max_bytes' if purpose=='learning_structure_repair' else 'builder_payload_max_bytes' if stage=='tool_builder' else 'extractor_payload_max_bytes'

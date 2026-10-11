@@ -11,6 +11,9 @@ def benchmark_config(base, benchmark):
     if benchmark=='livemath':
         config['learning']['choice_guidance']={'enabled':True}
         config['runtime']['choice_guidance']={'enabled':True}
+        if config['experiment'].get('choice_method_version'):
+            config['learning']['choice_guidance']['public_process']=True
+            config['runtime']['choice_guidance']['public_process']=True
         config['llm'].setdefault('purpose_overrides',{}).update({
             purpose:{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':cap}
             for purpose,cap in [('guidance_learning',2048),('guidance_grounding',1536)]})

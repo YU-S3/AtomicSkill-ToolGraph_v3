@@ -41,6 +41,12 @@ def main(argv=None):
             'run_seed': args.seed, 'model_id': model['model_id'], 'score': None, 'reason': 'Locked model has no image capability'})
         return
     base = model_settings(yaml.safe_load(Path(spec['base_config']).read_text()), model)
+    if spec.get('livemath_method_version'):
+        from ..empirical.public_process import VERSION, FINALIZATION_VERSION
+        if args.benchmark!='livemath' or spec['livemath_method_version']!=VERSION:
+            raise ValueError('This fresh method specification is only for LiveMath')
+        base['experiment']['choice_method_version']=VERSION
+        base['runtime']['choice_bounded_finalization']={'enabled':spec.get('choice_bounded_finalization',False),'version':FINALIZATION_VERSION}
     profiles = json.loads(Path(spec['benchmark_profiles']).read_text())['profiles']
     if spec.get('budget_allocation'):
         from .seed42_budget import allocation

@@ -22,6 +22,14 @@ class AnswerExecutor:
 
     def run(self, task, broker, guidance, semantic):
         s, context, checkpoint = self.system, broker.context, self.system.checkpoint
+        public=s.config['runtime'].get('choice_guidance',{}).get('public_process',False)
+        finalizer=s.config['runtime'].get('choice_bounded_finalization',{}).get('enabled',False)
+        from .public_process import VERSION as PROCESS_VERSION, PUBLIC_STEP, validate_process
+        version=PROCESS_VERSION if public else VERSION
+        schema=deepcopy(STEP)
+        if public:
+            schema['properties'].update(public_process={'type':'string','minLength':1,'maxLength':512},
+                public_steps={'type':'array','items':PUBLIC_STEP,'minItems':1,'maxItems':4})
         state = deepcopy(checkpoint.state.get('answer_executor', {})) if checkpoint else {}
         attempts, temporary, results = state.get('attempts', []), state.get('temporary', []), state.get('results', [])
         if state.get('workspace'): restore_trial_workspace(s.adapter,state['workspace'])
@@ -29,27 +37,52 @@ class AnswerExecutor:
         if 'finished' in state: return state['finished']
         def save(finished=None):
             s.executor.partial_execution = {'prediction':None,'reason':'answer_in_progress','attempts':deepcopy(attempts),
-                'temporary_executions':deepcopy(temporary),'answer_protocol_version':VERSION}
+                'temporary_executions':deepcopy(temporary),'answer_protocol_version':version}
             if not checkpoint: return
             state.update(attempts=attempts,temporary=temporary,results=results,
                          next_index=index+1,
-                         context={k:getattr(context,k) for k in ('scope','results','sources','memory','local_reads')})
+                         finalization=finalization,
+                         context={k:getattr(context,k) for k in ('scope','results','sources','memory','local_reads','result_origins','window_sources','sent_windows')})
             if getattr(s.adapter,'workspace',None):
                 state['workspace'] = seal_trial_workspace(s.adapter,checkpoint.root/'answer_workspace'/uuid4().hex)
             if finished is not None: state['finished'] = finished
             checkpoint.commit_decision(s.last_decision_id,'applied',answer_executor=state,program_started=False)
-        def finish(answer, reason, producer=None, *, budget_censored=False):
+        def finish(answer, reason, producer=None, *, budget_censored=False, process=None):
             execution = {'prediction':answer,'reason':reason,'attempts':attempts,'temporary_executions':temporary,
                          'internal_execution_count':len(attempts)+len(temporary),'native_calls':0,
-                         'submission_producer_attempt_id':producer,'answer_protocol_version':VERSION}
+                         'submission_producer_attempt_id':producer,'answer_protocol_version':version,
+                         'answer_origin':'program' if producer else 'finish_only' if reason=='budget_finish_only' else 'runtime_response'}
             if budget_censored: execution['budget_censored'] = True
             from .answer_status import classify_answer
-            response = s.requests[-1].get('response',{}) if s.requests else {}
+            answer_request=next((r for r in reversed(s.requests) if r.get('response')), {})
+            response = answer_request.get('response',{})
+            execution.update(answer_request_id=answer_request.get('id'),answer_request_usage=deepcopy(response.get('usage')))
             execution.update(classify_answer(answer,response.get('finish_reason'),
                 valid_format=getattr(s.adapter,'valid_answer_format',lambda a:True)(answer)))
+            if response.get('finish_reason')=='length' and execution['answer_status']!='valid':
+                execution.update(reason='completion_truncated_no_answer',answer_status='truncated_empty')
+            if process is not None:execution['public_process_evidence']=process
+            if finalizer:execution['choice_bounded_finalization']=deepcopy(finalization)
             save(execution)
             s.executor.partial_execution = execution
             return execution
+        finalization=state.get('finalization',{'enabled':finalizer,'version':s.config['runtime']['choice_bounded_finalization']['version'],'attempted':False})
+        def final_answer(material,reason):
+            from .prompts import finish_text_prompt
+            from ..core.errors import BudgetExhausted
+            if finalization['attempted'] and not checkpoint:return finish('',reason)
+            finalization['attempted']=True
+            if checkpoint:checkpoint.advance(checkpoint.state['stage'],answer_executor={**state,'finalization':finalization})
+            start=len(s.requests)
+            try:
+                answer=s.agent('runtime',finish_text_prompt(s.adapter.answer_contract()),material,
+                    None,None,repair_limit=0,decision_purpose='finish_only',owner_state_version=version+':finish:'+str(index))
+            except (BudgetExhausted,ValueError) as exc:
+                if isinstance(exc,ValueError) and not getattr(exc,'model_authored',False) and not str(exc).startswith('material_too_large'):raise
+                finalization.update(reason=str(exc),request_ids=[r['id'] for r in s.requests[start:]])
+                return finish('',reason,budget_censored=isinstance(exc,BudgetExhausted))
+            finalization.update(request_ids=[r['id'] for r in s.requests[start:]],reason='bounded_final_answer')
+            return finish(answer,'budget_finish_only',budget_censored=True)
         prompt = single_answer_prompt(getattr(s.adapter,'answer_contract',lambda:'')(),semantic=semantic) + '\n' + (
             'You may answer directly as text or submit one answer_step. finish gives the final answer. '
             'Optional execute_python runs def run(ctx, inputs) with supplied arguments and object input_schema/output_schema '
@@ -58,21 +91,31 @@ class AnswerExecutor:
             'continue reasoning from actual results. At most two local executions. Use used_results for results actually '
             'used, replaced_results for superseded work. Finite arithmetic/examples do not prove a general theorem. '
             'All question conditions and choices remain available. read_result reads an existing result_id/path.')
+        if public:
+            prompt+='\n'+(
+                'For finish you may attach public_process (at most 512 Unicode characters) describing the actual '
+                'premise/quantifier/claim comparisons you performed, not private reasoning or a theorem proof. '
+                'To make it auditable, include public_steps with kind check_assumptions, compare_claim_strength, '
+                'inspect_quantifiers or deterministic_computation and at least two distinct references per step. '
+                'References have quote plus task_path (e.g. ["goal"] or ["inputs","choices",0,"text"]), '
+                'or an actually used result_id/path. Quotes must occur at those public locations. '
+                'A computation requires a real successful result. Do not invent steps. Plain text answers remain valid.')
         for index in range(state.get('next_index',0),8):
             material = {'goal':task.goal,'inputs':task.inputs,'guidance':guidance,
                 'programs':s.bank.program_options(task.goal), 'local_results':[context.view(r) for r in results],
                 'remaining_local_executions':max(0,2-len(attempts)-len(temporary)),
                 'worker_resources':getattr(s.adapter,'worker_resources',{}), 'local_reads':context.local_reads[-2:],
-                'content_parts':getattr(s.adapter,'content_parts',lambda:[])(), 'answer_protocol_version':VERSION}
+                'content_parts':getattr(s.adapter,'content_parts',lambda:[])(), 'answer_protocol_version':version}
             from ..core.errors import BudgetExhausted
             try:
-                step = s.agent('runtime',prompt,material,'answer_step',STEP,repair_limit=0,owner_state_version=VERSION+':'+str(index),
+                step = s.agent('runtime',prompt,material,'answer_step',schema,repair_limit=0,owner_state_version=version+':'+str(index),
                     finish_request_material={k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}})
             except ValueError as exc:
                 if not getattr(exc,'model_authored',False):raise
                 return finish('','runtime_model_failure')
             except BudgetExhausted as exc:
-                if exc.code not in {'parent_task_budget_exhausted','runtime_finish_reserved'} or not results:raise
+                if exc.code not in {'parent_task_budget_exhausted','runtime_finish_reserved'} or not (results or finalizer):raise
+                if finalizer:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'token_budget_exhausted')
                 from .prompts import finish_text_prompt
                 try:
                     answer=s.agent('runtime',finish_text_prompt(s.adapter.answer_contract()),
@@ -85,7 +128,16 @@ class AnswerExecutor:
             for a in attempts+temporary:
                 if a['result_id'] in used-replaced: a['outputs_consumed']=True
                 if a['result_id'] in replaced: a.update(outputs_consumed=False,replaced=True)
-            if step['action']=='finish': return finish(step.get('answer',''),'agent_submitted')
+            if step['action']=='finish':
+                answer=step.get('answer','');process=None
+                if public:
+                    try:process=validate_process(step,task,context,results,used-replaced,index,s.requests[-1]['id'] if s.requests else None)
+                    except ValueError as exc:process={'verification':'rejected','reason':str(exc),'kind':'self_reported_process'}
+                if finalizer and not getattr(s.adapter,'valid_answer_format',lambda a:True)(answer) and s.requests[-1].get('response',{}).get('finish_reason')=='length':
+                    final_material={k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}}
+                    if process and process.get('verification')=='source_compatible':final_material['public_process']=process['public_process']
+                    return final_answer(final_material,'completion_truncated_no_answer')
+                return finish(answer,'agent_submitted',process=process)
             if step['action']=='read_result':
                 try:context.read(step.get('result_id',''),path=step.get('path',[]))
                 except (ValueError,KeyError):return finish('','invalid_result_read')

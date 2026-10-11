@@ -44,6 +44,15 @@ class Bank:
         if self.readonly:
             raise RuntimeError("Frozen Bank is read-only")
 
+    def bind_choice_method(self,version):
+        stored=self.db.execute("SELECT value FROM metadata WHERE key='choice_method_version'").fetchone()
+        if stored:
+            if stored!=(version,):raise ValueError('Choice Bank method identity changed')
+        elif self.readonly or self.db.execute('SELECT 1 FROM assets UNION ALL SELECT 1 FROM train_cases LIMIT 1').fetchone():
+            raise ValueError('Public process method requires its own fresh Bank, not a legacy upgrade')
+        else:
+            with self.db:self.db.execute('INSERT INTO metadata VALUES(?,?)',('choice_method_version',version))
+
     def put(self, kind, asset):
         self._writable()
         asset = dict(asset)
@@ -343,6 +352,8 @@ class Bank:
                     'answer_protocol_version':ANSWER_PROTOCOL_VERSION,
                     'binding_policy':BINDING_POLICY_VERSION,'file_effect_version':FILE_EFFECT_VERSION,'budget_policy':BUDGET_POLICY_VERSION,
                     "programs": [{"id": p["id"], "state": p["state"]} for p in frozen.all("program")]}
+        method=self.db.execute("SELECT value FROM metadata WHERE key='choice_method_version'").fetchone()
+        if method:manifest['choice_method_version']=method[0]
         frozen.close()
         target.close()
         (destination / "freeze.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

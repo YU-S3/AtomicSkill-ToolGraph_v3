@@ -2,7 +2,7 @@
 
 PROFILE = "skillcompiler.empirical.v1"
 
-IMPLEMENTATION_REVISION = 'empirical-v3.2-office-r2'
+IMPLEMENTATION_REVISION = 'empirical-v3.2-public-procedure-r1'
 LOCAL_VALIDATION_POLICY_VERSION = 'atomic.local-validation.v3'
 FILE_EFFECT_VERSION = 'artifact-effect.xlsx-modified.v1'
 BINDING_POLICY_VERSION = 'atomic.host-binding.v1'
@@ -15,6 +15,8 @@ CHOICE_GUIDANCE_MATERIAL_VERSION = 'choice-guidance.material.v1'
 CHOICE_GUIDANCE_SELECTION_VERSION = 'choice-guidance.scope.v1'
 SINGLE_ANSWER_PROMPT_VERSION = 'single-answer.semantic.v2'
 CHOICE_NORMALIZER_VERSION = 'choice-guidance.normalizer.v1'
+PUBLIC_CHOICE_POLICY_VERSION = 'choice-guidance.public-process.v2'
+PUBLIC_CHOICE_MATERIAL_VERSION = 'choice-guidance.public-process-material.v2'
 POLICY_DEFAULTS = {
     'experiment': {'implementation_revision': IMPLEMENTATION_REVISION, 'budget_policy': BUDGET_POLICY_VERSION},
     'runtime': {'read_batch_max_calls': 3, 'result_inline_max_chars': 2048,
