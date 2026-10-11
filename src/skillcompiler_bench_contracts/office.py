@@ -1,6 +1,8 @@
 """Authorized text selection and bounded grep, with decoded Unicode offsets."""
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+from fnmatch import fnmatchcase
+from functools import lru_cache
 
 ALL_PATHS = object()
 GREP_SCHEMA = {'type': 'object', 'properties': {'pattern': {'type': 'string'},
@@ -55,3 +57,22 @@ def grep(corpus, pattern, paths=ALL_PATHS):
                     return hits, {'execution_paths': [n for n, _ in selected], 'truncated': True}
             offset += len(line)
     return hits, {'execution_paths': [n for n, _ in selected], 'truncated': False}
+
+
+def glob_paths(corpus, pattern):
+    """POSIX segment matching over the same authorized set used by grep."""
+    if not isinstance(pattern, str) or not pattern.strip(): raise ValueError('Empty glob pattern')
+    pattern = pattern.replace('\\', '/')
+    path = PurePosixPath(pattern)
+    if path.is_absolute() or PureWindowsPath(pattern).drive or '..' in path.parts:
+        raise ValueError('Corpus pattern is not authorized')
+    parts = path.parts
+    def matches(name):
+        segments = PurePosixPath(name).parts
+        @lru_cache(None)
+        def match(i, j):
+            if i == len(parts): return j == len(segments)
+            if parts[i] == '**': return match(i + 1, j) or (j < len(segments) and match(i, j + 1))
+            return j < len(segments) and fnmatchcase(segments[j], parts[i]) and match(i + 1, j + 1)
+        return match(0, 0)
+    return [name for name, _ in select_paths(corpus) if matches(name)]

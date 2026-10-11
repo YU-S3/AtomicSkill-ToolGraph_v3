@@ -266,7 +266,7 @@ class ValueStore:
                 values[name] = self.task[ref["task"]]
             elif "from" in ref and ref["field"] in self.results.get(ref["from"], {}):
                 value = self.results[ref["from"]][ref["field"]]
-                values[name] = self.context.resolve(value) if self.context and isinstance(value, ResultRef) else value
+                values[name] = self.context.resolve_public(value) if self.context and isinstance(value, ResultRef) else value
             else:
                 missing[name] = ref
         return values, missing

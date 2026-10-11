@@ -1,6 +1,5 @@
 """Public QA, corpus and spreadsheet interfaces; gold stays in the evaluator."""
 import base64
-import fnmatch
 import importlib
 import hashlib
 import json
@@ -126,6 +125,10 @@ class FileAdapter(AnswerAdapter):
     def tool_definitions(self): return [spec.view() for spec in self.specs.values()]
     def available_tools(self): return self.tool_definitions()
 
+    def result_protocol(self, name):
+        from ..empirical.public_results import FILE_COMPUTE
+        return FILE_COMPUTE if name == 'execute_python' else None
+
     def program_submission_contract(self):
         from ..empirical.program_submission import CONTRACT_VERSION
         return {'version': CONTRACT_VERSION, 'final_submission_kind': self.capabilities.final_submission_kind,
@@ -214,10 +217,10 @@ class OfficeAdapter(FileAdapter):
         self.corpus = Path(config['harness']['corpus_root']).resolve(strict=True)
         self.specs = {name: ToolSpec(name, description, schema, result_schema(data), effect, batchable, units)
             for name, description, schema, data, effect, batchable, units in [
-            ('glob', 'List matching relative corpus paths', object_schema({'pattern': {'type':'string'}}, ['pattern']), {'type': 'array', 'items': {'type': 'string'}}, 'read_only', True, {}),
+            ('glob', 'List authorized relative txt paths. POSIX segments: * and ? stay within a directory; ** matches zero or more directories. *.txt is root only; **/*.txt includes root and nested files. Case sensitive.', object_schema({'pattern': {'type':'string'}}, ['pattern']), {'type': 'array', 'items': {'type': 'string'}}, 'read_only', True, {}),
             ('read', 'Read at most 12000 characters. offset is a zero-based decoded Unicode character index, not a line or byte position.',
              object_schema({'path': {'type':'string'}, 'offset': {'type':'integer','minimum':0}}, ['path','offset']), {'type': 'object'}, 'read_only', True, {'offset': 'unicode_codepoint_0_based'}),
-            ('grep', 'Search authorized text files; omit paths for all files, or pass relative paths (empty means none). At most 40 total hits; line is display only, offset is directly usable by read.',
+            ('grep', 'Search authorized text files with a case-insensitive regular expression (not a glob). paths are explicit relative filenames; omit for all files, empty means none. At most 40 total hits; line is display only, Unicode offset is directly usable by read.',
              GREP_SCHEMA, {'type': 'array', 'items': {'type': 'object'}}, 'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
             ('execute_python', 'Compute with acquired public values; no corpus or network mount.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
 
@@ -227,6 +230,10 @@ class OfficeAdapter(FileAdapter):
             raise ValueError('Corpus path is not authorized')
         if not path.exists() or not path.is_file(): raise ValueError('Corpus file is missing or not a file')
         return path
+
+    def result_protocol(self, name):
+        from ..empirical.public_results import SCOPED_SEARCH
+        return SCOPED_SEARCH if name == 'grep' else super().result_protocol(name)
 
     def call(self, name, arguments):
         if not self.corpus.is_dir(): raise RuntimeError('Authorized corpus root is unavailable')
@@ -247,8 +254,8 @@ class OfficeAdapter(FileAdapter):
     def _call(self, name, arguments):
         if name == 'execute_python': return self._python(arguments['source'], [])
         if name == 'glob':
-            data = sorted(p.relative_to(self.corpus).as_posix() for p in self.corpus.rglob('*.txt')
-                          if fnmatch.fnmatch(p.relative_to(self.corpus).as_posix(), arguments['pattern']))
+            from skillcompiler_bench_contracts.office import glob_paths
+            data = glob_paths(self.corpus, arguments['pattern'])
         elif name == 'read':
             text = self._path(arguments['path']).read_text(encoding='utf-8')
             offset = arguments['offset']

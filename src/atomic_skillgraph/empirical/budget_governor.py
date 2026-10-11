@@ -28,6 +28,30 @@ class BudgetGovernor:
             self.state['unknown_billing'] = True
             save_json(self.path,self.state)
 
+    def headroom(self, context):
+        """Remaining authority from the actual ledger, including unresolved reservations."""
+        with self.lock:
+            attempts = list(self.state['attempts'].values())
+            charge = lambda a: a.get('accounted_tokens', a['reserved_tokens'])
+            finish = context.get('purpose') == 'finish_only'
+            global_reserve = 0 if finish else self.limits['finish_reserve']
+            reserve = context.get('parent_finish_reserve', 0)
+            remaining = [self.limits['token_limit'] - global_reserve - max(0, reserve-global_reserve) - sum(map(charge, attempts))]
+            requests = [self.limits['request_limit'] - len(attempts)]
+            parent = context.get('parent_scope')
+            owned = [a for a in attempts if parent and a['context'].get('parent_scope') == parent]
+            if context.get('parent_token_limit') is not None:
+                remaining.append(context['parent_token_limit'] - reserve - sum(map(charge, owned)))
+            if context.get('budget_pool_limit') is not None:
+                remaining.append(context['budget_pool_limit'] - (reserve if context.get('budget_pool') == 'solve' else 0) - sum(charge(a) for a in owned
+                    if a['context'].get('budget_pool') == context.get('budget_pool')))
+            if context.get('episode_request_limit') is not None:
+                requests.append(context['episode_request_limit'] - sum(a['context'].get('episode_scope') ==
+                    context.get('episode_scope') for a in attempts))
+            return {'tokens': min(remaining), 'requests': min(requests),
+                    'global_tokens': remaining[0], 'global_finish_reserve': global_reserve,
+                    'unknown_billing': self.state['unknown_billing']}
+
     def admit(self, audit_id, payload, context):
         with self.lock:
             attempts = self.state['attempts']
@@ -39,9 +63,12 @@ class BudgetGovernor:
             cap = self.limits['token_limit'] - (0 if context.get('purpose') == 'finish_only' else self.limits['finish_reserve'])
             scope = context.get('episode_scope')
             per_episode = context.get('episode_request_limit')
-            exhausted = (self.state['unknown_billing'] or len(attempts) >= self.limits['request_limit']
-                or used + reserved > cap or (per_episode is not None and sum(
-                    a['context'].get('episode_scope') == scope for a in attempts.values()) >= per_episode))
+            request_reserve = context.get('finish_request_reserve', 0)
+            finish_reserve = max(0, context.get('parent_finish_reserve', 0) -
+                (0 if context.get('purpose') == 'finish_only' else self.limits['finish_reserve']))
+            exhausted = (self.state['unknown_billing'] or len(attempts) + request_reserve >= self.limits['request_limit']
+                or used + reserved + finish_reserve > cap or (per_episode is not None and sum(
+                    a['context'].get('episode_scope') == scope for a in attempts.values()) + request_reserve >= per_episode))
             parent = context.get('parent_scope')
             parent_cap = context.get('parent_token_limit')
             parent_used = sum(a.get('accounted_tokens',a['reserved_tokens']) for a in attempts.values()

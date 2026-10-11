@@ -5,6 +5,7 @@ from uuid import uuid4
 from . import POLICY_DEFAULTS
 from .contracts import object_schema, digest
 from ..harness.tool_spec import ToolSpec, result_schema
+from .public_results import public_result, public_reference, SCOPED_SEARCH, FILE_COMPUTE
 
 
 class TaskContext:
@@ -12,6 +13,7 @@ class TaskContext:
         self.settings = {**POLICY_DEFAULTS['runtime'], **(settings or {})}
         self.scope = uuid4().hex
         self.results, self.sources, self.memory, self.local_reads = {}, {}, {}, []
+        self.result_origins, self.window_sources, self.sent_windows = {}, {}, []
         self.pending_outputs = {}
         self.active_node = None
         self.progress_observations, self.progress_contents, self.progress_states = [], set(), set()
@@ -52,7 +54,7 @@ class TaskContext:
                                       'hits': self.loop_hits[key], 'operations': [x['name'] for x in self.progress_observations[-length:]]}
                 break
 
-    def register(self, event_id, result, *, name='', arguments=None, verify_source=False):
+    def register(self, event_id, result, *, name='', arguments=None, verify_source=False, origin=None):
         if event_id in self.sources:
             if verify_source and self.results[self.sources[event_id]] != result:
                 from ..core.errors import AtomicSkillGraphError, FailureLayer
@@ -61,6 +63,10 @@ class TaskContext:
             return self.sources[event_id]
         result_id = self.scope + ':' + str(sum(rid.removeprefix(self.scope + ':').isdigit() for rid in self.results))
         self.results[result_id] = result
+        self.result_origins[result_id] = origin
+        if name == 'read_result' and result.get('source_ref'):
+            self.window_sources[result_id] = {k: result[k] for k in
+                ('source_ref', 'unit', 'offset', 'end', 'size', 'next_offset', 'content_hash')}
         self.sources[event_id] = result_id
         if name:
             key = json.dumps([name, arguments], sort_keys=True, ensure_ascii=False)
@@ -88,7 +94,73 @@ class TaskContext:
     def bind(self, values, refs):
         if set(values) & set(refs):
             raise ValueError('Explicit values and result references conflict')
-        return {**values, **{key: self.resolve(ref) for key, ref in refs.items()}}
+        return {**values, **{key: self.resolve_public(ref) for key, ref in refs.items()}}
+
+    def origin(self, rid):
+        if rid in self.result_origins: return self.result_origins[rid]
+        # Used only for read-only migration of recorded pre-protocol contexts.
+        row = next((r for r in self.memory.values() if r['result_id'] == rid), {})
+        if row.get('name') == 'grep' and 'scope_audit' in self.results[rid]: return SCOPED_SEARCH
+        if row.get('name') == 'execute_python': return FILE_COMPUTE
+        return None
+
+    def public_result(self, raw_result, *, origin=None):
+        return public_result(raw_result, origin)
+
+    def resolve_public(self, ref):
+        self.resolve(ref)  # Preserve strict ResultRef validation and raw Host lookup.
+        return public_reference(self.results[ref['result_id']], ref['path'], self.origin(ref['result_id']))
+
+    def business_refs(self, ref):
+        value = self.resolve_public(ref)
+        if isinstance(value, dict):
+            return [leaf for key in value for leaf in self.business_refs(
+                {'result_id': ref['result_id'], 'path': [*ref['path'], key]})]
+        return [ref]
+
+    def result_window(self, ref, offset=0, limit=None):
+        value = self.resolve_public(ref)
+        if isinstance(value, dict): raise ValueError('Read a business field path instead of serializing a dictionary root')
+        array = isinstance(value, list)
+        cap = self.settings['result_preview_max_items'] if array else self.settings['result_read_window_chars']
+        limit = cap if limit is None else limit
+        if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= cap:
+            raise ValueError('read_result range exceeds its window')
+        content = value if array or isinstance(value, str) else json.dumps(value, ensure_ascii=False, allow_nan=False)
+        end = min(len(content), offset + limit)
+        return {'source_ref': deepcopy_ref(ref), 'unit': 'array_item_0_based' if array else 'unicode_codepoint_0_based',
+                'offset': offset, 'end': end, 'size': len(content), 'content': content[offset:end],
+                'next_offset': end if end < len(content) else None, 'content_hash': digest(content[offset:end])}
+
+    def fit_window(self, window, fits):
+        """Reduce by whole source units; never misreport a half JSON element as delivered."""
+        window = dict(window)
+        while not fits(window) and window['content']:
+            window['content'] = window['content'][:len(window['content']) // 2]
+            window['end'] = window['offset'] + len(window['content'])
+            window['next_offset'] = window['end'] if window['end'] < window['size'] else None
+            window['content_hash'] = digest(window['content'])
+        window['truncated'] = window['end'] < window['size']
+        if not window['content'] and window['offset'] < window['size']:
+            ref = window['source_ref']
+            if window['unit'] == 'array_item_0_based':
+                window['field_refs'] = self.business_refs({'result_id': ref['result_id'],
+                    'path': [*ref['path'], window['offset']]})
+            window['omission_reason'] = 'source_unit_exceeds_input_limit'
+        return window
+
+    def displayed_windows(self, material):
+        windows = []
+        def walk(value):
+            if isinstance(value, dict):
+                if {'source_ref', 'unit', 'offset', 'end', 'content_hash', 'content'} <= set(value):
+                    windows.append({k: v for k, v in value.items() if k not in {'content', 'field_refs'}})
+                else:
+                    for child in value.values(): walk(child)
+            elif isinstance(value, list):
+                for child in value: walk(child)
+        walk(material)
+        return list({digest(w): w for w in windows}.values())
 
     def reference(self, value, source='model_value'):
         key = 'model_source:' + digest([source, value])
@@ -106,35 +178,38 @@ class TaskContext:
                 'preview': text[:self.settings['result_inline_max_chars']], 'truncated': True}
 
     def view(self, result_id):
-        result = self.results[result_id]
-        return {'result_id': result_id, **{key: self.preview(value, {'result_id': result_id, 'path': [key]})
-                                         for key, value in result.items()}}
+        result = self.public_result(self.results[result_id], origin=self.origin(result_id))
+        def field(value, path):
+            ref = {'result_id': result_id, 'path': path}
+            if isinstance(value, dict): return {k: field(v, [*path, k]) for k, v in value.items()}
+            if isinstance(value, (list, str)) and len(json.dumps(value, ensure_ascii=False)) > self.settings['result_inline_max_chars']:
+                window = self.result_window(ref)
+                return self.fit_window(window, lambda w: len(json.dumps(w['content'], ensure_ascii=False)) <= self.settings['result_inline_max_chars'])
+            return value
+        if result_id in self.window_sources:
+            # A bounded read page is already the requested window, not a new 2048-character preview.
+            return {'result_id': result_id, 'data': {**self.window_sources[result_id], 'content': result['data']},
+                    **{k: result[k] for k in ('accepted', 'error', 'done')}}
+        return {'result_id': result_id, **{key: field(value, [key]) for key, value in result.items()}}
 
     def model_memory(self):
-        return [{**row, 'arguments': self.preview(row['arguments'])} for row in self.memory.values()]
+        return [{**row, 'arguments': self.preview(row['arguments'])} for row in list(self.memory.values())[-16:]]
 
     def read(self, result_id, offset=0, limit=None, path=None):
-        value = self.resolve({'result_id': result_id, 'path': path or []})
-        if type(offset) is not int or offset < 0:
-            raise ValueError('read_result.offset must be non-negative')
-        array = isinstance(value, list)
-        cap = self.settings['result_preview_max_items'] if array else self.settings['result_read_window_chars']
-        if limit is None: limit = cap
-        if type(limit) is not int or not 1 <= limit <= cap:
-            raise ValueError('read_result.limit exceeds its window')
-        content = value if array or isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-        end = min(len(content), offset + limit)
-        self.local_reads.append({'result_id': result_id, 'path': path or [], 'offset': offset, 'limit': limit})
-        return {'accepted': True, 'observation': '', 'data': content[offset:end], 'error': None, 'done': False,
-                'unit': 'array_item_0_based' if array else 'unicode_codepoint_0_based',
-                'size': len(content), 'next_offset': end if end < len(content) else None}
+        window = self.result_window({'result_id': result_id, 'path': path or []}, offset, limit)
+        self.local_reads.append({k: v for k, v in window.items() if k != 'content'})
+        return {'accepted': True, 'observation': '', 'data': window.pop('content'), 'error': None, 'done': False, **window}
 
     def tool(self):
         schema = object_schema({'result_id': {'type': 'string'}, 'offset': {'type': 'integer', 'minimum': 0},
             'limit': {'type': 'integer', 'minimum': 1}, 'path': {'type': 'array', 'items': {
                 'oneOf': [{'type': 'string'}, {'type': 'integer', 'minimum': 0}]}}}, ['result_id'])
-        return ToolSpec('read_result', 'Read an already obtained result from this episode; text characters or array items.',
+        return ToolSpec('read_result', 'Read an obtained public business field path; offset/limit use Unicode text characters or array items. Dictionary roots expose field references; Host metadata is unavailable.',
                         schema, result_schema(), effect='read_only').view()
+
+
+def deepcopy_ref(ref):
+    return {'result_id': ref['result_id'], 'path': list(ref['path'])}
 
 
 def public_view(adapter):

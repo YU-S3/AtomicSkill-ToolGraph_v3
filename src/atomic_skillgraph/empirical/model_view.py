@@ -3,6 +3,7 @@ from copy import deepcopy
 import json
 from . import POLICY_DEFAULTS
 from .contracts import PublicTask
+from .public_results import public_result, evidence_origin
 
 MODEL_VIEW_VERSION = POLICY_DEFAULTS['runtime']['model_view_version']
 CANDIDATE_VIEW_VERSION = 'candidate.v2'
@@ -79,10 +80,16 @@ def operation_directory(evidence, case_id):
     from .local_validation import input_sources
     reference=evidence.get('reference',{})
     files=sorted(reference.get('local_artifact_identities',{})) if reference.get('accepted',True) else []
-    outputs=[{'kind':'json','path':[k],'type':type(v).__name__} for k,v in reference.items()
-             if k not in {'local_artifact_identities','local_artifact_hashes','observation','error'}]
-    outputs += [{'kind':'json','path':[k,child],'type':type(value).__name__}
-                for k,v in reference.items() if k=='data' and isinstance(v,dict) for child,value in v.items()]
+    outputs=[]
+    def output(value,path):
+        if isinstance(value,dict):
+            for key,item in value.items():output(item,[*path,key])
+        else:
+            row={'kind':'json','path':path,'type':type(value).__name__}
+            if isinstance(value,str) and value:row['content_hint']=value[:256]
+            outputs.append(row)
+    for key,value in public_result(reference,evidence_origin(evidence)).items():
+        if key not in {'accepted','done','error'} and not (key=='observation' and not value):output(value,[key])
     if files:
         outputs += [{'kind':'publication','field':'files','value':files},
                     *[{'kind':'publication','field':'file','name':n,'value':n} for n in files]]
@@ -95,19 +102,37 @@ def operation_directory(evidence, case_id):
         'source_content_available_to_builder':True}
 
 
+def select_operation_directory(evidence, case_id):
+    """Publication/code representatives, then distinct executed operation names."""
+    available=[operation_directory(e,case_id) for e in evidence]
+    selected, omitted, seen, names = [], [], set(), set()
+    def code(row): return row['success'] and (row['kind']=='executed_python' or row['operation_name']=='execute_python')
+    ordered=sorted(enumerate(available),key=lambda pair:(
+        0 if pair[1]['published_files'] else 1 if code(pair[1]) else 2, pair[0]))
+    for index,row in ordered:
+        identity=json.dumps([evidence[index]['operation'], public_result(evidence[index]['reference'],evidence_origin(evidence[index]))],
+                            sort_keys=True,ensure_ascii=False,allow_nan=False)
+        reason='duplicate_operation' if identity in seen else 'operation_name_represented' if row['operation_name'] in names else 'directory_card_limit'
+        seen.add(identity)
+        if len(selected)<4 and row['operation_name'] not in names and reason!='duplicate_operation':
+            selected.append(row);names.add(row['operation_name'])
+        else:omitted.append({'local_evidence_ref':row['local_evidence_ref'],'reason':reason})
+    return selected, {'available':[r['local_evidence_ref'] for r in available],
+                      'included':[r['local_evidence_ref'] for r in selected], 'omitted':omitted}
+
+
 def learning_case(experience, case_id):
     """No replay prefix, raw result or repeated public task enters the directory."""
     task=experience.get('task',{})
     evidence=experience.get('local_evidence',[])
-    selected=sorted(evidence,key=lambda e:(not bool(e['reference'].get('local_artifact_identities')),
-        canonical_bytes(e['operation']),e['id']))[:1]
+    selected,audit=select_operation_directory(evidence,case_id)
     return {'case_source':{'physical_case_id':case_id},'task':{'goal':task.get('goal','')},
         **{k:deepcopy(experience.get(k)) for k in ('score','termination_reason','answer_status','completion_truncated')},
-        'local_evidence':[operation_directory(e,case_id) for e in selected],
-        'directory_selection':'verified publication first, then complete operation bytes and ID',
+        'local_evidence':selected,
+        'directory_selection':'verified publication and executed code representatives, then distinct operation names in source order; at most four cards',
         'projection_audit':{'original_event_count':len(experience.get('events',[])),
             'original_evidence_count':len(experience.get('local_evidence',[])),
-            'original_utf8_bytes':canonical_bytes(experience)}, 'compact_learning_directory':True}
+            'original_utf8_bytes':canonical_bytes(experience), **audit}, 'compact_learning_directory':True}
 
 
 def builder_example(binding, evidence):
@@ -131,10 +156,13 @@ def structure_repair_material(proposal, errors, directories):
         for k in ('input_schema','output_schema'):value['skill'][k]=contract(value['skill'][k])
     inputs=[v for b in value.get('realization_request',{}).get('case_bindings',[]) for v in b.get('inputs',{}).values()]
     operations=[]
-    for rows in directories:
-        for row in rows:
-            operations.append({k:deepcopy(row[k]) for k in ('case_id','local_evidence_ref','kind','effect','published_files','output_references')})
-            operations[-1]['input_sources']=[r for r in row['input_sources'] if r['value'] in inputs]
+    referenced={b.get('local_evidence_ref') for b in value.get('realization_request',{}).get('case_bindings',[])}
+    rows=[row for group in directories for row in group]
+    matching=[row for row in rows if row['local_evidence_ref'] in referenced]
+    if matching:rows=matching
+    for row in rows:
+        operations.append({k:deepcopy(row[k]) for k in ('case_id','local_evidence_ref','operation_name','kind','effect','published_files','output_references')})
+        operations[-1]['input_sources']=[r for r in row['input_sources'] if r['value'] in inputs]
     short=[{'binding_index':row['binding_index'],'errors':[{'code':e['code'],'field':e.get('field'),
         **({'expected':e['detail'][:200]} if e['code'] in {'input_type','output_type'} else {})} for e in row['errors']]} for row in errors]
     return {'proposal':value,'errors':short,'legal_operations':operations,
@@ -235,7 +263,7 @@ def project(stage, material, *, task=None, adapter=None, context=None):
             for row in recent:
                 rid = row.get('result_id')
                 if not rid: continue
-                original = context.results[rid]
+                original = context.public_result(context.results[rid],origin=context.origin(rid))
                 if original.get('observation') and original.get('observation') == state.get('observation'):
                     row['observation'] = {'result_id': rid, 'path': ['observation']}
                 for fields in completed.values():

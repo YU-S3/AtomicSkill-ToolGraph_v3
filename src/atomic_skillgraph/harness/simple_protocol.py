@@ -129,6 +129,8 @@ class Broker:
         elif method == 'call':
             result = self.call(values.get('name'), values.get('arguments'), deadline=deadline,
                                allowed_tools=allowed_tools)
+            result = self.context.public_result(result,
+                origin=getattr(self.adapter,'result_protocol',lambda name:None)(values.get('name')))
         elif method == 'read_result':
             result = self.call('read_result', values, deadline=deadline, allowed_tools=allowed_tools)
         else:
@@ -233,7 +235,9 @@ class Broker:
                 result = value
                 self.environment_steps += int(result.get('environment_step', 0))
             self.done = bool(result.get('done', False))
-            result_id = self.context.register(event['event_id'], result, name=name, arguments=arguments)
+            event['result_protocol'] = getattr(self.adapter, 'result_protocol', lambda name: None)(name)
+            result_id = self.context.register(event['event_id'], result, name=name, arguments=arguments,
+                                              origin=event['result_protocol'])
             event.update(state='finished', result=result, result_id=result_id,
                          environment_steps=self.environment_steps, environment_step=int(result.get('environment_step', 0)),
                          progress_after=progress_key(self.adapter))

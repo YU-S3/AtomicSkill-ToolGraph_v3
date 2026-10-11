@@ -8,6 +8,7 @@ from copy import deepcopy
 
 from .contracts import digest, program_digest, validate_schema_instance
 from . import LOCAL_VALIDATION_POLICY_VERSION, FILE_EFFECT_VERSION, BINDING_POLICY_VERSION
+from .public_results import public_reference, evidence_origin
 
 POLICY = LOCAL_VALIDATION_POLICY_VERSION
 
@@ -94,7 +95,7 @@ def json_reference_path(selector):
 
 def reference_value(evidence, selector):
     path=json_reference_path(selector)
-    if path is not None:return at(evidence['reference'],path)
+    if path is not None:return public_reference(evidence['reference'],path,evidence_origin(evidence))
     if not isinstance(selector,dict):raise ValueError('Output reference must be a typed selector or JSON path')
     if selector.get('kind')=='publication':
         files=sorted(evidence['reference'].get('local_artifact_identities',{}))
@@ -183,6 +184,7 @@ def evidence_from_trace(task, trace, environment):
                 'source_trace_sha256': trace_hash, 'event_ids': [event['event_id']], 'kind': 'native_operation',
                 'operation': {'name': event['name'], 'arguments': deepcopy(event['arguments'])},
                 'reference': deepcopy(event['result']), 'prefix': deepcopy(prefix),
+                **({'result_protocol':event['result_protocol']} if 'result_protocol' in event else {}),
                 'public_task': source['task'], 'environment_identity': deepcopy(environment)})
         if event.get('backend_invoked'):
             prefix.append({'name': event['name'], 'arguments': deepcopy(event['arguments'])})

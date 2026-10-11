@@ -63,7 +63,7 @@ class Executor:
             owner_version, recovery_needed = saved['owner_version'], saved['recovery_needed']
             for event in broker.events:
                 if event['state'] == 'finished' and event['event_id'] not in context.sources:
-                    result_id = context.register(event['event_id'], event['result'], name=event['name'], arguments=event['arguments'])
+                    result_id = context.register(event['event_id'], event['result'], name=event['name'], arguments=event['arguments'], origin=event.get('result_protocol'))
                     if result_id != event['result_id']:
                         raise ValueError('Recovered result identity differs')
 
@@ -99,7 +99,7 @@ class Executor:
                 'pending_decision_id': None if status else pending_decision_id, 'owner_version': owner_version,
                 'recovery_needed': recovery_needed,
                 'context': {k: sorted(getattr(context,k)) if k in {'progress_contents','progress_states'} else getattr(context,k)
-                    for k in ['scope','results','sources','memory','local_reads','pending_outputs','active_node',
+                    for k in ['scope','results','sources','memory','local_reads','result_origins','window_sources','sent_windows','pending_outputs','active_node',
                               'progress_observations','progress_contents','progress_states','loop_hits','loop_feedback']}}
             if status:
                 checkpoint.commit_decision(pending_decision_id, status, executor_state=state, program_started=False)
@@ -144,7 +144,7 @@ class Executor:
                 candidate_id = getattr(exc, 'logical_decision_id', None)
                 pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
                 history.append({'error': str(exc)})
-                final, reason = '', str(exc) if str(exc).startswith('finish_only_') else 'finish_only_protocol_error'
+                final, reason = '', str(exc) if str(exc).startswith(('finish_only_', 'finish_unavailable:')) else 'finish_only_protocol_error'
                 save(status='rejected')
 
         def fail(kind, interface, *, name='', arguments=None, detail=None):
@@ -274,7 +274,7 @@ class Executor:
             plan = draft
             if target in completed and alias_view is not None:
                 values.results[target] = alias_view
-                view_id = context.register(uuid4().hex, {'outputs': {k: context.resolve(v) if isinstance(v, ResultRef) else v
+                view_id = context.register(uuid4().hex, {'outputs': {k: context.resolve_public(v) if isinstance(v, ResultRef) else v
                     for k,v in alias_view.items()}, 'source_node': target})
                 values.history.append({'node': target, 'origin': 'handoff', 'outputs': alias_view, 'view_result_id': view_id})
             if kind == 'args':

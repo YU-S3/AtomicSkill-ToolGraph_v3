@@ -212,7 +212,8 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
         unknown_billing = sum(1 for audit in audits for request in audit['requests']
             for attempt in request.get('http_attempts', []) if attempt.get('usage') is None)
         unknown_billing += sum(1 for audit in audits for request in audit['requests']
-            if not request.get('response', {}).get('usage') and not request.get('http_attempts'))
+            if not request.get('response', {}).get('usage') and not request.get('http_attempts')
+            and request.get('admission_status') != 'local_refusal')
         known_tokens = sum(u['total_tokens'] for u in usage)
         summary = {"schema": "empirical.summary.v1", "complete": complete, "tasks": len(cases),
                    'expected_tasks': len(tasks), 'status': 'completed' if complete else 'stopped',

@@ -51,9 +51,9 @@ class Learner:
         events = experience.get('events', [])
         for index, event in list(enumerate(events))[-6:]:
             result_id = context.register(f'learner_case:{source_id}:{snapshot}:{index}',
-                                        deepcopy(event.get('result', {})), verify_source=True)
+                                        deepcopy(event.get('result', {})), verify_source=True, origin=event.get('result_protocol'))
             view['events'].append({'name': event['name'], 'arguments': learning_preview(context, event['arguments']),
-                'result': {'result_id': result_id, **{k:learning_preview(context,v) for k,v in context.results[result_id].items()}}})
+                'result': context.view(result_id)})
         return view
 
     def _receive(self, key, stage, prompt, material, name, schema, *, material_version=None, **kwargs):
@@ -640,11 +640,22 @@ class Learner:
             raw = json.dumps(v, ensure_ascii=False)
             return v if len(raw) <= 2048 else {'preview': raw[:2048], 'chars': len(raw), 'truncated': True}
         def walk(v, key=''):
+            if key == 'errors' and isinstance(v,list):
+                rows=[]
+                for row in v[-2:]:
+                    row=deepcopy(row)
+                    if isinstance(row,dict) and 'outcome' in row and isinstance(row.get('validation'),dict):
+                        row['validation']={k:x for k,x in row['validation'].items() if k in
+                            {'policy','passed','reason','variation','native_operation_match','evidence_id'}}
+                        if isinstance(row.get('result'),dict):
+                            row['result']={k:x for k,x in row['result'].items() if k not in {'elapsed_seconds','cpu_seconds','program_id'}}
+                    rows.append(walk(row))
+                return rows
             if key in {'tools','history'} and isinstance(v, list):
                 return {'count': len(v), 'operations': [{k:bounded(e[k]) for k in
                     ('name','arguments','state','error','progress_before','progress_after') if k in e} for e in v],
                     'last_results': [bounded(e.get('result', {})) for e in v[-2:]]}
             if isinstance(v, dict): return {k:walk(x,k) for k,x in v.items() if k != 'source'}
-            if isinstance(v, list): return [walk(x,key) for x in v[-2:]] if key == 'errors' else bounded(v)
+            if isinstance(v, list): return bounded(v)
             return bounded(v)
         return {**walk(failure), **({'source': failure['source']} if 'source' in failure else {})}
