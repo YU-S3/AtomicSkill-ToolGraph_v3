@@ -68,6 +68,45 @@ def canonical_bytes(value):
     return len(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8'))
 
 
+def learning_capacity_audit(payload, limit, stage, purpose):
+    """Only a recognized, exhausted learning projection can be a controlled refusal."""
+    from .budget_governor import input_token_bound
+    unverified={'classification':'unverified_capacity_refusal','projection_version':'learning-capacity.v1'}
+    try:
+        if stage not in {'extractor','tool_builder'}:return unverified
+        material=json.loads(payload['messages'][1]['content'])
+        if not isinstance(material,dict):return unverified
+        value=expand_material(material)
+        experience=value.get('experience',{})
+        if not isinstance(experience,dict):return unverified
+        cards=experience.get('local_evidence',[])
+        operations=value.get('legal_operations',[])
+        if not isinstance(cards,list) or not isinstance(operations,list):return unverified
+        refs=[r['local_evidence_ref'] for r in operations]
+        if not all(isinstance(r,str) for r in refs):return unverified
+    except (ValueError,TypeError,KeyError,IndexError):return unverified
+    optional=any(value.get(k) for k in ('completed_train_cases','related','related_guidance'))
+    optional=optional or len(cards)>1
+    if purpose=='learning_structure_repair':
+        recognized={'proposal','errors','legal_operations','note'}==set(value) and bool(value['errors'])
+        optional=optional or len(refs)!=len(set(refs))
+    elif stage=='tool_builder':
+        recognized={'build_request','examples','future_program_api','workspace_capabilities','program_submission_contract'}<=set(value)
+    else:
+        recognized=experience.get('compact_learning_directory') is True and bool(cards)
+    # Same-value interning and compact JSON must not turn a fitting request into a refusal.
+    compact=deepcopy(payload)
+    sizes=[]
+    for material in (value,pack_material(value)):
+        compact['messages'][1]['content']=json.dumps(material,ensure_ascii=False,separators=(',',':'),allow_nan=False)
+        sizes.append(input_token_bound(compact))
+    minimum=min(sizes)
+    controlled=stage in {'extractor','tool_builder'} and recognized and not optional and minimum>limit
+    return {'classification':'learning_capacity_rejected' if controlled else 'unverified_capacity_refusal',
+        'recognized_learning_contract':bool(recognized),'optional_material_remaining':bool(optional),
+        'minimum_equivalent_wire_bytes':minimum,'projection_version':'learning-capacity.v1'}
+
+
 def learning_preview(context, value):
     preview = context.preview(value)
     # Learner/Builder cannot dereference episode-local pointers; keep the readable window.

@@ -2,13 +2,13 @@
 
 PROFILE = "skillcompiler.empirical.v1"
 
-IMPLEMENTATION_REVISION = 'empirical-v3.2-public-procedure-r1'
+IMPLEMENTATION_REVISION = 'empirical-v3.2-learning-capacity-r1'
 LOCAL_VALIDATION_POLICY_VERSION = 'atomic.local-validation.v3'
 FILE_EFFECT_VERSION = 'artifact-effect.xlsx-modified.v1'
 BINDING_POLICY_VERSION = 'atomic.host-binding.v1'
 BUDGET_POLICY_VERSION = 'atomic.train-pools.v1'
 ANSWER_PROTOCOL_VERSION = 'atomic.answer-executor.v1'
-LEARNING_MATERIAL_VERSION = 'learner.material.public-directory.v5'
+LEARNING_MATERIAL_VERSION = 'learner.material.public-directory.v6'
 GUIDANCE_POLICY_VERSION = 'guidance.public-evidence.v1'
 CHOICE_GUIDANCE_POLICY_VERSION = 'choice-guidance.grounded.v1'
 CHOICE_GUIDANCE_MATERIAL_VERSION = 'choice-guidance.material.v1'
@@ -32,5 +32,5 @@ POLICY_DEFAULTS = {
                  'binding_policy': BINDING_POLICY_VERSION,
                  'file_effect_version': FILE_EFFECT_VERSION,
                  'extractor_payload_max_bytes': 16384, 'builder_payload_max_bytes': 16384,
-                 'structural_repair_payload_max_bytes': 8192},
+                 'structural_repair_payload_max_bytes': 16384},
 }

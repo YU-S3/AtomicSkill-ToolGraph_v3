@@ -256,7 +256,7 @@ class Learner:
                 validator=lambda p: self.validate_learning_proposal(p, cases), repair_limit=1)
             resolved = self.validate_learning_proposal(proposal, cases)
         except ValueError as exc:
-            log.update(decision='rejected', reason=getattr(exc,'code','proposal_invalid'), errors=[str(exc)])
+            log.update(decision='rejected', reason=getattr(exc,'learning_outcome',getattr(exc,'code','proposal_invalid')), errors=[str(exc)])
             return log
         log['decision'] = proposal['decision']
         skill = None
@@ -599,7 +599,7 @@ class Learner:
                     log['errors'].append(str(exc))
                     job.pop('pending_generation', None)
                     if getattr(exc,'code',None)=='material_too_large':
-                        job.update(state='deferred',last_error_kind='material_too_large'); break
+                        job.update(state='deferred',last_error_kind=getattr(exc,'learning_outcome','material_too_large')); break
                     if job['repair_used']:
                         job.update(state='deferred', last_error_kind=getattr(exc,'finish_reason',None) or 'structure'); break
                     job.update(repair_used=True, last_error_kind=getattr(exc,'finish_reason',None) or 'structure')

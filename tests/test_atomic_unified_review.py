@@ -325,7 +325,7 @@ def test_formal_and_finite_resolve_same_method_and_static_budget(tmp_path,benchm
     record('configuration_'+benchmark,{'formal':a,'finite':b,'equal_excluding_declared_budget':True})
 
 
-def test_xlsx_publication_real_worker_with_host_binding(tmp_path,worker):
+def test_xlsx_publication_real_worker_with_host_binding(tmp_path,worker,monkeypatch):
     from openpyxl import Workbook
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     from atomic_skillgraph.harness.benchmarks import SpreadsheetAdapter
@@ -353,6 +353,24 @@ def test_xlsx_publication_real_worker_with_host_binding(tmp_path,worker):
             'reference_fields':{'files':{'kind':'publication','field':'files'},'output_file':{'kind':'publication','field':'file','name':'case1_result.xlsx'}}}
         declaration={'input_schema':input_schema,'output_schema':output_schema,'result_role':'intermediate'}
         locked=canonical_binding(binding,{'local_evidence':[e]},declaration)
+        proposal={'decision':'propose_skill_and_program_spec','skill':{'goal':task.goal,**declaration},
+            'realization_request':{'skill_id':'$new','action':'build','case_bindings':[binding]},
+            'workflow':{'goal':task.goal,'interface_version':'empirical.workflow.v2',
+                'nodes':[{'id':'write','execution_mode':'skill','skill_id':'$new'}],
+                'outputs':{'output_file':{'from':'write','field':'output_file'}}}}
+        experience=s.learner._experience(task,trace);cases={task.physical_key:(task,experience)}
+        sent=http(monkeypatch,[response([proposal],name='submit_learning'),response([{'decision':'no_change'}],name='submit_learning')])
+        s.agent('extractor',LEARNER_PROMPT,{'experience':learning_case(experience,task.physical_key)},
+            'submit_learning',LEARNING,repair_limit=1,validator=lambda p:s.learner.validate_learning_proposal(p,cases))
+        repaired=expand_material(json.loads(sent[1]['messages'][1]['content']))
+        assert len(sent)==2 and input_token_bound(sent[1])<=16384 and sent[1]['max_tokens']==2048
+        assert repaired['proposal']['realization_request']['case_bindings']==[binding]
+        card=repaired['legal_operations'][0]
+        assert card['published_files']==['case1_result.xlsx'] and card['effect']=='published_files'
+        assert all(r in card['output_references'] for r in [
+            {'kind':'publication','field':'files','value':['case1_result.xlsx']},
+            {'kind':'publication','field':'file','name':'case1_result.xlsx','value':'case1_result.xlsx'}])
+        record('publication_capacity_repair',{'payload':sent[1],'wire_bytes':input_token_bound(sent[1]),'actual_http':0})
         source="def run(ctx, inputs):\n    from openpyxl import load_workbook\n    w=load_workbook('/workspace/inputs/input.xlsx')\n    w.active[inputs['cell']]=None\n    w.save('/workspace/case1_result.xlsx')\n    return {'status':'ok','outputs':{'files':['case1_result.xlsx'],'output_file':'case1_result.xlsx'}}"
         p=s.bank.put('program',{**declaration,'source':source,'entry':'run','allowed_tools':[], 'environment':s.config['program_environment']})
         checked=validate_on_source(s,p,locked,task,{'local_evidence':[e]},'real-xlsx')

@@ -185,10 +185,10 @@ class FormalLog:
 
     def learning_end(self, observation, result):
         details = {k: result[k] for k in ('decision', 'persisted_skill_id', 'reused_skill_id', 'parent_skill_id',
-            'retrieved_guidance_ids', 'injected_guidance_ids', 'learning_rejected_reason') if result and k in result}
+            'retrieved_guidance_ids', 'injected_guidance_ids', 'learning_rejected_reason','capacity_rejections') if result and k in result}
         self.training(observation['id'], 'learning_update', observation['start'], utc(), len(observation['subjects']),
                       'exception' if result is None or result.get('exception') else 'rejected' if result and (result.get('rejected') or result.get('decision') == 'rejected') else 'completed',
-                      result.get('learning_rejected_reason', result.get('error')) if result else None,
+                      result.get('learning_rejected_reason',result.get('reason',result.get('error'))) if result else None,
                       consumed_physical_keys=sorted(observation['subjects']), **details)
         self.active_learning = None
 

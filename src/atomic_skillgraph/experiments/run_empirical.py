@@ -25,6 +25,16 @@ def write_json(path, value):
     os.replace(temporary, path)
 
 
+def capacity_statistics(audits,cases):
+    requests=[r for a in audits for r in a['requests'] if r['stage'] in {'extractor','tool_builder'}]
+    rejected=sum(r.get('failure_code')=='learning_capacity_rejected' for r in requests)
+    tasks=sum(any(r.get('failure_code')=='learning_capacity_rejected' for r in t['requests']) for t in cases)
+    return {'learning_requests':len(requests),'capacity_rejected_requests':rejected,
+        'completed_tasks':len(cases),'capacity_rejected_tasks':tasks,
+        'learning_request_capacity_rejection_rate':rejected/len(requests) if requests else 0,
+        'train_task_capacity_rejection_rate':tasks/len(cases) if cases else 0}
+
+
 def commit_trace(output, task_id, trace, database, checkpoint, **checkpoint_values):
     write_json(Path(output)/'traces'/(task_id+'.json'), trace)
     with database:
@@ -223,6 +233,7 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
                    "completed_task_tokens": sum(u['total_tokens'] for t in cases for u in t['usage']),
                    "program_invocations": sum(len(t["execution"].get("attempts", [])) for t in cases),
                    "frozen": frozen, "knowledge_digest": system.bank.digest(), "cases": cases}
+        if not readonly:summary['learning_capacity']=capacity_statistics(audits,cases)
         write_json(output / "summary.json", summary)
         return summary
     finally:

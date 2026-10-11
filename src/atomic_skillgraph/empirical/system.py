@@ -392,6 +392,14 @@ class EmpiricalSystem:
                         # Only optional complete history/candidate records may be removed.
                         try: projected=expand_material(json.loads(messages[1]['content']))
                         except (TypeError,ValueError):break
+                        compact=[]
+                        for form in (projected,pack_material(projected)):
+                            content=json.dumps(form,ensure_ascii=False,separators=(',',':'),allow_nan=False)
+                            candidate=deepcopy(payload);candidate['messages'][1]['content']=content
+                            compact.append((input_token_bound(candidate),content))
+                        size,content=min(compact,key=lambda row:row[0])
+                        if size<input_token_bound(payload):
+                            messages[1]={'role':'user','content':content};continue
                         removable=next((k for k in ('completed_train_cases','related','related_guidance') if projected.get(k)),None)
                         if removable is not None: projected[removable].pop()
                         else:
@@ -539,6 +547,12 @@ class EmpiricalSystem:
                         'parts_bytes':{**parts,'serialization_and_parameters':input_token_bound(payload)-sum(parts.values())},
                         'required_fields':['proposal','errors','tools'] if purpose=='learning_structure_repair' else ['current task','current evidence','tools'],
                         'reason':'Required proposal/contracts/errors and referenced provenance cannot be dropped; optional history is exhausted.'}
+                    from .model_view import learning_capacity_audit
+                    capacity=learning_capacity_audit(payload,payload_max,stage,purpose)
+                    record['material_refusal'].update(capacity)
+                    if capacity['classification']=='learning_capacity_rejected':
+                        record['failure_code']=exc.learning_outcome='learning_capacity_rejected'
+                    else:record['material_refusal']['reason']='Capacity refusal is not certified as an exhausted required learning projection; engineering review required.'
                 invalid_finish_text = (purpose == 'finish_only' and isinstance(exc, ProviderProtocolError)
                                        and 'assistant content must be a string or null' in str(exc))
                 turn = getattr(exc, "usage_turn", None)
@@ -891,7 +905,11 @@ class EmpiricalSystem:
                 host_call('bank_record', self.bank.record, attempt, trial_context={'stage': 'learning'})
             trace["learning"] = self.learner.learn(task, trace)
             result = trace['learning'] or {}
+            capacity=[{'request_id':r['id'],'stage':r['stage'],'purpose':r['purpose']}
+                for r in self.requests[self._request_start:] if r.get('failure_code')=='learning_capacity_rejected']
+            if capacity:result['capacity_rejections']=capacity
             trace['learning_status'] = ('skipped_policy' if result.get('decision_origin') == 'host' else
+                'learning_capacity_rejected' if capacity else
                 'rejected' if result.get('rejected') or result.get('decision') == 'rejected' else 'completed')
             if trace.get('learning_error'): trace['learning_error'] = None
         except BudgetExhausted as exc:
