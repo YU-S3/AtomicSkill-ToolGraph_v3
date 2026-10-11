@@ -317,7 +317,8 @@ class Executor:
                 publication_receipt=result.get('publication_receipt'), workspace_before=workspace_before,
                 error_code=result.get('error_code'), submission_by_program=False)
             attempts.append(attempt)
-            result_id = context.register(attempt['id'], result, name=program['id'], arguments=arguments)
+            from .public_results import PROGRAM_EXECUTION
+            result_id = context.register(attempt['id'], result, name=program['id'], arguments=arguments, origin=PROGRAM_EXECUTION)
             history.append({'program': program['id'], 'arguments': deepcopy(arguments), 'result_id': result_id})
             attempt.update(result_id=result_id, native_event_start=start, native_event_end=len(broker.events))
             attempt.update(arguments=deepcopy(arguments),source=program['source'],input_schema=program['input_schema'],

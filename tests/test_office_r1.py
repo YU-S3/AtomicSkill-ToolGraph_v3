@@ -65,6 +65,10 @@ def test_public_projection_binding_and_page_delivery(tmp_path):
     assert 'scope_audit' not in reference_value(e,[])
     compute=context.register('compute',{'data':{'scope_audit':'business'},'scope_audit':'business'})
     assert context.bind({}, {'x':{'result_id':compute,'path':[]}})['x']['scope_audit']=='business'
+    from atomic_skillgraph.empirical.public_results import PROGRAM_EXECUTION
+    program=context.register('program',{'outputs':{'cpu_seconds':'business'},'cpu_seconds':1},origin=PROGRAM_EXECUTION)
+    assert context.view(program)=={'result_id':program,'outputs':{'cpu_seconds':'business'}}
+    with pytest.raises(ValueError):context.resolve_public({'result_id':program,'path':['cpu_seconds']})
     pages=[context.read(rid,path=['data'],offset=n) for n in (0,40)]
     assert [len(p['data']) for p in pages]==[40,3]
     assert [p['next_offset'] for p in pages]==[40,None]

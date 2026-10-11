@@ -3,10 +3,12 @@ from copy import deepcopy
 
 SCOPED_SEARCH = 'native.scoped-search.v1'
 FILE_COMPUTE = 'native.file-compute.v1'
+PROGRAM_EXECUTION = 'program.execution-result.v1'
 HOST_FIELDS = {
     SCOPED_SEARCH: {'scope_audit'},
     FILE_COMPUTE: {'local_artifact_identities', 'local_artifact_hashes',
                    'worker_cpu_seconds', 'worker_seconds'},
+    PROGRAM_EXECUTION: {'cpu_seconds', 'elapsed_seconds', 'program_id'},
 }
 
 

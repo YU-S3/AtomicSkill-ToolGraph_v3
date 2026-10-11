@@ -113,7 +113,8 @@ class AnswerExecutor:
             before=s.adapter.observe().get('workspace',{})
             result=normalize_program_result(s.adapter,p,s.worker.execute(p,args,broker),workspace_before=before)
             aid=uuid4().hex
-            rid=context.register(aid,result,name=p['id'],arguments=args)
+            from .public_results import PROGRAM_EXECUTION
+            rid=context.register(aid,result,name=p['id'],arguments=args,origin=PROGRAM_EXECUTION)
             attempt={'id':aid,'program_id':p['id'],'task_key':task.physical_key,'origin':'online','split':task.split,
                 'kind':kind,'arguments':args,'result_id':rid,'status':result['status'],'outcome':'normal',
                 'basis':None,'calls':result.get('calls',0),'local_check':'unavailable','outputs_consumed':False,
