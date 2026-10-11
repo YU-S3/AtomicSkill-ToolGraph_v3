@@ -3,9 +3,9 @@
 set -euo pipefail
 mode=${1:---print};revision=${2:-}
 case "$mode" in --print|--execute|--resume) ;; *) echo 'Use --print, --execute or --resume, followed by the pinned commit' >&2;exit 2;;esac
-CODE=/home/yangchengyu/asg_officeqa_r1_seed42_20261011
-OUTPUT=/home/yangchengyu/officeqa_r1_fresh_seed42_formal_20261011/officeqa/seed42
-OLD=/home/yangchengyu/atomic_unified_r1_selector_seed42_formal_20261010/officeqa/seed42
+CODE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+OUTPUT=${OFFICE_R1_OUTPUT:-/home/yangchengyu/officeqa_r1_v4_fresh_seed42_formal_20261011/officeqa/seed42}
+OLD=${OFFICE_R1_COST_SOURCE:-/home/yangchengyu/officeqa_r1_fresh_seed42_formal_20261011/officeqa/seed42}
 PYTHON=/home/yangchengyu/asg_alfworld_venv/bin/python
 cd "$CODE";export PYTHONPATH="$CODE/src"
 [[ $(git rev-parse HEAD) == "$revision" ]] && [[ -z $(git status --porcelain --untracked-files=no) ]] || { echo 'Pinned clean commit required' >&2;exit 2; }
@@ -26,15 +26,18 @@ image=json.loads(Path('benchmark_profiles.json').read_text())['profiles']['offic
 subprocess.run(['docker','run','--rm','--network','none','--read-only','--entrypoint','/bin/true',image],check=True,timeout=30)
 if mode=='--execute':
     assert not output.exists(), 'Fresh output already exists; use explicit same-version resume'
+    assert output.resolve()!=old.resolve(), 'Cost source must remain separate from the fresh run'
     original=old/'budget.json';raw=original.read_bytes();ledger=json.loads(raw)
     limits=json.loads(Path('configs/atomic_unified_seed42_budget.json').read_text())['cells']['officeqa']
     assert ledger['limits']=={k:limits[k] for k in ('token_limit','finish_reserve','request_limit')}
     assert not ledger['unknown_billing'] and all(a['status']=='metered' for a in ledger['attempts'].values())
     assert sum(a['accounted_tokens'] for a in ledger['attempts'].values())<limits['token_limit']
+    assert len(ledger['attempts'])<limits['request_limit']
     output.mkdir(parents=True);(output/'budget.json').write_bytes(raw)
     write_json(output/'cost_carryforward_manifest.json',{'source_run':str(old),'source_budget_sha256':hashlib.sha256(raw).hexdigest(),
         'inherited_tokens':sum(a['accounted_tokens'] for a in ledger['attempts'].values()),'inherited_http':len(ledger['attempts']),
-        'inherited_attempt_ids':list(ledger['attempts']),'limits_unchanged':True,'bank_inherited':False})
+        'inherited_attempt_ids':list(ledger['attempts']),'limits_unchanged':True,'bank_inherited':False,
+        'prior_cost_carryforward':json.loads((old/'cost_carryforward_manifest.json').read_text()) if (old/'cost_carryforward_manifest.json').exists() else None})
 else:
     assert (output/'run_manifest.json').exists() and (output/'cost_carryforward_manifest.json').exists()
 PY
