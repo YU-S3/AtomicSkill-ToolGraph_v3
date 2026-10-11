@@ -4,8 +4,8 @@ set -euo pipefail
 mode=${1:---print};revision=${2:-}
 case "$mode" in --print|--execute|--resume) ;; *) echo 'Use --print, --execute or --resume, followed by the pinned commit' >&2;exit 2;;esac
 CODE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-OUTPUT=${OFFICE_R1_OUTPUT:-/home/yangchengyu/officeqa_r1_v4_fresh_seed42_formal_20261011/officeqa/seed42}
-OLD=${OFFICE_R1_COST_SOURCE:-/home/yangchengyu/officeqa_r1_fresh_seed42_formal_20261011/officeqa/seed42}
+OUTPUT=${OFFICE_R1_OUTPUT:-/home/yangchengyu/officeqa_r2_v5_fresh_seed42_formal_20261012/officeqa/seed42}
+OLD=${OFFICE_R1_COST_SOURCE:-/home/yangchengyu/officeqa_r1_v4_fresh_seed42_formal_20261011/officeqa/seed42}
 PYTHON=/home/yangchengyu/asg_alfworld_venv/bin/python
 cd "$CODE";export PYTHONPATH="$CODE/src"
 [[ $(git rev-parse HEAD) == "$revision" ]] && [[ -z $(git status --porcelain --untracked-files=no) ]] || { echo 'Pinned clean commit required' >&2;exit 2; }

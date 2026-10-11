@@ -162,15 +162,24 @@ def structure_repair_material(proposal, errors, directories):
         return v
     if value.get('skill'):
         for k in ('input_schema','output_schema'):value['skill'][k]=contract(value['skill'][k])
-    inputs=[v for b in value.get('realization_request',{}).get('case_bindings',[]) for v in b.get('inputs',{}).values()]
+    bindings=(value.get('realization_request') or {}).get('case_bindings',[])
+    inputs=[v for b in bindings for v in b.get('inputs',{}).values()]
     operations=[]
-    referenced={b.get('local_evidence_ref') for b in value.get('realization_request',{}).get('case_bindings',[])}
+    referenced={b.get('local_evidence_ref') for b in bindings}
     rows=[row for group in directories for row in group]
     matching=[row for row in rows if row['local_evidence_ref'] in referenced]
     if matching:rows=matching
+    provenance_fields={'input_sources','output_references','published_files','reference_fields','local_evidence_ref'}
+    needs_details=bool(bindings) or any(
+        e.get('code') in {'invalid_binding','unknown_source','unbound_input','missing_output_reference','invalid_output_reference','no_publication'} or
+        (e.get('field') or '').split('.')[0] in provenance_fields
+        for group in errors for e in group['errors'])
     for row in rows:
-        operations.append({k:deepcopy(row[k]) for k in ('case_id','local_evidence_ref','operation_name','kind','effect','published_files','output_references')})
-        operations[-1]['input_sources']=[r for r in row['input_sources'] if r['value'] in inputs]
+        if needs_details:
+            operations.append({k:deepcopy(row[k]) for k in ('case_id','local_evidence_ref','operation_name','kind','effect','published_files','output_references')})
+            operations[-1]['input_sources']=[r for r in row['input_sources'] if not bindings or r['value'] in inputs]
+        else:
+            operations.append({k:row[k] for k in ('operation_name','local_evidence_ref')})
     short=[{'binding_index':row['binding_index'],'errors':[{'code':e['code'],'field':e.get('field'),
         **({'expected':e['detail'][:200]} if e['code'] in {'input_type','output_type'} else {})} for e in row['errors']]} for row in errors]
     return {'proposal':value,'errors':short,'legal_operations':operations,

@@ -493,6 +493,18 @@ class EmpiricalSystem:
             except Exception as exc:
                 if (isinstance(exc,BudgetExhausted) or getattr(exc,'code',None)=='material_too_large') and getattr(provider,'request_record_count',0)==provider_offset:
                     record['admission_status']='local_refusal'
+                if getattr(exc,'code',None)=='material_too_large' and isinstance(provider,OpenAICompatibleProvider):
+                    from .budget_governor import input_token_bound
+                    payload=provider._build_payload(messages,tools,tool_choice)
+                    payload[provider.config.token_limit_field]=completion_cap
+                    parts={'system':len(messages[0]['content'].encode('utf-8')),
+                           'user':len(messages[1]['content'].encode('utf-8')),
+                           'tools':len(json.dumps(payload.get('tools',[]),allow_nan=False).encode('utf-8'))}
+                    record['material_refusal']={'status':'material_too_large','payload':payload,
+                        'wire_bytes':input_token_bound(payload),'limit_bytes':payload_max,
+                        'parts_bytes':{**parts,'serialization_and_parameters':input_token_bound(payload)-sum(parts.values())},
+                        'required_fields':['proposal','errors','tools'] if purpose=='learning_structure_repair' else ['current task','current evidence','tools'],
+                        'reason':'Required proposal/contracts/errors and referenced provenance cannot be dropped; optional history is exhausted.'}
                 invalid_finish_text = (purpose == 'finish_only' and isinstance(exc, ProviderProtocolError)
                                        and 'assistant content must be a string or null' in str(exc))
                 turn = getattr(exc, "usage_turn", None)
