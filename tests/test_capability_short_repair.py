@@ -61,3 +61,29 @@ def test_actual_repair_81_remains_rejected_under_unchanged_limits():
         with pytest.raises(ValueError,match='expected <= 80'):
             cb.candidate_feedback(p,log['capability'],rows)
     assert cb.generation_schema(cb.CHECK,prompt_revision='procedural-actions.r6')['properties']['reason']['maxLength']==180
+
+
+@pytest.mark.parametrize('valid_repair',[True,False])
+def test_no_change_repair_preserves_abstention_instead_of_inventing_candidate(tmp_path,monkeypatch,valid_repair):
+    calls=fixture_transport(monkeypatch);post=requests.post;count=0
+    def abstain(url,**kwargs):
+        nonlocal count
+        response=post(url,**kwargs);body=response.json();function=body['choices'][0]['message']['tool_calls'][0]['function']
+        if function['name']=='submit_learning':
+            count+=1;value={'decision':'no_change'}
+            if count==1 or not valid_repair:value['applicability']='Multiple-choice proof tasks'
+            function['arguments']=json.dumps(value)
+        response.json=lambda:body
+        return response
+    monkeypatch.setattr(requests,'post',abstain)
+    _,root,plan,_=fixture_source(tmp_path,monkeypatch);system=EmpiricalSystem(batch.read(root/'config.json'),harness=AnswerAdapter('livemath',{}))
+    try:
+        for row in batch.read(root/'source_cases.json'):system.bank.save_case(PublicTask(**row['task']),row['experience'])
+        batch.learning_boundary(system,root/'learning/0',batch.learning_scope(plan,'candidate:0'))
+        selection=[t['physical_key'] for rows in plan['selection_tasks'].values() for t in rows]
+        log=system.learner.learn_capability_batch(plan['candidate_units'][0],selection)
+        assert log['decision']==('no_change' if valid_repair else 'rejected') and count==2 and not log['candidate']
+        repair=calls[-1];assert 'Keep no_change' in repair['messages'][-1]['content']
+        assert '{"decision":"no_change"}' in repair['messages'][-1]['content'] and len(calls)==3
+        assert not system.bank.all('skill') and not log.get('source_check')
+    finally:system.close()

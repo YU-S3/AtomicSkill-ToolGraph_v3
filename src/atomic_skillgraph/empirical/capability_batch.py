@@ -10,7 +10,7 @@ from . import CHOICE_CAPABILITY_VERSION, CHOICE_CAPABILITY_MATERIAL_VERSION, CHO
 
 VERSION=CHOICE_CAPABILITY_VERSION
 MATERIAL_VERSION=CHOICE_CAPABILITY_MATERIAL_VERSION
-PROMPT_REVISION='procedural-actions.r7'
+PROMPT_REVISION='procedural-actions.r8'
 OPERATIONS=('extract_assumptions','compare_implications','inspect_quantifiers','seek_counterexample','check_finite_invariant')
 TEXT=lambda n:{'type':'string','minLength':1,'maxLength':n}
 REFERENCE=object_schema({'case_id':TEXT(160),'span_id':TEXT(80)},['case_id','span_id'])
@@ -112,7 +112,8 @@ def schema_for(schema,method_version):
 def generation_schema(schema,*,prompt_revision=PROMPT_REVISION):
     """Model targets are stricter than Host tolerance; retain the historical wire contract."""
     result=deepcopy(schema)
-    reason_limits={'procedural-actions.r3':240,'procedural-actions.r4':180,'procedural-actions.r5':512,'procedural-actions.r6':180,PROMPT_REVISION:180}
+    reason_limits={'procedural-actions.r3':240,'procedural-actions.r4':180,'procedural-actions.r5':512,
+        'procedural-actions.r6':180,'procedural-actions.r7':180,PROMPT_REVISION:180}
     if prompt_revision not in reason_limits:raise ValueError('Unknown capability generation contract')
     if prompt_revision!='procedural-actions.r3':
         for field in ('required_conditions','guidance'):
@@ -183,7 +184,7 @@ def validate_candidate(value,capability,rows,*,method_version=VERSION):
 def validate_check(value,candidate,*,prompt_revision=PROMPT_REVISION):
     schema=deepcopy(CHECK)
     if prompt_revision in {'procedural-actions.r3','procedural-actions.r4'}:schema['properties']['reason']['maxLength']=240
-    elif prompt_revision not in {'procedural-actions.r5','procedural-actions.r6',PROMPT_REVISION}:raise ValueError('Unknown capability content-check contract')
+    elif prompt_revision not in {'procedural-actions.r5','procedural-actions.r6','procedural-actions.r7',PROMPT_REVISION}:raise ValueError('Unknown capability content-check contract')
     validate_schema_instance(value,schema)
     if value['candidate_hash']!=digest(candidate):raise ValueError('Candidate check identity changed')
     if value['proposal_quote'] not in candidate['guidance']+'\n'+candidate['applicability']:raise ValueError('Unlocated proposal quote')
@@ -204,6 +205,10 @@ def validate_match(value,capability,task):
 def candidate_feedback(value,capability,rows):
     try:return validate_candidate(value,capability,rows)
     except ValueError as exc:
+        if isinstance(value,dict) and value.get('decision')=='no_change' and set(value)-{'decision','references'}:
+            instruction='Keep no_change; submit exactly {"decision":"no_change"}. Omit guidance and applicability; do not invent a candidate.'
+            exc.args=(str(exc)+'; '+instruction,)
+            exc.repair_material={'learning_material_version':MATERIAL_VERSION,'capability':deepcopy(capability),'instruction':instruction}
         if 'size exceeds maxLength' in str(exc) or 'fit 512 Unicode characters' in str(exc):
             exc.args=(str(exc)+'; Rewrite substantially shorter, not a one-word trim. Count spaces and punctuation. '
                 'Keep the procedure and references; guidance <=180 characters, aim <=140; applicability is a 3-5 word category, aim <=50 characters.',)
@@ -242,7 +247,7 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None,rec
                 raise ValueError('Recovered demand source identity changed')
             value=deepcopy(recovered_demand['value']);log['recovered_demand']=deepcopy(recovered_demand)
         else:
-            value=receive('demand','Infer a shared comparison procedure from public demands, not answers or feedback; otherwise no_change. '
+            value=receive('demand','Infer a shared comparison procedure from public demands, not answers or feedback; otherwise submit exactly {"decision":"no_change"}. '
                 'required_conditions must be 1-180 Unicode characters; aim <=140 in one abstract sentence. '
                 'No digits, formulas, LaTeX, answer labels or specific mathematical conclusions. Use only enumerated operations. '
                 'Cite two supplied span IDs from distinct physical cases; case_id must be the supplied task_id or physical_key.',
@@ -256,7 +261,7 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None,rec
                     raise ValueError('Revalidated proposal source identity changed')
                 proposal=deepcopy(recovered_proposal['value']);log['recovered_proposal']=deepcopy(recovered_proposal)
                 log['proposal_origin']='saved_paid_v1_revalidated'
-            else:proposal=receive('proposal','Propose executable cross-case checks, or no_change; leave outcomes to the solver. '
+            else:proposal=receive('proposal','Propose executable cross-case checks, or submit exactly {"decision":"no_change"} with no other fields; leave outcomes to the solver. '
                 'Wrong/truncated answers reveal no true failure cause or alternative proof. '
                 'No theorem conclusions, digits, formulas, LaTeX, answer labels, lookup tables or guarantees. '
                 'Claim strength, dependencies, hypotheses or equality wording alone cannot decide truth. '
