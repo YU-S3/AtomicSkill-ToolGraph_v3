@@ -46,7 +46,7 @@ def match(c,t,eligible=True):
         'span_ids':[spans[0]['span_id'],next(s['span_id'] for s in spans if s['task_path'][0]=='inputs')] if eligible else []}
 
 
-def fixture_transport(monkeypatch,*,eligibility=True,answers=('B','A'),no_candidate=False,unknown=False):
+def fixture_transport(monkeypatch,*,eligibility=True,answers=('B','A'),no_candidate=False,unknown=False,induction=None):
     calls=[]
     def post(url,**kwargs):
         wire=deepcopy(kwargs['json']);calls.append(wire);body=expand_material(json.loads(wire['messages'][1]['content']))
@@ -55,6 +55,7 @@ def fixture_transport(monkeypatch,*,eligibility=True,answers=('B','A'),no_candid
             rows=body['public_cases'];value={'decision':'no_change'} if no_candidate else {'decision':'capability',
                 'required_conditions':'Compare explicit quantified claims.','operations':['inspect_quantifiers'],
                 'references':[{'case_id':r['task']['physical_key'],'span_id':r['spans'][0]['span_id']} for r in rows]}
+            if induction is not None:value=induction(rows)
         elif name=='submit_learning':
             value={'decision':'candidate','guidance':'Separate universal from existential claims and compare premises.',
                 'applicability':'Explicit quantified comparisons.','references':body['capability']['definition']['references']}
@@ -300,3 +301,111 @@ def test_real_train_public_sources_through_production_compiler(tmp_path,monkeypa
         finally:frozen.close()
     finally:s.close()
     assert before=={str(p):p.read_bytes() for p in files}
+
+
+def test_exact_task_id_aliases_and_diagnostic_no_change():
+    raw=sources()
+    for i,row in enumerate(raw):row['task']['goal']+=' Distinct public source '+str(i)
+    rows=cb.records(raw);refs=[{'case_id':r['task']['task_id'],'span_id':r['spans'][0]['span_id']} for r in rows]
+    expected=sorted(r['task']['physical_key'] for r in rows)
+    assert cb.source_refs(refs,rows)==expected
+    cap=cb.validate_capability({'decision':'capability','required_conditions':'Compare explicit quantified claims.',
+        'operations':['inspect_quantifiers'],'references':refs},rows)
+    assert cap['source_case_ids']==expected
+    value={'decision':'no_change','references':refs}
+    assert cb.validate_capability(value,rows) is None
+    assert cb.validate_candidate(value,cap,rows) is None
+    for bad in ({**value,'operations':['inspect_quantifiers']},{**value,'guidance':'New procedure.'}):
+        with pytest.raises(ValueError):cb.validate_capability(bad,rows)
+    for case in ('invented','another-row','same-physical','ambiguous'):
+        bad=deepcopy(refs);changed=deepcopy(rows)
+        if case=='invented':bad[0]['case_id']='invented'
+        elif case=='another-row':bad[0]['span_id']=rows[1]['spans'][0]['span_id']
+        elif case=='same-physical':bad[1]={'case_id':rows[0]['task']['physical_key'],'span_id':rows[0]['spans'][0]['span_id']}
+        else:changed[0]['task']['task_id']=changed[1]['task']['physical_key']
+        with pytest.raises(ValueError):cb.validate_capability({'decision':'no_change','references':bad},changed)
+
+
+def test_paid_induction_recovery_preserves_budget_sources_and_has_no_new_induction(tmp_path,monkeypatch):
+    calls=fixture_transport(monkeypatch)
+    base,out,plan,env=fixture_source(tmp_path,monkeypatch);validate=cb.validate_capability
+    monkeypatch.setattr(cb,'validate_capability',lambda *args:(_ for _ in ()).throw(ValueError('old interface rejection')))
+    prior=runner.execute(out/'plan.json',env);assert prior['new_http']==2 and prior['new_tokens']==10
+    monkeypatch.setattr(cb,'validate_capability',validate)
+    before={str(p):p.read_bytes() for p in out.rglob('*') if p.is_file()}
+    child=tmp_path/'recovered';new=runner.recover(out/'plan.json',child)
+    assert runner.check(child/'plan.json')['status']=='passed' and len(calls)==2
+    assert new['recovery']['remaining_tokens']==1799990 and new['recovery']['remaining_http']==78
+    result=runner.execute(child/'plan.json',env)
+    assert result['status']=='completed_selection' and result['new_http']==len(calls)-2
+    assert sum(p['tools'][0]['function']['name']=='submit_capability' for p in calls)==2
+    assert result['total_p2_http']==len(calls) and result['total_p2_tokens']==5*len(calls)
+    assert result['inherited_http']==2 and result['cumulative_http']==len(calls)
+    assert result['new_tokens']==5*(len(calls)-2) and result['inherited_tokens']==10
+    ledger=runner.read(child/'budget.json');old=runner.read(out/'budget.json')
+    assert all(ledger['attempts'][k]==v for k,v in old['attempts'].items())
+    assert before=={str(p):p.read_bytes() for p in out.rglob('*') if p.is_file()}
+    assert all(runner.read(child/'learning'/str(i)/'learning.json')['recovered_demand']['original_code']==plan['code'] for i in range(2))
+    with pytest.raises(ValueError,match='already recovered'):runner.recover(child/'plan.json',tmp_path/'third')
+    ledger['attempts'][next(iter(old['attempts']))]['accounted_tokens']=0;runner.write_json(child/'budget.json',ledger)
+    with pytest.raises(ValueError,match='Inherited paid attempts'):runner.check(child/'plan.json')
+
+
+@pytest.mark.parametrize('damage',['unknown_billing','wire_source','response','cost','exhausted'])
+def test_induction_recovery_rejects_changed_or_unfunded_paid_records(tmp_path,monkeypatch,damage):
+    calls=fixture_transport(monkeypatch);base,out,plan,env=fixture_source(tmp_path,monkeypatch);validate=cb.validate_capability
+    monkeypatch.setattr(cb,'validate_capability',lambda *args:(_ for _ in ()).throw(ValueError('old interface rejection')))
+    runner.execute(out/'plan.json',env);monkeypatch.setattr(cb,'validate_capability',validate)
+    if damage in {'unknown_billing','cost','exhausted'}:
+        ledger=runner.read(out/'budget.json')
+        if damage=='unknown_billing':ledger['unknown_billing']=True
+        elif damage=='cost':next(iter(ledger['attempts'].values()))['accounted_tokens']=0
+        else:
+            plan['new_limits']['request_limit']=2;ledger['limits']['request_limit']=2
+            runner.write_json(out/'plan.json',plan);runner.write_json(out/'plan_identity.json',{'plan_hash':digest(plan)})
+            result=runner.read(out/'result.json');result['plan_hash']=digest(plan);runner.write_json(out/'result.json',result)
+        runner.write_json(out/'budget.json',ledger)
+    else:
+        audit=runner.read(out/'learning/0/requests.json');request=audit['requests'][0]
+        if damage=='wire_source':request['http_attempts'][0]['final_payload_audit']['messages'][1]['content']='{}'
+        else:request['response']['tool_calls'][0]['arguments']={'decision':'no_change'}
+        runner.write_json(out/'learning/0/requests.json',audit)
+    with pytest.raises(ValueError):runner.recover(out/'plan.json',tmp_path/'child')
+    assert len(calls)==2 and not (tmp_path/'child').exists()
+
+
+def test_recovery_budget_admission_counts_paid_prefix_without_refill(tmp_path,monkeypatch):
+    calls=fixture_transport(monkeypatch);base,out,plan,env=fixture_source(tmp_path,monkeypatch);validate=cb.validate_capability
+    monkeypatch.setattr(cb,'validate_capability',lambda *args:(_ for _ in ()).throw(ValueError('old interface rejection')))
+    runner.execute(out/'plan.json',env);monkeypatch.setattr(cb,'validate_capability',validate)
+    plan['new_limits']['request_limit']=3;runner.write_json(out/'plan.json',plan);runner.write_json(out/'plan_identity.json',{'plan_hash':digest(plan)})
+    ledger=runner.read(out/'budget.json');ledger['limits']['request_limit']=3;runner.write_json(out/'budget.json',ledger)
+    result=runner.read(out/'result.json');result['plan_hash']=digest(plan);runner.write_json(out/'result.json',result)
+    child=tmp_path/'child';runner.recover(out/'plan.json',child);result=runner.execute(child/'plan.json',env)
+    assert result['status']=='stopped_budget_censored' and result['total_p2_http']==3 and result['new_http']==1 and len(calls)==3
+    assert not (child/'frozen_bank').exists()
+    runner.execute(child/'plan.json',env);assert len(calls)==3
+
+
+def test_actual_paid_induction_responses_through_fixed_compiler(tmp_path,monkeypatch):
+    previous=os.environ.get('LIVEMATH_P2_REJECTED_RUN')
+    if not previous:pytest.skip('Set the immutable real P2 induction-only run')
+    previous=Path(previous);before={str(p):p.read_bytes() for p in previous.rglob('*') if p.is_file()}
+    recovered,ledger,inputs=runner.recovery_inputs(previous/'plan.json')
+    assert recovered['prior_p2_tokens']==9800 and recovered['prior_p2_http']==2
+    assert recovered['remaining_tokens']==1790200 and recovered['remaining_http']==78
+    config=runner.read(previous/'config.json');cfg=runner.configuration(config,tmp_path/'derived');calls=fixture_transport(monkeypatch)
+    system=EmpiricalSystem(cfg)
+    try:
+        for row in runner.read(previous/'source_cases.json'):system.bank.save_case(PublicTask(**row['task']),row['experience'])
+        plan=runner.read(previous/'plan.json');selected=[t['physical_key'] for stage in plan['selection_tasks'].values() for t in stage]
+        logs=[]
+        for i,unit in enumerate(plan['candidate_units']):
+            runner.learning_boundary(system,tmp_path/'learning'/str(i),'candidate:'+str(i))
+            logs.append(system.learner.learn_capability_batch(unit,selected,recovered_demand=recovered['demands'][i]))
+        assert [r['decision'] for r in logs]==['candidate','no_change'],logs
+        assert [p['tools'][0]['function']['name'] for p in calls]==['submit_learning','submit_capability_check']
+        assert not system.bank.all('skill')  # Still unqualified: no automatic publication.
+        assert logs[0]['candidate']['source_case_ids']==sorted(plan['candidate_units'][0])
+    finally:system.close()
+    assert before=={str(p):p.read_bytes() for p in previous.rglob('*') if p.is_file()}

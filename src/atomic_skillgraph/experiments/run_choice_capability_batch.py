@@ -12,8 +12,9 @@ from ..core.errors import BudgetExhausted
 from ..empirical import POLICY_DEFAULTS
 from ..empirical.bank import Bank
 from ..empirical.budget_governor import BudgetGovernor, input_token_bound
-from ..empirical.capability_batch import (VERSION, CapabilityView, records, publish, utility_receipt,
-    validate_policy, validate_match, gate, pair_fact)
+from ..empirical.capability_batch import (VERSION, MATERIAL_VERSION, CAPABILITY, CapabilityView, records, publish, utility_receipt,
+    validate_policy, validate_match, validate_capability, gate, pair_fact)
+from ..empirical.model_view import expand_material
 from ..empirical.checkpoint import TaskCheckpoint
 from ..empirical.contracts import PublicTask, digest
 from ..empirical.system import EmpiricalSystem, validate_config
@@ -171,7 +172,89 @@ def check(plan_path):
     validate_config(read(root/'config.json'));policy(plan['settings'])
     generation,stages=partition(read(Path(plan['source_run'])/'train/execution_manifest.json')['tasks'],plan['settings'])
     if generation!=plan['generation_tasks'] or stages!=plan['selection_tasks']:raise ValueError('Prepared split changed')
+    if 'recovery' in plan:
+        recovered,ledger,_=recovery_inputs(plan['recovery']['parent_plan'])
+        if recovered!=plan['recovery'] or read(root/'inherited_p2_budget.json')!=ledger:raise ValueError('Recovery provenance changed')
+        if plan['inherited_tokens']!=recovered['inherited_tokens'] or plan['inherited_http']!=recovered['inherited_http'] or plan['new_limits']!=recovered['allowance']:
+            raise ValueError('Recovery budget authority changed')
+        if (root/'budget.json').exists() and any(read(root/'budget.json')['attempts'].get(k)!=v for k,v in ledger['attempts'].items()):
+            raise ValueError('Inherited paid attempts changed')
     return {'status':'passed','new_model_http':0,'generation':len(generation),'screen':len(stages['screen']),'confirmation':len(stages['confirmation'])}
+
+
+def recovery_inputs(plan_path):
+    """Only completed induction-only batches; replay exact paid outputs, never new evidence."""
+    path=Path(plan_path).resolve();root=path.parent;old=read(path);result=read(root/'result.json');ledger=read(root/'budget.json')
+    if old['schema']!=VERSION or 'recovery' in old or digest(old)!=read(root/'plan_identity.json')['plan_hash'] or result['plan_hash']!=digest(old):
+        raise ValueError('Original batch identity changed or already recovered')
+    inputs={str(path):sha256(path)}
+    for p,expected in {**old['input_hashes'],**{str(root/n):h for n,h in old['prepared_hashes'].items()}}.items():
+        if sha256(Path(p))!=expected:raise ValueError('Original batch source/material changed')
+        inputs[p]=expected
+    if result['status']!='completed_no_candidate' or result['candidates'] or read(root/'candidate_order.json') or ledger['unknown_billing']:
+        raise ValueError('Recovery requires a completed induction-only batch with known billing')
+    if ledger['limits']!={**old['new_limits'],'finish_reserve':0} or any(a['status']!='metered' for a in ledger['attempts'].values()):
+        raise ValueError('Original allowance or billing changed')
+    source=read(root/'source_cases.json');rows=records(source)
+    if rows!=read(root/'source_records.json'):raise ValueError('Original public source records changed')
+    by_key={r['task']['physical_key']:r for r in rows};selected=[t['physical_key'] for stage in old['selection_tasks'].values() for t in stage]
+    recovered=[];attempt_ids=set()
+    for i,unit in enumerate(old['candidate_units']):
+        folder=root/'learning'/str(i);audit=read(folder/'requests.json');log=read(folder/'learning.json')
+        if len(audit['requests'])!=1 or log['decision']!='rejected':raise ValueError('Recovery cannot repeat candidate learning or selection')
+        request=audit['requests'][0];attempts=request['http_attempts']
+        if request['purpose']!='capability_induction' or request['stage']!='extractor' or request['repair']!=0 or len(attempts)!=1:
+            raise ValueError('Only the original unrepaired induction response may be recovered')
+        attempt=attempts[0];wire=attempt['final_payload_audit'];unit_rows=[by_key[k] for k in unit]
+        public=[{k:r[k] for k in ('task','task_hash','spans')} for r in unit_rows];unit_id=digest([VERSION,unit_rows,sorted(selected)])
+        if expand_material(json.loads(wire['messages'][1]['content']))!={'public_cases':public,'learning_material_version':MATERIAL_VERSION}:
+            raise ValueError('Paid demand was not issued for the exact public source material')
+        tools=wire['tools'];params=wire['serialized_parameters']
+        if len(tools)!=1 or tools[0]['function']['name']!='submit_capability' or tools[0]['function']['parameters']!=CAPABILITY or params['model']!=old['settings']['source']['actual_model_request_label']:
+            raise ValueError('Paid demand schema or model changed')
+        if params['max_tokens']!=2048 or params['thinking']!={'type':'disabled'} or wire['tool_choice']!={'type':'function','function':{'name':'submit_capability'}}:
+            raise ValueError('Paid demand inference parameters changed')
+        if request['owner_state_version']!='capability_batch_'+unit_id+'_demand_'+MATERIAL_VERSION.replace('.','_').replace('-','_'):
+            raise ValueError('Paid induction owner changed')
+        calls=request['response']['tool_calls'];choices=attempt['public_response']['choices']
+        if len(calls)!=1 or calls[0]['name']!='submit_capability' or len(choices)!=1 or choices[0]['finish_reason']!='tool_calls' or attempt['outcome']!='success':
+            raise ValueError('Paid demand response is incomplete')
+        raw_calls=choices[0]['message']['tool_calls']
+        if len(raw_calls)!=1 or raw_calls[0]['function']['name']!='submit_capability' or json.loads(raw_calls[0]['function']['arguments'])!=calls[0]['arguments']:
+            raise ValueError('Parsed demand differs from actual provider response')
+        identity=attempt['request_id'];entry=ledger['attempts'][identity]
+        if identity in attempt_ids or entry['actual_usage']!=attempt['raw_usage'] or entry['accounted_tokens']!=attempt['raw_usage']['total_tokens'] or entry['context']['parent_scope']!='candidate:'+str(i):
+            raise ValueError('Paid demand billing or attribution changed')
+        validate_capability(calls[0]['arguments'],unit_rows);attempt_ids.add(identity)
+        recovered.append({'unit_id':unit_id,'public_cases_hash':digest(public),'value':calls[0]['arguments'],
+            'request_path':str(folder/'requests.json'),'request_sha256':sha256(folder/'requests.json'),
+            'request_id':request['id'],'http_attempt_id':identity,'original_code':old['code'],
+            'recovery_mode':'original_paid_induction_revalidated_without_http'})
+        for name in ('requests.json','learning.json'):inputs[str(folder/name)]=sha256(folder/name)
+    spent=sum(a['accounted_tokens'] for a in ledger['attempts'].values());http=len(attempt_ids)
+    if attempt_ids!=set(ledger['attempts']) or result['new_tokens']!=spent or result['new_http']!=http or result['unknown_billing']:
+        raise ValueError('Original batch cost differs from the physical ledger')
+    if spent>=old['new_limits']['token_limit'] or http>=old['new_limits']['request_limit']:raise ValueError('No unchanged P2 allowance remains')
+    for name in ('result.json','budget.json','plan_identity.json','candidate_order.json'):inputs[str(root/name)]=sha256(root/name)
+    return {'parent_plan':str(path),'parent_run_id':old['run_id'],'demands':recovered,'prior_p2_tokens':spent,'prior_p2_http':http,
+        'allowance':old['new_limits'],'remaining_tokens':old['new_limits']['token_limit']-spent,'remaining_http':old['new_limits']['request_limit']-http,
+        'inherited_tokens':old['inherited_tokens']+spent,'inherited_http':old['inherited_http']+http},ledger,inputs
+
+
+def recover(plan_path,output):
+    recovery,ledger,inputs=recovery_inputs(plan_path);old=read(plan_path);root=Path(plan_path).resolve().parent;output=Path(output).resolve()
+    code=code_identity()
+    if output.exists() or code['tracked_dirty'] or not code['git_sha']:raise ValueError('Recovery requires fresh output and committed clean source')
+    config=read(root/'config.json');new_config=configuration(config,output)
+    expected=deepcopy(config);expected['data_dir']=new_config['data_dir'];expected['experiment']['output_dir']=new_config['experiment']['output_dir']
+    if expected!=new_config:raise ValueError('Recovery may not change method parameters')
+    for name in ('source_records.json','source_cases.json'):write_json(output/name,read(root/name))
+    write_json(output/'config.json',new_config);write_json(output/'inherited_p2_budget.json',ledger)
+    plan={**old,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),'derivation_mode':'explicit_induction_contract_recovery',
+        'recovery':recovery,'input_hashes':inputs,'inherited_tokens':recovery['inherited_tokens'],'inherited_http':recovery['inherited_http'],
+        'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_records.json','source_cases.json','inherited_p2_budget.json')}}
+    write_json(output/'plan.json',plan);write_json(output/'plan_identity.json',{'plan_hash':digest(plan)})
+    return plan
 
 
 def learning_boundary(system,root,key):
@@ -222,6 +305,8 @@ def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,ra
 
 def execute(plan_path,env_file):
     check(plan_path);plan=read(plan_path);root=Path(plan_path).parent;config=read(root/'config.json')
+    recovery=plan.get('recovery',{})
+    if recovery and not (root/'budget.json').exists():write_json(root/'budget.json',read(root/'inherited_p2_budget.json'))
     load_env(env_file);governor=BudgetGovernor(root/'budget.json',**plan['new_limits'],finish_reserve=0)
     result_path=root/'result.json';result=read(result_path) if result_path.exists() else {'status':'running','run_id':plan['run_id'],'plan_hash':digest(plan),'candidates':[],'started_at':utc()}
     if result['plan_hash']!=digest(plan):raise ValueError('Batch identity changed')
@@ -233,7 +318,8 @@ def execute(plan_path,env_file):
         selection=[t for rows in plan['selection_tasks'].values() for t in rows];selected=[t['physical_key'] for t in selection];candidates=[]
         for i,unit in enumerate(plan['candidate_units']):
             learning_boundary(system,root/'learning'/str(i),'candidate:'+str(i))
-            log=system.learner.learn_capability_batch(unit,selected);write_json(root/'learning'/str(i)/'learning.json',log)
+            log=system.learner.learn_capability_batch(unit,selected,recovered_demand=recovery['demands'][i] if recovery else None)
+            write_json(root/'learning'/str(i)/'learning.json',log)
             if governor.state['unknown_billing']:raise BudgetExhausted('unknown_billing','Learning billing unresolved')
             if log['decision']=='candidate':candidates.append(log['candidate'])
         candidates=sorted({c['id']:c for c in candidates}.values(),key=lambda c:(-len(c['source_case_ids']),digest(c)))
@@ -277,11 +363,14 @@ def execute(plan_path,env_file):
     finally:
         system.close();state=governor.state;charged=sum(a.get('accounted_tokens',a['reserved_tokens']) for a in state['attempts'].values())
         known=sum(a.get('accounted_tokens',0) for a in state['attempts'].values())
-        result.update(ended_at=utc(),new_tokens=known,new_reserved_or_accounted_tokens=charged,new_http=len(state['attempts']),unknown_billing=state['unknown_billing'],
+        known-=recovery.get('prior_p2_tokens',0);charged-=recovery.get('prior_p2_tokens',0);http=len(state['attempts'])-recovery.get('prior_p2_http',0)
+        result.update(ended_at=utc(),new_tokens=known,new_reserved_or_accounted_tokens=charged,new_http=http,unknown_billing=state['unknown_billing'],
             inherited_tokens=plan['inherited_tokens'],inherited_http=plan['inherited_http'],
             cumulative_tokens=plan['inherited_tokens']+known,cumulative_reserved_or_accounted_tokens=plan['inherited_tokens']+charged,
-            cumulative_http=plan['inherited_http']+len(state['attempts']),
+            cumulative_http=plan['inherited_http']+http,
             source_train_runtime_tokens_counted_once=plan['source_train_runtime_tokens'],source_train_runtime_reexecuted=False)
+        if recovery:result.update(recovery_parent_run_id=recovery['parent_run_id'],prior_p2_tokens=recovery['prior_p2_tokens'],prior_p2_http=recovery['prior_p2_http'],
+            total_p2_tokens=recovery['prior_p2_tokens']+known,total_p2_http=recovery['prior_p2_http']+http)
         write_json(result_path,result)
     return result
 
@@ -289,11 +378,12 @@ def execute(plan_path,env_file):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='mode',required=True)
     p=sub.add_parser('prepare');p.add_argument('--settings',required=True);p.add_argument('--source-run',required=True);p.add_argument('--output',required=True)
+    p=sub.add_parser('recover');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
     for mode in ('check','execute'):
         p=sub.add_parser(mode);p.add_argument('--plan',required=True)
         if mode=='execute':p.add_argument('--env-file',required=True)
     args=parser.parse_args()
-    result=prepare(args.settings,args.source_run,args.output) if args.mode=='prepare' else check(args.plan) if args.mode=='check' else execute(args.plan,args.env_file)
+    result=prepare(args.settings,args.source_run,args.output) if args.mode=='prepare' else recover(args.plan,args.output) if args.mode=='recover' else check(args.plan) if args.mode=='check' else execute(args.plan,args.env_file)
     print(json.dumps(result,ensure_ascii=False))
 
 

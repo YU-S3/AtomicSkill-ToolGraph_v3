@@ -64,12 +64,24 @@ def source_refs(refs,rows):
     by_id={r['task']['physical_key']:r for r in rows};found=set()
     if len(by_id)!=len(rows) or any(PublicTask(**r['task']).split!='train' or r['task_hash']!=public_identity(PublicTask(**r['task'])) or
         r['spans']!=spans(PublicTask(**r['task'])) for r in rows):raise ValueError('Source identity or exact spans changed')
+    aliases={}
+    for physical,row in by_id.items():
+        for alias in (physical,row['task']['task_id']):
+            if alias in aliases and aliases[alias]!=physical:raise ValueError('Ambiguous public source ID')
+            aliases[alias]=physical
     for ref in refs:
-        if ref['case_id'] not in by_id or ref['span_id'] not in {s['span_id'] for s in by_id[ref['case_id']]['spans']}:
+        physical=aliases.get(ref['case_id'])
+        if physical is None or ref['span_id'] not in {s['span_id'] for s in by_id[physical]['spans']}:
             raise ValueError('Unknown exact public source span')
-        found.add(ref['case_id'])
+        found.add(physical)
     if len(found)<2:raise ValueError('Procedure requires at least two distinct physical sources')
     return sorted(found)
+
+
+def no_change(value,rows):
+    if set(value)-{'decision','references'}:raise ValueError('no_change cannot supply a capability or candidate')
+    if 'references' in value:source_refs(value['references'],rows)
+    return None
 
 
 def abstract_advisory(text,rows):
@@ -89,8 +101,7 @@ def abstract_advisory(text,rows):
 def validate_capability(value,rows):
     validate_schema_instance(value,CAPABILITY)
     if value['decision']=='no_change':
-        if set(value)!={'decision'}:raise ValueError('no_change cannot supply a capability')
-        return None
+        return no_change(value,rows)
     if set(value)!={'decision','required_conditions','operations','references'}:raise ValueError('Incomplete capability')
     covered=source_refs(value['references'],rows)
     abstract_advisory(value['required_conditions'],rows)
@@ -106,8 +117,7 @@ def render(asset):
 def validate_candidate(value,capability,rows):
     validate_schema_instance(value,PROPOSAL)
     if value['decision']=='no_change':
-        if set(value)!={'decision'}:raise ValueError('no_change cannot supply a candidate')
-        return None
+        return no_change(value,rows)
     if set(value)!={'decision','guidance','applicability','references'}:raise ValueError('Incomplete procedural candidate')
     covered=source_refs(value['references'],rows)
     if not set(covered)<=set(capability['source_case_ids']):raise ValueError('Candidate is outside its capability evidence')
@@ -139,7 +149,7 @@ def validate_match(value,capability,task):
     return value['applicable']
 
 
-def compile_candidate(learner,case_ids,selection_ids):
+def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None):
     s=learner.system
     if s.config['experiment'].get('choice_method_version')!=VERSION or s.readonly or s.phase!='train' or not s.checkpoint or not s.audit_path:
         raise ValueError('Capability learning requires an explicitly versioned durable writable Train unit')
@@ -156,9 +166,15 @@ def compile_candidate(learner,case_ids,selection_ids):
         decision_purpose=purpose,validator=validator,repair_limit=repair)
     try:
         public=[{k:r[k] for k in ('task','task_hash','spans')} for r in rows]
-        value=receive('demand','Infer one shared executable comparison capability from public demands only. '
-            'Do not infer from answers or feedback. Cite exact supplied span IDs from different cases; use no_change if no shared demand.',
-            {'public_cases':public},'submit_capability',CAPABILITY,'capability_induction',lambda v:validate_capability(v,rows),0)
+        if recovered_demand is not None:
+            if recovered_demand['unit_id']!=unit or recovered_demand['public_cases_hash']!=digest(public):
+                raise ValueError('Recovered demand source identity changed')
+            value=deepcopy(recovered_demand['value']);log['recovered_demand']=deepcopy(recovered_demand)
+        else:
+            value=receive('demand','Infer one shared executable comparison capability from public demands only. '
+                'Do not infer from answers or feedback. Cite exact supplied span IDs from different cases; '
+                'case_id must be the supplied task_id or physical_key. Use no_change if no shared demand; optional references must remain exact.',
+                {'public_cases':public},'submit_capability',CAPABILITY,'capability_induction',lambda v:validate_capability(v,rows),0)
         capability=validate_capability(value,rows);log['capability']=capability
         if capability:
             proposal=receive('proposal','Propose a short cross-case procedural advisory, or no_change. '
