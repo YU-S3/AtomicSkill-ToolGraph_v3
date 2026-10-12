@@ -5,7 +5,7 @@ from uuid import uuid4
 from . import POLICY_DEFAULTS
 from .contracts import object_schema, digest
 from ..harness.tool_spec import ToolSpec, result_schema
-from .public_results import public_result, public_reference, SCOPED_SEARCH, FILE_COMPUTE
+from .public_results import public_result, public_reference, SCOPED_SEARCH, FILE_COMPUTE, TEXT_PAGE
 
 
 class TaskContext:
@@ -15,6 +15,7 @@ class TaskContext:
         self.results, self.sources, self.memory, self.local_reads = {}, {}, {}, []
         self.result_origins, self.window_sources, self.sent_windows = {}, {}, []
         self.pending_outputs = {}
+        self.public_notes = []
         self.active_node = None
         self.progress_observations, self.progress_contents, self.progress_states = [], set(), set()
         self.loop_hits, self.loop_feedback = {}, None
@@ -120,7 +121,9 @@ class TaskContext:
 
     def result_window(self, ref, offset=0, limit=None):
         value = self.resolve_public(ref)
-        if isinstance(value, dict): raise ValueError('Read a business field path instead of serializing a dictionary root')
+        if isinstance(value, dict):
+            paths = [r['path'] for r in self.business_refs(ref)]
+            raise ValueError('Dictionary roots are unavailable; read a public field path: ' + json.dumps(paths, ensure_ascii=False))
         array = isinstance(value, list)
         cap = self.settings['result_preview_max_items'] if array else self.settings['result_read_window_chars']
         limit = cap if limit is None else limit
@@ -183,6 +186,10 @@ class TaskContext:
         def field(value, path):
             ref = {'result_id': result_id, 'path': path}
             if isinstance(value, dict): return {k: field(v, [*path, k]) for k, v in value.items()}
+            if self.origin(result_id) == TEXT_PAGE and path == ['data', 'text'] and isinstance(value, str):
+                # This producer already acquired a bounded page. Wire admission can
+                # shrink it with an exact receipt; ordinary previews must not hide it.
+                return self.result_window(ref)
             if isinstance(value, (list, str)) and len(json.dumps(value, ensure_ascii=False)) > self.settings['result_inline_max_chars']:
                 window = self.result_window(ref)
                 return self.fit_window(window, lambda w: len(json.dumps(w['content'], ensure_ascii=False)) <= self.settings['result_inline_max_chars'])
@@ -196,6 +203,15 @@ class TaskContext:
     def model_memory(self):
         return [{**row, 'arguments': self.preview(row['arguments'])} for row in list(self.memory.values())[-16:]]
 
+    def record_public_note(self, request_id, text):
+        """Actual public Runtime text is advisory, never source validation."""
+        if not isinstance(text, str) or not text.strip(): return
+        text = text.strip()
+        if any(row['text'] == text[:1024] for row in self.public_notes): return
+        self.public_notes.append({'request_id': request_id, 'text': text[:1024],
+                                  'truncated': len(text) > 1024, 'evidence_level': 'model_reported'})
+        self.public_notes = self.public_notes[-4:]
+
     def read(self, result_id, offset=0, limit=None, path=None):
         window = self.result_window({'result_id': result_id, 'path': path or []}, offset, limit)
         self.local_reads.append({k: v for k, v in window.items() if k != 'content'})
@@ -204,9 +220,9 @@ class TaskContext:
     def tool(self):
         schema = object_schema({'result_id': {'type': 'string'}, 'offset': {'type': 'integer', 'minimum': 0},
             'limit': {'type': 'integer', 'minimum': 1}, 'path': {'type': 'array', 'items': {
-                'oneOf': [{'type': 'string'}, {'type': 'integer', 'minimum': 0}]}}}, ['result_id'])
-        return ToolSpec('read_result', 'Read an obtained public business field path; offset/limit use Unicode text characters or array items. Dictionary roots expose field references; Host metadata is unavailable.',
-                        schema, result_schema(), effect='read_only').view()
+                'oneOf': [{'type': 'string'}, {'type': 'integer', 'minimum': 0}]}}}, ['result_id', 'path'])
+        return ToolSpec('read_result', 'Read an obtained public field; path is required, e.g. ["data"] for a list or ["data","text"] for text. offset/limit count Unicode characters (at most 12000) or array items (at most 40). Dictionary roots and Host metadata are unavailable.',
+                        schema, result_schema(), effect='read_only', batchable=True).view()
 
 
 def deepcopy_ref(ref):

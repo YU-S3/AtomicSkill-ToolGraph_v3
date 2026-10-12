@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 SCOPED_SEARCH = 'native.scoped-search.v1'
+TEXT_PAGE = 'native.text-page.v1'
 FILE_COMPUTE = 'native.file-compute.v1'
 PROGRAM_EXECUTION = 'program.execution-result.v1'
 HOST_FIELDS = {

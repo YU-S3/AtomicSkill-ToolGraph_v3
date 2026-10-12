@@ -651,6 +651,8 @@ class EmpiricalSystem:
                             raise ValueError('finish_only_empty_answer')
                     return accepted(turn.content, repair)
                 if name == 'runtime_step' and turn.tool_calls:
+                    if self.task_context:
+                        self.task_context.record_public_note(request_id, turn.content)
                     actions = []
                     for call in turn.tool_calls:
                         if call.name != name: raise ValueError('Unexpected Runtime ToolCall name')

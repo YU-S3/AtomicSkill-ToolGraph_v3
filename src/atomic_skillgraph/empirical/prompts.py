@@ -55,6 +55,8 @@ PLAN = object_schema({'mode': {'enum': ['select','compose']}, 'workflow_id': TEX
     'workflow': WORKFLOW}, ['mode'])
 def finish_text_prompt(contract):
     return ('Return only the final answer as nonempty plain text, using information already acquired. '
+            'Prefer acquired calculation outputs; check the requested scope, units and precision against the evidence. '
+            'Public notes are model-reported working notes, not independent proof. '
             'Do not call tools, execute programs, read more results or replan. ' + contract)
 
 
@@ -91,7 +93,10 @@ Your only current response tool is submit_plan. Legal different operations may a
 the same result goal. New combinations of usable Programs execute without whole-workflow trials or node confirmation.
 Return one submit_plan ToolCall: mode=select with a retrieved workflow_id and explicit node_args overrides, or
 mode=compose with a complete short workflow. Selecting a workflow preserves its node goals and structure.
-A from reference must name an earlier node's actual output field. output_aliases maps actual fields to handoff aliases
+A from reference must name an earlier node's actual output field. Prefer one dynamic node when no executable
+binding is available; split when distinct reusable operations need an explicit handoff. For new dynamic nodes,
+use the same field names in outputs and downstream references instead of inventing aliases.
+output_aliases maps actual fields to handoff aliases
 while retaining originals. Selecting an old ambiguous Skill-only Workflow also supplies node_modes dynamic/skill in
 this same response; selecting a native v2 Workflow needs no node_modes.
 REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
@@ -233,8 +238,18 @@ Runtime outputs are ordinary values, never plan literal wrappers. Use output_ref
 field/index path for large acquired values; do not copy whole documents or lists. Fields cannot appear in both values
 and references. output_mapping maps preparation output fields to current node inputs; replacing known inputs must be
 declared in replaced_inputs. No references to future results or other calls in the same batch.
+Use a narrow query from the task's explicit constraints before listing the whole corpus. Read at actual acquired
+offsets; a search hit is a locator, not the surrounding table. Continue a truncated result at its next_offset and
+business path, e.g. ["data"] for a list or ["data","text"] for acquired text; do not read a dictionary root.
+For numerical tasks, obtain the relevant rows and use an available compute tool to calculate from those public
+values, preserving their units and provenance. Submit the answer once ready instead of continuing exploration.
+Keep a concise working note in detail with acquired locators, values or completed calculations needed next.
+memory.public_notes contains actual public Runtime text, labelled model_reported; verify it against source results.
+return_example names the actual fields to emit before output_aliases are applied. A handoff patch targets the
+producer holding pending_outputs, and consumer_refs names that producer's unfinished consumers.
 read_result is wrapped as a runtime_step with
-{"action":"call_tool","name":"read_result","arguments":{"result_id":"EXISTING_RESULT_ID","path":[]}}.
+{"action":"call_tool","name":"read_result","arguments":{"result_id":"EXISTING_RESULT_ID","path":["data","text"]}}.
 EXISTING_RESULT_ID is a placeholder: replace it with a real supplied result ID, never invent one.
+Each ToolCall arguments is one flat JSON object, never concatenated JSON or a direct environment-tool ToolCall.
 Plan REF values are objects, e.g. {"task":"field"}, {"from":"node","field":"output"},
 {"literal":3}, {"unresolved":"reason"}; never bare strings."""

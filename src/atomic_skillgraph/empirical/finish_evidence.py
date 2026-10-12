@@ -53,7 +53,7 @@ def build_finish_evidence(context, materials, prompt, *, max_bytes=65536, window
             return {'ref': ref}
         if materials.get(key): materials[key] = bind_literals(materials[key], [key])
     materials['finish_evidence'] = []
-    for key in ('working_memory', 'recent', 'pending_outputs', 'completed_results'):
+    for key in ('working_memory', 'recent', 'pending_outputs', 'completed_results', 'public_notes'):
         if bound(materials) <= max_bytes: break
         if materials.get(key):
             omitted.append({'material_key': key, 'reason': 'optional_reference_directory_input_limit'})

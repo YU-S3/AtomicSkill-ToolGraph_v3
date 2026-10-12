@@ -2,7 +2,7 @@
 
 PROFILE = "skillcompiler.empirical.v1"
 
-IMPLEMENTATION_REVISION = 'empirical-v3.2-finish-window-r1'
+IMPLEMENTATION_REVISION = 'empirical-v3.2-runtime-handoff-r2'
 LOCAL_VALIDATION_POLICY_VERSION = 'atomic.local-validation.v3'
 FILE_EFFECT_VERSION = 'artifact-effect.xlsx-modified.v1'
 BINDING_POLICY_VERSION = 'atomic.host-binding.v1'
@@ -24,7 +24,7 @@ CHOICE_CAPABILITY_MATERIAL_VERSIONS = {'choice-capability-batch.material.v1', CH
 POLICY_DEFAULTS = {
     'experiment': {'implementation_revision': IMPLEMENTATION_REVISION, 'budget_policy': BUDGET_POLICY_VERSION},
     'runtime': {'read_batch_max_calls': 3, 'result_inline_max_chars': 2048,
-                'model_view_version': 'empirical.model-view.public-windows.v3',
+                'model_view_version': 'empirical.model-view.public-windows.v5',
                 'result_preview_max_items': 40, 'result_read_window_chars': 12000,
                 'plan_execution_policy': 'empirical.recoverable-takeover.v1', 'dynamic_escape_limit': 1,
                 'answer_protocol_version':ANSWER_PROTOCOL_VERSION},
