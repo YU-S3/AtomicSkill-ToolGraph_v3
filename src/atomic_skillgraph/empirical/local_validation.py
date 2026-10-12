@@ -196,6 +196,9 @@ def evidence_from_trace(task, trace, environment):
                 'source_trace_sha256': trace_hash, 'event_ids': [event['event_id']], 'kind': 'native_operation',
                 'operation': {'name': event['name'], 'arguments': deepcopy(event['arguments'])},
                 'reference': deepcopy(event['result']), 'prefix': deepcopy(prefix),
+                'context_result_protocols': sorted({child['result_protocol'] for child in source['events']
+                    if child.get('parent_event_id') == event['event_id'] and child.get('state') == 'finished'
+                    and child.get('result', {}).get('accepted') and child.get('result_protocol')}),
                 **({'result_protocol':event['result_protocol']} if 'result_protocol' in event else {}),
                 'public_task': source['task'], 'environment_identity': deepcopy(environment)})
         if event.get('backend_invoked'):

@@ -225,18 +225,25 @@ class Broker:
                     else:
                         ok, value = outcome.get(timeout=max(0, deadline - time.monotonic()) if deadline else None) if owner else (True, result)
                 except queue.Empty:
-                    self.unknown = True
-                    event['state'] = 'unknown'
-                    if self.observer:
-                        self.observer(event, started_at, time.time())
-                    if self.journal:
-                        self.journal(self.events)
-                    # No Agent recovery is permitted on this owner, even if a
-                    # late reply arrives. Close its episode before worker kill.
-                    abort = getattr(self.adapter, 'abort', None)
-                    if abort:
-                        threading.Thread(target=abort, daemon=True).start()
-                    raise UnknownSideEffect("Native call deadline expired; attempt stopped")
+                    if specs[name].get('effect') == 'read_only':
+                        # Discard the late read reply; it cannot change environment state.
+                        owner = None
+                        event['deadline_expired'] = True
+                        ok, value = True, {'accepted': False, 'observation': '', 'data': {},
+                            'error': 'Read-only native call timeout', 'error_code': 'native_read_timeout',
+                            'done': self.done}
+                    else:
+                        self.unknown = True
+                        event['state'] = 'unknown'
+                        if self.observer:
+                            self.observer(event, started_at, time.time())
+                        if self.journal:
+                            self.journal(self.events)
+                        # Unknown effects still close the owner before worker kill.
+                        abort = getattr(self.adapter, 'abort', None)
+                        if abort:
+                            threading.Thread(target=abort, daemon=True).start()
+                        raise UnknownSideEffect("Native call deadline expired; attempt stopped")
                 if owner: owner.join()
                 if not ok:
                     self.unknown = True

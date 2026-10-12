@@ -44,6 +44,33 @@ def test_native_deadline_stops_attempt_without_recovery():
     with pytest.raises(UnknownSideEffect): broker.call('act', {'value': 'x'})
 
 
+def test_readonly_deadline_records_failure_without_poisoning_owner():
+    import threading
+    class ReadOnly(Adapter):
+        def available_tools(self):
+            return [{**t, 'effect': 'read_only'} for t in super().available_tools()]
+        def call(self, name, arguments):
+            if arguments['value'] == 'slow':
+                release.wait(2)
+            return {'accepted': True, 'data': arguments['value'], 'done': False}
+    release = threading.Event()
+    snapshots = []
+    broker = Broker(ReadOnly(), 3, journal=lambda events:snapshots.append(json.loads(json.dumps(events))))
+    try:
+        result = broker.call('act', {'value': 'slow'}, deadline=time.monotonic()+.02, event_id='slow')
+        assert not result['accepted'] and result['error_code'] == 'native_read_timeout'
+        assert not broker.unknown and broker.remaining_calls() == 2
+        assert broker.events[0]['state'] == 'finished' and broker.events[0]['deadline_expired']
+        assert broker.call('act', {'value': 'slow'}, event_id='slow') == result
+        assert broker.call('act', {'value': 'fast'})['accepted']
+        release.set()
+        time.sleep(.02)
+        assert broker.events[0]['result'] == result and snapshots[-1] == broker.events
+        assert len(broker.events) == 2
+    finally:
+        release.set()
+
+
 def test_freeze_omits_unqualified_code_and_marks_workflow_dynamic(tmp_path):
     bank = Bank(tmp_path / 'bank')
     asset = bank.put('program', program("def run(ctx, inputs): return {'status':'ok','outputs':{}}"))

@@ -196,6 +196,53 @@ def test_temporary_worker_obeys_the_owners_earlier_deadline(tmp_path, worker):
     finally: s.close()
 
 
+def test_nested_read_timeout_is_worker_failure_and_runtime_can_continue(tmp_path, worker, monkeypatch):
+    import threading
+    s = office(tmp_path); s.adapter.worker = worker
+    worker.settings['wall_timeout_seconds'] = 20
+    original = s.adapter.call
+    release = threading.Event()
+    def slow(name, arguments):
+        if name == 'grep': release.wait(2)
+        return original(name, arguments)
+    monkeypatch.setattr(s.adapter, 'call', slow)
+    broker = Broker(s.adapter, 4, native_timeout=.7)
+    try:
+        result = broker.call('execute_python', {'source':"ctx.call('grep', {'pattern':'target'})"})
+        assert not result['accepted'] and 'timeout' in result['error'].lower()
+        assert not broker.unknown and all(e['state'] == 'finished' for e in broker.events)
+        assert [e['name'] for e in broker.events] == ['execute_python', 'grep']
+        assert broker.events[1]['result']['error_code'] == 'native_read_timeout'
+        assert broker.remaining_calls() == 2
+        assert broker.call('glob', {'pattern':'*.txt'})['accepted']
+    finally:
+        release.set()
+        s.close()
+
+
+def test_learning_directory_keeps_acquired_pages_after_discovery_scripts(tmp_path, worker):
+    from atomic_skillgraph.empirical.model_view import learning_case
+    from atomic_skillgraph.empirical.public_results import SCOPED_SEARCH, TEXT_PAGE
+    s = office(tmp_path); s.adapter.worker = worker
+    worker.settings['wall_timeout_seconds'] = 20
+    broker = Broker(s.adapter, 12)
+    discovery = "import json\nctx.call('glob', {'pattern':'*.txt'})\nif False: ctx.call('read', {'path':'a.txt','offset':0})\nprint(json.dumps({'listed':True}))"
+    search = "import json\nr=ctx.call('grep', {'pattern':'target'})\nprint(json.dumps({'hits':r['data']}))"
+    page = "import json\nr=ctx.call('read', {'path':'a.txt','offset':0})\nprint(json.dumps({'text':r['data']['text']}))"
+    try:
+        for source in (discovery, search, page):
+            assert broker.call('execute_python', {'source':source})['accepted']
+        trace = {'tools':broker.events, 'execution':{}, 'score':{'hard':False}}
+        evidence = evidence_from_trace(s.adapter.task, trace, s.config['program_environment'])
+        assert [e['context_result_protocols'] for e in evidence] == [[], [SCOPED_SEARCH], [TEXT_PAGE]]
+        directory = learning_case({'task':s.adapter.model_task(), 'local_evidence':evidence},
+                                  s.adapter.task.physical_key)['local_evidence']
+        assert [r['local_evidence_ref'] for r in directory] == [evidence[i]['id'] for i in (2,1,0)]
+        assert len(broker.events) == 6 and not s.bank.all('program')
+    finally:
+        s.close()
+
+
 def test_later_compute_trial_replays_nested_calls_and_original_failure(tmp_path, monkeypatch, worker):
     from atomic_skillgraph.harness.benchmarks import OfficeAdapter
     s=office(tmp_path);s.worker=worker;s.adapter.worker=worker

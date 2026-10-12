@@ -214,11 +214,19 @@ def select_operation_directory(evidence, case_id):
         except SyntaxError:rpc=False
         reference=evidence[index]['reference'];data=reference.get('data')
         typed=(isinstance(data,dict) and bool(data.get('computed'))) or (row['kind']=='executed_python' and bool(reference))
+        if rpc:
+            from .public_results import SCOPED_SEARCH
+            protocols=evidence[index].get('context_result_protocols', [])
+            if TEXT_PAGE in protocols:return 'python_page'
+            if SCOPED_SEARCH in protocols:return 'python_search'
         return 'python_rpc' if rpc else 'python_compute' if typed else 'python_stdout'
     modes=[mode(i,row) for i,row in enumerate(available)]
     ordered=sorted(enumerate(available),key=lambda pair:(
         0 if pair[1]['published_files'] else 1 if modes[pair[0]]=='python_compute' else 2 if code(pair[1]) else
-        3 if evidence_origin(evidence[pair[0]])==TEXT_PAGE else 4, pair[0]))
+        3 if evidence_origin(evidence[pair[0]])==TEXT_PAGE else 4,
+        {'python_page':0, 'python_search':1}.get(modes[pair[0]],2),
+        not bool(evidence[pair[0]]['reference'].get('data',{}).get('computed'))
+            if isinstance(evidence[pair[0]]['reference'].get('data'),dict) else True, pair[0]))
     for index,row in ordered:
         identity=json.dumps([evidence[index]['operation'], public_result(evidence[index]['reference'],evidence_origin(evidence[index]))],
                             sort_keys=True,ensure_ascii=False,allow_nan=False)
@@ -240,7 +248,7 @@ def learning_case(experience, case_id):
     return {'case_source':{'physical_case_id':case_id},'task':{'goal':task.get('goal','')},
         **{k:deepcopy(experience.get(k)) for k in ('score','termination_reason','answer_status','completion_truncated')},
         'local_evidence':selected,
-        'directory_selection':'verified publication, typed computation, tool-calling code and acquired pages before discovery; distinct operation modes in source order within each priority, at most four cards',
+        'directory_selection':'verified publication and typed computation, then acquired pages, search and discovery; recorded nested result protocols distinguish code modes; at most four cards',
         'projection_audit':{'original_event_count':len(experience.get('events',[])),
             'original_evidence_count':len(experience.get('local_evidence',[])),
             'original_utf8_bytes':canonical_bytes(experience), **audit}, 'compact_learning_directory':True}
