@@ -810,7 +810,19 @@ class EmpiricalSystem:
                 from .choice_guidance import valid_choices, render
                 from .answer_executor import AnswerExecutor
                 semantic = self.config['runtime'].get('choice_guidance', {}).get('enabled') is True and valid_choices(task)
-                selection = self.bank.select_guidance(task,self.config['runtime']['choice_guidance']) if semantic else None
+                policy = self.config['runtime'].get('choice_guidance', {})
+                if semantic and self.config['experiment'].get('choice_batch_contract'):
+                    from .capability_batch import checked_asset
+                    matches, rejected = {}, []
+                    for asset in self.bank.all('skill'):
+                        if not checked_asset(asset): continue
+                        try:
+                            matches[asset['capability']['id']] = self.learner.match_capability(asset, task)
+                        except ValueError as exc:
+                            rejected.append({'asset_id': asset['id'], 'reason': str(exc)})
+                    policy = {**policy, 'capability_matches': matches}
+                    trace['capability_match_audit'] = {'matches': matches, 'rejected': rejected}
+                selection = self.bank.select_guidance(task,policy) if semantic else None
                 guidance = selection['selected'] if selection else self.bank.retrieve_guidance(task.goal,limit=3)
                 trace['retrieved_guidance_ids'] = [a['id'] for a in guidance]
                 trace['injected_guidance_ids'] = trace['retrieved_guidance_ids'][:]

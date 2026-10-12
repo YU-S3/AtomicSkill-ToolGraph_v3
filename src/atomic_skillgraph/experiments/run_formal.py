@@ -116,6 +116,10 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
         if base['experiment'].get('choice_method_version'):
             identity['choice_method_version']=base['experiment']['choice_method_version']
             identity['choice_bounded_finalization']=base['runtime']['choice_bounded_finalization']
+        if base['experiment'].get('choice_batch_contract'):
+            identity.update(choice_batch_version=base['experiment']['choice_batch_version'],
+                choice_batch_contract_sha256=base['experiment']['choice_batch_contract_sha256'],
+                learning_schedule='Train60 -> one P2 batch -> Frozen -> Val17 -> Test100')
     continuation = root/'continuation_manifest.json'
     if continuation.exists():
         lineage = json.loads(continuation.read_text())
@@ -134,10 +138,13 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
     from ..empirical.budget_governor import BudgetGovernor
     limits = base.get('budget')
     if not limits: raise ValueError('A new unified campaign requires an explicit total HTTP/token budget')
+    if base['experiment'].get('choice_batch_contract') and not resume and Path(configurations['train']['data_dir']).exists():
+        raise ValueError('Fresh formal P2 requires an empty independent Train Bank')
     log = FormalLog(root, identity, configurations, resume=resume)
     governor = BudgetGovernor(root/'budget.json',**{k:v for k,v in limits.items()
                               if k in {'token_limit','finish_reserve','request_limit','validation_limit'}})
     summaries, offset = {}, 0
+    choice_batch = bool(base['experiment'].get('choice_batch_contract'))
     try:
         frozen_manifest = root / 'final_frozen_manifest.json'
         if frozen_manifest.exists():
@@ -149,6 +156,9 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
             if resume and prior.exists() and json.loads(prior.read_text()).get('complete'):
                 summary = json.loads(prior.read_text())
                 summaries[split] = {k: summary[k] for k in ('complete', 'tasks', 'successes', 'known_total_tokens', 'unknown_billing_attempts', 'knowledge_digest')}
+                if split == 'train' and choice_batch:
+                    from .formal_choice_batch import finish_train
+                    summaries['p2'] = finish_train(root,settings,governor,log)
                 offset += summary['tasks']
                 if split == 'val' and stop_after_val: break
                 continue
@@ -180,6 +190,7 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
                     readonly=split != 'train', adapter=adapter, adapter_factory=lambda settings=settings: create_simple_harness(settings),
                     formal_log=log, task_metadata=metadata, order_offset=offset,
                     budget_governor=governor,
+                    freeze_on_complete=not choice_batch,
                     max_new_tasks=max_new_tasks if split == 'train' else None,
                     stop_at_task_id=stop_at_task_id if split == 'train' else None)
                 summaries[split] = {k: summary[k] for k in ('complete', 'tasks', 'successes', 'known_total_tokens', 'unknown_billing_attempts', 'knowledge_digest')}
@@ -187,6 +198,9 @@ def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpu
                     log.finish('stopped_at_task_boundary')
                     write_json(root / 'completion.json', {'status': 'stopped_at_task_boundary', 'runs': summaries})
                     return summaries
+                if split == 'train' and choice_batch:
+                    from .formal_choice_batch import finish_train
+                    summaries['p2'] = finish_train(root,settings,governor,log)
                 if split == 'val':
                     log.emit('validation_events', {'event_id': 'frozen-validation', 'validation_event_id': 'frozen-validation',
                         'candidate_or_snapshot_id': frozen['final_artifact_id'], 'validation_size': len(tasks),

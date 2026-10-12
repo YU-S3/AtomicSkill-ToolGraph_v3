@@ -561,17 +561,19 @@ def evaluator_records(summary):
     return records
 
 
-def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,rank,candidate_index,*,run_id=None):
+def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,rank,candidate_index,*,run_id=None,observer=None):
     pair={};order=('off','on') if (rank+candidate_index)%2==0 else ('on','off')
     for arm in order:
         task_root=root/str(rank)/arm;cfg=deepcopy(config);cfg['data_dir']=str(trial);cfg['llm']['max_retries']=0
         cfg['experiment'].update(runtime_mode='frozen',output_dir=str(task_root))
         target=EmpiricalSystem(cfg,harness=AnswerAdapter('livemath',evaluator),budget_governor=governor,
             bank_view_factory=lambda b:CapabilityView(b,matches,off=arm=='off',candidate=candidate))
+        target.observer=observer
         try:
             target.checkpoint=TaskCheckpoint(task_root/'checkpoint');target.audit_path=str(task_root/'requests.json')
             trace_path=task_root/'trace.json';attempt=VERSION+':'+str(candidate_index)+':'+str(rank)+':'+arm
             if run_id:attempt=run_id+':'+attempt
+            if observer:observer.begin_task(task,rank,attempt,{'purpose':'train_internal_paired_selection','arm':arm})
             if trace_path.exists():
                 trace=read(trace_path)
                 if trace['task']!=task.__dict__ or trace['attempt_id']!=attempt or trace['method_identity']['config_hash']!=digest(target.config):
@@ -583,6 +585,12 @@ def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,ra
                 write_json(trace_path,trace)
                 target.checkpoint.advance(target.checkpoint.state['stage'],paired_trace_hash=digest(trace))
             if trace.get('error') or trace['execution'].get('budget_censored'):raise BudgetExhausted('parent_task_budget_exhausted','Selection arm censored')
+            if observer:
+                observer.requests(trace['requests'])
+                observer.scorer(task.task_id,attempt,trace['score'],phase='selection',audit=trace.get('scoring_audit',{}))
+                observer.training(attempt,'paired_validation',observer.current_task['task_start_time'],utc(),1,'completed',
+                    consumed_physical_keys=[task.physical_key],candidate_id=candidate['id'],arm=arm,
+                    injected_guidance_ids=trace.get('injected_guidance_ids',[]))
             pair[arm]=trace
         finally:target.close()
         if governor.state['unknown_billing']:raise BudgetExhausted('unknown_billing','Selection billing unresolved')
@@ -590,29 +598,39 @@ def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,ra
     return pair
 
 
-def execute(plan_path,env_file):
+def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=None):
     check(plan_path);plan=read(plan_path);root=Path(plan_path).parent;config=read(root/'config.json')
     recovery=plan.get('recovery',{})
     restored=plan.get('protocol_continuation',plan.get('budget_continuation',{}))
     prefix=plan.get('paid_prefix',recovery)
     if prefix and not (root/'budget.json').exists():write_json(root/'budget.json',read(root/'inherited_p2_budget.json'))
-    load_env(env_file);governor=BudgetGovernor(root/'budget.json',**plan['new_limits'],finish_reserve=0)
+    if env_file:load_env(env_file)
+    shared=governor is not None
+    if not shared:governor=BudgetGovernor(root/'budget.json',**plan['new_limits'],finish_reserve=0)
+    baseline=plan.get('campaign_budget_prefix',{}) if shared else {}
     result_path=root/'result.json';result=read(result_path) if result_path.exists() else {'status':'running','run_id':plan['run_id'],'plan_hash':digest(plan),'candidates':[],'started_at':utc()}
     if result['plan_hash']!=digest(plan):raise ValueError('Batch identity changed')
     if result['status']!='running':return result
     write_json(result_path,result);progress(root,'started',run_id=plan['run_id'],status='running')
     system=EmpiricalSystem(config,harness=AnswerAdapter('livemath',{}),budget_governor=governor)
+    system.observer=observer;system.bank.observer=observer
     try:
         if governor.state['unknown_billing']:raise BudgetExhausted('unknown_billing','No retry after unresolved billing')
         for row in read(root/'source_cases.json'):system.bank.save_case(PublicTask(**row['task']),row['experience'])
         selection=[t for rows in plan['selection_tasks'].values() for t in rows];selected=[t['physical_key'] for t in selection];candidates=[]
         learning=[]
         for i,unit in enumerate(plan['candidate_units']):
+            if observer:
+                observer.begin_task(PublicTask(plan['run_id'],plan['run_id'],'Post-Train capability learning'),60,
+                    learning_scope(plan,'candidate:'+str(i)),{'source_physical_keys':unit})
+                started=utc()
             learning_boundary(system,root/'learning'/str(i),learning_scope(plan,'candidate:'+str(i)),response_namespace=prefix.get('response_namespaces',{}).get(str(i)))
             log=system.learner.learn_capability_batch(unit,selected,
                 recovered_demand=restored['demands'][i] if restored else recovery['demands'][i] if recovery else None,
                 recovered_proposal=restored['proposals'][i] if restored.get('proposals') else None)
             write_json(root/'learning'/str(i)/'learning.json',log)
+            if observer:observer.training(learning_scope(plan,'candidate:'+str(i)),'capability_batch',started,utc(),len(unit),
+                log['decision'],log.get('reason'),consumed_physical_keys=unit)
             learning.append({**{k:log.get(k) for k in ('decision','stage','reason')},
                 'proposal_created':bool(log.get('proposed_candidate')),
                 **({'proposal_reused':True} if log.get('recovered_proposal') else {}),
@@ -633,6 +651,8 @@ def execute(plan_path,env_file):
         for i,candidate in enumerate(candidates):
             folder=root/'candidates'/candidate['id'];preflight=[]
             for rank,row in enumerate(selection):
+                if observer:observer.begin_task(PublicTask(**row),rank,learning_scope(plan,'routing:'+candidate['id']+':'+str(rank)),
+                    {'purpose':'train_public_applicability'})
                 task=PublicTask(**row);learning_boundary(system,folder/'routing'/str(rank),learning_scope(plan,'routing:'+candidate['id']+':'+str(rank)))
                 match=system.learner.match_capability(candidate,task);validate_match(match,candidate['capability'],task)
                 preflight.append({'task':row,'stage':'screen' if rank<len(plan['selection_tasks']['screen']) else 'confirmation','rank':rank,'match':match})
@@ -645,7 +665,7 @@ def execute(plan_path,env_file):
                     task=PublicTask(**row['task']);match={candidate['capability']['id']:row['match']}
                     progress(root,'pair_started',candidate_id=candidate['id'],task_id=task.task_id,rank=row['rank'])
                     pair=evaluate_pair(folder/'selection',task,candidate,match,config,governor,trial,evaluator,row['rank'],i,
-                        run_id=plan['run_id'] if plan.get('scope_policy')==SCOPE_POLICY else None)
+                        run_id=plan['run_id'] if plan.get('scope_policy')==SCOPE_POLICY else None,observer=observer)
                     pairs[task.physical_key]=pair
                     progress(root,'pair_completed',candidate_id=candidate['id'],task_id=task.task_id,rank=row['rank'],
                         off_correct=pair['off']['score']['hard'],on_correct=pair['on']['score']['hard'])
@@ -654,12 +674,17 @@ def execute(plan_path,env_file):
             write_json(folder/'utility_receipt.json',receipt);receipts.append((candidate,receipt))
             result['candidates']=[{'id':c['id'],'passed':r['passed'],'status':r['status'],'actual_exposed':len(r['paired'])} for c,r in receipts]
         for candidate,receipt in receipts:
-            if receipt['passed']:publish(system.bank,candidate,receipt)
-        frozen=root/'frozen_bank'
+            if receipt['passed']:
+                if observer:observer.begin_task(PublicTask(plan['run_id'],plan['run_id'],'Post-Train capability publication'),60,
+                    plan['run_id'],{'candidate_id':candidate['id']})
+                publish(system.bank,candidate,receipt)
+        frozen=Path(frozen_destination) if frozen_destination else root/'frozen_bank'
+        newly_created=not frozen.exists()
         if frozen.exists():
             result['frozen']=read(frozen/'freeze.json')
             if result['frozen']['source_digest']!=system.bank.digest():raise ValueError('Frozen source changed')
         else:result['frozen']=system.bank.freeze(frozen)
+        if observer:observer.freeze(frozen,newly_created=newly_created)
         result['status']='completed_selection' if candidates else 'completed_no_candidate'
         result.update(learning_units=learning,completion_reason='selection_finished' if candidates else 'no_source_checked_candidate',
             natural_candidate_count=sum(r['proposal_created'] and not r.get('proposal_reused',False) for r in learning),
@@ -674,7 +699,8 @@ def execute(plan_path,env_file):
     finally:
         system.close();state=governor.state;charged=sum(a.get('accounted_tokens',a['reserved_tokens']) for a in state['attempts'].values())
         known=sum(a.get('accounted_tokens',0) for a in state['attempts'].values())
-        known-=prefix.get('prior_p2_tokens',0);charged-=prefix.get('prior_p2_tokens',0);http=len(state['attempts'])-prefix.get('prior_p2_http',0)
+        known-=baseline.get('tokens',prefix.get('prior_p2_tokens',0));charged-=baseline.get('tokens',prefix.get('prior_p2_tokens',0))
+        http=len(state['attempts'])-baseline.get('http',prefix.get('prior_p2_http',0))
         result.update(ended_at=utc(),new_tokens=known,new_reserved_or_accounted_tokens=charged,new_http=http,unknown_billing=state['unknown_billing'],
             inherited_tokens=plan['inherited_tokens'],inherited_http=plan['inherited_http'],
             cumulative_tokens=plan['inherited_tokens']+known,cumulative_reserved_or_accounted_tokens=plan['inherited_tokens']+charged,

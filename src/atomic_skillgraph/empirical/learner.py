@@ -226,18 +226,25 @@ class Learner:
     def learn(self, task, trace, *, focus=None):
         s, bank = self.system, self.system.bank
         experience = self._experience(task, trace)
+        held_out = set(s.config['experiment'].get('choice_selection_physical_keys', []))
+        if task.physical_key in held_out:
+            bank.save_case(task, experience)
+            return {'decision': 'no_change', 'reason': 'held_out_train_selection', 'decision_origin': 'host'}
         new_experience = not any(r['task']['physical_key'] == task.physical_key for r in bank.train_cases())
         if not any(t.physical_key == task.physical_key for t, _ in self.cases):
             self.cases.append((task, experience))
         for case_task, case in self.cases:
             bank.save_case(case_task, case)
-        if s.config['learning'].get('choice_guidance',{}).get('enabled') and 'choices' in task.inputs:
+        if s.config['learning'].get('choice_guidance',{}).get('enabled') and 'choices' in task.inputs and not held_out:
             bank.update_choice_statistics()
         if s.adapter.capabilities.interaction == 'single_answer' and not experience['local_evidence']:
+            if s.config['experiment'].get('choice_batch_contract'):
+                return {'decision': 'defer', 'reason': 'scheduled_post_train_capability_batch', 'decision_origin': 'host'}
             if s.config['learning'].get('choice_guidance', {}).get('enabled') is True and 'choices' in task.inputs:
                 return self._learn_grounded_choice_guidance(task, experience)
             return self._learn_guidance(task, experience)
-        cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()}
+        cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()
+                 if r['task']['physical_key'] not in held_out}
         jobs = bank.jobs()
         related = self.related_candidates(task)
         tools = getattr(s.adapter, 'tool_definitions', s.adapter.available_tools)()

@@ -111,7 +111,8 @@ def resolve_alfworld_tasks(adapter, entries, *, mapping_path=None, canonical_spl
 
 def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, adapter_factory=None,
         formal_log=None, task_metadata=None, order_offset=0, stop_after_tasks=None,
-        max_new_tasks=None, stop_at_task_id=None, bank_view_factory=None, budget_governor=None):
+        max_new_tasks=None, stop_at_task_id=None, bank_view_factory=None, budget_governor=None,
+        freeze_on_complete=True):
     if stop_after_tasks is not None and (type(stop_after_tasks) is not int or stop_after_tasks < 1):
         raise ValueError('stop_after_tasks must be a positive completed-task count')
     config = validate_config(config)
@@ -209,7 +210,7 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
                 break
         complete = len(cases) == len(tasks)
         frozen = None
-        if not readonly and complete:
+        if not readonly and complete and freeze_on_complete:
             destination = output / "frozen_bank"
             newly_created = not destination.exists()
             frozen = system.bank.freeze(destination) if newly_created else json.loads((destination / "freeze.json").read_text())

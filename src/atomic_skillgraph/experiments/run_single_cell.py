@@ -56,6 +56,9 @@ def main(argv=None):
         if args.seed!=42 or args.benchmark not in frozen['cells']:
             raise ValueError('This allocation covers only the four authorized seed42 cells')
         base['budget']=frozen['cells'][args.benchmark]
+    if spec.get('choice_batch'):
+        from .formal_choice_batch import configure
+        base=configure(base,spec,args.benchmark,args.seed,spec['authority'])
     return campaign(base, profiles, args.benchmark, args.seed, args.output, args.datasets, spec['authority'],
                     args.corpus_root, resume=args.resume, stop_after_val=args.stop_after_val,
                     max_new_tasks=args.max_new_tasks, stop_at_task_id=args.stop_at_task_id)
