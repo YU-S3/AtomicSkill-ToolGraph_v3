@@ -167,6 +167,8 @@ def operation_directory(evidence, case_id):
     outputs=[]
     def output(value,path):
         if isinstance(value,dict):
+            if value and path==['data','computed']:
+                outputs.append({'kind':'json','path':path,'type':'dict'})
             for key,item in value.items():output(item,[*path,key])
         else:
             row={'kind':'json','path':path,'type':type(value).__name__}

@@ -25,6 +25,20 @@ def test_literal_series_is_bound_without_accepting_unexecuted_branch():
     assert not any(r['value'] == 9 for r in rows)
 
 
+def test_computed_object_is_a_selectable_output_alongside_its_leaves():
+    from atomic_skillgraph.empirical.model_view import operation_directory
+    from atomic_skillgraph.empirical.local_validation import reference_value
+    evidence={'id':'local:batch','kind':'native_operation',
+        'operation':{'name':'execute_python','arguments':{'source':"patterns=['alpha','beta']"}},
+        'reference':{'accepted':True,'data':{'computed':{'alpha':{'n':2,'hits':['a.txt']},'beta':{'n':0,'hits':[]}}}},
+        'public_task':{'goal':'find matching pages','inputs':{}}}
+    card=operation_directory(evidence,'case')
+    aggregate={'kind':'json','path':['data','computed'],'type':'dict'}
+    assert aggregate in card['output_references']
+    assert {'kind':'json','path':['data','computed','alpha','n'],'type':'int'} in card['output_references']
+    assert reference_value(evidence,{'kind':'json','path':aggregate['path']})==evidence['reference']['data']['computed']
+
+
 def test_real_series_and_computed_output_bind_but_fabricated_paths_fail(tmp_path, worker):
     s = office(tmp_path)
     s.adapter.worker = worker
