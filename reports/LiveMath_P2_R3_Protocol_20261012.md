@@ -24,10 +24,23 @@
 | 第一组 | guidance=248、applicability=75，完整卡片=500；结构、真实来源及静态内容限制通过 | 独立模型内容检查，再按原规则进行适用性与 off/on |
 | 第二组 | required_conditions=231 通过能力需求准入；没有已生成的 Skill 提案 | 候选指导生成，再经过内容与效用检查 |
 
-第一组的自然来源检查、适用性和 off/on 均没有真实模型成绩。离线 receipt 对 independent_content_check、utility_check 明确记为 not_run，published=false。第二组只验证到能力需求，不能声称已经生成候选 Skill。
+第一组的独立模型内容检查、适用性和 off/on 均没有真实模型成绩。离线 receipt 对 independent_content_check、utility_check 明确记为 not_run，published=false。第二组只验证到能力需求，不能声称已经生成候选 Skill。
 
 原 P2 已计费 **42,057 tokens／8 HTTP**，剩余 **1,757,943 tokens／72 HTTP**；包括 P1 在内的原 seed42 累计 **7,137,815 tokens／372 HTTP**。本轮新增 **0 tokens／0 HTTP**。复制账本只保留既有物理请求；检查会拒绝改变原始响应、来源、Schema、逻辑决策、费用或未知计费状态。未启动 Val、Test 或其它 seed。
 
-核验：P2 与 R3 专项 **43 passed**，相关公开过程、LM1、恢复边界、CF2 和正式记录回归 **103 passed、6 skipped**。跳过项为四项缺少 Docker 回归环境参数、两项缺少历史 LM1 审查目录。测试明确拦截 HTTP，覆盖真实两组响应、500／512／513 字卡片边界、256 字字段边界、一次 repair 的聚合反馈、原费用继承、改动原始证据的拒绝和旧版本隔离。模拟响应只用于检验工程路径。
+核验：合并远程已有的 OfficeQA Runtime 更新后，P2 与 R3 专项 **43 passed**；相关公开过程、LM1、恢复边界、CF2、正式记录、Runtime handoff 和 empirical 回归 **119 passed、16 skipped**，合计 **162 passed、16 skipped**。跳过项为十四项未提供 Docker 回归环境参数、两项未提供历史 LM1 审查目录。测试拦截模型 HTTP，覆盖真实两组响应、500／512／513 字卡片边界、256 字字段边界、一次 repair 的聚合反馈、原费用继承、改动原始证据的拒绝和旧版本隔离。模拟响应只用于检验工程路径。
 
-提交后会在独立干净 WSL checkout 上运行同一离线入口并保存源码身份、完整输入哈希及核验收据；这些原始输出随本轮审查包提供。下一次付费工作应从已记录的待验证阶段开始，并继续计入原剩余额度，不能重复解 P1 Train60 或自动改换 selection。
+实际离线回放已在独立干净 WSL checkout `/home/yangchengyu/asg_livemath_p2_r3_protocol_seed42_20261012` 完成，代码提交 `6a3916f3496d58b30d7ec8e7dd448ee31f166e49`，源码 SHA256 `c8e904bc24d3a0ea03d90c2c94296a2ef2645ed7d8df7cf9044858c790b6bad4`。P2 修改提交为 `5e4941b`；合并保留了远程已存在的 OfficeQA 修改，未改动其固定运行目录。
+
+结果目录为 `/home/yangchengyu/livemath_p2_r3_protocol_replay_seed42_20261012`。生产入口的 replay 和 check 均通过；额外 HTTP 拦截器记录 0 次调用，75 个受保护历史文件哈希全部一致。receipt hash 为 `8a8be2248fa095ebb54fde1f3b4e0a507a23c5a35aee1798bc027ca921818002`。原始收据、重算字段诊断、受保护文件哈希、测试 XML 和旧付费响应随本轮审查包提供。
+
+仅重新检查既有离线收据的命令如下，不发模型请求：
+
+```bash
+cd /home/yangchengyu/asg_livemath_p2_r3_protocol_seed42_20261012
+export PYTHONPATH="$PWD/src"
+/home/yangchengyu/asg_alfworld_venv/bin/python -m atomic_skillgraph.experiments.replay_choice_protocol \
+  check --receipt /home/yangchengyu/livemath_p2_r3_protocol_replay_seed42_20261012/protocol_replay.json
+```
+
+本轮没有生成可执行的 R3 付费 plan。下一次付费工作应从已记录的待验证阶段开始，并继续计入原剩余额度，不能重复解 P1 Train60 或自动改换 selection。
