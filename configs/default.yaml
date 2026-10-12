@@ -16,7 +16,7 @@ harness:
   max_steps: 100
   public_discovery_version: alfworld.public-discovery.v2
 runtime:
-  model_view_version: empirical.model-view.public-windows.v4
+  model_view_version: empirical.model-view.public-windows.v5
   finish_input_max_bytes: 65536
   dynamic_output_min_tokens: 0
   plan_execution_policy: empirical.recoverable-takeover.v1

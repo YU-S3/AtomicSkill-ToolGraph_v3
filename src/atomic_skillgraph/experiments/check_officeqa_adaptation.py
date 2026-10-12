@@ -68,6 +68,10 @@ def main():
     result = {}
     try:
         result['train'] = run(configurations['train'],selected['train'],root/'train',formal_log=logger,budget_governor=governor)
+        if not result['train']['complete']:
+            logger.finish('stopped')
+            write_json(root/'completion.json',{'status':'stopped_at_task_boundary','completed_train_tasks':result['train']['tasks']})
+            return
         frozen = root/'train/frozen_bank';before = tree_identity(frozen)
         result['val'] = run(configurations['val'],selected['val'],root/'val',readonly=True,formal_log=logger,budget_governor=governor)
         after = tree_identity(frozen)
@@ -76,6 +80,11 @@ def main():
         logger.finish('completed')
         write_json(root/'completion.json',{'status':'completed','runs':{k:{x:v[x] for x in ('tasks','successes','known_total_tokens','knowledge_digest')}
                                                                       for k,v in result.items()},'frozen_hash':before['sha256']})
+    except SystemExit as exc:
+        status = 'stopped_at_task_boundary' if exc.code == 75 else 'failed'
+        logger.finish('stopped' if exc.code == 75 else 'failed')
+        write_json(root/'completion.json',{'status':status,'exit_code':exc.code})
+        if exc.code != 75: raise
     except Exception as exc:
         logger.finish('failed')
         write_json(root/'completion.json',{'status':'failed','error':str(exc)});raise

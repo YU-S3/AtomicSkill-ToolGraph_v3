@@ -232,8 +232,8 @@ class OfficeAdapter(FileAdapter):
         return path
 
     def result_protocol(self, name):
-        from ..empirical.public_results import SCOPED_SEARCH
-        return SCOPED_SEARCH if name == 'grep' else super().result_protocol(name)
+        from ..empirical.public_results import SCOPED_SEARCH, TEXT_PAGE
+        return {'grep': SCOPED_SEARCH, 'read': TEXT_PAGE}.get(name, super().result_protocol(name))
 
     def call(self, name, arguments):
         if not self.corpus.is_dir(): raise RuntimeError('Authorized corpus root is unavailable')

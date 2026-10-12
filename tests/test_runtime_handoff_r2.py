@@ -1,6 +1,7 @@
 """Production regressions for public memory, field handoffs and bounded reads."""
 import json
 from copy import deepcopy
+import pytest
 
 from atomic_skillgraph.empirical.contracts import PublicTask, RuntimeDecision, digest
 from atomic_skillgraph.empirical.executor import Executor
@@ -8,6 +9,7 @@ from atomic_skillgraph.empirical.finish_evidence import build_finish_evidence
 from atomic_skillgraph.empirical.planner import dynamic
 from atomic_skillgraph.empirical.prompts import RUNTIME_PROMPT, STEP
 from atomic_skillgraph.empirical.task_context import TaskContext
+from atomic_skillgraph.empirical.public_results import TEXT_PAGE, SCOPED_SEARCH
 from atomic_skillgraph.harness.simple_protocol import Broker
 from test_cf2_contracts import office, http, response
 
@@ -96,3 +98,42 @@ def test_finish_trigger_survives_tool_limit_and_keeps_public_note(tmp_path):
             system.adapter.task, system.adapter, Broker(system.adapter, 1, context=context), dynamic(system.adapter.task))
         assert result['finish_trigger'] == 'tool_budget_exhausted' and result['reason'] == 'finish_only'
     finally: system.close()
+
+
+def test_native_acquired_page_reaches_actual_wire_and_records_exact_window(tmp_path, monkeypatch):
+    system = office(tmp_path)
+    text = '页' * 9000 + 'acquired late table row' + '尾' * 4000
+    (system.adapter.corpus/'page.txt').write_text(text, encoding='utf-8')
+    context = system.task_context
+    arguments = {'path': 'page.txt', 'offset': 0}
+    raw = system.adapter.call('read', arguments)
+    rid = context.register('page', raw, name='read', arguments=arguments,
+                           origin=system.adapter.result_protocol('read'))
+    assert context.origin(rid) == TEXT_PAGE
+    page = context.view(rid)['data']['text']
+    assert page['content'] == text[:12000] and page['end'] == 12000
+    assert 'acquired late table row' in page['content']
+    seen = http(monkeypatch, [response([{'action': 'finish', 'answer': '<answer>acquired</answer>'}])])
+    try:
+        system.agent('runtime', RUNTIME_PROMPT, {'recent_results': [context.view(rid)], 'tools': system.adapter.available_tools()},
+                     'runtime_step', STEP)
+        assert 'acquired late table row' in seen[0]['messages'][1]['content']
+        receipt = system.requests[-1]['displayed_windows'][0]
+        assert receipt['end'] == 12000 and receipt['content_hash'] == digest(text[:12000])
+        short = context.fit_window(page, lambda w: len(w['content']) <= 4000)
+        assert short['end'] == len(short['content']) == 3000
+        assert short['next_offset'] == 3000 and short['content_hash'] == digest(text[:3000])
+    finally: system.close()
+
+
+def test_read_contract_requires_path_and_keeps_host_root_unavailable():
+    context = TaskContext()
+    assert 'path' in context.tool()['input_schema']['required']
+    rid = context.register('scoped', {'data': ['authorized.txt'], 'scope_audit': {'private_host_field': True}}, origin=SCOPED_SEARCH)
+    with pytest.raises(ValueError, match='public field path') as error:
+        context.read(rid)
+    assert '["data"]' in str(error.value) and 'scope_audit' not in str(error.value)
+    with pytest.raises(ValueError, match='Host metadata'):
+        context.read(rid, path=['scope_audit'])
+    assert context.local_reads == []
+    assert context.read(rid, path=['data'])['data'] == ['authorized.txt']
