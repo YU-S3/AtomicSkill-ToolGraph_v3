@@ -199,14 +199,14 @@ def test_temporary_worker_obeys_the_owners_earlier_deadline(tmp_path, worker):
 def test_nested_read_timeout_is_worker_failure_and_runtime_can_continue(tmp_path, worker, monkeypatch):
     import threading
     s = office(tmp_path); s.adapter.worker = worker
-    worker.settings['wall_timeout_seconds'] = 20
+    worker.settings['wall_timeout_seconds'] = 4
     original = s.adapter.call
     release = threading.Event()
     def slow(name, arguments):
-        if name == 'grep': release.wait(2)
+        if name == 'grep': release.wait(8)
         return original(name, arguments)
     monkeypatch.setattr(s.adapter, 'call', slow)
-    broker = Broker(s.adapter, 4, native_timeout=.7)
+    broker = Broker(s.adapter, 4, native_timeout=15)
     try:
         result = broker.call('execute_python', {'source':"ctx.call('grep', {'pattern':'target'})"})
         assert not result['accepted'] and 'timeout' in result['error'].lower()
