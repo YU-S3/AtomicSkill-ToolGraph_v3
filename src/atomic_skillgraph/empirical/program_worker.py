@@ -183,10 +183,10 @@ class ProgramWorker:
                 selector.register(process.stderr, selectors.EVENT_READ, 'stderr')
                 buffer, finished, seen = b'', False, set()
                 try:
-                    while not finished and selector.get_map():
+                    while selector.get_map():
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
-                            result = {'status': 'execution_error', 'detail': 'Worker wall timeout'}
+                            if not finished: result = {'status': 'execution_error', 'detail': 'Worker wall timeout'}
                             break
                         for key, _ in selector.select(min(remaining, .2)):
                             chunk = os.read(key.fileobj.fileno(), 65536)
@@ -202,6 +202,7 @@ class ProgramWorker:
                             while b'\n' in buffer:
                                 line, buffer = buffer.split(b'\n', 1)
                                 request = json.loads(line)
+                                if finished: raise ValueError('Worker RPC after completion')
                                 if request.get('kind') == 'done':
                                     result, finished = request['result'], True
                                     cpu_seconds = request.get('cpu_seconds')

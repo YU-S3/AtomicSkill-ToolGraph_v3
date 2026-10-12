@@ -118,6 +118,15 @@ and workflow node skill_id. Existing references must be real supplied Skill IDs,
 For file workspaces, program paths may be absolute inside /workspace; files/deleted_files are publication names
 relative to /workspace, without a leading slash, inputs prefix or '..'. Keep output_path separate from files.
 execution_intent depends on real local evidence, not the final answer interface. A single-answer operation can be program_requested.
+Prefer a completed, repeatable search/read/compute operation over an unexecuted end-to-end task algorithm.
+Use the actual source_excerpt, input_sources and output_references to determine what ran.
+source_excerpt is a bounded AST-formatted code preview; Builder receives the original source.
+Bind literal arrays at their supplied aggregate AST path, not a fabricated observation path or one element. Do not add
+unobserved intermediate outputs or optional parameters merely because the algorithm could produce them.
+result_role=intermediate is appropriate for locators, text pages, numeric results and raw stdout consumed later.
+final_answer alone requires output_schema with required answer of type string; it means the Program itself
+submits the final answer. A numeric computation is not final_answer just because its source task was answered.
+Every output reference retains its actual type: observation is a string, data.computed contains real JSON fields.
 guidance_only does not request a Program job: set generate_program=false and omit realization_request.
 Declare result_role intermediate/final_answer/final_files in the Skill. A missing Program is pending work, not
 completion. reuse_existing with generate_program=true still requests a build. Use realization_request for at most
@@ -243,6 +252,10 @@ offsets; a search hit is a locator, not the surrounding table. Continue a trunca
 business path, e.g. ["data"] for a list or ["data","text"] for acquired text; do not read a dictionary root.
 For numerical tasks, obtain the relevant rows and use an available compute tool to calculate from those public
 values, preserving their units and provenance. Submit the answer once ready instead of continuing exploration.
+When using execute_python for a computation, print one JSON object containing the acquired input values and
+computed results with clear field names, using json.dumps. This preserves typed actual outputs for later learning.
+Check existing memory results before repeating a query. Acquired text pages and calculations remain visible
+after later searches; a repeated query without a changed scope adds no evidence.
 Keep a concise working note in detail with acquired locators, values or completed calculations needed next.
 memory.public_notes contains actual public Runtime text, labelled model_reported; verify it against source results.
 return_example names the actual fields to emit before output_aliases are applied. A handoff patch targets the

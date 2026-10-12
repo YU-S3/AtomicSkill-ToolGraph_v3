@@ -704,12 +704,14 @@ class EmpiricalSystem:
                     from .model_view import structure_repair_material
                     repaired=getattr(exc,'repair_material',None)
                     if repaired is None:
+                        feedback=getattr(exc,'feedback',None)
                         repaired=structure_repair_material(turn.tool_calls[0].arguments if len(turn.tool_calls)==1 else {},
-                            [{'binding_index':None,'errors':[{'code':'output_type','detail':str(exc)[:200]}]}],shown_directories)
+                            [{'binding_index':None,'errors':[feedback if isinstance(feedback,dict) and 'detail' in feedback
+                                else {'code':'output_type','detail':str(exc)}]}],shown_directories)
                     else:
                         repaired['legal_operations'] = structure_repair_material(turn.tool_calls[0].arguments,
                             getattr(exc,'feedback',[]),shown_directories)['legal_operations']
-                    messages=[{'role':'system','content':'Repair only this learning proposal structure and binding references. Preserve the local goal. Submit exactly one submit_learning ToolCall. Host supplies replay start and identity; do not solve the task again.'},
+                    messages=[{'role':'system','content':'Repair the indicated declaration, schema and binding errors while preserving the local goal. Invalid schemas are not frozen. Intermediate outputs need their actual source types; final_answer requires a required string answer. Every bound input and required output needs an exact supplied source reference. Omit unobserved optional inputs and outputs. If this goal has no valid binding, defer or no_change; do not invent evidence. Submit exactly one complete submit_learning JSON object with all fields inside that object. Host supplies replay start and identity; do not solve the task again.'},
                               {'role':'user','content':json.dumps(repaired,ensure_ascii=False,separators=(',',':'))}]
                     continue
                 if hasattr(exc, 'repair_material'):

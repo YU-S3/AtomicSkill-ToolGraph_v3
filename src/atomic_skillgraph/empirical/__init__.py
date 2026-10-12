@@ -2,13 +2,13 @@
 
 PROFILE = "skillcompiler.empirical.v1"
 
-IMPLEMENTATION_REVISION = 'empirical-v3.2-runtime-handoff-r2'
+IMPLEMENTATION_REVISION = 'empirical-v3.3-operation-bootstrap-r3'
 LOCAL_VALIDATION_POLICY_VERSION = 'atomic.local-validation.v3'
 FILE_EFFECT_VERSION = 'artifact-effect.xlsx-modified.v1'
 BINDING_POLICY_VERSION = 'atomic.host-binding.v1'
 BUDGET_POLICY_VERSION = 'atomic.train-pools.v1'
 ANSWER_PROTOCOL_VERSION = 'atomic.answer-executor.v1'
-LEARNING_MATERIAL_VERSION = 'learner.material.public-directory.v6'
+LEARNING_MATERIAL_VERSION = 'learner.material.public-directory.v7'
 GUIDANCE_POLICY_VERSION = 'guidance.public-evidence.v1'
 CHOICE_GUIDANCE_POLICY_VERSION = 'choice-guidance.grounded.v1'
 CHOICE_GUIDANCE_MATERIAL_VERSION = 'choice-guidance.material.v1'
@@ -20,7 +20,7 @@ PUBLIC_CHOICE_MATERIAL_VERSION = 'choice-guidance.public-process-material.v2'
 POLICY_DEFAULTS = {
     'experiment': {'implementation_revision': IMPLEMENTATION_REVISION, 'budget_policy': BUDGET_POLICY_VERSION},
     'runtime': {'read_batch_max_calls': 3, 'result_inline_max_chars': 2048,
-                'model_view_version': 'empirical.model-view.public-windows.v5',
+                'model_view_version': 'empirical.model-view.public-windows.v6',
                 'result_preview_max_items': 40, 'result_read_window_chars': 12000,
                 'plan_execution_policy': 'empirical.recoverable-takeover.v1', 'dynamic_escape_limit': 1,
                 'answer_protocol_version':ANSWER_PROTOCOL_VERSION},

@@ -123,8 +123,18 @@ class Executor:
             return getattr(adapter, 'submission_ready', lambda *a, **k: False)(output, result_role=role)
 
         def recent():
+            from .public_results import TEXT_PAGE, FILE_COMPUTE, PROGRAM_EXECUTION
+            rows = list(history[-3:])
+            retained, seen = {TEXT_PAGE:0, FILE_COMPUTE:0, PROGRAM_EXECUTION:0}, {r.get('result_id') for r in rows}
+            for row in reversed(history):
+                rid = row.get('result_id')
+                origin = context.origin(rid) if rid else None
+                if origin not in retained or retained[origin] >= (2 if origin == TEXT_PAGE else 1): continue
+                retained[origin] += 1
+                if rid not in seen:
+                    rows.append(row); seen.add(rid)
             return [context.view(row['result_id']) if 'result_id' in row else
-                    {k: context.preview(v) for k,v in row.items()} for row in history[-3:]]
+                    {k: context.preview(v) for k,v in row.items()} for row in rows]
 
         def finalize():
             nonlocal final, reason, pending_decision_id, finish_evidence, finish_trigger, submission_producer_attempt_id

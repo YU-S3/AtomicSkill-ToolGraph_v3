@@ -1,0 +1,10 @@
+{
+  "limits": {"token_limit": 2592000, "request_limit": 240, "finish_reserve": 0},
+  "task_limits": {
+    "train_task_tokens": 400000,
+    "train_solve_tokens": 320000,
+    "train_learning_tokens": 80000,
+    "eval_task_tokens": 96000
+  },
+  "native_calls_by_split": {"train": 64, "val": 24}
+}
