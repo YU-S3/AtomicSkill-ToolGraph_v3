@@ -116,8 +116,9 @@ Python allows /workspace absolutes; publication names exclude leading slash, inp
 Skill refs: $new or supplied real IDs, never aliases. Workflow: dependencies; dynamic goal/reference_skill_ids;
 bound asset I/O/no goal/optional purpose; compositions/patches are not proof. Repair keeps selected_local_goal/scope.
 guidance_only: generate_program=false/no realization_request. generate_program=true requests pending builds,
-even reuse_existing. Select one related job, 0-2 applicable completed Train bindings with real
-case_id/local_evidence_ref and existing inputs/tools; else defer. input_refs: exact catalog
+even reuse_existing. Bind current experience.local_evidence or applicable completed_train_cases;
+no existing job or second case is needed. Use real case_id/local_evidence_ref, inputs/tools.
+Existing jobs may be reused or deferred. input_refs: exact catalog
 public_json/operation_json/source_literal paths or public_span start/end. Spans prove provenance, not semantics.
 Host owns prefix/start_mode/environment/source trace; omit them."""
 BUILDER_PROMPT = """Return exactly one submit_program ToolCall using submission_contract. During generation/recovery,
