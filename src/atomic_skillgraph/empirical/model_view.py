@@ -64,6 +64,28 @@ def expand_material(material):
     return expand({k:v for k,v in material.items() if k not in {'material_tables','material_reference_note'}})
 
 
+def reference_exact_span_quotes(material):
+    """Lossless references to text already present in the same public task."""
+    value=deepcopy(material);changed=False
+    def visit(row):
+        nonlocal changed
+        if isinstance(row,list):
+            for child in row:visit(child)
+        elif isinstance(row,dict):
+            if isinstance(row.get('task'),dict) and isinstance(row.get('spans'),list):
+                for span in row['spans']:
+                    try:
+                        text=row['task']
+                        for field in span['task_path']:text=text[field]
+                        if not isinstance(text,str) or text[span['start']:span['end']]!=span.get('quote'):continue
+                    except (KeyError,IndexError,TypeError):continue
+                    span.pop('quote');changed=True
+            for child in list(row.values()):visit(child)
+    visit(value)
+    if changed:value['span_quote_reference_note']='A span quote is exactly task[task_path][start:end], with Unicode character offsets. Full source text remains in that task.'
+    return value
+
+
 def canonical_bytes(value):
     return len(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8'))
 

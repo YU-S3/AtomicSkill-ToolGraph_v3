@@ -4,6 +4,7 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+import shutil
 from uuid import uuid4
 
 import yaml
@@ -185,7 +186,7 @@ def check(plan_path):
         if (root/'budget.json').exists() and any(read(root/'budget.json')['attempts'].get(k)!=v for k,v in ledger['attempts'].items()):
             raise ValueError('Inherited paid attempts changed')
     if 'paid_prefix' in plan:
-        prefix,ledger,_=revision_inputs(plan['paid_prefix']['parent_plan'])
+        prefix,ledger,_=(continuation_inputs if plan.get('continuation') else revision_inputs)(plan['paid_prefix']['parent_plan'])
         if prefix!=plan['paid_prefix'] or read(root/'inherited_p2_budget.json')!=ledger or plan['new_limits']!=prefix['allowance']:
             raise ValueError('Paid revision provenance or allowance changed')
         if plan['inherited_tokens']!=prefix['inherited_tokens'] or plan['inherited_http']!=prefix['inherited_http']:
@@ -270,10 +271,10 @@ def recover(plan_path,output):
     return plan
 
 
-def revision_inputs(plan_path):
+def revision_inputs(plan_path,*,continuation=False):
     """One explicitly authorized prompt revision; completed negative evidence stays immutable."""
     path=Path(plan_path).resolve();root=path.parent;old=read(path);result=read(root/'result.json');ledger=read(root/'budget.json')
-    if old['schema']!=VERSION or 'paid_prefix' in old or digest(old)!=read(root/'plan_identity.json')['plan_hash'] or result['plan_hash']!=digest(old):
+    if old['schema']!=VERSION or ('paid_prefix' in old and not continuation) or digest(old)!=read(root/'plan_identity.json')['plan_hash'] or result['plan_hash']!=digest(old):
         raise ValueError('Original batch identity changed or already revised')
     inputs={str(path):sha256(path)}
     for p,expected in {**old['input_hashes'],**{str(root/n):h for n,h in old['prepared_hashes'].items()}}.items():
@@ -283,7 +284,7 @@ def revision_inputs(plan_path):
         raise ValueError('Revision requires a completed negative batch with known billing')
     if ledger['limits']!={**old['new_limits'],'finish_reserve':0} or any(a['status']!='metered' for a in ledger['attempts'].values()):
         raise ValueError('Original allowance or billing changed')
-    tokens=sum(a['accounted_tokens'] for a in ledger['attempts'].values());http=len(ledger['attempts']);prior=old.get('recovery',{})
+    tokens=sum(a['accounted_tokens'] for a in ledger['attempts'].values());http=len(ledger['attempts']);prior=old.get('paid_prefix',old.get('recovery',{}))
     inherited=old['inherited_tokens']+tokens-prior.get('prior_p2_tokens',0);inherited_http=old['inherited_http']+http-prior.get('prior_p2_http',0)
     if result['cumulative_tokens']!=inherited or result['cumulative_http']!=inherited_http or result['unknown_billing']:
         raise ValueError('Original cumulative cost differs from ledger')
@@ -297,6 +298,56 @@ def revision_inputs(plan_path):
         'prior_p2_tokens':tokens,'prior_p2_http':http,'allowance':old['new_limits'],
         'remaining_tokens':old['new_limits']['token_limit']-tokens,'remaining_http':old['new_limits']['request_limit']-http,
         'inherited_tokens':inherited,'inherited_http':inherited_http},ledger,inputs
+
+
+def continuation_inputs(plan_path):
+    root=Path(plan_path).resolve().parent;old=read(plan_path)
+    if old.get('paid_prefix',{}).get('experimental_revision')!='P2-R2' or old.get('continuation'):
+        raise ValueError('Only the authorized R2 pending repair may continue')
+    prefix,ledger,inputs=revision_inputs(plan_path,continuation=True)
+    pending=[];namespaces={}
+    for i,unit in enumerate(old['candidate_units']):
+        folder=root/'learning'/str(i);audit=read(folder/'requests.json');log=read(folder/'learning.json')
+        refused=[q for q in audit['requests'] if q.get('admission_status')=='local_refusal' and q.get('error','').startswith('material_too_large:')]
+        if refused:
+            if len(refused)!=1 or refused[0]['purpose']!='guidance_learning' or refused[0]['repair']!=1 or refused[0].get('http_attempts'):
+                raise ValueError('Continuation cannot add a repair HTTP or learning round')
+            paid=[q for q in audit['requests'] if q.get('http_attempts')]
+            if len(paid)!=2 or [q['purpose'] for q in paid]!=['capability_induction','guidance_learning'] or any(q['repair']!=0 or len(q['http_attempts'])!=1 for q in paid):
+                raise ValueError('Pending repair paid provenance changed')
+            state=read(folder/'checkpoint/state.json');unit_key='capability_batch_'+log['unit_id']
+            decision=state['decisions'][refused[0]['logical_decision_id']]
+            if state.get(unit_key)!=log or decision['status']!='prepared' or decision['repair_index']!=1:
+                raise ValueError('Repair is not the original unissued checkpoint decision')
+            pending.append({'index':i,'unit_key':unit_key,'logical_decision_id':refused[0]['logical_decision_id']})
+        elif log['decision']!='rejected' or len(audit['requests'])!=1 or audit['requests'][0]['purpose']!='capability_induction':
+            raise ValueError('Other learning units must remain terminal model rejections')
+        namespaces[str(i)]=str(folder/'checkpoint')
+        for file in (folder/'checkpoint').rglob('*'):
+            if file.is_file():inputs[str(file)]=sha256(file)
+    if len(pending)!=1:raise ValueError('Exactly one original unissued repair is required')
+    return {**prefix,'continuation_kind':'unissued_guidance_repair_capacity_fix','pending':pending,'response_namespaces':namespaces},ledger,inputs
+
+
+def continue_repair(plan_path,output):
+    prefix,ledger,inputs=continuation_inputs(plan_path);old=read(plan_path);root=Path(plan_path).resolve().parent;output=Path(output).resolve();code=code_identity()
+    if output.exists() or code['tracked_dirty'] or not code['git_sha']:raise ValueError('Continuation requires fresh output and committed clean source')
+    config=read(root/'config.json');new_config=configuration(config,output)
+    expected=deepcopy(config);expected['data_dir']=new_config['data_dir'];expected['experiment']['output_dir']=new_config['experiment']['output_dir']
+    if expected!=new_config:raise ValueError('Repair continuation may not change method parameters')
+    for name in ('source_records.json','source_cases.json'):write_json(output/name,read(root/name))
+    write_json(output/'config.json',new_config);write_json(output/'inherited_p2_budget.json',ledger)
+    for i in prefix['response_namespaces']:
+        folder=output/'learning'/i;shutil.copytree(root/'learning'/i/'checkpoint',folder/'checkpoint')
+        shutil.copy2(root/'learning'/i/'requests.json',folder/'requests.json')
+    for pending in prefix['pending']:
+        state_path=output/'learning'/str(pending['index'])/'checkpoint/state.json';state=read(state_path)
+        state.pop(pending['unit_key']);write_json(state_path,state)
+    plan={**old,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),'derivation_mode':'explicit_unissued_repair_continuation',
+        'continuation':True,'paid_prefix':prefix,'input_hashes':inputs,'inherited_tokens':prefix['inherited_tokens'],'inherited_http':prefix['inherited_http'],
+        'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_records.json','source_cases.json','inherited_p2_budget.json')}}
+    write_json(output/'plan.json',plan);write_json(output/'plan_identity.json',{'plan_hash':digest(plan)})
+    return plan
 
 
 def revise(plan_path,output):
@@ -316,8 +367,8 @@ def revise(plan_path,output):
     return plan
 
 
-def learning_boundary(system,root,key):
-    system.checkpoint=TaskCheckpoint(root/'checkpoint');system.audit_path=str(root/'requests.json')
+def learning_boundary(system,root,key,*,response_namespace=None):
+    system.checkpoint=TaskCheckpoint(root/'checkpoint',response_namespace=response_namespace);system.audit_path=str(root/'requests.json')
     system.phase='train';system.budget_scope=key;system._task_start=len(system.usage.events);system._request_start=len(system.requests)
     system._learning_start=system._task_start
     system.prior_usage=read(system.audit_path)['usage'] if Path(system.audit_path).exists() else []
@@ -379,7 +430,7 @@ def execute(plan_path,env_file):
         selection=[t for rows in plan['selection_tasks'].values() for t in rows];selected=[t['physical_key'] for t in selection];candidates=[]
         learning=[]
         for i,unit in enumerate(plan['candidate_units']):
-            learning_boundary(system,root/'learning'/str(i),'candidate:'+str(i))
+            learning_boundary(system,root/'learning'/str(i),'candidate:'+str(i),response_namespace=prefix.get('response_namespaces',{}).get(str(i)))
             log=system.learner.learn_capability_batch(unit,selected,recovered_demand=recovery['demands'][i] if recovery else None)
             write_json(root/'learning'/str(i)/'learning.json',log)
             learning.append({**{k:log.get(k) for k in ('decision','stage','reason')},
@@ -459,11 +510,12 @@ def main():
     p=sub.add_parser('prepare');p.add_argument('--settings',required=True);p.add_argument('--source-run',required=True);p.add_argument('--output',required=True)
     p=sub.add_parser('recover');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
     p=sub.add_parser('revise');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
+    p=sub.add_parser('continue-repair');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
     for mode in ('check','execute'):
         p=sub.add_parser(mode);p.add_argument('--plan',required=True)
         if mode=='execute':p.add_argument('--env-file',required=True)
     args=parser.parse_args()
-    result=prepare(args.settings,args.source_run,args.output) if args.mode=='prepare' else recover(args.plan,args.output) if args.mode=='recover' else revise(args.plan,args.output) if args.mode=='revise' else check(args.plan) if args.mode=='check' else execute(args.plan,args.env_file)
+    result=prepare(args.settings,args.source_run,args.output) if args.mode=='prepare' else recover(args.plan,args.output) if args.mode=='recover' else revise(args.plan,args.output) if args.mode=='revise' else continue_repair(args.plan,args.output) if args.mode=='continue-repair' else check(args.plan) if args.mode=='check' else execute(args.plan,args.env_file)
     print(json.dumps(result,ensure_ascii=False))
 
 

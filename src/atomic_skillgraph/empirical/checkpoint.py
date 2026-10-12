@@ -17,8 +17,9 @@ def save_json(path, value):
 
 
 class TaskCheckpoint:
-    def __init__(self, root):
+    def __init__(self, root, *, response_namespace=None):
         self.root = Path(root)
+        self.response_namespace = Path(response_namespace) if response_namespace else self.root
         self.path = self.root / 'state.json'
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {
             'schema': 'empirical.checkpoint.v2', 'stage': 'task_started', 'decisions': {}}

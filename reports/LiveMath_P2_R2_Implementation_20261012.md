@@ -13,3 +13,9 @@ P2 使用已有 P1 Train60 的真实经验，固定 48 来源池和独立的 6 s
 新增阶段进度文件与即时日志，明确记录学习单元、公开匹配、pair_started／pair_completed 和最终原因。summary 分别报告自然提案数、通过来源检查数、实际配对数及旧／新／累计费用。正常 no_change 或内容拒绝仍可结束为 completed_no_candidate；额度不足明确 censored，接口异常明确工程错误，不将所有退出称为报错。
 
 离线验收 31 项 P2 专项＋27 项公开过程／LM1 回归通过，模型 HTTP 为零。随后仅在这次用户授权及剩余额度内执行一次真实 P2-R2，实际付费结果以新运行目录的 result.json、learning、preflight、selection、utility_receipt、budget 和 Frozen 原始产物为准。拦截测试分数不能作为自然性能结果，也不会触发扩大预算、换题或自动再学习。
+
+真实 R2 在 `4ef2456` 下新增 15,843 tokens／3 HTTP。第一组诱导成功，初次 guidance 超过原 80 字 applicability 上限；唯一一次 repair 的完整请求为 17,070 B，超过 16,384 B，因而在 HTTP 之前拒绝。第二组诱导的 required_conditions 超过原 180 字上限，保留为普通模型失败。旧结果错误地将第一组的本地容量故障并入 completed_no_candidate；原始结果不改写，本报告明确区分工程问题与模型拒绝。
+
+容量修复仅对完全位于同一公开 task 文本中的精确 Span 引文使用 task_path＋Unicode start/end 引用，保留完整题干、选项、Span ID、原文字段和观察。只有逐字校验成功才去除同值 quote，不截短、不改上限。通用请求在该材料版本超限时才考虑此无损表示，已付费的原始请求内容保持一致。material_too_large 此后明确记录为工程停止。
+
+`continue-repair` 创建独立、清洁提交的新源码身份和子 run，绑定旧账本及所有原响应哈希。只对原单元中已经准备、repair_index=1、零 HTTP 的那次 guidance repair 恢复；复制检查点、显式保留原响应命名空间并复用已付费原响应，第二组终止记录保持原样。禁止追加 induction、改变来源／门槛／repair 次数，也禁止该入口再次延长这次实验。恢复前 P2 累计 37,314 tokens／7 HTTP，余量 1,762,686 tokens／73 HTTP；原 seed42 累计 7,133,072 tokens／371 HTTP。真实拒绝现场的生产模块回放覆盖缓存复用、一次 repair、来源检查、12 次公开匹配、24 次配对及费用结转；回放使用拦截响应，其分数仅用于工程验证。

@@ -204,7 +204,9 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None):
                 log['source_check']=check
                 if validate_check(check,candidate):log.update(decision='candidate',candidate={**candidate,'source_check':check})
                 else:log.update(decision='rejected',reason=check['status'])
-    except ValueError as exc:log.update(decision='rejected',reason=str(exc))
+    except ValueError as exc:
+        if getattr(exc,'code',None)=='material_too_large':raise
+        log.update(decision='rejected',reason=str(exc))
     s.checkpoint.advance(s.checkpoint.state['stage'],**{key:log})
     return log
 

@@ -15,7 +15,7 @@ from atomic_skillgraph.empirical.budget_governor import BudgetGovernor
 from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
 from atomic_skillgraph.empirical.contracts import PublicTask,digest
 from atomic_skillgraph.harness.benchmarks import AnswerAdapter
-from atomic_skillgraph.empirical.model_view import expand_material
+from atomic_skillgraph.empirical.model_view import expand_material,reference_exact_span_quotes
 from atomic_skillgraph.empirical.system import EmpiricalSystem,validate_config
 from atomic_skillgraph.experiments import run_choice_capability_batch as runner
 from test_cf2_contracts import response
@@ -466,3 +466,44 @@ def test_actual_source_card_capacity_and_all_twelve_public_routes(tmp_path,monke
         assert len(calls)==18 and not system.bank.all('skill')
         assert all(len(json.dumps(p,allow_nan=False).encode())<=16384 for p in calls)
     finally:system.close()
+
+
+def test_exact_span_reference_projection_preserves_full_text_and_rejects_unlocated_quotes():
+    rows=cb.records(sources());material={'train_cases':rows};compact=reference_exact_span_quotes(material)
+    for before,after in zip(rows,compact['train_cases']):
+        assert before['task']==after['task'] and before['observation']==after['observation']
+        for original,ref in zip(before['spans'],after['spans']):
+            text=after['task']
+            for field in ref['task_path']:text=text[field]
+            assert 'quote' not in ref and original['quote']==text[ref['start']:ref['end']]
+            assert ref=={k:v for k,v in original.items() if k!='quote'}
+    assert material=={'train_cases':rows}
+    bad=deepcopy(material);bad['train_cases'][0]['spans'][0]['quote']='invented'
+    assert reference_exact_span_quotes(bad)['train_cases'][0]['spans'][0]['quote']=='invented'
+
+
+def test_actual_unissued_repair_continuation_reuses_paid_responses_and_only_repairs_once(tmp_path,monkeypatch):
+    source=os.environ.get('LIVEMATH_P2_R2_REFUSED_RUN')
+    if not source:pytest.skip('Set the immutable actual R2 unissued repair')
+    source=Path(source);before={str(p):p.read_bytes() for p in source.rglob('*') if p.is_file()}
+    monkeypatch.setattr(runner,'code_identity',lambda:{'git_sha':'intercepted-capacity-fix','tracked_dirty':False,'source_sha256':'explicit-fixture'})
+    child=tmp_path/'continued';plan=runner.continue_repair(source/'plan.json',child)
+    assert runner.check(child/'plan.json')['status']=='passed'
+    assert plan['paid_prefix']['prior_p2_tokens']==37314 and plan['paid_prefix']['prior_p2_http']==7
+    assert plan['inherited_tokens']==7133072 and plan['inherited_http']==371
+    calls=fixture_transport(monkeypatch);env=tmp_path/'empty.env';env.write_text('')
+    result=runner.execute(child/'plan.json',env)
+    assert result['status']=='completed_selection' and result['new_http']==len(calls)==38,result
+    names=[p['tools'][0]['function']['name'] for p in calls]
+    assert names.count('submit_learning')==1 and names.count('submit_capability')==0 and names.count('submit_capability_check')==1
+    first=calls[0];body=json.loads(first['messages'][1]['content'])
+    assert 'span_quote_reference_note' in body and len(json.dumps(first,allow_nan=False).encode())<=16384
+    original=runner.read(source/'learning/0/requests.json')['requests'][0]['response']['tool_calls'][0]['arguments']
+    assert body['capability']['definition']==original
+    assert runner.read(child/'learning/1/learning.json')==runner.read(source/'learning/1/learning.json')
+    actual=runner.read(child/'learning/0/requests.json')['requests']
+    new=[q for q in actual if any(a['request_id'] not in runner.read(source/'budget.json')['attempts'] for a in q.get('http_attempts',[]))]
+    assert new[0]['repair']==1 and new[0]['purpose']=='guidance_learning'
+    assert result['total_p2_tokens']==37314+5*38 and result['total_p2_http']==45
+    assert before=={str(p):p.read_bytes() for p in source.rglob('*') if p.is_file()}
+    with pytest.raises(ValueError,match='pending repair may continue'):runner.continue_repair(child/'plan.json',tmp_path/'again')

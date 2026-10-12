@@ -326,7 +326,7 @@ class EmpiricalSystem:
                 raise ValueError('Model capability lock does not support image input')
             messages[1]['content'] = [{'type': 'text', 'text': json.dumps(
                 {k: v for k, v in materials.items() if k != 'content_parts'}, ensure_ascii=False)}, *content_parts]
-        scope = json.dumps([str(self.checkpoint.root) if self.checkpoint else '', self.budget_scope, job_key])
+        scope = json.dumps([str(self.checkpoint.response_namespace) if self.checkpoint else '', self.budget_scope, job_key])
         decision_id = self.checkpoint.prepare_decision(scope, purpose, owner_state_version) if self.checkpoint else uuid4().hex
         self.last_decision_id = decision_id
         runtime_owned = (name in {'runtime_step','answer_step'} or purpose == 'finish_only') and owner_state_version is not None
@@ -397,7 +397,11 @@ class EmpiricalSystem:
                         try: projected=expand_material(json.loads(messages[1]['content']))
                         except (TypeError,ValueError):break
                         compact=[]
-                        for form in (projected,pack_material(projected)):
+                        forms=[projected,pack_material(projected)]
+                        if projected.get('learning_material_version')=='choice-capability-batch.material.v1':
+                            from .model_view import reference_exact_span_quotes
+                            forms.append(reference_exact_span_quotes(projected))
+                        for form in forms:
                             content=json.dumps(form,ensure_ascii=False,separators=(',',':'),allow_nan=False)
                             candidate=deepcopy(payload);candidate['messages'][1]['content']=content
                             compact.append((input_token_bound(candidate),content))
