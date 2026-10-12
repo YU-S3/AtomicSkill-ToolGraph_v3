@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import yaml
@@ -186,7 +187,11 @@ def check(plan_path):
         if (root/'budget.json').exists() and any(read(root/'budget.json')['attempts'].get(k)!=v for k,v in ledger['attempts'].items()):
             raise ValueError('Inherited paid attempts changed')
     if 'paid_prefix' in plan:
-        prefix,ledger,_=(continuation_inputs if plan.get('continuation') else revision_inputs)(plan['paid_prefix']['parent_plan'])
+        if 'protocol_continuation' in plan:
+            restored,ledger,_=protocol_inputs(plan['protocol_continuation']['receipt'])
+            if restored!=plan['protocol_continuation']:raise ValueError('Revalidated protocol provenance changed')
+            prefix=restored['paid_prefix']
+        else:prefix,ledger,_=(continuation_inputs if plan.get('continuation') else revision_inputs)(plan['paid_prefix']['parent_plan'])
         if prefix!=plan['paid_prefix'] or read(root/'inherited_p2_budget.json')!=ledger or plan['new_limits']!=prefix['allowance']:
             raise ValueError('Paid revision provenance or allowance changed')
         if plan['inherited_tokens']!=prefix['inherited_tokens'] or plan['inherited_http']!=prefix['inherited_http']:
@@ -375,6 +380,55 @@ def learning_boundary(system,root,key,*,response_namespace=None):
     system.request_attribution={'parent_scope':key,'parent_token_limit':system.config['budget']['train_learning_tokens'],'train_parent':True}
 
 
+def protocol_inputs(receipt_path):
+    """Recompute saved evidence before crossing an explicitly recorded code boundary."""
+    from . import replay_choice_protocol as replay
+    receipt_path=Path(receipt_path).resolve();receipt=read(receipt_path);root=receipt_path.parent
+    receipt_hash=digest(receipt)
+    if receipt_hash!=read(root/'receipt_identity.json')['receipt_hash']:raise ValueError('Protocol receipt identity changed')
+    with TemporaryDirectory(prefix='p2-protocol-check-') as temporary:
+        recomputed=replay.replay(receipt['parent_plan'],Path(temporary)/'verified')
+    stable=lambda r:{k:v for k,v in r.items() if k not in {'code','created_at'}}
+    if stable(receipt)!=stable(recomputed):raise ValueError('Saved protocol receipt differs from production revalidation')
+    ledger=read(root/'inherited_p2_budget.json')
+    _,original,inputs=revision_inputs(receipt['parent_plan'],continuation=True,source_version=replay.LEGACY)
+    if ledger!=original:raise ValueError('Protocol continuation cannot refill the allowance')
+    demands=[];proposals=[]
+    by_key={r['task']['physical_key']:r for r in read(Path(receipt['parent_plan']).parent/'source_records.json')}
+    for unit in receipt['units']:
+        if unit['status'] not in {'ready_for_independent_content_check','ready_for_guidance_generation'}:
+            raise ValueError('Only a pending legal demand or proposal may enter paid validation')
+        rows=[by_key[k] for k in unit['source_case_ids']]
+        public=[{k:r[k] for k in ('task','task_hash','spans')} for r in rows]
+        demands.append({'unit_id':unit['new_unit_id'],'public_cases_hash':digest(public),
+            'value':unit['demand_response']['arguments'],'original_response':unit['demand_response'],'receipt_hash':receipt_hash})
+        proposals.append({'unit_id':unit['new_unit_id'],'capability_hash':digest(unit['capability']),
+            'source_records_hash':digest(rows),'value':unit['proposal_responses'][-1]['arguments'],
+            'original_response':unit['proposal_responses'][-1],'receipt_hash':receipt_hash} if unit['candidate'] else None)
+    for name in ('protocol_replay.json','receipt_identity.json','inherited_p2_budget.json'):
+        inputs[str(root/name)]=sha256(root/name)
+    return {'receipt':str(receipt_path),'receipt_hash':receipt_hash,'parent_code':receipt['code'],
+        'paid_prefix':{**receipt['paid_prefix'],'derivation_mode':'paid_protocol_continuation'},
+        'demands':demands,'proposals':proposals},ledger,inputs
+
+
+def continue_protocol(receipt_path,output):
+    restored,ledger,inputs=protocol_inputs(receipt_path);prefix=restored['paid_prefix'];old=read(prefix['parent_plan'])
+    output=Path(output).resolve();code=code_identity()
+    if output.exists() or code['tracked_dirty'] or not code['git_sha']:raise ValueError('Protocol continuation requires fresh output and committed clean source')
+    parent=Path(prefix['parent_plan']).parent;original=read(parent/'config.json');config=configuration(original,output)
+    for name in ('source_cases.json','source_records.json'):write_json(output/name,read(parent/name))
+    write_json(output/'config.json',config);write_json(output/'inherited_p2_budget.json',ledger)
+    plan={**{k:v for k,v in old.items() if k not in {'recovery','continuation','paid_prefix'}},
+        'schema':VERSION,'prompt_revision':PROMPT_REVISION,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),
+        'derivation_mode':'explicit_P2_R3_paid_protocol_continuation','protocol_continuation':restored,'paid_prefix':prefix,
+        'config_transition':{'parent':original,'current':config},'input_hashes':inputs,
+        'inherited_tokens':prefix['inherited_tokens'],'inherited_http':prefix['inherited_http'],
+        'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_records.json','source_cases.json','inherited_p2_budget.json')}}
+    write_json(output/'plan.json',plan);write_json(output/'plan_identity.json',{'plan_hash':digest(plan)})
+    return plan
+
+
 def evaluator_records(summary):
     records={}
     for trace in summary['cases']:
@@ -416,6 +470,7 @@ def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,ra
 def execute(plan_path,env_file):
     check(plan_path);plan=read(plan_path);root=Path(plan_path).parent;config=read(root/'config.json')
     recovery=plan.get('recovery',{})
+    restored=plan.get('protocol_continuation',{})
     prefix=plan.get('paid_prefix',recovery)
     if prefix and not (root/'budget.json').exists():write_json(root/'budget.json',read(root/'inherited_p2_budget.json'))
     load_env(env_file);governor=BudgetGovernor(root/'budget.json',**plan['new_limits'],finish_reserve=0)
@@ -431,11 +486,16 @@ def execute(plan_path,env_file):
         learning=[]
         for i,unit in enumerate(plan['candidate_units']):
             learning_boundary(system,root/'learning'/str(i),'candidate:'+str(i),response_namespace=prefix.get('response_namespaces',{}).get(str(i)))
-            log=system.learner.learn_capability_batch(unit,selected,recovered_demand=recovery['demands'][i] if recovery else None)
+            log=system.learner.learn_capability_batch(unit,selected,
+                recovered_demand=restored['demands'][i] if restored else recovery['demands'][i] if recovery else None,
+                recovered_proposal=restored['proposals'][i] if restored else None)
             write_json(root/'learning'/str(i)/'learning.json',log)
             learning.append({**{k:log.get(k) for k in ('decision','stage','reason')},
-                'proposal_created':bool(log.get('proposed_candidate')),'source_check_status':log.get('source_check',{}).get('status')})
-            result.update(learning_units=learning,natural_candidate_count=sum(r['proposal_created'] for r in learning))
+                'proposal_created':bool(log.get('proposed_candidate')),
+                **({'proposal_reused':True} if log.get('recovered_proposal') else {}),
+                'source_check_status':log.get('source_check',{}).get('status')})
+            result.update(learning_units=learning,natural_candidate_count=sum(r['proposal_created'] and not r.get('proposal_reused',False) for r in learning),
+                revalidated_candidate_count=sum(r['proposal_created'] and r.get('proposal_reused',False) for r in learning))
             write_json(result_path,result)
             progress(root,'learning_unit_completed',unit=i,**learning[-1])
             if governor.state['unknown_billing']:raise BudgetExhausted('unknown_billing','Learning billing unresolved')
@@ -478,7 +538,8 @@ def execute(plan_path,env_file):
         else:result['frozen']=system.bank.freeze(frozen)
         result['status']='completed_selection' if candidates else 'completed_no_candidate'
         result.update(learning_units=learning,completion_reason='selection_finished' if candidates else 'no_source_checked_candidate',
-            natural_candidate_count=sum(r['proposal_created'] for r in learning),source_checked_candidate_count=len(candidates),
+            natural_candidate_count=sum(r['proposal_created'] and not r.get('proposal_reused',False) for r in learning),
+            revalidated_candidate_count=sum(r['proposal_created'] and r.get('proposal_reused',False) for r in learning),source_checked_candidate_count=len(candidates),
             paired_tasks=sum(c['actual_exposed'] for c in result['candidates']))
     except BudgetExhausted as exc:
         result.update(status='stopped_unknown_billing' if governor.state['unknown_billing'] else 'stopped_budget_censored',reason=str(exc),censored=True)
@@ -511,11 +572,12 @@ def main():
     p=sub.add_parser('recover');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
     p=sub.add_parser('revise');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
     p=sub.add_parser('continue-repair');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
+    p=sub.add_parser('continue-protocol');p.add_argument('--receipt',required=True);p.add_argument('--output',required=True)
     for mode in ('check','execute'):
         p=sub.add_parser(mode);p.add_argument('--plan',required=True)
         if mode=='execute':p.add_argument('--env-file',required=True)
     args=parser.parse_args()
-    result=prepare(args.settings,args.source_run,args.output) if args.mode=='prepare' else recover(args.plan,args.output) if args.mode=='recover' else revise(args.plan,args.output) if args.mode=='revise' else continue_repair(args.plan,args.output) if args.mode=='continue-repair' else check(args.plan) if args.mode=='check' else execute(args.plan,args.env_file)
+    result=prepare(args.settings,args.source_run,args.output) if args.mode=='prepare' else recover(args.plan,args.output) if args.mode=='recover' else revise(args.plan,args.output) if args.mode=='revise' else continue_repair(args.plan,args.output) if args.mode=='continue-repair' else continue_protocol(args.receipt,args.output) if args.mode=='continue-protocol' else check(args.plan) if args.mode=='check' else execute(args.plan,args.env_file)
     print(json.dumps(result,ensure_ascii=False))
 
 
