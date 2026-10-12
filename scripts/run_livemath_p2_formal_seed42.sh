@@ -18,10 +18,11 @@ import json,subprocess,sys
 from pathlib import Path
 import yaml
 from atomic_skillgraph.experiments.formal_choice_batch import configure,carryforward
-from atomic_skillgraph.experiments.run_formal import configured_models,model_settings
+from atomic_skillgraph.experiments.run_formal import configured_models,model_settings,resolved_config
 from atomic_skillgraph.experiments.canonical_manifest import verify,sha256
 from atomic_skillgraph.experiments.run_choice_capability_batch import partition
 from atomic_skillgraph.experiments.run_empirical import write_json
+from atomic_skillgraph.empirical.contracts import digest
 from skillcompiler_bench_contracts.livemath import NORMALIZATION_VERSION,CHOICE_PROJECTION_VERSION,CHOICE_SEED
 output,p1,p2,data=map(Path,sys.argv[1:5]);mode=sys.argv[5]
 spec=yaml.safe_load(Path('configs/livemath_p2_formal_seed42.yaml').read_text());authority=Path(spec['authority'])
@@ -31,6 +32,8 @@ assert len(models)==1,'Exactly one configured DeepSeek model required'
 base=model_settings(yaml.safe_load(Path(spec['base_config']).read_text()),models[0])
 base['budget']=json.loads(Path(spec['budget_allocation']).read_text())['cells']['livemath']
 base=configure(base,spec,'livemath',42,authority)
+profile=json.loads(Path(spec['benchmark_profiles']).read_text())['profiles']['livemath']
+configs={split:resolved_config(base,profile,'livemath',42,split,output,data,authority,None) for split in ('train','val','test')}
 material=json.loads((data/'materialization.json').read_text())
 assert material['authority_sha256']==sha256(authority/'manifest.json')
 assert material['livemath_normalization_version']==NORMALIZATION_VERSION
@@ -57,7 +60,9 @@ elif mode=='--resume':
 elif output.exists():raise ValueError('Check expects a fresh output; use --resume for an existing run')
 print(json.dumps({'status':'passed','new_model_http':0,'schedule':'Train60 -> one P2 -> Frozen -> Val17 -> Test100',
     'inherited_tokens':lineage['inherited_tokens'],'inherited_http':lineage['inherited_http'],
-    'p2_limits':{'tokens':1800000,'http':80},'cumulative_limits':ledger['limits'],'bank_inherited':False}))
+    'p2_limits':{'tokens':1800000,'http':80},'cumulative_limits':ledger['limits'],'bank_inherited':False,
+    'resolved_config_hash':digest(configs),'choice_batch_version':base['experiment']['choice_batch_version'],
+    'choice_contract_sha256':base['experiment']['choice_batch_contract_sha256']}))
 PY
 [[ $mode != --check ]] || exit 0
 export TMPDIR="$(dirname "$OUTPUT")/tmp";mkdir -p "$TMPDIR"

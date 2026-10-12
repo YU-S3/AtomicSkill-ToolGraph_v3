@@ -927,7 +927,9 @@ class EmpiricalSystem:
         learning_observation = self.observer.learning_start(task) if self.observer else None
         self._learning_start = len(self.usage.events)
         try:
-            for attempt in trace["execution"]["attempts"]:
+            # Held-out outcomes stay in traces, outside Program reliability/qualification updates.
+            attempts = [] if task.physical_key in self.config['experiment'].get('choice_selection_physical_keys', []) else trace['execution']['attempts']
+            for attempt in attempts:
                 if attempt["status"] == "ok" and attempt.get('output_contract_status') == 'valid' and (attempt["outputs_consumed"] or attempt.get("terminal_by_program", False) or attempt.get('submission_by_program', False)) and trace["score"]["hard"] and attempt["local_check"] == "unavailable":
                     attempt.update(outcome="positive", basis="task_outcome")
                 host_call('bank_record', self.bank.record, attempt, trial_context={'stage': 'learning'})

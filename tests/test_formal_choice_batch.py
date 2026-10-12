@@ -1,6 +1,7 @@
 """Fresh formal P2, physical billing and resume through intercepted production HTTP."""
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,10 @@ from atomic_skillgraph.core.errors import BudgetExhausted
 from atomic_skillgraph.empirical.bank import Bank
 from atomic_skillgraph.empirical.budget_governor import BudgetGovernor
 from atomic_skillgraph.empirical.capability_batch import checked_asset
+from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
 from atomic_skillgraph.empirical.contracts import PublicTask, digest
+from atomic_skillgraph.empirical.system import EmpiricalSystem
+from atomic_skillgraph.harness.benchmarks import AnswerAdapter
 from atomic_skillgraph.experiments import formal_choice_batch as formal
 from atomic_skillgraph.experiments import run_choice_capability_batch as batch
 from atomic_skillgraph.experiments import run_empirical, run_formal
@@ -159,3 +163,45 @@ def test_carryforward_unions_physical_charges_and_keeps_original_limits(tmp_path
     old['attempts']['shared']['accounted_tokens'] = 8
     batch.write_json(tmp_path/'b/budget.json',old)
     with pytest.raises(ValueError,match='physical charge changed'):formal.carryforward([tmp_path/'a',tmp_path/'b'],limits)
+
+
+def test_actual_eval_public_inputs_fit_routing_contract_without_paid_http(tmp_path,monkeypatch):
+    data = os.environ.get('CF4_DATASETS');source = os.environ.get('LIVEMATH_P2_R5_SELECTION_RUN')
+    if not data or not source:pytest.skip('Set the actual public resources and immutable source-checked candidate')
+    calls = fixture_transport(monkeypatch,eligibility=False)
+    base,_,_,_,_ = fixture(tmp_path,monkeypatch)
+    cfg = batch.configuration(base,tmp_path/'public-input-check')
+    system = EmpiricalSystem(cfg,harness=AnswerAdapter('livemath',{}))
+    candidate = batch.read(Path(source)/'learning/0/learning.json')['candidate']
+    try:
+        for split in ('val','test'):
+            for row in batch.read(Path(data)/'livemath'/(split+'.json'))['tasks']:
+                t = PublicTask(**row);system.phase=split;system.budget_scope=split+':'+t.physical_key
+                system.checkpoint=TaskCheckpoint(tmp_path/'routing'/system.budget_scope)
+                system.audit_path=str(system.checkpoint.root/'requests.json')
+                system._task_start=len(system.usage.events);system._request_start=len(system.requests)
+                system.request_attribution={'parent_scope':system.budget_scope,'parent_token_limit':96000,'train_parent':False}
+                assert system.learner.match_capability(candidate,t)['applicable'] is False
+        assert len(calls)==117
+        assert all(len(json.dumps(p).encode())<=16384 for p in calls)
+    finally:system.close()
+
+
+def test_held_out_program_outcome_never_updates_learning_statistics(tmp_path,monkeypatch):
+    base,_,_,_,tasks = fixture(tmp_path,monkeypatch)
+    cfg = batch.configuration(base,tmp_path/'statistics-check')
+    system = EmpiricalSystem(cfg,harness=AnswerAdapter('livemath',{}))
+    recorded = []
+    monkeypatch.setattr(system.bank,'record',lambda attempt:recorded.append(deepcopy(attempt)))
+    monkeypatch.setattr(system.learner,'learn',lambda task,trace:{'decision':'no_change'})
+    selected = set(base['experiment']['choice_selection_physical_keys'])
+    trace = {'score':{'hard':True},'execution':{'attempts':[{'status':'ok','output_contract_status':'valid',
+        'outputs_consumed':True,'local_check':'unavailable'}]}}
+    try:
+        t = next(t for t in tasks['train'] if t['physical_key'] in selected)
+        system.learn_trace(PublicTask(**t),deepcopy(trace))
+        assert not recorded
+        t = next(t for t in tasks['train'] if t['physical_key'] not in selected)
+        system.learn_trace(PublicTask(**t),deepcopy(trace))
+        assert len(recorded)==1 and recorded[0]['outcome']=='positive'
+    finally:system.close()
