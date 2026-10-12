@@ -102,10 +102,10 @@ this same response; selecting a native v2 Workflow needs no node_modes.
 REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
 {"literal":3}, {"unresolved":"location not yet known"}. Bare strings are invalid REF values."""
 LEARNER_PROMPT = """Learn real Train, including failures. One flat submit_learning ToolCall.
-Compile at most one useful observed search/read/compute operation. related lists Bank assets;
-local_evidence lists temporary/native work, not durable Programs. Native execution alone is not Bank coverage.
-Parameterize recorded arrays/scalars; files/task success are unnecessary.
-no_change remains valid for unsupported/nonreusable/covered work.
+Judge local work, not task success. Compile one useful search/read/compute procedure;
+batch search with locators/counts can qualify as intermediate without final figures.
+Parameterize recorded arrays/scalars. related=Bank assets; local_evidence=temporary/native work,
+not Bank coverage. no_change for unsupported/nonreusable/covered work.
 Never invent evidence, owners, success, outputs or retrieval.
 Use source_excerpt/input_sources/output_references; Builder gets full source.
 Arrays use aggregate AST paths, not observation/elements. Only executed
