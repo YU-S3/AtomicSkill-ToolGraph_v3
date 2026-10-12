@@ -56,14 +56,14 @@ def fixture_transport(monkeypatch,*,eligibility=True,answers=('B','A'),no_candid
                 'required_conditions':'Compare explicit quantified claims.','operations':['inspect_quantifiers'],
                 'references':[{'case_id':r['task']['physical_key'],'span_id':r['spans'][0]['span_id']} for r in rows]}
             if induction is not None:value=induction(rows)
-            if max_card and value['decision']=='capability':value['required_conditions']=value['required_conditions'].ljust(180)
+            if max_card and value['decision']=='capability':value['required_conditions']=value['required_conditions'].ljust(256)
         elif name=='submit_learning':
             value={'decision':'candidate','guidance':'Separate universal from existential claims and compare premises.',
                 'applicability':'Explicit quantified comparisons.','references':body['capability']['definition']['references']}
             if max_card:
-                value['guidance']=value['guidance'].ljust(180);value['applicability']=value['applicability'].ljust(80)
+                value['guidance']=value['guidance'].ljust(255);value['applicability']=value['applicability'].ljust(80)
         elif name=='submit_capability_check':
-            c=body['candidate'];value={'candidate_hash':body['candidate_hash'],'status':check_status,'proposal_quote':c['guidance'],
+            c=body['candidate'];value={'candidate_hash':body['candidate_hash'],'status':check_status,'proposal_quote':c['guidance'][:240],
                 'references':c['references'] if 'references' in c else c['proposal']['references']}
         elif name=='submit_capability_match':
             spans=body['spans'];value={'task_hash':body['task_hash'],'capability_id':body['capability']['id'],
@@ -390,27 +390,14 @@ def test_recovery_budget_admission_counts_paid_prefix_without_refill(tmp_path,mo
     runner.execute(child/'plan.json',env);assert len(calls)==3
 
 
-def test_actual_paid_induction_responses_through_fixed_compiler(tmp_path,monkeypatch):
+def test_original_method_cannot_resume_under_new_admission_policy(tmp_path,monkeypatch):
     previous=os.environ.get('LIVEMATH_P2_REJECTED_RUN')
     if not previous:pytest.skip('Set the immutable real P2 induction-only run')
     previous=Path(previous);before={str(p):p.read_bytes() for p in previous.rglob('*') if p.is_file()}
-    recovered,ledger,inputs=runner.recovery_inputs(previous/'plan.json')
-    assert recovered['prior_p2_tokens']==9800 and recovered['prior_p2_http']==2
-    assert recovered['remaining_tokens']==1790200 and recovered['remaining_http']==78
-    config=runner.read(previous/'config.json');cfg=runner.configuration(config,tmp_path/'derived');calls=fixture_transport(monkeypatch)
-    system=EmpiricalSystem(cfg)
-    try:
-        for row in runner.read(previous/'source_cases.json'):system.bank.save_case(PublicTask(**row['task']),row['experience'])
-        plan=runner.read(previous/'plan.json');selected=[t['physical_key'] for stage in plan['selection_tasks'].values() for t in stage]
-        logs=[]
-        for i,unit in enumerate(plan['candidate_units']):
-            runner.learning_boundary(system,tmp_path/'learning'/str(i),'candidate:'+str(i))
-            logs.append(system.learner.learn_capability_batch(unit,selected,recovered_demand=recovered['demands'][i]))
-        assert [r['decision'] for r in logs]==['candidate','no_change'],logs
-        assert [p['tools'][0]['function']['name'] for p in calls]==['submit_learning','submit_capability_check']
-        assert not system.bank.all('skill')  # Still unqualified: no automatic publication.
-        assert logs[0]['candidate']['source_case_ids']==sorted(plan['candidate_units'][0])
-    finally:system.close()
+    calls=fixture_transport(monkeypatch)
+    with pytest.raises(ValueError,match='identity changed'):
+        runner.recover(previous/'plan.json',tmp_path/'wrong-version')
+    assert not calls and not (tmp_path/'wrong-version').exists()
     assert before=={str(p):p.read_bytes() for p in previous.rglob('*') if p.is_file()}
 
 
@@ -457,7 +444,7 @@ def test_actual_source_card_capacity_and_all_twelve_public_routes(tmp_path,monke
             runner.learning_boundary(system,tmp_path/'learning'/str(i),'candidate:'+str(i))
             log=system.learner.learn_capability_batch(unit,selected)
             assert log['decision']=='candidate',log
-            assert len(log['candidate']['guidance'])==180 and len(log['candidate']['applicability'])==80
+            assert len(log['candidate']['guidance'])==255 and len(log['candidate']['applicability'])==80
             assert log['source_check']['status']=='procedural_only'
         for i,t in enumerate(t for stage in plan['selection_tasks'].values() for t in stage):
             runner.learning_boundary(system,tmp_path/'routing'/str(i),'routing:'+str(i))
@@ -482,28 +469,12 @@ def test_exact_span_reference_projection_preserves_full_text_and_rejects_unlocat
     assert reference_exact_span_quotes(bad)['train_cases'][0]['spans'][0]['quote']=='invented'
 
 
-def test_actual_unissued_repair_continuation_reuses_paid_responses_and_only_repairs_once(tmp_path,monkeypatch):
+def test_old_pending_repair_cannot_reuse_a_different_admission_contract(tmp_path,monkeypatch):
     source=os.environ.get('LIVEMATH_P2_R2_REFUSED_RUN')
     if not source:pytest.skip('Set the immutable actual R2 unissued repair')
     source=Path(source);before={str(p):p.read_bytes() for p in source.rglob('*') if p.is_file()}
-    monkeypatch.setattr(runner,'code_identity',lambda:{'git_sha':'intercepted-capacity-fix','tracked_dirty':False,'source_sha256':'explicit-fixture'})
-    child=tmp_path/'continued';plan=runner.continue_repair(source/'plan.json',child)
-    assert runner.check(child/'plan.json')['status']=='passed'
-    assert plan['paid_prefix']['prior_p2_tokens']==37314 and plan['paid_prefix']['prior_p2_http']==7
-    assert plan['inherited_tokens']==7133072 and plan['inherited_http']==371
-    calls=fixture_transport(monkeypatch);env=tmp_path/'empty.env';env.write_text('')
-    result=runner.execute(child/'plan.json',env)
-    assert result['status']=='completed_selection' and result['new_http']==len(calls)==38,result
-    names=[p['tools'][0]['function']['name'] for p in calls]
-    assert names.count('submit_learning')==1 and names.count('submit_capability')==0 and names.count('submit_capability_check')==1
-    first=calls[0];body=json.loads(first['messages'][1]['content'])
-    assert 'span_quote_reference_note' in body and len(json.dumps(first,allow_nan=False).encode())<=16384
-    original=runner.read(source/'learning/0/requests.json')['requests'][0]['response']['tool_calls'][0]['arguments']
-    assert body['capability']['definition']==original
-    assert runner.read(child/'learning/1/learning.json')==runner.read(source/'learning/1/learning.json')
-    actual=runner.read(child/'learning/0/requests.json')['requests']
-    new=[q for q in actual if any(a['request_id'] not in runner.read(source/'budget.json')['attempts'] for a in q.get('http_attempts',[]))]
-    assert new[0]['repair']==1 and new[0]['purpose']=='guidance_learning'
-    assert result['total_p2_tokens']==37314+5*38 and result['total_p2_http']==45
+    calls=fixture_transport(monkeypatch)
+    with pytest.raises(ValueError,match='identity changed'):
+        runner.continue_repair(source/'plan.json',tmp_path/'wrong-version')
+    assert not calls and not (tmp_path/'wrong-version').exists()
     assert before=={str(p):p.read_bytes() for p in source.rglob('*') if p.is_file()}
-    with pytest.raises(ValueError,match='pending repair may continue'):runner.continue_repair(child/'plan.json',tmp_path/'again')
