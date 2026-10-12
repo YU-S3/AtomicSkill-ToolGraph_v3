@@ -394,6 +394,7 @@ def test_xlsx_publication_real_worker_with_host_binding(tmp_path,worker,monkeypa
 @pytest.mark.parametrize('typed',[False,True],ids=['legacy','typed-json'])
 @pytest.mark.parametrize('success_only',[False,True],ids=['computed-value','success-flag'])
 def test_native_python_without_files_selector_guard(tmp_path,worker,typed,success_only):
+    worker.settings['wall_timeout_seconds']=20
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     from atomic_skillgraph.harness.benchmarks import OfficeAdapter
     from atomic_skillgraph.harness.simple_protocol import Broker

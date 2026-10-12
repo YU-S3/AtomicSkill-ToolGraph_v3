@@ -95,11 +95,11 @@ def shrink_learning_preview(material):
     """Reduce optional previews, preserving every source selector and output type."""
     cards=material.get('experience',{}).get('local_evidence',[])
     rows=[*cards,*material.get('legal_operations',[])]
+    if len(cards)>1:return False
     for row in rows:
         if len(row.get('source_excerpt',''))>512:
             row['source_excerpt']=row['source_excerpt'][:512];row['source_truncated']=True
             return True
-    if len(cards)>1:return False
     for row in rows:
         if row.get('source_excerpt'):
             row.pop('source_excerpt');row['source_truncated']=True

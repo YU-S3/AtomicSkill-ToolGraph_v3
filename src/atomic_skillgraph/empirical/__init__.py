@@ -2,13 +2,13 @@
 
 PROFILE = "skillcompiler.empirical.v1"
 
-IMPLEMENTATION_REVISION = 'empirical-v3.3-task-program-evidence'
+IMPLEMENTATION_REVISION = 'empirical-v3.3-task-program-evidence-v2'
 LOCAL_VALIDATION_POLICY_VERSION = 'atomic.local-validation.v3'
 FILE_EFFECT_VERSION = 'artifact-effect.xlsx-modified.v1'
 BINDING_POLICY_VERSION = 'atomic.host-binding.v1'
 BUDGET_POLICY_VERSION = 'atomic.train-pools.v1'
 ANSWER_PROTOCOL_VERSION = 'atomic.answer-executor.v1'
-LEARNING_MATERIAL_VERSION = 'learner.material.public-directory.v11'
+LEARNING_MATERIAL_VERSION = 'learner.material.public-directory.v12'
 GUIDANCE_POLICY_VERSION = 'guidance.public-evidence.v1'
 CHOICE_GUIDANCE_POLICY_VERSION = 'choice-guidance.grounded.v1'
 CHOICE_GUIDANCE_MATERIAL_VERSION = 'choice-guidance.material.v1'

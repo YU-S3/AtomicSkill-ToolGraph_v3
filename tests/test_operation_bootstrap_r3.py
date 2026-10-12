@@ -202,6 +202,31 @@ def test_optional_source_preview_shrinks_before_capacity_refusal(tmp_path, monke
     finally: s.close()
 
 
+def test_capacity_keeps_primary_source_before_secondary_cards(tmp_path, monkeypatch):
+    from atomic_skillgraph.empirical.budget_governor import input_token_bound
+    s=office(tmp_path)
+    source="import json\nvalues=[2,5,9]\nlabel="+repr('x'*1000)+"\nprint(json.dumps({'total':sum(values)}))"
+    public={'goal':'sum acquired values','inputs':{}}
+    evidence=[{'id':'local:compute','kind':'native_operation','operation':{'name':'execute_python','arguments':{'source':source}},
+        'reference':{'accepted':True,'observation':'16','data':{'computed':{'total':16}}},'public_task':public},
+        {'id':'local:page','kind':'native_operation','operation':{'name':'read','arguments':{'path':'a.txt','offset':0}},
+         'reference':{'accepted':True,'observation':'','data':{'text':'secondary page'}},'public_task':public}]
+    material={'experience':learning_case({'task':public,'local_evidence':evidence},'case')}
+    sent=http(monkeypatch,[response([{'decision':'no_change'}],name='submit_learning')]*2)
+    try:
+        s.config['learning']['extractor_payload_max_bytes']=65536
+        s.agent('extractor',LEARNER_PROMPT,material,'submit_learning',LEARNING)
+        fitting=deepcopy(sent[0]);one=expand_material(json.loads(fitting['messages'][1]['content']))
+        one['experience']['local_evidence']=one['experience']['local_evidence'][:1]
+        fitting['messages'][1]['content']=json.dumps(one,ensure_ascii=False,separators=(',',':'))
+        s.config['learning']['extractor_payload_max_bytes']=input_token_bound(fitting)
+        s.agent('extractor',LEARNER_PROMPT,material,'submit_learning',LEARNING)
+        actual=expand_material(json.loads(sent[1]['messages'][1]['content']))['experience']['local_evidence']
+        assert len(actual)==1 and actual[0]['source_excerpt']==ast.unparse(ast.parse(source))
+        assert not actual[0]['source_truncated'] and input_token_bound(sent[1])<=input_token_bound(fitting)
+    finally:s.close()
+
+
 def test_compute_learning_builds_usable_and_frozen_reuses_without_runtime(tmp_path, monkeypatch, worker):
     s = office(tmp_path); s.worker = worker; s.adapter.worker = worker
     s.adapter_factory = lambda: OfficeAdapter({'office': {'answer': 'private'}}, s.config)

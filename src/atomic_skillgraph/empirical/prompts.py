@@ -101,38 +101,25 @@ while retaining originals. Selecting an old ambiguous Skill-only Workflow also s
 this same response; selecting a native v2 Workflow needs no node_modes.
 REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
 {"literal":3}, {"unresolved":"location not yet known"}. Bare strings are invalid REF values."""
-LEARNER_PROMPT = """Learn from this real Train experience, including failures. Choose no_change, reuse_existing,
-propose_skill_and_program_spec, or propose_or_revise_workflow. Propose at most one useful observed local
-search/read/compute Program with ordinary I/O. Never invent witnesses, owners, success, outputs or provenance.
-One real current-case binding suffices. Native tools do not replace Programs that save model decisions.
-Assess future use; no_change remains valid for insufficient evidence or no useful reusable operation.
-Workflows may trim/merge preparation and leave dynamic gaps; declare dependencies. Category queries differ
-from concrete IDs. Examples, compositions and patches are not proofs or validated assets.
-Preserve selected_local_goal during repair. The full task is context; do not add unrelated conditions.
-A successful read-only operation is local evidence on a failed task, without files or a second case.
-Never attach an unexecuted calculation to search/read evidence.
-Use source_excerpt/input_sources/output_references. Excerpts are AST previews; Builder gets original source.
-Bind arrays at aggregate AST paths, never observation/element paths.
-Do not add unobserved outputs or optional parameters.
-intermediate covers locators/pages/numbers/stdout. final_answer submits an answer and requires answer:string;
-numeric computation alone is intermediate. observation is a string; data.computed holds actual JSON fields.
-final_files requires files:array and deleted_files:array. Every required output needs a real reference.
-Inspection/filenames do not prove publication.
-Program paths may be absolute inside /workspace; publication files/deleted_files are relative, without a
-leading slash, inputs prefix or '..'. Keep output_path separate.
-New Skill references use $new in realization_request.skill_id, workflow skill_id and reference_skill_ids.
-Other references require supplied real IDs, never names/aliases. Workflows use execution_mode
-(dynamic/skill/program); reference guidance uses reference_skill_ids. Dynamic nodes have goals; bound nodes
-use asset I/O, omit goal and may specify purpose. Reuse actual calls/handoffs.
-guidance_only requires generate_program=false and no realization_request. A missing Program is pending work,
-not completion; reuse_existing with generate_program=true still requests a build. realization_request selects
-one related job and 0-2 applicable completed Train case_ids with real local_evidence_ref. Inputs/tools must
-exist; no unrelated cases. Defer without an applicable binding.
-input_refs maps each input to an exact catalog public_json/operation_json/source_literal path, or public_span
-with exact start/end. Spans prove provenance, not parameter semantics; optional branch defaults are unverified.
-reference_fields maps required outputs to typed json paths or publication files/file selectors.
-Never submit Host-owned prefix/start_mode/environment/source trace identity.
-Return one flat submit_learning ToolCall using the supplied schema."""
+LEARNER_PROMPT = """Learn real Train, including failures. One flat submit_learning ToolCall per schema.
+Propose at most one useful observed search/read/compute Program; no_change is valid. Reuse real assets;
+no invented evidence/owners/success/outputs. One current-case binding suffices.
+Parameterize executed arithmetic over bound arrays/scalars independently of acquisition/task success;
+no second case/unobserved retrieval. Read-only success needs no files/task success.
+Use source_excerpt/input_sources/output_references; Builder gets full source.
+Arrays use aggregate AST paths, not observation/elements. Only executed
+outputs/parameters. Computation is intermediate; final_answer requires answer:string;
+final_files requires files:array/deleted_files:array. observation is text; data.computed is JSON.
+Typed json/publication files/file refs for all required outputs; inspection/filenames are not publication.
+Python allows /workspace absolutes; publication names exclude leading slash, inputs/ and '..'; separate output_path.
+Skill refs: $new or supplied real IDs, never aliases. Workflow: dependencies; dynamic goal/reference_skill_ids;
+bound asset I/O/no goal/optional purpose. Trim/merge/gaps; categories differ from IDs, compositions/patches
+are not proof. Repair keeps selected_local_goal/scope.
+guidance_only: generate_program=false/no realization_request. generate_program=true requests pending builds,
+even reuse_existing. Select one related job, 0-2 applicable completed Train bindings with real
+case_id/local_evidence_ref and existing inputs/tools; else defer. input_refs: exact catalog
+public_json/operation_json/source_literal paths or public_span start/end. Spans prove provenance, not semantics.
+Host owns prefix/start_mode/environment/source trace; omit them."""
 BUILDER_PROMPT = """Return exactly one submit_program ToolCall using submission_contract. During generation/recovery,
 do not call grep/read/glob/execute_python. build_request fixes the Skill/bindings; future_program_api authorizes
 future RPC, workspace_capabilities authorizes local Python. Historical Runtime calls grant no permissions.
