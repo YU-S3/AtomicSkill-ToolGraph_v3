@@ -35,11 +35,15 @@ if mode=='--execute':
     assert output.resolve()!=old.resolve(), 'Cost source must remain separate from the fresh run'
     original=old/'budget.json';raw=original.read_bytes();ledger=json.loads(raw)
     original_limits=json.loads(Path('configs/atomic_unified_seed42_budget.json').read_text())['cells']['officeqa']
-    assert ledger['limits']=={k:original_limits[k] for k in ('token_limit','finish_reserve','request_limit')}
+    original_limits={k:original_limits[k] for k in ('token_limit','finish_reserve','request_limit')}
     spec=yaml.safe_load(Path(sys.argv[5]).read_text())
     budget=(json.loads(Path(spec['budget_allocation']).read_text())['cells']['officeqa'] if spec.get('budget_allocation')
             else yaml.safe_load(Path(spec['base_config']).read_text())['budget'])
     revision=json.loads(Path(sys.argv[6]).read_text()) if sys.argv[6] else None
+    if ledger['limits']!=original_limits:
+        carry=json.loads((old/'cost_carryforward_manifest.json').read_text())
+        assert revision and carry.get('budget_revision')==revision, 'Missing prior budget authorization'
+        revised_limits(original_limits,ledger['limits'],revision)
     limits=revised_limits(ledger['limits'],{k:budget[k] for k in ledger['limits']},revision)
     limits_unchanged=ledger['limits']==limits
     assert not ledger['unknown_billing'] and all(a['status']=='metered' for a in ledger['attempts'].values())

@@ -87,3 +87,27 @@ def test_unchanged_caps_remain_backward_compatible(tmp_path,monkeypatch):
     carry=json.loads((output/'cost_carryforward_manifest.json').read_text())
     assert carry['limits_unchanged'] is True and carry['budget_revision'] is None
     assert json.loads((output/'budget.json').read_text())['limits']==original
+
+
+def test_fresh_carries_previously_authorized_caps_without_increasing_again(tmp_path,monkeypatch):
+    block,source,output,_,requested,receipt=fixture(tmp_path,monkeypatch)
+    ledger=json.loads((source/'budget.json').read_text());ledger['limits']=requested
+    (source/'budget.json').write_text(json.dumps(ledger))
+    (source/'cost_carryforward_manifest.json').write_text(json.dumps({'budget_revision':receipt}))
+    before=(source/'budget.json').read_bytes()
+    exec(compile(block,'production-launcher-budget','exec'),{})
+    assert (source/'budget.json').read_bytes()==before
+    carried=json.loads((output/'budget.json').read_text())
+    assert carried['limits']==requested and sum(a['accounted_tokens'] for a in carried['attempts'].values())==300
+    carry=json.loads((output/'cost_carryforward_manifest.json').read_text())
+    assert carry['limits_unchanged'] is True and carry['bank_inherited'] is False
+
+
+def test_existing_increase_requires_matching_prior_authorization(tmp_path,monkeypatch):
+    block,source,output,_,requested,receipt=fixture(tmp_path,monkeypatch)
+    ledger=json.loads((source/'budget.json').read_text());ledger['limits']=requested
+    (source/'budget.json').write_text(json.dumps(ledger))
+    (source/'cost_carryforward_manifest.json').write_text(json.dumps({'budget_revision':None}))
+    with pytest.raises(AssertionError,match='prior budget authorization'):
+        exec(compile(block,'production-launcher-budget','exec'),{})
+    assert not output.exists()
