@@ -10,7 +10,7 @@ from . import CHOICE_CAPABILITY_VERSION, CHOICE_CAPABILITY_MATERIAL_VERSION, CHO
 
 VERSION=CHOICE_CAPABILITY_VERSION
 MATERIAL_VERSION=CHOICE_CAPABILITY_MATERIAL_VERSION
-PROMPT_REVISION='procedural-actions.r4'
+PROMPT_REVISION='procedural-actions.r5'
 OPERATIONS=('extract_assumptions','compare_implications','inspect_quantifiers','seek_counterexample','check_finite_invariant')
 TEXT=lambda n:{'type':'string','minLength':1,'maxLength':n}
 REFERENCE=object_schema({'case_id':TEXT(160),'span_id':TEXT(80)},['case_id','span_id'])
@@ -21,7 +21,7 @@ CAPABILITY=object_schema({'decision':{'enum':['no_change','capability']},'requir
 PROPOSAL=object_schema({'decision':{'enum':['no_change','candidate']},'guidance':TEXT(256),
     'applicability':TEXT(80),'references':REFERENCES},['decision'])
 CHECK=object_schema({'candidate_hash':TEXT(64),'status':{'enum':['procedural_only','domain_fact','unsupported']},
-    'proposal_quote':TEXT(240),'references':REFERENCES,'reason':TEXT(240)},['candidate_hash','status','proposal_quote','references'])
+    'proposal_quote':TEXT(240),'references':REFERENCES,'reason':TEXT(512)},['candidate_hash','status','proposal_quote','references'])
 MATCH=object_schema({'task_hash':TEXT(64),'capability_id':TEXT(80),'applicable':{'type':'boolean'},
     'span_ids':{'type':'array','items':TEXT(80),'minItems':0,'maxItems':4,'uniqueItems':True}},
     ['task_hash','capability_id','applicable','span_ids'])
@@ -112,10 +112,12 @@ def schema_for(schema,method_version):
 def generation_schema(schema,*,prompt_revision=PROMPT_REVISION):
     """Model targets are stricter than Host tolerance; retain the historical wire contract."""
     result=deepcopy(schema)
-    if prompt_revision=='procedural-actions.r3':return result
-    if prompt_revision!=PROMPT_REVISION:raise ValueError('Unknown capability generation contract')
-    for field in ('required_conditions','guidance','reason'):
-        if field in result['properties']:result['properties'][field]['maxLength']=180
+    reason_limits={'procedural-actions.r3':240,'procedural-actions.r4':180,PROMPT_REVISION:512}
+    if prompt_revision not in reason_limits:raise ValueError('Unknown capability generation contract')
+    if prompt_revision!='procedural-actions.r3':
+        for field in ('required_conditions','guidance'):
+            if field in result['properties']:result['properties'][field]['maxLength']=180
+    if 'reason' in result['properties']:result['properties']['reason']['maxLength']=reason_limits[prompt_revision]
     return result
 
 
@@ -178,8 +180,11 @@ def validate_candidate(value,capability,rows,*,method_version=VERSION):
     return candidate
 
 
-def validate_check(value,candidate):
-    validate_schema_instance(value,CHECK)
+def validate_check(value,candidate,*,prompt_revision=PROMPT_REVISION):
+    schema=deepcopy(CHECK)
+    if prompt_revision in {'procedural-actions.r3','procedural-actions.r4'}:schema['properties']['reason']['maxLength']=240
+    elif prompt_revision!=PROMPT_REVISION:raise ValueError('Unknown capability content-check contract')
+    validate_schema_instance(value,schema)
     if value['candidate_hash']!=digest(candidate):raise ValueError('Candidate check identity changed')
     if value['proposal_quote'] not in candidate['guidance']+'\n'+candidate['applicability']:raise ValueError('Unlocated proposal quote')
     source_refs(value['references'],candidate['source_records'])
@@ -254,7 +259,7 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None,rec
                     'domain_fact means the guidance asserts a particular mathematical conclusion. unsupported includes invented failure causes or '
                     'choosing truth from claim strength, simplicity, dependencies, extra hypotheses or equality wording without justification. '
                     'Reject these shortcuts even if they sound general. Explain the classification in reason and quote actual guidance text. '
-                    'If provided, reason must be 1-180 Unicode characters; proposal_quote must be an exact excerpt of 1-240 Unicode characters. '
+                    'If provided, reason must be 1-512 Unicode characters; proposal_quote must be an exact excerpt of 1-240 Unicode characters. '
                     'Cite exact supplied source spans. This is not a mathematical proof or utility test.',
                     {'candidate':{**{k:candidate[k] for k in ('guidance','applicability','source_records')},
                         'references':candidate['proposal']['references']},

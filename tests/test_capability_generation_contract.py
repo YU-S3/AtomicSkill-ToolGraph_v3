@@ -16,7 +16,8 @@ from test_capability_batch import fixture_source,fixture_transport
 
 
 @pytest.mark.parametrize('reason_size,status',[(210,'procedural_only'),(240,'procedural_only'),
-    (241,'procedural_only'),(380,'procedural_only'),(436,'procedural_only'),(210,'unsupported')])
+    (241,'procedural_only'),(380,'procedural_only'),(436,'procedural_only'),(512,'procedural_only'),
+    (513,'procedural_only'),(436,'unsupported')])
 def test_strict_generation_targets_do_not_replace_host_or_content_gates(tmp_path,monkeypatch,reason_size,status):
     calls=fixture_transport(monkeypatch,check_status=status);post=requests.post
     def bounded_output(url,**kwargs):
@@ -38,17 +39,18 @@ def test_strict_generation_targets_do_not_replace_host_or_content_gates(tmp_path
         unit=plan['candidate_units'][0];log=system.learner.learn_capability_batch(unit,selected)
         assert len(calls)==3 and log['prompt_revision']==cb.PROMPT_REVISION,log
         for wire,field in zip(calls,('required_conditions','guidance','reason')):
-            assert wire['tools'][0]['function']['parameters']['properties'][field]['maxLength']==180
-            assert field+' must be 1-180 Unicode characters' in wire['messages'][0]['content']
+            limit=512 if field=='reason' else 180
+            assert wire['tools'][0]['function']['parameters']['properties'][field]['maxLength']==limit
+            assert field+' must be 1-'+str(limit)+' Unicode characters' in wire['messages'][0]['content']
         assert cb.CAPABILITY['properties']['required_conditions']['maxLength']==256
         assert cb.PROPOSAL['properties']['guidance']['maxLength']==256
-        assert cb.CHECK['properties']['reason']['maxLength']==240
+        assert cb.CHECK['properties']['reason']['maxLength']==512
         assert calls[1]['tools'][0]['function']['parameters']['properties']['applicability']['maxLength']==80
         assert len(log['capability']['definition']['required_conditions'])==231
         assert len(log['proposal']['guidance'])==248
         assert len(json.dumps(cb.render(log['proposed_candidate']),ensure_ascii=False))+2==500
-        if reason_size>240:
-            assert log['decision']=='rejected' and '$.reason' in log['reason'] and 'expected <= 240' in log['reason']
+        if reason_size>512:
+            assert log['decision']=='rejected' and '$.reason' in log['reason'] and 'expected <= 512' in log['reason']
         else:
             assert log['source_check']['status']==status
             assert log['decision']==('candidate' if status=='procedural_only' else 'rejected')
@@ -75,7 +77,8 @@ def test_actual_r3_checker_failures_and_billing_are_not_rewritten(monkeypatch):
         raw=q['response']['tool_calls'][0]['arguments']
         assert raw['status']=='unsupported' and len(raw['reason'])==size and log['decision']=='rejected'
         with pytest.raises(ValueError,match='expected <= 240, actual '+str(size)):
-            cb.validate_check(raw,log['proposed_candidate'])
+            cb.validate_check(raw,log['proposed_candidate'],prompt_revision='procedural-actions.r3')
+        assert cb.validate_check(raw,log['proposed_candidate']) is False
     result=batch.read(source/'result.json')
     assert result['status']=='completed_no_candidate' and result['total_p2_tokens']==58444 and result['total_p2_http']==11
     assert not result['candidates'] and result['paired_tasks']==0
