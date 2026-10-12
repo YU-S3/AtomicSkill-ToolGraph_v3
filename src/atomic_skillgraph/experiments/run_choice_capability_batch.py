@@ -15,7 +15,7 @@ from ..empirical import POLICY_DEFAULTS
 from ..empirical.bank import Bank
 from ..empirical.budget_governor import BudgetGovernor, input_token_bound
 from ..empirical.capability_batch import (VERSION, MATERIAL_VERSION, PROMPT_REVISION, CAPABILITY, CapabilityView, records, publish, utility_receipt,
-    validate_policy, validate_match, validate_capability, gate, pair_fact)
+    validate_policy, validate_match, validate_capability, generation_schema, gate, pair_fact)
 from ..empirical.model_view import expand_material
 from ..empirical.checkpoint import TaskCheckpoint
 from ..empirical.contracts import PublicTask, digest
@@ -229,7 +229,7 @@ def recovery_inputs(plan_path):
         if expand_material(json.loads(wire['messages'][1]['content']))!={'public_cases':public,'learning_material_version':MATERIAL_VERSION}:
             raise ValueError('Paid demand was not issued for the exact public source material')
         tools=wire['tools'];params=wire['serialized_parameters']
-        if len(tools)!=1 or tools[0]['function']['name']!='submit_capability' or tools[0]['function']['parameters']!=CAPABILITY or params['model']!=old['settings']['source']['actual_model_request_label']:
+        if len(tools)!=1 or tools[0]['function']['name']!='submit_capability' or tools[0]['function']['parameters']!=generation_schema(CAPABILITY,prompt_revision=old['prompt_revision']) or params['model']!=old['settings']['source']['actual_model_request_label']:
             raise ValueError('Paid demand schema or model changed')
         if params['max_tokens']!=2048 or params['thinking']!={'type':'disabled'} or wire['tool_choice']!={'type':'function','function':{'name':'submit_capability'}}:
             raise ValueError('Paid demand inference parameters changed')

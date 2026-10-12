@@ -85,9 +85,12 @@ def test_production_repair_receives_all_errors_once_and_prompts_declare_limits(t
         selected=[t['physical_key'] for stage in plan['selection_tasks'].values() for t in stage]
         log=system.learner.learn_capability_batch(plan['candidate_units'][0],selected)
         assert log['decision']=='candidate' and len(calls)==4
-        assert 'required_conditions must be 1-256 Unicode characters' in calls[0]['messages'][0]['content']
+        assert 'required_conditions must be 1-180 Unicode characters' in calls[0]['messages'][0]['content']
         prompt=calls[1]['messages'][0]['content']
-        assert 'guidance must be 1-256' in prompt and 'applicability must be 1-80' in prompt and '512 Unicode' in prompt
+        assert 'guidance must be 1-180' in prompt and 'applicability must be 1-80' in prompt and '512 Unicode' in prompt
+        for wire,field in ((calls[0],'required_conditions'),(calls[1],'guidance'),(calls[2],'guidance'),(calls[3],'reason')):
+            assert wire['tools'][0]['function']['parameters']['properties'][field]['maxLength']==180
+        assert 'reason must be 1-180 Unicode characters' in calls[3]['messages'][0]['content']
         repair=json.dumps(calls[2]['messages'],ensure_ascii=False)
         assert '$.guidance' in repair and '$.applicability' in repair and '512 Unicode characters' in repair
         audit=batch.read(out/'learning/0/requests.json')['requests']
