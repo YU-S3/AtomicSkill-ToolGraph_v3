@@ -407,7 +407,8 @@ def test_explicit_prompt_revision_preserves_negative_run_and_original_allowance(
     assert result['status']=='completed_no_candidate' and result['completion_reason']=='no_source_checked_candidate'
     assert result['natural_candidate_count']==2 and result['source_checked_candidate_count']==0 and result['paired_tasks']==0
     assert runner.read(out/'progress.json')['event']=='finished'
-    assert result['learning_units']==[{'decision':'rejected','stage':'guidance_grounding','reason':'unsupported',
+    assert [{k:row[k] for k in ('decision','stage','reason','proposal_created','source_check_status')}
+        for row in result['learning_units']]==[{'decision':'rejected','stage':'guidance_grounding','reason':'unsupported',
         'proposal_created':True,'source_check_status':'unsupported'}]*2
     before={str(p):p.read_bytes() for p in out.rglob('*') if p.is_file()};child=tmp_path/'r2';revised=runner.revise(out/'plan.json',child)
     assert revised['prompt_revision']==cb.PROMPT_REVISION and not revised.get('recovery')

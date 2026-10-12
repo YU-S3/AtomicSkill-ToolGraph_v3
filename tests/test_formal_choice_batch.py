@@ -32,6 +32,7 @@ def fixture(tmp_path, monkeypatch):
     identity = {'git_sha':'intercepted-formal-fixture','tracked_dirty':False,'source_sha256':'fixture-source'}
     for module in (formal,batch,run_empirical,run_formal):monkeypatch.setattr(module,'code_identity',lambda:identity)
     base = config(tmp_path/'source')
+    base['llm']['max_retries']=4
     base['llm'].update(model='deepseek-v4-flash',generation_seed_supported=False,input_modalities=['text'],
         token_limit_field='max_tokens',capability_profile={'tools':True,'thinking':True,'reasoning_effort':True,'generation_seed':False})
     base['budget'] = json.loads((ROOT/'configs/atomic_unified_seed42_budget.json').read_text())['cells']['livemath']
@@ -59,7 +60,9 @@ def fixture(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('no_candidate',[True,False])
 def test_fresh_train60_batch_frozen_val17_test100_and_resume(tmp_path,monkeypatch,no_candidate):
-    calls = fixture_transport(monkeypatch,no_candidate=no_candidate)
+    selected=yaml.safe_load((ROOT/'configs/livemath_p2_selection_seed42.yaml').read_text())['split']
+    excluded=set(selected['selection_screen_ids'][2:]+selected['selection_confirmation_ids'][2:])
+    calls = fixture_transport(monkeypatch,no_candidate=no_candidate,eligibility=lambda body:not any(' '+key+']' in body['task']['goal'] for key in excluded))
     base,profiles,root,datasets,tasks = fixture(tmp_path,monkeypatch)
     # Stop at a real Train boundary; no early P2, Frozen or evaluation.
     first = run_formal.campaign(base,profiles,'livemath',42,root,datasets,AUTHORITY,max_new_tasks=5)
@@ -68,7 +71,8 @@ def test_fresh_train60_batch_frozen_val17_test100_and_resume(tmp_path,monkeypatc
     assert [result[s]['tasks'] for s in ('train','val','test')] == [60,17,100]
     assert result['p2']['status'] == ('completed_no_candidate' if no_candidate else 'completed_selection')
     plan = batch.read(root/'p2/plan.json')
-    assert plan['candidate_units'] == [[t['physical_key'] for t in plan['generation_tasks'][i*2:i*2+2]] for i in range(2)]
+    assert len(plan['candidate_units'])==12 and all(len(unit)==4 for unit in plan['candidate_units'])
+    assert {key for unit in plan['candidate_units'] for key in unit}=={t['physical_key'] for t in plan['generation_tasks']}
     assert set(plan['candidate_units'][0]+plan['candidate_units'][1]).isdisjoint(base['experiment']['choice_selection_physical_keys'])
     assert batch.read(root/'train/execution_manifest.json')['tasks'] == ordered_train(tasks['train'],42)
     assert batch.read(root/'train/summary.json')['frozen'] is None
@@ -85,7 +89,7 @@ def test_fresh_train60_batch_frozen_val17_test100_and_resume(tmp_path,monkeypatc
     assert ledger['limits']['token_limit'] == 23232000 and len(ledger['attempts']) == len(calls)
     assert set(p2_attempts).issubset(ledger['attempts']) and len(p2_attempts) == result['p2']['new_http']
     assert result['p2']['new_http'] <= 80 and not result['p2']['unknown_billing']
-    assert result['p2']['new_http'] == (2 if no_candidate else 78)
+    assert result['p2']['new_http'] == (12 if no_candidate else 76)
     logs = [json.loads(l) for l in (root/'llm_calls.jsonl').read_text().splitlines()]
     assert len(logs) == len(calls)
     train = batch.read(root/'train/summary.json')['cases']
@@ -146,7 +150,7 @@ def test_interrupt_after_paid_unit_resumes_without_repeating_that_unit(tmp_path,
     assert len(calls) == 61 and not (root/'train/frozen_bank').exists() and not (root/'val').exists()
     assert batch.read(root/'p2/result.json')['status'] == 'running'
     result = run_formal.campaign(base,profiles,'livemath',42,root,datasets,AUTHORITY,resume=True)
-    assert result['p2']['new_http'] == 2 and len(calls) == 179
+    assert result['p2']['new_http'] == 12 and len(calls) == 189
     assert result['test']['complete']
 
 

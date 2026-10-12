@@ -13,5 +13,5 @@ validation: frozen_readonly_no_selection
 test: frozen_readonly
 choice_bounded_finalization: false
 choice_batch:
-  version: choice-capability-batch.formal.v1
-  contract: configs/livemath_p2_selection_seed42.yaml
+  version: choice-capability-batch.formal.v2
+  contract: configs/livemath_p2_schedule_seed42.yaml

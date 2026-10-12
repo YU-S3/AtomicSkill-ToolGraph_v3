@@ -270,6 +270,16 @@ def learning_payload(material):
     return pack_material(value)
 
 
+def executed_source_capacity(material, learning, default):
+    """Opt-in Extractor capacity for a real executed Python source directory."""
+    experience=expand_material(material).get('experience',{})
+    cards=experience.get('local_evidence',[])
+    source_rich=(experience.get('compact_learning_directory') is True and any(
+        row.get('kind')=='executed_python' and row.get('source_content_available_to_builder') is True
+        and row.get('local_evidence_ref') and row.get('input_sources') and row.get('output_references') for row in cards))
+    return learning.get('source_program_payload_max_bytes',default) if source_rich else default
+
+
 def builder_example(binding, evidence):
     return {'case_id':binding['case_id'],'binding_hash':binding['binding_hash'],
         'inputs':deepcopy(binding['inputs']), 'reference_fields':deepcopy(binding['reference_fields']),

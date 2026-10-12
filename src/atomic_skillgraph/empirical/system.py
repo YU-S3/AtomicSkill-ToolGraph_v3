@@ -55,6 +55,9 @@ def validate_config(config):
             if config[section][key] != value:
                 raise ValueError('Unsupported execution policy ' + section + '.' + key)
     learning = config['learning']
+    source_capacity = learning.get('source_program_payload_max_bytes')
+    if source_capacity is not None and (type(source_capacity) is not int or not 16384 <= source_capacity <= 24576):
+        raise ValueError('Executed-source learning capacity must be explicit and bounded to 24 KiB')
     runtime = config['runtime']
     runtime.setdefault('finish_input_max_bytes', 65536)
     runtime.setdefault('dynamic_output_min_tokens', 0)
@@ -387,6 +390,9 @@ class EmpiricalSystem:
             if stage in {'extractor','tool_builder'}:
                 key='structural_repair_payload_max_bytes' if purpose=='learning_structure_repair' else 'builder_payload_max_bytes' if stage=='tool_builder' else 'extractor_payload_max_bytes'
                 payload_max=self.config['learning'][key]
+                if stage=='extractor' and purpose=='extractor' and name=='submit_learning':
+                    from .model_view import executed_source_capacity
+                    payload_max=executed_source_capacity(materials,self.config['learning'],payload_max)
                 if isinstance(provider,OpenAICompatibleProvider):
                     from .model_view import pack_material, expand_material, shrink_learning_preview
                     from .budget_governor import input_token_bound

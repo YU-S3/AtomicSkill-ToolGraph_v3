@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fresh Train60 -> one frozen-contract P2 stage -> Frozen -> Val17 -> Test100.
+# Fresh Train60 -> one frozen-contract P2 stage -> Frozen -> Val17, then review.
 set -euo pipefail
 mode=${1:---check};revision=${2:-}
 case "$mode" in --check|--execute|--resume) ;; *) echo 'Use --check, --execute or --resume with the pinned commit' >&2;exit 2;;esac
@@ -58,7 +58,7 @@ elif mode=='--resume':
     assert current['limits']==ledger['limits'] and not current['unknown_billing']
     assert all(current['attempts'].get(k)==v for k,v in ledger['attempts'].items())
 elif output.exists():raise ValueError('Check expects a fresh output; use --resume for an existing run')
-print(json.dumps({'status':'passed','new_model_http':0,'schedule':'Train60 -> one P2 -> Frozen -> Val17 -> Test100',
+print(json.dumps({'status':'passed','new_model_http':0,'schedule':'Train60 -> one P2 -> Frozen -> Val17 -> review',
     'inherited_tokens':lineage['inherited_tokens'],'inherited_http':lineage['inherited_http'],
     'p2_limits':{'tokens':1800000,'http':80},'cumulative_limits':ledger['limits'],'bank_inherited':False,
     'resolved_config_hash':digest(configs),'choice_batch_version':base['experiment']['choice_batch_version'],
@@ -68,6 +68,6 @@ PY
 export TMPDIR="$(dirname "$OUTPUT")/tmp";mkdir -p "$TMPDIR"
 command=("$PYTHON" -m atomic_skillgraph.experiments.run_single_cell
  --config configs/livemath_p2_formal_seed42.yaml --benchmark livemath --seed 42 --model-key deepseek-v4-flash
- --datasets "$DATASETS" --output "$OUTPUT" --env-file /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env)
+ --datasets "$DATASETS" --output "$OUTPUT" --stop-after-val --env-file /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env)
 [[ $mode != --resume ]] || command+=(--resume)
 exec "${command[@]}"

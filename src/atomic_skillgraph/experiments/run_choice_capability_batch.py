@@ -113,7 +113,7 @@ def finalization_audit(summary,config):
     return {'enabled':False,'new_model_http':0,'cases':results,'interpretation':'Base-input feasibility, not answer improvement or finalization admission.'}
 
 
-def prepare(settings_path,source_run,output):
+def prepare(settings_path,source_run,output,*,allow_unresolved_billing=False):
     spec=yaml.safe_load(Path(settings_path).read_text());output=Path(output).resolve();source=Path(source_run).resolve()
     if output.exists():raise ValueError('Preparation requires a fresh independent directory')
     code=code_identity()
@@ -140,8 +140,9 @@ def prepare(settings_path,source_run,output):
     if [r['task'] for r in raw]!=execution['tasks']:raise ValueError('Completed Train evidence differs from execution identity')
     by_key={r['task']['physical_key']:r for r in raw};rows=[by_key[t['physical_key']] for t in generation];public=records(rows)
     ledger=read(source/'budget.json');budget=spec['budget_additional_authority_proposed_not_spent']
-    if ledger['unknown_billing'] or any(a['status']!='metered' for a in ledger['attempts'].values()):raise ValueError('Unresolved inherited billing')
-    inherited=sum(a['accounted_tokens'] for a in ledger['attempts'].values());http=len(ledger['attempts'])
+    unresolved=ledger['unknown_billing'] or any(a['status']!='metered' for a in ledger['attempts'].values())
+    if unresolved and not allow_unresolved_billing:raise ValueError('Unresolved inherited billing')
+    inherited=sum(a.get('accounted_tokens',a['reserved_tokens']) for a in ledger['attempts'].values());http=len(ledger['attempts'])
     limits={'token_limit':budget['max_new_total_tokens'],'request_limit':budget['max_new_physical_http_attempts']}
     if any(type(v) is not int or v<=0 for v in limits.values()) or budget['selection_retry_max']!=0 or budget['unknown_billing']!='fail_closed':
         raise ValueError('Finite authority and fail-closed zero-retry selection required')
@@ -154,8 +155,14 @@ def prepare(settings_path,source_run,output):
         raise ValueError('Unsupported bounded candidate contract')
     if spec['candidate']['min_distinct_physical_train_source_cases']!=2 or spec['candidate']['knowledge_type']!='procedural_advisory':
         raise ValueError('Independent procedural sources required')
-    units=[[t['physical_key'] for t in generation[i*width:(i+1)*width]] for i in range(count)]
     config=configuration(original,output)
+    scheduling={}
+    if spec.get('source_grouping'):
+        from .capability_schedule import schedule,unit_limits
+        source_schedule=schedule(generation,spec)
+        units=[[t['physical_key'] for t in unit['sources']] for unit in source_schedule['units']]
+        scheduling={'source_schedule':source_schedule,'unit_limits':unit_limits(config,spec)}
+    else:units=[[t['physical_key'] for t in generation[i*width:(i+1)*width]] for i in range(count)]
     names=['run_manifest.json','train/execution_manifest.json','train/config.json','train/summary.json','train/bank/bank.sqlite3','budget.json']
     inputs={str(source/name):sha256(source/name) for name in names};inputs[str(Path(settings_path).resolve())]=sha256(Path(settings_path))
     inputs[str(canonical)]=sha256(canonical)
@@ -163,12 +170,13 @@ def prepare(settings_path,source_run,output):
     plan={'schema':VERSION,'prompt_revision':PROMPT_REVISION,'scope_policy':SCOPE_POLICY,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),'source_run':str(source),'source_run_id':manifest['run_id'],
         'derivation_mode':'offline_recompile_from_completed_train','initial_bank':'fresh independent derived Bank; no P1 assets',
         'settings':spec,'input_hashes':inputs,'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_records.json','source_cases.json')},
-        'generation_tasks':generation,'selection_tasks':stages,'candidate_units':units,
-        'candidate_unit_order':'public task_id lexicographic; first bounded disjoint units; no outcome selection',
+        'generation_tasks':generation,'selection_tasks':stages,'candidate_units':units,**scheduling,
+        'candidate_unit_order':'frozen public-goal relation; no outcome selection' if scheduling else 'public task_id lexicographic; first bounded disjoint units; no outcome selection',
         'utility_policy':rules,'new_limits':limits,'inherited_tokens':inherited,'inherited_http':http,'cumulative_limits':ledger['limits'],
         'source_train_tokens':summary['known_total_tokens'],
         'source_train_runtime_tokens':sum(a['usage']['total_tokens'] for t in summary['cases'] for r in t['requests'] if r['stage']=='runtime' for a in r.get('http_attempts',[])),
-        'status':'prepared_not_executed','new_model_http':0,'no_val_or_test_selection':True}
+        'status':'prepared_blocked_unknown_billing' if unresolved else 'prepared_not_executed',
+        'billing_ready':not unresolved,'new_model_http':0,'no_val_or_test_selection':True}
     if any(set(unit)&selected for unit in units):raise ValueError('Learning unit overlaps selection')
     write_json(output/'finalization_feasibility.json',finalization_audit(summary,original));write_json(output/'plan.json',plan)
     write_json(output/'plan_identity.json',{'plan_hash':digest(plan)})
@@ -185,6 +193,9 @@ def check(plan_path):
     validate_config(read(root/'config.json'));policy(plan['settings'])
     generation,stages=partition(read(Path(plan['source_run'])/'train/execution_manifest.json')['tasks'],plan['settings'])
     if generation!=plan['generation_tasks'] or stages!=plan['selection_tasks']:raise ValueError('Prepared split changed')
+    if 'source_schedule' in plan:
+        from .capability_schedule import validate_plan
+        validate_plan(plan,read(root/'config.json'))
     if 'recovery' in plan:
         recovered,ledger,_=recovery_inputs(plan['recovery']['parent_plan'])
         if recovered!=plan['recovery'] or read(root/'inherited_p2_budget.json')!=ledger:raise ValueError('Recovery provenance changed')
@@ -429,12 +440,14 @@ def revise(plan_path,output,*,experimental_revision='P2-R2'):
     return plan
 
 
-def learning_boundary(system,root,key,*,response_namespace=None):
+def learning_boundary(system,root,key,*,response_namespace=None,unit_limits=None):
     system.checkpoint=TaskCheckpoint(root/'checkpoint',response_namespace=response_namespace);system.audit_path=str(root/'requests.json')
     system.phase='train';system.budget_scope=key;system._task_start=len(system.usage.events);system._request_start=len(system.requests)
     system._learning_start=system._task_start
     system.prior_usage=read(system.audit_path)['usage'] if Path(system.audit_path).exists() else []
-    system.request_attribution={'parent_scope':key,'parent_token_limit':system.config['budget']['train_learning_tokens'],'train_parent':True}
+    system.request_attribution=({'parent_scope':key,'parent_token_limit':unit_limits['token_limit'],'train_parent':False,
+        'episode_scope':key,'episode_request_limit':unit_limits['request_limit']} if unit_limits else
+        {'parent_scope':key,'parent_token_limit':system.config['budget']['train_learning_tokens'],'train_parent':True})
 
 
 def budget_continuation_inputs(plan_path):
@@ -619,31 +632,87 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
         for row in read(root/'source_cases.json'):system.bank.save_case(PublicTask(**row['task']),row['experience'])
         selection=[t for rows in plan['selection_tasks'].values() for t in rows];selected=[t['physical_key'] for t in selection];candidates=[]
         learning=[]
+        result.update(planned_units=len(plan['candidate_units']),attempted_units=0,seen_sources=[],cited_support_sources=[],
+            unattempted_source_keys=[key for group in plan['candidate_units'] for key in group])
         for i,unit in enumerate(plan['candidate_units']):
+            result.update(attempted_units=i+1,
+                unattempted_source_keys=[key for group in plan['candidate_units'][i+1:] for key in group])
+            write_json(result_path,result);stop=None
             if observer:
                 observer.begin_task(PublicTask(plan['run_id'],plan['run_id'],'Post-Train capability learning'),60,
                     learning_scope(plan,'candidate:'+str(i)),{'source_physical_keys':unit})
                 started=utc()
-            learning_boundary(system,root/'learning'/str(i),learning_scope(plan,'candidate:'+str(i)),response_namespace=prefix.get('response_namespaces',{}).get(str(i)))
-            log=system.learner.learn_capability_batch(unit,selected,
-                recovered_demand=restored['demands'][i] if restored else recovery['demands'][i] if recovery else None,
-                recovered_proposal=restored['proposals'][i] if restored.get('proposals') else None)
+            learning_boundary(system,root/'learning'/str(i),learning_scope(plan,'candidate:'+str(i)),
+                response_namespace=prefix.get('response_namespaces',{}).get(str(i)),unit_limits=plan.get('unit_limits'))
+            cached=root/'learning'/str(i)/'learning.json'
+            if cached.exists():
+                log=read(cached)
+                if 'source_schedule' in plan and (log.get('source_case_ids')!=unit or
+                    log.get('receipt_hash')!=digest({k:v for k,v in log.items() if k!='receipt_hash'})):
+                    raise ValueError('Saved learning terminal receipt changed')
+            else:
+                try:
+                    log=system.learner.learn_capability_batch(unit,selected,
+                        recovered_demand=restored['demands'][i] if restored else recovery['demands'][i] if recovery else None,
+                        recovered_proposal=restored['proposals'][i] if restored.get('proposals') else None)
+                except ValueError as exc:
+                    if getattr(exc,'code',None)!='material_too_large':raise
+                    log={'decision':'rejected','reason':getattr(exc,'learning_outcome','material_too_large'),
+                         'error':str(exc),'source_case_ids':unit,'stage':'material_admission'}
+                except BudgetExhausted as exc:
+                    log={'decision':'budget_censored','reason':str(exc),'source_case_ids':unit,'stage':'budget_admission'}
+                    limits=plan.get('unit_limits',{});owned=[a for a in governor.state['attempts'].values()
+                        if a['context'].get('parent_scope')==system.budget_scope]
+                    room=governor.headroom({})
+                    local=(not governor.state['unknown_billing'] and room['requests']>0 and room['tokens']>0 and
+                        (exc.code in {'parent_task_budget_exhausted','empirical_token_budget_exhausted'} or
+                         len(owned)>=limits.get('request_limit',float('inf'))))
+                    if not local:stop=exc
+                if 'source_schedule' in plan:
+                    log['source_case_ids']=unit
+                    log['receipt_hash']=digest(log)
             write_json(root/'learning'/str(i)/'learning.json',log)
-            if observer:observer.training(learning_scope(plan,'candidate:'+str(i)),'capability_batch',started,utc(),len(unit),
-                log['decision'],log.get('reason'),consumed_physical_keys=unit)
             learning.append({**{k:log.get(k) for k in ('decision','stage','reason')},
+                'unit_id':plan.get('source_schedule',{}).get('units',[{}]*len(plan['candidate_units']))[i].get('unit_id',str(i)),
+                'source_case_ids':unit,
+                'cited_support_sources':sorted(set((log.get('capability') or {}).get('source_case_ids',[])) |
+                    set((log.get('proposed_candidate') or {}).get('source_case_ids',[]))),
                 'proposal_created':bool(log.get('proposed_candidate')),
                 **({'proposal_reused':True} if log.get('recovered_proposal') else {}),
                 'source_check_status':log.get('source_check',{}).get('status')})
-            result.update(learning_units=learning,natural_candidate_count=sum(r['proposal_created'] and not r.get('proposal_reused',False) for r in learning),
+            seen=set(result['seen_sources']);unit_seen=set()
+            audit=read(system.audit_path) if Path(system.audit_path).exists() else {'requests':[]}
+            for request in audit['requests']:
+                if not request.get('http_attempts'):continue
+                body=expand_material(json.loads(request['messages'][1]['content']))
+                for row in [*body.get('public_cases',[]),*body.get('train_cases',[]),*body.get('candidate',{}).get('source_records',[])]:
+                    key=row.get('task',{}).get('physical_key')
+                    if key in unit:seen.add(key);unit_seen.add(key)
+            if observer:observer.training(learning_scope(plan,'candidate:'+str(i)),'capability_batch',started,utc(),len(unit_seen),
+                log['decision'],log.get('reason'),planned_physical_keys=unit,consumed_physical_keys=sorted(unit_seen))
+            result.update(learning_units=learning,completed_units=len(learning),
+                attempted_source_keys=[key for group in plan['candidate_units'][:len(learning)] for key in group],
+                seen_sources=sorted(seen),
+                unattempted_source_keys=[key for group in plan['candidate_units'][len(learning):] for key in group],
+                cited_support_sources=sorted({key for row in learning for key in row.get('cited_support_sources',[])}),
+                natural_candidate_count=sum(r['proposal_created'] and not r.get('proposal_reused',False) for r in learning),
                 revalidated_candidate_count=sum(r['proposal_created'] and r.get('proposal_reused',False) for r in learning))
             write_json(result_path,result)
             progress(root,'learning_unit_completed',unit=i,**learning[-1])
             if governor.state['unknown_billing']:raise BudgetExhausted('unknown_billing','Learning billing unresolved')
+            if stop:raise stop
             if log['decision']=='candidate':candidates.append(log['candidate'])
+        if any(row['decision']=='budget_censored' for row in learning):
+            raise BudgetExhausted('learning_budget_censored','At least one fixed learning unit was budget censored')
         candidates=sorted({c['id']:c for c in candidates}.values(),key=lambda c:(-len(c['source_case_ids']),digest(c)))
-        result['source_checked_candidate_count']=len(candidates);write_json(result_path,result)
-        write_json(root/'candidate_order.json',[{'id':c['id'],'digest':digest(c),'source_coverage':len(c['source_case_ids'])} for c in candidates])
+        result['source_checked_candidate_count']=len(candidates)
+        count=plan['settings']['candidate']['max_candidates_to_selection']
+        write_json(root/'candidate_order.json',[{'id':c['id'],'digest':digest(c),'source_coverage':len(c['source_case_ids']),
+            'status':'selected_for_routing' if i<count else 'checked_not_selected'} for i,c in enumerate(candidates)])
+        for i,candidate in enumerate(candidates):
+            write_json(root/'candidates'/candidate['id']/'candidate.json',candidate)
+            if i>=count:write_json(root/'candidates'/candidate['id']/'selection_status.json',{'status':'checked_not_selected'})
+        candidates=candidates[:count];result['selected_for_routing_count']=len(candidates);write_json(result_path,result)
         trial=root/'trial_bank'
         if not trial.exists():system.bank.freeze(trial)
         evaluator=evaluator_records(read(Path(plan['source_run'])/'train/summary.json')) if candidates else {}
@@ -653,7 +722,7 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
             for rank,row in enumerate(selection):
                 if observer:observer.begin_task(PublicTask(**row),rank,learning_scope(plan,'routing:'+candidate['id']+':'+str(rank)),
                     {'purpose':'train_public_applicability'})
-                task=PublicTask(**row);learning_boundary(system,folder/'routing'/str(rank),learning_scope(plan,'routing:'+candidate['id']+':'+str(rank)))
+                task=PublicTask(**row);learning_boundary(system,folder/'routing'/str(rank),learning_scope(plan,'routing:'+candidate['id']+':'+str(rank)),unit_limits=plan.get('unit_limits'))
                 match=system.learner.match_capability(candidate,task);validate_match(match,candidate['capability'],task)
                 preflight.append({'task':row,'stage':'screen' if rank<len(plan['selection_tasks']['screen']) else 'confirmation','rank':rank,'match':match})
                 progress(root,'public_match_completed',candidate_id=candidate['id'],task_id=task.task_id,rank=rank,applicable=match['applicable'])
@@ -688,10 +757,12 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
         result['status']='completed_selection' if candidates else 'completed_no_candidate'
         result.update(learning_units=learning,completion_reason='selection_finished' if candidates else 'no_source_checked_candidate',
             natural_candidate_count=sum(r['proposal_created'] and not r.get('proposal_reused',False) for r in learning),
-            revalidated_candidate_count=sum(r['proposal_created'] and r.get('proposal_reused',False) for r in learning),source_checked_candidate_count=len(candidates),
+            revalidated_candidate_count=sum(r['proposal_created'] and r.get('proposal_reused',False) for r in learning),
             paired_tasks=sum(c['actual_exposed'] for c in result['candidates']))
     except BudgetExhausted as exc:
-        result.update(status='stopped_unknown_billing' if governor.state['unknown_billing'] else 'stopped_budget_censored',reason=str(exc),censored=True)
+        result.update(status='stopped_unknown_billing' if governor.state['unknown_billing'] else 'stopped_budget_censored',
+            reason=str(exc),censored=True,learning_budget_censored=result.get('completed_units',0)<len(plan['candidate_units']) or
+            any(row['decision']=='budget_censored' for row in result.get('learning_units',[])))
     except Exception as exc:
         result.update(status='stopped_unknown_billing' if governor.state['unknown_billing'] else 'stopped_engineering_error',reason=str(exc))
         if governor.state['unknown_billing']:result['censored']=True

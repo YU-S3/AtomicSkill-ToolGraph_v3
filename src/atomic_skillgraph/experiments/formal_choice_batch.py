@@ -1,5 +1,6 @@
 """One declared post-Train capability batch under the formal campaign ledger."""
 from copy import deepcopy
+import os
 from pathlib import Path
 
 import yaml
@@ -14,7 +15,7 @@ from .canonical_manifest import sha256
 from .formal_log import utc
 from .run_empirical import code_identity, write_json
 
-FORMAL_VERSION = 'choice-capability-batch.formal.v1'
+FORMAL_VERSION = 'choice-capability-batch.formal.v2'
 
 
 def configure(base, spec, benchmark, seed, authority):
@@ -36,7 +37,7 @@ def configure(base, spec, benchmark, seed, authority):
     if (contract['candidate']['max_candidates_to_selection'] != 2 or
         contract['candidate']['min_distinct_physical_train_source_cases'] != 2 or
         contract['paired_evaluation']['number_of_candidates_that_may_use_selection'] != 2):
-        raise ValueError('Formal P2 retains exactly two declared two-source attempts')
+        raise ValueError('Formal P2 retains two independently supported selection candidates')
     batch.policy(contract)
     budget = contract['budget_additional_authority_proposed_not_spent']
     if (budget['selection_retry_max'] != 0 or budget['unknown_billing'] != 'fail_closed' or
@@ -51,9 +52,14 @@ def configure(base, spec, benchmark, seed, authority):
     config['experiment'].update(choice_method_version=VERSION, choice_batch_version=FORMAL_VERSION,
         choice_batch_contract=contract, choice_batch_contract_sha256=sha256(contract_path),
         choice_selection_physical_keys=sorted(contract['split']['selected_physical_keys'].values()))
-    for purpose in ('capability_induction','capability_routing'):
+    for purpose,cap in [('capability_induction',2048),('capability_routing',2048),('guidance_learning',2048),('guidance_grounding',1536)]:
         config['llm'].setdefault('purpose_overrides', {})[purpose] = {
-            'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}
+            'protocol':{'thinking_type':'disabled'},'max_completion_tokens':cap}
+    from .capability_schedule import unit_limits
+    from ..empirical.system import validate_config
+    config=validate_config(config)
+    unit_limits(config,contract)
+    config['learning']['source_program_payload_max_bytes'] = contract['program_learning']['executed_source_payload_max_bytes']
     return config
 
 
@@ -63,6 +69,9 @@ class BatchGovernor:
         self.owner, self.plan, self.root = governor, plan, Path(root)
         self.path, self.limits = governor.path, governor.limits
         self.prefix = batch.read(self.root/'campaign_budget_prefix.json')['attempts']
+        self.phase_prefix = batch.read(self.root/'inherited_stage_attempts.json') if (self.root/'inherited_stage_attempts.json').exists() else {}
+        if any(self.prefix.get(k) != v for k,v in self.phase_prefix.items()):
+            raise ValueError('Inherited P2 phase charges differ from campaign prefix')
         if any(governor.state['attempts'].get(k) != v for k,v in self.prefix.items()):
             raise ValueError('Campaign billing prefix changed')
         self.save()
@@ -70,7 +79,12 @@ class BatchGovernor:
     @property
     def state(self): return self.owner.state
 
-    def attempts(self): return {k:v for k,v in self.state['attempts'].items() if k not in self.prefix}
+    def owns(self, context):
+        scope=context.get('parent_scope','')
+        return 'run_id' not in self.plan or scope.startswith(self.plan['run_id']+':') or scope.startswith(str(self.root.resolve())+os.sep)
+
+    def attempts(self):
+        return {**self.phase_prefix,**{k:v for k,v in self.state['attempts'].items() if k not in self.prefix and self.owns(v['context'])}}
 
     def save(self):
         write_json(self.root/'budget.json', {'limits':{**self.plan['new_limits'],'finish_reserve':0},
@@ -84,6 +98,8 @@ class BatchGovernor:
             'requests':min(room['requests'],self.plan['new_limits']['request_limit']-len(self.attempts()))}
 
     def admit(self, audit_id, payload, context):
+        if not self.owns(context):
+            raise ValueError('P2 request must belong to its declared run scope')
         room = self.headroom(context)
         reserved = input_token_bound(payload)+payload.get('max_tokens',payload.get('max_completion_tokens',0))
         if room['unknown_billing'] or room['requests'] < 1 or reserved > room['tokens']:
@@ -119,6 +135,8 @@ def prepare(root, config, governor, run_id):
     cfg = batch.configuration(config,output);cfg['data_dir'] = config['data_dir']
     for name,value in [('config.json',cfg),('source_cases.json',rows),('source_records.json',records(rows)),
                        ('campaign_budget_prefix.json',ledger)]: write_json(output/name,value)
+    from .capability_schedule import schedule,unit_limits
+    source_schedule = schedule(generation,spec)
     plan = {'schema':VERSION,'prompt_revision':PROMPT_REVISION,'scope_policy':batch.SCOPE_POLICY,
         'run_id':run_id+':p2','code':code_identity(),'prepared_at':utc(),'source_run':str(root),
         'source_run_id':run_id,'derivation_mode':FORMAL_VERSION,'initial_bank':'same fresh formal Train Bank; no historical assets',
@@ -126,8 +144,9 @@ def prepare(root, config, governor, run_id):
             ('train/config.json','train/summary.json','train/execution_manifest.json')},
         'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_cases.json','source_records.json','campaign_budget_prefix.json')},
         'generation_tasks':generation,'selection_tasks':stages,
-        'candidate_units':[[t['physical_key'] for t in generation[i*2:i*2+2]] for i in range(2)],
-        'candidate_unit_order':'public task_id lexicographic; first bounded disjoint units; no outcome selection',
+        'candidate_units':[[t['physical_key'] for t in unit['sources']] for unit in source_schedule['units']],
+        'source_schedule':source_schedule,'unit_limits':unit_limits(cfg,spec),
+        'candidate_unit_order':'frozen public-goal relation; no outcome selection',
         'utility_policy':batch.policy(spec),'new_limits':limits,'inherited_tokens':tokens,'inherited_http':len(ledger['attempts']),
         'campaign_budget_prefix':{'tokens':tokens,'http':len(ledger['attempts'])},'cumulative_limits':ledger['limits'],
         'train_cases_hash':digest(raw),
