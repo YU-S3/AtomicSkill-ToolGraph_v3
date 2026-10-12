@@ -1,5 +1,6 @@
 """Readable, public stage projections. Execution and scoring use original values."""
 from copy import deepcopy
+import ast
 import json
 from . import POLICY_DEFAULTS
 from .contracts import PublicTask
@@ -155,11 +156,17 @@ def operation_directory(evidence, case_id):
         outputs += [{'kind':'publication','field':'files','value':files},
                     *[{'kind':'publication','field':'file','name':n,'value':n} for n in files]]
     sources=[r for r in input_sources(evidence) if canonical_bytes(r)<=512]
+    operation=evidence['operation']
+    source=operation.get('source') or operation.get('arguments',{}).get('source','')
+    if source:
+        try: source=ast.unparse(ast.parse(source))
+        except SyntaxError: source=''
     return {'case_id':case_id,'local_evidence_ref':evidence['id'],'kind':evidence['kind'],
         'operation_name':evidence['operation'].get('name','executed_python'),
         'effect':'published_files' if files else 'inspection_or_json',
         'success':reference.get('accepted',True),'published_files':files,
         'input_sources':sources[:32], 'input_source_count':len(sources), 'output_references':outputs,
+        **({'source_excerpt':source[:2048], 'source_truncated':len(source)>2048} if source else {}),
         'source_content_available_to_builder':True}
 
 
@@ -224,7 +231,6 @@ def structure_repair_material(proposal, errors, directories):
     if value.get('skill'):
         for k in ('input_schema','output_schema'):value['skill'][k]=contract(value['skill'][k])
     bindings=(value.get('realization_request') or {}).get('case_bindings',[])
-    inputs=[v for b in bindings for v in b.get('inputs',{}).values()]
     operations=[]
     referenced={b.get('local_evidence_ref') for b in bindings}
     rows=[row for group in directories for row in group]
@@ -238,11 +244,12 @@ def structure_repair_material(proposal, errors, directories):
     for row in rows:
         if needs_details:
             operations.append({k:deepcopy(row[k]) for k in ('case_id','local_evidence_ref','operation_name','kind','effect','published_files','output_references')})
-            operations[-1]['input_sources']=[r for r in row['input_sources'] if not bindings or r['value'] in inputs]
+            operations[-1]['input_sources']=deepcopy(row['input_sources'])
         else:
             operations.append({k:row[k] for k in ('operation_name','local_evidence_ref')})
     short=[{'binding_index':row['binding_index'],'errors':[{'code':e['code'],'field':e.get('field'),
-        **({'expected':e['detail'][:200]} if e['code'] in {'input_type','output_type'} else {})} for e in row['errors']]} for row in errors]
+        **({'expected':e['detail'][:400]} if e.get('detail') else {}),
+        **({'repair_target':e['repair_target']} if e.get('repair_target') else {})} for e in row['errors']]} for row in errors]
     return {'proposal':value,'errors':short,'legal_operations':operations,
             'note':'Host start/identity fields must be removed. No matching source value means omit or reject the unsupported input; do not invent provenance.'}
 

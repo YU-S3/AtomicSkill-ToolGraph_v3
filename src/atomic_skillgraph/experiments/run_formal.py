@@ -56,7 +56,9 @@ def resolved_config(base, profile, benchmark, seed, split, root, datasets, autho
         config['harness'] = {**base['harness'], 'adapter': 'alfworld_v3',
             'split': {'train': 'train', 'val': 'eval_in_distribution', 'test': 'eval_out_of_distribution'}[split],
             'max_steps': profile['environment_steps']}
-    config['runtime']['global_action_budget'] = max(1, profile['native_calls'])
+    native_calls = profile.get('native_calls_by_split', {}).get(split, profile['native_calls'])
+    if type(native_calls) is not int or native_calls < 0: raise ValueError('Invalid split native call budget')
+    config['runtime']['global_action_budget'] = max(1, native_calls)
     config['runtime'].pop('environment_step_budget', None)
     if profile.get('environment_steps'):
         config['runtime']['environment_step_budget'] = profile['environment_steps']

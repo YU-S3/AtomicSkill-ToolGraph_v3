@@ -1,5 +1,6 @@
 """Host-bound local evidence and version-specific executable qualification."""
 import ast
+import json
 from pathlib import Path
 import hashlib
 import zipfile
@@ -43,8 +44,15 @@ def source_literals(source):
     """Locatable literals; optional branch bodies are not evidence of execution."""
     result = []
     def walk(node, path):
-        if isinstance(node, ast.Constant) and type(node.value) in {str, int, float, bool, type(None)}:
-            result.append({'kind':'source_literal', 'path':path, 'value':node.value})
+        if isinstance(node, (ast.Constant, ast.List, ast.Dict, ast.UnaryOp)):
+            try:
+                value = ast.literal_eval(node)
+                json.dumps(value, allow_nan=False)
+            except (ValueError, TypeError, OverflowError):
+                pass
+            else:
+                if type(value) in {str, int, float, bool, list, dict, type(None)}:
+                    result.append({'kind':'source_literal', 'path':path, 'value':value})
         for key,value in ast.iter_fields(node):
             if isinstance(node, (ast.If, ast.IfExp, ast.For, ast.While, ast.Try)) and key in {'body','orelse','finalbody','handlers'}:
                 continue
@@ -77,6 +85,7 @@ def input_sources(evidence):
             for k,v in value.items():
                 if k not in PRIVATE_FIELDS and k!='source': arguments(v,[*path,k])
         elif isinstance(value,list):
+            rows.append({'kind':'operation_json','path':path,'value':value})
             for i,v in enumerate(value):arguments(v,[*path,i])
         else:rows.append({'kind':'operation_json','path':path,'value':value})
     arguments(op.get('arguments',op.get('inputs',{})),[])

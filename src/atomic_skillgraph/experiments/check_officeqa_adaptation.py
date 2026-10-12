@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--corpus-root', required=True)
     parser.add_argument('--cost-source', required=True)
     parser.add_argument('--env-file')
+    parser.add_argument('--settings', help='Explicit task and batch budgets for a fresh bounded check')
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()
     root, datasets = Path(args.output), Path(args.datasets)
@@ -37,12 +38,23 @@ def main():
     profile = json.loads(Path('benchmark_profiles.json').read_text())['profiles']['officeqa']
     limits = {'token_limit':1392000, 'request_limit':120, 'finish_reserve':0}
     parent = json.loads(Path('configs/atomic_unified_seed42_budget.json').read_text())['cells']['officeqa']
+    settings = json.loads(Path(args.settings).read_text()) if args.settings else {}
+    if set(settings) - {'limits','task_limits','native_calls_by_split'}: raise ValueError('Unknown check settings')
+    limits = settings.get('limits', limits)
+    task_limits = settings.get('task_limits', {})
+    if set(task_limits) - {'train_task_tokens','train_solve_tokens','train_learning_tokens','eval_task_tokens'}:
+        raise ValueError('Unknown task limits')
+    profile['native_calls_by_split'] = settings.get('native_calls_by_split', {})
+    if set(profile['native_calls_by_split']) - {'train','val'}: raise ValueError('Unknown check split')
+    if set(limits) != {'token_limit','request_limit','finish_reserve'}: raise ValueError('Unknown batch limits')
     prior = json.loads((Path(args.cost_source)/'budget.json').read_text())
     if prior['unknown_billing'] or any(a['status']!='metered' for a in prior['attempts'].values()):
         raise ValueError('Old cost must be sealed before a new check')
     if sum(a['accounted_tokens'] for a in prior['attempts'].values())+limits['token_limit']>parent['token_limit']:
         raise ValueError('Check cannot exceed the existing cumulative authority')
-    base['budget'] = {**parent, **limits}
+    if len(prior['attempts'])+limits['request_limit']>parent['request_limit']:
+        raise ValueError('Check cannot exceed the existing cumulative HTTP authority')
+    base['budget'] = {**parent, **limits, **task_limits}
     configurations, selected = {}, {}
     for split, count in [('train',6),('val',2)]:
         rows = [PublicTask(**r) for r in json.loads((datasets/'officeqa'/(split+'.json')).read_text())['tasks']]
@@ -54,6 +66,8 @@ def main():
     identity = {'method':'ours', 'benchmark':'officeqa', 'purpose':'bounded adaptation check',
                 'source_commit':code['git_sha'], 'source_sha256':code['source_sha256'], 'run_seed':42,
                 'initial_bank':'fresh empty independent Bank', 'limits':limits,
+                'task_limits':{k:v for k,v in base['budget'].items() if k.startswith(('train_','eval_'))},
+                'native_calls_by_split':{k:c['runtime']['global_action_budget'] for k,c in configurations.items()},
                 'authority_sha256':sha256(authority/'manifest.json'),
                 'materialization_sha256':sha256(datasets/'materialization.json'),
                 'corpus_sha256':corpus_identity(args.corpus_root)['sha256'],

@@ -204,11 +204,20 @@ shutil.copyfile('/tmp/recalculated/input.xlsx', OUTPUT_PATH)
         pointer = self.workspace.root/'manifest.json'
         published = self.workspace.root/json.loads(pointer.read_text())['version'] if pointer.exists() else None
         identities = {name:artifact_record(published/name) for name in files} if result['status']=='ok' and published else {}
+        outputs = dict(result.get('outputs', {}))
+        if result['status']=='ok':
+            try:
+                from ..agents.protocol import parse_json_strict
+                computed = parse_json_strict(result.get('diagnostic', ''))
+                json.dumps(computed, allow_nan=False)
+                if isinstance(computed, dict): outputs['computed'] = computed
+            except ValueError:
+                pass
         return {'local_artifact_identities':identities,
                 'worker_cpu_seconds':result.get('cpu_seconds'), 'worker_seconds':result.get('elapsed_seconds'),
                 'local_artifact_hashes':self.observe().get('workspace',{}).get('hashes',{}) if result['status']=='ok' else {},
                 'accepted': result['status'] == 'ok', 'observation': result.get('diagnostic', ''),
-                'data': result.get('outputs', {}), 'error': result.get('detail'), 'done': False}
+                'data': outputs, 'error': result.get('detail'), 'done': False}
 
 
 class OfficeAdapter(FileAdapter):
@@ -222,7 +231,7 @@ class OfficeAdapter(FileAdapter):
              object_schema({'path': {'type':'string'}, 'offset': {'type':'integer','minimum':0}}, ['path','offset']), {'type': 'object'}, 'read_only', True, {'offset': 'unicode_codepoint_0_based'}),
             ('grep', 'Search authorized text files with a case-insensitive regular expression (not a glob). paths are explicit relative filenames; omit for all files, empty means none. At most 40 total hits; line is display only, Unicode offset is directly usable by read.',
              GREP_SCHEMA, {'type': 'array', 'items': {'type': 'object'}}, 'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
-            ('execute_python', 'Compute with acquired public values; no corpus or network mount.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
+            ('execute_python', 'Compute with acquired public values; no corpus or network mount. Print one JSON object for typed reusable results; it is exposed at data.computed. Other stdout stays in observation.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
 
     def _path(self, relative):
         path = (self.corpus / relative).resolve()
