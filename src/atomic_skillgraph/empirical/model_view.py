@@ -97,6 +97,10 @@ def shrink_learning_preview(material):
     rows=[*cards,*material.get('legal_operations',[])]
     if len(cards)>1:return False
     for row in rows:
+        for output in row.get('output_references',[]):
+            if output.get('content_hint'):
+                output.pop('content_hint');return True
+    for row in rows:
         if len(row.get('source_excerpt',''))>512:
             row['source_excerpt']=row['source_excerpt'][:512];row['source_truncated']=True
             return True
@@ -104,9 +108,6 @@ def shrink_learning_preview(material):
         if row.get('source_excerpt'):
             row.pop('source_excerpt');row['source_truncated']=True
             return True
-        for output in row.get('output_references',[]):
-            if output.get('content_hint'):
-                output.pop('content_hint');return True
     return False
 
 
@@ -258,7 +259,12 @@ def learning_payload(material):
     """Selection receipts are Host audit; selectable cards are the model's directory."""
     value=expand_material(material)
     for case in [value.get('experience',{}), *value.get('completed_train_cases',[])]:
-        if case.get('compact_learning_directory'):case.pop('projection_audit',None)
+        if case.get('compact_learning_directory'):
+            case.pop('projection_audit',None)
+            case.pop('directory_selection',None)
+            for card in case.get('local_evidence',[]):
+                if card.get('input_source_count')==len(card.get('input_sources',[])):
+                    card.pop('input_source_count',None)
     return pack_material(value)
 
 

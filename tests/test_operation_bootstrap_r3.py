@@ -131,7 +131,8 @@ def test_learning_wire_keeps_acquired_page_before_discovery_cards(tmp_path, monk
         s.agent('extractor', LEARNER_PROMPT, material, 'submit_learning', LEARNING)
         actual = expand_material(json.loads(sent[1]['messages'][1]['content']))
         assert len(actual['experience']['local_evidence']) < len(cards)
-        assert actual['experience']['local_evidence'][0] == cards[0]
+        expected=deepcopy(cards[0]);expected.pop('input_source_count',None)
+        assert actual['experience']['local_evidence'][0] == expected
         assert actual['experience']['local_evidence'][0]['operation_name'] == 'read'
         assert input_token_bound(sent[1]) <= s.config['learning']['extractor_payload_max_bytes']
         assert any(row['reason'] == 'full_payload_input_limit' for row in s.requests[-1]['material_audit']['omitted'])
@@ -197,9 +198,41 @@ def test_optional_source_preview_shrinks_before_capacity_refusal(tmp_path, monke
         assert input_token_bound(sent[1]) <= limit
         assert actual['source_excerpt'] == original['source_excerpt'][:512] and actual['source_truncated']
         assert actual['input_sources'] == original['input_sources']
-        assert actual['output_references'] == original['output_references']
+        expected=deepcopy(original['output_references'])
+        for row in expected:row.pop('content_hint',None)
+        assert actual['output_references'] == expected
         assert not s.bank.all('program') and len(sent) == 2
     finally: s.close()
+
+
+def test_learning_discards_output_hint_before_executed_code(tmp_path, monkeypatch):
+    from atomic_skillgraph.empirical.budget_governor import input_token_bound
+    s=office(tmp_path)
+    source="import json\nvalues=[2,5,9]\nlabel="+repr('x'*550)+"\nprint(json.dumps({'total':sum(values)}))"
+    public={'goal':'sum acquired values','inputs':{}}
+    evidence={'id':'local:compute','kind':'native_operation',
+        'operation':{'name':'execute_python','arguments':{'source':source}},
+        'reference':{'accepted':True,'observation':'x'*256,'data':{'computed':{'total':16}}},'public_task':public}
+    material={'experience':learning_case({'task':public,'local_evidence':[evidence]},'case')}
+    original=deepcopy(material)
+    sent=http(monkeypatch,[response([{'decision':'no_change'}],name='submit_learning')]*2)
+    try:
+        s.config['learning']['extractor_payload_max_bytes']=65536
+        s.agent('extractor',LEARNER_PROMPT,material,'submit_learning',LEARNING)
+        fitting=deepcopy(sent[0]);value=expand_material(json.loads(fitting['messages'][1]['content']))
+        card=value['experience']['local_evidence'][0]
+        for row in card['output_references']:row.pop('content_hint',None)
+        from atomic_skillgraph.empirical.model_view import pack_material
+        fitting['messages'][1]['content']=json.dumps(pack_material(value),ensure_ascii=False,separators=(',',':'))
+        s.config['learning']['extractor_payload_max_bytes']=input_token_bound(fitting)
+        s.agent('extractor',LEARNER_PROMPT,material,'submit_learning',LEARNING)
+        actual=expand_material(json.loads(sent[1]['messages'][1]['content']))['experience']['local_evidence'][0]
+        assert actual['source_excerpt']==ast.unparse(ast.parse(source)) and not actual['source_truncated']
+        assert actual['input_sources']==original['experience']['local_evidence'][0]['input_sources']
+        assert actual['output_references']==card['output_references']
+        assert input_token_bound(sent[1])<=input_token_bound(fitting)
+        assert material==original and not s.bank.all('program')
+    finally:s.close()
 
 
 def test_capacity_keeps_primary_source_before_secondary_cards(tmp_path, monkeypatch):
