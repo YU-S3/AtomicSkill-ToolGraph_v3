@@ -62,7 +62,8 @@ def test_new_and_existing_skill_references_are_distinct_and_reach_http(tmp_path,
         with pytest.raises(ValueError, match='Skill reference'):
             system.learner._skill_references({'decision': 'no_change', 'workflow': {
                 'nodes': [{'skill_id': '$new'}]}})
-        assert len(seen) == 1 and 'never an invented name or alias' in seen[0]['messages'][0]['content']
+        assert len(seen) == 1
+        assert seen[0]['tools'][0]['function']['parameters']['properties']['realization_request']['properties']['skill_id']['enum']==['$new']
     finally:
         system.close()
 

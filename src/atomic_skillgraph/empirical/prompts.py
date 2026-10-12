@@ -104,65 +104,59 @@ REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_fie
 LEARNER_PROMPT = """Learn from this real Train experience, including failures. Choose no_change, reuse_existing,
 propose_skill_and_program_spec, or propose_or_revise_workflow. Propose at most one useful observed local
 search/read/compute Program with ordinary I/O. Never invent witnesses, owners, success, outputs or provenance.
-One actual current-case binding suffices, including the first successful Train case. Existing native tools
-covering the task is not a reason to skip a reusable Program that saves repeated model decisions. Assess its
-future use; no_change remains valid for insufficient evidence or no useful reusable operation.
-Workflows may trim exploration, merge preparation and leave dynamic gaps; declare all dependencies. Category
-queries and concrete IDs differ. Examples, compositions and patches are not proofs or validated assets.
+One real current-case binding suffices. Native tools do not replace Programs that save model decisions.
+Assess future use; no_change remains valid for insufficient evidence or no useful reusable operation.
+Workflows may trim/merge preparation and leave dynamic gaps; declare dependencies. Category queries differ
+from concrete IDs. Examples, compositions and patches are not proofs or validated assets.
 Preserve selected_local_goal during repair. The full task is context; do not add unrelated conditions.
-A successful read-only operation is local evidence even if the whole task failed, without published files
-or another Train case. Never attach an unexecuted numerical calculation to a search/read operation.
-Use actual source_excerpt/input_sources/output_references. The excerpt is a bounded AST-formatted preview;
-Builder receives original source. Bind arrays at their aggregate AST path, never an observation path or element.
-Do not add unobserved outputs or optional parameters just because the algorithm could produce them.
-intermediate covers locators, pages, numbers and stdout. final_answer means the Program submits the answer:
-output_schema must require answer:string. Numeric computation alone is intermediate. observation is a string;
-data.computed contains actual JSON fields. final_files requires files:array and deleted_files:array; every other
-required output also needs a real reference. An inspection or declared filename is not a verified publication.
-Program paths can be absolute inside /workspace; files/deleted_files are relative publication names without a
-leading slash, inputs prefix or '..'. Keep output_path separate from files.
-Use $new for a newly proposed Skill in realization_request.skill_id, workflow skill_id and reference_skill_ids.
-Every other Skill reference must be a supplied real ID, never a name or alias. Workflows use execution_mode
-(dynamic/skill/program). Reference guidance uses reference_skill_ids. Dynamic nodes have a goal; bound nodes
-use the asset's full I/O, omit goal and may specify purpose. Reuse actual program calls and handoffs.
+A successful read-only operation is local evidence on a failed task, without files or a second case.
+Never attach an unexecuted calculation to search/read evidence.
+Use source_excerpt/input_sources/output_references. Excerpts are AST previews; Builder gets original source.
+Bind arrays at aggregate AST paths, never observation/element paths.
+Do not add unobserved outputs or optional parameters.
+intermediate covers locators/pages/numbers/stdout. final_answer submits an answer and requires answer:string;
+numeric computation alone is intermediate. observation is a string; data.computed holds actual JSON fields.
+final_files requires files:array and deleted_files:array. Every required output needs a real reference.
+Inspection/filenames do not prove publication.
+Program paths may be absolute inside /workspace; publication files/deleted_files are relative, without a
+leading slash, inputs prefix or '..'. Keep output_path separate.
+New Skill references use $new in realization_request.skill_id, workflow skill_id and reference_skill_ids.
+Other references require supplied real IDs, never names/aliases. Workflows use execution_mode
+(dynamic/skill/program); reference guidance uses reference_skill_ids. Dynamic nodes have goals; bound nodes
+use asset I/O, omit goal and may specify purpose. Reuse actual calls/handoffs.
 guidance_only requires generate_program=false and no realization_request. A missing Program is pending work,
 not completion; reuse_existing with generate_program=true still requests a build. realization_request selects
-at most one related job and 0-2 applicable completed Train case_ids with real local_evidence_ref. Required inputs
-and tools must exist; do not fill slots with unrelated cases. Defer when no binding applies.
+one related job and 0-2 applicable completed Train case_ids with real local_evidence_ref. Inputs/tools must
+exist; no unrelated cases. Defer without an applicable binding.
 input_refs maps each input to an exact catalog public_json/operation_json/source_literal path, or public_span
-with exact start/end. A span proves provenance, not parameter semantics; optional branch defaults are not
-validated facts. reference_fields maps required outputs to supplied typed json paths or publication files/file
-selectors. Host supplies prefix, start_mode, environment and source trace identity; never submit these fields.
+with exact start/end. Spans prove provenance, not parameter semantics; optional branch defaults are unverified.
+reference_fields maps required outputs to typed json paths or publication files/file selectors.
+Never submit Host-owned prefix/start_mode/environment/source trace identity.
 Return one flat submit_learning ToolCall using the supplied schema."""
-BUILDER_PROMPT = """Your current response must be exactly one submit_program ToolCall with the supplied submission_contract.
-Do not directly call grep, read, glob or execute_python during generation, including recovery.
-build_request declares the Skill and fixed bindings; future_program_api describes the generated Program's future RPC
-permissions, not tools for your current response. workspace_capabilities describes authorized local Python execution.
-Historical example calls describe Runtime Agent actions, not additional Program permissions.
-Generate a reusable restricted Python program: def run(ctx, inputs) -> dict. Use normal variables,
-branches and loops. Follow future_program_api.public_program_abi: exact_catalog ToolView supplies a list of complete current_arguments
-dictionaries; named_tools supplies input_schema without exhaustive arguments. Do not discard tools because top-level
-arguments/current_arguments is absent. Return the explicit status/outputs envelope, not a bare task output object.
+BUILDER_PROMPT = """Return exactly one submit_program ToolCall using submission_contract. During generation/recovery,
+do not call grep/read/glob/execute_python. build_request fixes the Skill/bindings; future_program_api authorizes
+future RPC, workspace_capabilities authorizes local Python. Historical Runtime calls grant no permissions.
+Generate reusable def run(ctx, inputs) -> dict with ordinary variables/branches/loops.
+Follow future_program_api.public_program_abi: exact_catalog ToolView lists complete current_arguments;
+named_tools supplies input_schema. Missing top-level arguments/current_arguments does not remove a tool.
+Return status/outputs, not a bare task output.
 ctx.observe(), ctx.available_tools(), ctx.call(name, arguments), ctx.remaining_calls(), ctx.read_result() are the only
 public task interfaces. No LLM, evaluator, network, host paths, external installation or private state. Do not call
 execute_python recursively: use Python directly in the authorized /workspace with its public inputs. Standard library
-is available. Calls consume the same task budget. Return status ok/not_found/needs_input/blocked and an outputs dict
-matching the supplied schema. ok is not official success. Consult actual public feedback and current tool availability;
-search can return not_found. Return exact resource IDs from the current tool arguments for subsequent calls; display
-labels are not tool IDs. Do not hardcode example object instances/locations. Generate source with one submit_program
-ToolCall; an optional binding_hash must equal build_request.binding_hash. Host alone supplies fixed trial inputs and replay start.
-Use each case's public task to construct its own inputs; never copy concrete objects or file paths from another case.
+is available. Calls share the task budget. Return ok/not_found/needs_input/blocked with schema-matching outputs;
+ok is not official success. Use real public feedback/current tools; search can return not_found.
+Use exact current resource IDs, not display labels. Never hardcode example objects/locations or copy them
+across cases. Construct inputs from each public case. Optional binding_hash equals build_request.binding_hash;
+Host fixes trial inputs/replay start.
 ctx.read_result(result_id, offset=0, limit=None, path=None) reads only results already obtained in this episode.
-Support the declared entry_constraints: for mid-episode preparation, first inspect current public state/results and
-currently legal arguments instead of always restarting search. Do not emit trial_inputs or replace a selected source.
-Implement the supplied Skill's local goal; do not expand it to solve the
-complete example task or add unrelated required targets. Future RPC calls must use future_program_api.allowed_names.
+Follow entry_constraints; mid-episode preparation first inspects current public state/results/legal arguments.
+Do not emit trial_inputs or replace selected source. Implement only the Skill's local goal, without adding
+whole-task goals/unrelated targets. RPC uses future_program_api.allowed_names.
 For a durable run(ctx, inputs), INPUT_PATH and OUTPUT_PATH globals are not supplied; use inputs or the authorized
 workspace. Those globals belong only to an independent solution.py replay contract, when explicitly requested.
-For file workspaces, use /workspace/... paths inside Python as needed, but return outputs.files/deleted_files as
-relative publication names, e.g. write /workspace/result.xlsx and declare files=["result.xlsx"]. An output_path
-field can retain the program path; do not copy that absolute value into files. Absolute publication paths,
-inputs/... and '..' paths are rejected; do not bypass those checks."""
+Python may use /workspace/...; outputs.files/deleted_files require relative publication names:
+write /workspace/result.xlsx, declare files=["result.xlsx"]. output_path may keep the program path;
+files cannot. Absolute publication paths, inputs/... and '..' are rejected; do not bypass checks."""
 CHOICE_PROPOSAL = object_schema({
     'decision': {'type': 'string', 'enum': ['no_change', 'reuse_existing', 'upsert_guidance']},
     'existing_skill_id': {'type': 'string'},
@@ -264,6 +258,10 @@ Keep dependent calls and loops inside that script. Check ctx.remaining_calls() a
 before consuming data; cap iterations and output size. The launch and internal calls spend the same task budget.
 Reuse acquired paths, offsets and result IDs; print compact JSON with real locators, needed rows, inputs and
 computed results. Do not dump whole documents, assume a corpus mount/network, or invent missing values.
+Keep the entire printed JSON within calls.task_local_program.max_stdout_bytes, measured after UTF-8 encoding;
+larger stdout is truncated and cannot provide typed JSON results. Select needed rows or smaller text windows.
+ctx.call returns public tool data with its actual business types. Runtime memory may display source_ref/content
+preview windows; do not copy those preview wrappers into RPC field access. Inspect returned value types first.
 Check existing memory results before repeating a query. Acquired text pages and calculations remain visible
 after later searches; a repeated query without a changed scope adds no evidence.
 Keep a concise working note in detail with acquired locators, values or completed calculations needed next.

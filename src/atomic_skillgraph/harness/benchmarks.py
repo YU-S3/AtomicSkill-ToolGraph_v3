@@ -128,12 +128,13 @@ class FileAdapter(AnswerAdapter):
     def task_program_contract(self, tools):
         if 'execute_python' not in getattr(self, 'broker_bound_tools', ()):
             return None
-        from ..empirical.program_worker import public_program_abi
+        from ..empirical.program_worker import public_program_abi, DIAGNOSTIC_MAX_BYTES
         from .simple_protocol import PROGRAM_FORBIDDEN_TOOLS
         if not any(t['name'] == 'execute_python' for t in tools): return None
         return {'tool': 'execute_python', 'context_methods': public_program_abi()['methods'],
                 'allowed_tools': [t['name'] for t in tools if t['name'] not in PROGRAM_FORBIDDEN_TOOLS],
                 'max_internal_calls': self.worker.settings['max_tool_calls_per_invocation'],
+                'max_stdout_bytes': DIAGNOSTIC_MAX_BYTES,
                 'wall_timeout_seconds': self.worker.settings['wall_timeout_seconds'],
                 'budget': 'launch and every internal call share recovery.remaining_calls; the earlier owner deadline applies',
                 'persistence': 'none; no Bank mutation or automatic promotion'}

@@ -139,6 +139,38 @@ def test_learning_wire_keeps_acquired_page_before_discovery_cards(tmp_path, monk
     finally: s.close()
 
 
+def test_learning_wire_retains_later_computation_and_aggregate_inputs(tmp_path, monkeypatch, worker):
+    from atomic_skillgraph.empirical.budget_governor import input_token_bound
+    s = office(tmp_path); s.adapter.worker = worker
+    broker = Broker(s.adapter, 24)
+    retrieval = "import json\npage=ctx.call('read',{'path':'a.txt','offset':0})['data']\nprint(json.dumps({'text':page['text']}))"
+    first = list(range(12)); second = list(range(12,24)); third = list(range(24,30))
+    source = ('import json\nfirst = '+repr(first)+'\nsecond = '+repr(second)+'\nthird = '+repr(third)+
+              "\nactual = 7.5\nprint(json.dumps({'total':sum(first+second+third),'actual':actual}))")
+    try:
+        broker.call('execute_python', {'source':retrieval})
+        broker.call('execute_python', {'source':source})
+        trace = {'tools':broker.events,'execution':{'prediction':'wrong'},'score':{'hard':False}}
+        experience = s.learner._experience(s.adapter.task, trace)
+        compute = next(e for e in experience['local_evidence'] if e['operation']['arguments']['source']==source)
+        directory = learning_case(experience,s.adapter.task.physical_key)['local_evidence']
+        assert directory[0]['local_evidence_ref']==compute['id']
+        assert any(c['source_excerpt']==ast.unparse(ast.parse(retrieval)) for c in directory)
+        sent = http(monkeypatch,[response([{'decision':'no_change'}],name='submit_learning')])
+        learned = s.learner.learn(s.adapter.task, trace)
+        assert not learned['errors'] and len(sent)==1
+        material = expand_material(json.loads(sent[0]['messages'][1]['content']))
+        cards = material['experience']['local_evidence']
+        assert cards[0]['local_evidence_ref']==compute['id']
+        sources = cards[0]['input_sources']
+        for index, value in enumerate([first,second,third,7.5],1):
+            assert any(r['kind']=='source_literal' and r['path']==['body',index,'value'] and r['value']==value for r in sources)
+        assert not any(r['kind']=='source_literal' and 'elts' in r['path'] for r in sources)
+        assert input_token_bound(sent[0])<=s.config['learning']['extractor_payload_max_bytes']
+        assert not s.bank.all('program')
+    finally: s.close()
+
+
 def test_optional_source_preview_shrinks_before_capacity_refusal(tmp_path, monkeypatch):
     from atomic_skillgraph.empirical.budget_governor import input_token_bound
     from atomic_skillgraph.empirical.model_view import learning_capacity_audit

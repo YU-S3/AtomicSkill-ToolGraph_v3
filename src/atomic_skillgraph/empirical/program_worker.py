@@ -11,6 +11,7 @@ import time
 from uuid import uuid4
 
 PROGRAM_STATUSES = ('ok', 'not_found', 'needs_input', 'blocked')
+DIAGNOSTIC_MAX_BYTES = 4096
 PROGRAM_RESULT_SCHEMA = {'type': 'object', 'properties': {
     'status': {'enum': list(PROGRAM_STATUSES)}, 'outputs': {'type': 'object'}},
     'required': ['status', 'outputs']}
@@ -194,7 +195,7 @@ class ProgramWorker:
                                 selector.unregister(key.fileobj)
                                 continue
                             if key.data == 'stderr':
-                                diagnostic.extend(chunk[:max(0, 4096 - len(diagnostic))])
+                                diagnostic.extend(chunk[:max(0, DIAGNOSTIC_MAX_BYTES - len(diagnostic))])
                                 continue
                             buffer += chunk
                             if len(buffer) > s['max_rpc_message_bytes']:

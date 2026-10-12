@@ -88,6 +88,8 @@ def test_temporary_contract_reaches_real_runtime_payload_and_result(tmp_path, mo
         assert contract['tool'] == 'execute_python' and contract['context_methods'] == public_program_abi()['methods']
         assert set(contract['allowed_tools']) == {'glob','grep','read','read_result'}
         assert contract['max_internal_calls'] == worker.settings['max_tool_calls_per_invocation']
+        from atomic_skillgraph.empirical.program_worker import DIAGNOSTIC_MAX_BYTES
+        assert contract['max_stdout_bytes'] == DIAGNOSTIC_MAX_BYTES
         assert contract['wall_timeout_seconds'] == 20 and initial['recovery']['remaining_calls'] == 5
         actual = expand_material(json.loads(sent[1]['messages'][1]['content']))
         assert actual['recovery']['remaining_calls'] == 1
@@ -95,6 +97,25 @@ def test_temporary_contract_reaches_real_runtime_payload_and_result(tmp_path, mo
                    for r in actual['memory']['recent_results'])
         assert result['prediction']=='target' and len(sent)==2 and len(broker.events)==4
         assert not s.bank.all('skill') and not s.bank.all('program')
+    finally: s.close()
+
+
+def test_advertised_stdout_limit_matches_real_worker_capture(tmp_path, worker):
+    import json
+    s = office(tmp_path); s.adapter.worker = worker
+    worker.settings['wall_timeout_seconds'] = 20
+    broker = Broker(s.adapter,4)
+    contract = s.adapter.task_program_contract(broker.available_tools())
+    try:
+        limit = contract['max_stdout_bytes']
+        oversized = broker.call('execute_python',{'source':"import json\nprint(json.dumps({'text':'x'*6000}))"})
+        assert oversized['accepted'] and len(oversized['observation'].encode())==limit
+        assert 'computed' not in oversized['data']
+        source = "import json\nresult={'text':'x'*2000}\nencoded=json.dumps(result)\nassert len(encoded.encode('utf-8'))<="+str(limit)+"\nprint(encoded)"
+        bounded = broker.call('execute_python',{'source':source})
+        assert bounded['accepted'] and bounded['data']['computed']=={'text':'x'*2000}
+        assert len(json.dumps(bounded['data']['computed']).encode())<=limit
+        assert not s.bank.all('program')
     finally: s.close()
 
 
@@ -173,3 +194,46 @@ def test_temporary_worker_obeys_the_owners_earlier_deadline(tmp_path, worker):
         assert not result['accepted'] and 'timeout' in result['error'].lower()
         assert result['worker_seconds'] < 5 and not broker.unknown and len(broker.events)==1
     finally: s.close()
+
+
+def test_later_compute_trial_replays_nested_calls_and_original_failure(tmp_path, monkeypatch, worker):
+    from atomic_skillgraph.harness.benchmarks import OfficeAdapter
+    s=office(tmp_path);s.worker=worker;s.adapter.worker=worker
+    s.adapter_factory=lambda:OfficeAdapter({'office':{'answer':'private'}},s.config)
+    worker.settings['wall_timeout_seconds']=20
+    broker=Broker(s.adapter,24)
+    broker.call('execute_python',{'source':SEARCH})
+    failure=broker.call('execute_python',{'source':"raise ValueError('recorded failure')"})
+    assert not failure['accepted']
+    source="import json\nvalues=[2,5,9]\nprint(json.dumps({'total':sum(values)}))"
+    broker.call('execute_python',{'source':source})
+    trace={'tools':broker.events,'execution':{'prediction':'wrong'},'score':{'hard':False}}
+    evidence=s.learner._experience(s.adapter.task,trace)['local_evidence'][-1]
+    spec={'goal':'Sum acquired numeric values','execution_intent':'program_requested','result_role':'intermediate',
+        'input_schema':object_schema({'values':{'type':'array','items':{'type':'number'}}},['values']),
+        'output_schema':object_schema({'total':{'type':'number'}},['total'])}
+    binding={'case_id':s.adapter.task.physical_key,'local_evidence_ref':evidence['id'],'inputs':{'values':[2,5,9]},
+        'input_refs':{'values':{'kind':'source_literal','path':['body',1,'value']}},
+        'reference_fields':{'total':{'kind':'json','path':['data','computed','total']}}}
+    proposal={'decision':'propose_skill_and_program_spec','skill':spec,
+        'realization_request':{'skill_id':'$new','action':'build','case_bindings':[binding]}}
+    generated={'source':"def run(ctx, inputs):\n    return {'status':'ok','outputs':{'total':sum(inputs['values'])}}"}
+    sent=http(monkeypatch,[response([proposal],name='submit_learning'),response([generated],name='submit_program')])
+    try:
+        learned=s.learner.learn(s.adapter.task,trace)
+        assert not learned['errors'] and len(sent)==2
+        program=s.bank.all('program')[0]
+        assert s.bank.program_eligible(program) and program['local_validation']['reason']=='source_output_match'
+        trial=s.bank.attempts(program['id'])[0]
+        assert [e['name'] for e in trial['tools']]==['execute_python','glob','grep','read','execute_python']
+        assert trial['tools'][-1]['result']['accepted'] is False
+        # A different rejection is a source mismatch, never a qualifying replay.
+        from copy import deepcopy
+        from atomic_skillgraph.empirical.local_validation import validate_on_source
+        experience=s.learner._experience(s.adapter.task,trace)
+        bad=deepcopy(experience);bad['events'][4]['result']['error']='a different recorded error'
+        locked=s.bank.jobs()[0]['case_bindings'][0]
+        import pytest
+        with pytest.raises(ValueError,match='Source prefix cannot be reconstructed'):
+            validate_on_source(s,program,locked,s.adapter.task,bad,'mismatched-replay')
+    finally:s.close()

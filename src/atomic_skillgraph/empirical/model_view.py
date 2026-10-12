@@ -177,6 +177,15 @@ def operation_directory(evidence, case_id):
         outputs += [{'kind':'publication','field':'files','value':files},
                     *[{'kind':'publication','field':'file','name':n,'value':n} for n in files]]
     sources=[r for r in input_sources(evidence) if canonical_bytes(r)<=512]
+    arrays=[r['path'] for r in sources if r['kind']=='source_literal' and isinstance(r['value'],list)]
+    sources=[r for r in sources if r['kind']!='source_literal' or not any(
+        len(r['path'])>len(path) and r['path'][:len(path)]==path for path in arrays)]
+    unique={}
+    for row in sources:
+        key=(row['kind'],json.dumps(row['value'] if row['kind']=='source_literal' else row['path'],
+            sort_keys=True,ensure_ascii=False,allow_nan=False))
+        unique.setdefault(key,row)
+    sources=list(unique.values())
     operation=evidence['operation']
     source=operation.get('source') or operation.get('arguments',{}).get('source','')
     if source:
@@ -196,16 +205,28 @@ def select_operation_directory(evidence, case_id):
     available=[operation_directory(e,case_id) for e in evidence]
     selected, omitted, seen, names = [], [], set(), set()
     def code(row): return row['success'] and (row['kind']=='executed_python' or row['operation_name']=='execute_python')
+    def mode(index,row):
+        if not code(row):return row['operation_name']
+        op=evidence[index]['operation'];source=op.get('source') or op.get('arguments',{}).get('source','')
+        try:
+            rpc=any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and
+                    isinstance(n.func.value,ast.Name) and n.func.value.id=='ctx' for n in ast.walk(ast.parse(source)))
+        except SyntaxError:rpc=False
+        reference=evidence[index]['reference'];data=reference.get('data')
+        typed=(isinstance(data,dict) and bool(data.get('computed'))) or (row['kind']=='executed_python' and bool(reference))
+        return 'python_rpc' if rpc else 'python_compute' if typed else 'python_stdout'
+    modes=[mode(i,row) for i,row in enumerate(available)]
     ordered=sorted(enumerate(available),key=lambda pair:(
-        0 if pair[1]['published_files'] else 1 if code(pair[1]) else
-        2 if evidence_origin(evidence[pair[0]])==TEXT_PAGE else 3, pair[0]))
+        0 if pair[1]['published_files'] else 1 if modes[pair[0]]=='python_compute' else 2 if code(pair[1]) else
+        3 if evidence_origin(evidence[pair[0]])==TEXT_PAGE else 4, pair[0]))
     for index,row in ordered:
         identity=json.dumps([evidence[index]['operation'], public_result(evidence[index]['reference'],evidence_origin(evidence[index]))],
                             sort_keys=True,ensure_ascii=False,allow_nan=False)
-        reason='duplicate_operation' if identity in seen else 'operation_name_represented' if row['operation_name'] in names else 'directory_card_limit'
+        group=(row['operation_name'],modes[index])
+        reason='duplicate_operation' if identity in seen else 'operation_mode_represented' if group in names else 'directory_card_limit'
         seen.add(identity)
-        if len(selected)<4 and row['operation_name'] not in names and reason!='duplicate_operation':
-            selected.append(row);names.add(row['operation_name'])
+        if len(selected)<4 and group not in names and reason!='duplicate_operation':
+            selected.append(row);names.add(group)
         else:omitted.append({'local_evidence_ref':row['local_evidence_ref'],'reason':reason})
     return selected, {'available':[r['local_evidence_ref'] for r in available],
                       'included':[r['local_evidence_ref'] for r in selected], 'omitted':omitted}
@@ -219,7 +240,7 @@ def learning_case(experience, case_id):
     return {'case_source':{'physical_case_id':case_id},'task':{'goal':task.get('goal','')},
         **{k:deepcopy(experience.get(k)) for k in ('score','termination_reason','answer_status','completion_truncated')},
         'local_evidence':selected,
-        'directory_selection':'verified publication, executed code and acquired text page representatives before discovery-only operations; distinct operation names in source order within each priority, at most four cards',
+        'directory_selection':'verified publication, typed computation, tool-calling code and acquired pages before discovery; distinct operation modes in source order within each priority, at most four cards',
         'projection_audit':{'original_event_count':len(experience.get('events',[])),
             'original_evidence_count':len(experience.get('local_evidence',[])),
             'original_utf8_bytes':canonical_bytes(experience), **audit}, 'compact_learning_directory':True}

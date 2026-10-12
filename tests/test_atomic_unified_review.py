@@ -399,10 +399,10 @@ def test_native_python_without_files_selector_guard(tmp_path,worker,typed,succes
     from atomic_skillgraph.harness.simple_protocol import Broker
     class NativeComputeFixture(OfficeAdapter):
         # Use the real Worker result channel, not timing-dependent diagnostic stdout.
-        def _python(self,source,files,deleted_files=()):
+        def _python(self,source,files,deleted_files=(),*,broker=None,deadline=None):
             program={'id':'native-compute-fixture','source':source,'entry':'run','input_schema':SCHEMA,'output_schema':OUT,
                 'allowed_tools':[],'environment':self.config['program_environment']}
-            result=self.worker.execute(program,self.task.inputs,Broker(self,1))
+            result=self.worker.execute(program,self.task.inputs,broker or Broker(self,1),deadline=deadline)
             return {'accepted':result['status']=='ok','data':result.get('outputs',{}),'done':False}
     cfg=config_for(tmp_path/'bank');cfg['harness']={'adapter':'officeqa','corpus_root':str(tmp_path)}
     task=PublicTask('native','native-physical','Double the given integer',{'n':3})

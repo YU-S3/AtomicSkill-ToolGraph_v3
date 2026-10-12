@@ -276,9 +276,16 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
         specs={t['name']:t for t in [*adapter.tool_definitions(),*broker.available_tools()]}
         allowed=set(specs)-PROGRAM_FORBIDDEN_TOOLS
         if set(program['allowed_tools'])-allowed:raise ValueError('Program permissions exceed the public Adapter surface')
-        for action in evidence['prefix']:
+        source_events=[e for e in experience.get('events',[]) if e.get('backend_invoked',True) and not e.get('parent_event_id')]
+        for index,action in enumerate(evidence['prefix']):
             replay = broker.call(action['name'], action['arguments'])
-            if not replay.get('accepted'): raise ValueError('Source prefix cannot be reconstructed')
+            if not replay.get('accepted'):
+                event=source_events[index] if index<len(source_events) else {}
+                expected=event.get('result',{})
+                reproduced=(event.get('state')=='finished' and expected.get('accepted') is False and
+                    {'name':event.get('name'),'arguments':event.get('arguments')}==action and
+                    all(replay.get(k)==expected.get(k) for k in ('accepted','observation','data','error','done')))
+                if not reproduced:raise ValueError('Source prefix cannot be reconstructed')
         start = len(broker.events)
         if system.budget_governor: system.budget_governor.admit_validation(trial_id)
         fields = binding['reference_fields']

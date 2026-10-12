@@ -519,7 +519,7 @@ class Learner:
         case = TrialCase(binding['case_id'], task.physical_key, task.task_id, deepcopy(binding['inputs']),
                          binding['start_mode'], tuple(binding['prefix']))
         actual = [{'name': e['name'], 'arguments': e['arguments']} for e in experience.get('events', [])
-                  if e.get('backend_invoked', True)]
+                  if e.get('backend_invoked', True) and not e.get('parent_event_id')]
         if case.prefix and list(case.prefix) != actual[:len(case.prefix)]:
             raise ValueError('Trial prefix must be a real action prefix from this case')
         return case
