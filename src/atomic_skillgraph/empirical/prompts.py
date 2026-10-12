@@ -101,11 +101,12 @@ while retaining originals. Selecting an old ambiguous Skill-only Workflow also s
 this same response; selecting a native v2 Workflow needs no node_modes.
 REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
 {"literal":3}, {"unresolved":"location not yet known"}. Bare strings are invalid REF values."""
-LEARNER_PROMPT = """Learn real Train, including failures. One flat submit_learning ToolCall per schema.
-Propose at most one useful observed search/read/compute Program; no_change is valid. Reuse real assets;
-no invented evidence/owners/success/outputs. One current-case binding suffices.
-Parameterize executed arithmetic over bound arrays/scalars independently of acquisition/task success;
-no second case/unobserved retrieval. Read-only success needs no files/task success.
+LEARNER_PROMPT = """Learn real Train, including failures. One flat submit_learning ToolCall.
+Compile at most one useful observed search/read/compute operation. related lists Bank assets;
+local_evidence lists temporary/native work, not durable Programs. Native execution alone is not Bank coverage.
+Parameterize recorded arrays/scalars; one binding suffices,
+without another case, files or task success. no_change remains valid for unsupported/nonreusable/covered work.
+Never invent evidence, owners, success, outputs or retrieval.
 Use source_excerpt/input_sources/output_references; Builder gets full source.
 Arrays use aggregate AST paths, not observation/elements. Only executed
 outputs/parameters. Computation is intermediate; final_answer requires answer:string;
@@ -113,8 +114,7 @@ final_files requires files:array/deleted_files:array. observation is text; data.
 Typed json/publication files/file refs for all required outputs; inspection/filenames are not publication.
 Python allows /workspace absolutes; publication names exclude leading slash, inputs/ and '..'; separate output_path.
 Skill refs: $new or supplied real IDs, never aliases. Workflow: dependencies; dynamic goal/reference_skill_ids;
-bound asset I/O/no goal/optional purpose. Trim/merge/gaps; categories differ from IDs, compositions/patches
-are not proof. Repair keeps selected_local_goal/scope.
+bound asset I/O/no goal/optional purpose; compositions/patches are not proof. Repair keeps selected_local_goal/scope.
 guidance_only: generate_program=false/no realization_request. generate_program=true requests pending builds,
 even reuse_existing. Select one related job, 0-2 applicable completed Train bindings with real
 case_id/local_evidence_ref and existing inputs/tools; else defer. input_refs: exact catalog
