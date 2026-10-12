@@ -532,7 +532,7 @@ class Executor:
                                 node.setdefault('args', {}).update({target:{'literal':supplied[source]} for source,target in mapping.items()})
                                 supplied_by.update({(node['id'],target):attempts[-1]['id'] for target in mapping.values()})
                         else:
-                            event_id = response_id + ':' + call_id if response_id else None
+                            event_id = response_id + ':' + call_id if response_id else uuid4().hex
                             prior = next((e for e in broker.events if e.get('event_id') == event_id), None) if event_id else None
                             if not prior and broker.remaining_calls() <= 0:
                                 history.extend({'batch_id': response_id, 'call_id':c, 'status':'not_executed_budget'} for _,c in decisions[index:])

@@ -137,7 +137,7 @@ class ProgramWorker:
                        'python', '-I', '-u', '/program/worker.py', '--worker',
                        str(s['max_rpc_message_bytes']), container]
 
-    def execute(self, program, inputs, broker, *, before_publish=None):
+    def execute(self, program, inputs, broker, *, before_publish=None, deadline=None):
         from .contracts import validate_schema_instance
         from .program_submission import (validate_program_declaration, submission_contract,
                                          ProgramContractError, normalize_program_result)
@@ -162,7 +162,7 @@ class ProgramWorker:
         container = 'skillcompiler-' + uuid4().hex
         calls, result, diagnostic = 0, {'status': 'execution_error', 'detail': 'Worker exited without a result'}, bytearray()
         started = time.monotonic()
-        deadline = started + s['wall_timeout_seconds']
+        deadline = min(deadline, started + s['wall_timeout_seconds']) if deadline is not None else started + s['wall_timeout_seconds']
         workspace = getattr(broker.adapter, 'workspace', None)
         workspace_before = broker.adapter.observe().get('workspace', {}) if workspace else {}
         stage = workspace.stage() if workspace else None

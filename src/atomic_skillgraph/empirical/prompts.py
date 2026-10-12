@@ -102,15 +102,16 @@ this same response; selecting a native v2 Workflow needs no node_modes.
 REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
 {"literal":3}, {"unresolved":"location not yet known"}. Bare strings are invalid REF values."""
 LEARNER_PROMPT = """Learn from this real Train experience, including failures. Choose no_change, reuse_existing,
-propose_skill_and_program_spec, or propose_or_revise_workflow. Propose at most one new Program specification.
-Prefer a useful observed local search/read/compute operation, ordinary I/O and concise guidance. Examples are
-hypotheses, not proofs; never invent witnesses, owners, success, outputs or provenance. Workflows can trim
-exploration, merge preparation and leave dynamic gaps; declare every value dependency. Category queries and
-concrete object IDs are distinct inputs. New compositions and patches are not validated assets.
-Preserve selected_local_goal when supplied, including during repair. The full task is context: do not add its
-unrelated objects or conditions. Leave subsequent work to continuation. A successful read-only retrieval can
-be local evidence when the whole task failed; it needs neither published files nor another Train case. One
-current-case binding suffices. Do not attach an unexecuted numerical calculation to a search/read operation.
+propose_skill_and_program_spec, or propose_or_revise_workflow. Propose at most one useful observed local
+search/read/compute Program with ordinary I/O. Never invent witnesses, owners, success, outputs or provenance.
+One actual current-case binding suffices, including the first successful Train case. Existing native tools
+covering the task is not a reason to skip a reusable Program that saves repeated model decisions. Assess its
+future use; no_change remains valid for insufficient evidence or no useful reusable operation.
+Workflows may trim exploration, merge preparation and leave dynamic gaps; declare all dependencies. Category
+queries and concrete IDs differ. Examples, compositions and patches are not proofs or validated assets.
+Preserve selected_local_goal during repair. The full task is context; do not add unrelated conditions.
+A successful read-only operation is local evidence even if the whole task failed, without published files
+or another Train case. Never attach an unexecuted numerical calculation to a search/read operation.
 Use actual source_excerpt/input_sources/output_references. The excerpt is a bounded AST-formatted preview;
 Builder receives original source. Bind arrays at their aggregate AST path, never an observation path or element.
 Do not add unobserved outputs or optional parameters just because the algorithm could produce them.
@@ -249,6 +250,9 @@ For numerical tasks, obtain the relevant rows and use an available compute tool 
 values, preserving their units and provenance. Submit the answer once ready instead of continuing exploration.
 When using execute_python for a computation, print one JSON object containing the acquired input values and
 computed results with clear field names, using json.dumps. This preserves typed actual outputs for later learning.
+If a Python tool explicitly exposes ctx.call, use a bounded temporary script to batch repetitive search/read
+work even with no saved Program. Each ctx.call spends the same task budget; check ctx.remaining_calls(), stop
+when evidence suffices, and print compact actual results. Do not assume direct corpus or network access.
 Check existing memory results before repeating a query. Acquired text pages and calculations remain visible
 after later searches; a repeated query without a changed scope adds no evidence.
 Keep a concise working note in detail with acquired locators, values or completed calculations needed next.

@@ -190,16 +190,22 @@ shutil.copyfile('/tmp/recalculated/input.xlsx', OUTPUT_PATH)
         manifest = json.loads((evaluator.workspace.root/'manifest.json').read_text())
         return evaluator, evaluator.workspace.root/manifest['version']/'case1_result.xlsx'
 
-    def _python(self, source, files, deleted_files=()):
-        wrapper = 'def run(ctx, inputs):\n    namespace = {"INPUT_PATH": "/workspace/inputs/input.xlsx", "OUTPUT_PATH": "/workspace/case1_result.xlsx"}\n'
+    def call_with_broker(self, name, arguments, broker, *, deadline):
+        if name != 'execute_python': raise ValueError('Unknown broker-bound tool')
+        return self._python(arguments['source'], [], broker=broker, deadline=deadline)
+
+    def _python(self, source, files, deleted_files=(), *, broker=None, deadline=None):
+        wrapper = 'def run(ctx, inputs):\n    namespace = {"ctx": ctx, "INPUT_PATH": "/workspace/inputs/input.xlsx", "OUTPUT_PATH": "/workspace/case1_result.xlsx"}\n'
         wrapper += '    exec(' + repr(source) + ', namespace)\n'
         wrapper += '    return {"status": "ok", "outputs": {"files": inputs["files"], "deleted_files": inputs["deleted_files"]}}\n'
         output_fields = {'files': {'type': 'array', 'items': {'type': 'string'}}, 'deleted_files': {'type': 'array', 'items': {'type': 'string'}}}
         program = {'id': 'temporary_' + digest(wrapper), 'source': wrapper, 'entry': 'run',
             'input_schema': object_schema(output_fields, ['files', 'deleted_files']),
             'output_schema': object_schema(output_fields, ['files', 'deleted_files']),
-            'allowed_tools': [], 'environment': self.config['program_environment']}
-        result = self.worker.execute(program, {'files': files, 'deleted_files': list(deleted_files)}, Broker(self, 1))
+            'allowed_tools': [t['name'] for t in broker.available_tools() if t['name'] != 'execute_python'] if broker else [],
+            'environment': self.config['program_environment']}
+        result = self.worker.execute(program, {'files': files, 'deleted_files': list(deleted_files)},
+                                     broker or Broker(self, 1), deadline=deadline)
         from ..empirical.local_validation import artifact_record
         pointer = self.workspace.root/'manifest.json'
         published = self.workspace.root/json.loads(pointer.read_text())['version'] if pointer.exists() else None
@@ -221,6 +227,8 @@ shutil.copyfile('/tmp/recalculated/input.xlsx', OUTPUT_PATH)
 
 
 class OfficeAdapter(FileAdapter):
+    broker_bound_tools = ('execute_python',)
+
     def __init__(self, records, config):
         super().__init__('officeqa', records, config)
         self.corpus = Path(config['harness']['corpus_root']).resolve(strict=True)
@@ -231,7 +239,7 @@ class OfficeAdapter(FileAdapter):
              object_schema({'path': {'type':'string'}, 'offset': {'type':'integer','minimum':0}}, ['path','offset']), {'type': 'object'}, 'read_only', True, {'offset': 'unicode_codepoint_0_based'}),
             ('grep', 'Search authorized text files with a case-insensitive regular expression (not a glob). paths are explicit relative filenames; omit for all files, empty means none. At most 40 total hits; line is display only, Unicode offset is directly usable by read.',
              GREP_SCHEMA, {'type': 'array', 'items': {'type': 'object'}}, 'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
-            ('execute_python', 'Compute with acquired public values; no corpus or network mount. Print one JSON object for typed reusable results; it is exposed at data.computed. Other stdout stays in observation.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
+            ('execute_python', 'Temporary Python: ctx.call(name, args) uses glob/read/grep/read_result on the task budget. No direct corpus/network or recursive execute_python. Print bounded JSON for data.computed.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
 
     def _path(self, relative):
         path = (self.corpus / relative).resolve()

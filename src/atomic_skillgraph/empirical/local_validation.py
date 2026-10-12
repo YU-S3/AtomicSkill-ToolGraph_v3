@@ -188,6 +188,9 @@ def evidence_from_trace(task, trace, environment):
     evidence = []
     prefix = []
     for event in source['events']:
+        # Nested calls are already executed by their parent's recorded source.
+        # Keep them in the raw trace without replaying the same operation twice.
+        if event.get('parent_event_id'): continue
         if event.get('state') == 'finished' and event.get('backend_invoked') and event.get('result', {}).get('accepted'):
             evidence.append({'id': 'local:' + event['event_id'], 'source_physical_key': task.physical_key,
                 'source_trace_sha256': trace_hash, 'event_ids': [event['event_id']], 'kind': 'native_operation',

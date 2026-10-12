@@ -99,7 +99,8 @@ class Broker:
         self.unknown = False
         self.native_timeout = native_timeout
         self.observer = observer
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._parent_events = []
         self._leases = set()
         self._responses = {}
 
@@ -172,6 +173,7 @@ class Broker:
                      'event_id': event_id or uuid4().hex, 'batch_id': batch_id, 'call_id': call_id,
                      'backend_invoked': False, 'tool_call_consumed': True,
                      'progress_before': progress_key(self.adapter)}
+            if self._parent_events: event['parent_event_id'] = self._parent_events[-1]
             self.events.append(event)
             if self.observer:
                 self.observer(event, started_at, None)
@@ -200,7 +202,8 @@ class Broker:
                     outcome = None
                 else:
                     event['backend_invoked'] = True
-                    outcome = queue.Queue(maxsize=1)
+                    bound = name in getattr(self.adapter, 'broker_bound_tools', ())
+                    outcome = None if bound else queue.Queue(maxsize=1)
                 def invoke():
                     try:
                         outcome.put((True, self.adapter.call(name, arguments)))
@@ -209,7 +212,18 @@ class Broker:
                 owner = threading.Thread(target=invoke, daemon=True) if outcome is not None else None
                 if owner: owner.start()
                 try:
-                    ok, value = outcome.get(timeout=max(0, deadline - time.monotonic()) if deadline else None) if owner else (True, result)
+                    if name != 'read_result' and bound:
+                        # Container RPC returns on this owner thread, allowing
+                        # nested calls through the same counter and journal.
+                        self._parent_events.append(event['event_id'])
+                        try:
+                            value = self.adapter.call_with_broker(name, arguments, self, deadline=deadline)
+                        except BaseException as exc:
+                            ok, value = False, exc
+                        else: ok = True
+                        finally: self._parent_events.pop()
+                    else:
+                        ok, value = outcome.get(timeout=max(0, deadline - time.monotonic()) if deadline else None) if owner else (True, result)
                 except queue.Empty:
                     self.unknown = True
                     event['state'] = 'unknown'
