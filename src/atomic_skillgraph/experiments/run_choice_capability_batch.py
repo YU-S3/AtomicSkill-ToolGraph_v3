@@ -25,6 +25,12 @@ from .run_empirical import code_identity, write_json, load_env
 from .canonical_manifest import sha256
 from .formal_log import utc
 
+SCOPE_POLICY='choice-capability-batch.run-local-budget.v1'
+
+
+def learning_scope(plan,key):
+    return plan['run_id']+':'+key if plan.get('scope_policy')==SCOPE_POLICY else key
+
 
 def read(path):return json.loads(Path(path).read_text())
 
@@ -154,7 +160,7 @@ def prepare(settings_path,source_run,output):
     inputs={str(source/name):sha256(source/name) for name in names};inputs[str(Path(settings_path).resolve())]=sha256(Path(settings_path))
     inputs[str(canonical)]=sha256(canonical)
     write_json(output/'source_records.json',public);write_json(output/'source_cases.json',rows);write_json(output/'config.json',config)
-    plan={'schema':VERSION,'prompt_revision':PROMPT_REVISION,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),'source_run':str(source),'source_run_id':manifest['run_id'],
+    plan={'schema':VERSION,'prompt_revision':PROMPT_REVISION,'scope_policy':SCOPE_POLICY,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),'source_run':str(source),'source_run_id':manifest['run_id'],
         'derivation_mode':'offline_recompile_from_completed_train','initial_bank':'fresh independent derived Bank; no P1 assets',
         'settings':spec,'input_hashes':inputs,'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_records.json','source_cases.json')},
         'generation_tasks':generation,'selection_tasks':stages,'candidate_units':units,
@@ -187,7 +193,11 @@ def check(plan_path):
         if (root/'budget.json').exists() and any(read(root/'budget.json')['attempts'].get(k)!=v for k,v in ledger['attempts'].items()):
             raise ValueError('Inherited paid attempts changed')
     if 'paid_prefix' in plan:
-        if 'protocol_continuation' in plan:
+        if 'budget_continuation' in plan:
+            restored,ledger,_=budget_continuation_inputs(plan['budget_continuation']['parent_plan'])
+            if restored!=plan['budget_continuation']:raise ValueError('Budget continuation provenance changed')
+            prefix=restored['paid_prefix']
+        elif 'protocol_continuation' in plan:
             restored,ledger,_=protocol_inputs(plan['protocol_continuation']['receipt'])
             if restored!=plan['protocol_continuation']:raise ValueError('Revalidated protocol provenance changed')
             prefix=restored['paid_prefix']
@@ -244,7 +254,7 @@ def recovery_inputs(plan_path):
         if len(raw_calls)!=1 or raw_calls[0]['function']['name']!='submit_capability' or json.loads(raw_calls[0]['function']['arguments'])!=calls[0]['arguments']:
             raise ValueError('Parsed demand differs from actual provider response')
         identity=attempt['request_id'];entry=ledger['attempts'][identity]
-        if identity in attempt_ids or entry['actual_usage']!=attempt['raw_usage'] or entry['accounted_tokens']!=attempt['raw_usage']['total_tokens'] or entry['context']['parent_scope']!='candidate:'+str(i):
+        if identity in attempt_ids or entry['actual_usage']!=attempt['raw_usage'] or entry['accounted_tokens']!=attempt['raw_usage']['total_tokens'] or entry['context']['parent_scope']!=learning_scope(old,'candidate:'+str(i)):
             raise ValueError('Paid demand billing or attribution changed')
         validate_capability(calls[0]['arguments'],unit_rows);attempt_ids.add(identity)
         recovered.append({'unit_id':unit_id,'public_cases_hash':digest(public),'value':calls[0]['arguments'],
@@ -271,7 +281,7 @@ def recover(plan_path,output):
     if expected!=new_config:raise ValueError('Recovery may not change method parameters')
     for name in ('source_records.json','source_cases.json'):write_json(output/name,read(root/name))
     write_json(output/'config.json',new_config);write_json(output/'inherited_p2_budget.json',ledger)
-    plan={**old,'prompt_revision':PROMPT_REVISION,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),'derivation_mode':'explicit_induction_contract_recovery',
+    plan={**old,'prompt_revision':PROMPT_REVISION,'scope_policy':SCOPE_POLICY,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),'derivation_mode':'explicit_induction_contract_recovery',
         'recovery':recovery,'input_hashes':inputs,'inherited_tokens':recovery['inherited_tokens'],'inherited_http':recovery['inherited_http'],
         'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_records.json','source_cases.json','inherited_p2_budget.json')}}
     write_json(output/'plan.json',plan);write_json(output/'plan_identity.json',{'plan_hash':digest(plan)})
@@ -357,7 +367,7 @@ def continue_repair(plan_path,output):
     for pending in prefix['pending']:
         state_path=output/'learning'/str(pending['index'])/'checkpoint/state.json';state=read(state_path)
         state.pop(pending['unit_key']);write_json(state_path,state)
-    plan={**old,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),'derivation_mode':'explicit_unissued_repair_continuation',
+    plan={**old,'scope_policy':SCOPE_POLICY,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),'derivation_mode':'explicit_unissued_repair_continuation',
         'continuation':True,'paid_prefix':prefix,'input_hashes':inputs,'inherited_tokens':prefix['inherited_tokens'],'inherited_http':prefix['inherited_http'],
         'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_records.json','source_cases.json','inherited_p2_budget.json')}}
     write_json(output/'plan.json',plan);write_json(output/'plan_identity.json',{'plan_hash':digest(plan)})
@@ -406,7 +416,7 @@ def revise(plan_path,output,*,experimental_revision='P2-R2'):
     replay=prior_content_checks(plan_path,ledger) if experimental_revision in {'P2-R4','P2-R5'} else None
     for name in ('source_records.json','source_cases.json'):write_json(output/name,read(root/name))
     write_json(output/'config.json',new_config);write_json(output/'inherited_p2_budget.json',ledger)
-    plan={**{k:v for k,v in old.items() if k not in {'recovery','protocol_continuation'}},'prompt_revision':PROMPT_REVISION,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),
+    plan={**{k:v for k,v in old.items() if k not in {'recovery','protocol_continuation'}},'prompt_revision':PROMPT_REVISION,'scope_policy':SCOPE_POLICY,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),
         'derivation_mode':('explicit_'+experimental_revision+'_from_same_completed_train' if replay is not None else 'user_authorized_P2_R2_from_same_completed_train'),
         'paid_prefix':prefix,'input_hashes':inputs,
         'inherited_tokens':prefix['inherited_tokens'],'inherited_http':prefix['inherited_http'],
@@ -425,6 +435,71 @@ def learning_boundary(system,root,key,*,response_namespace=None):
     system._learning_start=system._task_start
     system.prior_usage=read(system.audit_path)['usage'] if Path(system.audit_path).exists() else []
     system.request_attribution={'parent_scope':key,'parent_token_limit':system.config['budget']['train_learning_tokens'],'train_parent':True}
+
+
+def budget_continuation_inputs(plan_path):
+    """Reuse one metered induction before an unissued local pool refusal, retaining every global charge."""
+    path=Path(plan_path).resolve();root=path.parent;old=read(path);result=read(root/'result.json');ledger=read(root/'budget.json')
+    if (old['schema']!=VERSION or old.get('prompt_revision')!=PROMPT_REVISION or old.get('paid_prefix',{}).get('experimental_revision')!='P2-R5' or old.get('budget_continuation') or
+        digest(old)!=read(root/'plan_identity.json')['plan_hash'] or result['plan_hash']!=digest(old) or
+        result['status']!='stopped_budget_censored' or result.get('reason')!='learning pool HTTP admission refused'):
+        raise ValueError('Only the original R5 local pool refusal may continue')
+    inputs={str(path):sha256(path)}
+    for p,h in {**old['input_hashes'],**{str(root/n):h for n,h in old['prepared_hashes'].items()}}.items():
+        if sha256(Path(p))!=h:raise ValueError('Original budget continuation source changed')
+        inputs[p]=h
+    if ledger['unknown_billing'] or ledger['limits']!={**old['new_limits'],'finish_reserve':0} or any(a['status']!='metered' for a in ledger['attempts'].values()):
+        raise ValueError('Original billing or allowance changed')
+    previous=read(root/'inherited_p2_budget.json');added=set(ledger['attempts'])-set(previous['attempts'])
+    if len(added)!=1 or any(ledger['attempts'].get(k)!=v for k,v in previous['attempts'].items()):raise ValueError('Original paid prefix changed')
+    audit=read(root/'learning/0/requests.json')['requests']
+    if (len(audit)!=2 or [q['purpose'] for q in audit]!=['capability_induction','guidance_learning'] or any(q['repair']!=0 for q in audit) or
+        audit[1].get('admission_status')!='local_refusal' or audit[1].get('error')!=result['reason'] or audit[1]['http_attempts']):
+        raise ValueError('Continuation cannot add a proposal attempt or repair')
+    request=audit[0]
+    if len(request['http_attempts'])!=1 or len(request['response']['tool_calls'])!=1:raise ValueError('Original induction must have one physical response')
+    attempt=request['http_attempts'][0];value=request['response']['tool_calls'][0]['arguments'];entry=ledger['attempts'][attempt['request_id']]
+    rows=records(read(root/'source_cases.json'));by_key={r['task']['physical_key']:r for r in rows}
+    source=[by_key[k] for k in old['candidate_units'][0]];public=[{k:r[k] for k in ('task','task_hash','spans')} for r in source]
+    wire=attempt['final_payload_audit'];native=attempt['public_response']['choices'][0]
+    if (attempt['request_id'] not in added or entry['actual_usage']!=attempt['raw_usage'] or
+        entry['accounted_tokens']!=attempt['raw_usage']['total_tokens'] or entry['context']['parent_scope']!=learning_scope(old,'candidate:0') or
+        native['finish_reason']!='tool_calls' or len(native['message']['tool_calls'])!=1 or native['message']['tool_calls'][0]['function']['name']!='submit_capability' or
+        json.loads(native['message']['tool_calls'][0]['function']['arguments'])!=value or
+        wire['tools'][0]['function']['parameters']!=generation_schema(CAPABILITY,prompt_revision=old['prompt_revision']) or
+        expand_material(json.loads(wire['messages'][1]['content']))!={'public_cases':public,'learning_material_version':MATERIAL_VERSION}):
+        raise ValueError('Original induction response, source or charge changed')
+    validate_capability(value,source)
+    selected=[t['physical_key'] for stage in old['selection_tasks'].values() for t in stage]
+    demand={'unit_id':digest([VERSION,source,sorted(selected)]),'public_cases_hash':digest(public),'value':value,
+        'request_id':request['id'],'http_attempt_id':attempt['request_id'],'original_code':old['code'],'new_model_http':0}
+    tokens=sum(a['accounted_tokens'] for a in ledger['attempts'].values());http=len(ledger['attempts']);prior=old['paid_prefix']
+    inherited=old['inherited_tokens']+tokens-prior['prior_p2_tokens'];inherited_http=old['inherited_http']+http-prior['prior_p2_http']
+    if result['total_p2_tokens']!=tokens or result['total_p2_http']!=http or result['cumulative_tokens']!=inherited or result['cumulative_http']!=inherited_http:
+        raise ValueError('Continuation cost differs from the complete physical ledger')
+    if tokens>=old['new_limits']['token_limit'] or http>=old['new_limits']['request_limit']:raise ValueError('No original allowance remains')
+    for p in [*(root/'learning').rglob('*'),*[root/n for n in ('result.json','budget.json','plan_identity.json')]]:
+        if p.is_file():inputs[str(p)]=sha256(p)
+    prefix={'parent_plan':str(path),'parent_run_id':old['run_id'],'experimental_revision':'P2-R5','continuation_kind':'run_local_learning_budget_scope_fix',
+        'prior_p2_tokens':tokens,'prior_p2_http':http,'allowance':old['new_limits'],'remaining_tokens':old['new_limits']['token_limit']-tokens,
+        'remaining_http':old['new_limits']['request_limit']-http,'inherited_tokens':inherited,'inherited_http':inherited_http}
+    return {'parent_plan':str(path),'paid_prefix':prefix,'demands':[demand]+[None]*(len(old['candidate_units'])-1)},ledger,inputs
+
+
+def continue_budget(plan_path,output):
+    restored,ledger,inputs=budget_continuation_inputs(plan_path);prefix=restored['paid_prefix'];old=read(plan_path)
+    output=Path(output).resolve();root=Path(plan_path).resolve().parent;code=code_identity()
+    if output.exists() or code['tracked_dirty'] or not code['git_sha']:raise ValueError('Budget continuation requires fresh output and committed clean source')
+    original=read(root/'config.json');config=configuration(original,output)
+    for name in ('source_cases.json','source_records.json'):write_json(output/name,read(root/name))
+    write_json(output/'config.json',config);write_json(output/'inherited_p2_budget.json',ledger)
+    plan={**old,'scope_policy':SCOPE_POLICY,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),
+        'derivation_mode':'explicit_unissued_proposal_budget_scope_fix','budget_continuation':restored,'paid_prefix':prefix,
+        'config_transition':{'parent':original,'current':config},
+        'input_hashes':inputs,'inherited_tokens':prefix['inherited_tokens'],'inherited_http':prefix['inherited_http'],
+        'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_records.json','source_cases.json','inherited_p2_budget.json')}}
+    write_json(output/'plan.json',plan);write_json(output/'plan_identity.json',{'plan_hash':digest(plan)})
+    return plan
 
 
 def protocol_inputs(receipt_path):
@@ -467,7 +542,7 @@ def continue_protocol(receipt_path,output):
     for name in ('source_cases.json','source_records.json'):write_json(output/name,read(parent/name))
     write_json(output/'config.json',config);write_json(output/'inherited_p2_budget.json',ledger)
     plan={**{k:v for k,v in old.items() if k not in {'recovery','continuation','paid_prefix'}},
-        'schema':VERSION,'prompt_revision':PROMPT_REVISION,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),
+        'schema':VERSION,'prompt_revision':PROMPT_REVISION,'scope_policy':SCOPE_POLICY,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),
         'derivation_mode':'explicit_P2_R3_paid_protocol_continuation','protocol_continuation':restored,'paid_prefix':prefix,
         'config_transition':{'parent':original,'current':config},'input_hashes':inputs,
         'inherited_tokens':prefix['inherited_tokens'],'inherited_http':prefix['inherited_http'],
@@ -486,7 +561,7 @@ def evaluator_records(summary):
     return records
 
 
-def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,rank,candidate_index):
+def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,rank,candidate_index,*,run_id=None):
     pair={};order=('off','on') if (rank+candidate_index)%2==0 else ('on','off')
     for arm in order:
         task_root=root/str(rank)/arm;cfg=deepcopy(config);cfg['data_dir']=str(trial);cfg['llm']['max_retries']=0
@@ -496,6 +571,7 @@ def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,ra
         try:
             target.checkpoint=TaskCheckpoint(task_root/'checkpoint');target.audit_path=str(task_root/'requests.json')
             trace_path=task_root/'trace.json';attempt=VERSION+':'+str(candidate_index)+':'+str(rank)+':'+arm
+            if run_id:attempt=run_id+':'+attempt
             if trace_path.exists():
                 trace=read(trace_path)
                 if trace['task']!=task.__dict__ or trace['attempt_id']!=attempt or trace['method_identity']['config_hash']!=digest(target.config):
@@ -517,7 +593,7 @@ def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,ra
 def execute(plan_path,env_file):
     check(plan_path);plan=read(plan_path);root=Path(plan_path).parent;config=read(root/'config.json')
     recovery=plan.get('recovery',{})
-    restored=plan.get('protocol_continuation',{})
+    restored=plan.get('protocol_continuation',plan.get('budget_continuation',{}))
     prefix=plan.get('paid_prefix',recovery)
     if prefix and not (root/'budget.json').exists():write_json(root/'budget.json',read(root/'inherited_p2_budget.json'))
     load_env(env_file);governor=BudgetGovernor(root/'budget.json',**plan['new_limits'],finish_reserve=0)
@@ -532,10 +608,10 @@ def execute(plan_path,env_file):
         selection=[t for rows in plan['selection_tasks'].values() for t in rows];selected=[t['physical_key'] for t in selection];candidates=[]
         learning=[]
         for i,unit in enumerate(plan['candidate_units']):
-            learning_boundary(system,root/'learning'/str(i),'candidate:'+str(i),response_namespace=prefix.get('response_namespaces',{}).get(str(i)))
+            learning_boundary(system,root/'learning'/str(i),learning_scope(plan,'candidate:'+str(i)),response_namespace=prefix.get('response_namespaces',{}).get(str(i)))
             log=system.learner.learn_capability_batch(unit,selected,
                 recovered_demand=restored['demands'][i] if restored else recovery['demands'][i] if recovery else None,
-                recovered_proposal=restored['proposals'][i] if restored else None)
+                recovered_proposal=restored['proposals'][i] if restored.get('proposals') else None)
             write_json(root/'learning'/str(i)/'learning.json',log)
             learning.append({**{k:log.get(k) for k in ('decision','stage','reason')},
                 'proposal_created':bool(log.get('proposed_candidate')),
@@ -557,7 +633,7 @@ def execute(plan_path,env_file):
         for i,candidate in enumerate(candidates):
             folder=root/'candidates'/candidate['id'];preflight=[]
             for rank,row in enumerate(selection):
-                task=PublicTask(**row);learning_boundary(system,folder/'routing'/str(rank),'routing:'+candidate['id']+':'+str(rank))
+                task=PublicTask(**row);learning_boundary(system,folder/'routing'/str(rank),learning_scope(plan,'routing:'+candidate['id']+':'+str(rank)))
                 match=system.learner.match_capability(candidate,task);validate_match(match,candidate['capability'],task)
                 preflight.append({'task':row,'stage':'screen' if rank<len(plan['selection_tasks']['screen']) else 'confirmation','rank':rank,'match':match})
                 progress(root,'public_match_completed',candidate_id=candidate['id'],task_id=task.task_id,rank=rank,applicable=match['applicable'])
@@ -568,7 +644,8 @@ def execute(plan_path,env_file):
                     if row['stage']=='confirmation' and not gate(screen,plan['utility_policy']['screen']):break
                     task=PublicTask(**row['task']);match={candidate['capability']['id']:row['match']}
                     progress(root,'pair_started',candidate_id=candidate['id'],task_id=task.task_id,rank=row['rank'])
-                    pair=evaluate_pair(folder/'selection',task,candidate,match,config,governor,trial,evaluator,row['rank'],i)
+                    pair=evaluate_pair(folder/'selection',task,candidate,match,config,governor,trial,evaluator,row['rank'],i,
+                        run_id=plan['run_id'] if plan.get('scope_policy')==SCOPE_POLICY else None)
                     pairs[task.physical_key]=pair
                     progress(root,'pair_completed',candidate_id=candidate['id'],task_id=task.task_id,rank=row['rank'],
                         off_correct=pair['off']['score']['hard'],on_correct=pair['on']['score']['hard'])
@@ -620,12 +697,13 @@ def main():
     p=sub.add_parser('revise');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
     p.add_argument('--revision',choices=('P2-R2','P2-R4','P2-R5'),default='P2-R2')
     p=sub.add_parser('continue-repair');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
+    p=sub.add_parser('continue-budget');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
     p=sub.add_parser('continue-protocol');p.add_argument('--receipt',required=True);p.add_argument('--output',required=True)
     for mode in ('check','execute'):
         p=sub.add_parser(mode);p.add_argument('--plan',required=True)
         if mode=='execute':p.add_argument('--env-file',required=True)
     args=parser.parse_args()
-    result=prepare(args.settings,args.source_run,args.output) if args.mode=='prepare' else recover(args.plan,args.output) if args.mode=='recover' else revise(args.plan,args.output,experimental_revision=args.revision) if args.mode=='revise' else continue_repair(args.plan,args.output) if args.mode=='continue-repair' else continue_protocol(args.receipt,args.output) if args.mode=='continue-protocol' else check(args.plan) if args.mode=='check' else execute(args.plan,args.env_file)
+    result=prepare(args.settings,args.source_run,args.output) if args.mode=='prepare' else recover(args.plan,args.output) if args.mode=='recover' else revise(args.plan,args.output,experimental_revision=args.revision) if args.mode=='revise' else continue_repair(args.plan,args.output) if args.mode=='continue-repair' else continue_budget(args.plan,args.output) if args.mode=='continue-budget' else continue_protocol(args.receipt,args.output) if args.mode=='continue-protocol' else check(args.plan) if args.mode=='check' else execute(args.plan,args.env_file)
     print(json.dumps(result,ensure_ascii=False))
 
 
