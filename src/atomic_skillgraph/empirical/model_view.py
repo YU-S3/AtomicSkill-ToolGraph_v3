@@ -4,7 +4,7 @@ import ast
 import json
 from . import POLICY_DEFAULTS
 from .contracts import PublicTask
-from .public_results import public_result, evidence_origin
+from .public_results import public_result, evidence_origin, TEXT_PAGE
 
 MODEL_VIEW_VERSION = POLICY_DEFAULTS['runtime']['model_view_version']
 CANDIDATE_VIEW_VERSION = 'candidate.v2'
@@ -171,12 +171,13 @@ def operation_directory(evidence, case_id):
 
 
 def select_operation_directory(evidence, case_id):
-    """Publication/code representatives, then distinct executed operation names."""
+    """Publication/code/page representatives survive before discovery-only cards."""
     available=[operation_directory(e,case_id) for e in evidence]
     selected, omitted, seen, names = [], [], set(), set()
     def code(row): return row['success'] and (row['kind']=='executed_python' or row['operation_name']=='execute_python')
     ordered=sorted(enumerate(available),key=lambda pair:(
-        0 if pair[1]['published_files'] else 1 if code(pair[1]) else 2, pair[0]))
+        0 if pair[1]['published_files'] else 1 if code(pair[1]) else
+        2 if evidence_origin(evidence[pair[0]])==TEXT_PAGE else 3, pair[0]))
     for index,row in ordered:
         identity=json.dumps([evidence[index]['operation'], public_result(evidence[index]['reference'],evidence_origin(evidence[index]))],
                             sort_keys=True,ensure_ascii=False,allow_nan=False)
@@ -197,7 +198,7 @@ def learning_case(experience, case_id):
     return {'case_source':{'physical_case_id':case_id},'task':{'goal':task.get('goal','')},
         **{k:deepcopy(experience.get(k)) for k in ('score','termination_reason','answer_status','completion_truncated')},
         'local_evidence':selected,
-        'directory_selection':'verified publication and executed code representatives, then distinct operation names in source order; at most four cards',
+        'directory_selection':'verified publication, executed code and acquired text page representatives before discovery-only operations; distinct operation names in source order within each priority, at most four cards',
         'projection_audit':{'original_event_count':len(experience.get('events',[])),
             'original_evidence_count':len(experience.get('local_evidence',[])),
             'original_utf8_bytes':canonical_bytes(experience), **audit}, 'compact_learning_directory':True}

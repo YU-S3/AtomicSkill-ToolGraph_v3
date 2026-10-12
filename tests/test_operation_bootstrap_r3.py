@@ -107,6 +107,38 @@ def test_read_page_survives_three_later_searches(tmp_path):
     finally: s.close()
 
 
+def test_learning_wire_keeps_acquired_page_before_discovery_cards(tmp_path, monkeypatch):
+    from atomic_skillgraph.empirical.budget_governor import input_token_bound
+    s = office(tmp_path)
+    broker = Broker(s.adapter, 24)
+    for name, arguments in [('glob', {'pattern': '*.txt'}),
+                            ('grep', {'pattern': 'target'}),
+                            ('read', {'path': 'a.txt', 'offset': 0})]:
+        broker.call(name, arguments)
+    experience = s.learner._experience(s.adapter.task, {'tools': broker.events, 'execution': {}, 'score': {'hard': False}})
+    material = {'experience': learning_case(experience, s.adapter.task.physical_key)}
+    cards = material['experience']['local_evidence']
+    assert [c['operation_name'] for c in cards] == ['read', 'glob', 'grep']
+    sent = http(monkeypatch, [response([{'decision': 'no_change'}], name='submit_learning')] * 2)
+    try:
+        s.config['learning']['extractor_payload_max_bytes'] = 65536
+        s.agent('extractor', LEARNER_PROMPT, material, 'submit_learning', LEARNING)
+        # Force one complete card out through the production full-wire admission.
+        compact = deepcopy(sent[0])
+        compact['messages'][1]['content'] = json.dumps(json.loads(compact['messages'][1]['content']),
+                                                       ensure_ascii=False, separators=(',', ':'))
+        s.config['learning']['extractor_payload_max_bytes'] = input_token_bound(compact) - 1
+        s.agent('extractor', LEARNER_PROMPT, material, 'submit_learning', LEARNING)
+        actual = expand_material(json.loads(sent[1]['messages'][1]['content']))
+        assert len(actual['experience']['local_evidence']) < len(cards)
+        assert actual['experience']['local_evidence'][0] == cards[0]
+        assert actual['experience']['local_evidence'][0]['operation_name'] == 'read'
+        assert input_token_bound(sent[1]) <= s.config['learning']['extractor_payload_max_bytes']
+        assert any(row['reason'] == 'full_payload_input_limit' for row in s.requests[-1]['material_audit']['omitted'])
+        assert not s.bank.all('program')
+    finally: s.close()
+
+
 def test_compute_learning_builds_usable_and_frozen_reuses_without_runtime(tmp_path, monkeypatch, worker):
     s = office(tmp_path); s.worker = worker; s.adapter.worker = worker
     s.adapter_factory = lambda: OfficeAdapter({'office': {'answer': 'private'}}, s.config)
