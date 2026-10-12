@@ -227,7 +227,7 @@ def test_z12_retry_attempt_cannot_escape_unknown_billing(tmp_path,monkeypatch):
 
 def test_z12_runtime_reserve_admits_only_one_finish(tmp_path,monkeypatch):
     s=office(tmp_path)
-    s.config['llm']['runtime']['max_total_tokens_per_task']=1000
+    s.config['llm']['runtime']['max_total_tokens_per_task']=1500
     s.config['llm']['purpose_overrides']={'finish_only':{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':512}}
     seen=http(monkeypatch,[response(content='42',finish='stop')])
     with pytest.raises(BudgetExhausted,match='preserves'):

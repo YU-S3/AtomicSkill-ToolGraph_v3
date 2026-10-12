@@ -9,6 +9,8 @@ import pytest
 from atomic_skillgraph.empirical.budget_governor import BudgetGovernor, input_token_bound
 from atomic_skillgraph.empirical.contracts import digest
 from atomic_skillgraph.empirical.task_context import TaskContext
+from atomic_skillgraph.empirical.finish_evidence import build_finish_evidence
+from atomic_skillgraph.empirical.public_results import FILE_COMPUTE, PROGRAM_EXECUTION, TEXT_PAGE
 from atomic_skillgraph.experiments import audit_officeqa_prefix as gate
 from atomic_skillgraph.experiments.benchmark_config import benchmark_config
 from test_cf2_contracts import office, http, response
@@ -61,3 +63,26 @@ def test_gate_still_blocks_runtime_payload_overflow():
     with pytest.raises(AssertionError,match='non-learning payload overflow'):
         gate.capacity_refusal({'stage':'runtime','purpose':'finish_only','error':'material_too_large',
             'material_refusal':{'payload':{}}}, {})
+
+
+@pytest.mark.parametrize('origin,field', [(FILE_COMPUTE,'data'), (PROGRAM_EXECUTION,'outputs')])
+def test_finish_keeps_acquired_computation_before_long_pages(origin,field):
+    context=TaskContext()
+    page=context.register('page',{'data':{'text':'long acquired table row '*900}},origin=TEXT_PAGE)
+    host_field='worker_cpu_seconds' if origin==FILE_COMPUTE else 'cpu_seconds'
+    output=context.register('calculation',{field:{'rounded':0.162},host_field:99},origin=origin)
+    before=digest(context.results)
+    context.sent_windows=context.displayed_windows(context.view(page))
+    material={'original_goal':'Report the acquired calculation rounded to three places',
+              'recent':[context.view(page),context.view(output)]}
+    finish=build_finish_evidence(context,material,'finish',max_bytes=4500)
+    windows=finish['materials']['finish_evidence']
+    calculation=next(w for w in windows if w['source_ref']=={'result_id':output,'path':[field,'rounded']})
+    assert calculation['content']=='0.162' and not calculation['truncated']
+    assert windows.index(calculation)==0 and any(w['source_ref']['result_id']==page for w in windows)
+    assert finish['serialized_input_bytes']<=4500 and digest(context.results)==before
+    assert not any(w['source_ref']['path']==[host_field] for w in windows)
+    assert all(w['content_hash']==digest(w['content']) for w in windows)
+    blocked=build_finish_evidence(context,material,'finish',max_bytes=4500,allowed_result_ids={page})
+    assert all(w['source_ref']['result_id']!=output for w in blocked['materials']['finish_evidence'])
+    assert any(w['result_id']==output and w['reason']=='not_in_obtained_results' for w in blocked['unresolved_refs'])

@@ -4,6 +4,7 @@ import json
 
 from .contracts import digest
 from .budget_governor import input_token_bound
+from .public_results import FILE_COMPUTE, PROGRAM_EXECUTION
 
 
 def wire_bytes(prompt, materials):
@@ -59,7 +60,7 @@ def build_finish_evidence(context, materials, prompt, *, max_bytes=65536, window
             omitted.append({'material_key': key, 'reason': 'optional_reference_directory_input_limit'})
             materials[key] = []
     if bound(materials) > max_bytes: raise ValueError('finish_unavailable:base_input_exceeds_limit')
-    ranges = {}
+    windows = []
     for ref in refs:
         rid, path = ref.get('result_id'), ref.get('path', [])
         if allowed_result_ids is not None and rid not in allowed_result_ids:
@@ -85,26 +86,39 @@ def build_finish_evidence(context, materials, prompt, *, max_bytes=65536, window
                 window = context.result_window(leaf, offset, limit)
             except ValueError:
                 unresolved.append({**leaf, 'reason': 'invalid_public_window'}); continue
-            key = digest([leaf, window['unit']])
-            segments = [(window['offset'], window['end'])]
-            for start, end in ranges.get(key, []):
-                segments = [(a, min(b, start)) for a, b in segments if a < start] + [(max(a, end), b) for a, b in segments if b > end]
-            for start, end in segments:
-                if start >= end: continue
-                fragment = context.result_window(leaf, start, end - start)
-                materials['finish_evidence'].append(fragment)
-                def fits(w):
-                    materials['finish_evidence'][-1] = w
-                    return bound(materials) <= max_bytes
-                fragment = context.fit_window(fragment, fits)
-                if not fragment['content']:
-                    materials['finish_evidence'].pop()
-                    omitted.append({**leaf, 'offset': start, 'end': end, 'reason': 'input_limit',
-                                    **({'field_refs': fragment['field_refs']} if 'field_refs' in fragment else {})})
-                else:
-                    materials['finish_evidence'][-1] = fragment
-                    ranges.setdefault(key, []).append((fragment['offset'], fragment['end']))
-                    included.append({k: v for k, v in fragment.items() if k != 'content'})
+            windows.append(window)
+    def priority(window):
+        ref = window['source_ref']
+        compact_output = (context.origin(ref['result_id']) in {FILE_COMPUTE, PROGRAM_EXECUTION}
+            and ref['path'][:1] in [['data'], ['outputs']]
+            and len(json.dumps(window['content'], ensure_ascii=False).encode('utf-8'))
+                <= context.settings['result_inline_max_chars'])
+        return 0 if compact_output else 1
+    # Reserve acquired compact computation outputs before fitting long source pages.
+    # Equal-priority windows retain the original reference order and exact provenance.
+    ranges = {}
+    for window in sorted(windows, key=priority):
+        leaf = window['source_ref']
+        key = digest([leaf, window['unit']])
+        segments = [(window['offset'], window['end'])]
+        for start, end in ranges.get(key, []):
+            segments = [(a, min(b, start)) for a, b in segments if a < start] + [(max(a, end), b) for a, b in segments if b > end]
+        for start, end in segments:
+            if start >= end: continue
+            fragment = context.result_window(leaf, start, end - start)
+            materials['finish_evidence'].append(fragment)
+            def fits(w):
+                materials['finish_evidence'][-1] = w
+                return bound(materials) <= max_bytes
+            fragment = context.fit_window(fragment, fits)
+            if not fragment['content']:
+                materials['finish_evidence'].pop()
+                omitted.append({**leaf, 'offset': start, 'end': end, 'reason': 'input_limit',
+                                **({'field_refs': fragment['field_refs']} if 'field_refs' in fragment else {})})
+            else:
+                materials['finish_evidence'][-1] = fragment
+                ranges.setdefault(key, []).append((fragment['offset'], fragment['end']))
+                included.append({k: v for k, v in fragment.items() if k != 'content'})
     return {'materials': materials, 'included_refs': included, 'omitted_refs': omitted,
             'unresolved_refs': unresolved, 'evidence_digest': digest(materials['finish_evidence']),
             'serialized_input_bytes': bound(materials), 'input_max_bytes': max_bytes, 'output_cap': output_cap}
