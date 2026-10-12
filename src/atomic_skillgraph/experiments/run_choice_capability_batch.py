@@ -440,7 +440,7 @@ def learning_boundary(system,root,key,*,response_namespace=None):
 def budget_continuation_inputs(plan_path):
     """Reuse one metered induction before an unissued local pool refusal, retaining every global charge."""
     path=Path(plan_path).resolve();root=path.parent;old=read(path);result=read(root/'result.json');ledger=read(root/'budget.json')
-    if (old['schema']!=VERSION or old.get('prompt_revision')!=PROMPT_REVISION or old.get('paid_prefix',{}).get('experimental_revision')!='P2-R5' or old.get('budget_continuation') or
+    if (old['schema']!=VERSION or old.get('prompt_revision') not in {'procedural-actions.r6',PROMPT_REVISION} or old.get('paid_prefix',{}).get('experimental_revision')!='P2-R5' or old.get('budget_continuation') or
         digest(old)!=read(root/'plan_identity.json')['plan_hash'] or result['plan_hash']!=digest(old) or
         result['status']!='stopped_budget_censored' or result.get('reason')!='learning pool HTTP admission refused'):
         raise ValueError('Only the original R5 local pool refusal may continue')
@@ -493,7 +493,7 @@ def continue_budget(plan_path,output):
     original=read(root/'config.json');config=configuration(original,output)
     for name in ('source_cases.json','source_records.json'):write_json(output/name,read(root/name))
     write_json(output/'config.json',config);write_json(output/'inherited_p2_budget.json',ledger)
-    plan={**old,'scope_policy':SCOPE_POLICY,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),
+    plan={**old,'prompt_revision':PROMPT_REVISION,'scope_policy':SCOPE_POLICY,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),
         'derivation_mode':'explicit_unissued_proposal_budget_scope_fix','budget_continuation':restored,'paid_prefix':prefix,
         'config_transition':{'parent':original,'current':config},
         'input_hashes':inputs,'inherited_tokens':prefix['inherited_tokens'],'inherited_http':prefix['inherited_http'],
