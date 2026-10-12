@@ -14,7 +14,8 @@ from ..core.errors import BudgetExhausted, FailureLayer
 from ..harness.simple_protocol import Broker, EpisodeResult
 from . import (PROFILE, POLICY_DEFAULTS, CHOICE_GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_MATERIAL_VERSION,
                CHOICE_GUIDANCE_SELECTION_VERSION, SINGLE_ANSWER_PROMPT_VERSION)
-from . import PUBLIC_CHOICE_POLICY_VERSION, PUBLIC_CHOICE_MATERIAL_VERSION
+from . import (PUBLIC_CHOICE_POLICY_VERSION, PUBLIC_CHOICE_MATERIAL_VERSION,
+    CHOICE_CAPABILITY_VERSIONS, CHOICE_CAPABILITY_MATERIAL_VERSIONS)
 from .bank import Bank
 from .contracts import PublicTask, RuntimeDecision, digest
 from .task_context import TaskContext
@@ -92,9 +93,9 @@ def validate_config(config):
     if config['learning'].get('choice_guidance',{}).get('public_process',False) != config['runtime'].get('choice_guidance',{}).get('public_process',False):
         raise ValueError('Public process learning/runtime policies must agree')
     if config['runtime'].get('choice_guidance',{}).get('public_process'):
-        if config['experiment'].get('choice_method_version') not in {VERSION,'choice-capability-batch.v1'}:
+        if config['experiment'].get('choice_method_version') not in ({VERSION}|CHOICE_CAPABILITY_VERSIONS):
             raise ValueError('Public process requires an explicit fresh method identity')
-    if config['experiment'].get('choice_method_version')=='choice-capability-batch.v1':
+    if config['experiment'].get('choice_method_version') in CHOICE_CAPABILITY_VERSIONS:
         for purpose in ('capability_induction','capability_routing'):
             if overrides.get(purpose)!={'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
                 raise ValueError('Capability decisions require bounded disabled-thinking settings')
@@ -312,7 +313,7 @@ class EmpiricalSystem:
         tools = [NativeToolSpec(name, "Submit the requested result", schema)] if name else []
         choice_learning = (self.config['learning'].get('choice_guidance', {}).get('enabled') is True and
                            self.adapter.capabilities.interaction == 'single_answer' and
-                           materials.get('learning_material_version') in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION,'choice-capability-batch.material.v1'} and
+                           materials.get('learning_material_version') in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS) and
                            purpose in {'guidance_learning', 'guidance_grounding','capability_induction','capability_routing'})
         def repair_available():
             return not choice_learning or not self.budget_governor or self.budget_governor.repair_available()
@@ -398,7 +399,7 @@ class EmpiricalSystem:
                         except (TypeError,ValueError):break
                         compact=[]
                         forms=[projected,pack_material(projected)]
-                        if projected.get('learning_material_version')=='choice-capability-batch.material.v1':
+                        if projected.get('learning_material_version') in CHOICE_CAPABILITY_MATERIAL_VERSIONS:
                             from .model_view import reference_exact_span_quotes
                             forms.append(reference_exact_span_quotes(projected))
                         for form in forms:
@@ -468,8 +469,8 @@ class EmpiricalSystem:
                                    'effective_call_settings': settings, 'tool_choice':tool_choice,
                                    'policy': self.config['runtime']['plan_execution_policy'],
                                    'implementation_revision': self.config['experiment']['implementation_revision']})
-            if self.config['experiment'].get('choice_method_version')=='choice-capability-batch.v1':
-                response_key=digest([response_key,'choice-capability-batch.v1'])
+            if self.config['experiment'].get('choice_method_version') in CHOICE_CAPABILITY_VERSIONS:
+                response_key=digest([response_key,self.config['experiment']['choice_method_version']])
             if choice_learning:
                 response_key = digest([response_key, tool_choice, self.config['learning']['choice_guidance'],
                                        self.config['runtime'].get('choice_guidance')])

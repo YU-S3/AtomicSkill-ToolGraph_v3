@@ -6,18 +6,19 @@ import re
 from .contracts import PublicTask, digest, object_schema, validate_schema_instance
 from .choice_guidance import valid_choices
 from .public_results import public_result
+from . import CHOICE_CAPABILITY_VERSION, CHOICE_CAPABILITY_MATERIAL_VERSION, CHOICE_CAPABILITY_VERSIONS
 
-VERSION='choice-capability-batch.v1'
-MATERIAL_VERSION='choice-capability-batch.material.v1'
-PROMPT_REVISION='procedural-actions.r2'
+VERSION=CHOICE_CAPABILITY_VERSION
+MATERIAL_VERSION=CHOICE_CAPABILITY_MATERIAL_VERSION
+PROMPT_REVISION='procedural-actions.r3'
 OPERATIONS=('extract_assumptions','compare_implications','inspect_quantifiers','seek_counterexample','check_finite_invariant')
 TEXT=lambda n:{'type':'string','minLength':1,'maxLength':n}
 REFERENCE=object_schema({'case_id':TEXT(160),'span_id':TEXT(80)},['case_id','span_id'])
 REFERENCES={'type':'array','items':REFERENCE,'minItems':2,'maxItems':4,'uniqueItems':True}
-CAPABILITY=object_schema({'decision':{'enum':['no_change','capability']},'required_conditions':TEXT(180),
+CAPABILITY=object_schema({'decision':{'enum':['no_change','capability']},'required_conditions':TEXT(256),
     'operations':{'type':'array','items':{'enum':list(OPERATIONS)},'minItems':1,'maxItems':3,'uniqueItems':True},
     'references':REFERENCES},['decision'])
-PROPOSAL=object_schema({'decision':{'enum':['no_change','candidate']},'guidance':TEXT(180),
+PROPOSAL=object_schema({'decision':{'enum':['no_change','candidate']},'guidance':TEXT(256),
     'applicability':TEXT(80),'references':REFERENCES},['decision'])
 CHECK=object_schema({'candidate_hash':TEXT(64),'status':{'enum':['procedural_only','domain_fact','unsupported']},
     'proposal_quote':TEXT(240),'references':REFERENCES,'reason':TEXT(240)},['candidate_hash','status','proposal_quote','references'])
@@ -99,8 +100,36 @@ def abstract_advisory(text,rows):
             if len(conclusion)>=12 and conclusion in normalized:raise ValueError('Choice conclusion copied into a procedural card')
 
 
-def validate_capability(value,rows):
-    validate_schema_instance(value,CAPABILITY)
+def schema_for(schema,method_version):
+    if method_version not in CHOICE_CAPABILITY_VERSIONS:raise ValueError('Unknown capability admission policy')
+    result=deepcopy(schema)
+    if method_version=='choice-capability-batch.v1':
+        for field in ('required_conditions','guidance'):
+            if field in result['properties']:result['properties'][field]['maxLength']=180
+    return result
+
+
+def field_errors(value,schema,*,path='$'):
+    errors=[];shallow=schema
+    if isinstance(value,dict) and schema.get('type')=='object':shallow={**schema,'properties':{},'additionalProperties':True}
+    if isinstance(value,list) and schema.get('type')=='array':shallow={k:v for k,v in schema.items() if k!='items'}
+    try:validate_schema_instance(value,shallow,path=path)
+    except ValueError as exc:errors.append(str(exc))
+    if isinstance(value,dict) and schema.get('type')=='object':
+        for field,item in value.items():
+            if field in schema['properties']:
+                errors.extend(field_errors(item,schema['properties'][field],path=path+'.'+field))
+            elif schema.get('additionalProperties') is False:errors.append(path+'.'+field+': additional property is not allowed')
+    if isinstance(value,list) and schema.get('type')=='array' and 'items' in schema:
+        for i,item in enumerate(value):errors.extend(field_errors(item,schema['items'],path=path+'['+str(i)+']'))
+    return list(dict.fromkeys(errors))
+
+
+def validate_capability(value,rows,*,method_version=VERSION):
+    schema=schema_for(CAPABILITY,method_version)
+    if isinstance(value,dict) and value.get('decision')=='capability':schema['required']=list(schema['properties'])
+    errors=field_errors(value,schema)
+    if errors:raise ValueError('; '.join(errors))
     if value['decision']=='no_change':
         return no_change(value,rows)
     if set(value)!={'decision','required_conditions','operations','references'}:raise ValueError('Incomplete capability')
@@ -115,15 +144,22 @@ def render(asset):
         'qualification':'paired_train_advisory_not_proof'}
 
 
-def validate_candidate(value,capability,rows):
-    validate_schema_instance(value,PROPOSAL)
+def validate_candidate(value,capability,rows,*,method_version=VERSION):
+    schema=schema_for(PROPOSAL,method_version)
+    if isinstance(value,dict) and value.get('decision')=='candidate':schema['required']=list(schema['properties'])
+    errors=field_errors(value,schema)
+    if isinstance(value,dict) and value.get('decision')=='candidate' and all(isinstance(value.get(k),str) for k in ('guidance','applicability')):
+        card=render({'id':'skill_'+digest([value,capability]),**{k:value[k] for k in ('guidance','applicability')}})
+        size=len(json.dumps(card,ensure_ascii=False))+2
+        if size>512:errors.append('Complete procedural advisory must fit 512 Unicode characters; actual '+str(size))
+    if errors:raise ValueError('; '.join(errors))
     if value['decision']=='no_change':
         return no_change(value,rows)
     if set(value)!={'decision','guidance','applicability','references'}:raise ValueError('Incomplete procedural candidate')
     covered=source_refs(value['references'],rows)
     if not set(covered)<=set(capability['source_case_ids']):raise ValueError('Candidate is outside its capability evidence')
     abstract_advisory(value['guidance']+'\n'+value['applicability'],rows)
-    candidate={'id':'skill_'+digest([value,capability]),'method_version':VERSION,'state':'candidate',
+    candidate={'id':'skill_'+digest([value,capability]),'method_version':method_version,'state':'candidate',
         'knowledge_type':'procedural_advisory','execution_intent':'guidance_only','goal':capability['definition']['required_conditions'],
         'guidance':value['guidance'],'applicability':value['applicability'],'capability':deepcopy(capability),
         'proposal':deepcopy(value),'source_records':deepcopy(rows),'source_case_ids':covered,'verification_strength':['source_compatible'],
@@ -175,7 +211,8 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None):
         else:
             value=receive('demand','Infer one shared executable comparison capability from public demands only. '
                 'Do not infer from answers or feedback. Cite exact supplied span IDs from different cases; '
-                'case_id must be the supplied task_id or physical_key. Use no_change if no shared demand; optional references must remain exact.',
+                'case_id must be the supplied task_id or physical_key. required_conditions must be 1-256 Unicode characters. '
+                'Use no_change if no shared demand; optional references must remain exact.',
                 {'public_cases':public},'submit_capability',CAPABILITY,'capability_induction',lambda v:validate_capability(v,rows),0)
         capability=validate_capability(value,rows);log['capability']=capability
         if capability:
@@ -184,7 +221,9 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None):
                 'Use observed public demands and saved outcomes. Incorrect/truncated responses disclose no true reasoning cause or alternative proof. '
                 'Describe checks the solver can perform, leaving their outcomes to the actual task. '
                 'Do not prescribe a correct option from strength, fewer dependencies, extra hypotheses or equality wording alone: these do not establish mathematical truth. '
-                'No theorem conclusions, formulas, answer labels, lookup tables or guarantees. Cite supplied source spans. The entire card must fit 512 characters.',
+                'No theorem conclusions, formulas, answer labels, lookup tables or guarantees. Cite supplied source spans. '
+                'guidance must be 1-256 Unicode characters; applicability must be 1-80 Unicode characters. '
+                'The complete Runtime card including ID and qualification must fit 512 Unicode characters.',
                 {'capability':capability,'train_cases':rows},'submit_learning',PROPOSAL,'guidance_learning',
                 lambda v:validate_candidate(v,capability,rows),s.config['learning']['guidance_repair_limit'])
             candidate=validate_candidate(proposal,capability,rows)
@@ -333,8 +372,10 @@ def valid_receipt(candidate,receipt):
 def checked_asset(asset):
     try:
         candidate=asset['candidate'];receipt=asset['utility_receipt'];rows=candidate['source_records']
-        rebuilt=validate_candidate(candidate['proposal'],candidate['capability'],rows)
-        if validate_capability(candidate['capability']['definition'],rows)!=candidate['capability']:return False
+        version=candidate['method_version']
+        if receipt['schema']!=version:return False
+        rebuilt=validate_candidate(candidate['proposal'],candidate['capability'],rows,method_version=version)
+        if validate_capability(candidate['capability']['definition'],rows,method_version=version)!=candidate['capability']:return False
         if {k:v for k,v in candidate.items() if k!='source_check'}!=rebuilt:return False
         if not validate_check(candidate['source_check'],rebuilt):return False
         return (receipt['passed'] is True and valid_receipt(candidate,receipt) and
@@ -353,7 +394,7 @@ def selection(assets,task,policy,*,candidate=False):
     matches=policy.get('capability_matches',{});selected=[];audit=[]
     for asset in assets:
         reason='unchecked_asset'
-        if asset.get('method_version')==VERSION and (candidate or checked_asset(asset)):
+        if asset.get('method_version') in CHOICE_CAPABILITY_VERSIONS and (candidate or checked_asset(asset)):
             match=matches.get(asset['capability']['id'])
             reason='public_demand_match_missing'
             if match:
@@ -361,7 +402,7 @@ def selection(assets,task,policy,*,candidate=False):
         if reason=='eligible':
             if selected or len(json.dumps(render(asset),ensure_ascii=False))+2>512:reason='procedural_bound'
             else:selected.append(deepcopy(asset));reason='selected'
-        audit.append({'asset_id':asset['id'],'reason':reason,'route':VERSION})
+        audit.append({'asset_id':asset['id'],'reason':reason,'route':asset.get('method_version')})
     return {'selected':selected,'audit':audit,'injected_ids':[a['id'] for a in selected],
         'injected_chars':sum(len(json.dumps(render(a),ensure_ascii=False))+2 for a in selected),'selection_version':VERSION}
 

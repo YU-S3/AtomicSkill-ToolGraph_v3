@@ -271,10 +271,10 @@ def recover(plan_path,output):
     return plan
 
 
-def revision_inputs(plan_path,*,continuation=False):
+def revision_inputs(plan_path,*,continuation=False,source_version=VERSION):
     """One explicitly authorized prompt revision; completed negative evidence stays immutable."""
     path=Path(plan_path).resolve();root=path.parent;old=read(path);result=read(root/'result.json');ledger=read(root/'budget.json')
-    if old['schema']!=VERSION or ('paid_prefix' in old and not continuation) or digest(old)!=read(root/'plan_identity.json')['plan_hash'] or result['plan_hash']!=digest(old):
+    if old['schema']!=source_version or ('paid_prefix' in old and not continuation) or digest(old)!=read(root/'plan_identity.json')['plan_hash'] or result['plan_hash']!=digest(old):
         raise ValueError('Original batch identity changed or already revised')
     inputs={str(path):sha256(path)}
     for p,expected in {**old['input_hashes'],**{str(root/n):h for n,h in old['prepared_hashes'].items()}}.items():

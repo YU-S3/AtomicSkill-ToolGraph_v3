@@ -8,7 +8,7 @@ from copy import deepcopy
 
 from . import (CHOICE_GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_SELECTION_VERSION,
                CHOICE_NORMALIZER_VERSION)
-from . import PUBLIC_CHOICE_POLICY_VERSION
+from . import PUBLIC_CHOICE_POLICY_VERSION, CHOICE_CAPABILITY_VERSIONS
 from .contracts import digest, validate_schema_instance
 from .public_process import VERSION as PROCEDURE_VERSION, REQUIRED, features, intents
 
@@ -164,7 +164,7 @@ def validate_check(check, proposal, source, schema):
 
 
 def checked_asset(asset):
-    if asset.get('method_version')=='choice-capability-batch.v1':
+    if asset.get('method_version') in CHOICE_CAPABILITY_VERSIONS:
         from .capability_batch import checked_asset as checked_capability
         return checked_capability(asset)
     check, source = asset.get('grounding_check', {}), asset.get('evidence_source', {})
@@ -196,7 +196,7 @@ def retrieval_stats(cases):
 
 
 def render(asset):
-    if asset.get('method_version')=='choice-capability-batch.v1':
+    if asset.get('method_version') in CHOICE_CAPABILITY_VERSIONS:
         from .capability_batch import render as render_capability
         return render_capability(asset)
     if asset.get('knowledge_type')=='procedural_advisory':
@@ -208,7 +208,7 @@ def render(asset):
 
 
 def select(assets, stats, task, policy):
-    procedural=[a for a in assets if a.get('method_version')=='choice-capability-batch.v1']
+    procedural=[a for a in assets if a.get('method_version') in CHOICE_CAPABILITY_VERSIONS]
     if procedural:
         from .capability_batch import selection
         result=selection(procedural,task,policy)

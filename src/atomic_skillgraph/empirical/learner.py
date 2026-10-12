@@ -12,7 +12,7 @@ from .program_submission import validate_program_declaration, submission_contrac
 from .local_validation import evidence_from_trace
 from . import (LEARNING_MATERIAL_VERSION, GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_MATERIAL_VERSION,
                CHOICE_GUIDANCE_POLICY_VERSION)
-from . import PUBLIC_CHOICE_MATERIAL_VERSION
+from . import PUBLIC_CHOICE_MATERIAL_VERSION, CHOICE_CAPABILITY_MATERIAL_VERSIONS
 
 
 class Learner:
@@ -91,7 +91,7 @@ class Learner:
                 s.checkpoint.advance(s.checkpoint.state['stage'], **{
                     key + '_request_material': material, key + '_request_schema': schema})
             else:
-                if version in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION,'choice-capability-batch.material.v1'} and (snapshot != material or
+                if version in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS) and (snapshot != material or
                     s.checkpoint.state.get(key + '_request_schema') != schema):
                     raise ValueError('Choice guidance source/material/schema changed across recovery')
                 material = snapshot
@@ -101,7 +101,7 @@ class Learner:
         semantics = digest([stage, prompt, material, name, schema,
             {k:v for k,v in kwargs.items() if k in ('completion_override','repair_limit','repair_reason','job_key','decision_purpose')},
             s.config['experiment']['implementation_revision'], version, GUIDANCE_POLICY_VERSION])
-        if version in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION,'choice-capability-batch.material.v1'}:
+        if version in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS):
             semantics = digest([semantics, s.config['learning']['choice_guidance'],
                                 s.config['llm'], s.resolve_call_settings(stage, kwargs.get('decision_purpose'))])
         if s.checkpoint and key in s.checkpoint.state:

@@ -17,6 +17,10 @@ SINGLE_ANSWER_PROMPT_VERSION = 'single-answer.semantic.v2'
 CHOICE_NORMALIZER_VERSION = 'choice-guidance.normalizer.v1'
 PUBLIC_CHOICE_POLICY_VERSION = 'choice-guidance.public-process.v2'
 PUBLIC_CHOICE_MATERIAL_VERSION = 'choice-guidance.public-process-material.v2'
+CHOICE_CAPABILITY_VERSION = 'choice-capability-batch.v2'
+CHOICE_CAPABILITY_MATERIAL_VERSION = 'choice-capability-batch.material.v2'
+CHOICE_CAPABILITY_VERSIONS = {'choice-capability-batch.v1', CHOICE_CAPABILITY_VERSION}
+CHOICE_CAPABILITY_MATERIAL_VERSIONS = {'choice-capability-batch.material.v1', CHOICE_CAPABILITY_MATERIAL_VERSION}
 POLICY_DEFAULTS = {
     'experiment': {'implementation_revision': IMPLEMENTATION_REVISION, 'budget_policy': BUDGET_POLICY_VERSION},
     'runtime': {'read_batch_max_calls': 3, 'result_inline_max_chars': 2048,
