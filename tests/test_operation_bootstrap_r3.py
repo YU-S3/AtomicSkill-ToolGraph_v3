@@ -139,6 +139,37 @@ def test_learning_wire_keeps_acquired_page_before_discovery_cards(tmp_path, monk
     finally: s.close()
 
 
+def test_optional_source_preview_shrinks_before_capacity_refusal(tmp_path, monkeypatch):
+    from atomic_skillgraph.empirical.budget_governor import input_token_bound
+    from atomic_skillgraph.empirical.model_view import learning_capacity_audit
+    s = office(tmp_path)
+    source = 'values = [1, 2, 3]\nlabel = ' + repr('x' * 1500) + '\nprint(sum(values))'
+    experience = {'task': {'goal': 'sum a series', 'inputs': {}}, 'local_evidence': [{
+        'id': 'local:compute', 'kind': 'native_operation',
+        'operation': {'name': 'execute_python', 'arguments': {'source': source}},
+        'reference': {'accepted': True, 'observation': '6\n', 'data': {}},
+        'public_task': {'goal': 'sum a series', 'inputs': {}}}]}
+    material = {'experience': learning_case(experience, 'case')}
+    original = material['experience']['local_evidence'][0]
+    sent = http(monkeypatch, [response([{'decision': 'no_change'}], name='submit_learning')] * 2)
+    try:
+        s.config['learning']['extractor_payload_max_bytes'] = 65536
+        s.agent('extractor', LEARNER_PROMPT, material, 'submit_learning', LEARNING)
+        compact = deepcopy(sent[0]); compact['messages'][1]['content'] = json.dumps(
+            json.loads(compact['messages'][1]['content']), ensure_ascii=False, separators=(',', ':'))
+        limit = input_token_bound(compact) - 100
+        assert learning_capacity_audit(compact, limit, 'extractor', 'extractor')['optional_material_remaining']
+        s.config['learning']['extractor_payload_max_bytes'] = limit
+        s.agent('extractor', LEARNER_PROMPT, material, 'submit_learning', LEARNING)
+        actual = expand_material(json.loads(sent[1]['messages'][1]['content']))['experience']['local_evidence'][0]
+        assert input_token_bound(sent[1]) <= limit
+        assert actual['source_excerpt'] == original['source_excerpt'][:512] and actual['source_truncated']
+        assert actual['input_sources'] == original['input_sources']
+        assert actual['output_references'] == original['output_references']
+        assert not s.bank.all('program') and len(sent) == 2
+    finally: s.close()
+
+
 def test_compute_learning_builds_usable_and_frozen_reuses_without_runtime(tmp_path, monkeypatch, worker):
     s = office(tmp_path); s.worker = worker; s.adapter.worker = worker
     s.adapter_factory = lambda: OfficeAdapter({'office': {'answer': 'private'}}, s.config)

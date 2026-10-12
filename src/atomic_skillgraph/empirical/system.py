@@ -388,7 +388,7 @@ class EmpiricalSystem:
                 key='structural_repair_payload_max_bytes' if purpose=='learning_structure_repair' else 'builder_payload_max_bytes' if stage=='tool_builder' else 'extractor_payload_max_bytes'
                 payload_max=self.config['learning'][key]
                 if isinstance(provider,OpenAICompatibleProvider):
-                    from .model_view import pack_material, expand_material
+                    from .model_view import pack_material, expand_material, shrink_learning_preview
                     from .budget_governor import input_token_bound
                     while True:
                         payload=provider._build_payload(messages,tools,tool_choice)
@@ -413,8 +413,9 @@ class EmpiricalSystem:
                         if removable is not None: projected[removable].pop()
                         else:
                             cards = projected.get('experience',{}).get('local_evidence',[])
-                            if len(cards) <= 1: break
-                            cards.pop()
+                            if not shrink_learning_preview(projected):
+                                if len(cards) <= 1: break
+                                cards.pop()
                         messages[1]={'role':'user','content':json.dumps(pack_material(projected),ensure_ascii=False,separators=(',',':'))}
             if stage == 'runtime' and preserve_finish:
                 from .budget_governor import input_token_bound

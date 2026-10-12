@@ -101,46 +101,38 @@ while retaining originals. Selecting an old ambiguous Skill-only Workflow also s
 this same response; selecting a native v2 Workflow needs no node_modes.
 REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
 {"literal":3}, {"unresolved":"location not yet known"}. Bare strings are invalid REF values."""
-LEARNER_PROMPT = """Learn a reusable capability or workflow from this real Train experience, including its failures.
-Choose no_change, reuse_existing, propose_skill_and_program_spec, or propose_or_revise_workflow. At most one new
-program specification. Prefer a useful local goal including necessary search/preparation, ordinary I/O and concise
-guidance; category queries and concrete object IDs are different fields. Examples are hypotheses, not proofs: no
-witnesses/owners/occurrence certificates. Workflows may trim exploration, merge preparation, or retain dynamic gaps.
-Declare all value dependencies explicitly. Do not claim historical success that is not in the supplied record.
-New workflows use execution_mode dynamic/skill/program. Reference Skills are reference_skill_ids, never execution
-bindings. Dynamic nodes have a result goal; bound nodes omit goal and use the asset's full I/O, with optional purpose.
-Reuse real program calls and actual handoffs; a new composition or task-local patch is not a validated asset.
-If selected_local_goal is supplied, it defines the requested reusable capability. Preserve that scope in the Skill,
-its inputs and its workflow. The full example task is context, not permission to add extra required objects or
-conditions from that task. Leave subsequent task-specific work to continuation. Do not broaden the selected goal
-while repairing a response's structure. A new Skill has no assigned ID yet: use $new in realization_request.skill_id
-and workflow node skill_id. Existing references must be real supplied Skill IDs, never an invented name or alias.
-For file workspaces, program paths may be absolute inside /workspace; files/deleted_files are publication names
-relative to /workspace, without a leading slash, inputs prefix or '..'. Keep output_path separate from files.
-execution_intent depends on real local evidence, not the final answer interface. A single-answer operation can be program_requested.
-Prefer a completed, repeatable search/read/compute operation over an unexecuted end-to-end task algorithm.
-A successful read-only retrieval is valid local evidence even when the whole task scored false. Neither published
-files nor another completed Train case is required. Propose only the observed local operation and its actual outputs;
-do not add an unexecuted numeric calculation to a search/read capability. One current-case binding is sufficient.
-Use the actual source_excerpt, input_sources and output_references to determine what ran.
-source_excerpt is a bounded AST-formatted code preview; Builder receives the original source.
-Bind literal arrays at their supplied aggregate AST path, not a fabricated observation path or one element. Do not add
-unobserved intermediate outputs or optional parameters merely because the algorithm could produce them.
-result_role=intermediate is appropriate for locators, text pages, numeric results and raw stdout consumed later.
-final_answer alone requires output_schema with required answer of type string; it means the Program itself
-submits the final answer. A numeric computation is not final_answer just because its source task was answered.
-Every output reference retains its actual type: observation is a string, data.computed contains real JSON fields.
-guidance_only does not request a Program job: set generate_program=false and omit realization_request.
-Declare result_role intermediate/final_answer/final_files in the Skill. A missing Program is pending work, not
-completion. reuse_existing with generate_program=true still requests a build. Use realization_request for at most
-one related pending job and 0-2 actually applicable completed Train case_ids, selecting existing local_evidence_ref.
-Host freezes prefix, start_mode, environment and trace identity; never submit those fields. Required inputs and tools must exist; do not select unrelated examples
-to fill slots. One real local binding is sufficient. input_refs maps each input to a catalog public_json/operation_json/source_literal path,
-or a public_span path with exact start/end. A span proves provenance, not parameter semantics. Optional branch defaults are not validated facts.
-reference_fields maps outputs to typed json path or publication files/file selectors from the directory.
-final_files requires files (array) and deleted_files (array); every other required output also needs a real reference.
-An inspection has no published files; a declared filename is not publication evidence. If none applies, defer.
-Return one submit_learning ToolCall."""
+LEARNER_PROMPT = """Learn from this real Train experience, including failures. Choose no_change, reuse_existing,
+propose_skill_and_program_spec, or propose_or_revise_workflow. Propose at most one new Program specification.
+Prefer a useful observed local search/read/compute operation, ordinary I/O and concise guidance. Examples are
+hypotheses, not proofs; never invent witnesses, owners, success, outputs or provenance. Workflows can trim
+exploration, merge preparation and leave dynamic gaps; declare every value dependency. Category queries and
+concrete object IDs are distinct inputs. New compositions and patches are not validated assets.
+Preserve selected_local_goal when supplied, including during repair. The full task is context: do not add its
+unrelated objects or conditions. Leave subsequent work to continuation. A successful read-only retrieval can
+be local evidence when the whole task failed; it needs neither published files nor another Train case. One
+current-case binding suffices. Do not attach an unexecuted numerical calculation to a search/read operation.
+Use actual source_excerpt/input_sources/output_references. The excerpt is a bounded AST-formatted preview;
+Builder receives original source. Bind arrays at their aggregate AST path, never an observation path or element.
+Do not add unobserved outputs or optional parameters just because the algorithm could produce them.
+intermediate covers locators, pages, numbers and stdout. final_answer means the Program submits the answer:
+output_schema must require answer:string. Numeric computation alone is intermediate. observation is a string;
+data.computed contains actual JSON fields. final_files requires files:array and deleted_files:array; every other
+required output also needs a real reference. An inspection or declared filename is not a verified publication.
+Program paths can be absolute inside /workspace; files/deleted_files are relative publication names without a
+leading slash, inputs prefix or '..'. Keep output_path separate from files.
+Use $new for a newly proposed Skill in realization_request.skill_id, workflow skill_id and reference_skill_ids.
+Every other Skill reference must be a supplied real ID, never a name or alias. Workflows use execution_mode
+(dynamic/skill/program). Reference guidance uses reference_skill_ids. Dynamic nodes have a goal; bound nodes
+use the asset's full I/O, omit goal and may specify purpose. Reuse actual program calls and handoffs.
+guidance_only requires generate_program=false and no realization_request. A missing Program is pending work,
+not completion; reuse_existing with generate_program=true still requests a build. realization_request selects
+at most one related job and 0-2 applicable completed Train case_ids with real local_evidence_ref. Required inputs
+and tools must exist; do not fill slots with unrelated cases. Defer when no binding applies.
+input_refs maps each input to an exact catalog public_json/operation_json/source_literal path, or public_span
+with exact start/end. A span proves provenance, not parameter semantics; optional branch defaults are not
+validated facts. reference_fields maps required outputs to supplied typed json paths or publication files/file
+selectors. Host supplies prefix, start_mode, environment and source trace identity; never submit these fields.
+Return one flat submit_learning ToolCall using the supplied schema."""
 BUILDER_PROMPT = """Your current response must be exactly one submit_program ToolCall with the supplied submission_contract.
 Do not directly call grep, read, glob or execute_python during generation, including recovery.
 build_request declares the Skill and fixed bindings; future_program_api describes the generated Program's future RPC

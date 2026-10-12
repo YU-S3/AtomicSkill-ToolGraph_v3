@@ -91,6 +91,25 @@ def canonical_bytes(value):
     return len(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8'))
 
 
+def shrink_learning_preview(material):
+    """Reduce optional previews, preserving every source selector and output type."""
+    cards=material.get('experience',{}).get('local_evidence',[])
+    rows=[*cards,*material.get('legal_operations',[])]
+    for row in rows:
+        if len(row.get('source_excerpt',''))>512:
+            row['source_excerpt']=row['source_excerpt'][:512];row['source_truncated']=True
+            return True
+    if len(cards)>1:return False
+    for row in rows:
+        if row.get('source_excerpt'):
+            row.pop('source_excerpt');row['source_truncated']=True
+            return True
+        for output in row.get('output_references',[]):
+            if output.get('content_hint'):
+                output.pop('content_hint');return True
+    return False
+
+
 def learning_capacity_audit(payload, limit, stage, purpose):
     """Only a recognized, exhausted learning projection can be a controlled refusal."""
     from .budget_governor import input_token_bound
@@ -110,6 +129,8 @@ def learning_capacity_audit(payload, limit, stage, purpose):
     except (ValueError,TypeError,KeyError,IndexError):return unverified
     optional=any(value.get(k) for k in ('completed_train_cases','related','related_guidance'))
     optional=optional or len(cards)>1
+    optional=optional or any(row.get('source_excerpt') or any(r.get('content_hint') for r in row.get('output_references',[]))
+                            for row in [*cards,*operations])
     if purpose=='learning_structure_repair':
         recognized={'proposal','errors','legal_operations','note'}==set(value) and bool(value['errors'])
         optional=optional or len(refs)!=len(set(refs))
