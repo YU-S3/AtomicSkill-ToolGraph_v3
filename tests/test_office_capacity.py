@@ -17,7 +17,7 @@ from atomic_skillgraph.empirical.prompts import LEARNING,LEARNER_PROMPT
 from atomic_skillgraph.empirical.system import validate_config
 from atomic_skillgraph.experiments import audit_officeqa_prefix as gate
 from atomic_skillgraph.experiments.benchmark_config import benchmark_config
-from atomic_skillgraph.experiments.canonical_manifest import ordered_train
+from atomic_skillgraph.experiments.canonical_manifest import ordered_train,sha256
 from atomic_skillgraph.experiments.run_empirical import write_json,capacity_statistics
 from test_cf2_contracts import office,http,response
 from test_cf2_realization import requested_proposal,learning_trace,model_bindings
@@ -170,6 +170,32 @@ def test_capacity_gate_passes_zero_scores_and_seals_real_receipts(prefix):
     rates=capacity_statistics(audits,cases)
     assert rates['learning_request_capacity_rejection_rate']==1/7 and rates['train_task_capacity_rejection_rate']==1/6
     record('capacity_gate_fixture',{'fixture_only':True,'actual_http':0,'receipt':report})
+
+
+def test_gate_accepts_explicit_budget_revision_and_rejects_changed_source(prefix):
+    config_path=prefix/'train/config.json';config=json.loads(config_path.read_text())
+    ledger_path=prefix/'budget.json';ledger=json.loads(ledger_path.read_text());original=deepcopy(ledger['limits'])
+    source=prefix.parent/'old-costs';source.mkdir()
+    write_json(source/'budget.json',{'limits':original,'attempts':{},'unknown_billing':False})
+    requested={**original,'token_limit':2000000,'request_limit':200}
+    ledger['limits']=requested;write_json(ledger_path,ledger)
+    config['budget'].update(requested);write_json(config_path,config)
+    execution_path=prefix/'train/execution_manifest.json';execution=json.loads(execution_path.read_text())
+    execution['config']=config;write_json(execution_path,execution)
+    db=sqlite3.connect(prefix/'train/run.sqlite3')
+    for task_id,text in db.execute('SELECT id,result FROM tasks').fetchall():
+        trace=json.loads(text);trace['method_identity']['config_hash']=digest(config)
+        db.execute('UPDATE tasks SET result=? WHERE id=?',(json.dumps(trace),task_id))
+    db.commit();db.close()
+    carry=json.loads((prefix/'cost_carryforward_manifest.json').read_text())
+    carry.update(limits_unchanged=False,source_run=str(source),source_budget_sha256=sha256(source/'budget.json'),
+        budget_revision={'schema':'budget-revision.v1','authorization':'explicit increase fixture',
+                         'old_limits':original,'new_limits':requested})
+    write_json(prefix/'cost_carryforward_manifest.json',carry)
+    report=gate.audit(prefix);assert report['status']=='passed' and gate.verify_receipt(prefix)==report
+    changed=json.loads((source/'budget.json').read_text());changed['limits']['token_limit']+=1
+    write_json(source/'budget.json',changed)
+    with pytest.raises(AssertionError,match='Original cost ledger changed'):gate.verify_receipt(prefix)
 
 
 def test_passed_gate_keeps_existing_checkpoint_resume_with_unchanged_bank(prefix):

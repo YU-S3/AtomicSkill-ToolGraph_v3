@@ -4,8 +4,9 @@ import json
 from pathlib import Path
 import sqlite3
 
-from .canonical_manifest import ordered_train
+from .canonical_manifest import ordered_train, sha256
 from .run_empirical import code_identity, write_json
+from .seed42_budget import revised_limits
 from ..empirical.contracts import digest
 from ..empirical.model_view import expand_material, learning_case, learning_capacity_audit
 from ..empirical.budget_governor import input_token_bound
@@ -50,7 +51,11 @@ def evidence(root,*,continuation=False):
     assert ledger['limits']=={k:config['budget'][k] for k in ('token_limit','finish_reserve','request_limit')}
     assert not ledger['unknown_billing'] and all(a['status']=='metered' for a in ledger['attempts'].values())
     assert sum(a['accounted_tokens'] for a in ledger['attempts'].values())<=ledger['limits']['token_limit'] and len(ledger['attempts'])<=ledger['limits']['request_limit']
-    assert carry['bank_inherited'] is False and carry['limits_unchanged'] is True
+    assert carry['bank_inherited'] is False
+    if carry['limits_unchanged'] is not True:
+        original=Path(carry['source_run'])/'budget.json'
+        assert sha256(original)==carry['source_budget_sha256'], 'Original cost ledger changed'
+        revised_limits(json.loads(original.read_text())['limits'],ledger['limits'],carry.get('budget_revision'))
     prefix=rows[:6];ids=[a['request_id'] for t in prefix for r in t['requests'] for a in r.get('http_attempts',[])]
     inherited=set(carry['inherited_attempt_ids'])
     assert len(ids)==len(set(ids)) and not inherited&set(ids), 'Repeated HTTP billing identity'

@@ -6,6 +6,22 @@ TASK_LIMITS={'train_task_tokens':200000,'train_solve_tokens':120000,
              'train_learning_tokens':80000,'eval_task_tokens':96000}
 
 
+def revised_limits(original, requested, revision=None):
+    """A fresh carryforward may change caps only with its explicit revision receipt."""
+    if original==requested:
+        return dict(original)
+    if not revision or revision.get('schema')!='budget-revision.v1' or not revision.get('authorization'):
+        raise ValueError('Budget increase requires an explicit authorization receipt')
+    if revision.get('old_limits')!=original or revision.get('new_limits')!=requested:
+        raise ValueError('Budget revision differs from the source ledger or resolved configuration')
+    if set(requested)!=set(original) or requested.get('finish_reserve')!=original.get('finish_reserve'):
+        raise ValueError('Budget revision must preserve the existing reserve policy')
+    for key in ('token_limit','request_limit'):
+        if type(requested.get(key)) is not int or requested[key]<original[key]:
+            raise ValueError('Invalid cumulative budget increase: '+key)
+    return dict(requested)
+
+
 def allocation(manifest, profiles, retries):
     cells={}
     for benchmark in BENCHMARKS:
