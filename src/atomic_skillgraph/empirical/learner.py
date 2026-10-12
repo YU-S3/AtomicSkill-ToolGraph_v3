@@ -20,6 +20,14 @@ class Learner:
         self.system = system
         self.cases = [(PublicTask(**row['task']), row['experience']) for row in system.bank.train_cases()]
 
+    def learn_capability_batch(self, case_ids, selection_ids):
+        from .capability_batch import compile_candidate
+        return compile_candidate(self,case_ids,selection_ids)
+
+    def match_capability(self, candidate, task):
+        from .capability_batch import match_public
+        return match_public(self,candidate,task)
+
     def _experience(self, task, trace):
         return {'task': {'goal': task.goal, 'inputs': task.inputs}, 'events': trace.get('tools', []),
                 'score': trace.get('score'), 'submission': trace.get('execution', {}).get('prediction'),
@@ -83,7 +91,7 @@ class Learner:
                 s.checkpoint.advance(s.checkpoint.state['stage'], **{
                     key + '_request_material': material, key + '_request_schema': schema})
             else:
-                if version in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION} and (snapshot != material or
+                if version in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION,'choice-capability-batch.material.v1'} and (snapshot != material or
                     s.checkpoint.state.get(key + '_request_schema') != schema):
                     raise ValueError('Choice guidance source/material/schema changed across recovery')
                 material = snapshot
@@ -93,7 +101,7 @@ class Learner:
         semantics = digest([stage, prompt, material, name, schema,
             {k:v for k,v in kwargs.items() if k in ('completion_override','repair_limit','repair_reason','job_key','decision_purpose')},
             s.config['experiment']['implementation_revision'], version, GUIDANCE_POLICY_VERSION])
-        if version in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}:
+        if version in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION,'choice-capability-batch.material.v1'}:
             semantics = digest([semantics, s.config['learning']['choice_guidance'],
                                 s.config['llm'], s.resolve_call_settings(stage, kwargs.get('decision_purpose'))])
         if s.checkpoint and key in s.checkpoint.state:

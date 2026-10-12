@@ -1,0 +1,177 @@
+# This is a P2 implementation contract, NOT an existing run_single_cell argument schema.
+# No paid model request has been run; integrate into a new versioned P2 selection runner.
+schema: atomic.livemath.p2.selection-contract.v1
+state: PREDECLARED_NOT_EXECUTED
+scope: Ours LiveMath P2 offline recompile + Train-only paired candidate selection
+source:
+  public_train_manifest_sha256: 31c1ea371fb967d9e933ea76f6edf5bc8c46255f8e33d4f79f968c036a3252ca
+  historical_run_commit: fff483d85a9a251fd71bf647dbce8b535b29c2f1
+  split_seed: 42
+  run_seed: 42
+  actual_model_request_label: deepseek-v4-flash
+  generation_seed_supported: false
+  selection_eligibility: Train public input only; not Val/Test or gold
+split:
+  size:
+    candidate_source_train: 48
+    selection_screen: 6
+    selection_confirmation: 6
+  selector:
+    algorithm: sha256_hex_ascending_lexicographic
+    salt_prefix: atomic-p2-selection-v1|seed=42|
+    input_field: task_id
+    screen_rank_slice:
+    - 0
+    - 6
+    confirmation_rank_slice:
+    - 6
+    - 12
+  selection_screen_ids:
+  - livemath:202511:13
+  - livemath:202602:7
+  - livemath:202512:2
+  - livemath:202602:33
+  - livemath:202512:12
+  - livemath:202512:28
+  selection_confirmation_ids:
+  - livemath:202602:45
+  - livemath:202512:6
+  - livemath:202511:14
+  - livemath:202511:28
+  - livemath:202601:2
+  - livemath:202601:6
+  selected_physical_keys:
+    livemath:202511:13: 946e0d5ca6ad5c6f9f1f5ee298fc37db0e136e9e46b4699ea75a31b9d0d75d73
+    livemath:202602:7: 6c61ed041eff0dd6041b999ed631346a853316ed4b48c83e4c599458084b6597
+    livemath:202512:2: e5afb5e1bb444ecfe6b8d4bc03967f0c81858e25e8d8d25a5196b6a3d22297bc
+    livemath:202602:33: 0a1477ab748f4ca69a667671b0fd9c626d321c87741b7bd10e3ffbddd7e62843
+    livemath:202512:12: 6e9976143f8c9561fd5c4ec8278862e8527d4c9dba24e8478d01dea625532711
+    livemath:202512:28: b706c0e7d98f9728e09cc9c83d7ce3fb4abf7db5d892ed04dc574bb7f5f74f26
+    livemath:202602:45: 37b0d293d4c45daf4697c9957577463afa2f208c6b606a66ad7890bb1fcb1efd
+    livemath:202512:6: 0523a1a02866e3dc1326d836c8aa455b987f98ba1be68412648c7e9deab727d6
+    livemath:202511:14: 22487f8e54f79e63de431042e7b048fc6fd45060a58b06b1504e97f74324ab4e
+    livemath:202511:28: 1ec9835ccbbdad0c04539287afd75e3baf2a0876aac303c88ff8f1ac5b8b7af5
+    livemath:202601:2: 6b00e3bd614754dd51ca20e7481f800a07b75a98f9201ba400d116a28bf6aae8
+    livemath:202601:6: 43bc19094a2f0d9952a3cec19314f8c00b1b475a69ead5c47769c060cdeaef5c
+  candidate_source_task_ids:
+  - livemath:202511:15
+  - livemath:202511:17
+  - livemath:202511:22
+  - livemath:202511:25
+  - livemath:202511:26
+  - livemath:202511:27
+  - livemath:202511:29
+  - livemath:202511:6
+  - livemath:202511:7
+  - livemath:202512:18
+  - livemath:202512:19
+  - livemath:202512:20
+  - livemath:202512:24
+  - livemath:202512:26
+  - livemath:202512:27
+  - livemath:202512:30
+  - livemath:202512:31
+  - livemath:202512:36
+  - livemath:202512:40
+  - livemath:202512:43
+  - livemath:202512:45
+  - livemath:202512:46
+  - livemath:202512:52
+  - livemath:202512:8
+  - livemath:202601:11
+  - livemath:202601:14
+  - livemath:202601:15
+  - livemath:202601:16
+  - livemath:202601:17
+  - livemath:202601:20
+  - livemath:202601:28
+  - livemath:202601:31
+  - livemath:202601:38
+  - livemath:202601:42
+  - livemath:202602:1
+  - livemath:202602:10
+  - livemath:202602:12
+  - livemath:202602:15
+  - livemath:202602:18
+  - livemath:202602:24
+  - livemath:202602:28
+  - livemath:202602:29
+  - livemath:202602:38
+  - livemath:202602:4
+  - livemath:202602:42
+  - livemath:202602:44
+  - livemath:202602:50
+  - livemath:202602:9
+  reuse_selection_cases_in_learning: false
+  exclude_selection_from_all_candidate_material_and_stats: true
+  old_train_score_may_choose_selection: false
+candidate:
+  knowledge_type: procedural_advisory
+  min_distinct_physical_train_source_cases: 2
+  max_evidence_cases_per_candidate: 4
+  max_candidates_to_selection: 2
+  candidate_order: sort by valid distinct supporting source cases descending, then immutable candidate digest ascending;
+    never selection accuracy
+  candidate_provenance_required: true
+  allow_answer_label_or_case_specific_theorem_as_procedure: false
+  program_source_local_qualification_unchanged: true
+  do_not_publish_before_selection: true
+  no_candidate_means_no_pair_http: true
+paired_evaluation:
+  source_split: train
+  learn: false
+  same_public_task_same_model_and_effective_call_settings: true
+  only_variable: the candidate procedural Skill visible in the on arm
+  candidate_trial_uses_readonly_isolated_snapshot: true
+  off_arm_does_not_see_candidate: true
+  on_arm_must_record_actual_candidate_injection: true
+  preserve_other_programs_and_guidance_in_both_arms: true
+  separate_attempt_and_checkpoint_per_candidate_task_arm: true
+  no_reuse_old_P1_predicted_answers_as_off_arm: true
+  counterbalanced_order: alternate off-on and on-off by selector rank parity; reverse parity for second candidate
+  cached_off_arm_reuse: false
+  number_of_candidates_that_may_use_selection: 2
+  screen:
+    min_actual_exposed_tasks: 0
+    min_net_correct_on_minus_off: 0
+    require_empty_on_not_increase: true
+    max_correct_to_wrong_regressions: 1
+    otherwise: stop this candidate before confirmation; no promotion
+    zero_exposure_handling: skip stage A calls and evaluate stage B only if the 12-task preflight has at least four
+      eligible cases
+  promotion_after_both_stages:
+    min_actual_exposed_tasks_total: 4
+    min_net_correct_on_minus_off: 2
+    require_empty_on_not_increase: true
+    max_correct_to_wrong_regressions: 1
+    require_all_source_contracts_valid: true
+    no_token_only_promotion: true
+    failure: candidate rejected or coverage_insufficient; no automatic threshold/prompt re-selection
+  report:
+  - per-task win/loss/tie
+  - injected candidate IDs
+  - valid answer and empty/invalid counts
+  - off and on total_tokens, input_tokens, output_tokens and reasoning_tokens when available
+  - per-arm physical HTTP/retries
+  - readonly Bank/Frozen digests
+  - budget stops and unknown billing
+  precompute_applicability_for_all_12_from_public_inputs_only: true
+  min_precomputed_applicable_tasks_to_attempt_paid_selection: 4
+  only_evaluate_eligible_tasks: true
+  never_force_candidate_injection_on_nonmatching_task: true
+budget_additional_authority_proposed_not_spent:
+  max_new_total_tokens: 1800000
+  max_new_physical_http_attempts: 80
+  model_http_calls_now: 0
+  selection_retry_max: 0
+  same_original_total_governor_limit_tokens: 23232000
+  same_original_total_governor_limit_http: 9165
+  historical_cost_inherited_once: true
+  unknown_billing: fail_closed
+  exhaustion: stop with explicit censored status, no cap reset
+interpretation:
+  purpose: engineering and developmental Train selection, not statistically significant generalization proof
+  existing_P1_Train60_has_already_been_examined: true
+  Val17: development-only; never candidate promotion or threshold tuning
+  Test100: do not use for this P2 selection or prompt design
+  future_claims_require_a_separate_unseen_evaluation: true

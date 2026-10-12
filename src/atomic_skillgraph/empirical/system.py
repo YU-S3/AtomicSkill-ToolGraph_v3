@@ -39,7 +39,7 @@ def validate_config(config):
     overrides.setdefault('learning_structure_repair',{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048})
     if overrides['learning_structure_repair'] != {'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
         raise ValueError('Structural learning repair requires disabled thinking and 2048 completion')
-    if set(overrides) - {'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair'}:
+    if set(overrides) - {'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair', 'capability_induction', 'capability_routing'}:
         raise ValueError('Unsupported purpose override')
     for settings in overrides.values():
         if set(settings) - {'protocol', 'max_completion_tokens', 'reasoning_effort'}:
@@ -92,8 +92,12 @@ def validate_config(config):
     if config['learning'].get('choice_guidance',{}).get('public_process',False) != config['runtime'].get('choice_guidance',{}).get('public_process',False):
         raise ValueError('Public process learning/runtime policies must agree')
     if config['runtime'].get('choice_guidance',{}).get('public_process'):
-        if config['experiment'].get('choice_method_version')!=VERSION:
+        if config['experiment'].get('choice_method_version') not in {VERSION,'choice-capability-batch.v1'}:
             raise ValueError('Public process requires an explicit fresh method identity')
+    if config['experiment'].get('choice_method_version')=='choice-capability-batch.v1':
+        for purpose in ('capability_induction','capability_routing'):
+            if overrides.get(purpose)!={'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
+                raise ValueError('Capability decisions require bounded disabled-thinking settings')
     finalizer=runtime.setdefault('choice_bounded_finalization',{'enabled':False,'version':FINALIZATION_VERSION})
     if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=FINALIZATION_VERSION or
         finalizer['enabled'] and not config['runtime'].get('choice_guidance',{}).get('public_process')):
@@ -308,8 +312,8 @@ class EmpiricalSystem:
         tools = [NativeToolSpec(name, "Submit the requested result", schema)] if name else []
         choice_learning = (self.config['learning'].get('choice_guidance', {}).get('enabled') is True and
                            self.adapter.capabilities.interaction == 'single_answer' and
-                           materials.get('learning_material_version') in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION} and
-                           purpose in {'guidance_learning', 'guidance_grounding'})
+                           materials.get('learning_material_version') in {CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION,'choice-capability-batch.material.v1'} and
+                           purpose in {'guidance_learning', 'guidance_grounding','capability_induction','capability_routing'})
         def repair_available():
             return not choice_learning or not self.budget_governor or self.budget_governor.repair_available()
         from .model_view import learning_payload
@@ -460,6 +464,8 @@ class EmpiricalSystem:
                                    'effective_call_settings': settings, 'tool_choice':tool_choice,
                                    'policy': self.config['runtime']['plan_execution_policy'],
                                    'implementation_revision': self.config['experiment']['implementation_revision']})
+            if self.config['experiment'].get('choice_method_version')=='choice-capability-batch.v1':
+                response_key=digest([response_key,'choice-capability-batch.v1'])
             if choice_learning:
                 response_key = digest([response_key, tool_choice, self.config['learning']['choice_guidance'],
                                        self.config['runtime'].get('choice_guidance')])

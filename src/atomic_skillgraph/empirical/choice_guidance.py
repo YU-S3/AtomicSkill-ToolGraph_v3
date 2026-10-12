@@ -164,6 +164,9 @@ def validate_check(check, proposal, source, schema):
 
 
 def checked_asset(asset):
+    if asset.get('method_version')=='choice-capability-batch.v1':
+        from .capability_batch import checked_asset as checked_capability
+        return checked_capability(asset)
     check, source = asset.get('grounding_check', {}), asset.get('evidence_source', {})
     proposal = asset.get('grounded_proposal')
     policy_version=PUBLIC_CHOICE_POLICY_VERSION if source.get('method_version')==PROCEDURE_VERSION else CHOICE_GUIDANCE_POLICY_VERSION
@@ -193,6 +196,9 @@ def retrieval_stats(cases):
 
 
 def render(asset):
+    if asset.get('method_version')=='choice-capability-batch.v1':
+        from .capability_batch import render as render_capability
+        return render_capability(asset)
     if asset.get('knowledge_type')=='procedural_advisory':
         return {'skill_id':asset['id'],'guidance':asset['guidance'],'applicability':asset['applicability'],
                 'operation_intent':asset['operation_intent'],'qualification':'procedural_advisory_not_proof'}
@@ -202,6 +208,19 @@ def render(asset):
 
 
 def select(assets, stats, task, policy):
+    procedural=[a for a in assets if a.get('method_version')=='choice-capability-batch.v1']
+    if procedural:
+        from .capability_batch import selection
+        result=selection(procedural,task,policy)
+        others=[a for a in assets if a not in procedural]
+        if not others:return result
+        baseline=select(others,stats,task,policy)
+        for asset in result['selected']:
+            size=len(json.dumps(render(asset),ensure_ascii=False))+2
+            if len(baseline['selected'])<policy['max_items'] and baseline['injected_chars']+size<=policy['max_total_chars']:
+                baseline['selected'].append(asset);baseline['injected_ids'].append(asset['id']);baseline['injected_chars']+=size
+        baseline['audit']+=result['audit']
+        return baseline
     qualified = [a for a in assets if checked_asset(a)]
     if any(a.get('guidance_policy_version') in {CHOICE_GUIDANCE_POLICY_VERSION,PUBLIC_CHOICE_POLICY_VERSION} for a in assets) and (
                       not stats or stats.get('normalizer_version') != CHOICE_NORMALIZER_VERSION or
