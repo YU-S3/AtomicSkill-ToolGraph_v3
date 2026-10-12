@@ -224,7 +224,7 @@ class Provider:
     def __init__(self, answers):
         self.answers, self.calls = iter(answers), []
 
-    def complete(self, messages, tools):
+    def complete(self, messages, tools, tool_choice=None):
         from atomic_skillgraph.agents.protocol import AgentTurn, NativeToolCall
         answer = next(self.answers)
         self.calls.append(messages)
