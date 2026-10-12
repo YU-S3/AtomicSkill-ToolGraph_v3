@@ -205,3 +205,21 @@ def test_held_out_program_outcome_never_updates_learning_statistics(tmp_path,mon
         system.learn_trace(PublicTask(**t),deepcopy(trace))
         assert len(recorded)==1 and recorded[0]['outcome']=='positive'
     finally:system.close()
+
+
+def test_real_single_cell_cli_initializes_identity_from_default_yaml(tmp_path,monkeypatch):
+    from atomic_skillgraph.experiments.run_single_cell import main
+    from atomic_skillgraph.empirical.public_process import FINALIZATION_VERSION
+    calls=fixture_transport(monkeypatch,no_candidate=True)
+    _,_,root,datasets,_=fixture(tmp_path,monkeypatch)
+    monkeypatch.chdir(ROOT)
+    args=['--config','configs/livemath_p2_formal_seed42.yaml','--benchmark','livemath','--seed','42',
+        '--model-key','deepseek-v4-flash','--datasets',str(datasets),'--output',str(root),'--max-new-tasks','1']
+    result=main(args)
+    manifest=batch.read(root/'run_manifest.json')
+    assert manifest['choice_bounded_finalization']=={'enabled':False,'version':FINALIZATION_VERSION}
+    assert result['train']['tasks']==1 and len(calls)==1 and not (root/'p2').exists()
+    assert not (root/'train/frozen_bank').exists()
+    result=main([*args,'--resume'])
+    assert result['train']['tasks']==2 and len(calls)==2
+    assert batch.read(root/'run_manifest.json')['config_hash']==manifest['config_hash']

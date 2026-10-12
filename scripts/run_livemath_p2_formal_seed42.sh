@@ -4,7 +4,7 @@ set -euo pipefail
 mode=${1:---check};revision=${2:-}
 case "$mode" in --check|--execute|--resume) ;; *) echo 'Use --check, --execute or --resume with the pinned commit' >&2;exit 2;;esac
 CODE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-OUTPUT=${LIVEMATH_P2_FORMAL_OUTPUT:-/home/yangchengyu/livemath_p2_formal_seed42_20261012/livemath/seed42}
+OUTPUT=${LIVEMATH_P2_FORMAL_OUTPUT:-/home/yangchengyu/livemath_p2_formal_seed42_20261013/livemath/seed42}
 P1=${LIVEMATH_P2_COST_SOURCE:-/home/yangchengyu/livemath_public_process_seed42_formal_20261012/livemath/seed42}
 P2=${LIVEMATH_P2_BATCH_COST_SOURCE:-/home/yangchengyu/livemath_p2_r8_no_change_format_seed42_20261012}
 DATASETS=/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1

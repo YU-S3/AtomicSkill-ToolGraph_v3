@@ -46,6 +46,8 @@ def configure(base, spec, benchmark, seed, authority):
         raise ValueError('Formal P2 allowance or original cumulative budget changed')
     if spec.get('choice_bounded_finalization', False): raise ValueError('P2 keeps bounded finalization disabled')
     config = deepcopy(base)
+    from ..empirical.public_process import FINALIZATION_VERSION
+    config['runtime']['choice_bounded_finalization'] = {'enabled':False,'version':FINALIZATION_VERSION}
     config['experiment'].update(choice_method_version=VERSION, choice_batch_version=FORMAL_VERSION,
         choice_batch_contract=contract, choice_batch_contract_sha256=sha256(contract_path),
         choice_selection_physical_keys=sorted(contract['split']['selected_physical_keys'].values()))
