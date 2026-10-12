@@ -7,11 +7,12 @@ CODE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 OUTPUT=${OFFICE_R1_OUTPUT:-/home/yangchengyu/officeqa_runtime_r2_fresh_seed42_formal_20261012/officeqa/seed42}
 OLD=${OFFICE_R1_COST_SOURCE:-/home/yangchengyu/officeqa_finish_window_r1_fresh_seed42_formal_20261012/officeqa/seed42}
 CHECK=${OFFICE_R1_VALIDATION_COST_SOURCE:-}
+CONFIG=${OFFICE_R1_CONFIG:-configs/atomic_unified_seed42.yaml}
 PYTHON=/home/yangchengyu/asg_alfworld_venv/bin/python
 cd "$CODE";export PYTHONPATH="$CODE/src"
 [[ $(git rev-parse HEAD) == "$revision" ]] && [[ -z $(git status --porcelain --untracked-files=no) ]] || { echo 'Pinned clean commit required' >&2;exit 2; }
 command=("$PYTHON" -m atomic_skillgraph.experiments.run_single_cell
- --config configs/atomic_unified_seed42.yaml --benchmark officeqa --seed 42 --model-key deepseek-v4-flash
+ --config "$CONFIG" --benchmark officeqa --seed 42 --model-key deepseek-v4-flash
  --datasets /home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1 --output "$OUTPUT"
  --corpus-root /mnt/d/T3S_exp/SkillCompiler_resources_20261003/raw/officeqa/treasury_bulletins_parsed/transformed
  --env-file /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env)

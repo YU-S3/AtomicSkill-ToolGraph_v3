@@ -104,8 +104,8 @@ REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_fie
 LEARNER_PROMPT = """Learn real Train, including failures. One flat submit_learning ToolCall.
 Compile at most one useful observed search/read/compute operation. related lists Bank assets;
 local_evidence lists temporary/native work, not durable Programs. Native execution alone is not Bank coverage.
-Parameterize recorded arrays/scalars; one binding suffices,
-without another case, files or task success. no_change remains valid for unsupported/nonreusable/covered work.
+Parameterize recorded arrays/scalars; files/task success are unnecessary.
+no_change remains valid for unsupported/nonreusable/covered work.
 Never invent evidence, owners, success, outputs or retrieval.
 Use source_excerpt/input_sources/output_references; Builder gets full source.
 Arrays use aggregate AST paths, not observation/elements. Only executed
@@ -116,9 +116,8 @@ Python allows /workspace absolutes; publication names exclude leading slash, inp
 Skill refs: $new or supplied real IDs, never aliases. Workflow: dependencies; dynamic goal/reference_skill_ids;
 bound asset I/O/no goal/optional purpose; compositions/patches are not proof. Repair keeps selected_local_goal/scope.
 guidance_only: generate_program=false/no realization_request. generate_program=true requests pending builds,
-even reuse_existing. Bind current experience.local_evidence or applicable completed_train_cases;
-no existing job or second case is needed. Use real case_id/local_evidence_ref, inputs/tools.
-Existing jobs may be reused or deferred. input_refs: exact catalog
+even reuse_existing. Bind current experience.local_evidence or completed_train_cases;
+no prior job/second case needed. Use real case_id/local_evidence_ref and inputs/tools. input_refs: exact catalog
 public_json/operation_json/source_literal paths or public_span start/end. Spans prove provenance, not semantics.
 Host owns prefix/start_mode/environment/source trace; omit them."""
 BUILDER_PROMPT = """Return exactly one submit_program ToolCall using submission_contract. During generation/recovery,
