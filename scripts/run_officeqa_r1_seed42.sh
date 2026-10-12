@@ -4,8 +4,9 @@ set -euo pipefail
 mode=${1:---print};revision=${2:-}
 case "$mode" in --print|--execute|--resume) ;; *) echo 'Use --print, --execute or --resume, followed by the pinned commit' >&2;exit 2;;esac
 CODE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-OUTPUT=${OFFICE_R1_OUTPUT:-/home/yangchengyu/officeqa_finish_window_r1_fresh_seed42_formal_20261012/officeqa/seed42}
-OLD=${OFFICE_R1_COST_SOURCE:-/home/yangchengyu/officeqa_capacity_v6_fresh_seed42_formal_20261012/officeqa/seed42}
+OUTPUT=${OFFICE_R1_OUTPUT:-/home/yangchengyu/officeqa_runtime_r2_fresh_seed42_formal_20261012/officeqa/seed42}
+OLD=${OFFICE_R1_COST_SOURCE:-/home/yangchengyu/officeqa_finish_window_r1_fresh_seed42_formal_20261012/officeqa/seed42}
+CHECK=${OFFICE_R1_VALIDATION_COST_SOURCE:-}
 PYTHON=/home/yangchengyu/asg_alfworld_venv/bin/python
 cd "$CODE";export PYTHONPATH="$CODE/src"
 [[ $(git rev-parse HEAD) == "$revision" ]] && [[ -z $(git status --porcelain --untracked-files=no) ]] || { echo 'Pinned clean commit required' >&2;exit 2; }
@@ -17,7 +18,7 @@ command=("$PYTHON" -m atomic_skillgraph.experiments.run_single_cell
 if [[ $mode == --print ]];then printf '%q ' "${command[@]}";printf '\n';exit 0;fi
 mkdir -p "$(dirname "$OUTPUT")"
 exec 9>"$(dirname "$OUTPUT")/officeqa.lock";flock -n 9 || { echo 'OfficeQA is already running' >&2;exit 2; }
-"$PYTHON" - "$OUTPUT" "$OLD" "$mode" <<'PY'
+"$PYTHON" - "$OUTPUT" "$OLD" "$mode" "$CHECK" <<'PY'
 import hashlib,json,subprocess,sys
 from pathlib import Path
 from atomic_skillgraph.experiments.run_empirical import write_json
@@ -33,10 +34,22 @@ if mode=='--execute':
     assert not ledger['unknown_billing'] and all(a['status']=='metered' for a in ledger['attempts'].values())
     assert sum(a['accounted_tokens'] for a in ledger['attempts'].values())<limits['token_limit']
     assert len(ledger['attempts'])<limits['request_limit']
-    output.mkdir(parents=True);(output/'budget.json').write_bytes(raw)
+    additional=None
+    if sys.argv[4]:
+        check=Path(sys.argv[4]);check_raw=(check/'budget.json').read_bytes();check_ledger=json.loads(check_raw)
+        assert not check_ledger['unknown_billing'] and all(a['status']=='metered' for a in check_ledger['attempts'].values())
+        for key,attempt in check_ledger['attempts'].items():
+            assert key not in ledger['attempts'] or ledger['attempts'][key]==attempt, 'Conflicting HTTP identity'
+            ledger['attempts'][key]=attempt
+        additional={'source_run':str(check),'source_budget_sha256':hashlib.sha256(check_raw).hexdigest(),
+                    'attempt_ids':list(check_ledger['attempts'])}
+    assert sum(a['accounted_tokens'] for a in ledger['attempts'].values())<limits['token_limit']
+    assert len(ledger['attempts'])<limits['request_limit']
+    output.mkdir(parents=True);write_json(output/'budget.json',ledger)
     write_json(output/'cost_carryforward_manifest.json',{'source_run':str(old),'source_budget_sha256':hashlib.sha256(raw).hexdigest(),
         'inherited_tokens':sum(a['accounted_tokens'] for a in ledger['attempts'].values()),'inherited_http':len(ledger['attempts']),
         'inherited_attempt_ids':list(ledger['attempts']),'limits_unchanged':True,'bank_inherited':False,
+        'validation_cost_source':additional,
         'prior_cost_carryforward':json.loads((old/'cost_carryforward_manifest.json').read_text()) if (old/'cost_carryforward_manifest.json').exists() else None})
 else:
     assert (output/'run_manifest.json').exists() and (output/'cost_carryforward_manifest.json').exists()

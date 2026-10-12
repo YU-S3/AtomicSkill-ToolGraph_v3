@@ -32,7 +32,7 @@ class Executor:
         input_reads, replaced_inputs = [], {}
         reason, final, last_output, last_role = 'completed', None, {}, 'intermediate'
         last_producer, submission_producer_attempt_id = None, None
-        finish_evidence = None
+        finish_evidence, finish_trigger = None, None
         pending_step, pending_decision_id, owner_version, recovery_needed = None, None, 0, False
         checkpoint = getattr(self, 'checkpoint', None)
         submission_kind = adapter.capabilities.final_submission_kind
@@ -57,6 +57,7 @@ class Executor:
             last_producer = saved.get('last_producer')
             submission_producer_attempt_id = saved.get('submission_producer_attempt_id')
             reason = saved.get('reason', reason)
+            finish_trigger = saved.get('finish_trigger')
             for key, value in saved['context'].items():
                 setattr(context, key, set(value) if key in {'progress_contents', 'progress_states'} else value)
             pending_step, pending_decision_id = saved['pending_step'], saved['pending_decision_id']
@@ -72,7 +73,8 @@ class Executor:
                 'values': values.history, 'history': history, 'attempts': attempts, 'plan': plan,
                 'plan_revisions': replans, 'dynamic_escapes': escapes, 'abandoned': sorted(abandoned),
                 'pending_outputs': context.pending_outputs, 'input_reads': input_reads, 'replaced_inputs': replaced_inputs,
-                'submission_producer_attempt_id': submission_producer_attempt_id, 'finish_evidence': finish_evidence})
+                'submission_producer_attempt_id': submission_producer_attempt_id, 'finish_evidence': finish_evidence,
+                'finish_trigger': finish_trigger})
             for attempt in result['attempts']:
                 attempt['outputs_consumed'] = attempt['id'] in consumed
                 attempt['submission_by_program'] = attempt['id'] == submission_producer_attempt_id
@@ -94,12 +96,13 @@ class Executor:
                 'abandoned': sorted(abandoned), 'blocked': sorted(blocked), 'attempted': sorted(attempted),
                 'consumed': sorted(consumed), 'producers': producers, 'input_reads': input_reads,
                 'replaced_inputs': replaced_inputs, 'supplied_by': [[n,k,v] for (n,k),v in supplied_by.items()],
-                'final': final, 'reason': reason, 'last_output': last_output, 'last_role': last_role, 'pending_step': encoded,
+                'final': final, 'reason': reason, 'finish_trigger': finish_trigger,
+                'last_output': last_output, 'last_role': last_role, 'pending_step': encoded,
                 'last_producer': last_producer, 'submission_producer_attempt_id': submission_producer_attempt_id,
                 'pending_decision_id': None if status else pending_decision_id, 'owner_version': owner_version,
                 'recovery_needed': recovery_needed,
                 'context': {k: sorted(getattr(context,k)) if k in {'progress_contents','progress_states'} else getattr(context,k)
-                    for k in ['scope','results','sources','memory','local_reads','result_origins','window_sources','sent_windows','pending_outputs','active_node',
+                    for k in ['scope','results','sources','memory','local_reads','result_origins','window_sources','sent_windows','pending_outputs','public_notes','active_node',
                               'progress_observations','progress_contents','progress_states','loop_hits','loop_feedback']}}
             if status:
                 checkpoint.commit_decision(pending_decision_id, status, executor_state=state, program_started=False)
@@ -124,7 +127,8 @@ class Executor:
                     {k: context.preview(v) for k,v in row.items()} for row in history[-3:]]
 
         def finalize():
-            nonlocal final, reason, pending_decision_id, finish_evidence, submission_producer_attempt_id
+            nonlocal final, reason, pending_decision_id, finish_evidence, finish_trigger, submission_producer_attempt_id
+            finish_trigger = reason
             if submission(last_output, last_role, last_producer):
                 final = last_output['answer']
                 submission_producer_attempt_id = last_producer
@@ -133,7 +137,8 @@ class Executor:
                 final, finish_evidence = finalize_text(self.agent, context,
                     {'original_goal': task.goal, 'public_state': public_view(adapter),
                      'working_memory': context.model_memory(), 'recent': recent(),
-                     'completed_results': values.model_view(), 'pending_outputs': context.pending_outputs},
+                      'completed_results': values.model_view(), 'pending_outputs': context.pending_outputs,
+                      'public_notes': context.public_notes},
                     finish_text_prompt(getattr(adapter, 'answer_contract', lambda: '')()),
                     owner_state_version=owner_version)
                 candidate_id = getattr(getattr(self.agent, '__self__', None), 'last_decision_id', None)
@@ -404,10 +409,13 @@ class Executor:
             if not guidance:
                 guidance = [s for s in self.bank.retrieve(interface['node_goal']) if 'guidance' in s][:3]
             requirements = handoff_requirements(plan, node['id'], completed)
+            aliases = node.get('output_aliases', {})
+            reverse_aliases = {target: source for source, target in aliases.items()}
+            actual_fields = set(aliases) | {reverse_aliases.get(k, k) for k in requirements['required_fields']}
             materials = {'original_task': {'goal': task.goal, 'inputs': task.inputs}, 'node_goal': interface['node_goal'],
                 'node_id': node['id'], 'node_interface': interface, 'inputs': arguments, 'missing': missing,
                 'required_handoff_fields': requirements['required_fields'], 'handoff_consumers': requirements['consumers'],
-                'return_example': {k: '<actual ordinary value>' for k in requirements['required_fields']},
+                'return_example': {k: '<actual ordinary value>' for k in sorted(actual_fields)},
                 'pending_outputs': context.preview(context.pending_outputs.get(node['id'], {})),
                 'output_aliases': node.get('output_aliases', {}),
                 'public_state': public_view(adapter), 'tools': broker.available_tools(),
@@ -430,13 +438,15 @@ class Executor:
                                       repair_limit=1, validator=validate_step, owner_state_version=owner_version,
                                       finish_request_material={'original_goal':task.goal,'public_state':public_view(adapter),
                                           'working_memory':context.model_memory(),'recent':recent(),
-                                          'completed_results':values.model_view(),'pending_outputs':context.pending_outputs})
+                                          'completed_results':values.model_view(),'pending_outputs':context.pending_outputs,
+                                          'public_notes':context.public_notes})
                     candidate_id = getattr(getattr(self.agent, '__self__', None), 'last_decision_id', None)
                     pending_decision_id = candidate_id if checkpoint and candidate_id in checkpoint.state['decisions'] else None
                 save(step)
                 pending_step = None
             except BudgetExhausted as exc:
                 if exc.code not in {'runtime_finish_reserved','parent_task_budget_exhausted'} or submission_kind != 'text': raise
+                reason = exc.code
                 finalize()
                 break
             except ValueError as exc:
@@ -450,6 +460,7 @@ class Executor:
             rejected, finish = False, False
             for index, (action, call_id) in enumerate(decisions):
                 kind = action['action']
+                context.record_public_note(response_id, action.get('detail'))
                 used = set(action.get('used_inputs', [])) & set(arguments)
                 replaced = set(action.get('replaced_inputs', [])) & set(arguments)
                 if used - replaced:

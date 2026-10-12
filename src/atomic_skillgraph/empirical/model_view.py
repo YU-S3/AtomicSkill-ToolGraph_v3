@@ -356,7 +356,8 @@ def project(stage, material, *, task=None, adapter=None, context=None):
             'handoff': {k: value.pop(k) for k in ('required_handoff_fields', 'handoff_consumers', 'return_example', 'pending_outputs', 'output_aliases')},
             'state': state,
             'calls': {k: value.pop(k) for k in ('tools', 'programs', 'allowed_calls')},
-            'memory': {'guidance': value.pop('guidance'), 'operations': memory, 'recent_results': recent},
+            'memory': {'guidance': value.pop('guidance'), 'operations': memory, 'recent_results': recent,
+                       'public_notes': context.public_notes if context else []},
             'recovery': value})
     if stage == 'extractor' and 'related' in value:
         before = canonical_bytes(value['related'])
