@@ -80,7 +80,7 @@ def evidence(root,*,continuation=False):
 def capacity_refusal(request,config):
     receipt=request.get('material_refusal') or {};payload=receipt['payload']
     stage,purpose=request['stage'],request['purpose']
-    assert stage in {'extractor','tool_builder'} and request.get('admission_status')=='local_refusal'
+    assert stage in {'extractor','tool_builder'} and request.get('admission_status')=='local_refusal', 'Unresolved non-learning payload overflow: '+str(request.get('error'))
     assert request.get('failure_code')=='learning_capacity_rejected' and not request.get('http_attempts') and not request.get('response')
     key='structural_repair_payload_max_bytes' if purpose=='learning_structure_repair' else 'builder_payload_max_bytes' if stage=='tool_builder' else 'extractor_payload_max_bytes'
     assert receipt['limit_bytes']==request['payload_max_bytes']==config['learning'][key]

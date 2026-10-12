@@ -135,12 +135,13 @@ class TaskContext:
     def fit_window(self, window, fits):
         """Reduce by whole source units; never misreport a half JSON element as delivered."""
         window = dict(window)
-        while not fits(window) and window['content']:
+        while True:
+            window['truncated'] = window['end'] < window['size']
+            if fits(window) or not window['content']: break
             window['content'] = window['content'][:len(window['content']) // 2]
             window['end'] = window['offset'] + len(window['content'])
             window['next_offset'] = window['end'] if window['end'] < window['size'] else None
             window['content_hash'] = digest(window['content'])
-        window['truncated'] = window['end'] < window['size']
         if not window['content'] and window['offset'] < window['size']:
             ref = window['source_ref']
             if window['unit'] == 'array_item_0_based':
