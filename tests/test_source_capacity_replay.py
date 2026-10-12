@@ -33,6 +33,7 @@ def test_exact_17408_byte_extractor_replay_preserves_source_and_scope(tmp_path,m
     original=json.loads((source/'train/config.json').read_text())
     for enabled in (False,True):
         cfg=deepcopy(original);cfg['data_dir']=str(tmp_path/str(enabled))
+        cfg['experiment']['output_dir']=str(tmp_path/str(enabled)/'replay-output')
         cfg['experiment']['implementation_revision']=IMPLEMENTATION_REVISION
         if enabled:cfg['learning']['source_program_payload_max_bytes']=24576
         system=EmpiricalSystem(cfg,harness=AnswerAdapter('livemath',{}))
