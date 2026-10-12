@@ -20,9 +20,9 @@ class Learner:
         self.system = system
         self.cases = [(PublicTask(**row['task']), row['experience']) for row in system.bank.train_cases()]
 
-    def learn_capability_batch(self, case_ids, selection_ids, *, recovered_demand=None):
+    def learn_capability_batch(self, case_ids, selection_ids, *, recovered_demand=None, recovered_proposal=None):
         from .capability_batch import compile_candidate
-        return compile_candidate(self,case_ids,selection_ids,recovered_demand=recovered_demand)
+        return compile_candidate(self,case_ids,selection_ids,recovered_demand=recovered_demand,recovered_proposal=recovered_proposal)
 
     def match_capability(self, candidate, task):
         from .capability_batch import match_public

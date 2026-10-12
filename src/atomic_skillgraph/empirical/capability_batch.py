@@ -186,7 +186,7 @@ def validate_match(value,capability,task):
     return value['applicable']
 
 
-def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None):
+def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None,recovered_proposal=None):
     s=learner.system
     if s.config['experiment'].get('choice_method_version')!=VERSION or s.readonly or s.phase!='train' or not s.checkpoint or not s.audit_path:
         raise ValueError('Capability learning requires an explicitly versioned durable writable Train unit')
@@ -217,7 +217,13 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None):
         capability=validate_capability(value,rows);log['capability']=capability
         if capability:
             log['stage']='guidance_learning'
-            proposal=receive('proposal','Propose a short cross-case procedural advisory, or no_change. '
+            if recovered_proposal is not None:
+                if (recovered_demand is None or recovered_proposal['unit_id']!=unit or
+                    recovered_proposal['capability_hash']!=digest(capability) or recovered_proposal['source_records_hash']!=digest(rows)):
+                    raise ValueError('Revalidated proposal source identity changed')
+                proposal=deepcopy(recovered_proposal['value']);log['recovered_proposal']=deepcopy(recovered_proposal)
+                log['proposal_origin']='saved_paid_v1_revalidated'
+            else:proposal=receive('proposal','Propose a short cross-case procedural advisory, or no_change. '
                 'Use observed public demands and saved outcomes. Incorrect/truncated responses disclose no true reasoning cause or alternative proof. '
                 'Describe checks the solver can perform, leaving their outcomes to the actual task. '
                 'Do not prescribe a correct option from strength, fewer dependencies, extra hypotheses or equality wording alone: these do not establish mathematical truth. '
