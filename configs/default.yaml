@@ -4,7 +4,7 @@ benchmark_profile: alfworld.public-discovery.v2
 manifest: data/baseline_manifests/train_120.json
 data_dir: runs/empirical_seed42/bank
 experiment:
-  implementation_revision: empirical-v3.3-task-python-rpc
+  implementation_revision: empirical-v3.3-task-program-priority
   seed: 42
   benchmark: alfworld
   runtime_mode: online
@@ -16,7 +16,7 @@ harness:
   max_steps: 100
   public_discovery_version: alfworld.public-discovery.v2
 runtime:
-  model_view_version: empirical.model-view.public-windows.v6
+  model_view_version: empirical.model-view.public-windows.v7
   finish_input_max_bytes: 65536
   dynamic_output_min_tokens: 0
   plan_execution_policy: empirical.recoverable-takeover.v1

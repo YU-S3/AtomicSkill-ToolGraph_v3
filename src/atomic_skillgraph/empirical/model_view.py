@@ -378,13 +378,16 @@ def project(stage, material, *, task=None, adapter=None, context=None):
                         if key in original.get('outputs', {}) and field == original['outputs'][key]:
                             fields[key] = {'result_id': rid, 'path': ['outputs', key]}
         # Memory stores query/scope/acceptance and the result ID; previews live in recent_results.
+        calls = {k: value.pop(k) for k in ('tools', 'programs', 'allowed_calls')}
+        temporary = getattr(adapter, 'task_program_contract', lambda tools: None)(calls['tools'])
+        if temporary: calls['task_local_program'] = temporary
         return pack_material({'model_view_version': MODEL_VIEW_VERSION, 'task': public_task,
             'node': {'id': value.pop('node_id'), 'goal': node_goal, 'interface': interface},
             'bindings': {'inputs': inputs, 'input_sources': sources, 'missing': value.pop('missing'),
                          'completed_results': completed},
             'handoff': {k: value.pop(k) for k in ('required_handoff_fields', 'handoff_consumers', 'return_example', 'pending_outputs', 'output_aliases')},
             'state': state,
-            'calls': {k: value.pop(k) for k in ('tools', 'programs', 'allowed_calls')},
+            'calls': calls,
             'memory': {'guidance': value.pop('guidance'), 'operations': memory, 'recent_results': recent,
                        'public_notes': context.public_notes if context else []},
             'recovery': value})

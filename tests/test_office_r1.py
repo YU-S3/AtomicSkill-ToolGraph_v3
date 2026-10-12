@@ -296,6 +296,7 @@ def test_actual_fresh_prefix_extractor_wire_and_host_receipts(tmp_path,monkeypat
     config['learning']['material_version']=LEARNING_MATERIAL_VERSION
     from atomic_skillgraph.empirical import POLICY_DEFAULTS
     config['learning']['structural_repair_payload_max_bytes']=POLICY_DEFAULTS['learning']['structural_repair_payload_max_bytes']
+    config['runtime']['model_view_version']=POLICY_DEFAULTS['runtime']['model_view_version']
     config['experiment']['implementation_revision']=IMPLEMENTATION_REVISION
     db=sqlite3.connect((root/'train/run.sqlite3').as_uri()+'?mode=ro',uri=True)
     trace=json.loads(db.execute("SELECT result FROM tasks WHERE status='completed' ORDER BY rowid LIMIT 1").fetchone()[0]);db.close()

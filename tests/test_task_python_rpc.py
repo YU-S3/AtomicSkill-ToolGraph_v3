@@ -70,6 +70,48 @@ def test_runtime_consumes_parent_result_with_no_existing_program(tmp_path, worke
     finally: s.close()
 
 
+def test_temporary_contract_reaches_real_runtime_payload_and_result(tmp_path, monkeypatch, worker):
+    import json
+    from atomic_skillgraph.empirical.executor import Executor
+    from atomic_skillgraph.empirical.model_view import expand_material
+    from atomic_skillgraph.empirical.planner import dynamic
+    from atomic_skillgraph.empirical.program_worker import public_program_abi
+    s = office(tmp_path); s.worker = worker; s.adapter.worker = worker
+    worker.settings['wall_timeout_seconds'] = 20
+    sent = http(monkeypatch, [response([{'action':'call_tool','name':'execute_python','arguments':{'source':SEARCH}}]),
+                             response([{'action':'finish','answer':'target'}])])
+    try:
+        broker = Broker(s.adapter, 5, context=s.task_context)
+        result = Executor(s.bank,s.agent,worker,s.planner).run(s.adapter.task,s.adapter,broker,dynamic(s.adapter.task))
+        initial = expand_material(json.loads(sent[0]['messages'][1]['content']))
+        contract = initial['calls']['task_local_program']
+        assert contract['tool'] == 'execute_python' and contract['context_methods'] == public_program_abi()['methods']
+        assert set(contract['allowed_tools']) == {'glob','grep','read','read_result'}
+        assert contract['max_internal_calls'] == worker.settings['max_tool_calls_per_invocation']
+        assert contract['wall_timeout_seconds'] == 20 and initial['recovery']['remaining_calls'] == 5
+        actual = expand_material(json.loads(sent[1]['messages'][1]['content']))
+        assert actual['recovery']['remaining_calls'] == 1
+        assert any(r.get('data',{}).get('computed',{}).get('text') == '第二行 target\nlast'
+                   for r in actual['memory']['recent_results'])
+        assert result['prediction']=='target' and len(sent)==2 and len(broker.events)==4
+        assert not s.bank.all('skill') and not s.bank.all('program')
+    finally: s.close()
+
+
+def test_temporary_contract_requires_current_permission(tmp_path):
+    from atomic_skillgraph.harness.benchmarks import SpreadsheetAdapter
+    s = office(tmp_path)
+    sheet = SpreadsheetAdapter({},s.config)
+    try:
+        assert s.adapter.task_program_contract([]) is None
+        assert sheet.task_program_contract(sheet.available_tools()) is None
+        # Turning off the declared bound execution permission removes the capability;
+        # a description or benchmark/task name cannot grant it.
+        s.adapter.broker_bound_tools = ()
+        assert s.adapter.task_program_contract(s.adapter.available_tools()) is None
+    finally: sheet.close(); s.close()
+
+
 def test_temporary_search_keeps_path_and_recursive_execution_rejections(tmp_path, worker):
     s = office(tmp_path); s.adapter.worker = worker; worker.settings['wall_timeout_seconds'] = 20
     broker = Broker(s.adapter, 5)

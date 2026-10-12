@@ -51,11 +51,24 @@ def test_real_9415_byte_binding_enters_original_host_repair(bound_archive,tmp_pa
             'submit_learning',initial['tools'][0]['function']['parameters'],repair_limit=1,
             validator=lambda p:s.learner.validate_learning_proposal(p,cases))
         assert result=={'decision':'no_change'} and len(sent)==2
-        assert sent[1]==before and input_token_bound(sent[1])==9415<=s.config['learning']['structural_repair_payload_max_bytes']==16384
+        assert {k:v for k,v in sent[1].items() if k!='messages'} == {k:v for k,v in before.items() if k!='messages'}
+        current=json.loads(sent[1]['messages'][1]['content']);original=json.loads(before['messages'][1]['content'])
+        assert {k:v for k,v in current.items() if k not in {'errors','legal_operations'}} == {k:v for k,v in original.items() if k not in {'errors','legal_operations'}}
+        assert len(current['errors'])==len(original['errors'])
+        for new,old in zip(current['errors'],original['errors']):
+            assert {k:v for k,v in new.items() if k!='errors'} == {k:v for k,v in old.items() if k!='errors'}
+            assert len(new['errors'])==len(old['errors'])
+            assert all(all(error[k]==v for k,v in reference.items()) for error,reference in zip(new['errors'],old['errors']))
+        assert len(current['legal_operations'])==len(original['legal_operations'])
+        for new,old in zip(current['legal_operations'],original['legal_operations']):
+            assert {k:v for k,v in new.items() if k!='input_sources'} == {k:v for k,v in old.items() if k!='input_sources'}
+            assert all(ref in new['input_sources'] for ref in old['input_sources'])
+        assert input_token_bound(before)==9415 and refused['material_refusal']['payload']==before
+        assert input_token_bound(sent[1])<=s.config['learning']['structural_repair_payload_max_bytes']==16384
         assert sent[1]['max_tokens']==2048 and sent[1]['thinking']['type']=='disabled'
         assert s.requests[1]['repair']==1 and not s.bank.all('program')
         assert proposal==initial['response']['tool_calls'][0]['arguments']
-        record('bound_9415_capacity_v6',{'wire_bytes':9415,'limit_bytes':16384,'actual_http':0,
+        record('bound_9415_capacity_v6',{'wire_bytes':input_token_bound(sent[1]),'original_wire_bytes':9415,'limit_bytes':16384,'actual_http':0,
             'fixture_responses':2,'payload':sent[1],'host_rejects_original':True,'repair_result':result})
     finally:s.close()
 

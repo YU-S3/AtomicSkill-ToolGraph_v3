@@ -217,6 +217,14 @@ def single_answer_prompt(contract, *, semantic=False):
 
 
 RUNTIME_PROMPT = """Materials are grouped as task, node, bindings, handoff, state, calls, memory, recovery.
+Execution priority: reuse a compatible usable Program when its inputs are ready. Otherwise, when
+calls.task_local_program is supplied and the next work repeats search, filtering or reading, write and run
+one bounded temporary script through its tool instead of taking a separate model turn for each operation.
+Choose task-specific queries and stopping conditions yourself from public evidence. A temporary script works
+with an empty Bank and does not require a saved Skill, a Builder request or whole-task success. It creates no
+persistent asset; later Train learning still requires actual source/output evidence and independent validation.
+Use a single native call for an isolated inspection, unknown input or feedback that cannot yet be handled in
+code. Stop searching once the required evidence is acquired, then compute from it and submit the answer.
 node.interface is the real I/O contract. A task_field points to the single displayed task field. Result references
 contain result_id/path: use argument_refs/output_refs, or bounded read_result when the preview is insufficient;
 do not pass a reference object as an ordinary business value. Follow task.answer_contract when supplied.
@@ -250,9 +258,12 @@ For numerical tasks, obtain the relevant rows and use an available compute tool 
 values, preserving their units and provenance. Submit the answer once ready instead of continuing exploration.
 When using execute_python for a computation, print one JSON object containing the acquired input values and
 computed results with clear field names, using json.dumps. This preserves typed actual outputs for later learning.
-If a Python tool explicitly exposes ctx.call, use a bounded temporary script to batch repetitive search/read
-work even with no saved Program. Each ctx.call spends the same task budget; check ctx.remaining_calls(), stop
-when evidence suffices, and print compact actual results. Do not assume direct corpus or network access.
+calls.task_local_program gives the actual temporary context API and invocation limits. Submit top-level
+source in runtime_step(action=call_tool,name=its tool,arguments={"source":"..."}); do not merely define run.
+Keep dependent calls and loops inside that script. Check ctx.remaining_calls() and each result's accepted/error
+before consuming data; cap iterations and output size. The launch and internal calls spend the same task budget.
+Reuse acquired paths, offsets and result IDs; print compact JSON with real locators, needed rows, inputs and
+computed results. Do not dump whole documents, assume a corpus mount/network, or invent missing values.
 Check existing memory results before repeating a query. Acquired text pages and calculations remain visible
 after later searches; a repeated query without a changed scope adds no evidence.
 Keep a concise working note in detail with acquired locators, values or completed calculations needed next.

@@ -125,6 +125,19 @@ class FileAdapter(AnswerAdapter):
     def tool_definitions(self): return [spec.view() for spec in self.specs.values()]
     def available_tools(self): return self.tool_definitions()
 
+    def task_program_contract(self, tools):
+        if 'execute_python' not in getattr(self, 'broker_bound_tools', ()):
+            return None
+        from ..empirical.program_worker import public_program_abi
+        from .simple_protocol import PROGRAM_FORBIDDEN_TOOLS
+        if not any(t['name'] == 'execute_python' for t in tools): return None
+        return {'tool': 'execute_python', 'context_methods': public_program_abi()['methods'],
+                'allowed_tools': [t['name'] for t in tools if t['name'] not in PROGRAM_FORBIDDEN_TOOLS],
+                'max_internal_calls': self.worker.settings['max_tool_calls_per_invocation'],
+                'wall_timeout_seconds': self.worker.settings['wall_timeout_seconds'],
+                'budget': 'launch and every internal call share recovery.remaining_calls; the earlier owner deadline applies',
+                'persistence': 'none; no Bank mutation or automatic promotion'}
+
     def result_protocol(self, name):
         from ..empirical.public_results import FILE_COMPUTE
         return FILE_COMPUTE if name == 'execute_python' else None
