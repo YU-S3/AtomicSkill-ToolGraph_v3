@@ -9,6 +9,7 @@ from .public_results import public_result
 
 VERSION='choice-capability-batch.v1'
 MATERIAL_VERSION='choice-capability-batch.material.v1'
+PROMPT_REVISION='procedural-actions.r2'
 OPERATIONS=('extract_assumptions','compare_implications','inspect_quantifiers','seek_counterexample','check_finite_invariant')
 TEXT=lambda n:{'type':'string','minLength':1,'maxLength':n}
 REFERENCE=object_schema({'case_id':TEXT(160),'span_id':TEXT(80)},['case_id','span_id'])
@@ -19,7 +20,7 @@ CAPABILITY=object_schema({'decision':{'enum':['no_change','capability']},'requir
 PROPOSAL=object_schema({'decision':{'enum':['no_change','candidate']},'guidance':TEXT(180),
     'applicability':TEXT(80),'references':REFERENCES},['decision'])
 CHECK=object_schema({'candidate_hash':TEXT(64),'status':{'enum':['procedural_only','domain_fact','unsupported']},
-    'proposal_quote':TEXT(240),'references':REFERENCES},['candidate_hash','status','proposal_quote','references'])
+    'proposal_quote':TEXT(240),'references':REFERENCES,'reason':TEXT(240)},['candidate_hash','status','proposal_quote','references'])
 MATCH=object_schema({'task_hash':TEXT(64),'capability_id':TEXT(80),'applicable':{'type':'boolean'},
     'span_ids':{'type':'array','items':TEXT(80),'minItems':0,'maxItems':4,'uniqueItems':True}},
     ['task_hash','capability_id','applicable','span_ids'])
@@ -160,7 +161,8 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None):
     rows=records([by_id[k] for k in case_ids]);unit=digest([VERSION,rows,sorted(selection_ids)])
     key='capability_batch_'+unit
     if s.checkpoint.state.get(key):return s.checkpoint.state[key]
-    log={'method_version':VERSION,'unit_id':unit,'source_case_ids':case_ids,'decision':'no_change','candidate':None}
+    log={'method_version':VERSION,'prompt_revision':PROMPT_REVISION,'unit_id':unit,'source_case_ids':case_ids,
+        'decision':'no_change','candidate':None,'stage':'capability_induction'}
     receive=lambda suffix,prompt,material,name,schema,purpose,validator,repair:learner._receive(
         key+'_'+suffix,'extractor',prompt,material,name,schema,material_version=MATERIAL_VERSION,
         decision_purpose=purpose,validator=validator,repair_limit=repair)
@@ -177,18 +179,29 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None):
                 {'public_cases':public},'submit_capability',CAPABILITY,'capability_induction',lambda v:validate_capability(v,rows),0)
         capability=validate_capability(value,rows);log['capability']=capability
         if capability:
+            log['stage']='guidance_learning'
             proposal=receive('proposal','Propose a short cross-case procedural advisory, or no_change. '
                 'Use observed public demands and saved outcomes. Incorrect/truncated responses disclose no true reasoning cause or alternative proof. '
+                'Describe checks the solver can perform, leaving their outcomes to the actual task. '
+                'Do not prescribe a correct option from strength, fewer dependencies, extra hypotheses or equality wording alone: these do not establish mathematical truth. '
                 'No theorem conclusions, formulas, answer labels, lookup tables or guarantees. Cite supplied source spans. The entire card must fit 512 characters.',
                 {'capability':capability,'train_cases':rows},'submit_learning',PROPOSAL,'guidance_learning',
                 lambda v:validate_candidate(v,capability,rows),s.config['learning']['guidance_repair_limit'])
             candidate=validate_candidate(proposal,capability,rows)
+            log['proposal']=proposal
             if candidate:
-                check=receive('check','Check whether this is a general behavioral procedure rather than a theorem answer or invented failure cause. '
-                    'Return domain_fact or unsupported if not. Quote only actual supplied text/spans. This check is not a mathematical proof or utility test.',
-                    {'candidate':{k:candidate[k] for k in ('guidance','applicability','proposal','source_records')},
+                log['stage']='guidance_grounding';log['proposed_candidate']=candidate
+                check=receive('check','Classify the proposed guidance itself; mathematical statements in its source questions are context, not the guidance. '
+                    'procedural_only means executable checks whose outcomes remain to be established by the solver. '
+                    'domain_fact means the guidance asserts a particular mathematical conclusion. unsupported includes invented failure causes or '
+                    'choosing truth from claim strength, simplicity, dependencies, extra hypotheses or equality wording without justification. '
+                    'Reject these shortcuts even if they sound general. Explain the classification in reason and quote actual guidance text. '
+                    'Cite exact supplied source spans. This is not a mathematical proof or utility test.',
+                    {'candidate':{**{k:candidate[k] for k in ('guidance','applicability','source_records')},
+                        'references':candidate['proposal']['references']},
                         'candidate_hash':digest(candidate)},'submit_capability_check',CHECK,'guidance_grounding',
                     lambda v:validate_check(v,candidate),0)
+                log['source_check']=check
                 if validate_check(check,candidate):log.update(decision='candidate',candidate={**candidate,'source_check':check})
                 else:log.update(decision='rejected',reason=check['status'])
     except ValueError as exc:log.update(decision='rejected',reason=str(exc))

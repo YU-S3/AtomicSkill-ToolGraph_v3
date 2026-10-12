@@ -46,7 +46,7 @@ def match(c,t,eligible=True):
         'span_ids':[spans[0]['span_id'],next(s['span_id'] for s in spans if s['task_path'][0]=='inputs')] if eligible else []}
 
 
-def fixture_transport(monkeypatch,*,eligibility=True,answers=('B','A'),no_candidate=False,unknown=False,induction=None):
+def fixture_transport(monkeypatch,*,eligibility=True,answers=('B','A'),no_candidate=False,unknown=False,induction=None,check_status='procedural_only',max_card=False):
     calls=[]
     def post(url,**kwargs):
         wire=deepcopy(kwargs['json']);calls.append(wire);body=expand_material(json.loads(wire['messages'][1]['content']))
@@ -56,12 +56,15 @@ def fixture_transport(monkeypatch,*,eligibility=True,answers=('B','A'),no_candid
                 'required_conditions':'Compare explicit quantified claims.','operations':['inspect_quantifiers'],
                 'references':[{'case_id':r['task']['physical_key'],'span_id':r['spans'][0]['span_id']} for r in rows]}
             if induction is not None:value=induction(rows)
+            if max_card and value['decision']=='capability':value['required_conditions']=value['required_conditions'].ljust(180)
         elif name=='submit_learning':
             value={'decision':'candidate','guidance':'Separate universal from existential claims and compare premises.',
                 'applicability':'Explicit quantified comparisons.','references':body['capability']['definition']['references']}
+            if max_card:
+                value['guidance']=value['guidance'].ljust(180);value['applicability']=value['applicability'].ljust(80)
         elif name=='submit_capability_check':
-            c=body['candidate'];value={'candidate_hash':body['candidate_hash'],'status':'procedural_only','proposal_quote':c['guidance'],
-                'references':c['proposal']['references']}
+            c=body['candidate'];value={'candidate_hash':body['candidate_hash'],'status':check_status,'proposal_quote':c['guidance'],
+                'references':c['references'] if 'references' in c else c['proposal']['references']}
         elif name=='submit_capability_match':
             spans=body['spans'];value={'task_hash':body['task_hash'],'capability_id':body['capability']['id'],
                 'applicable':eligibility(body) if callable(eligibility) else eligibility,'span_ids':[]}
@@ -409,3 +412,57 @@ def test_actual_paid_induction_responses_through_fixed_compiler(tmp_path,monkeyp
         assert logs[0]['candidate']['source_case_ids']==sorted(plan['candidate_units'][0])
     finally:system.close()
     assert before=={str(p):p.read_bytes() for p in previous.rglob('*') if p.is_file()}
+
+
+def test_explicit_prompt_revision_preserves_negative_run_and_original_allowance(tmp_path,monkeypatch):
+    calls=fixture_transport(monkeypatch,check_status='unsupported');base,out,plan,env=fixture_source(tmp_path,monkeypatch)
+    result=runner.execute(out/'plan.json',env)
+    assert result['status']=='completed_no_candidate' and result['completion_reason']=='no_source_checked_candidate'
+    assert result['natural_candidate_count']==2 and result['source_checked_candidate_count']==0 and result['paired_tasks']==0
+    assert runner.read(out/'progress.json')['event']=='finished'
+    assert result['learning_units']==[{'decision':'rejected','stage':'guidance_grounding','reason':'unsupported',
+        'proposal_created':True,'source_check_status':'unsupported'}]*2
+    before={str(p):p.read_bytes() for p in out.rglob('*') if p.is_file()};child=tmp_path/'r2';revised=runner.revise(out/'plan.json',child)
+    assert revised['prompt_revision']==cb.PROMPT_REVISION and not revised.get('recovery')
+    assert revised['candidate_units']==plan['candidate_units'] and revised['utility_policy']==plan['utility_policy']
+    assert revised['selection_tasks']==plan['selection_tasks'] and revised['new_limits']==plan['new_limits']
+    assert revised['inherited_tokens']==30 and revised['inherited_http']==6 and revised['paid_prefix']['remaining_http']==74
+    assert runner.check(child/'plan.json')['status']=='passed'
+    eligible=plan['settings']['split']['selection_screen_ids'][:4]
+    new_calls=fixture_transport(monkeypatch,eligibility=lambda body:any(k in body['task']['goal'] for k in eligible))
+    second=runner.execute(child/'plan.json',env)
+    assert second['status']=='completed_selection' and second['experimental_revision']=='P2-R2' and second['new_http']==len(new_calls)
+    assert sum(p['tools'][0]['function']['name']=='submit_capability' for p in new_calls)==2
+    assert second['total_p2_http']==6+len(new_calls) and second['total_p2_tokens']==30+5*len(new_calls)
+    assert second['cumulative_tokens']==second['total_p2_tokens'] and second['prior_p2_http']==6
+    assert before=={str(p):p.read_bytes() for p in out.rglob('*') if p.is_file()}
+    with pytest.raises(ValueError,match='already revised'):runner.revise(child/'plan.json',tmp_path/'r3')
+
+
+def test_revision_does_not_hide_engineering_failure_or_unknown_billing(tmp_path,monkeypatch):
+    fixture_transport(monkeypatch,no_candidate=True);base,out,plan,env=fixture_source(tmp_path,monkeypatch);result=runner.execute(out/'plan.json',env)
+    result['status']='stopped_engineering_error';runner.write_json(out/'result.json',result)
+    with pytest.raises(ValueError,match='completed negative'):runner.revise(out/'plan.json',tmp_path/'r2')
+
+
+def test_actual_source_card_capacity_and_all_twelve_public_routes(tmp_path,monkeypatch):
+    previous=os.environ.get('LIVEMATH_P2_REJECTED_RUN')
+    if not previous:pytest.skip('Set the immutable real P2 source records')
+    previous=Path(previous);plan=runner.read(previous/'plan.json');cfg=runner.configuration(runner.read(previous/'config.json'),tmp_path/'derived')
+    calls=fixture_transport(monkeypatch,max_card=True);system=EmpiricalSystem(cfg)
+    try:
+        for row in runner.read(previous/'source_cases.json'):system.bank.save_case(PublicTask(**row['task']),row['experience'])
+        selected=[t['physical_key'] for stage in plan['selection_tasks'].values() for t in stage]
+        for i,unit in enumerate(plan['candidate_units']):
+            runner.learning_boundary(system,tmp_path/'learning'/str(i),'candidate:'+str(i))
+            log=system.learner.learn_capability_batch(unit,selected)
+            assert log['decision']=='candidate',log
+            assert len(log['candidate']['guidance'])==180 and len(log['candidate']['applicability'])==80
+            assert log['source_check']['status']=='procedural_only'
+        for i,t in enumerate(t for stage in plan['selection_tasks'].values() for t in stage):
+            runner.learning_boundary(system,tmp_path/'routing'/str(i),'routing:'+str(i))
+            value=system.learner.match_capability(log['candidate'],PublicTask(**t))
+            assert cb.validate_match(value,log['candidate']['capability'],PublicTask(**t))
+        assert len(calls)==18 and not system.bank.all('skill')
+        assert all(len(json.dumps(p,allow_nan=False).encode())<=16384 for p in calls)
+    finally:system.close()
