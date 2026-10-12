@@ -119,6 +119,9 @@ For file workspaces, program paths may be absolute inside /workspace; files/dele
 relative to /workspace, without a leading slash, inputs prefix or '..'. Keep output_path separate from files.
 execution_intent depends on real local evidence, not the final answer interface. A single-answer operation can be program_requested.
 Prefer a completed, repeatable search/read/compute operation over an unexecuted end-to-end task algorithm.
+A successful read-only retrieval is valid local evidence even when the whole task scored false. Neither published
+files nor another completed Train case is required. Propose only the observed local operation and its actual outputs;
+do not add an unexecuted numeric calculation to a search/read capability. One current-case binding is sufficient.
 Use the actual source_excerpt, input_sources and output_references to determine what ran.
 source_excerpt is a bounded AST-formatted code preview; Builder receives the original source.
 Bind literal arrays at their supplied aggregate AST path, not a fabricated observation path or one element. Do not add
