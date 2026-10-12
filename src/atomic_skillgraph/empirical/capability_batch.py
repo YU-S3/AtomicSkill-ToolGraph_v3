@@ -10,7 +10,7 @@ from . import CHOICE_CAPABILITY_VERSION, CHOICE_CAPABILITY_MATERIAL_VERSION, CHO
 
 VERSION=CHOICE_CAPABILITY_VERSION
 MATERIAL_VERSION=CHOICE_CAPABILITY_MATERIAL_VERSION
-PROMPT_REVISION='procedural-actions.r5'
+PROMPT_REVISION='procedural-actions.r6'
 OPERATIONS=('extract_assumptions','compare_implications','inspect_quantifiers','seek_counterexample','check_finite_invariant')
 TEXT=lambda n:{'type':'string','minLength':1,'maxLength':n}
 REFERENCE=object_schema({'case_id':TEXT(160),'span_id':TEXT(80)},['case_id','span_id'])
@@ -112,7 +112,7 @@ def schema_for(schema,method_version):
 def generation_schema(schema,*,prompt_revision=PROMPT_REVISION):
     """Model targets are stricter than Host tolerance; retain the historical wire contract."""
     result=deepcopy(schema)
-    reason_limits={'procedural-actions.r3':240,'procedural-actions.r4':180,PROMPT_REVISION:512}
+    reason_limits={'procedural-actions.r3':240,'procedural-actions.r4':180,'procedural-actions.r5':512,PROMPT_REVISION:180}
     if prompt_revision not in reason_limits:raise ValueError('Unknown capability generation contract')
     if prompt_revision!='procedural-actions.r3':
         for field in ('required_conditions','guidance'):
@@ -183,7 +183,7 @@ def validate_candidate(value,capability,rows,*,method_version=VERSION):
 def validate_check(value,candidate,*,prompt_revision=PROMPT_REVISION):
     schema=deepcopy(CHECK)
     if prompt_revision in {'procedural-actions.r3','procedural-actions.r4'}:schema['properties']['reason']['maxLength']=240
-    elif prompt_revision!=PROMPT_REVISION:raise ValueError('Unknown capability content-check contract')
+    elif prompt_revision not in {'procedural-actions.r5',PROMPT_REVISION}:raise ValueError('Unknown capability content-check contract')
     validate_schema_instance(value,schema)
     if value['candidate_hash']!=digest(candidate):raise ValueError('Candidate check identity changed')
     if value['proposal_quote'] not in candidate['guidance']+'\n'+candidate['applicability']:raise ValueError('Unlocated proposal quote')
@@ -227,10 +227,10 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None,rec
                 raise ValueError('Recovered demand source identity changed')
             value=deepcopy(recovered_demand['value']);log['recovered_demand']=deepcopy(recovered_demand)
         else:
-            value=receive('demand','Infer one shared executable comparison capability from public demands only. '
-                'Do not infer from answers or feedback. Cite exact supplied span IDs from different cases; '
-                'case_id must be the supplied task_id or physical_key. required_conditions must be 1-180 Unicode characters. '
-                'Use no_change if no shared demand; optional references must remain exact.',
+            value=receive('demand','Infer a shared comparison procedure from public demands, not answers or feedback; otherwise no_change. '
+                'required_conditions must be 1-180 Unicode characters; aim <=140 in one abstract sentence. '
+                'No digits, formulas, LaTeX, answer labels or specific mathematical conclusions. Use only enumerated operations. '
+                'Cite two supplied span IDs from distinct physical cases; case_id must be the supplied task_id or physical_key.',
                 {'public_cases':public},'submit_capability',CAPABILITY,'capability_induction',lambda v:validate_capability(v,rows),0)
         capability=validate_capability(value,rows);log['capability']=capability
         if capability:
@@ -241,26 +241,24 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None,rec
                     raise ValueError('Revalidated proposal source identity changed')
                 proposal=deepcopy(recovered_proposal['value']);log['recovered_proposal']=deepcopy(recovered_proposal)
                 log['proposal_origin']='saved_paid_v1_revalidated'
-            else:proposal=receive('proposal','Propose a short cross-case procedural advisory, or no_change. '
-                'Use observed public demands and saved outcomes. Incorrect/truncated responses disclose no true reasoning cause or alternative proof. '
-                'Describe checks the solver can perform, leaving their outcomes to the actual task. '
-                'Do not prescribe a correct option from strength, fewer dependencies, extra hypotheses or equality wording alone: these do not establish mathematical truth. '
-                'No theorem conclusions, formulas, answer labels, lookup tables or guarantees. Cite supplied source spans. '
-                'guidance must be 1-180 Unicode characters; applicability must be 1-80 Unicode characters. '
-                'The complete Runtime card including ID and qualification must fit 512 Unicode characters.',
+            else:proposal=receive('proposal','Propose executable cross-case checks, or no_change; leave outcomes to the solver. '
+                'Wrong/truncated answers reveal no true failure cause or alternative proof. '
+                'No theorem conclusions, digits, formulas, LaTeX, answer labels, lookup tables or guarantees. '
+                'Claim strength, dependencies, hypotheses or equality wording alone cannot decide truth. '
+                'guidance must be 1-180 Unicode characters, aim <=140; applicability must be 1-80 Unicode characters, aim <=50. '
+                'Cite two supplied spans from distinct physical cases. Complete Runtime card including ID and qualification <=512 Unicode characters.',
                 {'capability':capability,'train_cases':rows},'submit_learning',PROPOSAL,'guidance_learning',
                 lambda v:validate_candidate(v,capability,rows),s.config['learning']['guidance_repair_limit'])
             candidate=validate_candidate(proposal,capability,rows)
             log['proposal']=proposal
             if candidate:
                 log['stage']='guidance_grounding';log['proposed_candidate']=candidate
-                check=receive('check','Classify the proposed guidance itself; mathematical statements in its source questions are context, not the guidance. '
-                    'procedural_only means executable checks whose outcomes remain to be established by the solver. '
-                    'domain_fact means the guidance asserts a particular mathematical conclusion. unsupported includes invented failure causes or '
-                    'choosing truth from claim strength, simplicity, dependencies, extra hypotheses or equality wording without justification. '
-                    'Reject these shortcuts even if they sound general. Explain the classification in reason and quote actual guidance text. '
-                    'If provided, reason must be 1-512 Unicode characters; proposal_quote must be an exact excerpt of 1-240 Unicode characters. '
-                    'Cite exact supplied source spans. This is not a mathematical proof or utility test.',
+                check=receive('check','Classify only the guidance; source mathematics is context, not a claim by the guidance. '
+                    'procedural_only: executable checks with outcomes left open. domain_fact: asserts a specific mathematical conclusion. '
+                    'unsupported: invents a failure cause or decides truth from strength, simplicity, dependencies, hypotheses or equality without justification. '
+                    'Quote an exact guidance excerpt <=240 characters and two supplied spans from distinct physical cases. '
+                    'If provided, reason must be 1-180 Unicode characters: one sentence, aim <=140; no source exposition. '
+                    'This is content classification, not proof or utility certification.',
                     {'candidate':{**{k:candidate[k] for k in ('guidance','applicability','source_records')},
                         'references':candidate['proposal']['references']},
                         'candidate_hash':digest(candidate)},'submit_capability_check',CHECK,'guidance_grounding',

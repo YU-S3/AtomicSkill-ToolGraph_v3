@@ -191,8 +191,8 @@ def check(plan_path):
             restored,ledger,_=protocol_inputs(plan['protocol_continuation']['receipt'])
             if restored!=plan['protocol_continuation']:raise ValueError('Revalidated protocol provenance changed')
             prefix=restored['paid_prefix']
-        elif plan['paid_prefix']['experimental_revision']=='P2-R4':
-            prefix,ledger,_=revision_inputs(plan['paid_prefix']['parent_plan'],experimental_revision='P2-R4')
+        elif plan['paid_prefix']['experimental_revision'] in {'P2-R4','P2-R5'}:
+            prefix,ledger,_=revision_inputs(plan['paid_prefix']['parent_plan'],experimental_revision=plan['paid_prefix']['experimental_revision'])
         else:prefix,ledger,_=(continuation_inputs if plan.get('continuation') else revision_inputs)(plan['paid_prefix']['parent_plan'])
         if prefix!=plan['paid_prefix'] or read(root/'inherited_p2_budget.json')!=ledger or plan['new_limits']!=prefix['allowance']:
             raise ValueError('Paid revision provenance or allowance changed')
@@ -281,10 +281,11 @@ def recover(plan_path,output):
 def revision_inputs(plan_path,*,continuation=False,source_version=VERSION,experimental_revision='P2-R2'):
     """A named explicit revision; completed negative evidence stays immutable."""
     path=Path(plan_path).resolve();root=path.parent;old=read(path);result=read(root/'result.json');ledger=read(root/'budget.json')
-    if experimental_revision=='P2-R4':
-        if (old.get('paid_prefix',{}).get('experimental_revision')!='P2-R3' or
-            not old.get('protocol_continuation') or old.get('prompt_revision')!='procedural-actions.r3'):
-            raise ValueError('R4 requires the completed original R3; no automatic further revision')
+    if experimental_revision in {'P2-R4','P2-R5'}:
+        parent,revision=('P2-R3','procedural-actions.r3') if experimental_revision=='P2-R4' else ('P2-R4','procedural-actions.r5')
+        if (old.get('paid_prefix',{}).get('experimental_revision')!=parent or old.get('prompt_revision')!=revision or
+            (experimental_revision=='P2-R4' and not old.get('protocol_continuation'))):
+            raise ValueError(experimental_revision+' requires its completed original parent; no automatic further revision')
         continuation=True
     elif experimental_revision!='P2-R2':raise ValueError('Unknown paid experimental revision')
     if old['schema']!=source_version or ('paid_prefix' in old and not continuation) or digest(old)!=read(root/'plan_identity.json')['plan_hash'] or result['plan_hash']!=digest(old):
@@ -367,9 +368,14 @@ def prior_content_checks(plan_path,ledger):
     """Revalidate immutable checker outputs; a longer reason never changes their classification."""
     root=Path(plan_path).resolve().parent;old=read(plan_path);rows=[]
     for i in range(len(old['candidate_units'])):
-        folder=root/'learning'/str(i);log=read(folder/'learning.json');candidate=log['proposed_candidate']
+        folder=root/'learning'/str(i);log=read(folder/'learning.json')
         requests=[q for q in read(folder/'requests.json')['requests'] if q['purpose']=='guidance_grounding']
+        if not requests:
+            rows.append({'unit':i,'original_decision':log['decision'],'original_reason':log.get('reason'),
+                'stage':log['stage'],'status':'not_run','published':False,'new_model_http':0})
+            continue
         if len(requests)!=1 or len(requests[0]['http_attempts'])!=1:raise ValueError('Original content-check request changed')
+        candidate=log['proposed_candidate']
         request=requests[0];attempt=request['http_attempts'][0];calls=request['response']['tool_calls']
         raw=attempt['public_response']['choices'];wire=attempt['final_payload_audit'];entry=ledger['attempts'][attempt['request_id']]
         if (len(calls)!=1 or calls[0]['name']!='submit_capability_check' or len(raw)!=1 or raw[0]['finish_reason']!='tool_calls' or
@@ -380,10 +386,12 @@ def prior_content_checks(plan_path,ledger):
             attempt['outcome']!='success' or entry['actual_usage']!=attempt['raw_usage'] or
             entry['context']['logical_decision_id']!=request['logical_decision_id']):
             raise ValueError('Original content-check response, schema or billing changed')
-        value=calls[0]['arguments'];passed=validate_check(value,candidate)
+        value=calls[0]['arguments'];error=None;passed=False
+        try:passed=validate_check(value,candidate)
+        except ValueError as exc:error=str(exc)
         rows.append({'unit':i,'original_decision':log['decision'],'original_reason':log.get('reason'),
             'physical_request_id':attempt['request_id'],'request_sha256':sha256(folder/'requests.json'),
-            'reason_characters':len(value.get('reason','')),'status':value['status'],'structure_valid':True,
+            'reason_characters':len(value.get('reason','')),'status':value['status'],'structure_valid':error is None,'schema_error':error,
             'content_passed':passed,'published':False,'new_model_http':0})
     return {'prompt_revision':PROMPT_REVISION,'new_model_http':0,'new_tokens':0,'units':rows,'published':False}
 
@@ -395,11 +403,11 @@ def revise(plan_path,output,*,experimental_revision='P2-R2'):
     config=read(root/'config.json');new_config=configuration(config,output)
     expected=deepcopy(config);expected['data_dir']=new_config['data_dir'];expected['experiment']['output_dir']=new_config['experiment']['output_dir']
     if experimental_revision=='P2-R2' and expected!=new_config:raise ValueError('Prompt revision may not change method parameters')
-    replay=prior_content_checks(plan_path,ledger) if experimental_revision=='P2-R4' else None
+    replay=prior_content_checks(plan_path,ledger) if experimental_revision in {'P2-R4','P2-R5'} else None
     for name in ('source_records.json','source_cases.json'):write_json(output/name,read(root/name))
     write_json(output/'config.json',new_config);write_json(output/'inherited_p2_budget.json',ledger)
     plan={**{k:v for k,v in old.items() if k not in {'recovery','protocol_continuation'}},'prompt_revision':PROMPT_REVISION,'run_id':'p2_'+uuid4().hex,'code':code,'prepared_at':utc(),
-        'derivation_mode':('explicit_P2_R4_from_same_completed_train' if replay is not None else 'user_authorized_P2_R2_from_same_completed_train'),
+        'derivation_mode':('explicit_'+experimental_revision+'_from_same_completed_train' if replay is not None else 'user_authorized_P2_R2_from_same_completed_train'),
         'paid_prefix':prefix,'input_hashes':inputs,
         'inherited_tokens':prefix['inherited_tokens'],'inherited_http':prefix['inherited_http'],
         'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_records.json','source_cases.json','inherited_p2_budget.json')}}
@@ -610,7 +618,7 @@ def main():
     p=sub.add_parser('prepare');p.add_argument('--settings',required=True);p.add_argument('--source-run',required=True);p.add_argument('--output',required=True)
     p=sub.add_parser('recover');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
     p=sub.add_parser('revise');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
-    p.add_argument('--revision',choices=('P2-R2','P2-R4'),default='P2-R2')
+    p.add_argument('--revision',choices=('P2-R2','P2-R4','P2-R5'),default='P2-R2')
     p=sub.add_parser('continue-repair');p.add_argument('--plan',required=True);p.add_argument('--output',required=True)
     p=sub.add_parser('continue-protocol');p.add_argument('--receipt',required=True);p.add_argument('--output',required=True)
     for mode in ('check','execute'):

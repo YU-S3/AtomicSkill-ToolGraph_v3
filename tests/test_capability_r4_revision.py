@@ -62,7 +62,7 @@ def test_paid_path_generates_fresh_candidates_once_and_counts_every_old_attempt(
         props=p['tools'][0]['function']['parameters']['properties']
         for field in ('required_conditions','guidance'):
             if field in props:assert props[field]['maxLength']==180
-        if 'reason' in props:assert props['reason']['maxLength']==512
+        if 'reason' in props:assert props['reason']['maxLength']==180
         assert len(json.dumps(p,allow_nan=False).encode())<=16384
     old=batch.read(source/'budget.json');new=batch.read(out/'budget.json')
     assert all(new['attempts'][k]==v for k,v in old['attempts'].items())

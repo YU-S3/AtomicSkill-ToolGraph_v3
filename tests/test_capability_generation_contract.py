@@ -39,7 +39,7 @@ def test_strict_generation_targets_do_not_replace_host_or_content_gates(tmp_path
         unit=plan['candidate_units'][0];log=system.learner.learn_capability_batch(unit,selected)
         assert len(calls)==3 and log['prompt_revision']==cb.PROMPT_REVISION,log
         for wire,field in zip(calls,('required_conditions','guidance','reason')):
-            limit=512 if field=='reason' else 180
+            limit=180
             assert wire['tools'][0]['function']['parameters']['properties'][field]['maxLength']==limit
             assert field+' must be 1-'+str(limit)+' Unicode characters' in wire['messages'][0]['content']
         assert cb.CAPABILITY['properties']['required_conditions']['maxLength']==256

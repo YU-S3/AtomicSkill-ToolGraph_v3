@@ -90,8 +90,8 @@ def test_production_repair_receives_all_errors_once_and_prompts_declare_limits(t
         assert 'guidance must be 1-180' in prompt and 'applicability must be 1-80' in prompt and '512 Unicode' in prompt
         for wire,field in ((calls[0],'required_conditions'),(calls[1],'guidance'),(calls[2],'guidance')):
             assert wire['tools'][0]['function']['parameters']['properties'][field]['maxLength']==180
-        assert calls[3]['tools'][0]['function']['parameters']['properties']['reason']['maxLength']==512
-        assert 'reason must be 1-512 Unicode characters' in calls[3]['messages'][0]['content']
+        assert calls[3]['tools'][0]['function']['parameters']['properties']['reason']['maxLength']==180
+        assert 'reason must be 1-180 Unicode characters' in calls[3]['messages'][0]['content']
         repair=json.dumps(calls[2]['messages'],ensure_ascii=False)
         assert '$.guidance' in repair and '$.applicability' in repair and '512 Unicode characters' in repair
         audit=batch.read(out/'learning/0/requests.json')['requests']
