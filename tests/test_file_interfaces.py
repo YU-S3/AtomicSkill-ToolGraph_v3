@@ -46,8 +46,13 @@ def test_recorded_unknown_skill_name_uses_existing_repair_limit_without_partial_
 
 
 def test_new_and_existing_skill_references_are_distinct_and_reach_http(tmp_path, monkeypatch):
-    proposal = current_node_protocol(RECORDED['office_proposals'][-1])
-    proposal['realization_request'].update(skill_id='$new', action='defer', case_bindings=[])
+    # Isolate ID compatibility with an intermediate declaration. The recorded
+    # final-answer proposal has no executed answer and must now be rejected.
+    proposal = {'decision':'propose_skill_and_program_spec','skill':{
+        'goal':'Find a public location','result_role':'intermediate','execution_intent':'program_requested',
+        'input_schema':object_schema({'query':{'type':'string'}},['query']),
+        'output_schema':object_schema({'path':{'type':'string'}},['path'])},
+        'realization_request':{'skill_id':'$new','action':'defer','case_bindings':[]}}
     seen = http(monkeypatch, [response([proposal], name='submit_learning')])
     system = office(tmp_path)
     try:
@@ -66,6 +71,19 @@ def test_new_and_existing_skill_references_are_distinct_and_reach_http(tmp_path,
         assert seen[0]['tools'][0]['function']['parameters']['properties']['realization_request']['properties']['skill_id']['enum']==['$new']
     finally:
         system.close()
+
+
+def test_recorded_final_answer_without_source_stays_rejected(tmp_path,monkeypatch):
+    proposal=current_node_protocol(RECORDED['office_proposals'][-1])
+    proposal['realization_request'].update(skill_id='$new',action='defer',case_bindings=[])
+    seen=http(monkeypatch,[response([proposal],name='submit_learning')]*2)
+    system=office(tmp_path)
+    try:
+        result=system.learner.learn(system.adapter.task,learning_trace())
+        assert result['decision']=='rejected' and 'no_answer_evidence' in str(result['errors'])
+        assert len(seen)==2 and system.bank.all('skill')==system.bank.jobs()==[]
+        assert proposal['skill']['result_role']=='final_answer'
+    finally:system.close()
 
 
 def test_recorded_absolute_file_declaration_remains_execution_failure(tmp_path, worker):
