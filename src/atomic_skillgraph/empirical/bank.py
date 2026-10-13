@@ -53,6 +53,18 @@ class Bank:
         else:
             with self.db:self.db.execute('INSERT INTO metadata VALUES(?,?)',('choice_method_version',version))
 
+    def bind_office_method(self, version):
+        stored=self.db.execute("SELECT value FROM metadata WHERE key='officeqa_method_version'").fetchone()
+        if version is None:
+            if stored:raise ValueError('Office Bank requires its matching method configuration')
+            return
+        if stored:
+            if stored!=(version,): raise ValueError('Office Bank method identity changed')
+        elif self.readonly or self.db.execute('SELECT 1 FROM assets UNION ALL SELECT 1 FROM train_cases LIMIT 1').fetchone():
+            raise ValueError('Office source method requires an explicit Train-only derivation or fresh Bank')
+        else:
+            with self.db:self.db.execute('INSERT INTO metadata VALUES(?,?)',('officeqa_method_version',version))
+
     def put(self, kind, asset):
         self._writable()
         asset = dict(asset)
@@ -358,6 +370,10 @@ class Bank:
                     'answer_protocol_version':ANSWER_PROTOCOL_VERSION,
                     'binding_policy':BINDING_POLICY_VERSION,'file_effect_version':FILE_EFFECT_VERSION,'budget_policy':BUDGET_POLICY_VERSION,
                     "programs": [{"id": p["id"], "state": p["state"]} for p in frozen.all("program")]}
+        office=self.db.execute("SELECT value FROM metadata WHERE key='officeqa_method_version'").fetchone()
+        if office:
+            from . import OFFICE_SOURCE_MATERIAL_VERSION
+            manifest.update(officeqa_method_version=office[0],learning_material_version=OFFICE_SOURCE_MATERIAL_VERSION)
         method=self.db.execute("SELECT value FROM metadata WHERE key='choice_method_version'").fetchone()
         if method:manifest['choice_method_version']=method[0]
         frozen.close()

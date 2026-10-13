@@ -35,6 +35,13 @@ def validate_config(config):
     if config.get("mechanism_profile") != PROFILE:
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
+    from .source_catalog import enabled as source_catalog_enabled
+    from . import OFFICE_SOURCE_METHOD_VERSION, OFFICE_SOURCE_MATERIAL_VERSION
+    office_source = source_catalog_enabled(config)
+    office_version = config.get('experiment',{}).get('officeqa_method_version')
+    if office_version and (office_version != OFFICE_SOURCE_METHOD_VERSION or config.get('experiment',{}).get('benchmark') != 'officeqa'
+                          or config.get('harness',{}).get('adapter')!='officeqa'):
+        raise ValueError('Office source-catalog identity requires its exact method and benchmark')
     math_p3=config.get('experiment',{}).get('choice_method_version')==MATH_CAPABILITY_VERSION
     overrides = config.get('llm', {}).get('purpose_overrides', {})
     config['llm'].setdefault('purpose_overrides',overrides)
@@ -53,6 +60,8 @@ def validate_config(config):
         if type(settings.get('max_completion_tokens', 512)) is not int or settings.get('max_completion_tokens', 512) < 1:
             raise ValueError('Invalid purpose completion cap')
     for section, defaults in POLICY_DEFAULTS.items():
+        if office_source and section=='learning':
+            defaults={**defaults,'material_version':OFFICE_SOURCE_MATERIAL_VERSION,'builder_payload_max_bytes':24576}
         config[section] = {**defaults, **config.get(section, {})}
         for key, value in defaults.items():
             if config[section][key] != value:
@@ -64,6 +73,8 @@ def validate_config(config):
         if learning.get('capability_material_version')!=expected_material or learning.get('capability_payload_max_bytes')!=(65536 if math_p3 else 32768):
             raise ValueError('Capability material version/capacity differs from its explicit method contract')
     source_capacity = learning.get('source_program_payload_max_bytes')
+    if office_source and source_capacity != 24576:
+        raise ValueError('Office source-catalog requires its frozen 24 KiB source capacity')
     if source_capacity is not None and (type(source_capacity) is not int or not 16384 <= source_capacity <= 24576):
         raise ValueError('Executed-source learning capacity must be explicit and bounded to 24 KiB')
     runtime = config['runtime']
@@ -177,6 +188,11 @@ class EmpiricalSystem:
         self.readonly = bool(self.config.get("experiment", {}).get("runtime_mode") == "frozen") if readonly is None else readonly
         self.bank = Bank(self.config["data_dir"], readonly=self.readonly,
                          seed=self.config.get("experiment", {}).get("seed", 42),environment=self.config['program_environment'])
+        from .source_catalog import enabled
+        try:self.bank.bind_office_method(self.config['experiment'].get('officeqa_method_version'))
+        except Exception:
+            self.bank.close()
+            raise
         if self.config['runtime'].get('choice_guidance',{}).get('public_process'):
             try:self.bank.bind_choice_method(self.config['experiment']['choice_method_version'])
             except Exception:
@@ -432,7 +448,11 @@ class EmpiricalSystem:
                 payload_max=capability_capacity(materials,self.config['learning'],purpose,payload_max)
                 if stage=='extractor' and purpose=='extractor' and name=='submit_learning':
                     from .model_view import executed_source_capacity
-                    payload_max=executed_source_capacity(materials,self.config['learning'],payload_max)
+                    from .source_catalog import enabled, verified_sources
+                    from .model_view import expand_material
+                    case_id=expand_material(materials).get('experience',{}).get('case_source',{}).get('physical_case_id')
+                    trusted=verified_sources([(t,c) for t,c in self.learner.cases if t.physical_key==case_id]) if enabled(self.config) else {}
+                    payload_max=executed_source_capacity(materials,self.config['learning'],payload_max, trusted=trusted)
                 if isinstance(provider,OpenAICompatibleProvider):
                     from .model_view import pack_material, expand_material, shrink_learning_preview
                     from .budget_governor import input_token_bound
@@ -641,6 +661,10 @@ class EmpiricalSystem:
                             from .model_view import structure_repair_material
                             short=structure_repair_material(turn.tool_calls[0].arguments,
                                 [{'binding_index':None,'errors':[{'code':'output_type','detail':str(exc)[:200]}]}],shown_directories)
+                            from . import source_catalog
+                            if source_catalog.enabled(self.config):
+                                from .model_view import expand_material
+                                short=source_catalog.repair_material(turn.tool_calls[0].arguments,str(exc),expand_material(materials))
                             messages=[{'role':'system','content':'Repair only this proposal structure. Preserve its goal; submit one submit_learning ToolCall. Do not solve the task again.'},
                                       {'role':'user','content':json.dumps(short,ensure_ascii=False,separators=(',',':'))}]
                             commit('prepared',repair+1)
@@ -759,10 +783,13 @@ class EmpiricalSystem:
                         repaired=structure_repair_material(turn.tool_calls[0].arguments if len(turn.tool_calls)==1 else {},
                             [{'binding_index':None,'errors':[feedback if isinstance(feedback,dict) and 'detail' in feedback
                                 else {'code':'output_type','detail':str(exc)}]}],shown_directories)
-                    else:
+                    elif not repaired.get('source_catalog_version'):
                         repaired['legal_operations'] = structure_repair_material(turn.tool_calls[0].arguments,
                             getattr(exc,'feedback',[]),shown_directories)['legal_operations']
-                    messages=[{'role':'system','content':'Repair the indicated declaration, schema and binding errors while preserving the local goal. Invalid schemas are not frozen. Intermediate outputs need their actual source types; final_answer requires a required string answer. Every bound input and required output needs an exact supplied source reference. Omit unobserved optional inputs and outputs. If this goal has no valid binding, defer or no_change; do not invent evidence. Submit exactly one complete submit_learning JSON object with all fields inside that object. Host supplies replay start and identity; do not solve the task again.'},
+                    repair_prompt='Repair the indicated declaration, schema and binding errors while preserving the local goal. Invalid schemas are not frozen. Intermediate outputs need their actual source types; final_answer requires a required string answer. Every bound input and required output needs an exact supplied source reference. Omit unobserved optional inputs and outputs. If this goal has no valid binding, defer or no_change; do not invent evidence. Submit exactly one complete submit_learning JSON object with all fields inside that object. Host supplies replay start and identity; do not solve the task again.'
+                    if repaired.get('source_catalog_version'):
+                        repair_prompt+=' Use operation_id/input_ids/output_ids from legal_operations; never switch to hand-written paths or values.'
+                    messages=[{'role':'system','content':repair_prompt},
                               {'role':'user','content':json.dumps(repaired,ensure_ascii=False,separators=(',',':'))}]
                     continue
                 if hasattr(exc, 'repair_material'):
@@ -793,6 +820,8 @@ class EmpiricalSystem:
             'file_effect_version':self.config['learning']['file_effect_version'],
             'budget_policy':self.config['experiment']['budget_policy'],
             'budget':{'path':str(self.budget_governor.path),'limits':self.budget_governor.limits} if self.budget_governor else None}
+        if self.config['experiment'].get('officeqa_method_version'):
+            identity['officeqa_method_version']=self.config['experiment']['officeqa_method_version']
         if self.checkpoint:
             if self.checkpoint.state.get('method_identity',identity) != identity:
                 raise ValueError('Checkpoint method identity changed')
@@ -955,6 +984,37 @@ class EmpiricalSystem:
         finally:
             self._save_requests()
 
+    def recompile_tool_record(self, task, source_trace, identity):
+        """Versioned Office derivation: re-learn real Train evidence without re-solving it."""
+        from .source_catalog import enabled
+        if self.readonly or task.split!='train' or not enabled(self.config) or self.adapter.capabilities.interaction!='tool_loop':
+            raise ValueError('Tool record recompile requires the writable Office source method and Train')
+        if not self.checkpoint or not self.audit_path or source_trace.get('task')!=asdict(task):
+            raise ValueError('Recompile requires the exact Train trace and a durable checkpoint')
+        if identity.get('source_record_hash')!=digest(source_trace):raise ValueError('Source trace hash changed')
+        if self.checkpoint.state.get('source_identity') not in (None,identity):raise ValueError('Recompile source identity changed')
+        self.checkpoint.advance(self.checkpoint.state['stage'],source_identity=identity)
+        if self.checkpoint.state.get('recompile_result'):return self.checkpoint.state['recompile_result']
+        self._task_start=self._runtime_start=len(self.usage.events)
+        self._request_start=len(self.requests)
+        self._learning_start=None
+        self.phase,self.budget_scope='train','office-recompile:'+identity['source_record_hash']
+        self.prior_usage=json.loads(Path(self.audit_path).read_text())['usage'] if Path(self.audit_path).exists() else []
+        self.task_context=TaskContext(self.config['runtime'])
+        self.request_attribution={**identity,'parent_task_id':task.task_id,'parent_scope':self.budget_scope,
+            'parent_token_limit':self.config['budget']['train_learning_tokens'],'train_parent':True}
+        trace=deepcopy(source_trace)
+        for key in ('learning','learning_error','requests','usage'):trace.pop(key,None)
+        trace.update(derivation_mode='office_train_record_recompile',source_identity=identity)
+        self.adapter.reset(task)
+        try:
+            self.learn_trace(task,trace)
+            self._save_requests()
+            trace.update(json.loads(Path(self.audit_path).read_text()))
+            self.checkpoint.advance('learning_finished',recompile_result=trace)
+            return trace
+        finally:self._save_requests()
+
     def complete_execution(self, task, trace, broker, execution, *, learn, decision_status='applied',
                            sealed=None, score=None):
         """One durable solve/score boundary for normal, budget and explicit recovery endings."""
@@ -989,7 +1049,7 @@ class EmpiricalSystem:
         self._learning_start = len(self.usage.events)
         try:
             # Held-out outcomes stay in traces, outside Program reliability/qualification updates.
-            attempts = [] if task.physical_key in self.config['experiment'].get('choice_selection_physical_keys', []) else trace['execution']['attempts']
+            attempts = [] if trace.get('derivation_mode')=='office_train_record_recompile' or task.physical_key in self.config['experiment'].get('choice_selection_physical_keys', []) else trace['execution']['attempts']
             for attempt in attempts:
                 if attempt["status"] == "ok" and attempt.get('output_contract_status') == 'valid' and (attempt["outputs_consumed"] or attempt.get("terminal_by_program", False) or attempt.get('submission_by_program', False)) and trace["score"]["hard"] and attempt["local_check"] == "unavailable":
                     attempt.update(outcome="positive", basis="task_outcome")

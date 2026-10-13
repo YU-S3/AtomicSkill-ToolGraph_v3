@@ -17,6 +17,23 @@ PROGRAM_RESULT_SCHEMA = {'type': 'object', 'properties': {
     'required': ['status', 'outputs']}
 
 
+def validate_context_source(source):
+    """Narrow API diagnostics, never a source rewriter or a replacement sandbox."""
+    import ast
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name) and node.id == 'ctx' and isinstance(node.ctx, (ast.Store, ast.Del)):
+            raise ValueError('context_api_misuse: preserve ctx; store results in a different local variable')
+        if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                and node.value.id == 'context' and node.attr in {'call', 'read_result'}):
+            raise ValueError('context_api_misuse: use ctx.' + node.attr + ', not context.' + node.attr)
+
+
+CONTEXT_EXAMPLES = '''Preserve ctx as the supplied context; never assign a result to ctx.
+Example: result = ctx.call("read", {"path": inputs["path"], "offset": 0})
+For a result_id actually returned by this task: page = ctx.read_result(result_id, offset=0, limit=2000)
+Inspect result["accepted"] and the supplied tool result schema; do not invent result IDs or corpus paths.'''
+
+
 class Context:
     def __init__(self, rpc): self._rpc = rpc
     def observe(self): return self._rpc('observe')

@@ -8,6 +8,12 @@ def benchmark_config(base, benchmark):
         config['runtime'].update(finish_input_max_bytes=16384, dynamic_output_min_tokens=8192)
         config['llm'].setdefault('extractor',{})['protocol']={'thinking_type':'disabled'}
         config['llm']['extractor']['max_completion_tokens']=8192
+        from ..empirical.source_catalog import enabled
+        from ..empirical import OFFICE_SOURCE_MATERIAL_VERSION
+        if enabled(config):
+            config.setdefault('learning',{}).update(material_version=OFFICE_SOURCE_MATERIAL_VERSION,
+                source_program_payload_max_bytes=24576, builder_payload_max_bytes=24576)
+            config.setdefault('budget',{}).update(eval_task_tokens=192000)
     if benchmark=='livemath':
         config['learning']['choice_guidance']={'enabled':True}
         config['runtime']['choice_guidance']={'enabled':True}

@@ -160,6 +160,9 @@ def shrink_learning_preview(material):
         for output in row.get('output_references',[]):
             if output.get('content_hint'):
                 output.pop('content_hint');return True
+    from . import OFFICE_SOURCE_MATERIAL_VERSION
+    if material.get('learning_material_version') == OFFICE_SOURCE_MATERIAL_VERSION:
+        return False  # Executed source is required evidence under this versioned contract.
     for row in rows:
         if len(row.get('source_excerpt',''))>512:
             row['source_excerpt']=row['source_excerpt'][:512];row['source_truncated']=True
@@ -190,10 +193,14 @@ def learning_capacity_audit(payload, limit, stage, purpose):
     except (ValueError,TypeError,KeyError,IndexError):return unverified
     optional=any(value.get(k) for k in ('completed_train_cases','related','related_guidance'))
     optional=optional or len(cards)>1
-    optional=optional or any(row.get('source_excerpt') or any(r.get('content_hint') for r in row.get('output_references',[]))
+    from . import OFFICE_SOURCE_MATERIAL_VERSION
+    protected=value.get('learning_material_version')==OFFICE_SOURCE_MATERIAL_VERSION
+    optional=optional or any((row.get('source_excerpt') and not protected) or any(r.get('content_hint') for r in row.get('output_references',[]))
                             for row in [*cards,*operations])
     if purpose=='learning_structure_repair':
-        recognized={'proposal','errors','legal_operations','note'}==set(value) and bool(value['errors'])
+        expected={'proposal','errors','legal_operations','note'}
+        if value.get('source_catalog_version')==OFFICE_SOURCE_MATERIAL_VERSION:expected.add('source_catalog_version')
+        recognized=expected==set(value) and bool(value['errors'])
         optional=optional or len(refs)!=len(set(refs))
     elif stage=='tool_builder':
         recognized={'build_request','examples','future_program_api','workspace_capabilities','program_submission_contract'}<=set(value)
@@ -337,12 +344,17 @@ def learning_payload(material):
     return pack_material(value)
 
 
-def executed_source_capacity(material, learning, default):
+def executed_source_capacity(material, learning, default, *, trusted=()):
     """Opt-in Extractor capacity for a real executed Python source directory."""
+    from .source_catalog import verified_card
     experience=expand_material(material).get('experience',{})
     cards=experience.get('local_evidence',[])
     source_rich=(experience.get('compact_learning_directory') is True and any(
-        row.get('kind')=='executed_python' and row.get('source_content_available_to_builder') is True
+        (row.get('kind')=='executed_python' or
+         (row.get('kind')=='native_operation' and row.get('operation_name')=='execute_python'
+          and row.get('success') is True and row.get('source_excerpt')
+          and verified_card(row,trusted)))
+        and row.get('source_content_available_to_builder') is True
         and row.get('local_evidence_ref') and row.get('input_sources') and row.get('output_references') for row in cards))
     return learning.get('source_program_payload_max_bytes',default) if source_rich else default
 

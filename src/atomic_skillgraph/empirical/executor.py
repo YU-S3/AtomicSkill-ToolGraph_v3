@@ -23,6 +23,7 @@ class Executor:
         self.frozen = frozen
 
     def run(self, task, adapter, broker, plan):
+        runtime_config=getattr(getattr(self.agent,'__self__',None),'config',{})
         self.partial_execution = {'attempts': []}
         context = broker.context
         values, attempts = ValueStore(task, context), []
@@ -444,7 +445,10 @@ class Executor:
                 if pending_step is not None:
                     step = RuntimeDecision(tuple(pending_step['actions']), tuple(pending_step['call_ids']), pending_step['response_id']) if 'actions' in pending_step else pending_step
                 else:
-                    step = self.agent('runtime', RUNTIME_PROMPT, materials, 'runtime_step', STEP,
+                    from .source_catalog import enabled
+                    from .program_worker import CONTEXT_EXAMPLES
+                    prompt=RUNTIME_PROMPT+('\n'+CONTEXT_EXAMPLES if enabled(runtime_config) else '')
+                    step = self.agent('runtime', prompt, materials, 'runtime_step', STEP,
                                       repair_limit=1, validator=validate_step, owner_state_version=owner_version,
                                       finish_request_material={'original_goal':task.goal,'public_state':public_view(adapter),
                                           'working_memory':context.model_memory(),'recent':recent(),
@@ -537,6 +541,10 @@ class Executor:
                             if not prior and broker.remaining_calls() <= 0:
                                 history.extend({'batch_id': response_id, 'call_id':c, 'status':'not_executed_budget'} for _,c in decisions[index:])
                                 break
+                            from .source_catalog import enabled
+                            if not prior and name=='execute_python' and enabled(runtime_config):
+                                from .program_worker import validate_context_source
+                                validate_context_source(call_args['source'])
                             result = broker.call(name, call_args, event_id=event_id, batch_id=response_id, call_id=call_id)
                             event = next(e for e in reversed(broker.events) if not event_id or e['event_id'] == event_id)
                             context.results[event['result_id']], context.sources[event['event_id']] = result, event['result_id']

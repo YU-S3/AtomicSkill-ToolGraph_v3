@@ -68,7 +68,7 @@ class Learner:
 
     def _receive(self, key, stage, prompt, material, name, schema, *, material_version=None, **kwargs):
         s = self.system
-        version = material_version or LEARNING_MATERIAL_VERSION
+        version = material_version or s.config['learning']['material_version']
         material = {**material, 'learning_material_version': version}
         if stage=='extractor' and 'image' in s.adapter.capabilities.input_modalities:
             material['content_parts']=s.adapter.content_parts()
@@ -243,15 +243,17 @@ class Learner:
 
     def learn(self, task, trace, *, focus=None):
         s, bank = self.system, self.system.bank
+        from . import source_catalog
+        catalog=source_catalog.enabled(s.config)
         experience = self._experience(task, trace)
         held_out = set(s.config['experiment'].get('choice_selection_physical_keys', []))
         if task.physical_key in held_out:
             bank.save_case(task, experience)
             return {'decision': 'no_change', 'reason': 'held_out_train_selection', 'decision_origin': 'host'}
-        new_experience = not any(r['task']['physical_key'] == task.physical_key for r in bank.train_cases())
+        new_experience = not any(t.physical_key==task.physical_key for t,_ in self.cases) if catalog else not any(r['task']['physical_key'] == task.physical_key for r in bank.train_cases())
         if not any(t.physical_key == task.physical_key for t, _ in self.cases):
             self.cases.append((task, experience))
-        for case_task, case in self.cases:
+        for case_task, case in ([(task,experience)] if catalog and new_experience else [] if catalog else self.cases):
             bank.save_case(case_task, case)
         if s.config['learning'].get('choice_guidance',{}).get('enabled') and 'choices' in task.inputs and not held_out:
             bank.update_choice_statistics()
@@ -261,8 +263,9 @@ class Learner:
             if s.config['learning'].get('choice_guidance', {}).get('enabled') is True and 'choices' in task.inputs:
                 return self._learn_grounded_choice_guidance(task, experience)
             return self._learn_guidance(task, experience)
-        cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()
-                 if r['task']['physical_key'] not in held_out}
+        cases = ({t.physical_key:(t,c) for t,c in self.cases if t.physical_key not in held_out} if catalog else
+                 {r['task']['physical_key']: (PublicTask(**r['task']), r['experience']) for r in bank.train_cases()
+                  if r['task']['physical_key'] not in held_out})
         jobs = bank.jobs()
         related = self.related_candidates(task)
         tools = getattr(s.adapter, 'tool_definitions', s.adapter.available_tools)()
@@ -278,15 +281,39 @@ class Learner:
             properties['skill_id'] = {'type': 'string', 'enum': ['$new', *skill_ids]}
         schema['properties']['workflow']['properties']['nodes']['items']['properties']['reference_skill_ids']['items'] = {
             'type': 'string', 'enum': ['$new', *skill_ids]}
-        try:
-            proposal = self._receive('learning_proposal', 'extractor', LEARNER_PROMPT, project('extractor',
+        material = project('extractor',
                 {'experience': self._view(experience, source_id=task.physical_key), 'related': related, 'tools': tools,
                  'program_submission_contract': submission_contract(s.adapter),
                  'completed_train_cases': [learning_case(case,key)
-                     for key, (t, case) in sorted(cases.items(), key=lambda row: (
-                         -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0])) if key!=task.physical_key][:2],
-                 'selected_local_goal': focus}, task=task, adapter=s.adapter, context=s.task_context), 'submit_learning', schema,
-                validator=lambda p: self.validate_learning_proposal(p, cases), repair_limit=1)
+                     for key, (t, case) in [row for row in sorted(cases.items(), key=lambda row: (
+                         -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0])) if row[0]!=task.physical_key][:2]],
+                 'selected_local_goal': focus}, task=task, adapter=s.adapter, context=s.task_context)
+        from . import source_catalog
+        catalog = source_catalog.enabled(s.config)
+        prompt = LEARNER_PROMPT
+        if catalog:
+            material = source_catalog.catalog_material(material)
+            schema = source_catalog.proposal_schema(schema)
+            prompt = source_catalog.PROMPT
+        def validate(proposal):
+            if not catalog: return self.validate_learning_proposal(proposal,cases)
+            try:
+                validate_schema_instance(proposal,schema)
+                from .model_view import expand_material
+                sent=expand_material(json.loads(s.requests[-1]['messages'][1]['content'])) if s.requests else material
+                visible=[card for case in [sent.get('experience',{}),*sent.get('completed_train_cases',[])]
+                         for card in case.get('local_evidence',[])]+sent.get('legal_operations',[])
+                shown={card.get('operation_id') for card in visible}
+                if any(b['operation_id'] not in shown for b in (proposal.get('realization_request') or {}).get('case_bindings',[])):
+                    raise ValueError('Select an operation_id visible in this exact request')
+                return self.validate_learning_proposal(source_catalog.bind_proposal(proposal,material,cases,bank),cases)
+            except ValueError as exc:
+                exc.repair_material=source_catalog.repair_material(proposal,str(exc),material)
+                raise
+        try:
+            proposal = self._receive('learning_proposal', 'extractor', prompt, material, 'submit_learning', schema,
+                validator=validate, repair_limit=1)
+            if catalog: proposal = source_catalog.bind_proposal(proposal,material,cases,bank)
             resolved = self.validate_learning_proposal(proposal, cases)
         except ValueError as exc:
             log.update(decision='rejected', reason=getattr(exc,'learning_outcome',getattr(exc,'code','proposal_invalid')), errors=[str(exc)])
@@ -607,8 +634,9 @@ class Learner:
                     bank.save_job(job)
                 cap = s.config['learning']['builder_truncation_recovery_max_completion_tokens'] if job.get('repair_used') or job['kind']=='repair' else None
                 try:
+                    prompt=self.builder_prompt()
                     generated = self._receive('builder_' + job['id'] + '_' + str(job['epoch']) + '_' + str(generation),
-                        'tool_builder', BUILDER_PROMPT, material, 'submit_program', BUILD, repair_limit=0,
+                        'tool_builder', prompt, material, 'submit_program', BUILD, repair_limit=0,
                         completion_override=cap, repair_reason=job.get('last_error_kind'), job_key=[job['id'],job['epoch'],generation])
                     if generated.get('binding_hash',digest(bindings)) != digest(bindings):
                         raise ValueError('Builder changed Host binding identity')
@@ -618,6 +646,10 @@ class Learner:
                         'environment': s.config['program_environment'], 'result_role': skill.get('result_role','intermediate'),
                         'entry_constraints': skill.get('entry_constraints','undeclared')}
                     candidate = validate_program_declaration(candidate, submission_contract(s.adapter))
+                    from .source_catalog import enabled
+                    if enabled(s.config):
+                        from .program_worker import validate_context_source
+                        validate_context_source(candidate['source'])
                     job['pending_candidate'] = candidate
                     bank.save_job(job)
                     program = bank.put('program', candidate)
@@ -679,6 +711,12 @@ class Learner:
             value['content_parts']=image_content_parts(paths)
         if previous_failure is not None: value['previous_failure'] = self._failure_view(previous_failure)
         return pack_material(value)
+
+    def builder_prompt(self):
+        from .source_catalog import enabled
+        from .program_worker import CONTEXT_EXAMPLES
+        return BUILDER_PROMPT+('\nFor intermediate computation return the declared numeric fields, never a final answer. Prefer parameterized local retrieval/statistics. Never use gold or hardcode the demonstrated answer.\n'+CONTEXT_EXAMPLES
+            if enabled(self.system.config) else '')
 
     def _failure_view(self, failure):
         """Keep one source and bounded, readable evidence; full trial audit stays unchanged."""

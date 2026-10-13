@@ -57,6 +57,9 @@ def resolved_config(base, profile, benchmark, seed, split, root, datasets, autho
             'split': {'train': 'train', 'val': 'eval_in_distribution', 'test': 'eval_out_of_distribution'}[split],
             'max_steps': profile['environment_steps']}
     native_calls = profile.get('native_calls_by_split', {}).get(split, profile['native_calls'])
+    from ..empirical.source_catalog import enabled
+    if enabled(config):
+        native_calls = 64 if split=='train' else 48
     if type(native_calls) is not int or native_calls < 0: raise ValueError('Invalid split native call budget')
     config['runtime']['global_action_budget'] = max(1, native_calls)
     config['runtime'].pop('environment_step_budget', None)
@@ -70,6 +73,9 @@ def resolved_config(base, profile, benchmark, seed, split, root, datasets, autho
 
 def campaign(base, profiles, benchmark, seed, output, datasets, authority, corpus_root=None, *, resume=False, stop_after_val=False,
              max_new_tasks=None, stop_at_task_id=None):
+    from ..empirical.source_catalog import enabled
+    if enabled(base):
+        raise ValueError('Office source-catalog uses office_source_recompile; generic Train/Val/Test campaigns are not authorized')
     root = Path(output).resolve()
     authority, datasets = Path(authority).resolve(), Path(datasets).resolve()
     manifest = verify(authority)
