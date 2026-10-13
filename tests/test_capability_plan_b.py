@@ -108,6 +108,15 @@ def test_required_capacity_refusal_is_not_no_candidate(tmp_path,monkeypatch):
     assert not (root/'train/frozen_bank').exists() and not (root/'val').exists()
 
 
+def test_copied_derived_directory_cannot_refill_or_retarget_authority(tmp_path,monkeypatch):
+    import shutil
+    calls=fixture_transport(monkeypatch)
+    _,root,_,env,_=prepare_fixture(tmp_path,monkeypatch,full=True)
+    copied=tmp_path/'copied';shutil.copytree(root,copied)
+    with pytest.raises(ValueError,match='output identity changed'):derived.execute(copied,env)
+    assert not calls
+
+
 def test_full_576_http_nested_stage_and_unit_boundary_survive_restore(tmp_path):
     owner=BudgetGovernor(tmp_path/'campaign.json',token_limit=31000000,request_limit=9165,finish_reserve=0)
     batch.write_json(tmp_path/'campaign_budget_prefix.json',owner.state)

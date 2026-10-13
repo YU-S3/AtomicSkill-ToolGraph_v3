@@ -4,7 +4,7 @@ set -euo pipefail
 mode=${1:---check};revision=${2:-}
 case "$mode" in --check|--execute) ;; *) echo 'Use --check or --execute with the pinned commit' >&2;exit 2;;esac
 CODE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-OUTPUT=${LIVEMATH_P2_PLAN_B_OUTPUT:-/home/yangchengyu/livemath_p2_plan_b_derived_seed42_20261013}
+OUTPUT=${LIVEMATH_P2_PLAN_B_OUTPUT:-/home/yangchengyu/livemath_p2_plan_b_ready_seed42_20261013}
 PYTHON=/home/yangchengyu/asg_alfworld_venv/bin/python
 cd "$CODE";export PYTHONPATH="$CODE/src"
 [[ $(git rev-parse HEAD) == "$revision" ]] && [[ -z $(git status --porcelain --untracked-files=no) ]] || { echo 'Pinned clean commit required' >&2;exit 2; }

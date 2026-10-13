@@ -128,6 +128,8 @@ def prepare(settings, source, output, datasets, *, reservation_recovery=None):
 def check(root):
     root=Path(root);record=batch.read(root/'derivation_manifest.json')
     if record['version']!=VERSION or record['code']!=code_identity():raise ValueError('Derivation source identity changed')
+    if Path(batch.read(root/'p2/config.json')['experiment']['output_dir']).resolve()!=(root/'p2').resolve():
+        raise ValueError('Derived output identity changed; copying directories cannot create new authority')
     result=batch.check(root/'p2/plan.json')
     if not (root/'p2/result.json').exists() and tree_identity(root/'train/bank')['sha256']!=record['initial_bank_hash']:
         raise ValueError('Imported Train Bank changed before P2')
