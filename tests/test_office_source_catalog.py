@@ -269,3 +269,97 @@ def test_id_proposal_one_repair_builder_and_real_docker_trial(tmp_path,monkeypat
         assert s.bank.program_eligible(s.bank.get(log['program']))
         assert s.requests[1]['repair']==1
     finally:s.close()
+
+
+def test_full_bank_and_trial_failure_material_replay(tmp_path,monkeypatch):
+    path=os.environ.get('OFFICE_RECOMPILE_PREFIX')
+    if not path:pytest.skip('Set completed immutable Office recompile prefix')
+    root=Path(path);plan=json.loads((root/'plan.json').read_text())
+    cfg=configure(json.loads((root/'resolved_config.json').read_text())['recompile'])
+    cfg['data_dir']=str(tmp_path/'bank');cfg['experiment']['output_dir']=str(tmp_path/'replay')
+    cfg['llm']['api_key_env']='MODEL_API_KEY'
+    Path(cfg['data_dir']).mkdir()
+    original=sqlite3.connect((root/'train/bank/bank.sqlite3').as_uri()+'?mode=ro',uri=True)
+    copy=sqlite3.connect(Path(cfg['data_dir'])/'bank.sqlite3');original.backup(copy);copy.close();original.close()
+    s=EmpiricalSystem(cfg);s.phase='train';s.audit_path=tmp_path/'requests.json'
+    requests=[]
+    for p in (root/'recompile/units').glob('*/requests.json'):
+        requests += [(p.parent.name,r) for r in json.loads(p.read_text())['requests'] if r.get('material_refusal')]
+    requests.sort(key=lambda row:(row[1]['stage']!='extractor',row[0]))
+    seen=http(monkeypatch,[response([{'decision':'no_change'}],name='submit_learning') if r['stage']=='extractor' else
+        response([{'source':'def run(ctx, inputs): return {"status":"ok","outputs":{}}'}],name='submit_program') for _,r in requests])
+    records=[]
+    try:
+        for task_id,r in requests:
+            if r['stage']=='extractor':
+                row=next(row for row in plan['source_records'] if row['task']['task_id']==task_id)
+                trace=json.loads(Path(row['path']).read_text());task=PublicTask(**row['task']);s.adapter.reset(task)
+                result=s.learner.learn(task,trace)
+                assert result['decision']=='no_change',result
+            else:
+                old=expand_material(json.loads(r['material_refusal']['payload']['messages'][1]['content']))
+                job=next(j for j in s.bank.jobs() if j['id']==r['job_key'][0]);program=s.bank.get(job['program_id'])
+                errors=s.bank.attempts(program['id'])[-2:]
+                projected=s.learner._failure_view({'domain':'program_trial','program_id':program['id'],
+                    'source':program['source'],'errors':errors})
+                for raw,short in zip(errors,projected['errors']):
+                    assert short['tools']['count']==raw['calls']
+                    assert short['source_prefix_events_omitted']==len(raw['tools'])-raw['calls']
+                material=s.learner.builder_material(old['build_request']['skill'],job['case_bindings'],old['examples'],
+                    {**old['future_program_api'],'workspace_capabilities':old['workspace_capabilities']},
+                    {'domain':'program_trial','program_id':program['id'],'source':program['source'],'errors':errors})
+                material['learning_material_version']=OFFICE_SOURCE_MATERIAL_VERSION
+                s.agent('tool_builder',s.learner.builder_prompt(),material,'submit_program',BUILD)
+            records.append({'task':task_id,'stage':r['stage'],'old_wire':r['material_refusal']['wire_bytes'],
+                'new_wire':input_token_bound(seen[-1]),'limit':s.requests[-1]['payload_max_bytes']})
+            assert records[-1]['new_wire']<=records[-1]['limit']
+        assert len(seen)==len(requests)==10
+        output=os.environ.get('OFFICE_SOURCE_GATE_DIR')
+        if output:(Path(output)/'full_bank_and_failure_replay.json').write_text(json.dumps({'actual_model_http':0,'records':records},indent=2))
+    finally:s.close()
+
+
+def test_derive_reopens_only_unissued_slots_and_preserves_cost(tmp_path,monkeypatch):
+    from atomic_skillgraph.experiments import office_source_recompile as entry
+    path=os.environ.get('OFFICE_RECOMPILE_PREFIX')
+    if not path:pytest.skip('Set completed immutable Office recompile prefix')
+    parent=Path(path);root=tmp_path/'child'
+    monkeypatch.setattr(entry,'code_identity',lambda:{'git_sha':'offline-derivation-fixture','tracked_dirty':False})
+    carry=entry.derive(parent,root);entry.checked(root)
+    plan=json.loads((root/'plan.json').read_text())
+    assert len(carry['reopened_unissued_requests'])==10
+    assert sum('inherited_result' in r for r in plan['source_records'])==110
+    recovery=[r['builder_recovery'] for r in plan['source_records'] if r.get('builder_recovery')]
+    assert len(recovery)==2 and all(r['generation']==1 for r in recovery)
+    assert carry['worst_case_tokens']==82894216
+    assert carry['remaining_phase_tokens']['recompile']==3000000-1110101
+    assert (root/'budget.json').read_bytes()==(parent/'budget.json').read_bytes()
+    assert not (root/'train/frozen_bank').exists()
+    # A paid rejection is inherited, not retried with another schema repair allowance.
+    rejected=[r for r in plan['source_records'] if r.get('inherited_result') and
+        json.loads(Path(r['inherited_result']).read_text()).get('decision')=='rejected']
+    assert rejected
+
+
+def test_unissued_builder_recovery_uses_original_slot(tmp_path,monkeypatch):
+    path=os.environ.get('OFFICE_RECOMPILE_PREFIX')
+    if not path:pytest.skip('Set completed immutable Office recompile prefix')
+    from atomic_skillgraph.experiments import office_source_recompile as entry
+    from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
+    from atomic_skillgraph.empirical.task_context import TaskContext
+    root=tmp_path/'child';monkeypatch.setattr(entry,'code_identity',lambda:{'git_sha':'offline-slot-fixture','tracked_dirty':False})
+    entry.derive(path,root);plan=json.loads((root/'plan.json').read_text())
+    row=next(r for r in plan['source_records'] if r.get('builder_recovery'))
+    cfg=json.loads((root/'resolved_config.json').read_text())['recompile'];cfg['llm']['api_key_env']='MODEL_API_KEY'
+    s=EmpiricalSystem(cfg);task=PublicTask(**row['task']);s.adapter.reset(task)
+    s.phase='train';s.checkpoint=TaskCheckpoint(root/'slot');s.audit_path=root/'slot/requests.json';s.task_context=TaskContext(s.config['runtime'])
+    receipt=row['builder_recovery'];before=next(j for j in s.bank.jobs() if j['id']==receipt['job_id'])
+    seen=http(monkeypatch,[response([{'source':'def run(ctx, inputs): return {"status":"not_found","outputs":{}}'}],name='submit_program')])
+    monkeypatch.setattr(s,'test_program',lambda *a,**kw:{'outcome':'execution_failure','error':'fixture stops after verifying the one paid slot'})
+    try:
+        result=s.learner.resume_unissued_builder(task,receipt)
+        after=next(j for j in s.bank.jobs() if j['id']==receipt['job_id'])
+        assert len(seen)==1 and s.requests[0]['stage']=='tool_builder' and s.requests[0]['job_key'][2]==1
+        assert after['generation_count']==before['generation_count']==2 and after['repair_used'] is True
+        assert result['new_extractor_http']==0
+    finally:s.close()

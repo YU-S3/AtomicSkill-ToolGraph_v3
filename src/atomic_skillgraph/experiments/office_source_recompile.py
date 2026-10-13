@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import asdict
 import json
 from pathlib import Path
+import shutil
 import sqlite3
 
 from ..core.errors import BudgetExhausted
@@ -147,6 +148,73 @@ def checked(root):
     return root,plan,configs
 
 
+def derive(parent,output):
+    """Explicit code transition before Val; only certified unissued capacity slots reopen."""
+    parent,root=Path(parent).resolve(),Path(output).resolve()
+    code=code_identity();old=read(parent/'plan.json');configs=read(parent/'resolved_config.json')
+    if root.exists() or parent in root.parents or code['tracked_dirty'] or not code['git_sha']:
+        raise ValueError('Derivation requires a fresh independent path and committed source')
+    if (sha256(parent/'plan.json')!=read(parent/'plan_identity.json')['sha256'] or digest(configs)!=old['config_hash']
+            or old['phase_limits']!=PHASE_LIMITS or old['version']!=VERSION):raise ValueError('Parent plan changed')
+    for path,expected in old['parent_inputs'].items():
+        if sha256(path)!=expected:raise ValueError('Parent source changed: '+path)
+    summary=read(parent/'recompile/summary.json')
+    if not summary['complete'] or summary['checked']!=len(old['source_records']) or (parent/'val/execution_manifest.json').exists() or (parent/'test/execution_manifest.json').exists():
+        raise ValueError('Only a completed pre-Val recompile can derive unissued slots')
+    if tree_identity(parent/'train/frozen_bank')['sha256']!=read(parent/'final_frozen_manifest.json')['final_artifact_hash']:
+        raise ValueError('Parent Frozen changed')
+    ledger=read(parent/'budget.json')
+    if ledger['limits']!=TOTAL_LIMITS or ledger['unknown_billing'] or any(a['status']!='metered' for a in ledger['attempts'].values()):
+        raise ValueError('Derivation requires a fully metered parent ledger')
+    jobs_db=sqlite3.connect((parent/'train/bank/bank.sqlite3').as_uri()+'?mode=ro',uri=True)
+    jobs={j['id']:j for j in (json.loads(r[0]) for r in jobs_db.execute('SELECT payload FROM realization_jobs'))}
+    records=deepcopy(old['source_records']);reopened=[];proofs={}
+    for row in records:
+        task_id=row['task']['task_id'];unit=parent/'recompile/units'/task_id
+        result=read(unit/'result.json');row.pop('builder_recovery',None)
+        row['inherited_result']=str(unit/'result.json')
+        proofs[str(unit/'result.json')]=sha256(unit/'result.json')
+        if result.get('learning_status')!='learning_capacity_rejected':continue
+        audit=read(unit/'requests.json');refused=audit['requests'][-1]
+        if not refused.get('material_refusal') or refused.get('http_attempts'):raise ValueError('Capacity recovery needs a final unissued request')
+        proof={'request_id':refused['id'],'request_file':str(unit/'requests.json'),'sha256':sha256(unit/'requests.json')}
+        proofs[proof['request_file']]=proof['sha256']
+        if refused['stage']=='extractor':
+            if refused['purpose']!='extractor' or any(r.get('http_attempts') for r in audit['requests']):
+                raise ValueError('Cannot reissue a paid Extractor or its spent repair')
+        elif refused['stage']=='tool_builder':
+            job_id,epoch,generation=refused['job_key'];job=jobs[job_id]
+            if (job['generation_count']!=generation+1 or generation not in (0,1)
+                    or job['state']!='deferred' or job.get('last_error_kind')!='learning_capacity_rejected'):
+                raise ValueError('Not an unissued capacity-deferred Builder slot')
+            row['builder_recovery']={**proof,'job_id':job_id,'job_hash':digest(job),'epoch':epoch,'generation':generation}
+        else:raise ValueError('Unsupported capacity recovery stage')
+        row.pop('inherited_result');row['capacity_recovery']=proof;reopened.append(task_id)
+    if not reopened:raise ValueError('No proven unissued capacity requests to derive')
+    root.mkdir(parents=True);(root/'train/bank').mkdir(parents=True)
+    db=sqlite3.connect(root/'train/bank/bank.sqlite3');jobs_db.backup(db);db.close();jobs_db.close()
+    configurations={phase:configuration(configs['recompile'],root,phase) for phase in PHASE_LIMITS}
+    for filename in ('budget.json','inherited_jobs.json'):
+        shutil.copy2(parent/filename,root/filename)
+    write_json(root/'inherited_budget.json',ledger);write_json(root/'resolved_config.json',configurations)
+    charged=sum(a['accounted_tokens'] for a in ledger['attempts'].values())
+    remaining={phase:limit-sum(a['accounted_tokens'] for a in ledger['attempts'].values()
+        if a['context'].get('office_phase')==phase) for phase,limit in PHASE_LIMITS.items()}
+    if min(remaining.values())<0 or charged+sum(remaining.values())>TOTAL_LIMITS['token_limit']:
+        raise ValueError('Derivation exceeds the frozen cumulative allocation')
+    carry={'parent':str(parent),'parent_code':old['code'],'inherited_tokens':charged,'inherited_http':len(ledger['attempts']),
+           'phase_limits':PHASE_LIMITS,'remaining_phase_tokens':remaining,'worst_case_tokens':charged+sum(remaining.values()),
+           'reopened_unissued_requests':reopened,'unknown_billing':False}
+    write_json(root/'cost_carryforward_manifest.json',carry)
+    inputs={**old['parent_inputs'],**proofs,**{str(parent/name):sha256(parent/name) for name in
+        ('plan.json','budget.json','resolved_config.json','recompile/summary.json','train/bank/bank.sqlite3','final_frozen_manifest.json')}}
+    plan={**old,'code':code,'created_at':utc(),'parent_recompile':str(parent),'parent_recompile_code':old['code'],
+        'parent_inputs':inputs,'source_records':records,'config_hash':digest(configurations),'initial_bank':tree_identity(root/'train/bank'),
+        'reopened_unissued_requests':reopened,'derivation_reason':'versioned full-Bank catalog and Program-only failure projection'}
+    write_json(root/'plan.json',plan);write_json(root/'plan_identity.json',{'sha256':sha256(root/'plan.json')})
+    return carry
+
+
 def recompile(output,*,max_new_records=None):
     if max_new_records is not None and max_new_records<1:raise ValueError('Record boundary must be positive')
     root,plan,configs=checked(output)
@@ -167,6 +235,9 @@ def recompile(output,*,max_new_records=None):
             task=PublicTask(**row['task']);folder=phase/'units'/task.task_id
             if (root/'STOP_AFTER_TASK').exists():raise SystemExit(75)
             if (folder/'result.json').exists():results.append(read(folder/'result.json'));continue
+            if row.get('inherited_result'):
+                result={**read(row['inherited_result']),'inherited_from':row['inherited_result']}
+                write_json(folder/'result.json',result);results.append(result);continue
             if max_new_records is not None and new>=max_new_records:break
             if not row['local_evidence_count']:
                 result={'task_id':task.task_id,'checked':True,'decision':'no_change','reason':'no_local_operation_source','http':0}
@@ -175,7 +246,7 @@ def recompile(output,*,max_new_records=None):
                 log.begin_task(task,index,task.task_id+':recompile',{'source_record_sha256':row['sha256']})
                 source_id={'source_run_id':str(plan['source']),'source_record_hash':row['source_record_hash'],
                            'source_trace_sha256':row['sha256'],'recompile_method':VERSION}
-                try:trace=s.recompile_tool_record(task,read(row['path']),source_id)
+                try:trace=s.recompile_tool_record(task,read(row['path']),source_id,builder_recovery=row.get('builder_recovery'))
                 except BudgetExhausted:
                     censored=True;break
                 write_json(folder/'trace.json',trace)
@@ -194,7 +265,9 @@ def recompile(output,*,max_new_records=None):
         complete=len(results)==len(plan['source_records']) or censored
         stats=Counter(r.get('decision',r.get('learning_status','unknown')) for r in results)
         summary={'complete':complete,'censored':censored,'checked':len(results),'total_sources':120,
-            'decisions':dict(stats),'builder_http':sum(r.get('builder_http',0) for r in results),
+            'decisions':dict(stats),'inherited_units':sum(bool(r.get('inherited_from')) for r in results),
+            'builder_http':sum(a['context'].get('office_phase')=='recompile' and a['context'].get('purpose')=='builder'
+                               for a in governor.state['attempts'].values()),
             'capacity_rejected':sum(r.get('learning_status')=='learning_capacity_rejected' for r in results),
             'programs':[{'id':p['id'],'state':p['state']} for p in s.bank.all('program')],
             'usable':sum(s.bank.program_eligible(p) for p in s.bank.all('program')),
@@ -258,12 +331,13 @@ def evaluate(output,split='val',*,max_new_tasks=None,review=None):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['prepare','recompile','val','test'])
+    parser.add_argument('action',choices=['prepare','derive','recompile','val','test'])
     parser.add_argument('--output',required=True);parser.add_argument('--source');parser.add_argument('--env-file')
     parser.add_argument('--max-new-records',type=int);parser.add_argument('--max-new-tasks',type=int);parser.add_argument('--review')
     args=parser.parse_args()
     if args.env_file:load_env(args.env_file)
     if args.action=='prepare':result=prepare(args.source,args.output)
+    elif args.action=='derive':result=derive(args.source,args.output)
     elif args.action=='recompile':result=recompile(args.output,max_new_records=args.max_new_records)
     else:result=evaluate(args.output,args.action,max_new_tasks=args.max_new_tasks,review=args.review)
     print(json.dumps({k:v for k,v in result.items() if k not in {'source_records','source_trials'}},ensure_ascii=False,default=str),flush=True)

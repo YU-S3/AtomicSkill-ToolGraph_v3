@@ -273,7 +273,7 @@ class Learner:
             tools = [*tools, TaskContext(s.config['runtime']).tool()]
         log = {'decision': None, 'program': None, 'tests': [], 'errors': []}
         schema = deepcopy(LEARNING)
-        skill_ids = [asset['id'] for asset in bank.all('skill')]
+        skill_ids = [asset['id'] for asset in bank.all('skill') if not catalog or asset['id'] in {r['id'] for r in related}]
         if skill_ids:
             schema['properties']['existing_skill_id'] = {'type': 'string', 'enum': skill_ids}
         for properties in [schema['properties']['realization_request']['properties'],
@@ -699,6 +699,30 @@ class Learner:
         bank.save_job(job)
         if s.checkpoint: s.checkpoint.advance(s.checkpoint.state['stage'], realization_job=job)
 
+    def resume_unissued_builder(self,task,receipt):
+        """Resume a proven zero-HTTP slot, preserving the original generation/repair counters."""
+        s=self.system
+        if not s.checkpoint:raise ValueError('Builder recovery requires a new durable checkpoint')
+        job=next(j for j in s.bank.jobs() if j['id']==receipt['job_id'])
+        if not s.checkpoint.state.get('builder_recovery_prepared'):
+            if (digest(job)!=receipt['job_hash'] or job['epoch']!=receipt['epoch']
+                    or job['generation_count']!=receipt['generation']+1 or receipt['generation'] not in (0,1)):
+                raise ValueError('Unissued Builder job identity or slot changed')
+            if receipt['generation']==1 and not job['repair_used']:raise ValueError('Expected the original repair slot')
+            s.checkpoint.advance(s.checkpoint.state['stage'],builder_recovery_prepared=receipt)
+        elif s.checkpoint.state['builder_recovery_prepared']!=receipt:
+            raise ValueError('Builder recovery receipt changed')
+        if job['state']=='deferred' and job.get('last_error_kind') in {'learning_capacity_rejected','material_too_large'}:
+            job.update(pending_generation=receipt['generation'],kind='repair' if receipt['generation'] else 'build',
+                       stage='source_repair' if receipt['generation'] else 'build',state='ready')
+            s.bank.save_job(job)
+        cases={t.physical_key:(t,c) for t,c in self.cases}
+        tools=[*s.adapter.tool_definitions(),TaskContext(s.config['runtime']).tool()]
+        log={'decision':'resume_unissued_builder','program':None,'tests':[],'errors':[],
+             'inherited_request':receipt,'new_extractor_http':0}
+        self._realize(job,task,cases,tools,log)
+        return log
+
     def builder_material(self, skill, bindings, examples, permissions, previous_failure=None):
         value = {'build_request': {'skill': skill, 'entry': 'def run(ctx, inputs)', 'binding_hash':digest(bindings)},
                  'program_submission_contract': submission_contract(self.system.adapter),
@@ -720,15 +744,25 @@ class Learner:
 
     def _failure_view(self, failure):
         """Keep one source and bounded, readable evidence; full trial audit stays unchanged."""
-        def bounded(v):
+        from .source_catalog import enabled
+        office=enabled(self.system.config)
+        def bounded(v, limit=2048):
             raw = json.dumps(v, ensure_ascii=False)
-            return v if len(raw) <= 2048 else {'preview': raw[:2048], 'chars': len(raw), 'truncated': True}
+            return v if len(raw) <= limit else {'preview': raw[:limit], 'chars': len(raw), 'truncated': True}
         def walk(v, key=''):
             if key == 'errors' and isinstance(v,list):
                 rows=[]
                 for row in v[-2:]:
                     row=deepcopy(row)
                     if isinstance(row,dict) and 'outcome' in row and isinstance(row.get('validation'),dict):
+                        if office and isinstance(row.get('tools'),list) and type(row.get('calls')) is int:
+                            # Full source prefixes remain in raw trial records and Builder examples.
+                            # Failure feedback concerns this Program's invocation, not the replay setup.
+                            calls=row['calls']
+                            if not 0<=calls<=len(row['tools']):raise ValueError('Invalid Host trial event boundary')
+                            row['source_prefix_events_omitted']=len(row['tools'])-calls
+                            row['tools']=row['tools'][-calls:] if calls else []
+                            row['failure_projection_version']='office.program-invocation.v1'
                         row['validation']={k:x for k,x in row['validation'].items() if k in
                             {'policy','passed','reason','variation','native_operation_match','evidence_id'}}
                         if isinstance(row.get('result'),dict):
@@ -738,7 +772,7 @@ class Learner:
             if key in {'tools','history'} and isinstance(v, list):
                 return {'count': len(v), 'operations': [{k:bounded(e[k]) for k in
                     ('name','arguments','state','error','progress_before','progress_after') if k in e} for e in v],
-                    'last_results': [bounded(e.get('result', {})) for e in v[-2:]]}
+                    'last_results': [bounded(e.get('result', {}),512 if office else 2048) for e in v[-2:]]}
             if isinstance(v, dict): return {k:walk(x,k) for k,x in v.items() if k != 'source'}
             if isinstance(v, list): return bounded(v)
             return bounded(v)

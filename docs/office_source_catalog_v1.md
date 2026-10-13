@@ -13,6 +13,10 @@ read-only.
   resolves values and selectors through the existing `canonical_binding()` check.
   Source validation still uses Broker and the restricted Docker Worker; this
   version does not lower the usable qualification threshold.
+- Material v2 enumerates only the currently displayed related Skill IDs. Builder
+  failure feedback includes the generated Program's actual events, excluding the
+  historical source-prefix setup, and explicitly bounded result previews. Full
+  source, bindings, schemas, raw trial events and diagnostics remain in the audit.
 - Runtime rejects assignment to `ctx` and `context.call/read_result` misuse with
   model-visible feedback. It does not rewrite generated code. Historical source
   prefixes still replay through their original Broker contract.
@@ -52,6 +56,14 @@ calling the same command continues through the recorded checkpoints. Creating
 `OUTPUT/STOP_AFTER_TASK` stops recompile; `OUTPUT/val/STOP_AFTER_TASK` stops Val.
 Source changes require an explicit independent derivation, never same-version
 resume. Generic formal matrix launch is disabled for this method version.
+
+`derive --source PARENT_RECOMPILE_ROOT --output NEW_ROOT` is an explicit pre-Val
+transition for a completed recompile. It copies the Bank and exact physical ledger,
+inherits completed unit results with parent paths, and reopens only provably
+unissued capacity refusals. A Builder continuation uses the original unissued
+generation slot and unchanged repair counter, without another Extractor call.
+Paid rejected proposals and ordinary failed Programs are not retried. The 3M phase
+allowance includes the parent charges; derive does not grant a second allowance.
 
 Val completion stops for review. Test is a separate command, requiring an explicit
 review JSON with `approved: true` and the exact `val_summary_sha256`. Do not create

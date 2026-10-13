@@ -984,7 +984,7 @@ class EmpiricalSystem:
         finally:
             self._save_requests()
 
-    def recompile_tool_record(self, task, source_trace, identity):
+    def recompile_tool_record(self, task, source_trace, identity, *, builder_recovery=None):
         """Versioned Office derivation: re-learn real Train evidence without re-solving it."""
         from .source_catalog import enabled
         if self.readonly or task.split!='train' or not enabled(self.config) or self.adapter.capabilities.interaction!='tool_loop':
@@ -1008,7 +1008,7 @@ class EmpiricalSystem:
         trace.update(derivation_mode='office_train_record_recompile',source_identity=identity)
         self.adapter.reset(task)
         try:
-            self.learn_trace(task,trace)
+            self.learn_trace(task,trace,builder_recovery=builder_recovery)
             self._save_requests()
             trace.update(json.loads(Path(self.audit_path).read_text()))
             self.checkpoint.advance('learning_finished',recompile_result=trace)
@@ -1042,7 +1042,7 @@ class EmpiricalSystem:
         else: trace['learning_status'] = 'frozen' if self.readonly else 'deferred'
         if self.checkpoint and learn: self.checkpoint.advance('learning_finished', trace=trace)
 
-    def learn_trace(self, task, trace):
+    def learn_trace(self, task, trace, *, builder_recovery=None):
         if self.readonly or task.split != 'train':
             raise RuntimeError('Only Train may learn')
         learning_observation = self.observer.learning_start(task) if self.observer else None
@@ -1054,7 +1054,12 @@ class EmpiricalSystem:
                 if attempt["status"] == "ok" and attempt.get('output_contract_status') == 'valid' and (attempt["outputs_consumed"] or attempt.get("terminal_by_program", False) or attempt.get('submission_by_program', False)) and trace["score"]["hard"] and attempt["local_check"] == "unavailable":
                     attempt.update(outcome="positive", basis="task_outcome")
                 host_call('bank_record', self.bank.record, attempt, trial_context={'stage': 'learning'})
-            trace["learning"] = self.learner.learn(task, trace)
+            if builder_recovery is not None:
+                from .source_catalog import enabled
+                if not enabled(self.config) or trace.get('derivation_mode')!='office_train_record_recompile':
+                    raise ValueError('Unissued Builder recovery requires explicit Office derivation')
+                trace['learning']=self.learner.resume_unissued_builder(task,builder_recovery)
+            else:trace["learning"] = self.learner.learn(task, trace)
             result = trace['learning'] or {}
             capacity=[{'request_id':r['id'],'stage':r['stage'],'purpose':r['purpose']}
                 for r in self.requests[self._request_start:] if r.get('failure_code')=='learning_capacity_rejected']
