@@ -349,4 +349,3 @@ def learn(learner,rows,*,parents=None):
         log.update(decision='rejected',reason=str(exc))
     log['receipt_hash']=digest(log);s.checkpoint.advance(s.checkpoint.state['stage'],**{key:log})
     return log
-
