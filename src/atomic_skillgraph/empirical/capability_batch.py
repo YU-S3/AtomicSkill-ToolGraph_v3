@@ -306,12 +306,28 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None,rec
 def match_public(learner,candidate,task):
     # Routing sees only the target's public input; never its score or answer.
     capability=candidate['capability'];key='capability_match_'+digest([capability,public_identity(task)])
-    return learner._receive(key,'extractor','Match the capability to this public task demand; abstain if unsupported. '
-        'Cite exact supplied spans from distinct fields; do not solve or predict a correct option.',
-        {'capability':capability,'task':{'goal':task.goal,'inputs':task.inputs},'spans':spans(task),
-            'task_hash':public_identity(task)},'submit_capability_match',MATCH,
-        material_version=learner.system.config['learning'].get('capability_material_version',MATERIAL_VERSION),
-        decision_purpose='capability_routing',validator=lambda v:validate_match(v,capability,task),repair_limit=0)
+    checkpoint=learner.system.checkpoint
+    rejection_key=key+'_model_rejection'
+    if checkpoint and rejection_key in checkpoint.state:
+        return abstain_match(capability,task)
+    try:
+        return learner._receive(key,'extractor','Match the capability to this public task demand; abstain if unsupported. '
+            'Cite exact supplied spans from distinct fields; do not solve or predict a correct option.',
+            {'capability':capability,'task':{'goal':task.goal,'inputs':task.inputs},'spans':spans(task),
+                'task_hash':public_identity(task)},'submit_capability_match',MATCH,
+            material_version=learner.system.config['learning'].get('capability_material_version',MATERIAL_VERSION),
+            decision_purpose='capability_routing',validator=lambda v:validate_match(v,capability,task),repair_limit=0)
+    except ValueError as exc:
+        # Invalid model evidence withholds the asset; host/material failures still stop.
+        if not getattr(exc,'model_authored',False):raise
+        if checkpoint:checkpoint.advance(checkpoint.state['stage'],**{rejection_key:{
+            'status':'model_response_rejected','reason':str(exc),
+            'logical_decision_id':exc.logical_decision_id,'host_action':'withhold_asset'}})
+        return abstain_match(capability,task)
+
+
+def abstain_match(capability,task):
+    return {'task_hash':public_identity(task),'capability_id':capability['id'],'applicable':False,'span_ids':[]}
 
 
 def validate_policy(policy):

@@ -691,7 +691,9 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
                     key=row.get('task',{}).get('physical_key')
                     if key in unit:seen.add(key);unit_seen.add(key)
             if observer:observer.training(learning_scope(plan,'candidate:'+str(i)),'capability_batch',started,utc(),len(unit_seen),
-                log['decision'],log.get('reason'),planned_physical_keys=unit,consumed_physical_keys=sorted(unit_seen))
+                log['decision'],log.get('reason'),planned_physical_keys=unit,consumed_physical_keys=sorted(unit_seen),
+                **({'inherited_from':str(Path(plan['routing_continuation']['parent_root'])/'p2/learning'/str(i)/'learning.json'),
+                    'new_model_http':0} if 'routing_continuation' in plan else {}))
             result.update(learning_units=learning,completed_units=len(learning),
                 attempted_source_keys=[key for group in plan['candidate_units'][:len(learning)] for key in group],
                 seen_sources=sorted(seen),
@@ -724,13 +726,33 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
         receipts=[]
         for i,candidate in enumerate(candidates):
             folder=root/'candidates'/candidate['id'];preflight=[]
+            inherited=plan.get('routing_continuation',{}).get('completed_candidates',{}).get(candidate['id'])
+            if inherited:
+                receipt=read(inherited)
+                from ..empirical.capability_batch import valid_receipt
+                if (not valid_receipt(candidate,receipt) or receipt['policy']!=plan['utility_policy'] or
+                    receipt['receipt_hash']!=digest({k:v for k,v in receipt.items() if k!='receipt_hash'})):
+                    raise ValueError('Inherited selection receipt changed')
+                write_json(folder/'utility_receipt.json',receipt);receipts.append((candidate,receipt))
+                result['candidates']=[{'id':c['id'],'passed':r['passed'],'status':r['status'],'actual_exposed':len(r['paired'])} for c,r in receipts]
+                write_json(result_path,result)
+                progress(root,'selection_inherited',candidate_id=candidate['id'],status=receipt['status'],source=inherited)
+                continue
             for rank,row in enumerate(selection):
                 if observer:observer.begin_task(PublicTask(**row),rank,learning_scope(plan,'routing:'+candidate['id']+':'+str(rank)),
                     {'purpose':'train_public_applicability'})
                 task=PublicTask(**row);learning_boundary(system,folder/'routing'/str(rank),learning_scope(plan,'routing:'+candidate['id']+':'+str(rank)),unit_limits=plan.get('unit_limits'))
-                match=system.learner.match_capability(candidate,task);validate_match(match,candidate['capability'],task)
-                preflight.append({'task':row,'stage':'screen' if rank<len(plan['selection_tasks']['screen']) else 'confirmation','rank':rank,'match':match})
-                progress(root,'public_match_completed',candidate_id=candidate['id'],task_id=task.task_id,rank=rank,applicable=match['applicable'])
+                imported=plan.get('routing_continuation',{}).get('matches',{}).get(candidate['id'],{}).get(str(rank))
+                if imported:
+                    match=imported['match'];rejection=imported.get('rejection')
+                else:
+                    match=system.learner.match_capability(candidate,task)
+                    rejection=next((v for k,v in system.checkpoint.state.items() if k.endswith('_model_rejection')),None)
+                validate_match(match,candidate['capability'],task)
+                preflight.append({'task':row,'stage':'screen' if rank<len(plan['selection_tasks']['screen']) else 'confirmation','rank':rank,'match':match,
+                    **({'rejection':rejection} if rejection else {}),**({'inherited_from':imported['source']} if imported else {})})
+                progress(root,'public_match_completed',candidate_id=candidate['id'],task_id=task.task_id,rank=rank,applicable=match['applicable'],
+                    response_rejected=bool(rejection),inherited=bool(imported))
                 if governor.billing_blocked:raise BudgetExhausted('unknown_billing','Routing billing unresolved')
             write_json(folder/'preflight.json',preflight);eligible=[r for r in preflight if r['match']['applicable']];pairs={};screen=[]
             if len(eligible)>=plan['utility_policy']['min_precomputed_applicable']:
@@ -788,6 +810,10 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
             total_p2_tokens=prefix['prior_p2_tokens']+known,total_p2_http=prefix['prior_p2_http']+http)
         if recovery:result['recovery_parent_run_id']=recovery['parent_run_id']
         if 'paid_prefix' in plan:result.update(revision_parent_run_id=prefix['parent_run_id'],experimental_revision=prefix['experimental_revision'])
+        if 'routing_continuation' in plan:
+            prior=plan['routing_continuation']
+            result.update(continuation_parent=prior['parent_root'],prior_p2_tokens=prior['prior_tokens'],prior_p2_http=prior['prior_http'],
+                total_p2_tokens=prior['prior_tokens']+known,total_p2_http=prior['prior_http']+http)
         write_json(result_path,result)
         progress(root,'finished',status=result['status'],reason=result.get('completion_reason',result.get('reason')),
             new_tokens=known,new_http=http,candidates=result['candidates'])

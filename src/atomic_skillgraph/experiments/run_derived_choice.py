@@ -212,11 +212,15 @@ def main():
     item=sub.add_parser('prepare')
     for name in ('settings','source-run','output','datasets'):item.add_argument('--'+name,required=True)
     item.add_argument('--reservation-recovery')
+    item=sub.add_parser('continue-routing');item.add_argument('--parent',required=True);item.add_argument('--output',required=True)
     for stage in ('check','execute','val','test'):
         item=sub.add_parser(stage);item.add_argument('--output',required=True)
         if stage!='check':item.add_argument('--env-file',required=True)
         if stage=='test':item.add_argument('--reviewed-p2-val',action='store_true')
     args=parser.parse_args()
+    if args.stage=='continue-routing':
+        from .routing_continuation import prepare as continue_routing
+        print(json.dumps(continue_routing(args.parent,args.output),ensure_ascii=False));return
     result=prepare(args.settings,args.source_run,args.output,args.datasets,reservation_recovery=args.reservation_recovery) if args.stage=='prepare' else check(args.output) if args.stage=='check' else execute(
         args.output,args.env_file,stage=args.stage,reviewed=getattr(args,'reviewed_p2_val',False))
     print(json.dumps(result,ensure_ascii=False))
