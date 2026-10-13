@@ -9,8 +9,10 @@ from copy import deepcopy
 from dataclasses import asdict
 import hashlib
 import json
+import os
 from pathlib import Path
 import time
+from types import SimpleNamespace
 
 from atomic_skillgraph.empirical import LEARNING_MATERIAL_VERSION
 from atomic_skillgraph.empirical.bank import Bank
@@ -53,7 +55,9 @@ def replay(root, config, task, source, parameters, *, original_reference=None):
     root.mkdir()
     config=deepcopy(config);config['data_dir']=str(root/'bank');config['experiment']['output_dir']=str(root)
     config['learning']['material_version']=LEARNING_MATERIAL_VERSION
-    system=EmpiricalSystem(config,provider=object())
+    config.pop('budget',None)  # Fixture responses cannot enter a real cost ledger.
+    os.environ[config['llm']['api_key_env']]='offline-intercepted-fixture'
+    system=EmpiricalSystem(config)
     frozen=None
     try:
         system.adapter.reset(task)
@@ -70,12 +74,27 @@ def replay(root, config, task, source, parameters, *, original_reference=None):
               'input_schema':input_schema,'output_schema':object_schema({'computed':{'type':'object'}},['computed'])}
         proposed={'case_id':task.physical_key,'inputs':values,'input_refs':refs,'local_evidence_ref':evidence['id'],
                   'reference_fields':{'computed':['data','computed']}}
-        binding=canonical_binding(proposed,experience,spec)
-        skill=system.bank.put('skill',spec)
-        program=system.bank.put('program',{**spec,'source':compiled,'entry':'run',
-            'allowed_tools':['grep','read','glob'],'environment':config['program_environment']})
-        system.bank.put('implementation',{'skill_id':skill['id'],'program_id':program['id']})
-        trial=validate_on_source(system,program,binding,task,experience,'source-replay')
+        canonical_binding(proposed,experience,spec)
+        proposal={'decision':'propose_skill_and_program_spec','skill':spec,
+                  'realization_request':{'skill_id':'$new','action':'build','case_bindings':[proposed]}}
+        pending=iter([('submit_learning',proposal),('submit_program',{'source':compiled})]);sent=[]
+        import requests
+        original_post=requests.post
+        def fixture_post(url,**kwargs):
+            name,value=next(pending);sent.append(deepcopy(kwargs['json']))
+            body={'model':'offline-fixture','choices':[{'finish_reason':'tool_calls','message':{'role':'assistant','content':'',
+                'tool_calls':[{'id':'fixture','type':'function','function':{'name':name,'arguments':json.dumps(value)}}]}}],
+                'usage':{'prompt_tokens':0,'completion_tokens':0,'total_tokens':0}}
+            return SimpleNamespace(ok=True,status_code=200,headers={},json=lambda:body)
+        requests.post=fixture_post
+        try:learned=system.learner.learn(task,trace)
+        finally:
+            requests.post=original_post
+            write_json(root/'intercepted_wire.json',{'actual_http':0,'fixture_responses':True,'payloads':sent,'requests':system.requests})
+        assert not learned['errors'] and len(sent)==2,learned
+        program=system.bank.all('program')[0]
+        binding=system.bank.jobs()[0]['case_bindings'][0]
+        trial=system.bank.attempts(program['id'])[0]
         assert trial['outcome']=='positive',trial['validation']
         program=system.bank.get(program['id']);assert system.bank.program_eligible(program)
         system.bank.freeze(root/'frozen_bank');frozen=Bank(root/'frozen_bank',readonly=True)
