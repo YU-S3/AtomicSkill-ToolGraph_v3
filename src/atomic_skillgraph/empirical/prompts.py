@@ -101,26 +101,20 @@ while retaining originals. Selecting an old ambiguous Skill-only Workflow also s
 this same response; selecting a native v2 Workflow needs no node_modes.
 REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
 {"literal":3}, {"unresolved":"location not yet known"}. Bare strings are invalid REF values."""
-LEARNER_PROMPT = """Learn one local Train procedure, even from a failed task. One flat submit_learning ToolCall.
-Host local_evidence gives executed operations and input/output refs; related contains Bank assets.
-Prefer intermediate bounded search, text extraction or parameterized computation. Preserve the local scope:
-a hit is not a complete QA workflow. Multi-step code needs source plus executed_calls, not assumed plans.
-Use supported_roles. final_answer needs a declared string answer bound to an executed nonempty answer field;
-never relabel text/numbers as answer or silently change roles. no_change for unsupported/nonreusable/covered work.
-Never invent evidence, owners, success, outputs or retrieval.
-Use source_excerpt/input_sources/output_references; Builder gets full source.
-Arrays use aggregate AST paths, not observation/elements. Only executed
-outputs/parameters. Computation is intermediate; final_answer requires answer:string;
-final_files requires files:array/deleted_files:array. observation is text; data.computed is JSON.
-Typed json/publication files/file refs for all required outputs; inspection/filenames are not publication.
-Python allows /workspace absolutes; publication names exclude leading slash, inputs/ and '..'; separate output_path.
-Skill refs: $new or supplied real IDs, never aliases. Workflow: dependencies; dynamic goal/reference_skill_ids;
-bound asset I/O/no goal/optional purpose; compositions/patches are not proof. Repair keeps selected_local_goal/scope.
-guidance_only: generate_program=false/no realization_request. generate_program=true requests pending builds,
-even reuse_existing. Bind current experience.local_evidence or completed_train_cases;
-no prior job/second case needed. Use real case_id/local_evidence_ref and inputs/tools. input_refs: exact catalog
-public_json/operation_json/source_literal paths or public_span start/end. Spans prove provenance, not semantics.
-Host owns prefix/start_mode/environment/source trace; omit them."""
+LEARNER_PROMPT = """Learn one local Train procedure, even from failure. One flat submit_learning ToolCall.
+Use Host local_evidence/source_excerpt/input_sources/output_references and related assets; invent no evidence
+or success. Prefer intermediate search/extraction/computation. Lift literals, including lists/dicts, into
+parameters via source_literal refs. Local reuse needs no final answer or full QA workflow. Multi-step code
+needs source/executed_calls. Builder gets full source. no_change for unsupported/nonreusable/covered work.
+Keep supported_roles/scope. final_answer needs answer:string bound to an executed nonempty answer field;
+never relabel text/numbers or silently change roles. final_files needs files/deleted_files arrays. observation
+is text; data.computed is JSON. Bind required outputs by typed json/publication refs, not mere filenames.
+Publication names are workspace-relative, excluding inputs/ and '..'; Python output_path may be /workspace/...
+Use $new or real Skill IDs. Bind current/completed Train case_id/local_evidence_ref and inputs with catalog
+public_json/operation_json/source_literal paths or public_span start/end (provenance only). No prior job/second
+case needed. Host owns prefix/start_mode/environment. guidance_only: generate_program=false, no realization_request;
+generate_program=true requests builds even for reuse_existing. Workflow dependencies: dynamic goal/reference_skill_ids;
+bound asset I/O, no goal, optional purpose. Composition is not validation. Repairs keep selected_local_goal/scope."""
 BUILDER_PROMPT = """Return exactly one submit_program ToolCall using submission_contract. During generation/recovery,
 do not call grep/read/glob/execute_python. build_request fixes the Skill/bindings; future_program_api authorizes
 future RPC, workspace_capabilities authorizes local Python. Historical Runtime calls grant no permissions.

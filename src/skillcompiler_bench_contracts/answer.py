@@ -3,7 +3,7 @@ def answer_contract(benchmark, inputs):
     contracts = {
         'searchqa': 'Return only the requested entity or short phrase inside <answer>...</answer>. No explanation or alternative answers.',
         'docvqa': 'Return the short answer to the document question inside <answer>...</answer>. Use the supplied document images.',
-        'officeqa': 'Return only what the question requests inside <answer>...</answer>. Follow its units and precision; omit unrequested explanation.',
+        'officeqa': 'Return only the requested answer as plain text. Follow the question\'s exact format, units and precision. No answer tags, HTML escaping, explanation or alternative answers.',
     }
     if benchmark == 'livemath':
         labels = [c['label'] for c in inputs['choices']]

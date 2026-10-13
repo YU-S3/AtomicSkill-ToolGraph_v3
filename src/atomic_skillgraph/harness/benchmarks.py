@@ -249,10 +249,14 @@ class OfficeAdapter(FileAdapter):
         self.specs = {name: ToolSpec(name, description, schema, result_schema(data), effect, batchable, units)
             for name, description, schema, data, effect, batchable, units in [
             ('glob', 'List authorized relative txt paths. POSIX segments: * and ? stay within a directory; ** matches zero or more directories. *.txt is root only; **/*.txt includes root and nested files. Case sensitive.', object_schema({'pattern': {'type':'string'}}, ['pattern']), {'type': 'array', 'items': {'type': 'string'}}, 'read_only', True, {}),
-            ('read', 'Read at most 12000 characters. offset is a zero-based decoded Unicode character index, not a line or byte position.',
-             object_schema({'path': {'type':'string'}, 'offset': {'type':'integer','minimum':0}}, ['path','offset']), {'type': 'object'}, 'read_only', True, {'offset': 'unicode_codepoint_0_based'}),
-            ('grep', 'Search authorized text files with a case-insensitive regular expression (not a glob). paths are explicit relative filenames; omit for all files, empty means none. At most 40 total hits; line is display only, Unicode offset is directly usable by read.',
-             GREP_SCHEMA, {'type': 'array', 'items': {'type': 'object'}}, 'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
+            ('read', 'Read at most 12000 Unicode characters at a zero-based character offset. On accepted=true, data.text is a plain string (no content wrapper); data.next_offset is the next corpus offset or null. Runtime preview windows are a separate representation.',
+             object_schema({'path': {'type':'string'}, 'offset': {'type':'integer','minimum':0}}, ['path','offset']),
+             object_schema({'text':{'type':'string'},'next_offset':{'type':['integer','null']}}),
+             'read_only', True, {'offset': 'unicode_codepoint_0_based'}),
+            ('grep', 'Search with a case-insensitive regex. paths are exact authorized filenames from glob; omit for all files, [] means none. At most 40 hits: text is the matched text, line is a 1-based integer, offset is a zero-based Unicode character index usable by read. Read the surrounding table at that offset.',
+             GREP_SCHEMA, {'type': 'array', 'items': object_schema({'path':{'type':'string'},'line':{'type':'integer','minimum':1},
+                'offset':{'type':'integer','minimum':0},'text':{'type':'string'}},['path','line','offset','text'])},
+             'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
             ('execute_python', 'Temporary Python: ctx.call(name, args) uses glob/read/grep/read_result on the task budget. No direct corpus/network or recursive execute_python. Print bounded JSON for data.computed.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
 
     def _path(self, relative):

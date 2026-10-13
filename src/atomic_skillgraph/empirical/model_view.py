@@ -219,10 +219,11 @@ def operation_directory(evidence, case_id):
     if files:
         outputs += [{'kind':'publication','field':'files','value':files},
                     *[{'kind':'publication','field':'file','name':n,'value':n} for n in files]]
-    sources=[r for r in input_sources(evidence) if canonical_bytes(r)<=512]
-    arrays=[r['path'] for r in sources if r['kind']=='source_literal' and isinstance(r['value'],list)]
+    sources=[r for r in input_sources(evidence) if canonical_bytes(r)<=
+             (2048 if r['kind']=='source_literal' and isinstance(r['value'],(list,dict)) else 512)]
+    aggregates=[r['path'] for r in sources if r['kind']=='source_literal' and isinstance(r['value'],(list,dict))]
     sources=[r for r in sources if r['kind']!='source_literal' or not any(
-        len(r['path'])>len(path) and r['path'][:len(path)]==path for path in arrays)]
+        len(r['path'])>len(path) and r['path'][:len(path)]==path for path in aggregates)]
     unique={}
     for row in sources:
         key=(row['kind'],json.dumps(row['value'] if row['kind']=='source_literal' else row['path'],
@@ -274,7 +275,8 @@ def select_operation_directory(evidence, case_id):
         3 if evidence_origin(evidence[pair[0]])==TEXT_PAGE else 4,
         {'python_page':0, 'python_search':1}.get(modes[pair[0]],2),
         not bool(evidence[pair[0]]['reference'].get('data',{}).get('computed'))
-            if isinstance(evidence[pair[0]]['reference'].get('data'),dict) else True, pair[0]))
+            if isinstance(evidence[pair[0]]['reference'].get('data'),dict) else True,
+        -pair[0] if code(pair[1]) else pair[0]))
     for index,row in ordered:
         identity=json.dumps([evidence[index]['operation'], public_result(evidence[index]['reference'],evidence_origin(evidence[index]))],
                             sort_keys=True,ensure_ascii=False,allow_nan=False)
@@ -296,7 +298,7 @@ def learning_case(experience, case_id):
     return {'case_source':{'physical_case_id':case_id},'task':{'goal':task.get('goal','')},
         **{k:deepcopy(experience.get(k)) for k in ('score','termination_reason','answer_status','completion_truncated')},
         'local_evidence':selected,
-        'directory_selection':'verified publication and typed computation, then acquired pages, search and discovery; recorded nested result protocols distinguish code modes; at most four cards',
+        'directory_selection':'verified publication and typed computation, then acquired pages, search and discovery; latest successful code represents each recorded operation mode; at most four cards',
         'projection_audit':{'original_event_count':len(experience.get('events',[])),
             'original_evidence_count':len(experience.get('local_evidence',[])),
             'original_utf8_bytes':canonical_bytes(experience), **audit}, 'compact_learning_directory':True}
