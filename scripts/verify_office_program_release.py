@@ -103,9 +103,21 @@ def replay(root, config, task, source, parameters, *, original_reference=None):
         before=frozen.digest()
         # Same physical source verifies replay only. Cross-physical consumption is
         # independently covered by test_office_program_release, never asserted here.
+        read_ref=None
         def consume(stage,prompt,material,*args,**kwargs):
-            data=expand_material(material)['bindings']['inputs']['computed']
-            assert data==result['data']['computed']
+            nonlocal read_ref
+            view=expand_material(material);data=view['bindings']['inputs']['computed']
+            if data.get('truncated'):
+                # Consume the real bounded retrieval window through the same
+                # runtime API as the Agent, not by reaching into Host storage.
+                key=next(k for k,v in result['data']['computed'].items() if isinstance(v,dict) and 'hits' in v)
+                if read_ref is None:
+                    read_ref={**data['ref'],'path':[*data['ref']['path'],key,'hits']}
+                    return {'action':'call_tool','name':'read_result','arguments':read_ref}
+                window=next(r['data'] for r in view['memory']['recent_results']
+                            if isinstance(r.get('data'),dict) and r['data'].get('source_ref')==read_ref)
+                data=window['content'];assert data==result['data']['computed'][key]['hits']
+            else:assert data==result['data']['computed']
             return {'action':'finish','answer':json.dumps(data,ensure_ascii=False),'used_inputs':['computed']}
         execution=Executor(frozen,consume,system.worker,system.planner,frozen=True).run(task,system.adapter,Broker(system.adapter,64),
             {'nodes':[{'id':'operation','execution_mode':'program','program_id':program['id'],
@@ -113,6 +125,7 @@ def replay(root, config, task, source, parameters, *, original_reference=None):
                       {'id':'consume','execution_mode':'dynamic','goal':'consume the acquired object',
                        'args':{'computed':{'from':'operation','field':'computed'}}}]})
         assert execution['attempts'][0]['outputs_consumed'] and frozen.digest()==before
+        assert system.worker.invocations[-1]['outputs']['computed']==result['data']['computed']
         write_json(root/'experience.json',experience);write_json(root/'binding.json',binding)
         write_json(root/'trial.json',trial);write_json(root/'frozen_consumption.json',execution)
         return {'passed':True,'fixture_only':True,'natural_learning_claim':False,'model_http':0,
