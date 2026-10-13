@@ -136,7 +136,10 @@ def check(output):
     if ledger.get('inherited_reservation_recovery')!=prefix.get('inherited_reservation_recovery'):raise ValueError('Reservation authority changed')
     for stage in plan['settings']['stage_limits']:
         if batch.read(root/stage/'campaign_budget_prefix.json')!=prefix:raise ValueError('Stage cannot reset its inherited prefix')
-    if not (root/'learning/started.json').exists() and tree_identity(Path(cfg['data_dir']))['sha256']!=plan['identity']['initial_artifact_hash']:
+    if plan.get('continuation'):
+        from .math_continuation import validate
+        validate(root,plan)
+    elif not (root/'learning/started.json').exists() and tree_identity(Path(cfg['data_dir']))['sha256']!=plan['identity']['initial_artifact_hash']:
         raise ValueError('Prepared empty Bank changed before P3 learning')
     for phase,key in [('learning','learning'),('val','val')]:
         if plan['bounds'][key+'_tokens']>plan['settings']['stage_limits'][phase]['token_limit'] or plan['bounds'][key+'_http']>plan['settings']['stage_limits'][phase]['request_limit']:
@@ -179,6 +182,11 @@ def outcome_rank(receipt,candidate_id):
 
 
 def learning(root,plan,cfg,governor,observer):
+    if plan.get('continuation'):
+        value=batch.read(root/'inherited/learning/result.json')
+        if value['plan_hash']!=plan['continuation']['parent_plan_hash'] or any(not math.checked_candidate(c) for c in value['candidates']):
+            raise ValueError('Inherited completed learning identity changed')
+        return value
     path=root/'learning/result.json'
     if path.exists():
         value=batch.read(path)
@@ -242,21 +250,30 @@ def selection(root,plan,cfg,learned,governor,observer):
             task=PublicTask(**t);batch.progress(root,'val_selection',candidate=candidate['id'],rank=rank,total=stop)
             if observer:observer.begin_task(task,rank,plan['run_id']+':val:routing:'+candidate['id']+':'+str(rank),
                 {'purpose':'public_val_applicability','candidate_id':candidate['id']})
-            route_folder=folder/'routing'/str(rank)
-            batch.learning_boundary(s,route_folder,plan['run_id']+':val:route:'+candidate['id']+':'+str(rank),
-                unit_limits={'token_limit':18432,'request_limit':1})
-            route=math.match(s.learner,candidate,task)
+            inherited=plan.get('continuation',{}).get('routes',{}).get(candidate['id'],{}).get(str(rank))
+            if inherited:
+                route=inherited['match'];math.validate_route(route,candidate,task)
+                if observer:observer.requests(batch.read(inherited['requests'])['requests'])
+            else:
+                route_folder=folder/'routing'/str(rank)
+                batch.learning_boundary(s,route_folder,plan['run_id']+':val:route:'+candidate['id']+':'+str(rank),
+                    unit_limits={'token_limit':18432,'request_limit':1})
+                route=math.match(s.learner,candidate,task)
             preflight.append({'task':t,'rank':rank,'match':route})
             write_json(folder/'preflight.json',preflight)
-            if observer:observer.requests(s.requests)
+            if observer and not inherited:observer.requests(s.requests)
             if route['applicable']:
                 pairs[task.physical_key]=batch.evaluate_pair(folder/'selection',task,candidate,
                     {candidate['capability']['id']:route},plan['configs']['val'],governor,trial,evaluator,
                     rank,list(candidates).index(candidate['id']),run_id=plan['run_id']+':val',observer=observer,
-                    view_factory=math.MathView,method_version=math.VERSION)
+                    view_factory=math.MathView,method_version=math.VERSION,
+                    inherited_arms=plan.get('continuation',{}).get('arms',{}).get(candidate['id']))
         receipt=math.utility_receipt(candidate,pairs,preflight,policy,{'plan_hash':digest(plan),
             'val_manifest_sha256':plan['identity']['split_hashes']['val'],'public_val_hash':digest(plan['tasks']['val']),
-            'method_version':math.VERSION,'source_commit':plan['code']['git_sha']})
+            'method_version':math.VERSION,'source_commit':plan['code']['git_sha'],
+            **({'continuation_version':plan['continuation']['version'],
+                'inherited_evidence_commit':plan['continuation']['parent_code']['git_sha'],
+                'parent_plan_hash':plan['continuation']['parent_plan_hash']} if plan.get('continuation') else {})})
         write_json(folder/('screen_receipt.json' if stop==6 else 'utility_receipt.json'),receipt)
         return receipt
     try:
@@ -355,7 +372,14 @@ def main():
         p=sub.add_parser(stage);p.add_argument('--output',required=True)
         if stage not in {'check','status'}:p.add_argument('--env-file',required=True)
         if stage=='test':p.add_argument('--reviewed-p3-val',action='store_true')
+    p=sub.add_parser('continue-schema')
+    p.add_argument('--parent',required=True);p.add_argument('--output',required=True)
+    p.add_argument('--env-file')
     args=parser.parse_args()
+    if args.stage=='continue-schema':
+        from .math_continuation import prepare as continue_schema
+        if args.env_file:load_env(args.env_file)
+        print(json.dumps(continue_schema(args.parent,args.output),ensure_ascii=False));return
     result=prepare(args.source,args.ledger_run,args.datasets,args.output) if args.stage=='prepare' else status(args.output) if args.stage=='status' else check(args.output) if args.stage=='check' else execute(
         args.output,args.env_file,test=args.stage=='test',reviewed=getattr(args,'reviewed_p3_val',False))
     print(json.dumps(result,ensure_ascii=False))

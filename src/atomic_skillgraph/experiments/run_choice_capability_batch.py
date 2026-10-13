@@ -575,7 +575,7 @@ def evaluator_records(summary):
     return records
 
 
-def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,rank,candidate_index,*,run_id=None,observer=None,view_factory=CapabilityView,method_version=VERSION):
+def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,rank,candidate_index,*,run_id=None,observer=None,view_factory=CapabilityView,method_version=VERSION,inherited_arms=None):
     pair={};order=('off','on') if (rank+candidate_index)%2==0 else ('on','off')
     for arm in order:
         task_root=root/str(rank)/arm;cfg=deepcopy(config);cfg['data_dir']=str(trial);cfg['llm']['max_retries']=0
@@ -588,7 +588,17 @@ def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,ra
             trace_path=task_root/'trace.json';attempt=method_version+':'+str(candidate_index)+':'+str(rank)+':'+arm
             if run_id:attempt=run_id+':'+attempt
             if observer:observer.begin_task(task,rank,attempt,{'purpose':'train_internal_paired_selection' if method_version==VERSION else task.split+'_paired_selection','arm':arm})
-            if trace_path.exists():
+            inherited=(inherited_arms or {}).get(str(rank)+'/'+arm)
+            if inherited:
+                trace=read(inherited['path'])
+                if (digest(trace)!=inherited['trace_hash'] or trace['task']!=task.__dict__ or
+                    trace['knowledge_before']!=target.bank.digest() or
+                    trace['method_identity']['config_hash']!=inherited['config_hash']):
+                    raise ValueError('Inherited pair evidence changed')
+                attempt=trace['attempt_id']
+                if observer:observer.begin_task(task,rank,attempt,{'purpose':task.split+'_paired_selection','arm':arm,
+                    'inherited_from':inherited['source'],'source_commit':inherited['source_commit']})
+            elif trace_path.exists():
                 trace=read(trace_path)
                 if trace['task']!=task.__dict__ or trace['attempt_id']!=attempt or trace['method_identity']['config_hash']!=digest(target.config):
                     raise ValueError('Checkpoint method identity changed')
