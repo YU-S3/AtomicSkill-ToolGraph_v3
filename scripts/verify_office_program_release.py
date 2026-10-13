@@ -84,7 +84,7 @@ def replay(root, config, task, source, parameters, *, original_reference=None):
         original_post=requests.post
         def fixture_post(url,**kwargs):
             name,value=next(pending);sent.append(deepcopy(kwargs['json']))
-            body={'model':'offline-fixture','choices':[{'finish_reason':'tool_calls','message':{'role':'assistant','content':'',
+            body={'model':'offline-fixture','choices':[{'finish_reason':'tool_calls','message':{'role':'assistant','content':'','reasoning_content':'offline fixture',
                 'tool_calls':[{'id':'fixture','type':'function','function':{'name':name,'arguments':json.dumps(value)}}]}}],
                 'usage':{'prompt_tokens':0,'completion_tokens':0,'total_tokens':0}}
             return SimpleNamespace(ok=True,status_code=200,headers={},json=lambda:body)
