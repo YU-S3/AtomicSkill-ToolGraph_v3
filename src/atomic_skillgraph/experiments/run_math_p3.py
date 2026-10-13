@@ -91,11 +91,16 @@ def prepare(source,ledger_run,datasets,output):
     for path in [authority/'manifest.json',data/'materialization.json',*[authority/'livemath'/(p+'.json') for p in tasks]]:
         inputs[str(path)]=sha256(path)
     run_id='p3_'+uuid4().hex
+    initial=Bank(cfg['data_dir'],environment=cfg['program_environment']);initial.bind_choice_method(math.VERSION)
+    try:initial_digest=initial.digest()
+    finally:initial.close()
+    initial_hash=tree_identity(Path(cfg['data_dir']))['sha256']
     identity={'method':'ours','benchmark':'livemath','run_seed':42,'split_seed':42,'provider_model_id':cfg['llm']['model'],
         'model_name':cfg['llm']['model'],'source_commit':code['git_sha'],'source_sha256':code['source_sha256'],
         'choice_method_version':math.VERSION,'source_train_run_id':old['run_id'],'source_train_commit':old['source_commit'],
         'split_hashes':{p:sha256(authority/'livemath'/(p+'.json')) for p in tasks},
         'initial_bank':'fresh empty P3 Bank; only original Train cases imported; no P2 assets or utility',
+        'initial_bank_digest':initial_digest,'initial_artifact_hash':initial_hash,
         'learning_schedule':'Train60 replay -> 15 units -> consolidation -> Val6 -> Val11 -> Frozen -> reviewed Test100',
         'test_development_history_disclosed':True,'choice_projection_version':cfg['experiment'].get('choice_projection_version'),
         'choice_seed':cfg['experiment'].get('choice_seed'),'source_train_runtime_reexecuted':False}
@@ -131,6 +136,8 @@ def check(output):
     if ledger.get('inherited_reservation_recovery')!=prefix.get('inherited_reservation_recovery'):raise ValueError('Reservation authority changed')
     for stage in plan['settings']['stage_limits']:
         if batch.read(root/stage/'campaign_budget_prefix.json')!=prefix:raise ValueError('Stage cannot reset its inherited prefix')
+    if not (root/'learning/started.json').exists() and tree_identity(Path(cfg['data_dir']))['sha256']!=plan['identity']['initial_artifact_hash']:
+        raise ValueError('Prepared empty Bank changed before P3 learning')
     for phase,key in [('learning','learning'),('val','val')]:
         if plan['bounds'][key+'_tokens']>plan['settings']['stage_limits'][phase]['token_limit'] or plan['bounds'][key+'_http']>plan['settings']['stage_limits'][phase]['request_limit']:
             raise ValueError('Frozen protocol bound exceeds its stage')
@@ -181,6 +188,10 @@ def learning(root,plan,cfg,governor,observer):
         return value
     s=EmpiricalSystem(cfg,harness=AnswerAdapter('livemath',{}),budget_governor=governor);s.observer=observer
     try:
+        if not (root/'learning/started.json').exists():
+            if s.bank.digest()!=plan['identity']['initial_bank_digest'] or s.bank.all('skill') or s.bank.all('program'):
+                raise ValueError('P3 initial Bank is not the declared empty Bank')
+            write_json(root/'learning/started.json',{'at':utc(),'plan_hash':digest(plan),'initial_bank_digest':s.bank.digest()})
         for row in batch.read(root/'source_cases.json'):s.bank.save_case(PublicTask(**row['task']),row['experience'])
         rows=batch.read(root/'source_records.json');by_key={r['task']['physical_key']:r for r in rows};candidates=[];unit_logs=[]
         for i,unit in enumerate(plan['schedule']['units']):
@@ -302,6 +313,8 @@ def _execute(output,env_file=None,*,test=False,reviewed=False):
     owner=BudgetGovernor(root/'budget.json',**plan['settings']['cumulative_limits'])
     if owner.billing_blocked:raise BudgetExhausted('unknown_billing','P3 billing must be reconciled before another request')
     observer=FormalLog(root,plan['identity'],{'learning':cfg,**plan['configs']},resume=(root/'run_manifest.json').exists())
+    observer.manifest['initial_artifact_hash']=plan['identity']['initial_artifact_hash']
+    write_json(observer.manifest_path,observer.manifest)
     try:
         if test:
             if not reviewed or not (root/'final_frozen_manifest.json').exists() or not (root/'val/result.json').exists():
