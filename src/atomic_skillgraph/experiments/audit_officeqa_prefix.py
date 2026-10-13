@@ -171,6 +171,7 @@ def audit(root):
     counters['learning_request_capacity_rejection_rate']=len(capacity)/counters['learning_requests'] if counters['learning_requests'] else 0
     counters['train_task_capacity_rejection_rate']=counters['capacity_rejected_tasks']/6
     report={'schema':SCHEMA,'status':'passed',**binding,'facts':counters,'ordinary_model_errors':ordinary,'capacity_rejections':capacity,
+            'audit_module_sha256':sha256(__file__),
             'performance_gate':False,'extra_pilot_tasks':0,'full_continuation':'same commit and directory',
             'ledger_sha256':digest(ledger)}
     report['receipt_sha256']=digest(report)
@@ -183,6 +184,8 @@ def verify_directory(body,sources):
     for case in body.get('completed_train_cases',[]):cards.extend(case.get('local_evidence',[]))
     for card in cards:
         actual=sources.get(card['local_evidence_ref']);assert actual, 'Missing real source operation'
+        # Source literals can contain tuples; compare the exact JSON view sent on the wire.
+        actual=json.loads(json.dumps(actual,ensure_ascii=False,allow_nan=False))
         for key,value in card.items():
             if key=='input_sources':assert all(v in actual[key] for v in value), 'Invented source binding'
             elif key=='output_references':

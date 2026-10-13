@@ -202,3 +202,24 @@ def test_formal_gate_accepts_only_production_preview_shortening():
     for key,value in [('source_excerpt','invented'),('output_references',[{'kind':'json','path':['gold'],'type':'str'}])]:
         bad=deepcopy(body);bad['experience']['local_evidence'][0][key]=value
         with pytest.raises(AssertionError):verify_directory(bad,{card['local_evidence_ref']:card})
+
+
+@pytest.mark.parametrize('section',['legal_operations','experience','completed_train_cases'])
+def test_formal_gate_compares_source_literals_after_json_serialization(section):
+    from atomic_skillgraph.experiments.audit_officeqa_prefix import verify_directory
+    sources=source_literals("pairs = [('报告.txt', 120), ('second.txt', 240)]")
+    literal=next(r for r in sources if r['path']==['body',0,'value'])
+    assert isinstance(literal['value'][0],tuple)
+    card={'local_evidence_ref':'local:source','input_sources':[literal]}
+    wire=json.loads(json.dumps(card,ensure_ascii=False))
+    def material(row):
+        if section=='legal_operations':return {section:[row]}
+        if section=='experience':return {section:{'local_evidence':[row]}}
+        return {section:[{'local_evidence':[row]}]}
+    verify_directory(material(wire),{card['local_evidence_ref']:card})
+    assert isinstance(literal['value'][0],tuple)  # Auditing must not mutate saved evidence.
+    for key,value in [('value',[['报告.txt',121],['second.txt',240]]),
+                      ('path',['body',1,'value']),('kind','public_json')]:
+        forged=deepcopy(wire);forged['input_sources'][0][key]=value
+        with pytest.raises(AssertionError,match='Invented source binding'):
+            verify_directory(material(forged),{card['local_evidence_ref']:card})
