@@ -1,5 +1,6 @@
 {
   "schema": "livemath.math-capability.p3.contract.v1",
+  "proposal_schema_revision": "phase_specific_parents.v2",
   "run_seed": 42,
   "train_count": 60,
   "unit_count": 15,

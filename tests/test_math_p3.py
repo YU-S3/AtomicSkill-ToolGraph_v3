@@ -104,6 +104,11 @@ def test_protocol_exact_refs_and_abstention():
     value=deepcopy(original);value['guidance']='x'*513;value['applicability']='x'*129
     with pytest.raises(ValueError) as error:m.validate_batch({'decision':'candidates','candidates':[value,deepcopy(value)]},rows)
     assert 'candidates[0]' in str(error.value) and 'candidates[1]' in str(error.value)
+    unit=m.batch_schema(4)['properties']['candidates']['items']
+    integrated=m.batch_schema(8)['properties']['candidates']['items']
+    assert 'parent_ids' not in unit['properties'] and 'parent_ids' in integrated['required']
+    value=deepcopy(original);value['parent_ids']=[rows[0]['task']['physical_key']]
+    with pytest.raises(ValueError,match="unexpected=\\['parent_ids'\\]"):m.validate_candidate(value,rows)
 
 
 def test_truncation_tail_recovery_and_legacy_isolation(tmp_path,monkeypatch):

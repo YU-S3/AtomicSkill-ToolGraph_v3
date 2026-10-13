@@ -28,7 +28,7 @@ CHECK=object_schema({'candidate_hash':TEXT(64),'status':{'enum':['procedural_onl
     ['candidate_hash','status','proposal_quote','references','reason'])
 PROMPT=('Extract up to four distinct reusable mathematical procedures from the supplied actual Train records, or choose no_change. '
     'Use a listed category. Specify applicability, prerequisite checks, concrete guidance steps, and a stopping condition. '
-    'Guidance <=512 Unicode characters (aim 280); applicability <=128 (aim 60); prerequisites <=3 short checks; '
+    'Guidance <=512 Unicode characters (aim 280); applicability <=128 (aim 60); prerequisites 1-3 checks, each <=80 (aim 40); '
     'stop_condition <=128 (aim 70); complete rendered card <=1024. Avoid generic advice alone. '
     'Useful operations include instantiating or negating quantifiers, checking limit order and uniformity hypotheses, '
     'constructing an admissible boundary example, separating existence from uniqueness, or bounded deterministic computation. '
@@ -83,7 +83,10 @@ def validate_candidate(value,rows,*,parents=None):
     validate_schema_instance(value,PROPOSAL)
     if value['decision']=='no_change':return None
     required={'decision','category','operation','guidance','applicability','prerequisites','stop_condition','references'}
-    if set(value)!=(required|({'parent_ids'} if parents is not None else set())):raise ValueError('Incomplete P3 procedure')
+    expected=required|({'parent_ids'} if parents is not None else set())
+    if set(value)!=expected:
+        raise ValueError('P3 procedure fields: missing='+str(sorted(expected-set(value)))+
+            '; unexpected='+str(sorted(set(value)-expected))+'; parent_ids belong only to cross-group consolidation')
     if value['operation'] not in OPERATIONS[value['category']]:raise ValueError('Operation does not belong to category')
     covered=source_refs(value['references'],rows,span_factory=math_spans)
     if parents is not None:
@@ -251,8 +254,13 @@ def checked_asset(asset):
 
 
 def batch_schema(limit):
+    proposal=deepcopy(PROPOSAL)
+    required=['decision','category','operation','guidance','applicability','prerequisites','stop_condition','references']
+    if limit==4:proposal['properties'].pop('parent_ids')
+    else:required.append('parent_ids')
+    proposal['required']=required
     return object_schema({'decision':{'enum':['candidates','no_change']},
-        'candidates':{'type':'array','minItems':1,'maxItems':limit,'items':PROPOSAL}},['decision'])
+        'candidates':{'type':'array','minItems':1,'maxItems':limit,'items':proposal}},['decision'])
 
 
 def validate_batch(value,rows,*,parents=None):
