@@ -199,6 +199,11 @@ def operation_directory(evidence, case_id):
         'effect':'published_files' if files else 'inspection_or_json',
         'success':reference.get('accepted',True),'published_files':files,
         'input_sources':sources[:32], 'input_source_count':len(sources), 'output_references':outputs,
+        'supported_roles': ['intermediate'] + (['final_files'] if files else []) +
+            (['final_answer'] if any(r.get('path',[])[-1:]==['answer'] and r.get('type')=='str'
+                                    and r.get('content_hint','').strip() for r in outputs) else []),
+        **({'executed_calls': [{'name':e['name'],'accepted':e['result']['accepted']}
+                              for e in evidence['executed_calls']]} if evidence.get('executed_calls') else {}),
         **({'source_excerpt':source[:2048], 'source_truncated':len(source)>2048} if source else {}),
         'source_content_available_to_builder':True}
 

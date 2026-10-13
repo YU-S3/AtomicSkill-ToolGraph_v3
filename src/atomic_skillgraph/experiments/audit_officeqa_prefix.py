@@ -185,6 +185,14 @@ def verify_directory(body,sources):
         actual=sources.get(card['local_evidence_ref']);assert actual, 'Missing real source operation'
         for key,value in card.items():
             if key=='input_sources':assert all(v in actual[key] for v in value), 'Invented source binding'
+            elif key=='output_references':
+                assert len(value)==len(actual[key]) and all(v==a or v=={k:x for k,x in a.items() if k!='content_hint'}
+                    for v,a in zip(value,actual[key])), 'Output selector or type changed'
+            elif key=='source_excerpt':
+                assert value==actual[key] or (card.get('source_truncated') is True and value==actual[key][:512]), 'Source excerpt changed'
+            elif key=='source_truncated':
+                assert value==actual[key] or (value is True and len(card.get('source_excerpt',''))<len(actual.get('source_excerpt',''))
+                    and card.get('source_excerpt','') in ('',actual['source_excerpt'][:512])), 'Source truncation changed'
             else:assert value==actual[key], 'Source card differs from the saved operation'
     if 'build_request' in body:assert body.get('examples'), 'Missing Builder source material'
     for example in body.get('examples',[]):

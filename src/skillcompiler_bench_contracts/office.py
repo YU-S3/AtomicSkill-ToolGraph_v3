@@ -3,6 +3,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 from fnmatch import fnmatchcase
 from functools import lru_cache
+from copy import deepcopy
 
 ALL_PATHS = object()
 GREP_SCHEMA = {'type': 'object', 'properties': {'pattern': {'type': 'string'},
@@ -44,9 +45,8 @@ def select_paths(corpus, paths=ALL_PATHS):
     return [(name, selected[name]) for name in sorted(selected)]
 
 
-def grep(corpus, pattern, paths=ALL_PATHS):
+def _scan(selected, pattern):
     expression = re.compile(pattern, re.I)
-    selected = select_paths(corpus, paths)
     hits = []
     for name, path in selected:
         offset = 0
@@ -57,6 +57,25 @@ def grep(corpus, pattern, paths=ALL_PATHS):
                     return hits, {'execution_paths': [n for n, _ in selected], 'truncated': True}
             offset += len(line)
     return hits, {'execution_paths': [n for n, _ in selected], 'truncated': False}
+
+
+@lru_cache(maxsize=128)
+def _cached_scan(pattern, identities):
+    return _scan([(name, Path(path)) for name, path, _ in identities], pattern)
+
+
+def grep(corpus, pattern, paths=ALL_PATHS, *, use_cache=True):
+    # Re-authorize every query. Cache only bounded query results, not corpus
+    # contents; file replacement/modification invalidates the corresponding key.
+    selected = select_paths(corpus, paths)
+    if not use_cache:
+        return _scan(selected, pattern)
+    identities = []
+    for name, path in selected:
+        stat = path.stat()
+        identities.append((name, str(path), (stat.st_dev, stat.st_ino, stat.st_size,
+                                           stat.st_mtime_ns, stat.st_ctime_ns)))
+    return deepcopy(_cached_scan(pattern, tuple(identities)))
 
 
 def glob_paths(corpus, pattern):

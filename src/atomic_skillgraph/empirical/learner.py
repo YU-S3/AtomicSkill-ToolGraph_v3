@@ -127,7 +127,7 @@ class Learner:
             if reference not in known:
                 raise ValueError('Skill reference must be $new with a new Skill, or an existing Skill ID')
 
-    def _proposal_skill(self, proposal):
+    def _proposal_skill(self, proposal, *, validate=True):
         if proposal.get('skill'):
             skill = deepcopy(proposal['skill'])
             requested = proposal.get('generate_program', proposal['decision'] == 'propose_skill_and_program_spec')
@@ -135,7 +135,7 @@ class Learner:
             skill.setdefault('result_role', 'intermediate')
             if requested and self.system.config['runtime'].get('choice_guidance',{}).get('public_process'):
                 skill['knowledge_type']='executable_operation'
-            skill = validate_program_declaration(skill, submission_contract(self.system.adapter))
+            if validate: skill = validate_program_declaration(skill, submission_contract(self.system.adapter))
             if self.system.config['learning'].get('choice_guidance',{}).get('enabled') and 'choices' in getattr(
                     getattr(self.system.adapter,'task',None),'inputs',{}):
                 skill['guidance'] = ''
@@ -143,10 +143,10 @@ class Learner:
             return skill
         return self.system.bank.get(proposal.get('existing_skill_id') or '')
 
-    def _resolve_realization_request(self, proposal):
+    def _resolve_realization_request(self, proposal, *, validate=True):
         """Classify against actual assets without merging bindings or writing."""
-        self._skill_references(proposal)
-        bank, skill = self.system.bank, self._proposal_skill(proposal)
+        if validate: self._skill_references(proposal)
+        bank, skill = self.system.bank, self._proposal_skill(proposal, validate=validate)
         request = proposal.get('realization_request')
         if request:
             skill = skill if request['skill_id'] == '$new' else bank.get(request['skill_id'])
@@ -163,24 +163,42 @@ class Learner:
         binding_shape['required']=['case_id','inputs','local_evidence_ref','reference_fields']
         binding_shape['additionalProperties']=True
         validate_schema_instance(proposal,shape)
-        resolved = self._resolve_realization_request(proposal)
+        errors=[]
+        def declaration_error(exc):
+            errors.append({'binding_index':None,'errors':[{'code':getattr(exc,'code','invalid_declaration'),
+                'field':'skill','detail':str(exc),'repair_target':'declaration'}]})
+        try:self._skill_references(proposal)
+        except ValueError as exc:declaration_error(exc)
+        resolved = self._resolve_realization_request(proposal, validate=False)
         request, skill, job = proposal.get('realization_request'), resolved['skill'], resolved['job']
-        if skill: validate_program_declaration(skill, submission_contract(self.system.adapter))
+        if skill:
+            try:
+                skill=validate_program_declaration(skill, submission_contract(self.system.adapter))
+                resolved['skill']=skill
+            except ValueError as exc:declaration_error(exc)
+        if not errors:
+            resolved=self._resolve_realization_request(proposal)
+            skill,job=resolved['skill'],resolved['job']
         if job and job.get('contract_quarantine'):
-            raise ProgramContractError('program_quarantined', 'Create a validated new declaration version', 'declaration')
-        if not request or resolved['already_usable']: return resolved
-        if not skill or 'input_schema' not in skill: raise ValueError('Unknown realization Skill')
+            declaration_error(ProgramContractError('program_quarantined', 'Create a validated new declaration version', 'declaration'))
+        if request and (not skill or 'input_schema' not in skill):
+            declaration_error(ValueError('Unknown realization Skill'))
         if cases is None:
             cases = {r['task']['physical_key']: (PublicTask(**r['task']), r['experience'])
                      for r in self.system.bank.train_cases()}
-        bindings, seen, canonical, errors = request['case_bindings'], set(), [], []
-        if len(bindings) > 2: raise ValueError('A realization request has at most two applicable Train bindings')
+        bindings = request['case_bindings'] if request and not resolved['already_usable'] else []
+        seen, canonical = set(), []
+        if (skill and skill.get('result_role')=='final_answer' and skill.get('execution_intent')!='guidance_only'
+                and proposal.get('skill') and not bindings):
+            declaration_error(ProgramContractError('no_answer_evidence','A new final_answer declaration needs an executed answer binding','declaration'))
+        if len(bindings) > 2: declaration_error(ValueError('A realization request has at most two applicable Train bindings'))
         fixed = {b['case_id']: b for b in job['case_bindings']} if job else {}
         for index, binding in enumerate(bindings):
             try:
                 if binding['case_id'] in seen: raise ValueError('Duplicate trial case')
                 seen.add(binding['case_id'])
                 if binding['case_id'] not in cases:raise ValueError('TrialCase must be a completed Train case')
+                if not skill:continue
                 from .local_validation import canonical_binding
                 locked=canonical_binding(binding,cases[binding['case_id']][1],skill)
                 self._preflight_binding(locked, skill, cases)
@@ -192,6 +210,7 @@ class Learner:
             except ValueError as exc:
                 feedback=getattr(exc,'feedback',{'code':'trial_binding_invalid','errors':[{'code':'invalid_binding','detail':str(exc)}]})
                 errors.append({'binding_index':index,'case_id':binding['case_id'],**feedback})
+        if len(set(fixed) | seen) > 2: declaration_error(ValueError('A realization job has at most two fixed slots'))
         if errors:
             error=ValueError(json.dumps(errors,ensure_ascii=False))
             error.feedback=errors
@@ -200,7 +219,6 @@ class Learner:
                 [self._view(cases[b['case_id']][1],source_id=b['case_id'])['local_evidence']
                  for b in bindings if b['case_id'] in cases])
             raise error
-        if len(set(fixed) | seen) > 2: raise ValueError('A realization job has at most two fixed slots')
         resolved['canonical_bindings']=canonical
         return resolved
 

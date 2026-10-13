@@ -166,6 +166,12 @@ def canonical_binding(binding, experience, skill):
         for key,selector in fields.items():
             try:values[key]=reference_value(evidence,selector)
             except (ValueError,TypeError,KeyError) as exc:error('invalid_output_reference','reference_fields.'+key,exc)
+        if skill.get('result_role')=='final_answer':
+            try:path=json_reference_path(fields.get('answer', []))
+            except ValueError:path=None
+            if not path or path[-1]!='answer' or not isinstance(values.get('answer'),str) or not values['answer'].strip():
+                error('no_answer_evidence','reference_fields.answer',
+                      'final_answer requires an executed nonempty string answer field; search/text/numeric outputs support intermediate only')
         if skill.get('result_role')=='final_files' and not evidence['reference'].get('local_artifact_identities'):
             error('no_publication','local_evidence_ref','An inspection or declared filename is not a published file')
         try:validate_schema_instance(values,skill['output_schema'])
@@ -196,6 +202,9 @@ def evidence_from_trace(task, trace, environment):
                 'source_trace_sha256': trace_hash, 'event_ids': [event['event_id']], 'kind': 'native_operation',
                 'operation': {'name': event['name'], 'arguments': deepcopy(event['arguments'])},
                 'reference': deepcopy(event['result']), 'prefix': deepcopy(prefix),
+                'executed_calls': [deepcopy(child) for child in source['events']
+                    if child.get('parent_event_id') == event['event_id'] and child.get('state') == 'finished'
+                    and child.get('backend_invoked')],
                 'context_result_protocols': sorted({child['result_protocol'] for child in source['events']
                     if child.get('parent_event_id') == event['event_id'] and child.get('state') == 'finished'
                     and child.get('result', {}).get('accepted') and child.get('result_protocol')}),

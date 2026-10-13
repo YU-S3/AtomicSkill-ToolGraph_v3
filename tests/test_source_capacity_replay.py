@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from atomic_skillgraph.empirical.budget_governor import input_token_bound
-from atomic_skillgraph.empirical import IMPLEMENTATION_REVISION
+from atomic_skillgraph.empirical import IMPLEMENTATION_REVISION, LEARNING_MATERIAL_VERSION
 from atomic_skillgraph.empirical.model_view import expand_material,executed_source_capacity
 from atomic_skillgraph.empirical.prompts import LEARNER_PROMPT
 from atomic_skillgraph.empirical.system import EmpiricalSystem
@@ -44,6 +44,7 @@ def test_exact_17408_byte_extractor_replay_preserves_source_and_scope(tmp_path,m
         cfg=deepcopy(original);cfg['data_dir']=str(tmp_path/str(enabled))
         cfg['experiment']['output_dir']=str(tmp_path/str(enabled)/'replay-output')
         cfg['experiment']['implementation_revision']=IMPLEMENTATION_REVISION
+        cfg['learning']['material_version']=LEARNING_MATERIAL_VERSION
         if enabled:cfg['learning']['source_program_payload_max_bytes']=24576
         system=EmpiricalSystem(cfg,harness=AnswerAdapter('livemath',{}))
         system.phase='train';system.budget_scope='exact-refusal-replay';system.audit_path=tmp_path/(str(enabled)+'.json')
