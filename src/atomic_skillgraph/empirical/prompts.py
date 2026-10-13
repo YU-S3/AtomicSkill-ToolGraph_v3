@@ -101,18 +101,12 @@ while retaining originals. Selecting an old ambiguous Skill-only Workflow also s
 this same response; selecting a native v2 Workflow needs no node_modes.
 REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
 {"literal":3}, {"unresolved":"location not yet known"}. Bare strings are invalid REF values."""
-LEARNER_PROMPT = """Learn real Train, including failures. One flat submit_learning ToolCall.
-Host local_evidence lists successful executed operations, original input references and observed outputs.
-Start with one supported local intermediate capability: bounded retrieval, text extraction or parameterized
-computation. Preserve its scope. A search hit is not evidence for a whole question-answering workflow.
-Compose grep/read/compute only when the supplied source and executed_calls record that actual dataflow;
-never assume a Planner step ran. Select a supported_roles value matching the real output contract.
-final_answer needs a required string answer AND a reference to an actual executed nonempty answer field;
-do not relabel search text or a numeric intermediate as answer. Invalid roles are rejected, never converted.
-Judge local work, not task success. Compile one useful search/read/compute procedure;
-batch search with locators/counts can qualify as intermediate without final figures.
-Parameterize recorded arrays/scalars. related=Bank assets; local_evidence=temporary/native work,
-not Bank coverage. no_change for unsupported/nonreusable/covered work.
+LEARNER_PROMPT = """Learn one local Train procedure, even from a failed task. One flat submit_learning ToolCall.
+Host local_evidence gives executed operations and input/output refs; related contains Bank assets.
+Prefer intermediate bounded search, text extraction or parameterized computation. Preserve the local scope:
+a hit is not a complete QA workflow. Multi-step code needs source plus executed_calls, not assumed plans.
+Use supported_roles. final_answer needs a declared string answer bound to an executed nonempty answer field;
+never relabel text/numbers as answer or silently change roles. no_change for unsupported/nonreusable/covered work.
 Never invent evidence, owners, success, outputs or retrieval.
 Use source_excerpt/input_sources/output_references; Builder gets full source.
 Arrays use aggregate AST paths, not observation/elements. Only executed
