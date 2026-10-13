@@ -27,7 +27,7 @@ runtime:
   repeated_unchanged_failure_limit: 2
   environment_step_budget: 100
 learning:
-  material_version: learner.material.public-directory.v14
+  material_version: learner.material.public-directory.v15
   guidance_policy_version: guidance.public-evidence.v1
   guidance_repair_limit: 1
   min_distinct_train_cases_before_first_build: 1

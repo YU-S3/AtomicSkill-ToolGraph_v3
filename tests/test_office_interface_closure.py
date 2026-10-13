@@ -17,6 +17,18 @@ from test_cf2_contracts import office, http, response
 from test_empirical import worker
 
 
+def test_learning_paths_are_paths_not_arrays_of_selectors():
+    from atomic_skillgraph.empirical.prompts import OUTPUT_REF,SOURCE_REF
+    selector={'kind':'json','path':['data','computed','mean']}
+    validate_schema_instance(selector,OUTPUT_REF)
+    validate_schema_instance(['data','computed',0],OUTPUT_REF)
+    validate_schema_instance({'kind':'source_literal','path':['body',1,'value']},SOURCE_REF)
+    for malformed in ([selector],{'kind':'json','path':[selector]}):
+        with pytest.raises(ValueError):validate_schema_instance(malformed,OUTPUT_REF)
+    with pytest.raises(ValueError):
+        validate_schema_instance({'kind':'source_literal','path':[selector]},SOURCE_REF)
+
+
 def test_declared_rpc_types_match_real_docker(tmp_path, worker):
     s=office(tmp_path);s.adapter.worker=worker
     broker=Broker(s.adapter,24)

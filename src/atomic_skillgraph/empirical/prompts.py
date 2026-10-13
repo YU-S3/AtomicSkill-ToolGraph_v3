@@ -19,10 +19,11 @@ SKILL = object_schema({"goal": TEXT, "guidance": TEXT, "input_schema": ANY_OBJEC
     "output_schema": ANY_OBJECT, 'execution_intent': {'enum': ['guidance_only', 'program_requested']},
     'result_role': {'enum': ['intermediate', 'final_answer', 'final_files']}, 'entry_constraints': TEXT},
     ["goal", "input_schema", "output_schema"])
+JSON_PATH = {'type':'array','items':{'type':['string','integer']}}
 SOURCE_REF = object_schema({'kind':{'enum':['public_json','public_span','operation_json','source_literal']},
-    'path':{'type':'array'},'start':{'type':'integer'},'end':{'type':'integer'},'value':{}}, ['kind','path'])
-OUTPUT_REF = {'oneOf':[{'type':'array'},object_schema({'kind':{'enum':['json','publication']},
-    'path':{'type':'array'},'field':TEXT,'name':TEXT},['kind'])]}
+    'path':JSON_PATH,'start':{'type':'integer'},'end':{'type':'integer'},'value':{}}, ['kind','path'])
+OUTPUT_REF = {'oneOf':[JSON_PATH,object_schema({'kind':{'enum':['json','publication']},
+    'path':JSON_PATH,'field':TEXT,'name':TEXT},['kind'])]}
 LEARNING = object_schema({"decision": {"enum": ["no_change", "reuse_existing", "propose_skill_and_program_spec",
     "propose_or_revise_workflow"]}, "skill": SKILL, "generate_program": {"type": "boolean"},
     "existing_skill_id": TEXT, "workflow": WORKFLOW, "rationale": TEXT,
@@ -101,20 +102,19 @@ while retaining originals. Selecting an old ambiguous Skill-only Workflow also s
 this same response; selecting a native v2 Workflow needs no node_modes.
 REF examples: {"task":"input_field"}, {"from":"earlier_node","field":"output_field"},
 {"literal":3}, {"unresolved":"location not yet known"}. Bare strings are invalid REF values."""
-LEARNER_PROMPT = """Learn one local Train procedure, even from failure. One flat submit_learning ToolCall.
-Use Host local_evidence/source_excerpt/input_sources/output_references and related assets; invent no evidence
-or success. Prefer intermediate search/extraction/computation. Lift literals, including lists/dicts, into
-parameters via source_literal refs. Local reuse needs no final answer or full QA workflow. Multi-step code
-needs source/executed_calls. Builder gets full source. no_change for unsupported/nonreusable/covered work.
-Keep supported_roles/scope. final_answer needs answer:string bound to an executed nonempty answer field;
-never relabel text/numbers or silently change roles. final_files needs files/deleted_files arrays. observation
-is text; data.computed is JSON. Bind required outputs by typed json/publication refs, not mere filenames.
-Publication names are workspace-relative, excluding inputs/ and '..'; Python output_path may be /workspace/...
-Use $new or real Skill IDs. Bind current/completed Train case_id/local_evidence_ref and inputs with catalog
-public_json/operation_json/source_literal paths or public_span start/end (provenance only). No prior job/second
-case needed. Host owns prefix/start_mode/environment. guidance_only: generate_program=false, no realization_request;
-generate_program=true requests builds even for reuse_existing. Workflow dependencies: dynamic goal/reference_skill_ids;
-bound asset I/O, no goal, optional purpose. Composition is not validation. Repairs keep selected_local_goal/scope."""
+LEARNER_PROMPT = """Learn a local Train procedure, even from failure. Submit one flat submit_learning ToolCall.
+Listed tools describe future execution; do not call them now. Invent no evidence/success. Prefer intermediate
+search/extraction/computation, not whole QA. Parameterize literals (also lists/dicts) via source_literal.
+Multi-step code needs source/executed_calls; Builder gets full source. no_change if unsupported/nonreusable/covered.
+Keep supported_roles/scope. final_answer needs answer:string from an executed nonempty answer field, not relabeled
+text/numbers. final_files needs files/deleted_files arrays. observation is text; data.computed is JSON.
+reference_fields values are single selectors, e.g. {"kind":"json","path":["data","computed","mean"]}, not selector arrays.
+Publication names: workspace-relative, no inputs/ or '..'; Python paths may be absolute.
+Use $new/real Skill IDs, completed case_id/local_evidence_ref, exact inputs from catalog refs; public_span start/end
+is provenance only. No prior job/second case. Host owns prefix/start_mode/environment.
+guidance_only: generate_program=false, no realization_request. generate_program=true builds even for reuse_existing.
+Dynamic nodes: goal/reference_skill_ids; bound: asset I/O, no goal, optional purpose. Composition is not validation.
+Repairs keep selected_local_goal/scope."""
 BUILDER_PROMPT = """Return exactly one submit_program ToolCall using submission_contract. During generation/recovery,
 do not call grep/read/glob/execute_python. build_request fixes the Skill/bindings; future_program_api authorizes
 future RPC, workspace_capabilities authorizes local Python. Historical Runtime calls grant no permissions.
