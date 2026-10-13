@@ -158,7 +158,8 @@ def prepare(settings_path,source_run,output,*,allow_unresolved_billing=False):
     config=configuration(original,output)
     scheduling={}
     if spec.get('source_grouping'):
-        from .capability_schedule import schedule,unit_limits
+        from .capability_schedule import schedule,unit_limits,configure
+        config=validate_config(configure(config,spec))
         source_schedule=schedule(generation,spec)
         units=[[t['physical_key'] for t in unit['sources']] for unit in source_schedule['units']]
         scheduling={'source_schedule':source_schedule,'unit_limits':unit_limits(config,spec)}
@@ -606,7 +607,7 @@ def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,ra
                     injected_guidance_ids=trace.get('injected_guidance_ids',[]))
             pair[arm]=trace
         finally:target.close()
-        if governor.state['unknown_billing']:raise BudgetExhausted('unknown_billing','Selection billing unresolved')
+        if governor.billing_blocked:raise BudgetExhausted('unknown_billing','Selection billing unresolved')
     pair_fact(candidate,task,pair)
     return pair
 
@@ -628,7 +629,7 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
     system=EmpiricalSystem(config,harness=AnswerAdapter('livemath',{}),budget_governor=governor)
     system.observer=observer;system.bank.observer=observer
     try:
-        if governor.state['unknown_billing']:raise BudgetExhausted('unknown_billing','No retry after unresolved billing')
+        if governor.billing_blocked:raise BudgetExhausted('unknown_billing','No retry after unresolved billing')
         for row in read(root/'source_cases.json'):system.bank.save_case(PublicTask(**row['task']),row['experience'])
         selection=[t for rows in plan['selection_tasks'].values() for t in rows];selected=[t['physical_key'] for t in selection];candidates=[]
         learning=[]
@@ -657,14 +658,15 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
                         recovered_proposal=restored['proposals'][i] if restored.get('proposals') else None)
                 except ValueError as exc:
                     if getattr(exc,'code',None)!='material_too_large':raise
-                    log={'decision':'rejected','reason':getattr(exc,'learning_outcome','material_too_large'),
+                    from .capability_schedule import full_contract
+                    log={'decision':'capacity_rejected' if full_contract(plan['settings']) else 'rejected','reason':getattr(exc,'learning_outcome','material_too_large'),
                          'error':str(exc),'source_case_ids':unit,'stage':'material_admission'}
                 except BudgetExhausted as exc:
                     log={'decision':'budget_censored','reason':str(exc),'source_case_ids':unit,'stage':'budget_admission'}
                     limits=plan.get('unit_limits',{});owned=[a for a in governor.state['attempts'].values()
                         if a['context'].get('parent_scope')==system.budget_scope]
                     room=governor.headroom({})
-                    local=(not governor.state['unknown_billing'] and room['requests']>0 and room['tokens']>0 and
+                    local=(not governor.billing_blocked and room['requests']>0 and room['tokens']>0 and
                         (exc.code in {'parent_task_budget_exhausted','empirical_token_budget_exhausted'} or
                          len(owned)>=limits.get('request_limit',float('inf'))))
                     if not local:stop=exc
@@ -699,11 +701,14 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
                 revalidated_candidate_count=sum(r['proposal_created'] and r.get('proposal_reused',False) for r in learning))
             write_json(result_path,result)
             progress(root,'learning_unit_completed',unit=i,**learning[-1])
-            if governor.state['unknown_billing']:raise BudgetExhausted('unknown_billing','Learning billing unresolved')
+            if governor.billing_blocked:raise BudgetExhausted('unknown_billing','Learning billing unresolved')
             if stop:raise stop
             if log['decision']=='candidate':candidates.append(log['candidate'])
         if any(row['decision']=='budget_censored' for row in learning):
             raise BudgetExhausted('learning_budget_censored','At least one fixed learning unit was budget censored')
+        if any(row['decision']=='capacity_rejected' for row in learning):
+            result.update(status='stopped_material_capacity',reason='Required source material exceeded its declared wire capacity')
+            return result
         candidates=sorted({c['id']:c for c in candidates}.values(),key=lambda c:(-len(c['source_case_ids']),digest(c)))
         result['source_checked_candidate_count']=len(candidates)
         count=plan['settings']['candidate']['max_candidates_to_selection']
@@ -726,7 +731,7 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
                 match=system.learner.match_capability(candidate,task);validate_match(match,candidate['capability'],task)
                 preflight.append({'task':row,'stage':'screen' if rank<len(plan['selection_tasks']['screen']) else 'confirmation','rank':rank,'match':match})
                 progress(root,'public_match_completed',candidate_id=candidate['id'],task_id=task.task_id,rank=rank,applicable=match['applicable'])
-                if governor.state['unknown_billing']:raise BudgetExhausted('unknown_billing','Routing billing unresolved')
+                if governor.billing_blocked:raise BudgetExhausted('unknown_billing','Routing billing unresolved')
             write_json(folder/'preflight.json',preflight);eligible=[r for r in preflight if r['match']['applicable']];pairs={};screen=[]
             if len(eligible)>=plan['utility_policy']['min_precomputed_applicable']:
                 for row in eligible:
@@ -760,21 +765,23 @@ def execute(plan_path,env_file,*,governor=None,observer=None,frozen_destination=
             revalidated_candidate_count=sum(r['proposal_created'] and r.get('proposal_reused',False) for r in learning),
             paired_tasks=sum(c['actual_exposed'] for c in result['candidates']))
     except BudgetExhausted as exc:
-        result.update(status='stopped_unknown_billing' if governor.state['unknown_billing'] else 'stopped_budget_censored',
+        result.update(status='stopped_unknown_billing' if governor.billing_blocked else 'stopped_budget_censored',
             reason=str(exc),censored=True,learning_budget_censored=result.get('completed_units',0)<len(plan['candidate_units']) or
             any(row['decision']=='budget_censored' for row in result.get('learning_units',[])))
     except Exception as exc:
-        result.update(status='stopped_unknown_billing' if governor.state['unknown_billing'] else 'stopped_engineering_error',reason=str(exc))
-        if governor.state['unknown_billing']:result['censored']=True
-        if not governor.state['unknown_billing']:raise
+        result.update(status='stopped_unknown_billing' if governor.billing_blocked else 'stopped_engineering_error',reason=str(exc))
+        if governor.billing_blocked:result['censored']=True
+        if not governor.billing_blocked:raise
     finally:
         system.close();state=governor.state;charged=sum(a.get('accounted_tokens',a['reserved_tokens']) for a in state['attempts'].values())
         known=sum(a.get('accounted_tokens',0) for a in state['attempts'].values())
-        known-=baseline.get('tokens',prefix.get('prior_p2_tokens',0));charged-=baseline.get('tokens',prefix.get('prior_p2_tokens',0))
+        known-=baseline.get('known_tokens',baseline.get('tokens',prefix.get('prior_p2_tokens',0)))
+        charged-=baseline.get('tokens',prefix.get('prior_p2_tokens',0))
         http=len(state['attempts'])-baseline.get('http',prefix.get('prior_p2_http',0))
-        result.update(ended_at=utc(),new_tokens=known,new_reserved_or_accounted_tokens=charged,new_http=http,unknown_billing=state['unknown_billing'],
+        result.update(ended_at=utc(),new_tokens=known,new_reserved_or_accounted_tokens=charged,new_http=http,unknown_billing=governor.billing_blocked,
+            inherited_unknown_billing=bool(state.get('inherited_reservation_recovery')),
             inherited_tokens=plan['inherited_tokens'],inherited_http=plan['inherited_http'],
-            cumulative_tokens=plan['inherited_tokens']+known,cumulative_reserved_or_accounted_tokens=plan['inherited_tokens']+charged,
+            cumulative_tokens=plan.get('inherited_known_tokens',plan['inherited_tokens'])+known,cumulative_reserved_or_accounted_tokens=plan['inherited_tokens']+charged,
             cumulative_http=plan['inherited_http']+http,
             source_train_runtime_tokens_counted_once=plan['source_train_runtime_tokens'],source_train_runtime_reexecuted=False)
         if prefix:result.update(prior_p2_tokens=prefix['prior_p2_tokens'],prior_p2_http=prefix['prior_p2_http'],

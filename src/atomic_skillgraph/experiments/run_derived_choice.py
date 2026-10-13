@@ -5,11 +5,9 @@ import json
 from pathlib import Path
 import shutil
 
-import yaml
-
 from ..core.errors import BudgetExhausted
 from ..empirical.bank import Bank
-from ..empirical.budget_governor import BudgetGovernor
+from ..empirical.budget_governor import BudgetGovernor, billing_blocked, reserved_recovery
 from ..empirical.capability_batch import checked_asset
 from ..empirical.contracts import PublicTask, digest
 from ..empirical.system import validate_config
@@ -21,10 +19,10 @@ from .formal_log import FormalLog, tree_identity, utc
 from .run_empirical import code_identity, load_env, run, write_json
 from .run_formal import resolved_config
 
-VERSION = 'choice-capability-batch.derived.v1'
+VERSION = 'choice-capability-batch.derived.v2'
 
 
-def prepare(settings, source, output, datasets):
+def prepare(settings, source, output, datasets, *, reservation_recovery=None):
     root,source,data = map(lambda p:Path(p).resolve(),(output,source,datasets))
     if root.exists():raise ValueError('Derivation requires a fresh output, not ordinary --resume')
     plan = batch.prepare(settings,source,root/'p2',allow_unresolved_billing=True)
@@ -32,27 +30,64 @@ def prepare(settings, source, output, datasets):
     if original['experiment'].get('choice_method_version')!='choice-capability-batch.v2':
         raise ValueError('This derivation preserves the completed P2 Train Bank method; incompatible legacy Bank needs a separate declared import')
     ledger=batch.read(source/'budget.json');prefix=deepcopy(ledger)
+    from .capability_schedule import full_contract
+    full=full_contract(plan['settings'])
+    revision=plan['settings'].get('budget_revision')
+    if full:
+        expected={'token_limit':31000000,'request_limit':9165,'finish_reserve':0}
+        if (not revision or revision.get('old_limits')!=ledger['limits'] or revision.get('new_limits')!=expected or
+                not revision.get('authorization')):
+            raise ValueError('Full coverage requires explicit original-to-new budget revision authority')
+        prefix['limits']=deepcopy(expected)
+        write_json(root/'budget_revision.json',{'schema':'budget-revision.v1','at':utc(),**revision,
+            'source_ledger':str(source/'budget.json'),'source_ledger_sha256':sha256(source/'budget.json'),
+            'source_attempts_hash':digest(ledger['attempts']),'physical_attempts_unchanged':True,
+            'new_stage_limits':plan['new_limits']})
+        plan['prepared_hashes']['../budget_revision.json']=sha256(root/'budget_revision.json')
+        plan['cumulative_limits']=prefix['limits']
+        cfg_budget=prefix['limits']
+    else:cfg_budget=ledger['limits']
+    if reservation_recovery:
+        receipt=batch.read(reservation_recovery)
+        if receipt.get('source_ledger_sha256')!=sha256(source/'budget.json'):
+            raise ValueError('Reservation authorization belongs to a different inherited ledger')
+        prefix['inherited_reservation_recovery']=receipt
+        reserved_recovery(prefix)
+        write_json(root/'billing_reservation_recovery.json',receipt)
+        plan['prepared_hashes']['../billing_reservation_recovery.json']=sha256(root/'billing_reservation_recovery.json')
+        plan['input_hashes'][str(Path(reservation_recovery).resolve())]=sha256(Path(reservation_recovery))
     unresolved=[key for key,row in ledger['attempts'].items() if row['status']!='metered']
     prefix['unknown_billing']=bool(prefix['unknown_billing'] or unresolved)
     cfg=batch.read(root/'p2/config.json')
+    cfg['budget'].update(cfg_budget)
     cfg['data_dir']=str(root/'train/bank')
     cfg['experiment'].update(choice_batch_version=VERSION,choice_batch_contract=plan['settings'],
                             choice_batch_contract_sha256=sha256(Path(settings)))
     cfg['learning']['source_program_payload_max_bytes']=plan['settings']['program_learning']['executed_source_payload_max_bytes']
     cfg=validate_config(cfg)
     from .capability_schedule import request_bound
-    write_json(root/'request_bound.json',request_bound(cfg,plan['settings']))
-    phase=batch.read(source/'p2/budget.json')['attempts'] if (source/'p2/budget.json').exists() else {}
+    bound=request_bound(cfg,plan['settings'])
+    if full and (plan['inherited_tokens']+plan['new_limits']['token_limit']+bound['val_test_theoretical_reserve_tokens']>prefix['limits']['token_limit'] or
+                 plan['inherited_http']+plan['new_limits']['request_limit']+bound['val_test_theoretical_reserve_http']>prefix['limits']['request_limit']):
+        raise ValueError('Campaign remainder cannot cover the declared P2 and readonly evaluation envelope')
+    write_json(root/'request_bound.json',bound)
+    old_phase=batch.read(source/'p2/budget.json')['attempts'] if (source/'p2/budget.json').exists() else {}
+    phase={} if full else old_phase
     if (source/'p2/budget.json').exists():plan['input_hashes'][str(source/'p2/budget.json')]=sha256(source/'p2/budget.json')
-    if any(prefix['attempts'].get(key)!=row for key,row in phase.items()):raise ValueError('Prior P2 billing differs from campaign ledger')
+    if any(prefix['attempts'].get(key)!=row for key,row in old_phase.items()):raise ValueError('Prior P2 billing differs from campaign ledger')
     for name,value in [('config.json',cfg),('campaign_budget_prefix.json',prefix),('inherited_stage_attempts.json',phase)]:
         write_json(root/'p2'/name,value)
         plan['prepared_hashes'][name]=sha256(root/'p2'/name)
     shutil.copytree(source/'train/bank',root/'train/bank')
+    plan['inherited_known_tokens']=sum(a.get('accounted_tokens',0) for a in ledger['attempts'].values())
     plan.update(derivation_mode=VERSION,initial_bank='explicit copy of completed Train Bank; original assets preserved',
-                campaign_budget_prefix={'tokens':plan['inherited_tokens'],'http':plan['inherited_http']},
+                billing_ready=not billing_blocked(prefix),
+                status='prepared_not_executed' if not billing_blocked(prefix) else 'prepared_blocked_unknown_billing',
+                campaign_budget_prefix={'tokens':plan['inherited_tokens'],'known_tokens':plan['inherited_known_tokens'],'http':plan['inherited_http']},
                 prior_phase_tokens=sum(row.get('accounted_tokens',row['reserved_tokens']) for row in phase.values()),
-                prior_phase_http=len(phase))
+                prior_phase_http=len(phase),
+                historical_p2_global_tokens=sum(row.get('accounted_tokens',row['reserved_tokens']) for row in old_phase.values()),
+                historical_p2_global_http=len(old_phase))
     write_json(root/'p2/plan.json',plan);write_json(root/'p2/plan_identity.json',{'plan_hash':digest(plan)})
     write_json(root/'budget.json',prefix)
     authority=Path(original['manifest']).resolve().parent.parent
@@ -66,6 +101,11 @@ def prepare(settings, source, output, datasets):
         plan['input_hashes'][str(path)]=sha256(path)
     profile=batch.read(Path(__file__).parents[3]/'benchmark_profiles.json')['profiles']['livemath']
     configs={phase:resolved_config(cfg,profile,'livemath',42,phase,root,data,authority,None) for phase in ('val','test')}
+    for eval_cfg in configs.values():
+        eval_cfg['llm']=deepcopy(original['llm'])
+        for purpose in ('capability_induction','capability_routing'):
+            eval_cfg['llm'].setdefault('purpose_overrides',{}).setdefault(purpose,
+                {'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048})
     identity={'method':'ours','benchmark':'livemath','run_seed':42,'split_seed':42,'model_name':old['provider_model_id'],
         'provider_model_id':old['provider_model_id'],'source_commit':plan['code']['git_sha'],
         'source_sha256':plan['code']['source_sha256'],'choice_batch_version':VERSION,
@@ -96,8 +136,12 @@ def check(root):
     frozen=root/'train/frozen_bank'
     if (root/'final_frozen_manifest.json').exists() and tree_identity(frozen)['sha256']!=batch.read(root/'final_frozen_manifest.json')['final_artifact_hash']:
         raise ValueError('Published Frozen changed')
-    return {**result,'version':VERSION,'billing_ready':not ledger['unknown_billing'] and
-        all(row['status']=='metered' for row in ledger['attempts'].values()),'test_requires_separate_review':True,
+    if ledger['limits']!=prefix['limits'] or ledger.get('inherited_reservation_recovery')!=prefix.get('inherited_reservation_recovery'):
+        raise ValueError('Derived campaign authority or reservation recovery changed')
+    return {**result,'version':VERSION,'billing_ready':not billing_blocked(ledger),
+        'inherited_unresolved_attempt_ids':sorted(reserved_recovery(ledger)),
+        'inherited_reserved_tokens':sum(ledger['attempts'][key]['reserved_tokens'] for key in reserved_recovery(ledger)),
+        'test_requires_separate_review':True,
         'prior_phase_http':len(batch.read(root/'p2/inherited_stage_attempts.json'))}
 
 
@@ -110,8 +154,8 @@ def execute(root, env_file, *, stage='execute', reviewed=False):
         raise ValueError('Test requires completed Val and explicit P2/Val review authorization')
     if env_file:load_env(env_file)
     ledger=batch.read(root/'budget.json')
-    if ledger['unknown_billing'] or any(row['status']!='metered' for row in ledger['attempts'].values()):
-        raise BudgetExhausted('unknown_billing','Inherited unfinished request needs an exact billing receipt; no paid request issued')
+    if billing_blocked(ledger):
+        raise BudgetExhausted('unknown_billing','Unresolved request requires a billing receipt or explicit inherited reservation authorization; no paid request issued')
     governor=BudgetGovernor(root/'budget.json',**ledger['limits'])
     log=FormalLog(root,record['identity'],record['configs'],resume=(root/'run_manifest.json').exists())
     try:
@@ -165,12 +209,13 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='stage',required=True)
     item=sub.add_parser('prepare')
     for name in ('settings','source-run','output','datasets'):item.add_argument('--'+name,required=True)
+    item.add_argument('--reservation-recovery')
     for stage in ('check','execute','val','test'):
         item=sub.add_parser(stage);item.add_argument('--output',required=True)
         if stage!='check':item.add_argument('--env-file',required=True)
         if stage=='test':item.add_argument('--reviewed-p2-val',action='store_true')
     args=parser.parse_args()
-    result=prepare(args.settings,args.source_run,args.output,args.datasets) if args.stage=='prepare' else check(args.output) if args.stage=='check' else execute(
+    result=prepare(args.settings,args.source_run,args.output,args.datasets,reservation_recovery=args.reservation_recovery) if args.stage=='prepare' else check(args.output) if args.stage=='check' else execute(
         args.output,args.env_file,stage=args.stage,reviewed=getattr(args,'reviewed_p2_val',False))
     print(json.dumps(result,ensure_ascii=False))
 

@@ -55,14 +55,54 @@ def pack_material(material):
 
 def expand_material(material):
     tables = material.get('material_tables', {})
+    texts = material.get('p2_text_table', {})
+    p2='p2_text_table' in material and 'p2_table_note' in material
     def expand(v):
         if isinstance(v, list): return [expand(x) for x in v]
         if not isinstance(v, dict): return deepcopy(v)
+        if p2 and set(v)=={'p2_text_ref'}:return texts[v['p2_text_ref']]
         if set(v) == {'job_ref'}: return deepcopy(tables['jobs'][v['job_ref']])
         result = {k:expand(x) for k,x in v.items() if k != 'contract_ref'}
         if 'contract_ref' in v: result.update(deepcopy(tables['contracts'][v['contract_ref']]))
+        if p2 and 'p2_span_table' in result:
+            table=result.pop('p2_span_table')
+            result['spans']=[dict(span_id=row[0],task_path=table['paths'][row[1]],start=row[2],end=row[3]) for row in table['rows']]
         return result
-    return expand({k:v for k,v in material.items() if k not in {'material_tables','material_reference_note'}})
+    return expand({k:v for k,v in material.items() if k not in {'material_tables','material_reference_note','p2_text_table','p2_table_note'}})
+
+
+def pack_capability_material(material):
+    """Losslessly tabulate repeated span paths and exact strings for explicit P2 v3."""
+    from collections import Counter
+    value=reference_exact_span_quotes(expand_material(material));counts=Counter()
+    def tabulate(v):
+        if isinstance(v,list):return [tabulate(x) for x in v]
+        if not isinstance(v,dict):return v
+        result={k:tabulate(x) for k,x in v.items()}
+        spans=result.get('spans')
+        if spans and all(set(s)=={'span_id','task_path','start','end'} for s in spans):
+            paths=[];rows=[]
+            for s in spans:
+                if s['task_path'] not in paths:paths.append(s['task_path'])
+                rows.append([s['span_id'],paths.index(s['task_path']),s['start'],s['end']])
+            result.pop('spans');result['p2_span_table']={'paths':paths,'rows':rows}
+        return result
+    value=tabulate(value)
+    def strings(v):
+        if isinstance(v,str):counts[v]+=1
+        elif isinstance(v,dict):
+            for child in v.values():strings(child)
+        elif isinstance(v,list):
+            for child in v:strings(child)
+    strings(value)
+    refs={text:str(i) for i,text in enumerate(text for text,n in counts.items() if n>1 and len(text)>=64)}
+    def intern(v):
+        if isinstance(v,str) and v in refs:return {'p2_text_ref':refs[v]}
+        if isinstance(v,dict):return {k:intern(x) for k,x in v.items()}
+        if isinstance(v,list):return [intern(x) for x in v]
+        return v
+    return {**intern(value),'p2_text_table':{ref:text for text,ref in refs.items()},
+        'p2_table_note':'p2_text_ref is the exact string in p2_text_table. Each p2_span_table row is [span_id, path_index, start, end]; task_path is paths[path_index]. Resolve these lossless references before copying IDs or reading spans. All task text and evidence remain here.'}
 
 
 def reference_exact_span_quotes(material):
@@ -283,6 +323,14 @@ def executed_source_capacity(material, learning, default):
         row.get('kind')=='executed_python' and row.get('source_content_available_to_builder') is True
         and row.get('local_evidence_ref') and row.get('input_sources') and row.get('output_references') for row in cards))
     return learning.get('source_program_payload_max_bytes',default) if source_rich else default
+
+
+def capability_capacity(material, learning, purpose, default):
+    from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
+    if (material.get('learning_material_version')==CHOICE_CAPABILITY_FULL_MATERIAL_VERSION and
+        purpose in {'capability_induction','guidance_learning','guidance_grounding'}):
+        return learning.get('capability_payload_max_bytes',default)
+    return default
 
 
 def builder_example(binding, evidence):

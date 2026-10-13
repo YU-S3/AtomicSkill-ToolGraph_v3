@@ -5,6 +5,27 @@ from threading import RLock
 
 from ..core.errors import BudgetExhausted, FailureLayer
 from .checkpoint import save_json
+from .contracts import digest
+
+
+def reserved_recovery(state):
+    receipt=state.get('inherited_reservation_recovery')
+    if not receipt:return set()
+    if receipt.get('schema')!='billing-reservation-recovery.v1' or not receipt.get('authorization') or not receipt.get('attempts'):
+        raise ValueError('Inherited reservation recovery requires explicit finite authorization')
+    for key,expected in receipt['attempts'].items():
+        row=state['attempts'].get(key)
+        if (not row or row['status'] not in {'admitted','unknown_billing'} or digest(row)!=expected['entry_hash'] or
+            row['reserved_tokens']!=expected['reserved_tokens'] or type(row['reserved_tokens']) is not int or row['reserved_tokens']<=0 or
+            'accounted_tokens' in row or row.get('actual_usage') is not None):
+            raise ValueError('Authorized inherited reservation identity changed')
+    return set(receipt['attempts'])
+
+
+def billing_blocked(state):
+    allowed=reserved_recovery(state)
+    if not allowed:return bool(state['unknown_billing'])
+    return any(row['status']!='metered' and key not in allowed for key,row in state['attempts'].items())
 
 
 def input_token_bound(payload):
@@ -24,9 +45,13 @@ class BudgetGovernor:
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {
             'limits': self.limits, 'attempts': {}, 'unknown_billing': False}
         if self.state['limits'] != self.limits: raise ValueError('Governor identity changed')
+        reserved_recovery(self.state)
         if any(a['status'] == 'admitted' for a in self.state['attempts'].values()):
             self.state['unknown_billing'] = True
             save_json(self.path,self.state)
+
+    @property
+    def billing_blocked(self):return billing_blocked(self.state)
 
     def headroom(self, context):
         """Remaining authority from the actual ledger, including unresolved reservations."""
@@ -50,7 +75,7 @@ class BudgetGovernor:
                     context.get('episode_scope') for a in attempts))
             return {'tokens': min(remaining), 'requests': min(requests),
                     'global_tokens': remaining[0], 'global_finish_reserve': global_reserve,
-                    'unknown_billing': self.state['unknown_billing']}
+                    'unknown_billing': self.billing_blocked}
 
     def admit(self, audit_id, payload, context):
         with self.lock:
@@ -66,7 +91,7 @@ class BudgetGovernor:
             request_reserve = context.get('finish_request_reserve', 0)
             finish_reserve = max(0, context.get('parent_finish_reserve', 0) -
                 (0 if context.get('purpose') == 'finish_only' else self.limits['finish_reserve']))
-            exhausted = (self.state['unknown_billing'] or len(attempts) + request_reserve >= self.limits['request_limit']
+            exhausted = (self.billing_blocked or len(attempts) + request_reserve >= self.limits['request_limit']
                 or used + reserved + finish_reserve > cap or (per_episode is not None and sum(
                     a['context'].get('episode_scope') == scope for a in attempts.values()) + request_reserve >= per_episode))
             parent = context.get('parent_scope')

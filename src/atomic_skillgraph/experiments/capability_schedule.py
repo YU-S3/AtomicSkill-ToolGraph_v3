@@ -7,6 +7,22 @@ from ..empirical.contracts import digest
 
 VERSION = 'capability-source-schedule.v1'
 GROUPING = 'public-goal-token-jaccard.v1'
+FULL = 'choice-capability-batch.full-coverage.v1'
+
+
+def full_contract(spec):
+    return spec['budget_additional_authority_proposed_not_spent'].get('execution_contract')==FULL
+
+
+def configure(config,spec):
+    if not full_contract(spec):return config
+    from ..empirical import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
+    config=deepcopy(config)
+    config['learning'].update(capability_material_version=CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,capability_payload_max_bytes=32768)
+    config['llm']['extractor']['max_total_tokens_per_task']=277504
+    for purpose,cap in [('capability_induction',2048),('guidance_learning',2048),('guidance_grounding',1536),('capability_routing',2048)]:
+        config['llm']['purpose_overrides'][purpose]={'protocol':{'thinking_type':'disabled'},'max_completion_tokens':cap,'max_retries':1}
+    return config
 
 
 def schedule(tasks, spec):
@@ -47,12 +63,11 @@ def schedule(tasks, spec):
 def unit_limits(config, spec):
     """Upper bound for induction, proposal, its one repair, and content check."""
     generation = spec['generation'];learning = config['learning'];llm = config['llm']
-    caps = [llm['purpose_overrides'][purpose]['max_completion_tokens'] for purpose in
-            ('capability_induction','guidance_learning','guidance_grounding')]
-    caps[1:1] = [caps[1]] * learning['guidance_repair_limit']
-    attempts_per_call = 1+llm['max_retries']
-    calculated = {'token_limit':sum(learning['extractor_payload_max_bytes']+cap for cap in caps)*attempts_per_call,
-                  'request_limit':len(caps)*attempts_per_call}
+    purposes=['capability_induction',*['guidance_learning']*(1+learning['guidance_repair_limit']),'guidance_grounding']
+    settings=[llm['purpose_overrides'][purpose] for purpose in purposes]
+    capacity=learning.get('capability_payload_max_bytes',learning['extractor_payload_max_bytes'])
+    calculated={'token_limit':sum((capacity+s['max_completion_tokens'])*(1+s.get('max_retries',llm['max_retries'])) for s in settings),
+        'request_limit':sum(1+s.get('max_retries',llm['max_retries']) for s in settings)}
     if generation['unit_budget'] != calculated:
         raise ValueError('P2 unit budget must match full Provider wire/output/retry bounds')
     return deepcopy(calculated)
@@ -69,20 +84,35 @@ def validate_plan(plan, config):
     if limit != plan['settings']['paired_evaluation']['number_of_candidates_that_may_use_selection'] or limit != 2:
         raise ValueError('Separate selection cap must remain two')
     budget=plan['settings']['budget_additional_authority_proposed_not_spent']
-    if budget.get('execution_contract')!='best_effort_bounded' or any(
+    if budget.get('execution_contract') not in {'best_effort_bounded',FULL} or any(
         plan['new_limits'][key]>budget[field] for key,field in
         [('token_limit','max_new_total_tokens'),('request_limit','max_new_physical_http_attempts')]):
         raise ValueError('Versioned P2 cannot enlarge declared authority')
+    if full_contract(plan['settings']):
+        expected=configure(config,plan['settings'])
+        if config!=expected or plan['new_limits']!={'token_limit':10000000,'request_limit':600}:
+            raise ValueError('Frozen full-coverage P2 protocol or allowance changed')
+        bound=request_bound(config,plan['settings'])
+        if bound['p2_token_upper']>plan['new_limits']['token_limit'] or bound['p2_physical_http_upper']>plan['new_limits']['request_limit']:
+            raise ValueError('Declared full-coverage budget cannot admit its protocol envelope')
 
 
 def request_bound(config, spec):
     units=spec['generation']['max_learning_units'];selected=spec['candidate']['max_candidates_to_selection']
     tasks=sum(spec['split']['size'][key] for key in ('selection_screen','selection_confirmation'))
     # The existing AnswerExecutor has eight normal decisions and one possible final fallback.
-    return {'generation_physical_http_upper':units*unit_limits(config,spec)['request_limit'],
-        'routing_physical_http_upper':selected*tasks*(1+config['llm']['max_retries']),
+    retries=1+config['llm']['purpose_overrides']['capability_routing'].get('max_retries',config['llm']['max_retries'])
+    unit=unit_limits(config,spec);generation=units*unit['token_limit']
+    routing=selected*tasks*retries*(config['learning']['extractor_payload_max_bytes']+config['llm']['purpose_overrides']['capability_routing']['max_completion_tokens'])
+    pair=selected*tasks*2*config['budget']['train_solve_tokens']
+    return {'generation_physical_http_upper':units*unit['request_limit'],
+        'routing_physical_http_upper':selected*tasks*retries,
         'pair_physical_http_upper':selected*tasks*2*9,
+        'p2_physical_http_upper':units*unit['request_limit']+selected*tasks*retries+selected*tasks*2*9,
+        'generation_token_upper':generation,'routing_token_upper':routing,'pair_token_upper':pair,
+        'p2_token_upper':generation+routing+pair,
         'full_pair_and_routing_minimum_http':selected*tasks*3,
         'at_least_one_induction_per_unit_plus_full_pair_and_routing_http':units+selected*tasks*3,
         'full_coverage_guaranteed_by_80_http':False,
-        'val_test_theoretical_reserve_tokens':117*config['budget']['eval_task_tokens']}
+        'val_test_theoretical_reserve_tokens':117*config['budget']['eval_task_tokens'],
+        'val_test_theoretical_reserve_http':117*(selected+9)*(1+config['llm']['max_retries'])}

@@ -16,12 +16,13 @@ from .formal_log import utc
 from .run_empirical import code_identity, write_json
 
 FORMAL_VERSION = 'choice-capability-batch.formal.v2'
+FULL_FORMAL_VERSION = 'choice-capability-batch.formal.v3'
 
 
 def configure(base, spec, benchmark, seed, authority):
     declaration = spec.get('choice_batch')
     if not declaration: return base
-    if benchmark != 'livemath' or seed != 42 or declaration.get('version') != FORMAL_VERSION:
+    if benchmark != 'livemath' or seed != 42 or declaration.get('version') not in {FORMAL_VERSION,FULL_FORMAL_VERSION}:
         raise ValueError('The declared capability batch covers only LiveMath seed42')
     contract_path = Path(declaration['contract']).resolve()
     contract = yaml.safe_load(contract_path.read_text())
@@ -39,17 +40,23 @@ def configure(base, spec, benchmark, seed, authority):
         contract['paired_evaluation']['number_of_candidates_that_may_use_selection'] != 2):
         raise ValueError('Formal P2 retains two independently supported selection candidates')
     batch.policy(contract)
+    from .capability_schedule import full_contract,configure as configure_p2
+    full=full_contract(contract)
+    if declaration['version']!=(FULL_FORMAL_VERSION if full else FORMAL_VERSION):
+        raise ValueError('Formal capability version differs from its declared protocol')
     budget = contract['budget_additional_authority_proposed_not_spent']
+    cumulative=contract['budget_revision']['new_limits'] if full else {
+        'token_limit':budget['same_original_total_governor_limit_tokens'],
+        'request_limit':budget['same_original_total_governor_limit_http']}
     if (budget['selection_retry_max'] != 0 or budget['unknown_billing'] != 'fail_closed' or
-        budget['max_new_total_tokens'] != 1800000 or budget['max_new_physical_http_attempts'] != 80 or
-        base['budget']['token_limit'] != budget['same_original_total_governor_limit_tokens'] or
-        base['budget']['request_limit'] != budget['same_original_total_governor_limit_http']):
+        budget['max_new_total_tokens'] != (10000000 if full else 1800000) or budget['max_new_physical_http_attempts'] != (600 if full else 80) or
+        base['budget']['token_limit'] != cumulative['token_limit'] or base['budget']['request_limit'] != cumulative['request_limit']):
         raise ValueError('Formal P2 allowance or original cumulative budget changed')
     if spec.get('choice_bounded_finalization', False): raise ValueError('P2 keeps bounded finalization disabled')
     config = deepcopy(base)
     from ..empirical.public_process import FINALIZATION_VERSION
     config['runtime']['choice_bounded_finalization'] = {'enabled':False,'version':FINALIZATION_VERSION}
-    config['experiment'].update(choice_method_version=VERSION, choice_batch_version=FORMAL_VERSION,
+    config['experiment'].update(choice_method_version=VERSION, choice_batch_version=declaration['version'],
         choice_batch_contract=contract, choice_batch_contract_sha256=sha256(contract_path),
         choice_selection_physical_keys=sorted(contract['split']['selected_physical_keys'].values()))
     for purpose,cap in [('capability_induction',2048),('capability_routing',2048),('guidance_learning',2048),('guidance_grounding',1536)]:
@@ -57,7 +64,7 @@ def configure(base, spec, benchmark, seed, authority):
             'protocol':{'thinking_type':'disabled'},'max_completion_tokens':cap}
     from .capability_schedule import unit_limits
     from ..empirical.system import validate_config
-    config=validate_config(config)
+    config=validate_config(configure_p2(config,contract))
     unit_limits(config,contract)
     config['learning']['source_program_payload_max_bytes'] = contract['program_learning']['executed_source_payload_max_bytes']
     return config
@@ -88,7 +95,8 @@ class BatchGovernor:
 
     def save(self):
         write_json(self.root/'budget.json', {'limits':{**self.plan['new_limits'],'finish_reserve':0},
-            'attempts':self.attempts(),'unknown_billing':self.state['unknown_billing'],
+            'attempts':self.attempts(),'unknown_billing':self.owner.billing_blocked,
+            'inherited_unknown_billing':bool(self.state.get('inherited_reservation_recovery')),
             'campaign_budget_path':str(self.path)})
 
     def headroom(self, context):
@@ -132,14 +140,15 @@ def prepare(root, config, governor, run_id):
     tokens = sum(a['accounted_tokens'] for a in ledger['attempts'].values())
     budget = spec['budget_additional_authority_proposed_not_spent']
     limits = {'token_limit':budget['max_new_total_tokens'],'request_limit':budget['max_new_physical_http_attempts']}
-    cfg = batch.configuration(config,output);cfg['data_dir'] = config['data_dir']
+    from .capability_schedule import configure as configure_p2
+    cfg = configure_p2(batch.configuration(config,output),spec);cfg['data_dir'] = config['data_dir']
     for name,value in [('config.json',cfg),('source_cases.json',rows),('source_records.json',records(rows)),
                        ('campaign_budget_prefix.json',ledger)]: write_json(output/name,value)
     from .capability_schedule import schedule,unit_limits
     source_schedule = schedule(generation,spec)
     plan = {'schema':VERSION,'prompt_revision':PROMPT_REVISION,'scope_policy':batch.SCOPE_POLICY,
         'run_id':run_id+':p2','code':code_identity(),'prepared_at':utc(),'source_run':str(root),
-        'source_run_id':run_id,'derivation_mode':FORMAL_VERSION,'initial_bank':'same fresh formal Train Bank; no historical assets',
+        'source_run_id':run_id,'derivation_mode':config['experiment']['choice_batch_version'],'initial_bank':'same fresh formal Train Bank; no historical assets',
         'settings':spec,'input_hashes':{str(root/n):sha256(root/n) for n in
             ('train/config.json','train/summary.json','train/execution_manifest.json')},
         'prepared_hashes':{n:sha256(output/n) for n in ('config.json','source_cases.json','source_records.json','campaign_budget_prefix.json')},

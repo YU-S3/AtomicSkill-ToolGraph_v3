@@ -21,7 +21,7 @@ from test_capability_batch import fixture_source,fixture_transport
 ROOT=Path(__file__).parents[1]
 
 
-def prepare_fixture(tmp_path,monkeypatch,*,unresolved=False):
+def prepare_fixture(tmp_path,monkeypatch,*,unresolved=False,full=False,recovery=False):
     source,_,_,env=fixture_source(tmp_path,monkeypatch)
     identity={'git_sha':'intercepted-fixture','tracked_dirty':False,'source_sha256':'simulated-fixture-source'}
     monkeypatch.setattr(derived,'code_identity',lambda:identity)
@@ -37,7 +37,7 @@ def prepare_fixture(tmp_path,monkeypatch,*,unresolved=False):
     batch.write_json(source/'train/config.json',cfg)
     execution=batch.read(source/'train/execution_manifest.json');execution['config']=cfg
     batch.write_json(source/'train/execution_manifest.json',execution)
-    spec=yaml.safe_load((ROOT/'configs/livemath_p2_schedule_seed42.yaml').read_text())
+    spec=yaml.safe_load((ROOT/('configs/livemath_p2_plan_b_seed42.yaml' if full else 'configs/livemath_p2_schedule_seed42.yaml')).read_text())
     spec['source']['historical_run_commit']=batch.read(source/'run_manifest.json')['source_commit']
     settings=tmp_path/'new-contract.yaml';settings.write_text(yaml.safe_dump(spec))
     data=tmp_path/'data';files={}
@@ -54,9 +54,16 @@ def prepare_fixture(tmp_path,monkeypatch,*,unresolved=False):
     if unresolved:
         governor=BudgetGovernor(source/'budget.json',token_limit=23232000,request_limit=9165,finish_reserve=0)
         governor.admit('unfinished',{'messages':[],'max_tokens':2048},{'parent_scope':'old-val'})
+    recovery_path=None
+    if recovery:
+        ledger=batch.read(source/'budget.json')
+        recovery_path=tmp_path/'reserved-recovery.json'
+        batch.write_json(recovery_path,{'schema':'billing-reservation-recovery.v1','authorization':'Explicit test fixture authorization',
+            'source_ledger_sha256':sha256(source/'budget.json'),
+            'attempts':{key:{'entry_hash':digest(row),'reserved_tokens':row['reserved_tokens']} for key,row in ledger['attempts'].items() if row['status']!='metered'}})
     before={str(p):p.read_bytes() for p in source.rglob('*') if p.is_file()}
     root=tmp_path/'new-version'
-    receipt=derived.prepare(settings,source,root,data)
+    receipt=derived.prepare(settings,source,root,data,reservation_recovery=recovery_path)
     assert before=={str(p):p.read_bytes() for p in source.rglob('*') if p.is_file()}
     return source,root,receipt,env,before
 

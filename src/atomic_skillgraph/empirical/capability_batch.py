@@ -202,9 +202,10 @@ def validate_match(value,capability,task):
     return value['applicable']
 
 
-def candidate_feedback(value,capability,rows):
+def candidate_feedback(value,capability,rows,*,material_version=MATERIAL_VERSION):
     try:return validate_candidate(value,capability,rows)
     except ValueError as exc:
+        original_error=str(exc)
         if isinstance(value,dict) and value.get('decision')=='no_change' and set(value)-{'decision','references'}:
             instruction='Keep no_change; submit exactly {"decision":"no_change"}. Omit guidance and applicability; do not invent a candidate.'
             exc.args=(str(exc)+'; '+instruction,)
@@ -218,6 +219,12 @@ def candidate_feedback(value,capability,rows):
                 'field_errors':field_errors(value,schema_for(PROPOSAL,VERSION)),
                 'public_sources':[{'task_id':r['task']['task_id'],'physical_key':r['task']['physical_key'],
                     'task_hash':r['task_hash'],'span_ids':[s['span_id'] for s in r['spans']]} for r in rows]}
+        from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
+        if material_version==CHOICE_CAPABILITY_FULL_MATERIAL_VERSION:
+            exc.repair_material={'learning_material_version':material_version,'capability':deepcopy(capability),
+                'train_cases':deepcopy(rows),'previous_proposal':deepcopy(value),
+                'field_errors':original_error.split('; '),
+                'instruction':'Preserve this capability, procedure and references; repair only the reported errors.'}
         raise
 
 
@@ -237,8 +244,9 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None,rec
         return s.checkpoint.state[key]
     log={'method_version':VERSION,'prompt_revision':PROMPT_REVISION,'unit_id':unit,'source_case_ids':case_ids,
         'decision':'no_change','candidate':None,'stage':'capability_induction'}
+    material_version=s.config['learning'].get('capability_material_version',MATERIAL_VERSION)
     receive=lambda suffix,prompt,material,name,schema,purpose,validator,repair:learner._receive(
-        key+'_'+suffix,'extractor',prompt,material,name,generation_schema(schema),material_version=MATERIAL_VERSION,
+        key+'_'+suffix,'extractor',prompt,material,name,generation_schema(schema),material_version=material_version,
         decision_purpose=purpose,validator=validator,repair_limit=repair)
     try:
         public=[{k:r[k] for k in ('task','task_hash','spans')} for r in rows]
@@ -270,7 +278,7 @@ def compile_candidate(learner,case_ids,selection_ids,*,recovered_demand=None,rec
                 'for any length error, rewrite substantially shorter instead of trimming one word. '
                 'Cite two supplied spans from distinct physical cases. Complete Runtime card including ID and qualification <=512 Unicode characters.',
                 {'capability':capability,'train_cases':rows},'submit_learning',PROPOSAL,'guidance_learning',
-                lambda v:candidate_feedback(v,capability,rows),s.config['learning']['guidance_repair_limit'])
+                lambda v:candidate_feedback(v,capability,rows,material_version=material_version),s.config['learning']['guidance_repair_limit'])
             candidate=validate_candidate(proposal,capability,rows)
             log['proposal']=proposal
             if candidate:
@@ -301,7 +309,8 @@ def match_public(learner,candidate,task):
     return learner._receive(key,'extractor','Match the capability to this public task demand; abstain if unsupported. '
         'Cite exact supplied spans from distinct fields; do not solve or predict a correct option.',
         {'capability':capability,'task':{'goal':task.goal,'inputs':task.inputs},'spans':spans(task),
-            'task_hash':public_identity(task)},'submit_capability_match',MATCH,material_version=MATERIAL_VERSION,
+            'task_hash':public_identity(task)},'submit_capability_match',MATCH,
+        material_version=learner.system.config['learning'].get('capability_material_version',MATERIAL_VERSION),
         decision_purpose='capability_routing',validator=lambda v:validate_match(v,capability,task),repair_limit=0)
 
 

@@ -43,8 +43,10 @@ def validate_config(config):
     if set(overrides) - {'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair', 'capability_induction', 'capability_routing'}:
         raise ValueError('Unsupported purpose override')
     for settings in overrides.values():
-        if set(settings) - {'protocol', 'max_completion_tokens', 'reasoning_effort'}:
+        if set(settings) - {'protocol', 'max_completion_tokens', 'reasoning_effort', 'max_retries'}:
             raise ValueError('Unsupported purpose setting')
+        if 'max_retries' in settings and (type(settings['max_retries']) is not int or not 0<=settings['max_retries']<=4):
+            raise ValueError('Purpose retry limit must be an explicit value from zero to four')
         if set(settings.get('protocol', {})) - {'thinking_type'} or settings.get('protocol', {}).get('thinking_type', 'enabled') not in {'enabled','disabled'}:
             raise ValueError('Invalid purpose protocol')
         if type(settings.get('max_completion_tokens', 512)) is not int or settings.get('max_completion_tokens', 512) < 1:
@@ -55,6 +57,10 @@ def validate_config(config):
             if config[section][key] != value:
                 raise ValueError('Unsupported execution policy ' + section + '.' + key)
     learning = config['learning']
+    if 'capability_material_version' in learning or 'capability_payload_max_bytes' in learning:
+        from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
+        if learning.get('capability_material_version')!=CHOICE_CAPABILITY_FULL_MATERIAL_VERSION or learning.get('capability_payload_max_bytes')!=32768:
+            raise ValueError('Full P2 material requires its explicit v3 / 32 KiB contract')
     source_capacity = learning.get('source_program_payload_max_bytes')
     if source_capacity is not None and (type(source_capacity) is not int or not 16384 <= source_capacity <= 24576):
         raise ValueError('Executed-source learning capacity must be explicit and bounded to 24 KiB')
@@ -100,7 +106,8 @@ def validate_config(config):
             raise ValueError('Public process requires an explicit fresh method identity')
     if config['experiment'].get('choice_method_version') in CHOICE_CAPABILITY_VERSIONS:
         for purpose in ('capability_induction','capability_routing'):
-            if overrides.get(purpose)!={'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
+            settings=overrides.get(purpose,{})
+            if {k:v for k,v in settings.items() if k!='max_retries'}!={'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
                 raise ValueError('Capability decisions require bounded disabled-thinking settings')
     finalizer=runtime.setdefault('choice_bounded_finalization',{'enabled':False,'version':FINALIZATION_VERSION})
     if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=FINALIZATION_VERSION or
@@ -322,8 +329,14 @@ class EmpiricalSystem:
             return not choice_learning or not self.budget_governor or self.budget_governor.repair_available()
         from .model_view import learning_payload
         wire_material = learning_payload(materials) if stage=='extractor' else materials
+        from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
+        full_p2=materials.get('learning_material_version')==CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
+        if full_p2:
+            from .model_view import pack_capability_material
+            wire_material=pack_capability_material(wire_material)
         messages = [{"role": "system", "content": prompt},
-                    {"role": "user", "content": json.dumps(wire_material, ensure_ascii=False, allow_nan=False)}]
+                    {"role": "user", "content": json.dumps(wire_material, ensure_ascii=False, allow_nan=False,
+                        **({'separators':(',',':')} if full_p2 else {}))}]
         content_parts = materials.get('content_parts') if isinstance(materials, dict) else None
         if content_parts:
             if 'image' not in self.config.get('llm', {}).get('input_modalities', ['text']):
@@ -390,6 +403,8 @@ class EmpiricalSystem:
             if stage in {'extractor','tool_builder'}:
                 key='structural_repair_payload_max_bytes' if purpose=='learning_structure_repair' else 'builder_payload_max_bytes' if stage=='tool_builder' else 'extractor_payload_max_bytes'
                 payload_max=self.config['learning'][key]
+                from .model_view import capability_capacity
+                payload_max=capability_capacity(materials,self.config['learning'],purpose,payload_max)
                 if stage=='extractor' and purpose=='extractor' and name=='submit_learning':
                     from .model_view import executed_source_capacity
                     payload_max=executed_source_capacity(materials,self.config['learning'],payload_max)
@@ -624,7 +639,7 @@ class EmpiricalSystem:
                 if records and not recovered:
                     record["http_attempts"] = list(records(provider_offset))
                 self._save_requests()
-            if self.budget_governor and (self.budget_governor.state['unknown_billing'] or sum(
+            if self.budget_governor and (self.budget_governor.billing_blocked or sum(
                 a.get('accounted_tokens', a['reserved_tokens']) for a in self.budget_governor.state['attempts'].values()
             ) > self.budget_governor.limits['token_limit']):
                 raise BudgetExhausted('diagnostic_budget_exhausted', 'Batch stopped before applying an unmetered or over-budget response')
@@ -723,6 +738,11 @@ class EmpiricalSystem:
                               {'role':'user','content':json.dumps(repaired,ensure_ascii=False,separators=(',',':'))}]
                     continue
                 if hasattr(exc, 'repair_material'):
+                    if full_p2:
+                        repaired=pack_capability_material(exc.repair_material)
+                        messages=[{'role':'system','content':'Repair only the supplied field errors, preserving the procedure, capability scope and source references. Keep no_change if chosen. Guidance <=180 characters (aim 140), applicability <=80 (aim 50), full card <=512. Do not add conclusions or decide options by claim strength. Submit one submit_learning call.'},
+                            {'role':'user','content':json.dumps(repaired,ensure_ascii=False,separators=(',',':'))}]
+                        continue
                     messages[1] = {'role': 'user', 'content': json.dumps(exc.repair_material, ensure_ascii=False)}
                 messages.extend(repair_messages(turn, exc))
                 messages.append({"role": "user", "content": "Repair only the invalid structure. Preserve the requested goal and valid content. "
