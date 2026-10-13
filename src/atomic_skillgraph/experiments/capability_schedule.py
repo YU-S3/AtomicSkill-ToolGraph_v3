@@ -10,6 +10,27 @@ GROUPING = 'public-goal-token-jaccard.v1'
 FULL = 'choice-capability-batch.full-coverage.v1'
 
 
+def math_schedule(tasks):
+    """Cover Train60 once, grouping explicit public mathematical demands, not outcomes."""
+    from ..empirical.math_capability import public_structure,VERSION as MATH_VERSION
+    from ..empirical.contracts import PublicTask
+    if len(tasks)!=60 or len({t['physical_key'] for t in tasks})!=60 or any(t['split']!='train' for t in tasks):
+        raise ValueError('P3 requires exactly sixty distinct Train tasks')
+    analyses={t['physical_key']:public_structure(PublicTask(**t)) for t in tasks}
+    pending=sorted(tasks,key=lambda t:t['task_id']);units=[]
+    while pending:
+        anchor=pending.pop(0);categories=set(analyses[anchor['physical_key']]['categories'])
+        related=sorted(pending,key=lambda t:(-len(categories & set(analyses[t['physical_key']]['categories'])),t['task_id']))[:3]
+        members=[anchor,*related];keys=[t['physical_key'] for t in members]
+        pending=[t for t in pending if t['physical_key'] not in keys]
+        body={'source_keys':keys,'public_analysis':[analyses[k] for k in keys]}
+        units.append({'unit_id':digest([MATH_VERSION,body]),**body})
+    return {'version':MATH_VERSION+'.public-demand-schedule.v1','units':units,
+        'rule':'lexicographic anchor; shared typed mathematical demands descending; task_id tie-break',
+        'qualification':'explicit public demand indicators; no truth prediction or outcome grouping',
+        'public_inputs_hash':digest(tasks)}
+
+
 def full_contract(spec):
     return spec['budget_additional_authority_proposed_not_spent'].get('execution_contract')==FULL
 

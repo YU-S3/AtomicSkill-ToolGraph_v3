@@ -7,6 +7,7 @@ from .contracts import object_schema, validate_schema_instance
 
 VERSION='choice-public-procedure.v1'
 FINALIZATION_VERSION='choice_bounded_finalization.v1'
+TRUNCATION_FINALIZATION_VERSION='choice_truncation_finalization.v2'
 KINDS=('check_assumptions','compare_claim_strength','inspect_quantifiers','deterministic_computation')
 REQUIRED={
     'check_assumptions':{'multiple_public_claims','stated_assumptions'},

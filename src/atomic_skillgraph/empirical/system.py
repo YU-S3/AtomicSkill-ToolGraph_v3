@@ -15,7 +15,7 @@ from ..harness.simple_protocol import Broker, EpisodeResult
 from . import (PROFILE, POLICY_DEFAULTS, CHOICE_GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_MATERIAL_VERSION,
                CHOICE_GUIDANCE_SELECTION_VERSION, SINGLE_ANSWER_PROMPT_VERSION)
 from . import (PUBLIC_CHOICE_POLICY_VERSION, PUBLIC_CHOICE_MATERIAL_VERSION,
-    CHOICE_CAPABILITY_VERSIONS, CHOICE_CAPABILITY_MATERIAL_VERSIONS)
+    CHOICE_CAPABILITY_VERSIONS, CHOICE_CAPABILITY_MATERIAL_VERSIONS, MATH_CAPABILITY_VERSION, MATH_CAPABILITY_MATERIAL_VERSION)
 from .bank import Bank
 from .contracts import PublicTask, RuntimeDecision, digest
 from .task_context import TaskContext
@@ -35,12 +35,13 @@ def validate_config(config):
     if config.get("mechanism_profile") != PROFILE:
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
+    math_p3=config.get('experiment',{}).get('choice_method_version')==MATH_CAPABILITY_VERSION
     overrides = config.get('llm', {}).get('purpose_overrides', {})
     config['llm'].setdefault('purpose_overrides',overrides)
     overrides.setdefault('learning_structure_repair',{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048})
     if overrides['learning_structure_repair'] != {'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
         raise ValueError('Structural learning repair requires disabled thinking and 2048 completion')
-    if set(overrides) - {'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair', 'capability_induction', 'capability_routing'}:
+    if set(overrides) - ({'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair', 'capability_induction', 'capability_routing'} | ({'math_consolidation'} if math_p3 else set())):
         raise ValueError('Unsupported purpose override')
     for settings in overrides.values():
         if set(settings) - {'protocol', 'max_completion_tokens', 'reasoning_effort', 'max_retries'}:
@@ -59,8 +60,9 @@ def validate_config(config):
     learning = config['learning']
     if 'capability_material_version' in learning or 'capability_payload_max_bytes' in learning:
         from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
-        if learning.get('capability_material_version')!=CHOICE_CAPABILITY_FULL_MATERIAL_VERSION or learning.get('capability_payload_max_bytes')!=32768:
-            raise ValueError('Full P2 material requires its explicit v3 / 32 KiB contract')
+        expected_material=MATH_CAPABILITY_MATERIAL_VERSION if math_p3 else CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
+        if learning.get('capability_material_version')!=expected_material or learning.get('capability_payload_max_bytes')!=(65536 if math_p3 else 32768):
+            raise ValueError('Capability material version/capacity differs from its explicit method contract')
     source_capacity = learning.get('source_program_payload_max_bytes')
     if source_capacity is not None and (type(source_capacity) is not int or not 16384 <= source_capacity <= 24576):
         raise ValueError('Executed-source learning capacity must be explicit and bounded to 24 KiB')
@@ -102,25 +104,30 @@ def validate_config(config):
     if config['learning'].get('choice_guidance',{}).get('public_process',False) != config['runtime'].get('choice_guidance',{}).get('public_process',False):
         raise ValueError('Public process learning/runtime policies must agree')
     if config['runtime'].get('choice_guidance',{}).get('public_process'):
-        if config['experiment'].get('choice_method_version') not in ({VERSION}|CHOICE_CAPABILITY_VERSIONS):
+        if config['experiment'].get('choice_method_version') not in ({VERSION,MATH_CAPABILITY_VERSION}|CHOICE_CAPABILITY_VERSIONS):
             raise ValueError('Public process requires an explicit fresh method identity')
     if config['experiment'].get('choice_method_version') in CHOICE_CAPABILITY_VERSIONS:
         for purpose in ('capability_induction','capability_routing'):
             settings=overrides.get(purpose,{})
             if {k:v for k,v in settings.items() if k!='max_retries'}!={'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
                 raise ValueError('Capability decisions require bounded disabled-thinking settings')
+    from .public_process import TRUNCATION_FINALIZATION_VERSION
     finalizer=runtime.setdefault('choice_bounded_finalization',{'enabled':False,'version':FINALIZATION_VERSION})
-    if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=FINALIZATION_VERSION or
+    final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 else FINALIZATION_VERSION
+    if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=final_version or
         finalizer['enabled'] and not config['runtime'].get('choice_guidance',{}).get('public_process')):
         raise ValueError('Invalid explicitly versioned choice finalization policy')
     if (config['learning'].get('choice_guidance', {}).get('enabled') is True and
             config['runtime'].get('choice_guidance', {}).get('enabled') is not True):
         raise ValueError('Choice guidance learning requires choice guidance runtime selection')
-    if config['learning'].get('choice_guidance', {}).get('enabled'):
+    if config['learning'].get('choice_guidance', {}).get('enabled') and not math_p3:
         for purpose, cap in [('guidance_learning', 2048), ('guidance_grounding', 1536)]:
             settings = overrides.get(purpose, {})
             if settings.get('protocol', {}).get('thinking_type') != 'disabled' or settings.get('max_completion_tokens') != cap:
                 raise ValueError('Choice guidance requires bounded disabled-thinking override: ' + purpose)
+    if math_p3:
+        from .math_capability import validate_runtime_contract
+        validate_runtime_contract(config)
     allowed = {'mechanism_profile', 'schema_version', 'data_dir', 'experiment', 'harness', 'runtime',
                'learning', 'planning', 'program_worker', 'program_environment', 'llm', 'benchmark_profile', 'manifest', 'budget'}
     if set(config) - allowed:
@@ -324,13 +331,13 @@ class EmpiricalSystem:
         choice_learning = (self.config['learning'].get('choice_guidance', {}).get('enabled') is True and
                            self.adapter.capabilities.interaction == 'single_answer' and
                            materials.get('learning_material_version') in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS) and
-                           purpose in {'guidance_learning', 'guidance_grounding','capability_induction','capability_routing'})
+                           purpose in {'guidance_learning', 'guidance_grounding','capability_induction','capability_routing','math_consolidation'})
         def repair_available():
             return not choice_learning or not self.budget_governor or self.budget_governor.repair_available()
         from .model_view import learning_payload
         wire_material = learning_payload(materials) if stage=='extractor' else materials
         from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
-        full_p2=materials.get('learning_material_version')==CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
+        full_p2=materials.get('learning_material_version') in {CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,MATH_CAPABILITY_MATERIAL_VERSION}
         if full_p2:
             from .model_view import pack_capability_material
             wire_material=pack_capability_material(wire_material)
@@ -354,6 +361,21 @@ class EmpiricalSystem:
             if owner_state_version is None:
                 commit('applied', repair)
             return value
+        def response_key_for(settings,completion_cap):
+            response_key = digest({'scope': scope, 'purpose': purpose, 'logical_decision_id': decision_id, 'repair_index': repair,
+                                   'stage': stage, 'phase': self.phase, 'budget_scope': self.budget_scope,
+                                   'messages': messages, 'tools': [t.to_openai() for t in tools],
+                                   'completion_cap': completion_cap, 'repair_reason': repair_reason, 'job_key': job_key,
+                                   'model_identity': self.config['llm'],
+                                   'effective_call_settings': settings, 'tool_choice':tool_choice,
+                                   'policy': self.config['runtime']['plan_execution_policy'],
+                                   'implementation_revision': self.config['experiment']['implementation_revision']})
+            if self.config['experiment'].get('choice_method_version') in (*CHOICE_CAPABILITY_VERSIONS,MATH_CAPABILITY_VERSION):
+                response_key=digest([response_key,self.config['experiment']['choice_method_version']])
+            if choice_learning:
+                response_key = digest([response_key, tool_choice, self.config['learning']['choice_guidance'],
+                                       self.config['runtime'].get('choice_guidance')])
+            return response_key
         for repair in range(repair_limit + 1):
             purpose='learning_structure_repair' if repair and stage=='extractor' and name=='submit_learning' and not choice_learning else original_purpose
             round_schema=deepcopy(schema)
@@ -368,7 +390,8 @@ class EmpiricalSystem:
                 and settings.get('protocol',{}).get('thinking_type')=='disabled'
                 and (not isinstance(provider,OpenAICompatibleProvider) or provider.config.capability_profile['tools']) else None)
             used, cap = self._budget(stage)
-            if used >= cap:
+            p3_runtime_recovery=(stage=='runtime' and self.checkpoint and self.config['experiment'].get('choice_method_version')==MATH_CAPABILITY_VERSION)
+            if used >= cap and not p3_runtime_recovery:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Role token budget exhausted', layer=FailureLayer.RUNTIME_AGENT)
             turn = None
             completion_cap = settings.get('max_completion_tokens',2048) if purpose=='learning_structure_repair' else completion_override or settings.get('max_completion_tokens', 32768)
@@ -395,8 +418,10 @@ class EmpiricalSystem:
                             {'role':'user','content':json.dumps(finish_material,ensure_ascii=False,allow_nan=False)}]
                         finish_wire=finish_provider._build_payload(finish_messages,[]) if isinstance(finish_provider,OpenAICompatibleProvider) else {'messages':finish_messages}
                         finish_wire[finish_provider.config.token_limit_field if isinstance(finish_provider,OpenAICompatibleProvider) else 'max_tokens']=finish_cap
-                        # Reserve the bounded newly reported process as well as the actual base finish wire.
-                        finish_reserve=input_token_bound(finish_wire)+finish_cap+4096
+                        # P3 preserves the full question and output cap; its optional reasoning
+                        # tail is fitted to actual post-response headroom, up to 16 KiB.
+                        margin=2048 if self.config['experiment'].get('choice_method_version')==MATH_CAPABILITY_VERSION else 4096
+                        finish_reserve=input_token_bound(finish_wire)+finish_cap+margin
                     else:
                         finish_reserve=input_token_bound(finish_material)+finish_cap
             payload_max=None
@@ -438,7 +463,11 @@ class EmpiricalSystem:
                                 if len(cards) <= 1: break
                                 cards.pop()
                         messages[1]={'role':'user','content':json.dumps(pack_material(projected),ensure_ascii=False,separators=(',',':'))}
-            if stage == 'runtime' and preserve_finish:
+            cached_runtime=(self.checkpoint.response(response_key_for({**settings,'max_completion_tokens':completion_cap},completion_cap))
+                if self.checkpoint and stage=='runtime' and self.config['experiment'].get('choice_method_version')==MATH_CAPABILITY_VERSION else None)
+            if used>=cap and not cached_runtime:
+                raise BudgetExhausted('empirical_token_budget_exhausted','Role token budget exhausted',layer=FailureLayer.RUNTIME_AGENT)
+            if stage == 'runtime' and preserve_finish and not cached_runtime:
                 from .budget_governor import input_token_bound
                 wire = provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages,'tools':[t.to_openai() for t in tools]}
                 field = provider.config.token_limit_field if isinstance(provider,OpenAICompatibleProvider) else 'max_tokens'
@@ -483,19 +512,7 @@ class EmpiricalSystem:
                         raise BudgetExhausted('runtime_finish_reserved', 'Runtime admission preserves the actual bounded finish', layer=FailureLayer.RUNTIME_AGENT)
             if purpose == 'finish_only': payload_max = self.config['runtime']['finish_input_max_bytes']
             settings = {**settings, 'max_completion_tokens': completion_cap}
-            response_key = digest({'scope': scope, 'purpose': purpose, 'logical_decision_id': decision_id, 'repair_index': repair,
-                                   'stage': stage, 'phase': self.phase, 'budget_scope': self.budget_scope,
-                                   'messages': messages, 'tools': [t.to_openai() for t in tools],
-                                   'completion_cap': completion_cap, 'repair_reason': repair_reason, 'job_key': job_key,
-                                   'model_identity': self.config['llm'],
-                                   'effective_call_settings': settings, 'tool_choice':tool_choice,
-                                   'policy': self.config['runtime']['plan_execution_policy'],
-                                   'implementation_revision': self.config['experiment']['implementation_revision']})
-            if self.config['experiment'].get('choice_method_version') in CHOICE_CAPABILITY_VERSIONS:
-                response_key=digest([response_key,self.config['experiment']['choice_method_version']])
-            if choice_learning:
-                response_key = digest([response_key, tool_choice, self.config['learning']['choice_guidance'],
-                                       self.config['runtime'].get('choice_guidance')])
+            response_key = response_key_for(settings,completion_cap)
             recovered = self.checkpoint.response(response_key) if self.checkpoint else None
             request_id = recovered['request_id'] if recovered else uuid4().hex
             provider_offset = getattr(provider, "request_record_count", 0)
@@ -564,6 +581,8 @@ class EmpiricalSystem:
                         records = getattr(provider, 'request_records_since', None)
                         self.checkpoint.save_response(response_key, {'turn': asdict(turn), 'request_id': request_id,
                             'http_attempts': list(records(provider_offset)) if records else []})
+                self.last_response_turn=turn
+                self.last_response_request_id=request_id
                 commit('response_received', repair)
             except Exception as exc:
                 if (isinstance(exc,BudgetExhausted) or getattr(exc,'code',None)=='material_too_large') and getattr(provider,'request_record_count',0)==provider_offset:
@@ -590,6 +609,8 @@ class EmpiricalSystem:
                                        and 'assistant content must be a string or null' in str(exc))
                 turn = getattr(exc, "usage_turn", None)
                 if turn is not None:
+                    self.last_response_turn=turn
+                    self.last_response_request_id=request_id
                     turn.provider_metadata['phase'] = self.phase
                     turn.provider_metadata['budget_scope'] = self.budget_scope
                     if choice_learning: turn.provider_metadata['decision_purpose'] = record['decision_purpose']
@@ -708,6 +729,13 @@ class EmpiricalSystem:
                             details = '; text arguments: ' + str(field_error)
                     raise ValueError("Expected one " + name + " ToolCall" + details)
                 value = turn.tool_calls[0].arguments
+                if materials.get('learning_material_version')==MATH_CAPABILITY_MATERIAL_VERSION:
+                    from .model_view import restore_capability_response
+                    value=restore_capability_response(value,json.loads(messages[1]['content']))
+                    if value!=turn.tool_calls[0].arguments:
+                        record['normalized_response']={'version':MATH_CAPABILITY_MATERIAL_VERSION,'arguments':deepcopy(value),
+                            'raw_arguments_hash':digest(turn.tool_calls[0].arguments)}
+                        self._save_requests()
                 if choice_learning and validator:
                     validator(value)
                 else:
@@ -740,7 +768,10 @@ class EmpiricalSystem:
                 if hasattr(exc, 'repair_material'):
                     if full_p2:
                         repaired=pack_capability_material(exc.repair_material)
-                        messages=[{'role':'system','content':'Repair only the supplied field errors, preserving the procedure, capability scope and source references. Keep no_change if chosen. Guidance <=180 characters (aim 140), applicability <=80 (aim 50), full card <=512. Do not add conclusions or decide options by claim strength. Submit one submit_learning call.'},
+                        instruction=('Repair only the supplied field errors. Preserve the mathematical operation, source references and stop conditions; do not add theorem answers. Guidance <=512 characters, applicability <=128, complete card <=1024. Keep no_change if chosen. Submit one submit_learning call.'
+                            if materials.get('learning_material_version')==MATH_CAPABILITY_MATERIAL_VERSION else
+                            'Repair only the supplied field errors, preserving the procedure, capability scope and source references. Keep no_change if chosen. Guidance <=180 characters (aim 140), applicability <=80 (aim 50), full card <=512. Do not add conclusions or decide options by claim strength. Submit one submit_learning call.')
+                        messages=[{'role':'system','content':instruction},
                             {'role':'user','content':json.dumps(repaired,ensure_ascii=False,separators=(',',':'))}]
                         continue
                     messages[1] = {'role': 'user', 'content': json.dumps(exc.repair_material, ensure_ascii=False)}
@@ -837,7 +868,11 @@ class EmpiricalSystem:
                 from .answer_executor import AnswerExecutor
                 semantic = self.config['runtime'].get('choice_guidance', {}).get('enabled') is True and valid_choices(task)
                 policy = self.config['runtime'].get('choice_guidance', {})
-                if semantic and self.config['experiment'].get('choice_batch_contract'):
+                if semantic and self.config['experiment'].get('choice_method_version')==MATH_CAPABILITY_VERSION:
+                    from .math_capability import checked_asset,match
+                    matches={a['capability']['id']:match(self.learner,a,task) for a in self.bank.all('skill') if checked_asset(a)}
+                    policy={**policy,'capability_matches':matches};trace['capability_match_audit']={'matches':matches}
+                elif semantic and self.config['experiment'].get('choice_batch_contract'):
                     from .capability_batch import checked_asset
                     matches, rejected = {}, []
                     for asset in self.bank.all('skill'):

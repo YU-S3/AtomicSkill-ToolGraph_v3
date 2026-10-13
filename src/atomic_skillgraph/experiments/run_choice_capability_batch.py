@@ -575,19 +575,19 @@ def evaluator_records(summary):
     return records
 
 
-def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,rank,candidate_index,*,run_id=None,observer=None):
+def evaluate_pair(root,task,candidate,matches,config,governor,trial,evaluator,rank,candidate_index,*,run_id=None,observer=None,view_factory=CapabilityView,method_version=VERSION):
     pair={};order=('off','on') if (rank+candidate_index)%2==0 else ('on','off')
     for arm in order:
         task_root=root/str(rank)/arm;cfg=deepcopy(config);cfg['data_dir']=str(trial);cfg['llm']['max_retries']=0
         cfg['experiment'].update(runtime_mode='frozen',output_dir=str(task_root))
         target=EmpiricalSystem(cfg,harness=AnswerAdapter('livemath',evaluator),budget_governor=governor,
-            bank_view_factory=lambda b:CapabilityView(b,matches,off=arm=='off',candidate=candidate))
+            bank_view_factory=lambda b:view_factory(b,matches,off=arm=='off',candidate=candidate))
         target.observer=observer
         try:
             target.checkpoint=TaskCheckpoint(task_root/'checkpoint');target.audit_path=str(task_root/'requests.json')
-            trace_path=task_root/'trace.json';attempt=VERSION+':'+str(candidate_index)+':'+str(rank)+':'+arm
+            trace_path=task_root/'trace.json';attempt=method_version+':'+str(candidate_index)+':'+str(rank)+':'+arm
             if run_id:attempt=run_id+':'+attempt
-            if observer:observer.begin_task(task,rank,attempt,{'purpose':'train_internal_paired_selection','arm':arm})
+            if observer:observer.begin_task(task,rank,attempt,{'purpose':'train_internal_paired_selection' if method_version==VERSION else task.split+'_paired_selection','arm':arm})
             if trace_path.exists():
                 trace=read(trace_path)
                 if trace['task']!=task.__dict__ or trace['attempt_id']!=attempt or trace['method_identity']['config_hash']!=digest(target.config):

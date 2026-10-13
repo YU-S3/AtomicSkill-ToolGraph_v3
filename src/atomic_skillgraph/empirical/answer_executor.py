@@ -1,5 +1,8 @@
 """One answering Runtime with optional bounded local computation; no Planner."""
 from copy import deepcopy
+from dataclasses import asdict
+import hashlib
+import json
 from uuid import uuid4
 
 from .contracts import digest, object_schema, validate_program, validate_schema_instance
@@ -9,6 +12,39 @@ from .trial_snapshot import seal_trial_workspace, restore_trial_workspace
 from . import ANSWER_PROTOCOL_VERSION
 
 VERSION = ANSWER_PROTOCOL_VERSION
+
+
+def reasoning_tail(turn, request_id, limit=16384):
+    raw=(turn.reasoning_content or '').encode('utf-8')
+    start=max(0,len(raw)-limit)
+    while start<len(raw) and raw[start]&0xc0==0x80:start+=1
+    return {'source_request_id':request_id,'response_sha256':digest(asdict(turn)),
+        'reasoning_sha256':hashlib.sha256(raw).hexdigest(),'full_bytes':len(raw),
+        'start_byte':start,'end_byte':len(raw),'truncated':bool(start),'text':raw[start:].decode('utf-8'),
+        'qualification':'bounded_tail_of_previous_model_reasoning_not_verified_facts'}
+
+
+def fit_reasoning_tail(system,material,prompt):
+    from .budget_governor import input_token_bound
+    from ..agents.provider import OpenAICompatibleProvider
+    provider=system.provider('runtime','finish_only')
+    cap=system.resolve_call_settings('runtime','finish_only')['max_completion_tokens']
+    available=min(system.config['runtime']['finish_input_max_bytes'],system._remaining('runtime','finish_only')-cap)
+    def fits(limit):
+        tail=reasoning_tail(system.last_response_turn,system.last_response_request_id,limit)
+        value={**material,'previous_reasoning_tail':tail}
+        messages=[{'role':'system','content':prompt},{'role':'user','content':json.dumps(value,ensure_ascii=False,allow_nan=False)}]
+        wire=provider._build_payload(messages,[]) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages}
+        wire[provider.config.token_limit_field if isinstance(provider,OpenAICompatibleProvider) else 'max_tokens']=cap
+        return input_token_bound(wire)<=available,value
+    low,high=0,16384
+    while low<high:
+        mid=(low+high+1)//2
+        if fits(mid)[0]:low=mid
+        else:high=mid-1
+    # If even the empty tail cannot fit, production admission records the refusal;
+    # mandatory question/options are never removed to make the call succeed.
+    return fits(low)[1]
 STEP = object_schema({'action':{'enum':['finish','execute_python','call_program','read_result']},
     'answer':{'type':'string'}, 'name':{'type':'string'}, 'source':{'type':'string'},
     'arguments':{'type':'object'}, 'input_schema':{'type':'object'}, 'output_schema':{'type':'object'},
@@ -24,8 +60,9 @@ class AnswerExecutor:
         s, context, checkpoint = self.system, broker.context, self.system.checkpoint
         public=s.config['runtime'].get('choice_guidance',{}).get('public_process',False)
         finalizer=s.config['runtime'].get('choice_bounded_finalization',{}).get('enabled',False)
-        from .public_process import VERSION as PROCESS_VERSION, PUBLIC_STEP, validate_process
-        version=PROCESS_VERSION if public else VERSION
+        from .public_process import VERSION as PROCESS_VERSION, PUBLIC_STEP, validate_process, TRUNCATION_FINALIZATION_VERSION
+        truncation_only=s.config['runtime'].get('choice_bounded_finalization',{}).get('version')==TRUNCATION_FINALIZATION_VERSION
+        version=TRUNCATION_FINALIZATION_VERSION if truncation_only else PROCESS_VERSION if public else VERSION
         schema=deepcopy(STEP)
         if public:
             schema['properties'].update(public_process={'type':'string','minLength':1,'maxLength':512},
@@ -51,7 +88,7 @@ class AnswerExecutor:
             execution = {'prediction':answer,'reason':reason,'attempts':attempts,'temporary_executions':temporary,
                          'internal_execution_count':len(attempts)+len(temporary),'native_calls':0,
                          'submission_producer_attempt_id':producer,'answer_protocol_version':version,
-                         'answer_origin':'program' if producer else 'finish_only' if reason=='budget_finish_only' else 'runtime_response'}
+                         'answer_origin':'program' if producer else 'finish_only' if reason in {'budget_finish_only','truncation_final_answer'} else 'runtime_response'}
             if budget_censored: execution['budget_censored'] = True
             from .answer_status import classify_answer
             answer_request=next((r for r in reversed(s.requests) if r.get('response')), {})
@@ -71,6 +108,16 @@ class AnswerExecutor:
             from .prompts import finish_text_prompt
             from ..core.errors import BudgetExhausted
             if finalization['attempted'] and not checkpoint:return finish('',reason)
+            if truncation_only:
+                stored=state.get('finalization_material')
+                if stored is not None:
+                    if any(stored.get(k)!=v for k,v in material.items()):raise ValueError('Finalization public input changed during recovery')
+                    material=stored
+                else:
+                    material=fit_reasoning_tail(s,material,finish_text_prompt(s.adapter.answer_contract()))
+                    state['finalization_material']=deepcopy(material)
+                tail=material['previous_reasoning_tail']
+                finalization['reasoning_tail']={k:v for k,v in tail.items() if k!='text'}
             finalization['attempted']=True
             if checkpoint:checkpoint.advance(checkpoint.state['stage'],answer_executor={**state,'finalization':finalization})
             start=len(s.requests)
@@ -80,9 +127,12 @@ class AnswerExecutor:
             except (BudgetExhausted,ValueError) as exc:
                 if isinstance(exc,ValueError) and not getattr(exc,'model_authored',False) and not str(exc).startswith('material_too_large'):raise
                 finalization.update(reason=str(exc),request_ids=[r['id'] for r in s.requests[start:]])
+                if truncation_only:finalization.update(valid_answer=False,parent_budget_exhausted=isinstance(exc,BudgetExhausted) and exc.code in {'parent_task_budget_exhausted','empirical_token_budget_exhausted','runtime_finish_reserved'})
                 return finish('',reason,budget_censored=isinstance(exc,BudgetExhausted))
+            valid=getattr(s.adapter,'valid_answer_format',lambda a:True)(answer)
             finalization.update(request_ids=[r['id'] for r in s.requests[start:]],reason='bounded_final_answer')
-            return finish(answer,'budget_finish_only',budget_censored=True)
+            if truncation_only:finalization.update(valid_answer=valid,parent_budget_exhausted=False)
+            return finish(answer,'truncation_final_answer' if truncation_only and valid else 'finalization_invalid_answer' if truncation_only else 'budget_finish_only',budget_censored=not truncation_only)
         prompt = single_answer_prompt(getattr(s.adapter,'answer_contract',lambda:'')(),semantic=semantic) + '\n' + (
             'You may answer directly as text or submit one answer_step. finish gives the final answer. '
             'Optional execute_python runs def run(ctx, inputs) with supplied arguments and object input_schema/output_schema '
@@ -112,8 +162,12 @@ class AnswerExecutor:
                     finish_request_material={k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}})
             except ValueError as exc:
                 if not getattr(exc,'model_authored',False):raise
+                if truncation_only and s.requests[-1].get('response',{}).get('finish_reason')=='length':
+                    finalization['first_truncation']={'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':True}
+                    return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'completion_truncated_no_answer')
                 return finish('','runtime_model_failure')
             except BudgetExhausted as exc:
+                if truncation_only:raise
                 if exc.code not in {'parent_task_budget_exhausted','runtime_finish_reserved'} or not (results or finalizer):raise
                 if finalizer:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'token_budget_exhausted')
                 from .prompts import finish_text_prompt
@@ -123,6 +177,11 @@ class AnswerExecutor:
                         'finish_answer',None,repair_limit=0,owner_state_version=VERSION+':finish:'+str(index))
                 except BudgetExhausted:raise exc
                 return finish(answer,'budget_finish_only',budget_censored=True)
+            if truncation_only and s.requests[-1].get('response',{}).get('finish_reason')=='length':
+                valid=step.get('action')=='finish' and s.adapter.valid_answer_format(step.get('answer',''))
+                finalization.setdefault('first_truncation',{'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':not valid})
+                if not valid:
+                    return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'completion_truncated_no_answer')
             used,replaced = set(step.get('used_results',[])),set(step.get('replaced_results',[]))
             if (used|replaced)-set(results):return finish('','unknown_result_consumption_reference')
             for a in attempts+temporary:
@@ -134,6 +193,7 @@ class AnswerExecutor:
                     try:process=validate_process(step,task,context,results,used-replaced,index,s.requests[-1]['id'] if s.requests else None)
                     except ValueError as exc:process={'verification':'rejected','reason':str(exc),'kind':'self_reported_process'}
                 if finalizer and not getattr(s.adapter,'valid_answer_format',lambda a:True)(answer) and s.requests[-1].get('response',{}).get('finish_reason')=='length':
+                    if truncation_only:finalization['first_truncation']={'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':True}
                     final_material={k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}}
                     if process and process.get('verification')=='source_compatible':final_material['public_process']=process['public_process']
                     return final_answer(final_material,'completion_truncated_no_answer')

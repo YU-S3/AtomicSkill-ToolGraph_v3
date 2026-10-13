@@ -105,6 +105,26 @@ def pack_capability_material(material):
         'p2_table_note':'p2_text_ref is the exact string in p2_text_table. Each p2_span_table row is [span_id, path_index, start, end]; task_path is paths[path_index]. Resolve these lossless references before copying IDs or reading spans. All task text and evidence remain here.'}
 
 
+def restore_capability_response(value, wire_material):
+    """Resolve only identity slots against this exact request's bijective text table."""
+    table=wire_material.get('p2_text_table',{})
+    if not isinstance(table,dict) or any(not isinstance(v,str) for v in table.values()) or len(set(table.values()))!=len(table):
+        raise ValueError('Ambiguous capability text table')
+    def restore(v,slot=None):
+        if isinstance(v,list):return [restore(x,slot) for x in v]
+        if not isinstance(v,dict):return deepcopy(v)
+        if 'p2_text_ref' in v:
+            if set(v)!={'p2_text_ref'} or slot not in {'case_id','span_id','span_ids','capability_id','candidate_hash','task_hash','parent_ids','proposal_quote'}:
+                raise ValueError('Compressed reference outside an identity slot')
+            key=v['p2_text_ref']
+            if not isinstance(key,str) or key not in table:raise ValueError('Unknown capability text reference')
+            return table[key]
+        return {k:restore(x,k) for k,x in v.items()}
+    # Abstention is terminal; accompanying unused candidate fields never create an asset.
+    if isinstance(value,dict) and value.get('decision')=='no_change':return {'decision':'no_change'}
+    return restore(value)
+
+
 def reference_exact_span_quotes(material):
     """Lossless references to text already present in the same public task."""
     value=deepcopy(material);changed=False
@@ -326,9 +346,10 @@ def executed_source_capacity(material, learning, default):
 
 
 def capability_capacity(material, learning, purpose, default):
-    from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
-    if (material.get('learning_material_version')==CHOICE_CAPABILITY_FULL_MATERIAL_VERSION and
-        purpose in {'capability_induction','guidance_learning','guidance_grounding'}):
+    from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,MATH_CAPABILITY_MATERIAL_VERSION
+    if material.get('learning_material_version')==MATH_CAPABILITY_MATERIAL_VERSION and purpose=='math_consolidation':return 131072
+    if (material.get('learning_material_version') in {CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,MATH_CAPABILITY_MATERIAL_VERSION} and
+        purpose in {'capability_induction','guidance_learning','guidance_grounding','math_consolidation'}):
         return learning.get('capability_payload_max_bytes',default)
     return default
 

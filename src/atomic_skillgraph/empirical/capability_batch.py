@@ -42,7 +42,7 @@ def spans(task):
     return rows
 
 
-def records(cases):
+def records(cases,*,span_factory=spans):
     result=[];physical=set()
     for row in cases:
         task=PublicTask(**row['task']);experience=row['experience']
@@ -52,7 +52,7 @@ def records(cases):
         status=experience.get('answer_status')
         outcome='no_answer' if status in {'empty','truncated_empty','invalid_format'} or not experience.get('submission') else (
             'correct' if (experience.get('score') or {}).get('hard') is True else 'incorrect')
-        result.append({'task':deepcopy(row['task']),'task_hash':public_identity(task),'spans':spans(task),
+        result.append({'task':deepcopy(row['task']),'task_hash':public_identity(task),'spans':span_factory(task),
             'observation':{'submission':experience.get('submission'),'outcome':outcome,
                 'answer_status':status,'termination_reason':experience.get('termination_reason'),
                 'public_process':deepcopy(experience.get('public_process_evidence')),
@@ -62,10 +62,10 @@ def records(cases):
     return result
 
 
-def source_refs(refs,rows):
+def source_refs(refs,rows,*,span_factory=spans):
     by_id={r['task']['physical_key']:r for r in rows};found=set()
     if len(by_id)!=len(rows) or any(PublicTask(**r['task']).split!='train' or r['task_hash']!=public_identity(PublicTask(**r['task'])) or
-        r['spans']!=spans(PublicTask(**r['task'])) for r in rows):raise ValueError('Source identity or exact spans changed')
+        r['spans']!=span_factory(PublicTask(**r['task'])) for r in rows):raise ValueError('Source identity or exact spans changed')
     aliases={}
     for physical,row in by_id.items():
         for alias in (physical,row['task']['task_id']):

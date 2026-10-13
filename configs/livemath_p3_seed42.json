@@ -1,0 +1,33 @@
+{
+  "schema": "livemath.math-capability.p3.contract.v1",
+  "run_seed": 42,
+  "train_count": 60,
+  "unit_count": 15,
+  "unit_size": 4,
+  "max_candidates_per_unit": 4,
+  "max_consolidated_candidates": 8,
+  "max_screen_candidates": 4,
+  "max_confirmation_candidates": 2,
+  "max_injected_skills": 1,
+  "screen_order": "operation coverage first, source support descending, candidate ID ascending; frozen before Val",
+  "confirmation_order": "net correct descending, regressions ascending, two-arm tokens ascending, candidate ID ascending",
+  "publication_order": "net correct descending, regressions ascending, two-arm tokens ascending, candidate ID ascending",
+  "selection_policy": {
+    "screen": {"min_exposed": 3, "min_net_correct": 0, "max_regressions": 1, "require_empty_on_not_increase": true},
+    "confirmation": {"min_exposed": 1, "min_net_correct": 1, "max_regressions": 1, "require_empty_on_not_increase": true},
+    "promotion": {"min_exposed": 8, "min_net_correct": 2, "max_regressions": 1, "require_empty_on_not_increase": true}
+  },
+  "stage_limits": {
+    "learning": {"token_limit": 5000000, "request_limit": 150},
+    "val": {"token_limit": 15000000, "request_limit": 1200},
+    "test": {"token_limit": 13000000, "request_limit": 5000}
+  },
+  "cumulative_limits": {"token_limit": 45000000, "request_limit": 9165, "finish_reserve": 0},
+  "learning_wire_bytes": 65536,
+  "consolidation_wire_bytes": 131072,
+  "repair_limit": 1,
+  "learning_http_retries": 0,
+  "reasoning_tail_utf8_bytes": 16384,
+  "test_requires_review": true,
+  "test_development_history_disclosed": true
+}

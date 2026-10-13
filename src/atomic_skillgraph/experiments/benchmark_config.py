@@ -17,4 +17,6 @@ def benchmark_config(base, benchmark):
         config['llm'].setdefault('purpose_overrides',{}).update({
             purpose:{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':cap}
             for purpose,cap in [('guidance_learning',2048),('guidance_grounding',1536)]})
+        from ..empirical.math_capability import VERSION,configure
+        if config['experiment'].get('choice_method_version')==VERSION:config=configure(config)
     return config

@@ -196,6 +196,8 @@ def retrieval_stats(cases):
 
 
 def render(asset):
+    from .math_capability import VERSION as MATH_VERSION,render as render_math
+    if asset.get('method_version')==MATH_VERSION:return render_math(asset)
     if asset.get('method_version') in CHOICE_CAPABILITY_VERSIONS:
         from .capability_batch import render as render_capability
         return render_capability(asset)
@@ -208,6 +210,11 @@ def render(asset):
 
 
 def select(assets, stats, task, policy):
+    from .math_capability import VERSION as MATH_VERSION,select as select_math
+    math_assets=[a for a in assets if a.get('method_version')==MATH_VERSION]
+    if math_assets:
+        if len(math_assets)!=len(assets):raise ValueError('P3 Bank cannot mix older Skill methods')
+        return select_math(math_assets,task,policy.get('capability_matches',{}))
     procedural=[a for a in assets if a.get('method_version') in CHOICE_CAPABILITY_VERSIONS]
     if procedural:
         from .capability_batch import selection

@@ -315,8 +315,11 @@ class Bank:
         target.execute('DROP TABLE IF EXISTS train_cases')
         usable = {p['id'] for p in self.all('program') if self.program_eligible(p)}
         from .capability_batch import VERSION as CAPABILITY_VERSION, checked_asset
+        from .math_capability import VERSION as MATH_VERSION,checked_asset as checked_math
         for kind, asset_id, payload in target.execute('SELECT kind,id,payload FROM assets').fetchall():
             asset = json.loads(payload)
+            if kind=='skill' and asset.get('method_version')==MATH_VERSION and not checked_math(asset):
+                target.execute('DELETE FROM assets WHERE id=?',(asset_id,));continue
             if kind=='skill' and asset.get('method_version')==CAPABILITY_VERSION and not checked_asset(asset):
                 target.execute('DELETE FROM assets WHERE id=?', (asset_id,))
             elif (kind == 'program' and asset_id not in usable) or (
