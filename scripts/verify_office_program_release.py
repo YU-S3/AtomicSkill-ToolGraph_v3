@@ -14,11 +14,11 @@ from pathlib import Path
 import time
 from types import SimpleNamespace
 
-from atomic_skillgraph.empirical import LEARNING_MATERIAL_VERSION
+from atomic_skillgraph.empirical import LEARNING_MATERIAL_VERSION, BINDING_POLICY_VERSION
 from atomic_skillgraph.empirical.bank import Bank
 from atomic_skillgraph.empirical.contracts import PublicTask, object_schema
 from atomic_skillgraph.empirical.executor import Executor
-from atomic_skillgraph.empirical.local_validation import canonical_binding, validate_on_source
+from atomic_skillgraph.empirical.local_validation import canonical_binding
 from atomic_skillgraph.empirical.model_view import expand_material
 from atomic_skillgraph.empirical.system import EmpiricalSystem
 from atomic_skillgraph.experiments.run_empirical import code_identity, write_json
@@ -55,9 +55,11 @@ def replay(root, config, task, source, parameters, *, original_reference=None):
     root.mkdir()
     config=deepcopy(config);config['data_dir']=str(root/'bank');config['experiment']['output_dir']=str(root)
     config['learning']['material_version']=LEARNING_MATERIAL_VERSION
+    config['learning']['binding_policy']=BINDING_POLICY_VERSION
     config.pop('budget',None)  # Fixture responses cannot enter a real cost ledger.
     os.environ[config['llm']['api_key_env']]='offline-intercepted-fixture'
     system=EmpiricalSystem(config)
+    write_json(root/'config.json',system.config)
     frozen=None
     try:
         system.adapter.reset(task)
