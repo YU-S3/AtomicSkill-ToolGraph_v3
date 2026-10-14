@@ -357,8 +357,21 @@ def test_actual_prepare_derive_checkpoints_freeze_and_budget(actual_parent,tmp_p
     assert not first['complete'];paid=len(sent)
     # Source code/config/corpus and checkpoint checks are production; cached units don't issue again.
     again=entry.recompile(root,max_new_records=1);assert again['checked']==first['checked']+1
+    # An unaffordable source request is a local learning deferral, not a phase stop.
+    admit=entry.PhaseGovernor.admit;local_refusals=[]
+    def exhaust_one_source(self,audit_id,payload,context):
+        if context.get('purpose')=='extractor' and not local_refusals:
+            local_refusals.append(context['parent_task_id'])
+            context={**context,'parent_token_limit':1}
+        return admit(self,audit_id,payload,context)
+    monkeypatch.setattr(entry.PhaseGovernor,'admit',exhaust_one_source)
     result=entry.recompile(root)
     assert result['complete'] and result['usable']==8 and result['checked']==120
+    assert len(local_refusals)==1 and not result['censored']
+    assert result['decisions']['deferred_budget']==1
+    deferred=entry.read(root/'recompile/units'/local_refusals[0]/'requests.json')['requests'][-1]
+    assert deferred['admission_status']=='local_refusal' and not deferred['http_attempts']
+    monkeypatch.setattr(entry.PhaseGovernor,'admit',admit)
     final=len(sent);assert entry.recompile(root)==result and len(sent)==final
     frozen=entry.read(root/'final_frozen_manifest.json')['final_artifact_hash']
     assert entry.tree_identity(root/'train/frozen_bank')['sha256']==frozen

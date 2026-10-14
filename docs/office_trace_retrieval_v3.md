@@ -31,6 +31,8 @@ python -m atomic_skillgraph.experiments.office_source_recompile val --output "$R
 
 Val completion stops for review. Test requires a separate explicit review file approving the exact complete Val summary hash. There is no automatic Test launch. `STOP_AFTER_TASK` is the recompile task-boundary stop marker; checkpoints reuse paid responses without extra generations or double charging.
 
+Source/pool admission failures retain `parent_task_budget_exhausted` and produce a local `deferred_budget` result; subsequent Train sources continue. Only cumulative or phase exhaustion censors the recompile. This distinction is tested through the full production recompile loop, with no additional repair or budget allowance.
+
 ## Offline verification
 
 `tests/test_office_trace_v3.py` uses the production Provider payload/admission/checkpoint paths with transport intercepted. Set `OFFICE_TRACE_PARENT` to the immutable V2 run, `PROGRAM_IMAGE_DIGEST` to the existing locked image and `OFFICE_TRACE_GATE_DIR` to an external evidence directory. It loads all canonical Train120, checks every recovered chain, preflights every new source, replays the real UID0066 refusal, runs actual Docker RPC/source qualification and exercises derive/recompile/freeze/Val24/Test102 with synthetic responses. Synthetic responses and fixture Programs are confined to temporary test directories; these are engineering checks, not natural learning or accuracy results.

@@ -61,7 +61,10 @@ class PhaseGovernor(BudgetGovernor):
             context={**context,'office_phase':self.phase,'office_phase_token_limit':PHASE_LIMITS[self.phase]}
             if self.trace:context['office_method']=TRACE_VERSION
             reserved=input_token_bound(payload)+payload.get('max_tokens',payload.get('max_completion_tokens',0))
-            room=self.headroom(context)
+            # Source/pool limits belong to the base governor and must retain
+            # parent_task_budget_exhausted, so one source cannot censor the phase.
+            room=self.headroom({'purpose':context.get('purpose'),
+                'parent_finish_reserve':context.get('parent_finish_reserve',0)})
             if reserved>room['tokens'] or room['requests']<=context.get('finish_request_reserve',0):
                 raise BudgetExhausted('diagnostic_budget_exhausted','Office phase allowance exhausted; no phase borrowing')
             super().admit(audit_id,payload,context)
