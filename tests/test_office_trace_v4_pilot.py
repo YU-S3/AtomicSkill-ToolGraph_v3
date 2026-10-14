@@ -91,6 +91,11 @@ def test_exact_defaults_invalid_ids_extra_schema_and_api_feedback(tmp_path):
         program_from_response({'source':'def run(ctx, inputs):\n    return ctx.read_context(inputs)'},candidate,s.config['program_environment'],['read'])
     result=program_from_response({'source':SOURCE},candidate,s.config['program_environment'],['read'])
     assert result['allowed_tools']==['read']
+    p=proposal(op)
+    p['program_spec']['input_bindings']={'path':{'span_id':spans[1]['id'],'section':'arguments','path':['path'],'slice':{'start':0,'end':1}}}
+    assert validate_proposal(p,op,spans,['read'],[])['bound_inputs']['path']=='a'
+    for bad in (None, [], {'decision':'propose_program','source_opportunity_ids':[op['id']], 'evidence_limitations':'x','atomic':[]}):
+        with pytest.raises(ValueError):validate_proposal(bad,op,spans,['read'],[])
     s.close()
 
 
@@ -117,8 +122,9 @@ def test_paid_response_resume_decode_failure_and_unknown_http(tmp_path,monkeypat
     assert len(seen)==2
 
 
-@pytest.mark.parametrize('correct,decision',[(True,'propose_program'),(False,'propose_program'),(False,'no_change')])
-def test_intercepted_production_learning_bundle_and_idempotency(tmp_path,monkeypatch,correct,decision):
+@pytest.mark.parametrize('correct,decision,repair_case',[(True,'propose_program',False),(False,'propose_program',False),
+    (False,'no_change',False),(False,'propose_program',True)])
+def test_intercepted_production_learning_bundle_and_idempotency(tmp_path,monkeypatch,correct,decision,repair_case):
     s,task,trace,spans,op=fixture_case(tmp_path)
     trace['score']={'hard':correct}
     spans,opportunities=mine(trace,digest(trace),s.config['program_environment'])
@@ -139,8 +145,17 @@ def test_intercepted_production_learning_bundle_and_idempotency(tmp_path,monkeyp
     p=proposal(op) if decision=='propose_program' else {'decision':'no_change','source_opportunity_ids':[op['id']],
         'evidence_limitations':'no useful reusable operation','reason':'irrelevant'}
     responses=[response(finish='stop',content=json.dumps(p))]
-    if decision=='propose_program':responses.append(response(finish='stop',content=json.dumps({'source':SOURCE})))
+    if decision=='propose_program':
+        if repair_case:responses.append(response(finish='stop',content=json.dumps({'source':'def run(ctx, inputs):\n    return ctx.read_context(inputs)'})))
+        responses.append(response(finish='stop',content=json.dumps({'source':SOURCE})))
     seen=http(monkeypatch,responses)
+    if repair_case:
+        original_bundle=runner.bundle
+        def interrupted(*a,**k):raise RuntimeError('simulated interrupt after paid repair response')
+        monkeypatch.setattr(runner,'bundle',interrupted)
+        with pytest.raises(RuntimeError,match='simulated interrupt'):runner.learn(root)
+        assert len(seen)==3
+        monkeypatch.setattr(runner,'bundle',original_bundle)
     result=runner.learn(root)
     assert result['formal_promotions']==0
     before=len(seen);runner.learn(root);assert len(seen)==before
@@ -149,6 +164,38 @@ def test_intercepted_production_learning_bundle_and_idempotency(tmp_path,monkeyp
     if bundles:
         assert bundles[0]['status']=='candidate_only' and bundles[0]['implementation']['status']=='candidate_only'
         assert bundles[0]['source_trace_sha256']==op['source_trace_sha256'] and not bundles[0]['outputs_consumed']
+    s.close()
+
+
+def test_four_paired_arms_no_false_consumption_and_zero_duplicate_http(tmp_path,monkeypatch):
+    from atomic_skillgraph.experiments import office_v4_consumption as consumption
+    s,task,trace,spans,op=fixture_case(tmp_path)
+    root=tmp_path/'pairs';root.mkdir();(root/'pilot_bank').mkdir();(root/'programs').mkdir()
+    tasks=[{**asdict(task),'task_id':'toy:'+str(i),'physical_key':'toy-key-'+str(i)} for i in range(2)]
+    plan={'run_id':'paired_fixture','source':str(tmp_path/'source'), 'config':{'transfer_tasks':[t['task_id'] for t in tasks],
+        'paired_arm_limits':{'tokens':200000,'http':10,'native_calls':48}},'parent_bank':str(tmp_path/'oldbank'),
+        'parent_frozen':runner.tree_identity(tmp_path/'oldbank')}
+    save_json(root/'pilot_manifest.json',plan)
+    save_json(root/'authorization.json',{'approved':True,'user_authorization':'TEST intercepted only',
+        'manifest_sha256':sha(root/'pilot_manifest.json'),'phase_limits':runner.PHASE_LIMITS})
+    ledger={'limits':{'token_limit':90000000,'request_limit':480000,'finish_reserve':0},'attempts':{},'unknown_billing':False}
+    save_json(root/'budget/inherited.json',ledger);save_json(root/'budget/usage.json',ledger)
+    save_json(root/'source_records.json',[{'task':t} for t in tasks]);save_json(root/'parent_programs.json',[])
+    labels=tmp_path/'private_labels.json';save_json(labels,{t['task_id']:{'answer':'7'} for t in tasks})
+    save_json(tmp_path/'source/config.json',{'harness':{'evaluator_records':str(labels)}})
+    candidate=validate_proposal(proposal(op),op,spans,['read'],[])
+    program=program_from_response({'source':SOURCE},candidate,s.config['program_environment'],['read'])
+    value=bundle(candidate,program,'fixture',{});value['status']='worker_probe_passed'
+    save_json(root/'pilot_bank'/ (value['id']+'.json'),value);runner.index_outputs(root)
+    monkeypatch.setattr(consumption,'checked',lambda *a,**k:(plan,s.config))
+    seen=http(monkeypatch,[response(finish='stop',content='{"action":"finish","answer":"7"}') for _ in range(4)])
+    result=consumption.consume(root)
+    assert result['paired_arms']==4 and result['new_http']==4 and result['outputs_consumed']==0
+    assert all(r['score']['hard'] for r in runner.rows(root/'pilot_consumption_traces.jsonl'))
+    consumption.consume(root);assert len(seen)==4
+    first=[json.loads(p['messages'][1]['content']) for p in seen[:2]]
+    assert first[0]['tools']==first[1]['tools'] and not first[0]['state']['programs'] and first[1]['state']['programs']
+    assert all('private_labels' not in json.dumps(p) for p in seen)
     s.close()
 
 

@@ -55,11 +55,23 @@ def expected(contract, inputs):
             if op == 'log_ratio': value = math.log(value)
         else: raise ValueError('unsupported_independent_formula')
         return {contract['output_field']: value}
-    if kind == 'table_cell':
+    if kind in {'table_cell', 'series_extract'}:
         rows = table_cells(inputs[contract['text_input']], inputs[contract['column_input']], inputs[contract['unit_input']])
-        matches = [r for r in rows if r['row'] == inputs[contract['row_input']]]
-        if len(matches) != 1: raise ValueError('missing_or_ambiguous_row')
-        return {contract['output_field']: matches[0]['value']}
+        requested = [inputs[contract['row_input']]] if kind == 'table_cell' else inputs[contract['rows_input']]
+        if not isinstance(requested, list) or not requested: raise ValueError('missing_periods')
+        values = []
+        for label in requested:
+            matches = [r for r in rows if r['row'] == label]
+            if len(matches) != 1: raise ValueError('missing_or_ambiguous_row')
+            values.append(matches[0]['value'])
+        return {contract['output_field']: values[0] if kind == 'table_cell' else values}
+    if kind == 'evidence_check':
+        required, text = inputs[contract['required_input']], inputs[contract['text_input']]
+        if (not isinstance(required, list) or not required or not isinstance(text, str)
+                or any(not isinstance(v, str) or not v.strip() for v in required)):
+            raise ValueError('missing_explicit_evidence_requirements')
+        if any(v.casefold() not in text.casefold() for v in required): raise ValueError('missing_required_text')
+        return {contract['output_field']: True}
     if kind == 'retrieval': return None
     raise ValueError('no_independent_oracle')
 
@@ -77,7 +89,9 @@ def probe_cases(bundle, transfer_spans=()):
         if span['origin'] != 'observed_local_step': continue
         values = {}
         for name, ref in candidate['input_provenance'].items():
-            try: values[name] = at(span[ref['section']], ref['path'])
+            try:
+                values[name] = at(span['source_task'] if ref['section']=='task' else span[ref['section']], ref['path'])
+                if 'slice' in ref: values[name] = values[name][ref['slice']['start']:ref['slice']['end']]
             except (ValueError, KeyError): break
         if set(values) != set(inputs) or values == inputs: continue
         try:
@@ -100,6 +114,16 @@ def probe_cases(bundle, transfer_spans=()):
             variation['inputs'][key] = (values[:-1] if contract['operation'] in {'sum', 'mean', 'sample_std'} else list(reversed(values)))
         negative['inputs'][key] = []
         negative['transformation'] = 'remove observed numeric inputs'
+    elif contract['kind'] in {'series_extract', 'evidence_check'}:
+        key = contract['text_input']
+        if 'transfer_span_id' not in variation:
+            if contract['kind'] == 'series_extract':
+                labels = inputs[contract['rows_input']]
+                if len(labels) < 2: return {'status':'coverage_insufficient','reason':'no_changed_observed_series','cases':[]}
+                variation['inputs'][contract['rows_input']] = labels[:-1]
+            else: variation['inputs'][key] = '\n' + inputs[key]
+        negative['inputs'][key] = ''
+        negative['transformation'] = 'remove required acquired evidence'
     else:
         text_key, row_key = contract['text_input'], contract['row_input']
         rows = table_cells(inputs[text_key], inputs[contract['column_input']], inputs[contract['unit_input']])
@@ -121,10 +145,7 @@ def probe_cases(bundle, transfer_spans=()):
 
 def verify_result(contract, case, result, events):
     if case['label'] == 'negative':
-        if result.get('status') == 'not_found' and any(
-                (e['name'] == 'grep_page' and e['result'].get('data', {}).get('complete') is False)
-                or (e['name'] == 'grep' and isinstance(e['result'].get('data'), list) and len(e['result']['data']) >= 40)
-                for e in events):
+        if result.get('status') == 'not_found' and unfinished_search(events):
             return False, 'unfinished_pagination_is_not_not_found'
         passed = result.get('status') in {'not_found', 'needs_input', 'blocked'} and bool(result.get('detail'))
         return passed, 'explicit_abstention' if passed else 'negative_did_not_report_gap'
@@ -132,7 +153,7 @@ def verify_result(contract, case, result, events):
     if contract['kind'] != 'retrieval':
         for field, value in case['expected'].items():
             actual = result.get('outputs', {}).get(field)
-            if type(actual) not in (int, float) or not math.isclose(actual, value, rel_tol=1e-9, abs_tol=1e-9):
+            if not equal_value(actual, value):
                 return False, 'independent_formula_or_cell_mismatch'
         return True, 'independent_local_oracle'
     output = result.get('outputs', {})
@@ -142,13 +163,31 @@ def verify_result(contract, case, result, events):
         offset = data.get('start_offset', args['offset'])
         if (output.get('text') and output['text'] == data['text'] and output.get('source_path') == args['path']
                 and output.get('source_offset') == offset):
-            incomplete = any((e['name'] == 'grep_page' and e['result'].get('data', {}).get('complete') is False)
-                or (e['name'] == 'grep' and isinstance(e['result'].get('data'), list) and len(e['result']['data']) >= 40)
-                for e in events)
+            incomplete = unfinished_search(events)
             if incomplete and output.get('complete') is not False: return False, 'unfinished_search_claimed_complete'
             if not isinstance(output.get('complete'), bool): return False, 'missing_search_completeness'
             return True, 'actual_worker_read_receipt'
     return False, 'no_matching_worker_read_receipt'
+
+
+def unfinished_search(events):
+    latest = {}
+    for event in events:
+        if event['name'] not in {'grep', 'grep_page'}: continue
+        args = event.get('arguments', {})
+        key = digest({k:args[k] for k in ('pattern','paths') if k in args})
+        result = event.get('result', {}); data = result.get('data')
+        latest[key] = (not result.get('accepted', True) or
+            (data.get('complete') is not True if isinstance(data, dict) else not isinstance(data,list) or len(data)>=40))
+    return any(latest.values())
+
+
+def equal_value(actual, expected):
+    if type(expected) in (int, float):
+        return type(actual) in (int, float) and math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-9)
+    if isinstance(expected, list):
+        return isinstance(actual, list) and len(actual) == len(expected) and all(equal_value(a,e) for a,e in zip(actual,expected))
+    return type(actual) is type(expected) and actual == expected
 
 
 def execute_probe(bundle, case, config, task, worker_settings=None):

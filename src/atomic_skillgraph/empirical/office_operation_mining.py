@@ -127,8 +127,8 @@ def material(opportunity, spans, window_chars=12000):
         if isinstance(value, str) and len(value) > window_chars:
             return {'window': value[:window_chars], 'offset': 0, 'end': window_chars,
                     'full_size': len(value), 'full_sha256': digest(value), 'source_path': list(path)}
-        if isinstance(value, list) and len(value) > 40:
-            return {'items': [window(v, (*path, i)) for i, v in enumerate(value[:40])],
+        if isinstance(value, list) and len(value) > 3:
+            return {'items': [window(v, (*path, i)) for i, v in enumerate(value[:3])],
                     'full_size': len(value), 'full_sha256': digest(value), 'source_path': list(path)}
         if isinstance(value, dict): return {k: window(v, (*path, k)) for k, v in value.items()}
         if isinstance(value, list): return [window(v, (*path, i)) for i, v in enumerate(value)]
@@ -136,7 +136,8 @@ def material(opportunity, spans, window_chars=12000):
     selected = [by_id[e['id']] for e in opportunity['events'][-2:]]
     return {'opportunity': opportunity, 'spans': [{**{k: v for k, v in s.items() if k != 'available_fields'},
         'arguments': window(s['arguments']), 'result': window(s['result']),
-        'available_fields': [f for f in s['available_fields'] if len(f['path']) <= 4][:128]} for s in selected]}
+        'available_fields': [f for f in s['available_fields'] if len(f['path']) <= 2
+                             and all(type(p) is not int or p < 3 for p in f['path'])][:32]} for s in selected]}
 
 
 def bind_inputs(spec, spans, source_ids):

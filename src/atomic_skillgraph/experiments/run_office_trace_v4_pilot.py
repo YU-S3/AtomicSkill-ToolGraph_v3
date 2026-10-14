@@ -195,6 +195,13 @@ def index_outputs(root):
     jsonl(root / 'worker_probe_receipts.jsonl', receipts)
 
 
+def rejected_response(path):
+    """Original response/error only; its full sent payload remains in the immutable request file."""
+    record = read(path)
+    return {**{k:record[k] for k in ('status','error','error_code','payload_sha256') if k in record},
+            'model_response': {k:record.get('turn',{}).get(k) for k in ('content','tool_calls','finish_reason')}}
+
+
 def learn(root):
     plan, config = checked(root, corpus=True)
     gate = read(root / 'zero_http_check.json')
@@ -222,7 +229,7 @@ def learn(root):
                     if state['repair_used'] and not repair_path.exists(): raise
                     state['repair_used'] = True; save_json(path, state)
                     proposal, _ = clients['extractor'].ask(key + '/proposal_repair', EXTRACTOR,
-                        {**data, 'original_response': read(root / 'requests' / key / 'proposal.json'),
+                        {**data, 'original_response': rejected_response(root / 'requests' / key / 'proposal.json'),
                          'actual_error': str(exc)}, repair=True)
                     candidate = validate_proposal(proposal, op, spans, permissions['allowed_names'], existing)
                 state['candidate'] = candidate; save_json(path, state)
@@ -241,7 +248,7 @@ def learn(root):
                 state['errors'].append({'stage': 'builder', 'error': str(exc)})
                 if state['repair_used'] and not (root / 'requests' / key / 'repair.json').exists(): raise
                 state['repair_used'] = True; save_json(path, state)
-                repair_data = {**build_material, 'original_response': read(root / 'requests' / key / 'build.json'),
+                repair_data = {**build_material, 'original_response': rejected_response(root / 'requests' / key / 'build.json'),
                                'actual_error': str(exc)}
                 response, receipt = clients['tool_builder'].ask(key + '/repair', BUILDER, repair_data, repair=True)
                 program = program_from_response(response, candidate, config['program_environment'], permissions['allowed_names'])
@@ -274,14 +281,14 @@ def probe(root):
         if probes['status'] != 'ready':
             value.update(probe_complete=True, coverage='coverage_insufficient', probe_plan=probes)
             save_json(path, value); continue
-        task_id = value['generation_basis']['source_task']['task_id']
-        task = next(s['task'] for s in read(root / 'source_records.json') if s['task']['task_id'] == task_id)
+        source_records = read(root / 'source_records.json')
         receipts = []
         for case in probes['cases']:
             output = folder / (case['label'] + '.json'); intent = output.with_suffix('.intent.json')
             if output.exists(): receipts.append(read(output)); continue
             if intent.exists(): raise RuntimeError('Unresolved Worker probe; preserve receipt and inspect before retry')
             save_json(intent, {'case_hash': digest(case), 'started_at': utc(), 'program_hash': digest(value['program'])})
+            task = next(s['task'] for s in source_records if s['task']['physical_key'] == case['source_case_id'])
             receipt = execute_probe(value, case, config, task)
             save_json(output, receipt); receipts.append(receipt)
         passed = all(r['passed'] for r in receipts)
@@ -314,6 +321,9 @@ def repair(root):
         try:
             response, receipt = client.ask(key, BUILDER, data, repair=True)
             program = program_from_response(response, value['candidate'], config['program_environment'], permissions['allowed_names'])
+            if program['id'] == value['id']:
+                value.update(repair_error='unchanged_source_after_error',worker_repair_pending=False)
+                save_json(path,value);continue
             replacement = bundle(value['candidate'], program, root / 'requests' / key, response)
             replacement.update(opportunity_index=value['opportunity_index'], repair_used=True, probe_repair=True,
                                parent_program_id=value['id'], response_metadata=receipt['turn'].get('provider_metadata'))

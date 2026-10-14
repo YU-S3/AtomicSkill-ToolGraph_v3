@@ -34,6 +34,10 @@ probe_contract declares an independently checkable local operation:
             values_input:<bound numeric array field>,output_field:<number field>};
   table_cell: {kind:"table_cell",text_input:<text field>,row_input:<exact row label field>,
               column_input:<exact header field>,unit_input:<unit field>,output_field:<number field>}.
+  series_extract: same as table_cell, with rows_input:<observed row-label array> instead of row_input;
+                  output_field names the ordered numeric array, all rows must be uniquely present.
+  evidence_check: {kind:"evidence_check",text_input:<text>,required_input:<observed string array>,
+                   output_field:<boolean field>}; checks exact presence only, not numeric truth.
 Other operations may be proposed with kind=unverified, but will remain candidate_only/coverage_insufficient.
 Do not claim verified headers, units or completeness absent from evidence. Stop on missing/ambiguous data.'''
 
@@ -120,6 +124,12 @@ class RequestStore:
 
 
 def validate_proposal(proposal, opportunity, spans, tools, existing):
+    try: return _validate_proposal(proposal, opportunity, spans, tools, existing)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError('proposal_schema: use the advertised object/list/string field types: ' + str(exc)) from exc
+
+
+def _validate_proposal(proposal, opportunity, spans, tools, existing):
     allowed = {'decision', 'source_opportunity_ids', 'atomic', 'program_spec', 'evidence_limitations', 'reason', 'existing_program_id'}
     if set(proposal) - allowed: raise ValueError('extra_schema_field: remove unadvertised proposal fields')
     if proposal.get('source_opportunity_ids') != [opportunity['id']]:
@@ -152,6 +162,18 @@ def validate_proposal(proposal, opportunity, spans, tools, existing):
     if not isinstance(spec.get('result_fields'), list) or not set(spec['result_fields']) <= set(spec['output_schema']['properties']):
         raise ValueError('result_fields must name actual output schema fields')
     if not isinstance(spec.get('probe_contract'), dict): raise ValueError('Missing local probe contract')
+    contract = spec['probe_contract']; kind = contract.get('kind')
+    if kind not in {'retrieval','numeric','table_cell','series_extract','evidence_check','unverified'}:
+        raise ValueError('probe_contract: use one advertised local oracle, or unverified')
+    inputs_needed = {'numeric':['values_input'],'table_cell':['text_input','row_input','column_input','unit_input'],
+        'series_extract':['text_input','rows_input','column_input','unit_input'],
+        'evidence_check':['text_input','required_input']}.get(kind,[])
+    for field in inputs_needed:
+        if contract.get(field) not in spec['input_schema']['properties']: raise ValueError('probe_contract: missing input field '+field)
+    if inputs_needed and contract.get('output_field') not in spec['output_schema']['properties']:
+        raise ValueError('probe_contract: missing output field')
+    if kind=='numeric' and contract.get('operation') not in {'sum','mean','difference','ratio','log_ratio','sample_std'}:
+        raise ValueError('probe_contract: unsupported independent formula; use unverified')
     source_ids = [e['id'] for e in opportunity['events'][-2:]]
     values, bindings = bind_inputs(spec, spans, source_ids)
     return {**deepcopy(proposal), 'bound_inputs': values, 'input_provenance': bindings,
@@ -159,6 +181,12 @@ def validate_proposal(proposal, opportunity, spans, tools, existing):
 
 
 def program_from_response(response, candidate, environment, tools):
+    try: return _program_from_response(response, candidate, environment, tools)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError('builder_schema: source and declarations must match the advertised field types: ' + str(exc)) from exc
+
+
+def _program_from_response(response, candidate, environment, tools):
     if set(response) != {'source'} or not isinstance(response['source'], str):
         raise ValueError('builder_schema: return exactly {source: Python source}')
     spec = candidate['program_spec']
