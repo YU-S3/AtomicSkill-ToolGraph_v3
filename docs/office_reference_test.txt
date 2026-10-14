@@ -1,0 +1,44 @@
+OfficeQA authored reference Bank evaluation
+
+This entry imports the supplied manual_reference_bank.v2 without changing asset
+IDs or Program source. It is a separate human-authored reference control. It does
+not initialize an Ours Train, inherit learned qualification, or use V4 candidates.
+
+prepare requires a fresh output directory. It registers all assets with Bank.put,
+executes independent reference calculations through the existing Docker interfaces,
+and calls the production validate_on_source / Bank.record_validation pipeline.
+The receipts identify manual_reference_validation and reference_probe, not Train.
+Two public-input successes and one abstention check cover each of the ten Programs.
+The four retrieval Programs also run against two actual public Treasury reports.
+Full read pages use structured Worker outputs, not the bounded stdout channel.
+The narrow table parsers are checked against the supplied synthetic pipe tables;
+this does not assert coverage of arbitrary Treasury layouts. Unsupported layouts
+retain their original needs_input / not_found behavior. No Program is rewritten.
+The four-node program-only Workflow is run by the production Executor with model
+calls forbidden. Dynamic workflows remain actual Runtime work.
+
+Only after all checks pass does Bank.freeze produce the independent read-only
+Bank. test uses run_empirical, the ordinary Planner/Runtime, the official scorer,
+and all canonical Test102 in manifest order. It performs no learning. Raw requests,
+traces, usage, errors, timestamps and before/after Frozen hashes are retained.
+
+Example (from a clean committed WSL checkout, PYTHONPATH=src):
+
+python -m atomic_skillgraph.experiments.run_office_reference_test prepare \
+  --source <safely-extracted-supplied-archive> \
+  --parent <completed-v3-run-with-90M-ledger> --output <fresh-independent-run>
+python -m atomic_skillgraph.experiments.run_office_reference_test test \
+  --output <fresh-independent-run> --env-file <existing-env-file>
+
+The archived source extraction receipt is required. No model request occurs in
+prepare. The Test launch records the user's explicit 2026-10-15 authorization.
+Each Test task retains 192,000 tokens / 48 native calls; total Test token cap is
+19,584,000. Historical charges are carried forward unchanged. The separately
+approved V4 pilot reserves at most 1,800,000 tokens / 120 HTTP, so the two independent
+ledgers cannot jointly exceed the original 90M / 480,000 HTTP authority. Aggregate
+accounting adds the historical total once plus each child's new attempts.
+
+An existing Test needs the same source/config/Bank/input identities. The ordinary
+checkpoint rules reject ambiguous interrupted execution; there is no blind retry.
+STOP_AFTER_TASK in the test directory requests a task-boundary pause. Do not alter
+or promote Bank assets after Test begins.
