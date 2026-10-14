@@ -9,6 +9,8 @@ from .checkpoint import save_json
 
 VERSION = 'manual-reference.graph-test.v1'
 LIMITS = {'workflow_calls': 1, 'program_executions': 2, 'dynamic_nodes': 3}
+SEARCHQA_VERSION = 'human.searchqa.reference-test.v1'
+SEARCHQA_LIMITS = {'workflow_calls': 1, 'program_executions': 3, 'dynamic_nodes': 1}
 
 
 class WorkflowInputError(ValueError):
@@ -17,6 +19,18 @@ class WorkflowInputError(ValueError):
 
 def validate_config(config):
     e = config['experiment']
+    if e.get('manual_reference_version') == SEARCHQA_VERSION:
+        llm = config['llm']
+        if (e.get('benchmark') != 'searchqa' or config['harness']['adapter'] != 'searchqa'
+                or e.get('runtime_mode') != 'frozen' or e.get('searchqa_method_version')
+                or e.get('choice_method_version') or e.get('manual_reference_limits') != SEARCHQA_LIMITS
+                or not e.get('manual_reference_manifest') or config['budget']['eval_task_tokens'] != 96000
+                or llm['runtime']['max_completion_tokens'] != 32768
+                or llm['runtime']['reasoning_effort'] != 'high'
+                or {**llm.get('protocol', {}), **llm['runtime'].get('protocol', {})}.get('thinking_type') != 'enabled'
+                or config['runtime']['choice_bounded_finalization']['enabled']):
+            raise ValueError('SearchQA reference requires its independent frozen Test contract')
+        return
     if (e.get('manual_reference_version') != VERSION or e.get('benchmark') != 'livemath'
             or e.get('runtime_mode') != 'frozen' or e.get('choice_method_version')
             or e.get('manual_reference_limits') != LIMITS or not e.get('manual_reference_manifest')):
@@ -32,7 +46,7 @@ class ReferenceView:
         self.bank = bank
         path = Path(manifest_path)
         manifest = json.loads(path.read_text())
-        if manifest['version'] != VERSION or manifest['bank_digest'] != bank.digest():
+        if manifest['version'] not in {VERSION, SEARCHQA_VERSION} or manifest['bank_digest'] != bank.digest():
             raise ValueError('Manual Bank identity changed')
         self.qualified = set()
         for pid, records in manifest['program_receipts'].items():
@@ -48,7 +62,7 @@ class ReferenceView:
                     raise ValueError('Manual Worker receipt changed')
                 row = json.loads(data); receipt = row['result'].get('execution_receipt', {})
                 expected_ok=(row['result']['status']=='needs_input' if row['expected'] is None else
-                    row['result']['status']=='ok' and row['result'].get('outputs')==row['expected'])
+                    row['result']['status']==row.get('expected_status','ok') and row['result'].get('outputs',{})==row['expected'])
                 if (not row['passed'] or not expected_ok or row['role']!=ref['role'] or row['program_id'] != pid or row['rpc_calls']
                         or receipt.get('exit_code') != 0 or receipt.get('image_digest') != program['environment']['image_digest']
                         or '--network=none' not in receipt.get('command', [])):
@@ -85,6 +99,13 @@ public premises; never invent a finite toy instance, an option truth value or do
 An incomplete/infinite domain is needs_input. Finite computations never prove an unrelated domain theorem.
 Interpret only actual preceding outputs. No tools or code execution in this response. Do not guess missing fields.'''
 
+SEARCHQA_NODE_PROMPT = '''Execute only the current node of this human-authored SearchQA workflow.
+Use the complete public question/context and actual predecessor outputs. Return exactly one JSON object:
+{"status":"ok"|"needs_input", "outputs":{...}, "references":[{"task_path":["inputs","context"],"quote":"exact source text"}]}.
+Meet the supplied output schema. Cite exact public text for an ok answer; lexical matches alone are not
+semantic entailment. Resolve the question's entity, relation and time constraints. Abstain if unsupported.
+No tools, hidden answers or invented execution. This is an authored reference, not learned Ours.'''
+
 
 def execute_workflow(system, task, broker, workflow_id, arguments, key, remaining_programs):
     """Resume node results and physical responses, preserving real ordered dataflow."""
@@ -92,15 +113,23 @@ def execute_workflow(system, task, broker, workflow_id, arguments, key, remainin
     from .math_program_probe import PureBroker
     from .contracts import ValueStore, handoff_requirements
     s, cp = system, system.checkpoint
+    version = s.config['experiment']['manual_reference_version']
+    limits = s.config['experiment']['manual_reference_limits']
     workflow = s.bank.get(workflow_id)
     if not workflow or 'nodes' not in workflow: raise WorkflowInputError('Unknown supplied Workflow')
     validate_workflow(workflow, bank=s.bank)
     if len([n for n in workflow['nodes'] if n['execution_mode']=='program']) > remaining_programs:
         raise WorkflowInputError('Workflow exceeds remaining local Program execution allowance')
-    if len([n for n in workflow['nodes'] if n['execution_mode']=='dynamic']) > LIMITS['dynamic_nodes']:
+    if len([n for n in workflow['nodes'] if n['execution_mode']=='dynamic']) > limits['dynamic_nodes']:
         raise WorkflowInputError('Workflow exceeds frozen dynamic-node allowance')
     if set(arguments) & {'goal','inputs'}:
         raise WorkflowInputError('Workflow arguments cannot replace the public question')
+    arguments = deepcopy(arguments)
+    if version == SEARCHQA_VERSION:
+        for name, value in {'question':task.goal, 'context':task.inputs['context']}.items():
+            if name in arguments and arguments[name] != value:
+                raise WorkflowInputError('Workflow cannot replace the canonical public '+name)
+            arguments[name] = value
     identity = digest([workflow, arguments, task.goal, task.inputs])
     all_states = deepcopy(cp.state.get('manual_workflows', {})) if cp else {}
     state = all_states.get(key, {'identity':identity,'nodes':[],'results':{},'program_executions':0})
@@ -113,7 +142,7 @@ def execute_workflow(system, task, broker, workflow_id, arguments, key, remainin
         if cp: cp.commit_decision(decision,'applied',manual_workflows=all_states)
     def finish(status, outputs, reason=None):
         result={'status':status,'outputs':outputs,'workflow_id':workflow_id,'nodes':deepcopy(state['nodes']),
-            'program_executions':state['program_executions'],'authority':VERSION,'reason':reason}
+            'program_executions':state['program_executions'],'authority':version,'reason':reason}
         state['finished']=result;persist();return result
     for index,node in enumerate(workflow['nodes']):
         if index < len(state['nodes']): continue
@@ -152,8 +181,8 @@ def execute_workflow(system, task, broker, workflow_id, arguments, key, remainin
                     if any(n.get('program_id')==p['id'] and node['id'] in n.get('after',[]) for n in workflow['nodes'])],
                 'authority':'human_authored_reference_not_learned_ours'}
             try:
-                raw=s.agent('runtime',NODE_PROMPT,material,None,None,repair_limit=0,
-                    owner_state_version=VERSION+':'+key+':'+node['id'])
+                raw=s.agent('runtime',SEARCHQA_NODE_PROMPT if version == SEARCHQA_VERSION else NODE_PROMPT,material,None,None,repair_limit=0,
+                    owner_state_version=version+':'+key+':'+node['id'])
             except ValueError as exc:
                 if not getattr(exc,'model_authored',False):raise
                 return finish('needs_input',{},str(exc))
@@ -164,7 +193,7 @@ def execute_workflow(system, task, broker, workflow_id, arguments, key, remainin
                     'outputs':{'type':'object'},'references':{'type':'array','items':{'type':'object'}}},['status','outputs','references']))
                 if result['status']=='ok':
                     validate_schema_instance(result['outputs'],output_schema)
-                    if not node.get('after') and not result['references']:raise ValueError('Missing source grounding')
+                    if (not node.get('after') or version == SEARCHQA_VERSION) and not result['references']:raise ValueError('Missing source grounding')
                     for ref in result['references']:
                         text={'goal':task.goal,'inputs':task.inputs}
                         for part in ref['task_path']:text=text[part]

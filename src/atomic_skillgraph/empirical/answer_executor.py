@@ -76,6 +76,9 @@ class AnswerExecutor:
         p4=s.config['experiment'].get('choice_method_version')==MATH_P4_VERSION
         if p4:version=MATH_P4_VERSION+'.answer.v1'
         manual=s.config['experiment'].get('manual_reference_version')
+        from .manual_reference import SEARCHQA_VERSION as MANUAL_SEARCHQA_VERSION
+        manual_searchqa = manual == MANUAL_SEARCHQA_VERSION
+        local_limit = s.config['experiment']['manual_reference_limits']['program_executions'] if manual else 2
         if manual:version=manual+'.answer.v1'
         trial=s.config['experiment'].get('math_program_evaluation_version')
         if trial:version=trial+'.answer.v1'
@@ -167,7 +170,17 @@ class AnswerExecutor:
             'continue reasoning from actual results. At most two local executions. Use used_results for results actually '
             'used, replaced_results for superseded work. Finite arithmetic/examples do not prove a general theorem. '
             'All question conditions and choices remain available. read_result reads an existing result_id/path.')
-        if manual:
+        if manual_searchqa:
+            prompt = prompt.replace('At most two local executions.', 'At most three local executions.')
+            prompt += ('\nThis is a human-authored SearchQA reference control, not learned Ours. '
+                'The twelve supplied Skills are conditional procedures, not factual evidence. '
+                'call_workflow uses a supplied workflow ID in name and arguments. At most one workflow; '
+                'its ordered nodes count toward three total local Program executions. Dynamic nodes use the same Runtime and budget. '
+                'The Host binds workflow question/context to the unchanged full public input. Provide only extra parameters such as subject/mode. '
+                'Direct Programs require explicit inputs or argument_refs to real earlier results. '
+                'Program matches/offset checks are intermediate evidence, not semantic entailment. '
+                'If a program does not apply, solve directly. Submit <answer>short answer</answer> and mark used_results when used.')
+        elif manual:
             prompt+='\nThis is an explicitly human-authored reference Bank control arm. All twelve supplied Skills are conditional procedures, not facts or proofs. '+(
                 'You may call_workflow using a supplied workflow ID in name and explicit arguments. At most one Workflow and two total Program executions. '
                 'Its stored ordered nodes run with actual dataflow; dynamic nodes use this same Runtime and parent budget. '
@@ -192,7 +205,7 @@ class AnswerExecutor:
             local_used=len(attempts)+len(temporary)+sum(w['program_executions'] for w in workflows)
             material = {'goal':task.goal,'inputs':task.inputs,'guidance':guidance,
                 'programs':s.bank.program_options(task.goal), 'local_results':[context.view(r) for r in results],
-                'remaining_local_executions':max(0,2-local_used),
+                'remaining_local_executions':max(0,local_limit-local_used),
                 'worker_resources':getattr(s.adapter,'worker_resources',{}), 'local_reads':context.local_reads[-2:],
                 'content_parts':getattr(s.adapter,'content_parts',lambda:[])(), 'answer_protocol_version':version}
             if manual:material.update(workflows=s.bank.workflow_options(),remaining_workflow_calls=max(0,1-len(workflows)))
@@ -246,7 +259,7 @@ class AnswerExecutor:
                 try:context.read(step.get('result_id',''),path=step.get('path',[]))
                 except (ValueError,KeyError):return finish('','invalid_result_read')
                 save(); continue
-            if local_used>=2:
+            if local_used>=local_limit:
                 return finish('','internal_execution_limit')
             if manual and step['action']=='call_workflow':
                 from .manual_reference import execute_workflow, WorkflowInputError
@@ -255,10 +268,12 @@ class AnswerExecutor:
                 try:
                     try:args=context.bind(step.get('arguments',{}),step.get('argument_refs',{}))
                     except (ValueError,KeyError) as exc:raise WorkflowInputError(str(exc)) from exc
-                    result=execute_workflow(s,task,broker,step.get('name',''),args,'answer_'+str(index),2-local_used)
+                    result=execute_workflow(s,task,broker,step.get('name',''),args,'answer_'+str(index),local_limit-local_used)
                 except WorkflowInputError as exc:
                     result={'status':'needs_input','outputs':{},'reason':str(exc),'program_executions':0,'nodes':[]}
-                rid=context.register(digest([version,index,'workflow']),result,name=step.get('name',''))
+                from .public_results import MANUAL_GRAPH_EXECUTION
+                rid=context.register(digest([version,index,'workflow']),result,name=step.get('name',''),
+                    origin=MANUAL_GRAPH_EXECUTION if manual_searchqa else None)
                 workflows.append({'workflow_id':step.get('name'),'result_id':rid,'status':result['status'],
                     'program_executions':result['program_executions'],'outputs_consumed':False,'nodes':result['nodes']})
                 results.append(rid)
@@ -293,7 +308,9 @@ class AnswerExecutor:
             result=normalize_program_result(s.adapter,p,s.worker.execute(p,args,broker),workspace_before=before)
             aid=uuid4().hex
             from .public_results import PROGRAM_EXECUTION
-            rid=context.register(aid,result,name=p['id'],arguments=args,origin=PROGRAM_EXECUTION)
+            from .public_results import MANUAL_PROGRAM_EXECUTION
+            rid=context.register(aid,result,name=p['id'],arguments=args,
+                origin=MANUAL_PROGRAM_EXECUTION if manual_searchqa else PROGRAM_EXECUTION)
             attempt={'id':aid,'program_id':p['id'],'task_key':task.physical_key,'origin':'online','split':task.split,
                 'kind':kind,'arguments':args,'result_id':rid,'status':result['status'],'outcome':'normal',
                 'basis':None,'calls':result.get('calls',0),'local_check':'unavailable','outputs_consumed':False,
