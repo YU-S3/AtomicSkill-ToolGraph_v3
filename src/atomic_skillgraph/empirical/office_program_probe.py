@@ -157,9 +157,21 @@ def verify_result(contract, case, result, events):
                 return False, 'independent_formula_or_cell_mismatch'
         return True, 'independent_local_oracle'
     output = result.get('outputs', {})
+    inputs = case.get('inputs', {})
+    query_key = contract.get('query_input') or next((k for k in ('pattern','query') if k in inputs), None)
+    if query_key is None: return False, 'no_observed_query_control'
+    searches = [e for e in events if e['name'] in {'grep','grep_page'} and e.get('result',{}).get('accepted')
+                and e.get('arguments',{}).get('pattern') == inputs[query_key]]
+    if 'paths' in inputs:
+        searches = [e for e in searches if 'paths' in e['arguments'] and sorted(e['arguments']['paths']) == sorted(inputs['paths'])]
+    else:
+        searches = [e for e in searches if 'paths' not in e['arguments']]
+    if not searches: return False, 'query_or_scope_not_used_in_actual_rpc'
+    hits = [h for e in searches for h in (e['result']['data'].get('hits',[]) if isinstance(e['result']['data'],dict) else e['result']['data'])]
     reads = [e for e in events if e['name'] in {'read', 'read_context'} and e.get('result', {}).get('accepted')]
     for event in reads:
         data = event['result']['data']; args = event['arguments']
+        if not any(h.get('path')==args['path'] and h.get('offset')==args['offset'] for h in hits): continue
         offset = data.get('start_offset', args['offset'])
         if (output.get('text') and output['text'] == data['text'] and output.get('source_path') == args['path']
                 and output.get('source_offset') == offset):

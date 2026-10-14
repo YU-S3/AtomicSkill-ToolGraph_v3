@@ -88,7 +88,7 @@ def check(root):
         finally: adapter.close()
     for legacy in (True, False):
         result, events = run_case('legacy_search' if legacy else 'current_search', search, {**inputs, 'legacy': legacy})
-        passed, reason = verify_result({'kind':'retrieval'}, {'label':'positive'}, result, events)
+        passed, reason = verify_result({'kind':'retrieval'}, {'label':'positive','inputs':{**inputs,'legacy':legacy}}, result, events)
         if not passed: raise AssertionError('Real corpus search gate: ' + reason)
     result, events = run_case('no_match', search, {**inputs, 'pattern': '(?!)', 'legacy': False})
     assert verify_result({'kind':'retrieval'}, {'label':'negative'}, result, events)[0]

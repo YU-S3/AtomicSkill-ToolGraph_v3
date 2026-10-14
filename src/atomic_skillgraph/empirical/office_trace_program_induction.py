@@ -29,7 +29,9 @@ slice:{start:<zero-based character index>,end:<exclusive index>}. Host copies ex
 no invented replacement value or inferred number is permitted. A uniquely observed
 argument with the same name can be defaulted by Host. A missing/hypothesized value cannot be bound.
 probe_contract declares an independently checkable local operation:
-  retrieval: {kind:"retrieval"}; outputs must contain text,source_path,source_offset and complete;
+  retrieval: {kind:"retrieval"}; bind pattern (or query) and optional paths. Pass the query unchanged
+             to actual grep/grep_page and read one of its actual hits; outputs must contain
+             text,source_path,source_offset and complete;
   numeric: {kind:"numeric",operation:"sum"|"mean"|"difference"|"ratio"|"log_ratio"|"sample_std",
             values_input:<bound numeric array field>,output_field:<number field>};
   table_cell: {kind:"table_cell",text_input:<text field>,row_input:<exact row label field>,

@@ -269,6 +269,8 @@ def test_real_docker_search_variation_negative_and_illegal_scope(tmp_path):
     assert probes['status']=='ready'
     receipts=[execute_probe(value,c,config,asdict(task)) for c in probes['cases']]
     assert all(r['passed'] for r in receipts)
+    ignored={**probes['cases'][0],'inputs':{**probes['cases'][0]['inputs'],'pattern':'ignored-new-query'}}
+    assert not verify_result({'kind':'retrieval'},ignored,receipts[0]['result'],receipts[0]['events'])[0]
     assert all(r['result']['execution_receipt']['image_digest']==config['program_environment']['image_digest'] for r in receipts)
     assert any(e['name']=='read_context' for e in receipts[0]['events'])
     bad={**probes['cases'][2],'inputs':{**candidate['bound_inputs'],'paths':['../outside.txt']}}
