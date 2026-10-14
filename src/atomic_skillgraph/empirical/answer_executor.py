@@ -75,6 +75,11 @@ class AnswerExecutor:
         from . import MATH_P4_VERSION
         p4=s.config['experiment'].get('choice_method_version')==MATH_P4_VERSION
         if p4:version=MATH_P4_VERSION+'.answer.v1'
+        from .searchqa_guidance import VERSION as SEARCHQA_VERSION, validate_wire
+        searchqa=s.config['experiment'].get('searchqa_method_version')==SEARCHQA_VERSION
+        if searchqa:
+            version=SEARCHQA_VERSION+'.answer.v1'
+            validate_wire(guidance)
         schema=deepcopy(STEP)
         if public:
             schema['properties'].update(public_process={'type':'string','minLength':1,'maxLength':512},
@@ -232,6 +237,11 @@ class AnswerExecutor:
                     p=s.bank.get(step.get('name',''))
                     if not s.bank.program_eligible(p): raise ValueError('Program is not visible and locally validated')
                     if p['environment']!=s.config['program_environment']: raise ValueError('Program environment is incompatible')
+                    if searchqa:
+                        from .searchqa_program_probe import inputs
+                        expected=inputs(task)
+                        if not args:args=expected
+                        if args!=expected:raise ValueError('R2 parameters must bind the current full public question/context')
                     kind='program'
                 validate_schema_instance(args,p['input_schema'])
             except (ValueError,KeyError,SyntaxError) as exc:

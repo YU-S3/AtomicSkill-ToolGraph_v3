@@ -1,0 +1,17 @@
+method_version: searchqa.train-trace-capability.r2
+seed: 42
+phase_limits:
+  learn: {tokens: 800000, http: 60}
+  worker_probe: {tokens: 1200000, http: 80}
+  train_probe: {tokens: 500000, http: 80}
+  val: {tokens: 600000, http: 144}
+  test_full: {tokens: 8000000, http: 4200}
+  test_off: {tokens: 8000000, http: 4200}
+authorized_stages: [learn, worker_probe, train_probe, val]
+authorization: User approved P1-P4 3100000 tokens / 364 HTTP in this task on 2026-10-14; no phase borrowing; no Test authorization.
+utility_rule: observe_only_user_decides_after_val
+max_atomic_candidates: 12
+max_program_specs: 4
+builder_generations: 2
+wire_max_bytes: 65536
+partition: {induction: 240, worker_probe: 30, utility_probe: 30}

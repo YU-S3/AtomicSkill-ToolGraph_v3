@@ -256,3 +256,40 @@ EXISTING_RESULT_ID is a placeholder: replace it with a real supplied result ID, 
 Each ToolCall arguments is one flat JSON object, never concatenated JSON or a direct environment-tool ToolCall.
 Plan REF values are objects, e.g. {"task":"field"}, {"from":"node","field":"output"},
 {"literal":3}, {"unresolved":"reason"}; never bare strings."""
+SEARCHQA_INDUCTION_PROMPT = '''Induce at most one transferable public-text procedure from the supplied distinct Train cases.
+These are historical direct answers, NOT executed operations. The post-hoc answer spans are Host text matches,
+not proofs of a historical reasoning process. Never claim Python or retrieval was executed.
+Return candidate or honest no_change through submit_searchqa_candidate. Follow candidate_contract exactly.
+Use at least two supplied case_id values and a real document reference from each. Offsets are Unicode positions
+in the original context; reuse an exact supplied document start/end/quote_sha with basis posthoc_public_check.
+Applicability must use the enumerated public-structure pattern and prerequisites, not specific entities/answers.
+goal <=160 characters; all procedure steps plus 'Fallback: ' and stop_condition together <=600 characters.
+Describe reusable operations and when to decline; do not copy source answers, factual trivia, question IDs,
+long original quotations or entity-to-answer tables. parent_ids is empty for a new candidate.
+The candidate is advisory only, not yet useful or executable. Missing cross-case support means no_change.'''
+
+SEARCHQA_PROGRAM_SPEC_PROMPT = '''Propose one optional deterministic Python intermediate capability supporting this real Atomic.
+No historical code execution exists. proposal_origin must be candidate_derived_from_text. Never invent an
+operation_id, local_evidence_ref, expected correct answer or successful test. Use exactly the provided spec_contract.
+The supported output is bounded exact public DOC spans with Unicode start/end and quote (<=600 chars), at most 8.
+selection_basis describes a verifiable property of EVERY returned window: question_term (a non-stopword question
+term occurs), date_or_number (a digit occurs), alias_surface (an explicit alias/nickname/abbreviation cue), or
+document_partition (the entire original DOC block, including whitespace, between [DOC] markers).
+Return intermediate only; no arithmetic claims, entity correctness assertions or external retrieval.
+The task question and full context are Host-bound arguments. Do not choose this merely to fill a quota;
+no_change is appropriate when the Atomic needs semantic reasoning rather than deterministic text localization.
+Reuse its source_case_ids and applicability exactly. Code will require new source and independent Train Worker tests.'''
+
+SEARCHQA_BUILDER_PROMPT = '''Write candidate Python code for the supplied Train-derived spec, not a pre-verified Program.
+Use def run(ctx, inputs), inputs['question'] and inputs['context']; allowed_tools=[]; no network, files,
+evaluator, model calls, Task IDs or answer lookup. Python standard-library re/json are available in locked Docker.
+Return {'status':'ok','outputs':{'matches':[{'doc_index':1,'start':0,'end':20,'quote':'exact public text'}]}}
+only for real nonempty evidence. Otherwise return status not_found/needs_input/blocked with outputs {}.
+The example numbers/text are illustrative, never literal expected output. Each quote is <=600 Unicode chars,
+at most 8 unique spans. Offsets are absolute in the UNCHANGED full context. [DOC] marker is not part of its block;
+index counts markers starting at 1. Every span must satisfy selection_basis, not just arbitrary leading text.
+Use only public question terms excluding common stopwords for question_term; parse case-insensitively.
+Empty question/context must decline. A changed context or different question requires recomputation.
+Handle Unicode offsets, multiple documents, absent evidence and ambiguity without inventing answers.
+No source-case answers or constants copied from the examples. Emit only source via submit_searchqa_code.
+This code has no historical execution evidence; the Host will create NEW Docker receipts and assess utility later.'''

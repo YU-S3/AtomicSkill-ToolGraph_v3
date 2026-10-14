@@ -36,6 +36,20 @@ def validate_config(config):
     if config.get("mechanism_profile") != PROFILE:
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
+    from .searchqa_guidance import VERSION as SEARCHQA_VERSION, MATERIAL as SEARCHQA_MATERIAL, POLICY as SEARCHQA_POLICY, IMAGE as SEARCHQA_IMAGE
+    searchqa = config.get('experiment',{}).get('searchqa_method_version')
+    if searchqa:
+        if (searchqa!=SEARCHQA_VERSION or config['experiment'].get('benchmark')!='searchqa' or
+                config.get('harness',{}).get('adapter')!='searchqa' or
+                config.get('learning',{}).get('searchqa_material_version')!=SEARCHQA_MATERIAL or
+                config['learning'].get('searchqa_payload_max_bytes')!=65536 or
+                config.get('runtime',{}).get('searchqa_selection')!=SEARCHQA_POLICY or
+                config['program_environment'].get('image_digest')!=SEARCHQA_IMAGE or
+                config.get('budget',{}).get('eval_task_tokens')!=96000):
+            raise ValueError('R2 method/material/selection/Worker/budget identity changed')
+        settings={**config['llm'],**config['llm'].get('runtime',{})}
+        if settings.get('max_completion_tokens')!=32768 or settings.get('reasoning_effort')!='high' or settings.get('protocol',{}).get('thinking_type')!='enabled':
+            raise ValueError('R2 Runtime requires the fixed high-thinking 32768 cap')
     from .source_catalog import enabled as source_catalog_enabled
     from . import OFFICE_SOURCE_METHOD_VERSION, OFFICE_SOURCE_MATERIAL_VERSION, OFFICE_TRACE_METHOD_VERSION, OFFICE_TRACE_POLICY
     office_source = source_catalog_enabled(config)
@@ -205,6 +219,10 @@ class EmpiricalSystem:
                          seed=self.config.get("experiment", {}).get("seed", 42),environment=self.config['program_environment'])
         from .source_catalog import enabled
         try:self.bank.bind_office_method(self.config['experiment'].get('officeqa_method_version'))
+        except Exception:
+            self.bank.close()
+            raise
+        try:self.bank.bind_searchqa_method(self.config['experiment'].get('searchqa_method_version'))
         except Exception:
             self.bank.close()
             raise
@@ -403,6 +421,8 @@ class EmpiricalSystem:
                                    'implementation_revision': self.config['experiment']['implementation_revision']})
             if self.config['experiment'].get('choice_method_version') in (*CHOICE_CAPABILITY_VERSIONS,*MATH_CAPABILITY_VERSIONS):
                 response_key=digest([response_key,self.config['experiment']['choice_method_version']])
+            if self.config['experiment'].get('searchqa_method_version'):
+                response_key=digest([response_key,self.config['experiment']['searchqa_method_version']])
             if choice_learning:
                 response_key = digest([response_key, tool_choice, self.config['learning']['choice_guidance'],
                                        self.config['runtime'].get('choice_guidance')])
@@ -421,7 +441,7 @@ class EmpiricalSystem:
                 and settings.get('protocol',{}).get('thinking_type')=='disabled'
                 and (not isinstance(provider,OpenAICompatibleProvider) or provider.config.capability_profile['tools']) else None)
             used, cap = self._budget(stage)
-            p3_runtime_recovery=(stage=='runtime' and self.checkpoint and self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS)
+            p3_runtime_recovery=(stage=='runtime' and self.checkpoint and (self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or self.config['experiment'].get('searchqa_method_version')))
             if used >= cap and not p3_runtime_recovery:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Role token budget exhausted', layer=FailureLayer.RUNTIME_AGENT)
             turn = None
@@ -506,7 +526,7 @@ class EmpiricalSystem:
                                 cards.pop()
                         messages[1]={'role':'user','content':json.dumps(pack_material(projected),ensure_ascii=False,separators=(',',':'))}
             cached_runtime=(self.checkpoint.response(response_key_for({**settings,'max_completion_tokens':completion_cap},completion_cap))
-                if self.checkpoint and stage=='runtime' and self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS else None)
+                if self.checkpoint and stage=='runtime' and (self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or self.config['experiment'].get('searchqa_method_version')) else None)
             if used>=cap and not cached_runtime:
                 raise BudgetExhausted('empirical_token_budget_exhausted','Role token budget exhausted',layer=FailureLayer.RUNTIME_AGENT)
             if stage == 'runtime' and preserve_finish and not cached_runtime:
@@ -863,6 +883,11 @@ class EmpiricalSystem:
             'budget':{'path':str(self.budget_governor.path),'limits':self.budget_governor.limits} if self.budget_governor else None}
         if self.config['experiment'].get('officeqa_method_version'):
             identity['officeqa_method_version']=self.config['experiment']['officeqa_method_version']
+        if self.config['experiment'].get('searchqa_method_version'):
+            from .searchqa_guidance import VERSION, MATERIAL, SELECTION, OUTPUT, QUALIFICATION
+            identity.update(searchqa_method_version=VERSION,learning_material_version=MATERIAL,
+                answer_protocol_version=VERSION+'.answer.v1',searchqa_selection_version=SELECTION,
+                searchqa_output_contract=OUTPUT,searchqa_qualification_policy=QUALIFICATION)
         if self.checkpoint:
             if self.checkpoint.state.get('method_identity',identity) != identity:
                 raise ValueError('Checkpoint method identity changed')
@@ -879,6 +904,8 @@ class EmpiricalSystem:
         budget = self.config.get('budget',{})
         self.request_attribution.update(parent_scope=str(self.config['experiment']['output_dir'])+':'+task.physical_key,
             parent_token_limit=budget.get('train_task_tokens' if task.split=='train' else 'eval_task_tokens'),train_parent=task.split=='train')
+        if self.config['experiment'].get('searchqa_method_version') and self.readonly:
+            self.request_attribution.update(parent_token_limit=budget['eval_task_tokens'],train_parent=False)
         self.request_attribution['parent_task_id'] = task.task_id
         self.last_decision_id = None
         self.prior_usage = json.loads(Path(self.audit_path).read_text())['usage'] if self.audit_path and Path(self.audit_path).exists() else []
@@ -954,6 +981,9 @@ class EmpiricalSystem:
                     policy = {**policy, 'capability_matches': matches}
                     trace['capability_match_audit'] = {'matches': matches, 'rejected': rejected}
                 selection = self.bank.select_guidance(task,policy) if semantic else None
+                if self.config['experiment'].get('searchqa_method_version'):
+                    selection=self.bank.retrieve_searchqa_guidance(task,self.config['runtime']['searchqa_selection'])
+                    trace['searchqa_selection_audit']={k:v for k,v in selection.items() if k!='selected'}
                 guidance = selection['selected'] if selection else self.bank.retrieve_guidance(task.goal,limit=3)
                 trace['retrieved_guidance_ids'] = [a['id'] for a in guidance]
                 trace['injected_guidance_ids'] = trace['retrieved_guidance_ids'][:]

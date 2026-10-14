@@ -78,6 +78,7 @@ class Learner:
     def _receive(self, key, stage, prompt, material, name, schema, *, material_version=None, **kwargs):
         s = self.system
         version = material_version or s.config['learning']['material_version']
+        from .searchqa_guidance import MATERIAL as SEARCHQA_MATERIAL
         material = {**material, 'learning_material_version': version}
         if stage=='extractor' and 'image' in s.adapter.capabilities.input_modalities:
             material['content_parts']=s.adapter.content_parts()
@@ -100,6 +101,8 @@ class Learner:
                 s.checkpoint.advance(s.checkpoint.state['stage'], **{
                     key + '_request_material': material, key + '_request_schema': schema})
             else:
+                if version == SEARCHQA_MATERIAL and (snapshot != material or s.checkpoint.state.get(key + '_request_schema') != schema):
+                    raise ValueError('R2 learning source/schema changed across recovery')
                 if version in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS) and (snapshot != material or
                     s.checkpoint.state.get(key + '_request_schema') != schema):
                     raise ValueError('Choice guidance source/material/schema changed across recovery')
@@ -110,6 +113,9 @@ class Learner:
         semantics = digest([stage, prompt, material, name, schema,
             {k:v for k,v in kwargs.items() if k in ('completion_override','repair_limit','repair_reason','job_key','decision_purpose')},
             s.config['experiment']['implementation_revision'], version, GUIDANCE_POLICY_VERSION])
+        if version == SEARCHQA_MATERIAL:
+            semantics = digest([semantics, s.config['experiment'].get('searchqa_method_version'),
+                                s.config['llm'], s.resolve_call_settings(stage, kwargs.get('decision_purpose'))])
         if version in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS):
             semantics = digest([semantics, s.config['learning']['choice_guidance'],
                                 s.config['llm'], s.resolve_call_settings(stage, kwargs.get('decision_purpose'))])
@@ -121,6 +127,13 @@ class Learner:
         if s.checkpoint:
             s.checkpoint.commit_decision(s.last_decision_id, 'applied', **{key: value, key + '_semantics': semantics})
         return value
+
+    def learn_searchqa_trace(self, unit, sources):
+        from .searchqa_guidance import VERSION
+        from .searchqa_trace_learning import induce
+        if self.system.config['experiment'].get('searchqa_method_version') != VERSION or self.system.readonly:
+            raise ValueError('R2 derivation requires its own writable method Bank')
+        return induce(self, unit, sources)
 
     def _skill_references(self, proposal):
         known = {asset['id'] for asset in self.system.bank.all('skill')}

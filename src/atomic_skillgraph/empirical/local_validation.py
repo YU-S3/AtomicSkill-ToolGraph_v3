@@ -267,6 +267,10 @@ def resolve_evidence(binding, experience, skill):
 
 def qualification(program):
     validation = program.get('local_validation', {})
+    from .searchqa_guidance import VERSION
+    if program.get('method_version')==VERSION:
+        from .searchqa_program_probe import qualification as qualify_r2
+        return program.get('state')=='usable' and qualify_r2(program,validation)
     return (program.get('state') == 'usable' and validation.get('passed') is True and
             validation.get('policy') == POLICY and validation.get('program_digest') == program_digest(program) and
             validation.get('environment_hash') == digest(program['environment']))

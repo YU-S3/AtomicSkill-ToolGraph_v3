@@ -65,9 +65,41 @@ class Bank:
         else:
             with self.db:self.db.execute('INSERT INTO metadata VALUES(?,?)',('officeqa_method_version',version))
 
+    def bind_searchqa_method(self, version):
+        from .searchqa_guidance import VERSION
+        stored=self.db.execute("SELECT value FROM metadata WHERE key='searchqa_method_version'").fetchone()
+        if version is None:
+            if stored: raise ValueError('R2 Bank requires its matching method identity')
+            return
+        if version!=VERSION or stored and stored!=(version,): raise ValueError('SearchQA Bank method changed')
+        if not stored:
+            if self.readonly or self.db.execute('SELECT 1 FROM assets UNION ALL SELECT 1 FROM train_cases LIMIT 1').fetchone():
+                raise ValueError('R2 must start with a fresh empty Bank')
+            with self.db:self.db.execute('INSERT INTO metadata VALUES(?,?)',('searchqa_method_version',version))
+
+    def retrieve_searchqa_guidance(self, task, policy):
+        from .searchqa_guidance import select
+        return select(self.all('skill'),task,policy)
+
     def put(self, kind, asset):
         self._writable()
         asset = dict(asset)
+        from .searchqa_guidance import VERSION as SEARCHQA_VERSION, checked_asset
+        if asset.get('method_version')==SEARCHQA_VERSION:
+            if self.db.execute("SELECT value FROM metadata WHERE key='searchqa_method_version'").fetchone()!=(SEARCHQA_VERSION,):
+                raise ValueError('R2 asset requires its own method Bank')
+            if kind=='skill' and not checked_asset(asset): raise ValueError('Invalid R2 Skill metadata')
+            if kind=='program':
+                from .searchqa_program_probe import validate_declaration, validate_spec
+                validate_declaration(asset)
+                atomic=self.get(asset['entry_constraints']['atomic_skill_id'])
+                if not atomic or not checked_asset(atomic):raise ValueError('R2 Program references an unknown Atomic')
+                validate_spec(asset['entry_constraints']['spec'],atomic)
+                if asset.get('state','candidate')!='candidate' or asset.get('local_validation'):
+                    raise ValueError('New R2 code must be an unqualified candidate')
+            if kind=='implementation' and (not self.program_eligible(self.get(asset['program_id'])) or
+                    not checked_asset(self.get(asset['skill_id']) or {})):
+                raise ValueError('R2 Implementation requires real qualified Program and Atomic')
         if kind == "program":
             if not isinstance(asset.get('allowed_tools'), list):
                 raise ValueError('allowed_tools must be tool names')
@@ -161,15 +193,27 @@ class Bank:
 
     def program_eligible(self,program):
         from .local_validation import qualification
+        from .searchqa_guidance import VERSION
+        if program and program.get('method_version')==VERSION and self.get(program.get('id',''))!=program:
+            return False
         return bool(program and qualification(program) and (self.environment is None or program['environment']==self.environment))
 
     def record_validation(self, program_id, validation):
         self._writable()
         program = self.get(program_id)
         from .local_validation import POLICY
-        if not program or validation.get('policy') != POLICY or not any(
+        from .searchqa_guidance import VERSION, QUALIFICATION
+        r2=bool(program and program.get('method_version')==VERSION)
+        if not program or validation.get('policy') != (QUALIFICATION if r2 else POLICY) or not any(
                 a.get('validation') == validation for a in self.attempts(program_id)):
             raise ValueError('Qualification requires a recorded host local execution')
+        if r2:
+            from .searchqa_program_probe import qualification as qualify_r2
+            if not qualify_r2(program,validation): raise ValueError('Invalid R2 Worker source/transfer receipts')
+            roles={r['task']['physical_key']:r['experience'].get('searchqa_role') for r in self.train_cases()}
+            if any(roles.get(r['task_key'])!=('induction' if r['role']=='source' else 'worker_probe')
+                    for r in validation['receipts'] if r['role'] in {'source','transfer'}):
+                raise ValueError('R2 qualification requires preregistered independent Train probes')
         from .contracts import program_digest
         if validation.get('program_digest') != program_digest(program) or validation.get('environment_hash') != digest(program['environment']):
             raise ValueError('Program validation identity changed')
@@ -330,6 +374,10 @@ class Bank:
         from .math_capability import VERSIONS as MATH_VERSIONS,checked_asset as checked_math
         for kind, asset_id, payload in target.execute('SELECT kind,id,payload FROM assets').fetchall():
             asset = json.loads(payload)
+            from .searchqa_guidance import VERSION as SEARCHQA_VERSION, checked_asset as checked_searchqa
+            if asset.get('method_version')==SEARCHQA_VERSION:
+                if kind=='skill' and not checked_searchqa(asset):
+                    target.execute('DELETE FROM assets WHERE id=?',(asset_id,));continue
             if kind=='skill' and asset.get('method_version') in MATH_VERSIONS and not checked_math(asset):
                 target.execute('DELETE FROM assets WHERE id=?',(asset_id,));continue
             if kind=='skill' and asset.get('method_version')==CAPABILITY_VERSION and not checked_asset(asset):
@@ -377,6 +425,13 @@ class Bank:
                             if office[0]==OFFICE_TRACE_METHOD_VERSION else OFFICE_SOURCE_MATERIAL_VERSION)
         method=self.db.execute("SELECT value FROM metadata WHERE key='choice_method_version'").fetchone()
         if method:manifest['choice_method_version']=method[0]
+        searchqa=self.db.execute("SELECT value FROM metadata WHERE key='searchqa_method_version'").fetchone()
+        if searchqa:
+            from .searchqa_guidance import MATERIAL, SELECTION, OUTPUT, QUALIFICATION
+            manifest.update(searchqa_method_version=searchqa[0],searchqa_material_version=MATERIAL,
+                            learning_material_version=MATERIAL,answer_protocol_version=searchqa[0]+'.answer.v1',
+                            searchqa_selection_version=SELECTION,searchqa_output_contract=OUTPUT,
+                            searchqa_qualification_policy=QUALIFICATION)
         frozen.close()
         target.close()
         (destination / "freeze.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

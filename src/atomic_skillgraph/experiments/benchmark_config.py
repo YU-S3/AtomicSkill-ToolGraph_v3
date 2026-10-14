@@ -4,6 +4,12 @@ from copy import deepcopy
 
 def benchmark_config(base, benchmark):
     config=deepcopy(base)
+    if benchmark=='searchqa' and config['experiment'].get('searchqa_method_version'):
+        from ..empirical.searchqa_guidance import VERSION, MATERIAL, POLICY
+        if config['experiment']['searchqa_method_version']!=VERSION:raise ValueError('Unknown SearchQA method')
+        config['learning'].update(searchqa_material_version=MATERIAL,searchqa_payload_max_bytes=65536)
+        config['runtime']['searchqa_selection']=deepcopy(POLICY)
+        config['program_worker']['record_execution_receipt']=True
     if benchmark=='officeqa':
         config['runtime'].update(finish_input_max_bytes=16384, dynamic_output_min_tokens=8192)
         config['llm'].setdefault('extractor',{})['protocol']={'thinking_type':'disabled'}

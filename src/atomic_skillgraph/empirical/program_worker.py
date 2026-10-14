@@ -178,6 +178,7 @@ class ProgramWorker:
         if len(json.dumps(inputs, ensure_ascii=False, allow_nan=False).encode()) > s['max_rpc_message_bytes']:
             raise ValueError('Program inputs exceed RPC limit; use bounded read_result with a result_id input')
         container = 'skillcompiler-' + uuid4().hex
+        execution_command = None
         calls, result, diagnostic = 0, {'status': 'execution_error', 'detail': 'Worker exited without a result'}, bytearray()
         started = time.monotonic()
         deadline = min(deadline, started + s['wall_timeout_seconds']) if deadline is not None else started + s['wall_timeout_seconds']
@@ -194,7 +195,8 @@ class ProgramWorker:
                 (root / 'inputs.json').write_text(json.dumps(inputs, allow_nan=False), encoding='utf-8')
                 shutil.copyfile(__file__, root / 'worker.py')
                 for path in root.iterdir(): path.chmod(0o444)
-                process = subprocess.Popen(self.command(image, root, container, stage), stdin=subprocess.PIPE,
+                execution_command = self.command(image, root, container, stage)
+                process = subprocess.Popen(execution_command, stdin=subprocess.PIPE,
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 selector = selectors.DefaultSelector()
                 selector.register(process.stdout, selectors.EVENT_READ, 'rpc')
@@ -288,6 +290,13 @@ class ProgramWorker:
         result = {**result, 'calls': calls, 'elapsed_seconds': time.monotonic() - started,
                   'cpu_seconds':cpu_seconds,
                   'diagnostic': diagnostic.decode(errors='replace'), 'program_id': program['id']}
+        if s.get('record_execution_receipt') and execution_command:
+            import hashlib
+            from .contracts import digest
+            result['execution_receipt'] = {'image_digest':image,'container':container,'command':execution_command,
+                'source_sha256':hashlib.sha256(program['source'].encode()).hexdigest(),
+                'worker_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                'input_hash':digest(inputs),'result_hash':digest(result)}
         self.invocations.append(result)
         return result
 
