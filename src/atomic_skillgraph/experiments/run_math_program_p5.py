@@ -301,7 +301,8 @@ def report(root):
             receipts.extend(read(p) for p in (folder/'worker').glob('*.json') if not p.name.endswith('.started.json'))
         rows.append(row)
     ledger=read(root/'budget.json');prefix=read(root/'campaign_budget_prefix.json')
-    attempts={k:v for k,v in ledger['attempts'].items() if k not in prefix['attempts']}
+    scopes={plan['run_id']+':'+o['opportunity_id'] for o in read(root/'selected_opportunities.json')}
+    attempts={k:v for k,v in ledger['attempts'].items() if k not in prefix['attempts'] and v['context']['parent_scope'] in scopes}
     value={'method_version':m.VERSION,'plan_hash':digest(plan),'source_commit':plan['code']['git_sha'],
         'status':'prepared' if all(r['state']=='pending' for r in rows) else 'learning_incomplete' if any(r['state']=='pending' for r in rows) else 'blocked' if any(r['state']=='blocked' for r in rows) else 'awaiting_probe' if any(r['state']=='code_generated' for r in rows)
             else 'completed_no_program' if not any(r['probe_passed'] for r in rows) else 'completed_train_trial',

@@ -137,6 +137,7 @@ def test_full_trace_to_val_and_resume(prepared,monkeypatch,tmp_path):
     budget=pilot.read(root/'budget.json');prefix=pilot.read(root/'campaign_budget_prefix.json')
     assert all(budget['attempts'][k]==v for k,v in prefix['attempts'].items())
     assert len(budget['attempts'])-len(prefix['attempts'])==len(learned)+17
+    assert pilot.report(root)['new_http']==len(learned)
 
 
 def test_actual_candidate_consumption_and_source_tamper(prepared,monkeypatch):
