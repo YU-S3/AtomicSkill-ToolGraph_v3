@@ -1,0 +1,44 @@
+SearchQA authored Bank Test
+
+This independent control imports the supplied human-searchqa.reference-bank.v1:
+12 Skills, 8 Programs, 8 Implementations and 5 Workflows. Sources and IDs remain
+unchanged. Ordinary Bank entries remain candidates; a separate immutable reference
+manifest permits execution only after all 24 real Docker probes pass. These are
+manual synthetic contract checks, never Ours Train qualification.
+
+All five graphs use the existing ordered workflow interpreter. SearchQA graph
+question/context are bound to the exact public task; arguments cannot replace them.
+At most one workflow, three total local executions and one dynamic node are allowed.
+The third Program slot is required by the supplied extract/verify/render graph.
+Dynamic nodes use the same provider and parent budget, with real recorded responses.
+All twelve conditional Skill cards are exposed. The Agent may solve directly;
+there is no forced program invocation or fixture injection into official tasks.
+Host execution receipts remain in raw traces but are not model-visible or readable
+through public result references. Other methods retain their previous settings.
+
+Test uses the unchanged canonical 1400 tasks in order, original public contexts,
+official EM/F1 scorer, seed42 and deepseek-v4-flash with enabled/high thinking and
+32768 completion cap. Per-task total remains 96000 tokens, four transport retries.
+No new truncation finalization or learning is enabled. Eight outer decisions plus
+one dynamic graph node and one possible budget finish give a conservative physical
+request bound of 10*5 per task. The run reserves at most 134400000 tokens / 70000
+HTTP under the existing cumulative SearchQA authority. Prior charges carry forward
+unchanged; aggregate accounting adds the parent once and each child delta once.
+
+Run from a clean committed Linux checkout with PYTHONPATH=src:
+
+python -m atomic_skillgraph.experiments.run_searchqa_reference_test prepare \
+  --package <extracted-package> --parent <completed-R2-run> \
+  --datasets <canonical-public-searchqa-directory> --output <new-independent-run>
+python -m atomic_skillgraph.experiments.run_searchqa_reference_test test \
+  --output <new-independent-run> --env-file <existing-env-file>
+
+prepare verifies archive file hashes, canonical identity, budget and actual Docker
+execution without model requests. test uses the production run_empirical runner,
+physical request journal, task traces, SQLite, formal events and frozen hash checks.
+The same command resumes only under unchanged source/config/input/Bank identities;
+unknown billing is not blindly replayed. test/STOP_AFTER_TASK pauses at a boundary.
+
+This test does not initialize or replace an Ours Bank, resume Train, run Val,
+retrain R3 or claim that manual assets were naturally learned. It runs one Test arm
+and stops. Any accuracy/token benefit must come from its actual completed records.

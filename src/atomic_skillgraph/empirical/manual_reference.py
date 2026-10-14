@@ -62,7 +62,7 @@ class ReferenceView:
                     raise ValueError('Manual Worker receipt changed')
                 row = json.loads(data); receipt = row['result'].get('execution_receipt', {})
                 expected_ok=(row['result']['status']=='needs_input' if row['expected'] is None else
-                    row['result']['status']==row.get('expected_status','ok') and row['result'].get('outputs')==row['expected'])
+                    row['result']['status']==row.get('expected_status','ok') and row['result'].get('outputs',{})==row['expected'])
                 if (not row['passed'] or not expected_ok or row['role']!=ref['role'] or row['program_id'] != pid or row['rpc_calls']
                         or receipt.get('exit_code') != 0 or receipt.get('image_digest') != program['environment']['image_digest']
                         or '--network=none' not in receipt.get('command', [])):

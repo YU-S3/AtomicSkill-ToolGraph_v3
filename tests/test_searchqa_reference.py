@@ -46,7 +46,7 @@ def action(**kwargs):return response([kwargs],name='answer_step')
 
 def system(root, task):
     cfg=runner.read(root/'config.json')
-    s=EmpiricalSystem(cfg,readonly=True,harness=AnswerAdapter('searchqa',{task.task_id:{'answer':'fixture'}}))
+    s=EmpiricalSystem(cfg,readonly=True,harness=AnswerAdapter('searchqa',{task.task_id:{'answers':['fixture']}}))
     s.checkpoint=TaskCheckpoint(root/'checkpoint')
     return s
 

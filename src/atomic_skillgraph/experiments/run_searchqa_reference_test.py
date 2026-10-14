@@ -37,6 +37,7 @@ def configuration(base, root, datasets):
         manual_reference_version=VERSION,manual_reference_limits=LIMITS,
         manual_reference_manifest=str(root/'reference_manifest.json'),
         asset_origin='human_authored_not_naturally_learned')
+    cfg['experiment']['public_materialization_sha256'] = sha256(datasets/'test.json')
     cfg['manifest'] = str(Path(base['manifest']).with_name('test.json'))
     cfg['data_dir'] = str(root/'frozen_bank')
     cfg['harness']['evaluator_records'] = str(datasets/'evaluator_records_test.json')
@@ -73,7 +74,7 @@ def qualify(package, root, cfg):
                 try: result = worker.execute(program,case['inputs'],broker)
                 finally: adapter.close()
                 receipt = result.get('execution_receipt',{})
-                passed = (result['status']==case['expected_status'] and result.get('outputs')==case['expected']
+                passed = (result['status']==case['expected_status'] and result.get('outputs',{})==case['expected']
                     and receipt.get('exit_code')==0 and receipt.get('image_digest')==program['environment']['image_digest']
                     and '--network=none' in receipt.get('command',[]) and not broker.events)
                 path = root/'qualification'/(name+'_'+case['role']+'.json')
@@ -98,9 +99,10 @@ def prepare(package, parent, datasets, output):
         if not path.is_relative_to(package) or sha256(path)!=expected: raise ValueError('Package hash mismatch: '+name)
     cfg = configuration(read(parent/'resolved_config.json'),root,datasets)
     canonical = Path(cfg['manifest']);verify(canonical.parent.parent)
-    official = read(canonical)['tasks'];tasks = read(datasets/'test.json')['tasks']
+    official = read(canonical)['tasks'];public = read(datasets/'test.json');tasks = public['tasks']
     if (len(tasks)!=1400 or [r['task_id'] for r in tasks]!=[r['task_id'] for r in official]
-            or [r['physical_key'] for r in tasks]!=[r['physical_key'] for r in official]
+            or len({r['physical_key'] for r in tasks})!=1400 or public['split_sha256']!=sha256(canonical)
+            or public['authority_sha256']!=sha256(canonical.parent.parent/'manifest.json')
             or any(r['split']!='test' for r in tasks)):
         raise ValueError('Canonical Test1400 identity/order changed')
     prefix = read(parent/'budget.json')
@@ -180,11 +182,32 @@ def evaluate(output, env_file):
             if after!=plan['frozen']: raise RuntimeError('Test modified frozen Bank')
 
 
+def status(output):
+    import sqlite3
+    root=Path(output);rows=[]
+    if (root/'test/run.sqlite3').exists():
+        with sqlite3.connect('file:'+str(root/'test/run.sqlite3')+'?mode=ro',uri=True) as db:
+            rows=db.execute('SELECT id,status,result FROM tasks').fetchall()
+    finished=[json.loads(r[2]) for r in rows if r[1]=='completed']
+    ledger=read(root/'budget.json');prefix=read(root/'inherited_budget.json')
+    attempts=[a for key,a in ledger['attempts'].items() if key not in prefix['attempts']]
+    correct=sum(bool(r['score']['hard']) for r in finished)
+    return {'completed':len(finished),'total':1400,'correct':correct,
+        'em':correct/len(finished) if finished else None,
+        'f1':sum(r['score']['soft'] for r in finished)/len(finished) if finished else None,
+        'active_tasks':[r[0] for r in rows if r[1]=='running'],
+        'new_metered_tokens':sum(a.get('accounted_tokens',0) for a in attempts),
+        'new_http':len(attempts),'billing_states':{s:sum(a['status']==s for a in attempts) for s in {a['status'] for a in attempts}},
+        'outcome':read(root/'result.json').get('status') if (root/'result.json').exists() else 'in_progress',
+        'last_log_update':(root/'run.log').stat().st_mtime if (root/'run.log').exists() else None}
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='stage',required=True)
     a=sub.add_parser('prepare')
     for key in ('package','parent','datasets','output'):a.add_argument('--'+key,required=True)
     a=sub.add_parser('check');a.add_argument('--output',required=True)
+    a=sub.add_parser('status');a.add_argument('--output',required=True)
     a=sub.add_parser('test');a.add_argument('--output',required=True);a.add_argument('--env-file',required=True)
     args=vars(p.parse_args());stage=args.pop('stage')
     print(json.dumps((evaluate if stage=='test' else globals()[stage])(**args),ensure_ascii=False))

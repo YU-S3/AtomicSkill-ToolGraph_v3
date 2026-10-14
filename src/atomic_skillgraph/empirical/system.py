@@ -1022,7 +1022,11 @@ class EmpiricalSystem:
                 trace['guidance_retrieval_audit'] = selection if selection else self.bank.guidance_retrieval_audit(task.goal,guidance)
                 cards=[render(a) if semantic else {'skill_id':a['id'],'goal':a['goal'],'guidance':a['guidance']} for a in guidance]
                 if self.config['experiment'].get('manual_reference_version'):
-                    cards=[{k:a[k] for k in ('id','goal','guidance','preconditions','failure_modes','entry_constraints','execution_intent','applicability','stop_condition') if k in a} for a in guidance]
+                    from .manual_reference import SEARCHQA_VERSION as MANUAL_SEARCHQA_VERSION
+                    keys=('id','goal','guidance','preconditions','failure_modes','entry_constraints','execution_intent')
+                    if self.config['experiment']['manual_reference_version']==MANUAL_SEARCHQA_VERSION:
+                        keys+=('applicability','stop_condition')
+                    cards=[{k:a[k] for k in keys if k in a} for a in guidance]
                 execution = AnswerExecutor(self).run(task,broker,cards,semantic)
             else:
                 plan = self.checkpoint.state['executor_state']['plan'] if self.checkpoint and self.checkpoint.state.get('executor_state') else (
