@@ -1,4 +1,4 @@
-method_version: livemath.math-program.p5
+method_version: livemath.math-program.p5-r1
 seed: 42
 train_count: 60
 atomic_source_count: 15
@@ -7,7 +7,7 @@ extractor_decisions_per_opportunity: 1
 builder_repairs_per_opportunity: 1
 learning_wire_bytes: 65536
 source_p4: /home/yangchengyu/livemath_p4_seed42_20261014
-ledger_source: /home/yangchengyu/livemath_p4_seed42_20261014/budget.json
+ledger_source: /home/yangchengyu/livemath_p5_program_probe_seed42_20261015/budget.json
 learning_budget_proposed:
   token_limit: 800000
   request_limit: 60

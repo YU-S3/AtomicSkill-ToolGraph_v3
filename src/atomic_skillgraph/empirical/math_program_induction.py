@@ -10,7 +10,7 @@ from .contracts import PublicTask, digest, object_schema, validate_program, vali
 from . import math_capability as math
 from .math_trace_learning import trace_records
 
-VERSION = 'livemath.math-program.p5'
+VERSION = 'livemath.math-program.p5-r1'
 MATERIAL = VERSION + '.train-only.v1'
 IMAGE = 'sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783'
 KINDS = ('finite_predicates', 'finite_quantifiers', 'rational_compare')

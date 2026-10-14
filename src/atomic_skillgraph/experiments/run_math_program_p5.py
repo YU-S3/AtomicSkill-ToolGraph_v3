@@ -130,7 +130,8 @@ def check(root):
             api_key_env=settings['api_key_env'],dialect=settings['dialect'],thinking_type='disabled',max_completion_tokens=4096,max_retries=0))
         material={**m.material(op,rows,atoms),'learning_material_version':m.MATERIAL}
         messages=[{'role':'system','content':m.PROMPT},{'role':'user','content':json.dumps(learning_payload(material),ensure_ascii=False,allow_nan=False)}]
-        payload=provider._build_payload(messages,[NativeToolSpec('submit_math_program_spec','Submit the requested result',m.PROPOSAL)])
+        payload=provider._build_payload(messages,[NativeToolSpec('submit_math_program_spec','Submit the requested result',m.PROPOSAL)],
+            {'type':'function','function':{'name':'submit_math_program_spec'}})
         size=input_token_bound(payload)
         if size>65536:raise ValueError('Unissued P5 source material exceeds frozen capacity')
         capacities.append({'opportunity_id':op['opportunity_id'],'wire_bytes':size,'reserved_tokens':size+4096})

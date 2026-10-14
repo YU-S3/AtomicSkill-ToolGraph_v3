@@ -137,6 +137,8 @@ def test_real_provider_and_paid_response_recovery(tmp_path,monkeypatch):
     b2=runner.build(s,plan,o,v,tmp_path);assert b2==b and len(seen)==2
     assert all(p['thinking']['type']=='disabled' for p in seen)
     assert [p['max_tokens'] for p in seen]==[4096,8192]
+    assert [p['tool_choice'] for p in seen]==[
+        {'type':'function','function':{'name':name}} for name in ('submit_math_program_spec','submit_program')]
     assert all(x['state']=='candidate' for x in s.bank.all('program'))
     s.close()
 

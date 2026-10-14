@@ -449,7 +449,8 @@ class EmpiricalSystem:
             settings=self.resolve_call_settings(stage,purpose)
             provider=self.provider(stage,purpose)
             tool_choice=({'type':'function','function':{'name':name}} if name and
-                (choice_learning or purpose=='learning_structure_repair' or (stage=='extractor' and name=='submit_learning'))
+                (choice_learning or purpose=='learning_structure_repair' or (stage=='extractor' and name=='submit_learning')
+                 or (self.config['experiment'].get('math_program_method_version') and purpose in {'math_program_spec','math_program_build'}))
                 and settings.get('protocol',{}).get('thinking_type')=='disabled'
                 and (not isinstance(provider,OpenAICompatibleProvider) or provider.config.capability_profile['tools']) else None)
             used, cap = self._budget(stage)
