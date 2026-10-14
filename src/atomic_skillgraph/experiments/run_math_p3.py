@@ -24,6 +24,11 @@ from .run_formal import resolved_config
 CONTRACT=Path(__file__).parents[3]/'configs/livemath_p3_seed42.json'
 
 
+def contract_path(version):
+    if version not in math.VERSIONS:raise ValueError('Unknown mathematical method')
+    return CONTRACT.with_name('livemath_p4_seed42.json') if version==math.P4 else CONTRACT
+
+
 def bounds():
     unit=3*(65536+4096)
     integration=2*(131072+8192)+8*(65536+4096)
@@ -34,12 +39,13 @@ def bounds():
         'test_parent_tokens':100*128000,'test_http':100*(2+9)}
 
 
-def prepare(source,ledger_run,datasets,output):
+def prepare(source,ledger_run,datasets,output,*,version=math.VERSION):
     source,ledger_run,data,root=map(lambda p:Path(p).resolve(),(source,ledger_run,datasets,output))
     if root.exists():raise ValueError('P3 requires a new derived directory, never an old --resume')
     code=code_identity()
     if not code['git_sha'] or code['tracked_dirty']:raise ValueError('P3 requires clean committed source')
-    settings=batch.read(CONTRACT);original=batch.read(source/'train/config.json')
+    contract=contract_path(version)
+    settings=batch.read(contract);original=batch.read(source/'train/config.json')
     old=batch.read(source/'run_manifest.json');summary=batch.read(source/'train/summary.json')
     execution=batch.read(source/'train/execution_manifest.json')
     if (not summary['complete'] or summary['tasks']!=60 or old['run_seed']!=42 or old['benchmark']!='livemath' or
@@ -52,6 +58,12 @@ def prepare(source,ledger_run,datasets,output):
     finally:bank.close()
     if [r['task'] for r in cases]!=execution['tasks']:raise ValueError('Historical Train cases differ from actual Runtime traces')
     records=math.records(cases,span_factory=math.math_spans)
+    program_audit=None
+    if version==math.P4:
+        from ..empirical.math_trace_learning import trace_records
+        traces=[batch.read(path) for path in (source/'train/traces').glob('*.json')]
+        if len(traces)!=60:raise ValueError('P4 requires sixty original Runtime traces')
+        records,program_audit=trace_records(cases,{r['task']['physical_key']:r for r in traces})
     authority=Path(original['manifest']).resolve().parent.parent;verify(authority)
     material=batch.read(data/'materialization.json')
     if material['authority_sha256']!=sha256(authority/'manifest.json'):raise ValueError('Canonical authority changed')
@@ -73,7 +85,7 @@ def prepare(source,ledger_run,datasets,output):
         raise ValueError('Stages exceed remaining cumulative tokens')
     if len(prefix['attempts'])+sum(v['request_limit'] for v in settings['stage_limits'].values())>prefix['limits']['request_limit']:
         raise ValueError('Stages exceed remaining cumulative HTTP')
-    cfg=deepcopy(original);cfg['experiment'].update(choice_method_version=math.VERSION,output_dir=str(root/'learning'),runtime_mode='online')
+    cfg=deepcopy(original);cfg['experiment'].update(choice_method_version=version,output_dir=str(root/'learning'),runtime_mode='online')
     for key in ('choice_batch_contract','choice_batch_contract_sha256','choice_batch_version'):cfg['experiment'].pop(key,None)
     cfg['data_dir']=str(root/'learning/bank');cfg=validate_config(math.configure(cfg))
     profile=batch.read(Path(__file__).parents[3]/'benchmark_profiles.json')['profiles']['livemath']
@@ -82,7 +94,7 @@ def prepare(source,ledger_run,datasets,output):
         c['data_dir']=str(root/'frozen_bank');c['llm']['max_retries']=0
     inputs={str(source/name):sha256(source/name) for name in ('run_manifest.json','train/config.json',
         'train/summary.json','train/execution_manifest.json','train/bank/bank.sqlite3')}
-    inputs[str(ledger_run/'budget.json')]=sha256(ledger_run/'budget.json');inputs[str(CONTRACT)]=sha256(CONTRACT)
+    inputs[str(ledger_run/'budget.json')]=sha256(ledger_run/'budget.json');inputs[str(contract)]=sha256(contract)
     for path in (source/'train/traces').glob('*.json'):inputs[str(path)]=sha256(path)
     for name,h in material['files_sha256'].items():
         if name.startswith('livemath/'):
@@ -90,28 +102,29 @@ def prepare(source,ledger_run,datasets,output):
             inputs[str(data/name)]=h
     for path in [authority/'manifest.json',data/'materialization.json',*[authority/'livemath'/(p+'.json') for p in tasks]]:
         inputs[str(path)]=sha256(path)
-    run_id='p3_'+uuid4().hex
-    initial=Bank(cfg['data_dir'],environment=cfg['program_environment']);initial.bind_choice_method(math.VERSION)
+    run_id=('p4_' if version==math.P4 else 'p3_')+uuid4().hex
+    initial=Bank(cfg['data_dir'],environment=cfg['program_environment']);initial.bind_choice_method(version)
     try:initial_digest=initial.digest()
     finally:initial.close()
     initial_hash=tree_identity(Path(cfg['data_dir']))['sha256']
     identity={'method':'ours','benchmark':'livemath','run_seed':42,'split_seed':42,'provider_model_id':cfg['llm']['model'],
         'model_name':cfg['llm']['model'],'source_commit':code['git_sha'],'source_sha256':code['source_sha256'],
-        'choice_method_version':math.VERSION,'source_train_run_id':old['run_id'],'source_train_commit':old['source_commit'],
+        'choice_method_version':version,'source_train_run_id':old['run_id'],'source_train_commit':old['source_commit'],
         'split_hashes':{p:sha256(authority/'livemath'/(p+'.json')) for p in tasks},
-        'initial_bank':'fresh empty P3 Bank; only original Train cases imported; no P2 assets or utility',
+        'initial_bank':'fresh empty '+version+' Bank; only original Train cases imported; no prior assets or utility',
         'initial_bank_digest':initial_digest,'initial_artifact_hash':initial_hash,
         'learning_schedule':'Train60 replay -> 15 units -> consolidation -> Val6 -> Val11 -> Frozen -> reviewed Test100',
         'test_development_history_disclosed':True,'choice_projection_version':cfg['experiment'].get('choice_projection_version'),
         'choice_seed':cfg['experiment'].get('choice_seed'),'source_train_runtime_reexecuted':False}
-    plan={'schema':math.VERSION,'run_id':run_id,'code':code,'prepared_at':utc(),'settings':settings,'identity':identity,
+    plan={'schema':version,'run_id':run_id,'code':code,'prepared_at':utc(),'settings':settings,'identity':identity,
         'source_train':str(source),'ledger_source':str(ledger_run),'datasets':str(data),'authority':str(authority),
-        'schedule':math_schedule(execution['tasks']),'tasks':tasks,'input_hashes':inputs,'configs':configs,
+        'schedule':math_schedule(execution['tasks'],version=version),'tasks':tasks,'input_hashes':inputs,'configs':configs,
         'bounds':bounds(),'inherited_tokens':charged,'inherited_http':len(prefix['attempts']),
         'inherited_reservations':sorted(reserved_recovery(prefix)),'new_model_http':0}
     for name,value in [('config.json',cfg),('source_records.json',records),('source_cases.json',cases),
         ('campaign_budget_prefix.json',prefix),('budget.json',prefix)]:write_json(root/name,value)
     for stage in settings['stage_limits']:write_json(root/stage/'campaign_budget_prefix.json',prefix)
+    if program_audit is not None:write_json(root/'program_source_audit.json',program_audit)
     plan['prepared_hashes']={n:sha256(root/n) for n in ('config.json','source_records.json','source_cases.json','campaign_budget_prefix.json')}
     write_json(root/'plan.json',plan);write_json(root/'plan_identity.json',{'plan_hash':digest(plan)})
     return check(root)
@@ -119,23 +132,29 @@ def prepare(source,ledger_run,datasets,output):
 
 def check(output):
     root=Path(output);plan=batch.read(root/'plan.json')
-    if plan['schema']!=math.VERSION or plan['code']!=code_identity() or batch.read(root/'plan_identity.json')['plan_hash']!=digest(plan):
+    version=plan['schema']
+    if version not in math.VERSIONS or plan['code']!=code_identity() or batch.read(root/'plan_identity.json')['plan_hash']!=digest(plan):
         raise ValueError('P3 code or prepared plan identity changed')
-    if plan['settings']!=batch.read(CONTRACT):raise ValueError('Frozen P3 method contract changed')
+    if plan['settings']!=batch.read(contract_path(version)):raise ValueError('Frozen P3 method contract changed')
     if plan['settings']['selection_policy']!=math.POLICY:raise ValueError('P3 numerical gates changed')
     for name,h in plan['input_hashes'].items():
         if sha256(Path(name))!=h:raise ValueError('Historical source changed: '+name)
     for name,h in plan['prepared_hashes'].items():
         if sha256(root/name)!=h:raise ValueError('Prepared P3 input changed: '+name)
     cfg=validate_config(batch.read(root/'config.json'))
+    if cfg['experiment']['choice_method_version']!=version:raise ValueError('Learning method differs from plan')
+    for phase in ('val','test'):
+        evaluation=validate_config(plan['configs'][phase])
+        if evaluation['experiment']['choice_method_version']!=version:raise ValueError('Evaluation method differs from plan')
     if Path(cfg['experiment']['output_dir']).resolve()!=(root/'learning').resolve():raise ValueError('P3 output identity changed')
-    if plan['schedule']!=math_schedule([r['task'] for r in batch.read(root/'source_cases.json')]):raise ValueError('P3 source schedule changed')
+    if plan['schedule']!=math_schedule([r['task'] for r in batch.read(root/'source_cases.json')],version=version):raise ValueError('P3 source schedule changed')
     ledger=batch.read(root/'budget.json');prefix=batch.read(root/'campaign_budget_prefix.json')
     if ledger['limits']!=plan['settings']['cumulative_limits'] or any(ledger['attempts'].get(k)!=v for k,v in prefix['attempts'].items()):
         raise ValueError('Inherited physical charges or campaign authority changed')
     if ledger.get('inherited_reservation_recovery')!=prefix.get('inherited_reservation_recovery'):raise ValueError('Reservation authority changed')
     for stage in plan['settings']['stage_limits']:
         if batch.read(root/stage/'campaign_budget_prefix.json')!=prefix:raise ValueError('Stage cannot reset its inherited prefix')
+    if version==math.P4 and plan.get('continuation'):raise ValueError('P4 cannot import P3 learning or utility')
     if plan.get('continuation'):
         from .math_continuation import validate
         validate(root,plan)
@@ -148,7 +167,7 @@ def check(output):
         frozen=batch.read(root/'final_frozen_manifest.json')
         if tree_identity(root/'frozen_bank')['sha256']!=frozen['final_artifact_hash']:raise ValueError('Published P3 Bank changed')
         if frozen['selection_result_hash']!=digest(batch.read(root/'val/result.json')):raise ValueError('Frozen Val evidence changed')
-    return {'status':'passed','method_version':math.VERSION,'new_model_http':0,'billing_ready':not billing_blocked(ledger),
+    return {'status':'passed','method_version':version,'new_model_http':0,'billing_ready':not billing_blocked(ledger),
         'bounds':plan['bounds'],'test_requires_review':True}
 
 
@@ -162,6 +181,17 @@ def stage_governor(owner,root,plan,stage):
 
 
 def ranked_candidates(candidates):
+    if candidates and candidates[0]['method_version']==math.P4:
+        from ..empirical.math_trace_learning import procedure_identity
+        pending=sorted(candidates,key=lambda c:(-len(c['source_case_ids']),c['id']))
+        unique={}
+        for c in pending:unique.setdefault(procedure_identity(c),c)
+        result=[];categories=set();operations=set()
+        while unique:
+            key=min(unique,key=lambda k:(unique[k]['operation'] in operations,unique[k]['category'] in categories,
+                -len(unique[k]['source_case_ids']),unique[k]['id']))
+            c=unique.pop(key);result.append(c);operations.add(c['operation']);categories.add(c['category'])
+        return result
     # Round-robin categories, distinct declared operations, no use of Val outcomes.
     pending=sorted(candidates,key=lambda c:(-len(c['source_case_ids']),c['id']));result=[];seen=set()
     while pending:
@@ -182,6 +212,7 @@ def outcome_rank(receipt,candidate_id):
 
 
 def learning(root,plan,cfg,governor,observer):
+    version=plan['schema']
     if plan.get('continuation'):
         value=batch.read(root/'inherited/learning/result.json')
         if value['plan_hash']!=plan['continuation']['parent_plan_hash'] or any(not math.checked_candidate(c) for c in value['candidates']):
@@ -190,7 +221,7 @@ def learning(root,plan,cfg,governor,observer):
     path=root/'learning/result.json'
     if path.exists():
         value=batch.read(path)
-        if value['plan_hash']!=digest(plan) or any(not math.checked_candidate(c) for c in value['candidates']):
+        if value['plan_hash']!=digest(plan) or any(c['method_version']!=version or not math.checked_candidate(c) for c in value['candidates']):
             raise ValueError('Completed P3 learning identity changed')
         if value['candidate_hashes']!={c['id']:digest(c) for c in value['candidates']}:raise ValueError('Frozen candidate content changed')
         return value
@@ -210,7 +241,7 @@ def learning(root,plan,cfg,governor,observer):
                 unit_limits={'token_limit':bounds()['unit_tokens'],'request_limit':3})
             started=utc();log=math.learn(s.learner,[by_key[k] for k in unit['source_keys']])
             write_json(folder/'learning.json',log);candidates.extend(log['candidates']);unit_logs.append(log)
-            if observer:observer.requests(s.requests);observer.training(str(i),'p3_train_trace_unit',started,utc(),4,log['decision'],consumed_physical_keys=unit['source_keys'])
+            if observer:observer.requests(s.requests);observer.training(str(i),version+'.train_trace_unit',started,utc(),4,log['decision'],consumed_physical_keys=unit['source_keys'])
         batch.progress(root,'consolidation',natural_checked=len(candidates))
         consolidated=[]
         if candidates:
@@ -222,7 +253,13 @@ def learning(root,plan,cfg,governor,observer):
             write_json(folder/'learning.json',log);consolidated=ranked_candidates(log['candidates'])
             if observer:observer.requests(s.requests)
         order=consolidated[:plan['settings']['max_screen_candidates']]
-        result={'method_version':math.VERSION,'status':'completed','natural_checked':len(candidates),
+        if version==math.P4:
+            order=[];operations=set()
+            for c in consolidated:
+                if c['operation'] in operations:continue
+                order.append(c);operations.add(c['operation'])
+                if len(order)==plan['settings']['max_screen_candidates']:break
+        result={'method_version':version,'status':'completed','natural_checked':len(candidates),
             'natural_proposed':sum(len(r.get('proposed_candidates',[])) for r in unit_logs),
             'unit_decisions':[r['decision'] for r in unit_logs],
             'consolidated':len(consolidated),'candidates':consolidated,'screen_ids':[c['id'] for c in order],
@@ -234,11 +271,12 @@ def learning(root,plan,cfg,governor,observer):
 
 
 def selection(root,plan,cfg,learned,governor,observer):
+    version=plan['schema']
     result_path=root/'val/result.json'
     if result_path.exists():return batch.read(result_path)
     trial=root/'val/trial_bank'
     if not trial.exists():
-        bank=Bank(root/'val/empty_bank');bank.bind_choice_method(math.VERSION)
+        bank=Bank(root/'val/empty_bank');bank.bind_choice_method(version)
         try:bank.freeze(trial)
         finally:bank.close()
     s=EmpiricalSystem(cfg,harness=AnswerAdapter('livemath',{}),budget_governor=governor);s.observer=observer
@@ -266,11 +304,11 @@ def selection(root,plan,cfg,learned,governor,observer):
                 pairs[task.physical_key]=batch.evaluate_pair(folder/'selection',task,candidate,
                     {candidate['capability']['id']:route},plan['configs']['val'],governor,trial,evaluator,
                     rank,list(candidates).index(candidate['id']),run_id=plan['run_id']+':val',observer=observer,
-                    view_factory=math.MathView,method_version=math.VERSION,
+                    view_factory=math.MathView,method_version=version,
                     inherited_arms=plan.get('continuation',{}).get('arms',{}).get(candidate['id']))
         receipt=math.utility_receipt(candidate,pairs,preflight,policy,{'plan_hash':digest(plan),
             'val_manifest_sha256':plan['identity']['split_hashes']['val'],'public_val_hash':digest(plan['tasks']['val']),
-            'method_version':math.VERSION,'source_commit':plan['code']['git_sha'],
+            'method_version':version,'source_commit':plan['code']['git_sha'],
             **({'continuation_version':plan['continuation']['version'],
                 'inherited_evidence_commit':plan['continuation']['parent_code']['git_sha'],
                 'parent_plan_hash':plan['continuation']['parent_plan_hash']} if plan.get('continuation') else {})})
@@ -288,19 +326,25 @@ def selection(root,plan,cfg,learned,governor,observer):
         passed=sorted([key for key,r in receipts.items() if r['passed']],key=lambda k:outcome_rank(receipts[k],k))
         result={'status':'completed_selection' if learned['screen_ids'] else 'completed_no_candidate','passed_ids':passed,
             'receipts':receipts,'qualification':'Val development selection, not independent generalization','completed_at':utc()}
+        if version==math.P4:
+            write_json(root/'candidate_audit.json',{'method_version':version,'published_ids':passed,
+                'candidates':[{'id':c['id'],'state':receipts[c['id']]['selection_state'] if c['id'] in receipts else 'source_checked',
+                    'reason':receipts[c['id']]['reason'] if c['id'] in receipts else 'checked_not_selected',
+                    'candidate_hash':digest(c)} for c in learned['candidates']]})
         write_json(result_path,result);return result
     finally:s.close()
 
 
 def publish(root,plan,learned,selected):
+    version=plan['schema']
     manifest=root/'final_frozen_manifest.json'
     if manifest.exists():return batch.read(manifest)
-    bank=Bank(root/'publication_bank');bank.bind_choice_method(math.VERSION)
+    bank=Bank(root/'publication_bank');bank.bind_choice_method(version)
     try:
         by_id={c['id']:c for c in learned['candidates']}
         for rank,key in enumerate(selected['passed_ids']):
             c=by_id[key];asset={**c,'state':'usable','candidate':c,'utility_receipt':selected['receipts'][key],'publication_rank':rank}
-            if not math.checked_asset(asset):raise ValueError('P3 publication receipt failed validation')
+            if asset['method_version']!=version or not math.checked_asset(asset):raise ValueError('Mathematical publication receipt failed validation')
             bank.put('skill',asset)
         if (root/'frozen_bank').exists():
             existing=Bank(root/'frozen_bank',readonly=True)
@@ -310,7 +354,7 @@ def publish(root,plan,learned,selected):
             finally:existing.close()
         else:frozen=bank.freeze(root/'frozen_bank')
     finally:bank.close()
-    result={'method_version':math.VERSION,'freeze_time':utc(),'plan_hash':digest(plan),
+    result={'method_version':version,'freeze_time':utc(),'plan_hash':digest(plan),
         'candidate_hashes':learned['candidate_hashes'],'selection_result_hash':digest(selected),
         'usable_skill_ids':selected['passed_ids'],'final_artifact_hash':tree_identity(root/'frozen_bank')['sha256'],'freeze':frozen}
     write_json(manifest,result);return result
