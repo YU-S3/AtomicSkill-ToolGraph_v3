@@ -166,7 +166,8 @@ def validate_config(config):
                 raise ValueError('Capability decisions require bounded disabled-thinking settings')
     from .public_process import TRUNCATION_FINALIZATION_VERSION
     finalizer=runtime.setdefault('choice_bounded_finalization',{'enabled':False,'version':FINALIZATION_VERSION})
-    final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 or manual_reference else FINALIZATION_VERSION
+    from .manual_reference import VERSION as MANUAL_MATH_VERSION
+    final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 or manual_reference == MANUAL_MATH_VERSION else FINALIZATION_VERSION
     if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=final_version or
         finalizer['enabled'] and not (config['runtime'].get('choice_guidance',{}).get('public_process') or manual_reference)):
         raise ValueError('Invalid explicitly versioned choice finalization policy')
@@ -1021,7 +1022,7 @@ class EmpiricalSystem:
                 trace['guidance_retrieval_audit'] = selection if selection else self.bank.guidance_retrieval_audit(task.goal,guidance)
                 cards=[render(a) if semantic else {'skill_id':a['id'],'goal':a['goal'],'guidance':a['guidance']} for a in guidance]
                 if self.config['experiment'].get('manual_reference_version'):
-                    cards=[{k:a[k] for k in ('id','goal','guidance','preconditions','failure_modes','entry_constraints','execution_intent')} for a in guidance]
+                    cards=[{k:a[k] for k in ('id','goal','guidance','preconditions','failure_modes','entry_constraints','execution_intent','applicability','stop_condition') if k in a} for a in guidance]
                 execution = AnswerExecutor(self).run(task,broker,cards,semantic)
             else:
                 plan = self.checkpoint.state['executor_state']['plan'] if self.checkpoint and self.checkpoint.state.get('executor_state') else (
