@@ -36,10 +36,10 @@ def validate_config(config):
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
     from .source_catalog import enabled as source_catalog_enabled
-    from . import OFFICE_SOURCE_METHOD_VERSION, OFFICE_SOURCE_MATERIAL_VERSION
+    from . import OFFICE_SOURCE_METHOD_VERSION, OFFICE_SOURCE_MATERIAL_VERSION, OFFICE_TRACE_METHOD_VERSION, OFFICE_TRACE_POLICY
     office_source = source_catalog_enabled(config)
     office_version = config.get('experiment',{}).get('officeqa_method_version')
-    if office_version and (office_version != OFFICE_SOURCE_METHOD_VERSION or config.get('experiment',{}).get('benchmark') != 'officeqa'
+    if office_version and (office_version not in {OFFICE_SOURCE_METHOD_VERSION,OFFICE_TRACE_METHOD_VERSION} or config.get('experiment',{}).get('benchmark') != 'officeqa'
                           or config.get('harness',{}).get('adapter')!='officeqa'):
         raise ValueError('Office source-catalog identity requires its exact method and benchmark')
     math_p3=config.get('experiment',{}).get('choice_method_version')==MATH_CAPABILITY_VERSION
@@ -62,11 +62,14 @@ def validate_config(config):
     for section, defaults in POLICY_DEFAULTS.items():
         if office_source and section=='learning':
             defaults={**defaults,'material_version':OFFICE_SOURCE_MATERIAL_VERSION,'builder_payload_max_bytes':24576}
+            if office_version==OFFICE_TRACE_METHOD_VERSION:defaults.update(OFFICE_TRACE_POLICY)
         config[section] = {**defaults, **config.get(section, {})}
         for key, value in defaults.items():
             if config[section][key] != value:
                 raise ValueError('Unsupported execution policy ' + section + '.' + key)
     learning = config['learning']
+    if 'builder_repair_payload_max_bytes' in learning and office_version!=OFFICE_TRACE_METHOD_VERSION:
+        raise ValueError('Builder repair capacity requires the explicit Office V3 contract')
     if 'capability_material_version' in learning or 'capability_payload_max_bytes' in learning:
         from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
         expected_material=MATH_CAPABILITY_MATERIAL_VERSION if math_p3 else CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
@@ -75,6 +78,17 @@ def validate_config(config):
     source_capacity = learning.get('source_program_payload_max_bytes')
     if office_source and source_capacity != 24576:
         raise ValueError('Office source-catalog requires its frozen 24 KiB source capacity')
+    if office_version==OFFICE_TRACE_METHOD_VERSION:
+        runtime_settings={**config['llm'],**config['llm'].get('runtime',{})}
+        thinking={**config['llm'].get('protocol',{}),**runtime_settings.get('protocol',{})}
+        expected_calls=48 if config['experiment'].get('runtime_mode')=='frozen' else 64
+        if (config['runtime'].get('finish_input_max_bytes')!=16384 or config['runtime'].get('dynamic_output_min_tokens')!=8192
+                or config['runtime'].get('global_action_budget')!=expected_calls
+                or config.get('budget',{}).get('eval_task_tokens')!=192000
+                or runtime_settings.get('max_completion_tokens')!=32768 or runtime_settings.get('reasoning_effort')!='high'
+                or thinking.get('thinking_type')!='enabled'
+                or overrides.get('finish_only')!={'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}):
+            raise ValueError('Office V3 Runtime/finish contract changed')
     if source_capacity is not None and (type(source_capacity) is not int or not 16384 <= source_capacity <= 24576):
         raise ValueError('Executed-source learning capacity must be explicit and bounded to 24 KiB')
     runtime = config['runtime']
@@ -444,6 +458,10 @@ class EmpiricalSystem:
             if stage in {'extractor','tool_builder'}:
                 key='structural_repair_payload_max_bytes' if purpose=='learning_structure_repair' else 'builder_payload_max_bytes' if stage=='tool_builder' else 'extractor_payload_max_bytes'
                 payload_max=self.config['learning'][key]
+                from .source_catalog import trace_enabled
+                if (trace_enabled(self.config) and stage=='tool_builder' and job_key and job_key[-1]==1
+                        and purpose!='learning_structure_repair' and materials.get('previous_failure')):
+                    payload_max=self.config['learning']['builder_repair_payload_max_bytes']
                 from .model_view import capability_capacity
                 payload_max=capability_capacity(materials,self.config['learning'],purpose,payload_max)
                 if stage=='extractor' and purpose=='extractor' and name=='submit_learning':
@@ -465,6 +483,9 @@ class EmpiricalSystem:
                         except (TypeError,ValueError):break
                         compact=[]
                         forms=[projected,pack_material(projected)]
+                        if trace_enabled(self.config):
+                            from .model_view import pack_trace_material
+                            forms.append(pack_trace_material(projected))
                         if projected.get('learning_material_version') in CHOICE_CAPABILITY_MATERIAL_VERSIONS:
                             from .model_view import reference_exact_span_quotes
                             forms.append(reference_exact_span_quotes(projected))
@@ -552,6 +573,17 @@ class EmpiricalSystem:
             record['effective_call_settings_hash'] = digest(settings)
             from .model_view import expand_material
             sent_material = expand_material(json.loads(messages[1]['content'])) if isinstance(messages[1]['content'],str) else materials
+            from .source_catalog import trace_enabled
+            if stage=='runtime' and trace_enabled(self.config):
+                from .office_runtime import evidence_view
+                from .budget_governor import input_token_bound
+                actual=provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages}
+                actual[provider.config.token_limit_field if isinstance(provider,OpenAICompatibleProvider) else 'max_tokens']=completion_cap
+                billed={u['event_id']:u for u in self.prior_usage}
+                billed.update({u.event_id:u.to_dict() for u in self.usage.events[self._task_start:]})
+                record['retrieval_round_audit']={'wire_bytes':input_token_bound(actual),'finish_reserve':finish_reserve,
+                    'billed_tokens':sum(u['total_tokens'] for u in billed.values()),
+                    'evidence':evidence_view(self.task_context,self.adapter.task.goal)}
             if self.task_context: record['displayed_windows'] = self.task_context.displayed_windows(sent_material)
             shown_directories = [case.get('local_evidence',[]) for case in
                 [sent_material.get('experience',{}), *sent_material.get('completed_train_cases',[])]]
@@ -999,6 +1031,8 @@ class EmpiricalSystem:
         self._request_start=len(self.requests)
         self._learning_start=None
         self.phase,self.budget_scope='train','office-recompile:'+identity['source_record_hash']
+        from .source_catalog import trace_enabled
+        if trace_enabled(self.config):self.budget_scope+=':'+identity['recompile_method']+':'+identity.get('work_type','retrieval_chain')
         self.prior_usage=json.loads(Path(self.audit_path).read_text())['usage'] if Path(self.audit_path).exists() else []
         self.task_context=TaskContext(self.config['runtime'])
         self.request_attribution={**identity,'parent_task_id':task.task_id,'parent_scope':self.budget_scope,

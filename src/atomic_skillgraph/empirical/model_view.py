@@ -57,18 +57,46 @@ def expand_material(material):
     tables = material.get('material_tables', {})
     texts = material.get('p2_text_table', {})
     p2='p2_text_table' in material and 'p2_table_note' in material
+    trace_values=material.get('trace_value_table',{})
+    trace='trace_value_table' in material and 'trace_table_note' in material
     def expand(v):
         if isinstance(v, list): return [expand(x) for x in v]
         if not isinstance(v, dict): return deepcopy(v)
+        if trace and set(v)=={'trace_value_ref'}:return expand(deepcopy(trace_values[v['trace_value_ref']]))
         if p2 and set(v)=={'p2_text_ref'}:return texts[v['p2_text_ref']]
-        if set(v) == {'job_ref'}: return deepcopy(tables['jobs'][v['job_ref']])
+        if set(v) == {'job_ref'}: return expand(deepcopy(tables['jobs'][v['job_ref']]))
         result = {k:expand(x) for k,x in v.items() if k != 'contract_ref'}
-        if 'contract_ref' in v: result.update(deepcopy(tables['contracts'][v['contract_ref']]))
+        if 'contract_ref' in v: result.update(expand(deepcopy(tables['contracts'][v['contract_ref']])))
         if p2 and 'p2_span_table' in result:
             table=result.pop('p2_span_table')
             result['spans']=[dict(span_id=row[0],task_path=table['paths'][row[1]],start=row[2],end=row[3]) for row in table['rows']]
         return result
-    return expand({k:v for k,v in material.items() if k not in {'material_tables','material_reference_note','p2_text_table','p2_table_note'}})
+    return expand({k:v for k,v in material.items() if k not in {'material_tables','material_reference_note','p2_text_table','p2_table_note','trace_value_table','trace_table_note'}})
+
+
+def pack_trace_material(material):
+    """V3 only: retain full repeated source strings/scopes once in the same request."""
+    from collections import Counter
+    value=expand_material(material);counts=Counter()
+    def key(v):return json.dumps(v,sort_keys=True,ensure_ascii=False,separators=(',',':'))
+    def count(v):
+        if isinstance(v,(str,list)) and len(key(v))>=128:counts[key(v)]+=1
+        if isinstance(v,dict):
+            for child in v.values():count(child)
+        elif isinstance(v,list):
+            for child in v:count(child)
+    count(value);refs={};table={}
+    def pack(v):
+        serial=key(v) if isinstance(v,(str,list)) else None
+        if serial and counts[serial]>1:
+            ref=refs.setdefault(serial,'v'+str(len(refs)));table[ref]=deepcopy(v)
+            return {'trace_value_ref':ref}
+        if isinstance(v,list):return [pack(x) for x in v]
+        if isinstance(v,dict):return {k:pack(x) for k,x in v.items()}
+        return v
+    packed=pack(value)
+    return pack_material({**packed,'trace_value_table':table,
+        'trace_table_note':'trace_value_ref replaces the value with the exact trace_value_table entry. Full source, scopes and bindings remain in this request.'}) if table else pack_material(value)
 
 
 def pack_capability_material(material):
@@ -160,8 +188,8 @@ def shrink_learning_preview(material):
         for output in row.get('output_references',[]):
             if output.get('content_hint'):
                 output.pop('content_hint');return True
-    from . import OFFICE_SOURCE_MATERIAL_VERSION
-    if material.get('learning_material_version') == OFFICE_SOURCE_MATERIAL_VERSION:
+    from . import OFFICE_SOURCE_MATERIAL_VERSION, OFFICE_TRACE_MATERIAL_VERSION
+    if material.get('learning_material_version') in {OFFICE_SOURCE_MATERIAL_VERSION,OFFICE_TRACE_MATERIAL_VERSION}:
         return False  # Executed source is required evidence under this versioned contract.
     for row in rows:
         if len(row.get('source_excerpt',''))>512:
@@ -193,13 +221,13 @@ def learning_capacity_audit(payload, limit, stage, purpose):
     except (ValueError,TypeError,KeyError,IndexError):return unverified
     optional=any(value.get(k) for k in ('completed_train_cases','related','related_guidance'))
     optional=optional or len(cards)>1
-    from . import OFFICE_SOURCE_MATERIAL_VERSION
-    protected=value.get('learning_material_version')==OFFICE_SOURCE_MATERIAL_VERSION
+    from . import OFFICE_SOURCE_MATERIAL_VERSION, OFFICE_TRACE_MATERIAL_VERSION
+    protected=value.get('learning_material_version') in {OFFICE_SOURCE_MATERIAL_VERSION,OFFICE_TRACE_MATERIAL_VERSION}
     optional=optional or any((row.get('source_excerpt') and not protected) or any(r.get('content_hint') for r in row.get('output_references',[]))
                             for row in [*cards,*operations])
     if purpose=='learning_structure_repair':
         expected={'proposal','errors','legal_operations','note'}
-        if value.get('source_catalog_version')==OFFICE_SOURCE_MATERIAL_VERSION:expected.add('source_catalog_version')
+        if value.get('source_catalog_version') in {OFFICE_SOURCE_MATERIAL_VERSION,OFFICE_TRACE_MATERIAL_VERSION}:expected.add('source_catalog_version')
         recognized=expected==set(value) and bool(value['errors'])
         optional=optional or len(refs)!=len(set(refs))
     elif stage=='tool_builder':
@@ -246,7 +274,7 @@ def operation_directory(evidence, case_id):
     if files:
         outputs += [{'kind':'publication','field':'files','value':files},
                     *[{'kind':'publication','field':'file','name':n,'value':n} for n in files]]
-    sources=[r for r in input_sources(evidence) if canonical_bytes(r)<=
+    sources=[r for r in input_sources(evidence) if evidence['kind']=='verified_retrieval_chain.v1' or canonical_bytes(r)<=
              (2048 if r['kind']=='source_literal' and isinstance(r['value'],(list,dict)) else 512)]
     aggregates=[r['path'] for r in sources if r['kind']=='source_literal' and isinstance(r['value'],(list,dict))]
     sources=[r for r in sources if r['kind']!='source_literal' or not any(
@@ -259,6 +287,7 @@ def operation_directory(evidence, case_id):
     sources=list(unique.values())
     operation=evidence['operation']
     source=operation.get('source') or operation.get('arguments',{}).get('source','')
+    if operation.get('source_context'):source='\n\n'.join(c['source'] for c in operation['source_context'])
     if source:
         try: source=ast.unparse(ast.parse(source))
         except SyntaxError: source=''
@@ -270,6 +299,9 @@ def operation_directory(evidence, case_id):
         'supported_roles': ['intermediate'] + (['final_files'] if files else []) +
             (['final_answer'] if any(r.get('path',[])[-1:]==['answer'] and r.get('type')=='str'
                                     and r.get('content_hint','').strip() for r in outputs) else []),
+        **({'dataflow':operation['edges'], 'actions':[{k:a[k] for k in ('name','event_id','result_id')} for a in operation['actions']],
+            'local_goal':operation['local_goal'],'handoff_proof':operation['handoff_proof']}
+           if evidence['kind']=='verified_retrieval_chain.v1' else {}),
         **({'executed_calls': [{'name':e['name'],'accepted':e['result']['accepted']}
                               for e in evidence['executed_calls']]} if evidence.get('executed_calls') else {}),
         **({'source_excerpt':source[:2048], 'source_truncated':len(source)>2048} if source else {}),
@@ -298,7 +330,7 @@ def select_operation_directory(evidence, case_id):
         return 'python_rpc' if rpc else 'python_compute' if typed else 'python_stdout'
     modes=[mode(i,row) for i,row in enumerate(available)]
     ordered=sorted(enumerate(available),key=lambda pair:(
-        0 if pair[1]['published_files'] else 1 if modes[pair[0]]=='python_compute' else 2 if code(pair[1]) else
+        -1 if pair[1]['kind']=='verified_retrieval_chain.v1' else 0 if pair[1]['published_files'] else 1 if modes[pair[0]]=='python_compute' else 2 if code(pair[1]) else
         3 if evidence_origin(evidence[pair[0]])==TEXT_PAGE else 4,
         {'python_page':0, 'python_search':1}.get(modes[pair[0]],2),
         not bool(evidence[pair[0]]['reference'].get('data',{}).get('computed'))
@@ -350,7 +382,7 @@ def executed_source_capacity(material, learning, default, *, trusted=()):
     experience=expand_material(material).get('experience',{})
     cards=experience.get('local_evidence',[])
     source_rich=(experience.get('compact_learning_directory') is True and any(
-        (row.get('kind')=='executed_python' or
+        (row.get('kind')=='executed_python' or (row.get('kind')=='verified_retrieval_chain.v1' and verified_card(row,trusted)) or
          (row.get('kind')=='native_operation' and row.get('operation_name')=='execute_python'
           and row.get('success') is True and row.get('source_excerpt')
           and verified_card(row,trusted)))
@@ -500,6 +532,10 @@ def project(stage, material, *, task=None, adapter=None, context=None):
             state['observation'] = context.reference(state['observation'], 'observation_already_shown')
         memory = value.pop('working_memory')
         recent = value.pop('recent')
+        if getattr(adapter,'trace_retrieval',False) and context:
+            from .office_runtime import evidence_view, compact_recent
+            state['retrieval_evidence']=evidence_view(context,task.goal)
+            recent=compact_recent(recent,context)
         completed = value.pop('completed_results')
         if context:
             for row in recent:

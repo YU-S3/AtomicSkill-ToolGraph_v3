@@ -372,8 +372,9 @@ class Bank:
                     "programs": [{"id": p["id"], "state": p["state"]} for p in frozen.all("program")]}
         office=self.db.execute("SELECT value FROM metadata WHERE key='officeqa_method_version'").fetchone()
         if office:
-            from . import OFFICE_SOURCE_MATERIAL_VERSION
-            manifest.update(officeqa_method_version=office[0],learning_material_version=OFFICE_SOURCE_MATERIAL_VERSION)
+            from . import OFFICE_SOURCE_MATERIAL_VERSION, OFFICE_TRACE_METHOD_VERSION, OFFICE_TRACE_MATERIAL_VERSION
+            manifest.update(officeqa_method_version=office[0],learning_material_version=OFFICE_TRACE_MATERIAL_VERSION
+                            if office[0]==OFFICE_TRACE_METHOD_VERSION else OFFICE_SOURCE_MATERIAL_VERSION)
         method=self.db.execute("SELECT value FROM metadata WHERE key='choice_method_version'").fetchone()
         if method:manifest['choice_method_version']=method[0]
         frozen.close()

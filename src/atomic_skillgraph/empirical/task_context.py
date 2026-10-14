@@ -5,7 +5,7 @@ from uuid import uuid4
 from . import POLICY_DEFAULTS
 from .contracts import object_schema, digest
 from ..harness.tool_spec import ToolSpec, result_schema
-from .public_results import public_result, public_reference, SCOPED_SEARCH, FILE_COMPUTE, TEXT_PAGE
+from .public_results import public_result, public_reference, SCOPED_SEARCH, FILE_COMPUTE, TEXT_PAGE, TEXT_CONTEXT
 
 
 class TaskContext:
@@ -186,7 +186,7 @@ class TaskContext:
         def field(value, path):
             ref = {'result_id': result_id, 'path': path}
             if isinstance(value, dict): return {k: field(v, [*path, k]) for k, v in value.items()}
-            if self.origin(result_id) == TEXT_PAGE and path == ['data', 'text'] and isinstance(value, str):
+            if self.origin(result_id) in {TEXT_PAGE,TEXT_CONTEXT} and path == ['data', 'text'] and isinstance(value, str):
                 # This producer already acquired a bounded page. Wire admission can
                 # shrink it with an exact receipt; ordinary previews must not hide it.
                 return self.result_window(ref)

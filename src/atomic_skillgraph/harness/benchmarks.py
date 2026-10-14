@@ -258,6 +258,52 @@ class OfficeAdapter(FileAdapter):
                 'offset':{'type':'integer','minimum':0},'text':{'type':'string'}},['path','line','offset','text'])},
              'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
             ('execute_python', 'Temporary Python: ctx.call(name, args) uses glob/read/grep/read_result on the task budget. No direct corpus/network or recursive execute_python. Print bounded JSON for data.computed.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
+        from ..empirical.source_catalog import trace_enabled
+        self.trace_retrieval=trace_enabled(config)
+        if self.trace_retrieval:
+            from dataclasses import replace
+            self.specs['execute_python']=replace(self.specs['execute_python'],description=
+                'Temporary Python: ctx.call uses the advertised glob/read/grep/grep_page/read_context/read_result whitelist on the same task budget. No direct corpus/network or recursive execute_python. Print bounded JSON for data.computed.')
+            from skillcompiler_bench_contracts.office import GREP_PAGE_SCHEMA, CONTEXT_SCHEMA
+            hit=self.specs['grep'].result_schema['properties']['data']['items']
+            self.specs['grep_page']=ToolSpec('grep_page',
+                'Versioned regex search. Same first 40 hits as grep; data.hits contains matches, next_cursor is Host-authenticated, complete=false means search is unfinished (never not_found). Continue with identical pattern/paths/limit. Offsets are Unicode characters; scope audit stays in Host records.',
+                GREP_PAGE_SCHEMA,result_schema(object_schema({'hits':{'type':'array','items':hit},
+                    'next_cursor':{'type':['string','null']},'complete':{'type':'boolean'}},['hits','next_cursor','complete'])),
+                'read_only',True,{'offset':'unicode_codepoint_0_based'})
+            self.specs['read_context']=ToolSpec('read_context',
+                'Read actual surrounding table text at a grep Unicode offset. before+after must be 1..12000 characters. Preserve headings, rows, columns and units from this text; absence is not evidence of a numeric answer.',
+                CONTEXT_SCHEMA,result_schema(object_schema({'path':{'type':'string'},'text':{'type':'string'},
+                    'start_offset':{'type':'integer'},'end_offset':{'type':'integer'},'anchor_offset':{'type':'integer'},
+                    'next_offset':{'type':['integer','null']}},['path','text','start_offset','end_offset','anchor_offset','next_offset'])),
+                'read_only',True,{'offset':'unicode_codepoint_0_based','before':'unicode_characters','after':'unicode_characters'})
+
+    def reset(self,task):
+        from skillcompiler_bench_contracts.office import RetrievalSession
+        if self.trace_retrieval:
+            import os, hmac, secrets
+            root=Path(self.config['experiment']['output_dir']);root.mkdir(parents=True,exist_ok=True)
+            path=root/'.retrieval_cursor_key'
+            try:
+                fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            except FileExistsError:pass
+            else:
+                with os.fdopen(fd,'wb') as stream:stream.write(secrets.token_bytes(32))
+            secret=path.read_bytes()
+            if len(secret)!=32:raise ValueError('Invalid Host retrieval cursor identity')
+            self.retrieval=RetrievalSession(self.corpus,key=hmac.new(secret,task.physical_key.encode(),hashlib.sha256).digest())
+        return super().reset(task)
+
+    def model_state(self):
+        value=super().model_state()
+        if self.trace_retrieval:
+            selected,identity=self.retrieval.catalog()
+            years=set(re.findall(r'\b(?:19|20)\d{2}\b',self.task.goal))
+            value['retrieval_directory']={'corpus_identity':identity,'file_count':len(selected),
+                'public_goal_year_matches':[n for n,_ in selected if any(y in n for y in years)],
+                'all_names':{'tool':'glob','arguments':{'pattern':'**/*.txt'}},
+                'policy':'public filenames/year only; no answer or hit-position ordering'}
+        return value
 
     def _path(self, relative):
         path = (self.corpus / relative).resolve()
@@ -267,8 +313,8 @@ class OfficeAdapter(FileAdapter):
         return path
 
     def result_protocol(self, name):
-        from ..empirical.public_results import SCOPED_SEARCH, TEXT_PAGE
-        return {'grep': SCOPED_SEARCH, 'read': TEXT_PAGE}.get(name, super().result_protocol(name))
+        from ..empirical.public_results import SCOPED_SEARCH, TEXT_PAGE, SEARCH_PAGE, TEXT_CONTEXT
+        return {'grep': SCOPED_SEARCH, 'read': TEXT_PAGE,'grep_page':SEARCH_PAGE,'read_context':TEXT_CONTEXT}.get(name, super().result_protocol(name))
 
     def call(self, name, arguments):
         if not self.corpus.is_dir(): raise RuntimeError('Authorized corpus root is unavailable')
@@ -281,13 +327,19 @@ class OfficeAdapter(FileAdapter):
                     'error_code': 'invalid_corpus_input', 'done': False}
 
     def failure_arguments(self, name, arguments):
-        if name != 'grep': return arguments
+        if name not in {'grep','grep_page'}: return arguments
         try: scope = canonical_scope(arguments.get('paths', ALL_PATHS))
         except ValueError: return arguments
-        return {'pattern': arguments.get('pattern'), 'paths': scope}
+        return {**arguments,'paths':scope}
 
     def _call(self, name, arguments):
         if name == 'execute_python': return self._python(arguments['source'], [])
+        if self.trace_retrieval and name=='grep_page':
+            data,audit=self.retrieval.page(arguments['pattern'],arguments.get('paths',ALL_PATHS),
+                arguments.get('cursor'),arguments.get('limit',40))
+            return {'accepted':True,'observation':'','data':data,'error':None,'done':False,'scope_audit':audit}
+        if self.trace_retrieval and name=='read_context':
+            return {'accepted':True,'observation':'','data':self.retrieval.context(**arguments),'error':None,'done':False}
         if name == 'glob':
             from skillcompiler_bench_contracts.office import glob_paths
             data = glob_paths(self.corpus, arguments['pattern'])

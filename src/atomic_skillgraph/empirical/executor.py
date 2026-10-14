@@ -124,13 +124,14 @@ class Executor:
             return getattr(adapter, 'submission_ready', lambda *a, **k: False)(output, result_role=role)
 
         def recent():
-            from .public_results import TEXT_PAGE, FILE_COMPUTE, PROGRAM_EXECUTION
+            from .public_results import TEXT_PAGE, TEXT_CONTEXT, FILE_COMPUTE, PROGRAM_EXECUTION
             rows = list(history[-3:])
             retained, seen = {TEXT_PAGE:0, FILE_COMPUTE:0, PROGRAM_EXECUTION:0}, {r.get('result_id') for r in rows}
+            if getattr(adapter,'trace_retrieval',False):retained[TEXT_CONTEXT]=0
             for row in reversed(history):
                 rid = row.get('result_id')
                 origin = context.origin(rid) if rid else None
-                if origin not in retained or retained[origin] >= (2 if origin == TEXT_PAGE else 1): continue
+                if origin not in retained or retained[origin] >= (2 if origin in {TEXT_PAGE,TEXT_CONTEXT} else 1): continue
                 retained[origin] += 1
                 if rid not in seen:
                     rows.append(row); seen.add(rid)
@@ -307,7 +308,7 @@ class Executor:
                         fail('handoff_error', resolve_node_interface(nodes[target], self.bank),
                              arguments=context.bind(pending['outputs'], pending['output_refs']), detail=getattr(exc, 'feedback', str(exc)))
 
-        def invoke(program, arguments, node_id):
+        def invoke(program, arguments, node_id, input_refs=None):
             start, was_terminal = len(broker.events), broker.done
             workspace_before = adapter.observe().get('workspace', {})
             if not self.bank.program_eligible(program): raise ValueError('Program lacks local qualification')
@@ -339,6 +340,7 @@ class Executor:
             attempt.update(result_id=result_id, native_event_start=start, native_event_end=len(broker.events))
             attempt.update(arguments=deepcopy(arguments),source=program['source'],input_schema=program['input_schema'],
                 output_schema=program['output_schema'],environment=program['environment'])
+            if getattr(adapter,'trace_retrieval',False):attempt['input_refs']=deepcopy(input_refs or {})
             return result
 
         for _ in range(max(16, broker.call_limit * 4 + 16)):
@@ -389,7 +391,21 @@ class Executor:
                             raise ValueError('Use bounded read_result; arguments exceed RPC limit')
                     except ValueError:
                         continue
-                    result = invoke(program, arguments, node['id'])
+                    refs={}
+                    if getattr(adapter,'trace_retrieval',False):
+                        for key,ref in node.get('args',{}).items():
+                            if 'from' not in ref:continue
+                            original=values.results.get(ref['from'],{}).get(ref['field'])
+                            if isinstance(original,ResultRef):refs[key]=dict(original);continue
+                            producer=next((a for a in attempts if a['id']==input_producers.get(key)),None)
+                            if not producer:continue
+                            source_node=next(n for n in plan['nodes'] if n['id']==ref['from'])
+                            field=next((k for k,v in source_node.get('output_aliases',{}).items() if v==ref['field']),ref['field'])
+                            candidate_ref={'result_id':producer['result_id'],'path':['outputs',field]}
+                            try:actual=context.resolve_public(candidate_ref)
+                            except ValueError:continue
+                            if actual==arguments[key]:refs[key]=candidate_ref
+                    result = invoke(program, arguments, node['id'],refs)
                     attempted.update({key, digest([len(values.history), program['id'], arguments, progress_key(adapter)])})
                     if arguments:
                         input_reads.append(node['id'])
@@ -513,7 +529,7 @@ class Executor:
                             program = self.bank.get(name)
                             if not self.bank.program_eligible(program) or name in blocked or program['environment'] != getattr(getattr(self.agent,'__self__',None),'config',{}).get('program_environment',program['environment']):
                                 raise ValueError('Program is unavailable in this task')
-                            result = invoke(program, call_args, node['id'])
+                            result = invoke(program, call_args, node['id'],action.get('argument_refs'))
                             accepted = result['status'] == 'ok' and result['local_check'] != 'failed'
                             if accepted and (name in {p['id'] for p in routes} or interface['execution_mode'] == 'dynamic' and
                                 bool(requirements['required_fields']) and set(requirements['required_fields']) <= set(result['outputs']) and

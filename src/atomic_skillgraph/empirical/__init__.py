@@ -11,6 +11,10 @@ ANSWER_PROTOCOL_VERSION = 'atomic.answer-executor.v1'
 LEARNING_MATERIAL_VERSION = 'learner.material.public-directory.v15'
 OFFICE_SOURCE_METHOD_VERSION = 'officeqa.source-catalog.v1'
 OFFICE_SOURCE_MATERIAL_VERSION = 'learner.office-source-catalog.v2'
+OFFICE_TRACE_METHOD_VERSION = 'officeqa.trace-retrieval.v3'
+OFFICE_TRACE_MATERIAL_VERSION = 'learner.office-trace.v3'
+OFFICE_TRACE_POLICY = {'material_version': OFFICE_TRACE_MATERIAL_VERSION,
+    'source_program_payload_max_bytes':24576,'builder_payload_max_bytes':24576,'builder_repair_payload_max_bytes':32768}
 GUIDANCE_POLICY_VERSION = 'guidance.public-evidence.v1'
 CHOICE_GUIDANCE_POLICY_VERSION = 'choice-guidance.grounded.v1'
 CHOICE_GUIDANCE_MATERIAL_VERSION = 'choice-guidance.material.v1'

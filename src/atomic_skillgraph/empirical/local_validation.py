@@ -66,6 +66,9 @@ def source_literals(source):
 
 
 def input_sources(evidence):
+    from .retrieval_chain import KIND
+    if evidence.get('kind')==KIND:
+        return [{'kind':'operation_json','path':[k],'value':v} for k,v in evidence['operation']['arguments'].items()]
     rows=[]
     def walk(value, path):
         if isinstance(value,dict):
@@ -242,6 +245,8 @@ def resolve_evidence(binding, experience, skill):
     ref = binding.get('local_evidence_ref')
     evidence = next((e for e in experience.get('local_evidence', []) if e['id'] == ref), None)
     if not evidence: raise ValueError('Program binding requires an existing host local_evidence_ref')
+    from .retrieval_chain import KIND, authentic
+    if evidence['kind']==KIND and not authentic(evidence,experience):raise ValueError('Retrieval chain source mismatch')
     if binding['prefix'] != evidence['prefix']:
         raise ValueError('Local validation start must match the real source operation prefix')
     if binding.get('binding_policy'):
@@ -348,6 +353,12 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
         # when the original executed operation supplies an independent executable reference.
         numeric = next((k for k,v in binding['inputs'].items() if type(v) in (int,float) and k in operation.get('inputs', {})), None)
         variation = None
+        from .retrieval_chain import KIND, calls_match, validate_variations
+        if passed and evidence['kind']==KIND:
+            native_match=calls_match(calls,[{k:a[k] for k in ('name','arguments')} for a in operation['actions']])
+            passed=native_match
+            if passed:passed,variation=validate_variations(system,program,binding,evidence,adapter,trial_id)
+            if not passed:reason='retrieval_dataflow_or_parameter_mismatch'
         if passed and evidence['kind'] == 'executed_python' and numeric:
             changed = {**binding['inputs'], numeric: binding['inputs'][numeric]+1}
             try: validate_schema_instance(changed, program['input_schema'])

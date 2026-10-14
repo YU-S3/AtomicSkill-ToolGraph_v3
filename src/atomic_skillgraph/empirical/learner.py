@@ -29,7 +29,7 @@ class Learner:
         return match_public(self,candidate,task)
 
     def _experience(self, task, trace):
-        return {'task': {'goal': task.goal, 'inputs': task.inputs}, 'events': trace.get('tools', []),
+        experience = {'task': {'goal': task.goal, 'inputs': task.inputs}, 'events': trace.get('tools', []),
                 'score': trace.get('score'), 'submission': trace.get('execution', {}).get('prediction'),
                 'termination_reason': trace.get('execution', {}).get('reason'),
                 **{k: trace.get('execution', {}).get(k) for k in
@@ -39,8 +39,17 @@ class Learner:
                 'result_store':deepcopy(trace.get('result_store',{})),
                 'local_evidence':evidence_from_trace(
                     task,trace,self.system.config['program_environment'])}
+        from .source_catalog import trace_enabled
+        if trace_enabled(self.system.config):
+            from .retrieval_chain import recover
+            experience['local_evidence'] += recover(task,trace,self.system.config['program_environment'])
+        return experience
 
     def _view(self, experience, *, source_id):
+        from .source_catalog import trace_enabled
+        if trace_enabled(self.system.config):
+            from .retrieval_chain import KIND
+            experience={**experience,'local_evidence':[e for e in experience.get('local_evidence',[]) if e['kind']==KIND]}
         if experience.get('local_evidence'):
             return learning_case(experience,source_id)
         context = getattr(self.system, 'task_context', None) or TaskContext(self.system.config['runtime'])
@@ -246,6 +255,13 @@ class Learner:
         from . import source_catalog
         catalog=source_catalog.enabled(s.config)
         experience = self._experience(task, trace)
+        if source_catalog.trace_enabled(s.config):
+            from .retrieval_chain import KIND
+            # New work is limited to the new source type; historical paid decisions stay historical.
+            if not any(e['kind']==KIND for e in experience['local_evidence']):
+                return {'decision':'no_change','reason':'no_verified_retrieval_chain','decision_origin':'host'}
+            self.cases=[(t,experience if t.physical_key==task.physical_key else c) for t,c in self.cases]
+            bank.save_case(task,experience)
         held_out = set(s.config['experiment'].get('choice_selection_physical_keys', []))
         if task.physical_key in held_out:
             bank.save_case(task, experience)
@@ -284,7 +300,7 @@ class Learner:
         material = project('extractor',
                 {'experience': self._view(experience, source_id=task.physical_key), 'related': related, 'tools': tools,
                  'program_submission_contract': submission_contract(s.adapter),
-                 'completed_train_cases': [learning_case(case,key)
+                 'completed_train_cases': [self._view(case,source_id=key) if source_catalog.trace_enabled(s.config) else learning_case(case,key)
                      for key, (t, case) in [row for row in sorted(cases.items(), key=lambda row: (
                          -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0])) if row[0]!=task.physical_key][:2]],
                  'selected_local_goal': focus}, task=task, adapter=s.adapter, context=s.task_context)
@@ -292,9 +308,10 @@ class Learner:
         catalog = source_catalog.enabled(s.config)
         prompt = LEARNER_PROMPT
         if catalog:
-            material = source_catalog.catalog_material(material)
-            schema = source_catalog.proposal_schema(schema)
-            prompt = source_catalog.PROMPT
+            trace_mode=source_catalog.trace_enabled(s.config)
+            material = source_catalog.catalog_material(material,trace=trace_mode)
+            schema = source_catalog.proposal_schema(schema,trace=trace_mode)
+            prompt = source_catalog.TRACE_PROMPT if trace_mode else source_catalog.PROMPT
         def validate(proposal):
             if not catalog: return self.validate_learning_proposal(proposal,cases)
             try:
@@ -374,7 +391,11 @@ class Learner:
                     node['skill_id'] = new_skill['id']
                 if '$new' in node.get('reference_skill_ids', []):
                     node['reference_skill_ids'] = [new_skill['id'] if ref == '$new' else ref for ref in node['reference_skill_ids']]
-            try: log['workflow'] = bank.put('workflow', workflow)['id']
+            try:
+                if source_catalog.trace_enabled(s.config):
+                    from .retrieval_chain import verify_workflow
+                    workflow=verify_workflow(workflow,bank,experience)
+                log['workflow'] = bank.put('workflow', workflow)['id']
             except ValueError as exc: log['errors'].append('Workflow rejected: ' + str(exc))
         return log
 
@@ -606,6 +627,14 @@ class Learner:
         log['test_subjects'] = [b['case_id'] for b in bindings]
         from .local_validation import resolve_evidence
         examples = [builder_example(b,resolve_evidence(b,cases[b['case_id']][1],skill)) for b in bindings]
+        from .retrieval_chain import KIND, TOOLS
+        if any(example['kind']==KIND for example in examples):
+            tools=[t for t in tools if t['name'] in TOOLS]
+        elif s.checkpoint and s.checkpoint.state.get('builder_recovery_prepared') and job.get('program_id'):
+            from .source_catalog import trace_enabled
+            if trace_enabled(s.config):
+                original_tools=set(bank.get(job['program_id'])['allowed_tools'])
+                tools=[t for t in tools if t['name'] in original_tools]
         permissions = program_permission_view(tools, [*s.adapter.available_tools(), TaskContext(s.config['runtime']).tool()],
             tool_surface=s.adapter.capabilities.tool_surface, workspace=getattr(s.adapter, 'workspace', None),
             environment=s.config['program_environment'])
@@ -734,13 +763,20 @@ class Learner:
                                     for path in t.inputs.get('images',[])))
             value['content_parts']=image_content_parts(paths)
         if previous_failure is not None: value['previous_failure'] = self._failure_view(previous_failure)
+        from .source_catalog import trace_enabled
+        if trace_enabled(self.system.config):
+            from .model_view import pack_trace_material
+            return pack_trace_material(value)
         return pack_material(value)
 
     def builder_prompt(self):
-        from .source_catalog import enabled
+        from .source_catalog import enabled, trace_enabled
         from .program_worker import CONTEXT_EXAMPLES
-        return BUILDER_PROMPT+('\nFor intermediate computation return the declared numeric fields, never a final answer. Prefer parameterized local retrieval/statistics. Never use gold or hardcode the demonstrated answer.\n'+CONTEXT_EXAMPLES
+        prompt=BUILDER_PROMPT+('\nFor intermediate computation return the declared numeric fields, never a final answer. Prefer parameterized local retrieval/statistics. Never use gold or hardcode the demonstrated answer.\n'+CONTEXT_EXAMPLES
             if enabled(self.system.config) else '')
+        if trace_enabled(self.system.config):
+            prompt+='\nFor retrieval_chain return the acquired text, not a numeric answer. Follow actions/roots/edges using inputs; source_context is the original executed code, not a replacement Program. Only the future API whitelist is allowed. No match or incomplete evidence must return not_found/needs_input/blocked. Reading an existing hit is an intermediate success even when grep has more hits.'
+        return prompt
 
     def _failure_view(self, failure):
         """Keep one source and bounded, readable evidence; full trial audit stays unchanged."""
