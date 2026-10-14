@@ -5,11 +5,12 @@ IDs or Program source. It is a separate human-authored reference control. It doe
 not initialize an Ours Train, inherit learned qualification, or use V4 candidates.
 
 prepare requires a fresh output directory. It registers all assets with Bank.put,
-executes independent reference calculations through temporary Python in Docker,
+executes independent reference calculations through the existing Docker interfaces,
 and calls the production validate_on_source / Bank.record_validation pipeline.
 The receipts identify manual_reference_validation and reference_probe, not Train.
 Two public-input successes and one abstention check cover each of the ten Programs.
 The four retrieval Programs also run against two actual public Treasury reports.
+Full read pages use structured Worker outputs, not the bounded stdout channel.
 The narrow table parsers are checked against the supplied synthetic pipe tables;
 this does not assert coverage of arbitrary Treasury layouts. Unsupported layouts
 retain their original needs_input / not_found behavior. No Program is rewritten.

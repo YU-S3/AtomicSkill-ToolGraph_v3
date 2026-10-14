@@ -48,3 +48,27 @@ def test_manual_bank_qualification_and_production_workflow(tmp_path):
             frozen.close()
     finally:
         bank.close()
+
+
+def test_full_read_reference_uses_structured_worker_output(tmp_path):
+    source = os.environ.get('OFFICE_REFERENCE_ASSETS')
+    config_path = os.environ.get('OFFICE_REFERENCE_CONFIG')
+    if not source or not config_path:
+        pytest.skip('Requires supplied manual archive and locked Docker environment')
+    config = json.loads(Path(config_path).read_text())['test']
+    bank, names = import_bank(Path(source), tmp_path/'bank', config)
+    corpus = tmp_path/'corpus'
+    corpus.mkdir()
+    (corpus/'long.txt').write_text('Header\n' + 'Long public line\n' * 2000)
+    case = {'name':'read_hit', 'label':'full12k', 'corpus':str(corpus),
+            'inputs':{'path':'long.txt', 'offset':170}, 'status':'ok'}
+    try:
+        program = next(p for p in bank.all('program') if names[p['id']] == 'read_hit')
+        probe(bank, program, case, config, tmp_path/'probe')
+        receipt = json.loads((tmp_path/'probe/receipt.json').read_text())
+        assert len(receipt['trial']['result']['outputs']['text']) == 12000
+        assert receipt['trial']['validation']['variation'] is not None
+        assert receipt['trial']['validation']['passed']
+        assert all(e['name'] == 'read' for e in receipt['reference_trace']['tools'])
+    finally:
+        bank.close()

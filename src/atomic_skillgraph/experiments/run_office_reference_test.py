@@ -81,19 +81,34 @@ def probe(bank, program, case, config, folder):
                            passed=result['status'] == case['status'], qualification=False)
         else:
             # Execute the independent diagnostic, then bind only its actual public output.
-            source = 'import json\ninputs = json.loads(' + repr(json.dumps(case['inputs'])) + ')\n'
-            source += REFERENCES[case['name']] + '\nprint(json.dumps(out))\n'
-            reference = broker.call('execute_python', {'source': source})
-            if not reference.get('accepted') or not isinstance(reference.get('data', {}).get('computed'), dict):
-                write_json(folder / 'reference_error.json', {'result': reference, 'tools': broker.events})
-                raise RuntimeError('Independent reference did not execute: ' + case['name'])
-            trace = {'tools': broker.events}
+            structured = case['name'] == 'read_hit'  # Full 12K pages exceed temporary Python stdout.
+            if structured:
+                source = 'def run(ctx, inputs):\n' + '\n'.join('    '+line for line in REFERENCES[case['name']].splitlines())
+                source += "\n    return {'status':'ok','outputs':out}\n"
+                reference = worker.execute({**program, 'id':'reference_'+digest(source), 'source':source}, case['inputs'], broker)
+                if reference['status'] != 'ok':
+                    raise RuntimeError('Structured reference failed: ' + str(reference))
+                reference_id = broker.context.register('manual-reference', reference)
+                trace = {'tools':broker.events, 'result_store':{'program_results':{reference_id:reference}},
+                    'execution':{'temporary_executions':[{'id':'manual-reference', 'status':'ok', 'source':source,
+                        'arguments':case['inputs'], 'input_schema':program['input_schema'],
+                        'output_schema':program['output_schema'], 'result_id':reference_id}]}}
+            else:
+                source = 'import json\ninputs = json.loads(' + repr(json.dumps(case['inputs'])) + ')\n'
+                source += REFERENCES[case['name']] + '\nprint(json.dumps(out))\n'
+                reference = broker.call('execute_python', {'source': source})
+                if not reference.get('accepted') or not isinstance(reference.get('data', {}).get('computed'), dict):
+                    write_json(folder / 'reference_error.json', {'result': reference, 'tools': broker.events})
+                    raise RuntimeError('Independent reference did not execute: ' + case['name'])
+                trace = {'tools': broker.events}
             evidence = evidence_from_trace(task, trace, config['program_environment'])
             experience = {'local_evidence': evidence, 'events': broker.events}
-            selected = next(e for e in evidence if e['operation'].get('name') == 'execute_python')
+            selected = next(e for e in evidence if e['kind'] == 'executed_python') if structured else next(
+                e for e in evidence if e['operation'].get('name') == 'execute_python')
             binding = canonical_binding({'local_evidence_ref': selected['id'], 'inputs': case['inputs'],
                 'input_refs': {k: {'kind': 'public_json', 'path': ['inputs', k]} for k in case['inputs']},
-                'reference_fields': {k: ['data', 'computed', k] for k in program['output_schema']['required']}}, experience, program)
+                'reference_fields': {k: [k] if structured else ['data', 'computed', k]
+                                     for k in program['output_schema']['required']}}, experience, program)
             system = SimpleNamespace(bank=bank, adapter=adapter, adapter_factory=factory, worker=worker,
                                      config=cfg, budget_governor=None)
             trial = validate_on_source(system, program, binding, task, experience, 'manual:' + digest(case),
