@@ -46,6 +46,9 @@ def execute_action(action, broker, visible, worker, state):
     kind = action.get('action')
     record = {'kind': kind, 'resolved_refs': deepcopy(refs), 'accepted': False}
     if kind == 'native':
+        if broker.remaining_calls() <= 0:
+            state.update(finished=True, terminal_reason='tool_budget_exhausted')
+            return {**record, 'error':'task_tool_budget_exhausted'}
         explicit = action.get('arguments', {})
         arguments = broker.context.bind(explicit, refs)
         result = broker.call(action['name'], arguments)

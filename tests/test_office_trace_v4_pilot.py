@@ -240,6 +240,10 @@ def test_oracles_abstain_and_consumption_requires_actual_reference(tmp_path):
     assert not consumed({**producer,'status':'not_found'},[action])
     with pytest.raises(ValueError):execute_action({'action':'finish','answer_ref':{'result_id':'future','path':['value']}},broker,[],None,{})
     assert snapshot(restore(snapshot(context)))==snapshot(context)
+    broker.remaining_calls=lambda:0
+    exhausted={}
+    record=execute_action({'action':'native','name':'read','arguments':{}},broker,[],None,exhausted)
+    assert exhausted['terminal_reason']=='tool_budget_exhausted' and not record['accepted']
     parent={'kind':'program','status':'ok','accepted':True,'program_id':'p','result_id':rid,'resolved_refs':{},'bound_inputs':{},'result':{'outputs':{'value':12}}}
     child={'kind':'program','status':'ok','accepted':True,'program_id':'q','result_id':'child','resolved_refs':{'x':{'result_id':rid,'path':['outputs','value']}},
         'bound_inputs':{'x':12},'result':{'outputs':{'value':24}}}
