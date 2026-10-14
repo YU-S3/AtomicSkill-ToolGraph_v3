@@ -140,6 +140,13 @@ def test_host_schema_unknown_ids_and_source_mismatch(tmp_path):
     assert bound['skill']['input_schema']['properties']['hit_index']=={'type':'integer'}
     assert bound['skill']['output_schema']['properties']=={'text':{'type':'string'}}
     assert authentic(chain,case)
+    from atomic_skillgraph.empirical.model_view import builder_example
+    alias=deepcopy(proposal)
+    selected=alias['realization_request']['case_bindings'][0]['input_ids']
+    selected['pattern']=selected.pop('query')
+    canonical=bind_proposal(alias,material,{task.physical_key:(task,case)},s.bank)
+    binding=canonical_binding(canonical['realization_request']['case_bindings'][0],case,canonical['skill'])
+    assert builder_example(binding,chain)['input_refs']['pattern']=={'kind':'operation_json','path':['query']}
     material['learning_material_version']=MATERIAL
     assert executed_source_capacity(material,s.config['learning'],16384,trusted=verified_sources([(task,case)]))==24576
     for change in ('id','control','role'):

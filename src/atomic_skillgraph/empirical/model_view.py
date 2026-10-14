@@ -429,6 +429,7 @@ def capability_capacity(material, learning, purpose, default):
 def builder_example(binding, evidence):
     return {'case_id':binding['case_id'],'binding_hash':binding['binding_hash'],
         'inputs':deepcopy(binding['inputs']), 'reference_fields':deepcopy(binding['reference_fields']),
+        **({'input_refs':deepcopy(binding['input_refs'])} if evidence['kind']=='verified_retrieval_chain.v1' else {}),
         'operation':deepcopy(evidence['operation']), 'kind':evidence['kind'],
         'public_task':{'goal':evidence['public_task'].get('goal','')},
         'local_evidence_ref':evidence['id']}
