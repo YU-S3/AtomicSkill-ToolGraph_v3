@@ -164,6 +164,10 @@ def test_intercepted_production_learning_bundle_and_idempotency(tmp_path,monkeyp
     if bundles:
         assert bundles[0]['status']=='candidate_only' and bundles[0]['implementation']['status']=='candidate_only'
         assert bundles[0]['source_trace_sha256']==op['source_trace_sha256'] and not bundles[0]['outputs_consumed']
+        altered=deepcopy(bundles[0]);altered['program']['source']+='\n# altered after generation'
+        asset_path=root/'pilot_bank'/(altered['id']+'.json');save_json(asset_path,altered)
+        with pytest.raises(RuntimeError,match='identity changed'):runner.verify_candidates(root)
+        save_json(asset_path,bundles[0])
     s.close()
 
 
@@ -188,6 +192,8 @@ def test_four_paired_arms_no_false_consumption_and_zero_duplicate_http(tmp_path,
     value=bundle(candidate,program,'fixture',{});value['status']='worker_probe_passed'
     save_json(root/'pilot_bank'/ (value['id']+'.json'),value);runner.index_outputs(root)
     monkeypatch.setattr(consumption,'checked',lambda *a,**k:(plan,s.config))
+    # This Runtime test supplies an explicitly labelled fixture; learning provenance is tested above.
+    monkeypatch.setattr(consumption,'verify_candidates',lambda *a:[value])
     seen=http(monkeypatch,[response(finish='stop',content='{"action":"finish","answer":"7"}') for _ in range(4)])
     result=consumption.consume(root)
     assert result['paired_arms']==4 and result['new_http']==4 and result['outputs_consumed']==0

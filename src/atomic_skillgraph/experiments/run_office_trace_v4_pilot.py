@@ -202,11 +202,36 @@ def rejected_response(path):
             'model_response': {k:record.get('turn',{}).get(k) for k in ('content','tool_calls','finish_reason')}}
 
 
+def verify_candidates(root):
+    """Candidate assets must resolve to this run's saved model response and source decision."""
+    from ..empirical.contracts import validate_program
+    selected = read(root/'selection.json')['opportunities']
+    values = [read(path) for path in sorted((root/'pilot_bank').glob('*.json'))]
+    for value in values:
+        index = value['opportunity_index']; decision = read(root/'decisions'/(str(index)+'.json'))
+        if (decision['opportunity_id'] != selected[index] or value['generation_basis']['id'] != selected[index]
+                or digest(value['candidate']) != digest(decision['candidate'])
+                or value['id'] != 'pilot_program_'+validate_program(value['program'])
+                or value['program']['id'] != value['id']):
+            raise RuntimeError('Candidate/source decision identity changed')
+        records = [read(path) for path in (root/'requests'/('op'+str(index))).glob('*.json')]
+        responses = []
+        for record in records:
+            if record.get('status') != 'response_received': continue
+            try: response = RequestStore.decode(record)
+            except ModelOutputError: continue
+            if digest(response)==value['response_sha256'] and response.get('source')==value['program']['source']:
+                responses.append(record)
+        if not responses: raise RuntimeError('Candidate has no saved model generation response; no hand-authored initial assets')
+    return values
+
+
 def learn(root):
     plan, config = checked(root, corpus=True)
     gate = read(root / 'zero_http_check.json')
     if not gate['passed'] or gate['manifest_sha256'] != sha(root / 'pilot_manifest.json'): raise RuntimeError('Zero HTTP gate must pass first')
     governor = PhaseGovernor(root, 'learn'); cfg = plan['config']; permissions = permission(config)
+    if list((root/'pilot_bank').glob('*.json')): verify_candidates(root)
     clients = {role: RequestStore(root / 'requests', provider_for(config, role, governor), phase='learn',
         wire_max_bytes=cfg['wire_max_bytes']) for role in ('extractor', 'tool_builder')}
     opportunities = {r['id']: r for r in rows(root / 'opportunity_catalog.jsonl')}
@@ -270,6 +295,7 @@ def learn(root):
 
 def probe(root):
     plan, config = checked(root, corpus=True)
+    verify_candidates(root)
     transfer = [s for s in rows(root / 'source_span_catalog.jsonl') if s['source_task']['task_id'] in plan['config']['transfer_tasks']]
     for path in sorted((root / 'pilot_bank').glob('*.json')):
         value = read(path)
@@ -303,6 +329,7 @@ def probe(root):
 def repair(root):
     """Explicit paid continuation, sharing the one repair slot with initial Builder errors."""
     plan, config = checked(root, corpus=True); governor = PhaseGovernor(root, 'learn'); permissions = permission(config)
+    verify_candidates(root)
     client = RequestStore(root / 'requests', provider_for(config, 'tool_builder', governor), phase='learn')
     for path in sorted((root / 'pilot_bank').glob('*.json')):
         value = read(path)

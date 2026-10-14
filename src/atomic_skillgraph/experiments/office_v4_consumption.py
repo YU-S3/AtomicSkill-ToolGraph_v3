@@ -12,7 +12,7 @@ from ..empirical.program_worker import ProgramWorker
 from ..empirical.task_context import TaskContext
 from ..harness.benchmarks import OfficeAdapter
 from ..harness.simple_protocol import Broker
-from .run_office_trace_v4_pilot import checked, PhaseGovernor, provider_for, rows, report
+from .run_office_trace_v4_pilot import checked, PhaseGovernor, provider_for, rows, report, verify_candidates
 
 PROMPT = '''Solve this public task using actual public corpus evidence. Return ONE JSON action:
 {"action":"native","name":<advertised tool>,"arguments":{...},"input_refs":{arg:{result_id,path}}},
@@ -81,7 +81,7 @@ def execute_action(action, broker, visible, worker, state):
 
 def consume(root):
     plan, config = checked(root, corpus=True); governor = PhaseGovernor(root, 'consume')
-    candidates = [b for b in rows(root / 'program_bundles.jsonl') if b['status'] in {'worker_probe_passed', 'cross_train_passed'}
+    candidates = [b for b in verify_candidates(root) if b['status'] in {'worker_probe_passed', 'cross_train_passed'}
                   and not b.get('superseded_by')]
     if not candidates: return {'status': 'not_applicable', 'reason': 'No Worker-passed candidates; no paired HTTP'}
     parent = [{'id': p['id'], 'program': p, 'atomic': {'goal': p.get('entry_constraints', ''),
