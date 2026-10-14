@@ -3,6 +3,7 @@ import argparse
 from copy import deepcopy
 import json
 from pathlib import Path
+import subprocess
 
 import yaml
 
@@ -133,10 +134,22 @@ def check(root):
         size=input_token_bound(payload)
         if size>65536:raise ValueError('Unissued P5 source material exceeds frozen capacity')
         capacities.append({'opportunity_id':op['opportunity_id'],'wire_bytes':size,'reserved_tokens':size+4096})
-    result={'status':'passed','new_model_http':0,'opportunities':len(capacities),'capacities':capacities,
+    docker=docker_ready()
+    result={'status':'passed' if docker['ready'] else 'blocked','plan_hash':digest(plan),'docker':docker,
+        'new_model_http':0,'opportunities':len(capacities),'capacities':capacities,
         'billing_ready':not billing_blocked(read(root/'budget.json')),'paid_authorized':(root/'paid_authorization.json').exists(),
         'consumer_probe_enabled':False,'val_test_enabled':False}
     write_json(root/'zero_http_check.json',result);return result
+
+
+def docker_ready():
+    import sys
+    if sys.platform!='linux':return {'ready':False,'reason':'P5 requires Linux Docker'}
+    try:
+        result=subprocess.run(['docker','image','inspect',m.IMAGE,'--format','{{.Id}}'],
+            text=True,capture_output=True,timeout=20,check=True)
+        return {'ready':result.stdout.strip()==m.IMAGE,'image_digest':result.stdout.strip()}
+    except (OSError,subprocess.SubprocessError) as exc:return {'ready':False,'reason':str(exc)}
 
 
 def system(root, approved=False, provider=None):
@@ -149,6 +162,9 @@ def system(root, approved=False, provider=None):
         write_json(authority,receipt)
     if not authority.exists():raise ValueError('P5 learning budget is proposed, not authorized; review zero-HTTP results first')
     if read(authority)['plan_hash']!=digest(plan):raise ValueError('Authorization is for another plan')
+    preflight=read(root/'zero_http_check.json')
+    if preflight.get('status')!='passed' or preflight.get('plan_hash')!=digest(plan) or not docker_ready()['ready']:
+        raise ValueError('P5 requires matching zero-HTTP preflight and locked Linux Docker before paid generation')
     owner=BudgetGovernor(root/'budget.json',**plan['settings']['cumulative_limits'])
     governor=BatchGovernor(owner,{'run_id':plan['run_id'],'new_limits':plan['settings']['learning_budget_proposed']},root/'learning')
     return EmpiricalSystem(read(root/'config.json'),harness=AnswerAdapter('livemath',{}),budget_governor=governor,provider=provider),plan

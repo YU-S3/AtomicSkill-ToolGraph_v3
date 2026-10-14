@@ -137,6 +137,7 @@ def probe_inputs(spec):
 
 class PureBroker(Broker):
     def rpc(self,*args,**kwargs):
+        self.events.append({'method':args[2],'values':args[3],'accepted':False,'reason':'P5 forbids context RPC'})
         raise ValueError('P5 pure computation forbids all context RPC')
 
 
