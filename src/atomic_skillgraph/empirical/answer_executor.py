@@ -77,6 +77,8 @@ class AnswerExecutor:
         if p4:version=MATH_P4_VERSION+'.answer.v1'
         manual=s.config['experiment'].get('manual_reference_version')
         if manual:version=manual+'.answer.v1'
+        trial=s.config['experiment'].get('math_program_evaluation_version')
+        if trial:version=trial+'.answer.v1'
         from .searchqa_guidance import VERSION as SEARCHQA_VERSION, validate_wire
         searchqa=s.config['experiment'].get('searchqa_method_version')==SEARCHQA_VERSION
         if searchqa:
@@ -171,6 +173,12 @@ class AnswerExecutor:
                 'Its stored ordered nodes run with actual dataflow; dynamic nodes use this same Runtime and parent budget. '
                 'Only use finite programs/graphs when all domain premises are grounded in the public question. Never invent toy truth tables or option truth values. '
                 'All displayed choices must be considered. If unsuitable, solve directly. Workflow results are local evidence; mark actually used result IDs.')
+        if trial:
+            prompt+='\nThe supplied Atomic descriptions and Programs were generated from Train traces and passed bounded local Docker probes. '+(
+                'They remain train_trial_only candidates, not mathematical theorems or officially usable assets. '
+                'Only call a Program when the complete finite parameters follow from this public task. '
+                'Never invent a toy relation or option truth values to force a call. If unsuitable, solve directly. '
+                'Mark actual consumption with used_results; an execution alone is not evidence of usefulness.')
         if public:
             prompt+='\n'+(
                 'For finish you may attach public_process (at most 512 Unicode characters) describing the actual '

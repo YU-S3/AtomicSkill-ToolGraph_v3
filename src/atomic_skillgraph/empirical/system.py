@@ -67,6 +67,7 @@ def validate_config(config):
         raise ValueError('Office source-catalog identity requires its exact method and benchmark')
     math_p3=config.get('experiment',{}).get('choice_method_version') in MATH_CAPABILITY_VERSIONS
     manual_reference=config.get('experiment',{}).get('manual_reference_version')
+    program_trial=config.get('experiment',{}).get('math_program_evaluation_version')
     overrides = config.get('llm', {}).get('purpose_overrides', {})
     config['llm'].setdefault('purpose_overrides',overrides)
     overrides.setdefault('learning_structure_repair',{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048})
@@ -166,9 +167,9 @@ def validate_config(config):
                 raise ValueError('Capability decisions require bounded disabled-thinking settings')
     from .public_process import TRUNCATION_FINALIZATION_VERSION
     finalizer=runtime.setdefault('choice_bounded_finalization',{'enabled':False,'version':FINALIZATION_VERSION})
-    final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 or manual_reference else FINALIZATION_VERSION
+    final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 or manual_reference or program_trial else FINALIZATION_VERSION
     if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=final_version or
-        finalizer['enabled'] and not (config['runtime'].get('choice_guidance',{}).get('public_process') or manual_reference)):
+        finalizer['enabled'] and not (config['runtime'].get('choice_guidance',{}).get('public_process') or manual_reference or program_trial)):
         raise ValueError('Invalid explicitly versioned choice finalization policy')
     if (config['learning'].get('choice_guidance', {}).get('enabled') is True and
             config['runtime'].get('choice_guidance', {}).get('enabled') is not True):
@@ -184,6 +185,9 @@ def validate_config(config):
     if manual_reference:
         from .manual_reference import validate_config as validate_reference
         validate_reference(config)
+    if program_trial:
+        from .math_program_trial import validate_config as validate_trial
+        validate_trial(config)
     allowed = {'mechanism_profile', 'schema_version', 'data_dir', 'experiment', 'harness', 'runtime',
                'learning', 'planning', 'program_worker', 'program_environment', 'llm', 'benchmark_profile', 'manifest', 'budget'}
     if set(config) - allowed:
@@ -250,6 +254,12 @@ class EmpiricalSystem:
         if bank_view_factory:
             if not self.readonly: raise ValueError('Bank views require readonly evaluation')
             self.bank = bank_view_factory(self.bank)
+        if self.config['experiment'].get('math_program_evaluation_version'):
+            from .math_program_trial import TrialView
+            try:
+                if bank_view_factory:raise ValueError('Mathematical trial cannot stack another view')
+                self.bank=TrialView(self.bank,self.config['experiment']['math_program_trial_manifest'])
+            except BaseException:self.bank.close();raise
         if self.config['experiment'].get('manual_reference_version'):
             from .manual_reference import ReferenceView
             try:
@@ -411,12 +421,13 @@ class EmpiricalSystem:
         from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
         full_p2=materials.get('learning_material_version') in {CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,*MATH_MATERIAL_VERSIONS}
         manual_reference=self.config['experiment'].get('manual_reference_version')
+        program_trial=self.config['experiment'].get('math_program_evaluation_version')
         if full_p2:
             from .model_view import pack_capability_material
             wire_material=pack_capability_material(wire_material)
         messages = [{"role": "system", "content": prompt},
                     {"role": "user", "content": json.dumps(wire_material, ensure_ascii=False, allow_nan=False,
-                        **({'separators':(',',':')} if full_p2 or manual_reference else {}))}]
+                        **({'separators':(',',':')} if full_p2 or manual_reference or program_trial else {}))}]
         content_parts = materials.get('content_parts') if isinstance(materials, dict) else None
         if content_parts:
             if 'image' not in self.config.get('llm', {}).get('input_modalities', ['text']):
@@ -466,7 +477,7 @@ class EmpiricalSystem:
                 and settings.get('protocol',{}).get('thinking_type')=='disabled'
                 and (not isinstance(provider,OpenAICompatibleProvider) or provider.config.capability_profile['tools']) else None)
             used, cap = self._budget(stage)
-            p3_runtime_recovery=(stage=='runtime' and self.checkpoint and (self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or self.config['experiment'].get('searchqa_method_version') or manual_reference))
+            p3_runtime_recovery=(stage=='runtime' and self.checkpoint and (self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or self.config['experiment'].get('searchqa_method_version') or manual_reference or program_trial))
             if used >= cap and not p3_runtime_recovery:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Role token budget exhausted', layer=FailureLayer.RUNTIME_AGENT)
             turn = None
@@ -496,7 +507,7 @@ class EmpiricalSystem:
                         finish_wire[finish_provider.config.token_limit_field if isinstance(finish_provider,OpenAICompatibleProvider) else 'max_tokens']=finish_cap
                         # P3 preserves the full question and output cap; its optional reasoning
                         # tail is fitted to actual post-response headroom, up to 16 KiB.
-                        margin=2048 if self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or manual_reference else 4096
+                        margin=2048 if self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or manual_reference or program_trial else 4096
                         finish_reserve=input_token_bound(finish_wire)+finish_cap+margin
                     else:
                         finish_reserve=input_token_bound(finish_material)+finish_cap
@@ -1019,7 +1030,11 @@ class EmpiricalSystem:
                 trace['retrieved_guidance_ids'] = [a['id'] for a in guidance]
                 trace['injected_guidance_ids'] = trace['retrieved_guidance_ids'][:]
                 trace['guidance_retrieval_audit'] = selection if selection else self.bank.guidance_retrieval_audit(task.goal,guidance)
-                cards=[render(a) if semantic else {'skill_id':a['id'],'goal':a['goal'],'guidance':a['guidance']} for a in guidance]
+                if self.config['experiment'].get('math_program_evaluation_version'):
+                    from .math_program_trial import render as render_trial
+                    cards=[render_trial(a) for a in guidance]
+                    trace['math_program_evaluation_version']=self.config['experiment']['math_program_evaluation_version']
+                else:cards=[render(a) if semantic else {'skill_id':a['id'],'goal':a['goal'],'guidance':a['guidance']} for a in guidance]
                 if self.config['experiment'].get('manual_reference_version'):
                     cards=[{k:a[k] for k in ('id','goal','guidance','preconditions','failure_modes','entry_constraints','execution_intent')} for a in guidance]
                 execution = AnswerExecutor(self).run(task,broker,cards,semantic)

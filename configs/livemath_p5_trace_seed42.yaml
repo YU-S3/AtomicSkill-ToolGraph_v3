@@ -1,0 +1,37 @@
+formal_version: livemath.math-program.trace-val.v1
+method_version: livemath.math-program.p5-r1
+seed: 42
+train_count: 60
+atomic_source_count: 15
+max_opportunities: 120
+max_candidates_per_task: 2
+extractor_decisions_per_opportunity: 1
+builder_repairs_per_opportunity: 1
+learning_wire_bytes: 65536
+source_p4: /home/yangchengyu/livemath_p4_seed42_20261014
+ledger_source: /home/yangchengyu/livemath_p5_r1_validation_seed42_20261015/budget.json
+revalidation: /home/yangchengyu/livemath_p5_r1_validation_seed42_20261015
+learning_budget_proposed:
+  token_limit: 5000000
+  request_limit: 180
+val_budget:
+  token_limit: 2176000
+  request_limit: 187
+concurrent_runs:
+  - path: /home/yangchengyu/livemath_manual_bank_test_seed42_20261015
+    token_limit: 13000000
+    request_limit: 5000
+consumer_probe:
+  enabled: false
+cumulative_limits:
+  token_limit: 45000000
+  request_limit: 9165
+  finish_reserve: 0
+paid_authorization: explicit_user_trace_learning_and_val_20261015
+model: deepseek-v4-flash
+image_digest: sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783
+selection: canonical_train_order_then_seed42_distinct_operation
+probe_interfaces: [finite_predicates, finite_quantifiers, rational_compare]
+max_enumerated_cases: 100000
+qualification: train_trial_only
+val_policy: readonly_no_automatic_usable_promotion

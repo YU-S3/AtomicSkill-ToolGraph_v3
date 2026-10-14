@@ -1,0 +1,55 @@
+LiveMath P5 Trace learning and Val — separately recorded seed42 run
+
+Authorization: reuse the completed Train60; at most two distinct finite operation
+candidates per physical task; fresh empty Bank; actual Extractor, Builder and Docker
+Worker; read-only canonical Val17. No automatic usable promotion and no Test.
+
+The predeclared catalog has 76 opportunities across 54 of the 60 Train tasks.
+Six tasks have no supported finite demand. This is a Host scheduling result, not a
+model abstention. Keep canonical Train order and seed42 operation order. Reuse the
+P5-R1 prompts, schemas, three finite interfaces and single shared Builder repair.
+Do not import the revalidation Programs or the independently authored reference Bank.
+
+Learning cap: 5,000,000 tokens / 180 physical HTTP attempts.
+Val cap: 2,176,000 tokens / 187 physical HTTP attempts.
+These caps are not a guarantee that all 76 opportunities can finish: the maximum
+Extractor + Builder + repair demand is 228 attempts. Exhaustion stops before Val;
+no automatic refill, additional repair, or silent omission of unfinished units.
+The existing 45,000,000 / 9,165 campaign limit also applies. Historical charges
+are inherited once. The parallel authored Test has its full 13M / 5,000 allocation
+reserved separately; campaign_union_snapshot.json deduplicates physical attempts.
+Allocation reservations never masquerade as metered usage.
+
+Preparation requires completed real P5-R1 revalidation with at least one Program
+having exact saved model responses and three valid Docker execution receipts.
+All generated Programs remain candidate. The immutable Val Bank contains only
+those passing source-input, parameter-variation and missing-premise checks.
+The explicitly versioned read-only trial view exposes them for evaluation;
+ordinary Bank eligibility and promotion rules are unchanged.
+
+Val uses the existing official scoring path, 65,536 completion / high thinking /
+600-second timeout, 128,000 parent tokens, and one existing truncation-only final
+submission of at most 16,384 tokens. Runtime receives real Atomic descriptions and
+up to eight Program interfaces, without the training example parameters. It must
+ground parameters in the current public task, and record actual result consumption.
+
+CLI (use the clean checkout whose code identity is recorded in formal_plan.json):
+python -m atomic_skillgraph.experiments.run_math_program_trace prepare \
+  --source /home/yangchengyu/livemath_p2_formal_seed42_20261013/livemath/seed42 \
+  --output /home/yangchengyu/livemath_p5_trace_seed42_20261015
+python -m atomic_skillgraph.experiments.run_math_program_trace check --output <run>
+python -m atomic_skillgraph.experiments.run_math_program_trace execute \
+  --output <run> --env-file /mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env
+python -m atomic_skillgraph.experiments.run_math_program_trace status --output <run>
+
+The same execute command resumes that exact run. A process lock rejects overlap;
+saved paid responses and Worker receipts are reused. Completed learning costs are
+sealed before Val, and a completed run returns its existing result without requests.
+Never modify a running checkout or replace an existing plan.
+
+Audit: formal_plan.json, train_coverage.json, selected_opportunities.json,
+learning/*/{learning,requests,probe}.json, learning/*/worker/, learning_completed.json,
+trial_manifest.json, frozen_bank/, val/{config,execution_manifest,summary}.json,
+val/{traces,requests}/, budget.json, allocation_manifest.json, freeze_audit.json,
+campaign_union_snapshot.json and result.json. A local probe pass is not evidence of
+general mathematical correctness or Val usefulness; report failures and no-change.

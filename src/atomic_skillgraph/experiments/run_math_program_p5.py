@@ -21,6 +21,7 @@ from .formal_log import utc
 from .run_empirical import code_identity, write_json, load_env
 from .run_choice_capability_batch import learning_boundary
 
+CONTRACTS=Path(__file__).parents[3]/'configs'
 
 def read(p):return json.loads(Path(p).read_text())
 
@@ -59,12 +60,19 @@ def prepare(source, output, config):
     root=Path(output).resolve();settings=yaml.safe_load(Path(config).read_text());code=code_identity()
     if root.exists():raise ValueError('P5 requires a new directory; preserve all old runs')
     if not code['git_sha'] or code['tracked_dirty']:raise ValueError('Commit P5 before preparing the paid identity')
-    expected=Path(__file__).parents[3]/'configs/livemath_p5_program_probe_seed42.yaml'
+    formal=bool(settings.get('formal_version'))
+    expected=CONTRACTS/('livemath_p5_trace_seed42.yaml' if formal else 'livemath_p5_program_probe_seed42.yaml')
     if settings!=yaml.safe_load(expected.read_text()):raise ValueError('P5 policy differs from committed configuration')
     rows,atoms,inputs,original,parent=m.load_sources(source,settings['source_p4'])
     if original['llm']['model']!=settings['model']:raise ValueError('Source and Builder backbone must agree')
     opportunities,selected=m.catalog(rows,atoms,settings['seed'],settings['max_opportunities'])
+    if formal:
+        from .run_math_program_trace import schedule
+        selected,coverage=schedule(rows,opportunities,settings)
     prefix=read(settings['ledger_source'])
+    if formal:
+        from .run_math_program_trace import allocation
+        allocation(settings,prefix)
     if billing_blocked(prefix):raise ValueError('Unresolved billing without inherited reservation authority')
     if prefix['limits']!=settings['cumulative_limits']:raise ValueError('Cumulative budget cannot be reset')
     charge=sum(a.get('accounted_tokens',a['reserved_tokens']) for a in prefix['attempts'].values())
@@ -97,6 +105,7 @@ def prepare(source, output, config):
         'selected_opportunities.json','opportunity_catalog.jsonl','campaign_budget_prefix.json','learning/campaign_budget_prefix.json')}
     write_json(root/'pilot_manifest.json',plan);write_json(root/'plan_identity.json',{'sha256':digest(plan)})
     for f in ('spec_proposals.jsonl','program_bundles.jsonl','worker_receipts.jsonl'):jsonl(root/f,[])
+    if formal:write_json(root/'train_coverage.json',coverage)
     return check(root)
 
 
@@ -294,7 +303,7 @@ def report(root):
     ledger=read(root/'budget.json');prefix=read(root/'campaign_budget_prefix.json')
     attempts={k:v for k,v in ledger['attempts'].items() if k not in prefix['attempts']}
     value={'method_version':m.VERSION,'plan_hash':digest(plan),'source_commit':plan['code']['git_sha'],
-        'status':'prepared' if all(r['state']=='pending' for r in rows) else 'awaiting_probe' if any(r['state']=='code_generated' for r in rows)
+        'status':'prepared' if all(r['state']=='pending' for r in rows) else 'learning_incomplete' if any(r['state']=='pending' for r in rows) else 'blocked' if any(r['state']=='blocked' for r in rows) else 'awaiting_probe' if any(r['state']=='code_generated' for r in rows)
             else 'completed_no_program' if not any(r['probe_passed'] for r in rows) else 'completed_train_trial',
         'rows':rows,'generated_programs':len([r for r in rows if r['autonomously_generated']]),
         'probe_passed':sum(r['probe_passed'] for r in rows),'usable_programs':0,'consumer_probe_executed':False,
