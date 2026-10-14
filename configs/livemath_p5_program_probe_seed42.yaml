@@ -9,8 +9,8 @@ learning_wire_bytes: 65536
 source_p4: /home/yangchengyu/livemath_p4_seed42_20261014
 ledger_source: /home/yangchengyu/livemath_p5_program_probe_seed42_20261015/budget.json
 learning_budget_proposed:
-  token_limit: 800000
-  request_limit: 60
+  token_limit: 727477
+  request_limit: 54
 consumer_probe:
   enabled: false
   token_limit_proposed: 1200000
