@@ -66,6 +66,7 @@ def validate_config(config):
                           or config.get('harness',{}).get('adapter')!='officeqa'):
         raise ValueError('Office source-catalog identity requires its exact method and benchmark')
     math_p3=config.get('experiment',{}).get('choice_method_version') in MATH_CAPABILITY_VERSIONS
+    manual_reference=config.get('experiment',{}).get('manual_reference_version')
     overrides = config.get('llm', {}).get('purpose_overrides', {})
     config['llm'].setdefault('purpose_overrides',overrides)
     overrides.setdefault('learning_structure_repair',{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048})
@@ -165,9 +166,9 @@ def validate_config(config):
                 raise ValueError('Capability decisions require bounded disabled-thinking settings')
     from .public_process import TRUNCATION_FINALIZATION_VERSION
     finalizer=runtime.setdefault('choice_bounded_finalization',{'enabled':False,'version':FINALIZATION_VERSION})
-    final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 else FINALIZATION_VERSION
+    final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 or manual_reference else FINALIZATION_VERSION
     if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=final_version or
-        finalizer['enabled'] and not config['runtime'].get('choice_guidance',{}).get('public_process')):
+        finalizer['enabled'] and not (config['runtime'].get('choice_guidance',{}).get('public_process') or manual_reference)):
         raise ValueError('Invalid explicitly versioned choice finalization policy')
     if (config['learning'].get('choice_guidance', {}).get('enabled') is True and
             config['runtime'].get('choice_guidance', {}).get('enabled') is not True):
@@ -180,6 +181,9 @@ def validate_config(config):
     if math_p3:
         from .math_capability import validate_runtime_contract
         validate_runtime_contract(config)
+    if manual_reference:
+        from .manual_reference import validate_config as validate_reference
+        validate_reference(config)
     allowed = {'mechanism_profile', 'schema_version', 'data_dir', 'experiment', 'harness', 'runtime',
                'learning', 'planning', 'program_worker', 'program_environment', 'llm', 'benchmark_profile', 'manifest', 'budget'}
     if set(config) - allowed:
@@ -246,6 +250,13 @@ class EmpiricalSystem:
         if bank_view_factory:
             if not self.readonly: raise ValueError('Bank views require readonly evaluation')
             self.bank = bank_view_factory(self.bank)
+        if self.config['experiment'].get('manual_reference_version'):
+            from .manual_reference import ReferenceView
+            try:
+                if bank_view_factory: raise ValueError('Manual reference cannot stack a different Bank view')
+                self.bank = ReferenceView(self.bank,self.config['experiment']['manual_reference_manifest'])
+            except BaseException:
+                self.bank.close();raise
         from .budget_governor import BudgetGovernor
         budget = self.config.get('budget')
         self.budget_governor = budget_governor or (BudgetGovernor(Path(self.config['experiment']['output_dir'])/'budget.json',
@@ -399,12 +410,13 @@ class EmpiricalSystem:
         wire_material = learning_payload(materials) if stage=='extractor' else materials
         from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
         full_p2=materials.get('learning_material_version') in {CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,*MATH_MATERIAL_VERSIONS}
+        manual_reference=self.config['experiment'].get('manual_reference_version')
         if full_p2:
             from .model_view import pack_capability_material
             wire_material=pack_capability_material(wire_material)
         messages = [{"role": "system", "content": prompt},
                     {"role": "user", "content": json.dumps(wire_material, ensure_ascii=False, allow_nan=False,
-                        **({'separators':(',',':')} if full_p2 else {}))}]
+                        **({'separators':(',',':')} if full_p2 or manual_reference else {}))}]
         content_parts = materials.get('content_parts') if isinstance(materials, dict) else None
         if content_parts:
             if 'image' not in self.config.get('llm', {}).get('input_modalities', ['text']):
@@ -454,7 +466,7 @@ class EmpiricalSystem:
                 and settings.get('protocol',{}).get('thinking_type')=='disabled'
                 and (not isinstance(provider,OpenAICompatibleProvider) or provider.config.capability_profile['tools']) else None)
             used, cap = self._budget(stage)
-            p3_runtime_recovery=(stage=='runtime' and self.checkpoint and (self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or self.config['experiment'].get('searchqa_method_version')))
+            p3_runtime_recovery=(stage=='runtime' and self.checkpoint and (self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or self.config['experiment'].get('searchqa_method_version') or manual_reference))
             if used >= cap and not p3_runtime_recovery:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Role token budget exhausted', layer=FailureLayer.RUNTIME_AGENT)
             turn = None
@@ -484,7 +496,7 @@ class EmpiricalSystem:
                         finish_wire[finish_provider.config.token_limit_field if isinstance(finish_provider,OpenAICompatibleProvider) else 'max_tokens']=finish_cap
                         # P3 preserves the full question and output cap; its optional reasoning
                         # tail is fitted to actual post-response headroom, up to 16 KiB.
-                        margin=2048 if self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS else 4096
+                        margin=2048 if self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or manual_reference else 4096
                         finish_reserve=input_token_bound(finish_wire)+finish_cap+margin
                     else:
                         finish_reserve=input_token_bound(finish_material)+finish_cap
@@ -542,7 +554,7 @@ class EmpiricalSystem:
                                 cards.pop()
                         messages[1]={'role':'user','content':json.dumps(pack_material(projected),ensure_ascii=False,separators=(',',':'))}
             cached_runtime=(self.checkpoint.response(response_key_for({**settings,'max_completion_tokens':completion_cap},completion_cap))
-                if self.checkpoint and stage=='runtime' and (self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS or self.config['experiment'].get('searchqa_method_version')) else None)
+                if p3_runtime_recovery else None)
             if used>=cap and not cached_runtime:
                 raise BudgetExhausted('empirical_token_budget_exhausted','Role token budget exhausted',layer=FailureLayer.RUNTIME_AGENT)
             if stage == 'runtime' and preserve_finish and not cached_runtime:
@@ -997,6 +1009,9 @@ class EmpiricalSystem:
                     policy = {**policy, 'capability_matches': matches}
                     trace['capability_match_audit'] = {'matches': matches, 'rejected': rejected}
                 selection = self.bank.select_guidance(task,policy) if semantic else None
+                if self.config['experiment'].get('manual_reference_version'):
+                    selection={'selected':self.bank.all('skill'),'authority':'human_authored_reference_not_learned_ours'}
+                    trace['manual_reference_version']=self.config['experiment']['manual_reference_version']
                 if self.config['experiment'].get('searchqa_method_version'):
                     selection=self.bank.retrieve_searchqa_guidance(task,self.config['runtime']['searchqa_selection'])
                     trace['searchqa_selection_audit']={k:v for k,v in selection.items() if k!='selected'}
@@ -1004,8 +1019,10 @@ class EmpiricalSystem:
                 trace['retrieved_guidance_ids'] = [a['id'] for a in guidance]
                 trace['injected_guidance_ids'] = trace['retrieved_guidance_ids'][:]
                 trace['guidance_retrieval_audit'] = selection if selection else self.bank.guidance_retrieval_audit(task.goal,guidance)
-                execution = AnswerExecutor(self).run(task,broker,[render(a) if semantic else
-                    {'skill_id':a['id'],'goal':a['goal'],'guidance':a['guidance']} for a in guidance],semantic)
+                cards=[render(a) if semantic else {'skill_id':a['id'],'goal':a['goal'],'guidance':a['guidance']} for a in guidance]
+                if self.config['experiment'].get('manual_reference_version'):
+                    cards=[{k:a[k] for k in ('id','goal','guidance','preconditions','failure_modes','entry_constraints','execution_intent')} for a in guidance]
+                execution = AnswerExecutor(self).run(task,broker,cards,semantic)
             else:
                 plan = self.checkpoint.state['executor_state']['plan'] if self.checkpoint and self.checkpoint.state.get('executor_state') else (
                     self.checkpoint.state.get('initial_plan') if self.checkpoint else None) or self.planner.plan(task, self.adapter)

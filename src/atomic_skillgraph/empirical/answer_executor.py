@@ -75,26 +75,30 @@ class AnswerExecutor:
         from . import MATH_P4_VERSION
         p4=s.config['experiment'].get('choice_method_version')==MATH_P4_VERSION
         if p4:version=MATH_P4_VERSION+'.answer.v1'
+        manual=s.config['experiment'].get('manual_reference_version')
+        if manual:version=manual+'.answer.v1'
         from .searchqa_guidance import VERSION as SEARCHQA_VERSION, validate_wire
         searchqa=s.config['experiment'].get('searchqa_method_version')==SEARCHQA_VERSION
         if searchqa:
             version=SEARCHQA_VERSION+'.answer.v1'
             validate_wire(guidance)
         schema=deepcopy(STEP)
+        if manual:schema['properties']['action']['enum'].append('call_workflow')
         if public:
             schema['properties'].update(public_process={'type':'string','minLength':1,'maxLength':512},
                 public_steps={'type':'array','items':PUBLIC_STEP,'minItems':1,'maxItems':4})
         state = deepcopy(checkpoint.state.get('answer_executor', {})) if checkpoint else {}
         attempts, temporary, results = state.get('attempts', []), state.get('temporary', []), state.get('results', [])
+        workflows=state.get('workflows',[])
         if state.get('workspace'): restore_trial_workspace(s.adapter,state['workspace'])
         for key,value in state.get('context',{}).items(): setattr(context,key,value)
         if 'finished' in state: return state['finished']
-        def save(finished=None):
+        def save(finished=None,pending=None):
             s.executor.partial_execution = {'prediction':None,'reason':'answer_in_progress','attempts':deepcopy(attempts),
-                'temporary_executions':deepcopy(temporary),'answer_protocol_version':version}
+                'temporary_executions':deepcopy(temporary),'workflow_attempts':deepcopy(workflows),'answer_protocol_version':version}
             if not checkpoint: return
-            state.update(attempts=attempts,temporary=temporary,results=results,
-                         next_index=index+1,
+            state.update(attempts=attempts,temporary=temporary,results=results,workflows=workflows,pending_step=deepcopy(pending),
+                         next_index=index if pending else index+1,
                          finalization=finalization,
                          context={k:getattr(context,k) for k in ('scope','results','sources','memory','local_reads','result_origins','window_sources','sent_windows')})
             if getattr(s.adapter,'workspace',None):
@@ -106,6 +110,9 @@ class AnswerExecutor:
                          'internal_execution_count':len(attempts)+len(temporary),'native_calls':0,
                          'submission_producer_attempt_id':producer,'answer_protocol_version':version,
                          'answer_origin':'program' if producer else 'finish_only' if reason in {'budget_finish_only','truncation_final_answer'} else 'runtime_response'}
+            if manual:
+                execution.update(workflow_attempts=workflows,manual_reference_version=manual,
+                    internal_execution_count=len(attempts)+len(temporary)+sum(w['program_executions'] for w in workflows))
             if budget_censored: execution['budget_censored'] = True
             from .answer_status import classify_answer
             answer_request=next((r for r in reversed(s.requests) if r.get('response')), {})
@@ -158,6 +165,12 @@ class AnswerExecutor:
             'continue reasoning from actual results. At most two local executions. Use used_results for results actually '
             'used, replaced_results for superseded work. Finite arithmetic/examples do not prove a general theorem. '
             'All question conditions and choices remain available. read_result reads an existing result_id/path.')
+        if manual:
+            prompt+='\nThis is an explicitly human-authored reference Bank control arm. All twelve supplied Skills are conditional procedures, not facts or proofs. '+(
+                'You may call_workflow using a supplied workflow ID in name and explicit arguments. At most one Workflow and two total Program executions. '
+                'Its stored ordered nodes run with actual dataflow; dynamic nodes use this same Runtime and parent budget. '
+                'Only use finite programs/graphs when all domain premises are grounded in the public question. Never invent toy truth tables or option truth values. '
+                'All displayed choices must be considered. If unsuitable, solve directly. Workflow results are local evidence; mark actually used result IDs.')
         if public:
             prompt+='\n'+(
                 'For finish you may attach public_process (at most 512 Unicode characters) describing the actual '
@@ -168,14 +181,16 @@ class AnswerExecutor:
                 'or an actually used result_id/path. Quotes must occur at those public locations. '
                 'A computation requires a real successful result. Do not invent steps. Plain text answers remain valid.')
         for index in range(state.get('next_index',0),8):
+            local_used=len(attempts)+len(temporary)+sum(w['program_executions'] for w in workflows)
             material = {'goal':task.goal,'inputs':task.inputs,'guidance':guidance,
                 'programs':s.bank.program_options(task.goal), 'local_results':[context.view(r) for r in results],
-                'remaining_local_executions':max(0,2-len(attempts)-len(temporary)),
+                'remaining_local_executions':max(0,2-local_used),
                 'worker_resources':getattr(s.adapter,'worker_resources',{}), 'local_reads':context.local_reads[-2:],
                 'content_parts':getattr(s.adapter,'content_parts',lambda:[])(), 'answer_protocol_version':version}
+            if manual:material.update(workflows=s.bank.workflow_options(),remaining_workflow_calls=max(0,1-len(workflows)))
             from ..core.errors import BudgetExhausted
             try:
-                step = s.agent('runtime',prompt,material,'answer_step',schema,repair_limit=0,owner_state_version=version+':'+str(index),
+                step = state.get('pending_step') or s.agent('runtime',prompt,material,'answer_step',schema,repair_limit=0,owner_state_version=version+':'+str(index),
                     finish_request_material={k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}})
             except ValueError as exc:
                 if not getattr(exc,'model_authored',False):raise
@@ -194,14 +209,14 @@ class AnswerExecutor:
                         'finish_answer',None,repair_limit=0,owner_state_version=VERSION+':finish:'+str(index))
                 except BudgetExhausted:raise exc
                 return finish(answer,'budget_finish_only',budget_censored=True)
-            if truncation_only and s.requests[-1].get('response',{}).get('finish_reason')=='length':
+            if truncation_only and not state.get('pending_step') and s.requests[-1].get('response',{}).get('finish_reason')=='length':
                 valid=step.get('action')=='finish' and s.adapter.valid_answer_format(step.get('answer',''))
                 finalization.setdefault('first_truncation',{'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':not valid})
                 if not valid:
                     return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'completion_truncated_no_answer')
             used,replaced = set(step.get('used_results',[])),set(step.get('replaced_results',[]))
             if (used|replaced)-set(results):return finish('','unknown_result_consumption_reference')
-            for a in attempts+temporary:
+            for a in attempts+temporary+workflows:
                 if a['result_id'] in used-replaced: a['outputs_consumed']=True
                 if a['result_id'] in replaced: a.update(outputs_consumed=False,replaced=True)
             if step['action']=='finish':
@@ -223,8 +238,26 @@ class AnswerExecutor:
                 try:context.read(step.get('result_id',''),path=step.get('path',[]))
                 except (ValueError,KeyError):return finish('','invalid_result_read')
                 save(); continue
-            if len(attempts)+len(temporary)>=2:
+            if local_used>=2:
                 return finish('','internal_execution_limit')
+            if manual and step['action']=='call_workflow':
+                from .manual_reference import execute_workflow, WorkflowInputError
+                if workflows:return finish('','manual_workflow_call_limit')
+                save(pending=step)
+                try:
+                    try:args=context.bind(step.get('arguments',{}),step.get('argument_refs',{}))
+                    except (ValueError,KeyError) as exc:raise WorkflowInputError(str(exc)) from exc
+                    result=execute_workflow(s,task,broker,step.get('name',''),args,'answer_'+str(index),2-local_used)
+                except WorkflowInputError as exc:
+                    result={'status':'needs_input','outputs':{},'reason':str(exc),'program_executions':0,'nodes':[]}
+                rid=context.register(digest([version,index,'workflow']),result,name=step.get('name',''))
+                workflows.append({'workflow_id':step.get('name'),'result_id':rid,'status':result['status'],
+                    'program_executions':result['program_executions'],'outputs_consumed':False,'nodes':result['nodes']})
+                results.append(rid)
+                if truncation_only and s.requests and s.requests[-1].get('response',{}).get('finish_reason')=='length' and result['status']!='ok':
+                    finalization['first_truncation']={'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':True}
+                    return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'completion_truncated_no_answer')
+                save();continue
             try:
                 args = context.bind(step.get('arguments',{}),step.get('argument_refs',{}))
                 if step['action']=='execute_python':

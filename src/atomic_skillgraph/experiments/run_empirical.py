@@ -235,6 +235,11 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
                    "program_invocations": sum(len(t["execution"].get("attempts", [])) for t in cases),
                    "frozen": frozen, "knowledge_digest": system.bank.digest(), "cases": cases}
         if not readonly:summary['learning_capacity']=capacity_statistics(audits,cases)
+        if config['experiment'].get('manual_reference_version'):
+            workflows=[w for t in cases for w in t['execution'].get('workflow_attempts',[])]
+            summary.update(workflow_invocations=len(workflows),workflow_results_consumed=sum(w['outputs_consumed'] for w in workflows),
+                workflow_program_invocations=sum(w['program_executions'] for w in workflows),bank_provenance='human_authored_reference_not_learned_ours')
+            summary['program_invocations']+=summary['workflow_program_invocations']
         write_json(output / "summary.json", summary)
         return summary
     finally:
