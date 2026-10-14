@@ -138,6 +138,8 @@ def test_full_trace_to_val_and_resume(prepared,monkeypatch,tmp_path):
     assert all(budget['attempts'][k]==v for k,v in prefix['attempts'].items())
     assert len(budget['attempts'])-len(prefix['attempts'])==len(learned)+17
     assert pilot.report(root)['new_http']==len(learned)
+    current=runner.status(root)
+    assert current['val_completed']==17 and current['learning_cost']['http']==len(learned) and current['val_cost']['http']==17
 
 
 def test_actual_candidate_consumption_and_source_tamper(prepared,monkeypatch):

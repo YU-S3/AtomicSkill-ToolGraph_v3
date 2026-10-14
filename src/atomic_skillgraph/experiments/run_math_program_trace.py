@@ -226,6 +226,23 @@ def execute(output,env_file):
             write_json(root/'status.json',result);raise
 
 
+def status(output):
+    root=Path(output);value=read(root/'status.json')
+    rows=[read(p) for p in (root/'learning').glob('*/learning.json')]
+    probes=[read(p) for p in (root/'learning').glob('*/probe.json')]
+    value.update(learning_completed=len(rows),learning_total=len(read(root/'selected_opportunities.json')),
+        generated_programs=sum(r.get('bundle',{}).get('autonomously_generated',False) for r in rows),
+        probes_passed=sum(p.get('probe_passed',False) for p in probes))
+    for stage in ('learning','val'):
+        path=root/stage/'budget.json'
+        if path.exists():
+            attempts=read(path)['attempts'].values()
+            value[stage+'_cost']={'http':len(attempts),'metered_tokens':sum(a.get('accounted_tokens',0) for a in attempts),
+                'unresolved_reserved_tokens':sum(a['reserved_tokens'] for a in attempts if 'accounted_tokens' not in a)}
+    value['val_completed']=len(list((root/'val/traces').glob('*.json')))
+    return value
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='command',required=True)
     a=sub.add_parser('prepare');a.add_argument('--source',required=True);a.add_argument('--output',required=True)
@@ -234,7 +251,7 @@ def main():
         a=sub.add_parser(name);a.add_argument('--output',required=True)
         if name=='execute':a.add_argument('--env-file',required=True)
     args=vars(p.parse_args());name=args.pop('command')
-    result=read(Path(args['output'])/'status.json') if name=='status' else globals()[name](**args)
+    result=globals()[name](**args)
     print(json.dumps(result,ensure_ascii=False))
 
 
