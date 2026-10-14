@@ -276,7 +276,7 @@ def qualification(program):
             validation.get('environment_hash') == digest(program['environment']))
 
 
-def validate_on_source(system, program, binding, task, experience, trial_id):
+def validate_on_source(system, program, binding, task, experience, trial_id, *, validation_origin='train_test'):
     """Never call a model or an evaluator for an intermediate local operation."""
     evidence = resolve_evidence(binding, experience, program)
     if evidence['environment_identity'] != program['environment']:
@@ -409,8 +409,8 @@ def validate_on_source(system, program, binding, task, experience, trial_id):
             'native_operation_match':native_match,
             'binding_hash':binding.get('binding_hash'), 'file_effect_version':FILE_EFFECT_VERSION,
             'actual_operation_hash':digest([{'name':e['name'],'arguments':e['arguments']} for e in calls])}
-        record = {'id':trial_id, 'program_id':program['id'], 'task_key':task.physical_key, 'origin':'train_test',
-            'split':'train', 'outcome':'positive' if passed else 'execution_failure', 'basis':'local_check' if passed else None,
+        record = {'id':trial_id, 'program_id':program['id'], 'task_key':task.physical_key, 'origin':validation_origin,
+            'split':task.split, 'outcome':'positive' if passed else 'execution_failure', 'basis':'local_check' if passed else None,
             'calls':len(broker.events)-start, 'result':result, 'tools':broker.events, 'validation':validation}
         system.bank.record(record)
         system.bank.record_validation(program['id'], validation)
