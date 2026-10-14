@@ -259,7 +259,7 @@ def runtime_view(context, programs):
         preview = json_preview(data)
         records.append({**memory, 'public_preview': preview, 'full_result_ref': {'result_id': rid, 'path': ['data'] if 'data' in raw else ['outputs']},
                         'preview_is_not_complete': preview != data})
-    return {'actual_results': records, 'programs': [{'id': b['id'], **b['atomic'],
+    return {'actual_results': records, 'programs': [{**b['atomic'], 'id': b['id'], 'atomic_id': b['atomic'].get('id'),
         'input_schema': b['program']['input_schema'], 'output_schema': b['program']['output_schema'],
         'missing_inputs': list(b['program']['input_schema'].get('required', [])),
         'binding': 'resolve every input from this episode public ResultRefs; no future values'} for b in programs]}

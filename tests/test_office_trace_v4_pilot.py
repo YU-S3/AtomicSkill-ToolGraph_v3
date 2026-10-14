@@ -16,7 +16,7 @@ from atomic_skillgraph.empirical.office_operation_mining import mine, bind_input
 from atomic_skillgraph.empirical.office_trace_program_induction import (RequestStore, ModelOutputError,
     validate_proposal, program_from_response, bundle)
 from atomic_skillgraph.empirical.office_program_probe import (probe_cases, execute_probe, consumed,
-    partial_workflow, verify_result, expected)
+    partial_workflow, verify_result, expected, runtime_view)
 from atomic_skillgraph.empirical.task_context import TaskContext
 from atomic_skillgraph.empirical.retrieval_chain import recover, authentic
 from atomic_skillgraph.harness.simple_protocol import Broker
@@ -275,4 +275,22 @@ def test_real_docker_search_variation_negative_and_illegal_scope(tmp_path):
     assert any(e['name']=='read_context' for e in receipts[0]['events'])
     bad={**probes['cases'][2],'inputs':{**candidate['bound_inputs'],'paths':['../outside.txt']}}
     receipt=execute_probe(value,bad,config,asdict(task));assert receipt['result']['status']=='blocked'
+    # Use the actually advertised ID and current native control refs through the Runtime entry.
+    from atomic_skillgraph.empirical.program_worker import ProgramWorker
+    candidate=validate_proposal(proposal(op),op,spans,['read'],[])
+    program=program_from_response({'source':SOURCE},candidate,config['program_environment'],['read'])
+    usable=bundle(candidate,program,'engineering-fixture',{})
+    broker=Broker(s.adapter,12,context=TaskContext(config['runtime']))
+    state={'actions':[],'producers':[]}
+    native=execute_action({'action':'native','name':'read','arguments':{'path':'a.txt','offset':0}},broker,[usable],None,state)
+    state['actions'].append(native)
+    view=runtime_view(broker.context,[usable])['programs'][0]
+    assert view['id']==program['id'] and view['atomic_id']==usable['atomic']['id']
+    called=execute_action({'action':'program','program_id':view['id'],'input_refs':{
+        k:{'result_id':native['controls_result_id'],'path':['data',k]} for k in ('path','offset')}},
+        broker,[usable],ProgramWorker({'record_execution_receipt':True}),state)
+    state['actions'].append(called)
+    assert called['status']=='ok' and not consumed(state['producers'][0],state['actions'])
+    finished=execute_action({'action':'finish','answer_ref':{'result_id':called['result_id'],'path':['outputs','text']}},broker,[usable],None,state)
+    assert consumed(state['producers'][0],[finished]) and state['finished']
     s.close()
