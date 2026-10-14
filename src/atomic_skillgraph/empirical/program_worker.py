@@ -294,6 +294,7 @@ class ProgramWorker:
             import hashlib
             from .contracts import digest
             result['execution_receipt'] = {'image_digest':image,'container':container,'command':execution_command,
+                'exit_code':process.returncode,
                 'source_sha256':hashlib.sha256(program['source'].encode()).hexdigest(),
                 'worker_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 'input_hash':digest(inputs),'result_hash':digest(result)}

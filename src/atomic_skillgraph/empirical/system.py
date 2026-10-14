@@ -36,6 +36,14 @@ def validate_config(config):
     if config.get("mechanism_profile") != PROFILE:
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
+    math_program = config.get('experiment',{}).get('math_program_method_version')
+    if math_program:
+        from .math_program_induction import VERSION as P5, IMAGE as P5_IMAGE
+        if (math_program != P5 or config['experiment'].get('benchmark') != 'livemath'
+                or config.get('harness',{}).get('adapter') != 'livemath'
+                or config['program_environment'].get('image_digest') != P5_IMAGE
+                or config['experiment'].get('choice_method_version')):
+            raise ValueError('P5 requires an isolated LiveMath Program trial configuration')
     from .searchqa_guidance import VERSION as SEARCHQA_VERSION, MATERIAL as SEARCHQA_MATERIAL, POLICY as SEARCHQA_POLICY, IMAGE as SEARCHQA_IMAGE
     searchqa = config.get('experiment',{}).get('searchqa_method_version')
     if searchqa:
@@ -63,8 +71,12 @@ def validate_config(config):
     overrides.setdefault('learning_structure_repair',{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048})
     if overrides['learning_structure_repair'] != {'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
         raise ValueError('Structural learning repair requires disabled thinking and 2048 completion')
-    if set(overrides) - ({'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair', 'capability_induction', 'capability_routing'} | ({'math_consolidation'} if math_p3 else set())):
+    if set(overrides) - ({'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair', 'capability_induction', 'capability_routing'} | ({'math_consolidation'} if math_p3 else set()) | ({'math_program_spec','math_program_build'} if math_program else set())):
         raise ValueError('Unsupported purpose override')
+    if math_program:
+        for purpose, cap in [('math_program_spec',4096),('math_program_build',8192)]:
+            if overrides.get(purpose) != {'protocol':{'thinking_type':'disabled'},'max_completion_tokens':cap,'max_retries':0}:
+                raise ValueError('P5 requires fixed bounded, no-retry generation settings')
     for settings in overrides.values():
         if set(settings) - {'protocol', 'max_completion_tokens', 'reasoning_effort', 'max_retries'}:
             raise ValueError('Unsupported purpose setting')
@@ -485,6 +497,9 @@ class EmpiricalSystem:
                     payload_max=self.config['learning']['builder_repair_payload_max_bytes']
                 from .model_view import capability_capacity
                 payload_max=capability_capacity(materials,self.config['learning'],purpose,payload_max)
+                if (self.config['experiment'].get('math_program_method_version') and
+                        purpose in {'math_program_spec','math_program_build'}):
+                    payload_max=65536
                 if stage=='extractor' and purpose=='extractor' and name=='submit_learning':
                     from .model_view import executed_source_capacity
                     from .source_catalog import enabled, verified_sources
