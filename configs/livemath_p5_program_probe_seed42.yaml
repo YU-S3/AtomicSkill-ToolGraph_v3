@@ -1,0 +1,28 @@
+method_version: livemath.math-program.p5
+seed: 42
+train_count: 60
+atomic_source_count: 15
+max_opportunities: 6
+extractor_decisions_per_opportunity: 1
+builder_repairs_per_opportunity: 1
+learning_wire_bytes: 65536
+source_p4: /home/yangchengyu/livemath_p4_seed42_20261014
+ledger_source: /home/yangchengyu/livemath_p4_seed42_20261014/budget.json
+learning_budget_proposed:
+  token_limit: 800000
+  request_limit: 60
+consumer_probe:
+  enabled: false
+  token_limit_proposed: 1200000
+  request_limit_proposed: 24
+cumulative_limits:
+  token_limit: 45000000
+  request_limit: 9165
+  finish_reserve: 0
+paid_authorization: null
+model: deepseek-v4-flash
+image_digest: sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783
+selection: public_demand_kind_then_success_failure_then_seed42_digest
+probe_interfaces: [finite_predicates, finite_quantifiers, rational_compare]
+max_enumerated_cases: 100000
+qualification: train_trial_only
