@@ -4,6 +4,7 @@ import json
 import re
 
 from . import MATH_CAPABILITY_VERSION as VERSION, MATH_CAPABILITY_MATERIAL_VERSION as MATERIAL_VERSION
+from . import MATH_P4_VERSION as P4, MATH_P4_MATERIAL_VERSION as P4_MATERIAL, MATH_CAPABILITY_VERSIONS as VERSIONS
 from .contracts import PublicTask,digest,object_schema,validate_schema_instance
 from .capability_batch import TEXT,REFERENCE as REF,records,source_refs,spans,public_identity,abstain_match,MATCH,field_errors
 
@@ -39,12 +40,32 @@ PROMPT=('Extract up to four distinct reusable mathematical procedures from the s
     'Use decision=no_change when evidence is insufficient; unused accompanying fields do not publish a candidate.')
 
 
+def material_version(version):
+    if version not in VERSIONS:raise ValueError('Unknown mathematical capability policy')
+    return P4_MATERIAL if version==P4 else MATERIAL_VERSION
+
+
+def proposal_schema(version):
+    result=deepcopy(PROPOSAL)
+    if version==P4:
+        result['properties']['guidance']=TEXT(640)
+        result['properties']['prerequisites']['items']=TEXT(128)
+        result['properties']['stop_condition']=TEXT(192)
+    return result
+
+
+def check_schema(version):
+    result=deepcopy(CHECK)
+    if version==P4:result['properties']['proposal_quote']=TEXT(640)
+    return result
+
+
 def configure(base):
     from .public_process import TRUNCATION_FINALIZATION_VERSION
     from . import POLICY_DEFAULTS
     config=deepcopy(base)
     for section,defaults in POLICY_DEFAULTS.items():config.setdefault(section,{}).update(defaults)
-    config['learning'].update(capability_material_version=MATERIAL_VERSION,capability_payload_max_bytes=65536,guidance_repair_limit=1)
+    config['learning'].update(capability_material_version=material_version(config['experiment']['choice_method_version']),capability_payload_max_bytes=65536,guidance_repair_limit=1)
     config['llm']['runtime'].update(max_completion_tokens=65536,max_total_tokens_per_task=128000,
         request_timeout_seconds=600,protocol={'thinking_type':'enabled'},reasoning_effort='high')
     config['llm']['extractor']['max_total_tokens_per_task']=1000000
@@ -76,11 +97,14 @@ def render(candidate):
         'qualification':'procedure_not_proof'}
 
 
-def validate_candidate(value,rows,*,parents=None):
+def validate_candidate(value,rows,*,parents=None,version=VERSION):
     if isinstance(value,dict) and value.get('decision')=='no_change':return None
-    errors=field_errors(value,PROPOSAL)
+    if version==P4 and parents is None and isinstance(value,dict):
+        value={k:v for k,v in value.items() if k!='parent_ids'}
+    schema=proposal_schema(version)
+    errors=field_errors(value,schema)
     if errors:raise ValueError('; '.join(errors))
-    validate_schema_instance(value,PROPOSAL)
+    validate_schema_instance(value,schema)
     if value['decision']=='no_change':return None
     required={'decision','category','operation','guidance','applicability','prerequisites','stop_condition','references'}
     expected=required|({'parent_ids'} if parents is not None else set())
@@ -98,18 +122,19 @@ def validate_candidate(value,rows,*,parents=None):
     if re.search(r'\b(?:choose|select|answer(?: is)?)\s+(?:option\s+)?[A-E]\b',text,re.I):
         raise ValueError('A mathematical procedure cannot select a fixed option label')
     content={k:deepcopy(v) for k,v in value.items() if k!='decision'}
-    candidate={'id':'skill_'+digest([VERSION,content]),'method_version':VERSION,'state':'candidate',
+    candidate={'id':'skill_'+digest([version,content]),'method_version':version,'state':'candidate',
         'knowledge_type':'procedural_advisory','execution_intent':'guidance_only','goal':value['applicability'],
         **content,'proposal':deepcopy(value),'source_case_ids':covered,
         'source_records':deepcopy([r for r in rows if r['task']['physical_key'] in covered])}
     scope={k:candidate[k] for k in ('category','operation','applicability','prerequisites','stop_condition')}
-    candidate['capability']={'id':'cap_'+digest([VERSION,scope]),**scope}
-    if len(json.dumps(render(candidate),ensure_ascii=False))+2>1024:raise ValueError('P3 complete card exceeds 1024 Unicode characters')
+    candidate['capability']={'id':'cap_'+digest([version,scope]),**scope}
+    limit=1536 if version==P4 else 1024
+    if len(json.dumps(render(candidate),ensure_ascii=False))+2>limit:raise ValueError(f'Complete card exceeds {limit} Unicode characters')
     return candidate
 
 
 def validate_check(value,candidate):
-    validate_schema_instance(value,CHECK)
+    validate_schema_instance(value,check_schema(candidate['method_version']))
     if value['candidate_hash']!=digest(candidate):raise ValueError('P3 content check identity changed')
     if value['proposal_quote'] not in candidate['guidance']:raise ValueError('Unlocated P3 procedure quote')
     source_refs(value['references'],candidate['source_records'],span_factory=math_spans)
@@ -166,7 +191,7 @@ def match(learner,candidate,task):
             'Cite exact supplied span IDs from two distinct public fields. Abstain if premises or scope cannot be established. '
             'Do not solve, predict an answer or use gold.',
             {'capability':candidate['capability'],'task':{'goal':task.goal,'inputs':task.inputs},'spans':math_spans(task),'task_hash':public_identity(task)},
-            'submit_capability_match',MATCH,material_version=MATERIAL_VERSION,decision_purpose='capability_routing',
+            'submit_capability_match',MATCH,material_version=material_version(candidate['method_version']),decision_purpose='capability_routing',
             validator=lambda v:validate_route(v,candidate,task),repair_limit=0)
     except ValueError as exc:
         if not getattr(exc,'model_authored',False):raise
@@ -185,7 +210,8 @@ def select(assets,task,matches,*,candidate=False):
                 else:selected.append(asset);reason='selected'
         audit.append({'asset_id':asset['id'],'reason':reason})
     return {'selected':selected,'audit':audit,'injected_ids':[a['id'] for a in selected],
-        'injected_chars':sum(len(json.dumps(render(a),ensure_ascii=False))+2 for a in selected),'selection_version':VERSION}
+        'injected_chars':sum(len(json.dumps(render(a),ensure_ascii=False))+2 for a in selected),
+        'selection_version':selected[0]['method_version'] if selected else VERSION}
 
 
 class MathView:
@@ -213,9 +239,15 @@ def utility_receipt(candidate,pairs,preflight,policy,identity):
         raise ValueError('Invalid P3 public route')
     totals={arm:{'correct':sum(f[arm]['correct'] for f in facts),'empty':sum(f[arm]['empty'] for f in facts),
         'total_tokens':sum(f[arm]['usage']['total_tokens'] for f in facts),'http':sum(f[arm]['physical_http'] for f in facts)} for arm in ('off','on')}
-    value={'schema':VERSION+'.val-utility.v1','candidate_hash':digest(candidate),'preflight':deepcopy(preflight),'paired':facts,
+    version=candidate['method_version']
+    if identity['method_version']!=version:raise ValueError('Utility method identity changed')
+    value={'schema':version+'.val-utility.v1','candidate_hash':digest(candidate),'preflight':deepcopy(preflight),'paired':facts,
         'policy':deepcopy(policy),'identity':identity,'screen_passed':initial,'passed':initial and confirmed and len(preflight)==17,
         'totals':totals,'qualification':'development_selection_not_generalization'}
+    if version==P4:
+        exposure=sum(f['exposed'] for f in facts)
+        value['selection_state']='usable' if value['passed'] else 'utility_inconclusive' if exposure<policy['screen' if len(preflight)==6 else 'promotion']['min_exposed'] else 'utility_rejected'
+        value['reason']='passed' if value['passed'] else 'coverage_insufficient' if value['selection_state']=='utility_inconclusive' else 'utility_gate_not_met'
     return {**value,'receipt_hash':digest(value)}
 
 
@@ -223,7 +255,10 @@ def checked_candidate(candidate):
     try:
         parents=candidate.get('parent_candidates')
         if parents is not None and any(c.get('parent_candidates') is not None or not checked_candidate(c) for c in parents.values()):return False
-        rebuilt=validate_candidate(candidate['proposal'],candidate['source_records'],parents=parents)
+        version=candidate['method_version']
+        if version not in VERSIONS:return False
+        if parents is not None and any(c['method_version']!=version for c in parents.values()):return False
+        rebuilt=validate_candidate(candidate['proposal'],candidate['source_records'],parents=parents,version=version)
         expected={k:v for k,v in candidate.items() if k not in {'source_check','parent_candidates'}}
         return expected==rebuilt and validate_check(candidate['source_check'],rebuilt)
     except (ValueError,KeyError,TypeError):return False
@@ -232,13 +267,14 @@ def checked_candidate(candidate):
 def checked_asset(asset):
     from .capability_batch import gate
     try:
-        if asset['method_version']!=VERSION or asset['state']!='usable':return False
+        version=asset['method_version']
+        if version not in VERSIONS or asset['state']!='usable':return False
         c=asset['candidate'];receipt=asset['utility_receipt']
         if not checked_candidate(c):return False
-        if receipt['schema']!=VERSION+'.val-utility.v1' or receipt['candidate_hash']!=digest(c) or not receipt['passed']:return False
+        if c['method_version']!=version or receipt['schema']!=version+'.val-utility.v1' or receipt['candidate_hash']!=digest(c) or not receipt['passed']:return False
         if receipt['receipt_hash']!=digest({k:v for k,v in receipt.items() if k!='receipt_hash'}):return False
         rows=receipt['preflight'];facts=receipt['paired'];policy=receipt['policy']
-        if policy!=POLICY or receipt['identity']['method_version']!=VERSION or receipt['identity']['public_val_hash']!=digest([r['task'] for r in rows]):return False
+        if policy!=POLICY or receipt['identity']['method_version']!=version or receipt['identity']['public_val_hash']!=digest([r['task'] for r in rows]):return False
         if len(rows)!=17 or [r['rank'] for r in rows]!=list(range(17)) or any(r['task']['split']!='val' for r in rows):return False
         if len({r['task']['physical_key'] for r in rows})!=17 or any(r['task']['physical_key'] in c['source_case_ids'] for r in rows):return False
         expected_keys={r['task']['physical_key'] for r in rows if validate_route(r['match'],c,PublicTask(**r['task']))}
@@ -253,8 +289,8 @@ def checked_asset(asset):
     except (ValueError,KeyError,TypeError):return False
 
 
-def batch_schema(limit):
-    proposal=deepcopy(PROPOSAL)
+def batch_schema(limit,version=VERSION):
+    proposal=proposal_schema(version)
     required=['decision','category','operation','guidance','applicability','prerequisites','stop_condition','references']
     if limit==4:proposal['properties'].pop('parent_ids')
     else:required.append('parent_ids')
@@ -292,6 +328,9 @@ CHECK_PROMPT=('Check each exact mathematical procedure against its cited actual 
 
 def learn(learner,rows,*,parents=None):
     s=learner.system
+    if s.config['experiment'].get('choice_method_version')==P4:
+        from .math_trace_learning import learn as learn_trace
+        return learn_trace(learner,rows,parents=parents)
     if s.readonly or s.phase!='train' or s.config['experiment'].get('choice_method_version')!=VERSION:
         raise ValueError('P3 learning requires its own writable Train version')
     key='math_learning_'+digest([VERSION,rows,parents])

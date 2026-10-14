@@ -153,6 +153,32 @@ def restore_capability_response(value, wire_material):
     return restore(value)
 
 
+def restore_math_items(value,wire_material,*,consolidation=False):
+    """P4 normalization is item-local; raw arguments remain in the request record."""
+    from .contracts import digest
+    if isinstance(value,dict) and value.get('decision')=='no_change':
+        normalized={'decision':'no_change'}
+        return normalized,[{'reason':'terminal_abstention','raw_hash':digest(value),'normalized_hash':digest(normalized)}]
+    if not isinstance(value,dict):return value,[]
+    field='candidates' if 'candidates' in value else 'checks' if 'checks' in value else None
+    if field is None:return restore_capability_response(value,wire_material),[]
+    if not isinstance(value[field],list):return value,[]
+    result=deepcopy(value);receipts=[]
+    for index,raw in enumerate(value[field]):
+        item=deepcopy(raw);removed=[]
+        if field=='candidates' and not consolidation and isinstance(item,dict) and 'parent_ids' in item:
+            item.pop('parent_ids');removed=['parent_ids']
+        receipt={'field':field,'index':index,'raw_hash':digest(raw),'discarded_fields':removed}
+        try:
+            item=restore_capability_response(item,wire_material)
+            receipt['status']='normalized'
+        except ValueError as exc:
+            # Keep the malformed item to be rejected by its own strict validator.
+            receipt.update(status='rejected',reason=str(exc))
+        result[field][index]=item;receipt['normalized_hash']=digest(item);receipts.append(receipt)
+    return result,receipts
+
+
 def reference_exact_span_quotes(material):
     """Lossless references to text already present in the same public task."""
     value=deepcopy(material);changed=False
@@ -392,9 +418,9 @@ def executed_source_capacity(material, learning, default, *, trusted=()):
 
 
 def capability_capacity(material, learning, purpose, default):
-    from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,MATH_CAPABILITY_MATERIAL_VERSION
-    if material.get('learning_material_version')==MATH_CAPABILITY_MATERIAL_VERSION and purpose=='math_consolidation':return 131072
-    if (material.get('learning_material_version') in {CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,MATH_CAPABILITY_MATERIAL_VERSION} and
+    from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,MATH_MATERIAL_VERSIONS
+    if material.get('learning_material_version') in MATH_MATERIAL_VERSIONS and purpose=='math_consolidation':return 131072
+    if (material.get('learning_material_version') in {CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,*MATH_MATERIAL_VERSIONS} and
         purpose in {'capability_induction','guidance_learning','guidance_grounding','math_consolidation'}):
         return learning.get('capability_payload_max_bytes',default)
     return default

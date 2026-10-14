@@ -53,6 +53,15 @@ STEP = object_schema({'action':{'enum':['finish','execute_python','call_program'
     'replaced_results':{'type':'array','items':{'type':'string'}}}, ['action'])
 
 
+def validate_math_finish(step,schema,adapter):
+    """P4 finish identity/answer are mandatory; optional annotations are checked later."""
+    if not isinstance(step,dict) or step.get('action')!='finish':
+        validate_schema_instance(step,schema);return
+    core={k:v for k,v in step.items() if k not in {'public_process','public_steps'}}
+    validate_schema_instance(core,STEP)
+    if not adapter.valid_answer_format(core.get('answer','')):raise ValueError('Invalid final answer')
+
+
 class AnswerExecutor:
     def __init__(self, system): self.system = system
 
@@ -63,6 +72,9 @@ class AnswerExecutor:
         from .public_process import VERSION as PROCESS_VERSION, PUBLIC_STEP, validate_process, TRUNCATION_FINALIZATION_VERSION
         truncation_only=s.config['runtime'].get('choice_bounded_finalization',{}).get('version')==TRUNCATION_FINALIZATION_VERSION
         version=TRUNCATION_FINALIZATION_VERSION if truncation_only else PROCESS_VERSION if public else VERSION
+        from . import MATH_P4_VERSION
+        p4=s.config['experiment'].get('choice_method_version')==MATH_P4_VERSION
+        if p4:version=MATH_P4_VERSION+'.answer.v1'
         schema=deepcopy(STEP)
         if public:
             schema['properties'].update(public_process={'type':'string','minLength':1,'maxLength':512},
@@ -190,7 +202,11 @@ class AnswerExecutor:
             if step['action']=='finish':
                 answer=step.get('answer','');process=None
                 if public:
-                    try:process=validate_process(step,task,context,results,used-replaced,index,s.requests[-1]['id'] if s.requests else None)
+                    try:
+                        if p4:
+                            optional={k:step[k] for k in ('public_process','public_steps') if k in step}
+                            validate_schema_instance(optional,object_schema({k:schema['properties'][k] for k in ('public_process','public_steps')},[]))
+                        process=validate_process(step,task,context,results,used-replaced,index,s.requests[-1]['id'] if s.requests else None)
                     except ValueError as exc:process={'verification':'rejected','reason':str(exc),'kind':'self_reported_process'}
                 if finalizer and not getattr(s.adapter,'valid_answer_format',lambda a:True)(answer) and s.requests[-1].get('response',{}).get('finish_reason')=='length':
                     if truncation_only:finalization['first_truncation']={'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':True}

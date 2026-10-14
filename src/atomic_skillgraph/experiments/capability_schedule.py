@@ -10,23 +10,47 @@ GROUPING = 'public-goal-token-jaccard.v1'
 FULL = 'choice-capability-batch.full-coverage.v1'
 
 
-def math_schedule(tasks):
+def math_schedule(tasks,*,version=None):
     """Cover Train60 once, grouping explicit public mathematical demands, not outcomes."""
-    from ..empirical.math_capability import public_structure,VERSION as MATH_VERSION
+    from ..empirical.math_capability import public_structure,VERSION as MATH_VERSION,P4
     from ..empirical.contracts import PublicTask
     if len(tasks)!=60 or len({t['physical_key'] for t in tasks})!=60 or any(t['split']!='train' for t in tasks):
         raise ValueError('P3 requires exactly sixty distinct Train tasks')
+    version=version or MATH_VERSION
     analyses={t['physical_key']:public_structure(PublicTask(**t)) for t in tasks}
+    if version==P4:
+        # Whole mathematical phrases identify demand; lexical token similarity and
+        # observed correctness never participate in source grouping.
+        demands={
+            'quantifier_scope':r'\b(?:for (?:all|every|each)|there exists|there is|any fixed)\b|\\(?:forall|exists)\b',
+            'implication':r'\b(?:if and only if|sufficient|necessary|equivalent|implies)\b',
+            'uniform_limit':r'\b(?:uniform(?:ly)?|pointwise|almost surely|in probability|convergen\w*|converge\w*)\b',
+            'asymptotic_bound':r'\b(?:asymptotic\w*|limsup|liminf|growth|rate|bounded)\b',
+            'admissible_example':r'\b(?:counterexample|boundary|not necessarily|fails?|false)\b',
+            'existence_uniqueness':r'\b(?:unique\w*|existence|fixed point|solution)\b',
+            'finite_algebra':r'\b(?:matrix|determinant|polynomial|integer|finite|enumerat\w*)\b'}
+        for t in tasks:
+            features=[]
+            for name,pattern in demands.items():
+                for path,text in [(['goal'],t['goal']),*[(['inputs','choices',i,'text'],c['text']) for i,c in enumerate(t['inputs']['choices'])]]:
+                    match=re.search(pattern,text,re.I)
+                    if match:features.append({'operation_demand':name,'task_path':path,'start':match.start(),'end':match.end(),'quote':match.group()})
+            analyses[t['physical_key']]['operation_demands']=features
     pending=sorted(tasks,key=lambda t:t['task_id']);units=[]
     while pending:
         anchor=pending.pop(0);categories=set(analyses[anchor['physical_key']]['categories'])
-        related=sorted(pending,key=lambda t:(-len(categories & set(analyses[t['physical_key']]['categories'])),t['task_id']))[:3]
+        def relation(t):
+            shared=len(categories & set(analyses[t['physical_key']]['categories']))
+            if version!=P4:return (-shared,t['task_id'])
+            operations=lambda key:{r['operation_demand'] for r in analyses[key]['operation_demands']}
+            return (-len(operations(anchor['physical_key']) & operations(t['physical_key'])),-shared,t['task_id'])
+        related=sorted(pending,key=relation)[:3]
         members=[anchor,*related];keys=[t['physical_key'] for t in members]
         pending=[t for t in pending if t['physical_key'] not in keys]
         body={'source_keys':keys,'public_analysis':[analyses[k] for k in keys]}
-        units.append({'unit_id':digest([MATH_VERSION,body]),**body})
-    return {'version':MATH_VERSION+'.public-demand-schedule.v1','units':units,
-        'rule':'lexicographic anchor; shared typed mathematical demands descending; task_id tie-break',
+        units.append({'unit_id':digest([version,body]),**body})
+    return {'version':version+('.public-demand-schedule.v2' if version==P4 else '.public-demand-schedule.v1'),'units':units,
+        'rule':'lexicographic anchor; shared typed mathematical '+('operations then ' if version==P4 else '')+'demands descending; task_id tie-break',
         'qualification':'explicit public demand indicators; no truth prediction or outcome grouping',
         'public_inputs_hash':digest(tasks)}
 

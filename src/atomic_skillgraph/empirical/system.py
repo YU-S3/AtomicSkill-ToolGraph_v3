@@ -15,7 +15,8 @@ from ..harness.simple_protocol import Broker, EpisodeResult
 from . import (PROFILE, POLICY_DEFAULTS, CHOICE_GUIDANCE_POLICY_VERSION, CHOICE_GUIDANCE_MATERIAL_VERSION,
                CHOICE_GUIDANCE_SELECTION_VERSION, SINGLE_ANSWER_PROMPT_VERSION)
 from . import (PUBLIC_CHOICE_POLICY_VERSION, PUBLIC_CHOICE_MATERIAL_VERSION,
-    CHOICE_CAPABILITY_VERSIONS, CHOICE_CAPABILITY_MATERIAL_VERSIONS, MATH_CAPABILITY_VERSION, MATH_CAPABILITY_MATERIAL_VERSION)
+    CHOICE_CAPABILITY_VERSIONS, CHOICE_CAPABILITY_MATERIAL_VERSIONS, MATH_CAPABILITY_VERSION, MATH_CAPABILITY_MATERIAL_VERSION,
+    MATH_CAPABILITY_VERSIONS, MATH_MATERIAL_VERSIONS, MATH_P4_VERSION, MATH_P4_MATERIAL_VERSION)
 from .bank import Bank
 from .contracts import PublicTask, RuntimeDecision, digest
 from .task_context import TaskContext
@@ -42,7 +43,7 @@ def validate_config(config):
     if office_version and (office_version not in {OFFICE_SOURCE_METHOD_VERSION,OFFICE_TRACE_METHOD_VERSION} or config.get('experiment',{}).get('benchmark') != 'officeqa'
                           or config.get('harness',{}).get('adapter')!='officeqa'):
         raise ValueError('Office source-catalog identity requires its exact method and benchmark')
-    math_p3=config.get('experiment',{}).get('choice_method_version')==MATH_CAPABILITY_VERSION
+    math_p3=config.get('experiment',{}).get('choice_method_version') in MATH_CAPABILITY_VERSIONS
     overrides = config.get('llm', {}).get('purpose_overrides', {})
     config['llm'].setdefault('purpose_overrides',overrides)
     overrides.setdefault('learning_structure_repair',{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048})
@@ -72,7 +73,7 @@ def validate_config(config):
         raise ValueError('Builder repair capacity requires the explicit Office V3 contract')
     if 'capability_material_version' in learning or 'capability_payload_max_bytes' in learning:
         from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
-        expected_material=MATH_CAPABILITY_MATERIAL_VERSION if math_p3 else CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
+        expected_material=(MATH_P4_MATERIAL_VERSION if config['experiment']['choice_method_version']==MATH_P4_VERSION else MATH_CAPABILITY_MATERIAL_VERSION) if math_p3 else CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
         if learning.get('capability_material_version')!=expected_material or learning.get('capability_payload_max_bytes')!=(65536 if math_p3 else 32768):
             raise ValueError('Capability material version/capacity differs from its explicit method contract')
     source_capacity = learning.get('source_program_payload_max_bytes')
@@ -129,7 +130,7 @@ def validate_config(config):
     if config['learning'].get('choice_guidance',{}).get('public_process',False) != config['runtime'].get('choice_guidance',{}).get('public_process',False):
         raise ValueError('Public process learning/runtime policies must agree')
     if config['runtime'].get('choice_guidance',{}).get('public_process'):
-        if config['experiment'].get('choice_method_version') not in ({VERSION,MATH_CAPABILITY_VERSION}|CHOICE_CAPABILITY_VERSIONS):
+        if config['experiment'].get('choice_method_version') not in ({VERSION,*MATH_CAPABILITY_VERSIONS}|CHOICE_CAPABILITY_VERSIONS):
             raise ValueError('Public process requires an explicit fresh method identity')
     if config['experiment'].get('choice_method_version') in CHOICE_CAPABILITY_VERSIONS:
         for purpose in ('capability_induction','capability_routing'):
@@ -367,7 +368,7 @@ class EmpiricalSystem:
         from .model_view import learning_payload
         wire_material = learning_payload(materials) if stage=='extractor' else materials
         from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION
-        full_p2=materials.get('learning_material_version') in {CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,MATH_CAPABILITY_MATERIAL_VERSION}
+        full_p2=materials.get('learning_material_version') in {CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,*MATH_MATERIAL_VERSIONS}
         if full_p2:
             from .model_view import pack_capability_material
             wire_material=pack_capability_material(wire_material)
@@ -400,7 +401,7 @@ class EmpiricalSystem:
                                    'effective_call_settings': settings, 'tool_choice':tool_choice,
                                    'policy': self.config['runtime']['plan_execution_policy'],
                                    'implementation_revision': self.config['experiment']['implementation_revision']})
-            if self.config['experiment'].get('choice_method_version') in (*CHOICE_CAPABILITY_VERSIONS,MATH_CAPABILITY_VERSION):
+            if self.config['experiment'].get('choice_method_version') in (*CHOICE_CAPABILITY_VERSIONS,*MATH_CAPABILITY_VERSIONS):
                 response_key=digest([response_key,self.config['experiment']['choice_method_version']])
             if choice_learning:
                 response_key = digest([response_key, tool_choice, self.config['learning']['choice_guidance'],
@@ -420,7 +421,7 @@ class EmpiricalSystem:
                 and settings.get('protocol',{}).get('thinking_type')=='disabled'
                 and (not isinstance(provider,OpenAICompatibleProvider) or provider.config.capability_profile['tools']) else None)
             used, cap = self._budget(stage)
-            p3_runtime_recovery=(stage=='runtime' and self.checkpoint and self.config['experiment'].get('choice_method_version')==MATH_CAPABILITY_VERSION)
+            p3_runtime_recovery=(stage=='runtime' and self.checkpoint and self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS)
             if used >= cap and not p3_runtime_recovery:
                 raise BudgetExhausted('empirical_token_budget_exhausted', 'Role token budget exhausted', layer=FailureLayer.RUNTIME_AGENT)
             turn = None
@@ -450,7 +451,7 @@ class EmpiricalSystem:
                         finish_wire[finish_provider.config.token_limit_field if isinstance(finish_provider,OpenAICompatibleProvider) else 'max_tokens']=finish_cap
                         # P3 preserves the full question and output cap; its optional reasoning
                         # tail is fitted to actual post-response headroom, up to 16 KiB.
-                        margin=2048 if self.config['experiment'].get('choice_method_version')==MATH_CAPABILITY_VERSION else 4096
+                        margin=2048 if self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS else 4096
                         finish_reserve=input_token_bound(finish_wire)+finish_cap+margin
                     else:
                         finish_reserve=input_token_bound(finish_material)+finish_cap
@@ -505,7 +506,7 @@ class EmpiricalSystem:
                                 cards.pop()
                         messages[1]={'role':'user','content':json.dumps(pack_material(projected),ensure_ascii=False,separators=(',',':'))}
             cached_runtime=(self.checkpoint.response(response_key_for({**settings,'max_completion_tokens':completion_cap},completion_cap))
-                if self.checkpoint and stage=='runtime' and self.config['experiment'].get('choice_method_version')==MATH_CAPABILITY_VERSION else None)
+                if self.checkpoint and stage=='runtime' and self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS else None)
             if used>=cap and not cached_runtime:
                 raise BudgetExhausted('empirical_token_budget_exhausted','Role token budget exhausted',layer=FailureLayer.RUNTIME_AGENT)
             if stage == 'runtime' and preserve_finish and not cached_runtime:
@@ -785,18 +786,26 @@ class EmpiricalSystem:
                             details = '; text arguments: ' + str(field_error)
                     raise ValueError("Expected one " + name + " ToolCall" + details)
                 value = turn.tool_calls[0].arguments
-                if materials.get('learning_material_version')==MATH_CAPABILITY_MATERIAL_VERSION:
-                    from .model_view import restore_capability_response
-                    value=restore_capability_response(value,json.loads(messages[1]['content']))
-                    if value!=turn.tool_calls[0].arguments:
-                        record['normalized_response']={'version':MATH_CAPABILITY_MATERIAL_VERSION,'arguments':deepcopy(value),
-                            'raw_arguments_hash':digest(turn.tool_calls[0].arguments)}
+                if materials.get('learning_material_version') in MATH_MATERIAL_VERSIONS:
+                    from .model_view import restore_capability_response,restore_math_items
+                    normalization=[]
+                    if materials['learning_material_version']==MATH_P4_MATERIAL_VERSION:
+                        value,normalization=restore_math_items(value,json.loads(messages[1]['content']),
+                            consolidation='parent_candidates' in materials)
+                    else:value=restore_capability_response(value,json.loads(messages[1]['content']))
+                    if value!=turn.tool_calls[0].arguments or normalization:
+                        record['normalized_response']={'version':materials['learning_material_version'],'arguments':deepcopy(value),
+                            'raw_arguments_hash':digest(turn.tool_calls[0].arguments),'normalized_arguments_hash':digest(value),
+                            'items':normalization}
                         self._save_requests()
                 if choice_learning and validator:
                     validator(value)
                 else:
                     if validator and name=='submit_learning':validator(value)
-                    validate_schema_instance(value, round_schema)
+                    if name=='answer_step' and self.config['experiment'].get('choice_method_version')==MATH_P4_VERSION:
+                        from .answer_executor import validate_math_finish
+                        validate_math_finish(value,round_schema,self.adapter)
+                    else:validate_schema_instance(value, round_schema)
                     if validator and name!='submit_learning': validator(value)
                 return accepted(value, repair)
             except ValueError as exc:
@@ -828,7 +837,7 @@ class EmpiricalSystem:
                     if full_p2:
                         repaired=pack_capability_material(exc.repair_material)
                         instruction=('Repair only the supplied field errors. Preserve the mathematical operation, source references and stop conditions; do not add theorem answers. Guidance <=512 characters, applicability <=128, complete card <=1024. Keep no_change if chosen. Submit one submit_learning call.'
-                            if materials.get('learning_material_version')==MATH_CAPABILITY_MATERIAL_VERSION else
+                            if materials.get('learning_material_version') in MATH_MATERIAL_VERSIONS else
                             'Repair only the supplied field errors, preserving the procedure, capability scope and source references. Keep no_change if chosen. Guidance <=180 characters (aim 140), applicability <=80 (aim 50), full card <=512. Do not add conclusions or decide options by claim strength. Submit one submit_learning call.')
                         messages=[{'role':'system','content':instruction},
                             {'role':'user','content':json.dumps(repaired,ensure_ascii=False,separators=(',',':'))}]
@@ -929,7 +938,7 @@ class EmpiricalSystem:
                 from .answer_executor import AnswerExecutor
                 semantic = self.config['runtime'].get('choice_guidance', {}).get('enabled') is True and valid_choices(task)
                 policy = self.config['runtime'].get('choice_guidance', {})
-                if semantic and self.config['experiment'].get('choice_method_version')==MATH_CAPABILITY_VERSION:
+                if semantic and self.config['experiment'].get('choice_method_version') in MATH_CAPABILITY_VERSIONS:
                     from .math_capability import checked_asset,match
                     matches={a['capability']['id']:match(self.learner,a,task) for a in self.bank.all('skill') if checked_asset(a)}
                     policy={**policy,'capability_matches':matches};trace['capability_match_audit']={'matches':matches}
