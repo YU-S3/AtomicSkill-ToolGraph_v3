@@ -128,8 +128,8 @@ def probe_inputs(spec):
     elif kind=='finite_quantifiers':
         variant['relation']=[[not cell for cell in row] for row in source['relation']]
     else:
-        variant['left']=[[a+1,b] for a,b in source['left']]
-        variant['right']=[[a-1,b] for a,b in source['right']]
+        variant['left']=[[a+1 if a<1000000 else a-1,b] for a,b in source['left']]
+        variant['right']=[[a-1 if a>-1000000 else a+1,b] for a,b in source['right']]
     oracle(kind,variant)
     if variant==source:raise ValueError('No distinct admissible parameter variation')
     return [('source_local_input',source),('parameter_variation',variant),('missing_premise',{})]

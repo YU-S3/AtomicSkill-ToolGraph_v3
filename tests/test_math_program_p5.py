@@ -261,3 +261,9 @@ def test_response_received_crash_reuses_physical_builder(tmp_path,monkeypatch):
     s=EmpiricalSystem(c,harness=AnswerAdapter('livemath',{}))
     assert runner.build(s,plan,o,v,tmp_path)['state']=='code_generated' and len(seen)==1
     s.close()
+
+
+def test_old_asset_cannot_replace_initial_bank(tmp_path,monkeypatch):
+    root=prepared(tmp_path,monkeypatch)
+    b=Bank(root/'bank');b.put('skill',{'goal':'old asset'});b.close()
+    with pytest.raises(ValueError,match='empty Bank'):runner.system(root,approved=True)

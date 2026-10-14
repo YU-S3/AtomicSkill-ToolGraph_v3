@@ -167,7 +167,18 @@ def system(root, approved=False, provider=None):
         raise ValueError('P5 requires matching zero-HTTP preflight and locked Linux Docker before paid generation')
     owner=BudgetGovernor(root/'budget.json',**plan['settings']['cumulative_limits'])
     governor=BatchGovernor(owner,{'run_id':plan['run_id'],'new_limits':plan['settings']['learning_budget_proposed']},root/'learning')
-    return EmpiricalSystem(read(root/'config.json'),harness=AnswerAdapter('livemath',{}),budget_governor=governor,provider=provider),plan
+    s=EmpiricalSystem(read(root/'config.json'),harness=AnswerAdapter('livemath',{}),budget_governor=governor,provider=provider)
+    started=root/'learning/started.json'
+    try:
+        if not started.exists():
+            if s.bank.digest()!=plan['initial_bank_digest'] or any(s.bank.all(k) for k in ('skill','program','implementation')):
+                raise ValueError('P5 must begin with its declared empty Bank')
+            write_json(started,{'plan_hash':digest(plan),'initial_bank_digest':s.bank.digest()})
+        elif read(started)!={'plan_hash':digest(plan),'initial_bank_digest':plan['initial_bank_digest']}:
+            raise ValueError('P5 initial Bank receipt changed')
+        return s,plan
+    except BaseException:
+        s.close();raise
 
 
 def receive(s,plan,op,folder,stage,prompt,material,name,schema,purpose,validator):
