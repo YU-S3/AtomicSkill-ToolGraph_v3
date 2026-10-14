@@ -1,0 +1,23 @@
+method_version: office-trace-v4-pilot.v1
+seed: 42
+source_tasks:
+  - officeqa:UID0239
+  - officeqa:UID0033
+  - officeqa:UID0106
+  - officeqa:UID0002
+  - officeqa:UID0057
+  - officeqa:UID0009
+transfer_tasks:
+  - officeqa:UID0181
+  - officeqa:UID0208
+max_opportunities: 8
+max_builder_generations: 6
+repairs_per_candidate: 1
+wire_max_bytes: 65536
+source_window_chars: 12000
+phase_limits:
+  learn: {tokens: 1000000, http: 80}
+  consume: {tokens: 800000, http: 40}
+paired_arm_limits: {tokens: 200000, http: 10, native_calls: 48}
+authorization: pending_explicit_user_approval
+stop_after: train_only_pilot_review

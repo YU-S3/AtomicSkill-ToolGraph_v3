@@ -1,0 +1,82 @@
+Office Trace V4: isolated Train operation pilot
+
+This entry mines the original Train120 read-only. It never calls V3 learn/recompile,
+changes Bank.program_eligible, promotes candidates to usable, freezes a new formal
+Bank, or starts Val/Test. Existing SearchQA and LiveMath entries are unchanged.
+
+Prepare on a committed, clean Linux checkout:
+
+export PYTHONPATH=src
+python -m atomic_skillgraph.experiments.run_office_trace_v4_pilot prepare \
+  --source <original-train-directory> --parent-bank <v3/train/frozen_bank> \
+  --corpus-root <public-corpus> --output <new-independent-directory> \
+  --config configs/officeqa_trace_v4_program_probe_seed42.yaml
+python -m atomic_skillgraph.experiments.run_office_trace_v4_pilot check \
+  --output <new-independent-directory> --zero-http
+
+Preparation verifies all 120 source hashes against the completed V3 plan, canonical
+Train membership, corpus identity, Frozen 39/12/12/0 and the historical 90M ledger.
+The YAML locks six primary Train sources and two independent Train transfer tasks.
+Selection takes one actual read/operation per primary source, then actual failures,
+up to eight opportunities. It does not require a successful task or strict handoff.
+Public material excludes final predictions, scores and evaluator answers. Full
+public source spans are archived; bounded previews retain field paths, hashes and
+explicit omission receipts. Host defaults only unique actual argument values.
+Exact public text slices may bind observed row/column/unit labels; Host never
+invents absent parameters or numeric answers.
+
+Proposed paid caps are NOT authorization: learn 1M tokens/80 physical HTTP;
+optional paired consumption 800K/40; both debit the copied historical ledger.
+Before either paid stage, explicit human approval must be recorded in
+authorization.json with approved=true, nonempty user_authorization,
+manifest_sha256 matching pilot_manifest.json, and phase_limits exactly matching
+the frozen configuration. No token/API secret belongs in that file.
+
+Only after that approval:
+
+python -m atomic_skillgraph.experiments.run_office_trace_v4_pilot learn \
+  --output <pilot> --env-file <existing-env-file>
+python -m atomic_skillgraph.experiments.run_office_trace_v4_pilot probe --output <pilot>
+# Optional: one error-backed repair slot per candidate shared with proposal/build.
+python -m atomic_skillgraph.experiments.run_office_trace_v4_pilot repair \
+  --output <pilot> --env-file <existing-env-file>
+# Optional: up to the two locked independent Train tasks, two matched arms each.
+python -m atomic_skillgraph.experiments.run_office_trace_v4_pilot consume \
+  --output <pilot> --env-file <existing-env-file>
+python -m atomic_skillgraph.experiments.run_office_trace_v4_pilot report --output <pilot>
+
+No HTTP retries are automatic. Raw metered responses are committed before parsing;
+resume reuses the exact request identity. An ambiguous HTTP/Worker interruption
+stops for inspection rather than reissuing it. There are at most six initial
+Builder generations and one shared repair per candidate. Ordinary no_change,
+not_found, oracle mismatch and unsupported transfer are reported as outcomes;
+corpus/Docker/identity/unknown-billing faults stop the stage.
+
+The real Docker Worker uses the existing ABI and permissions. Only ctx.call with
+advertised tool names is allowed; ctx.read_context is rejected, not added to Context.
+Probe cases are frozen before execution: actual source, structurally compatible
+pre-registered non-source inputs (or documented same-source legal variation), and
+an abstention case. Read receipts, conservative table cells/series, basic formulas
+and exact evidence presence have independent checks. More complex local algorithms
+remain coverage_insufficient until an appropriate oracle is reviewed; they are
+never treated as passed by default. Tests and zero_http/ contain engineering
+fixtures, not naturally learned assets.
+
+pilot_bank/ contains candidate JSON bundles, not a formal Bank database. Passed
+statuses remain worker_probe_passed/cross_train_passed. Optional Runtime exposes
+the same old 12 programs to both arms, and V4 candidates only to with_program.
+Program inputs resolve from actual current public ResultRefs; missing inputs keep
+the task in native retrieval. Only accepted downstream field bindings/final answer
+references count as consumption. Observed two-program edges can create a partial
+empirical.workflow.v2; no whole-task graph or cost saving is inferred from status=ok.
+
+Inspect pilot_review.json/md, requests/, source_span_catalog.jsonl,
+opportunity_catalog.jsonl, programs/, pilot_bank/, worker_probe_receipts.jsonl,
+pilot_consumption_traces.jsonl (if run), budget/usage.json and last_error.json.
+Parent Frozen and ledger hashes are rechecked on entry. No new full Val24 or
+Test102 is authorized by this entry or by a passed engineering gate.
+
+Regression (intercepted HTTP; real Docker when enabled):
+OFFICE_V4_DOCKER=1 PROGRAM_IMAGE_DIGEST=<locked-image-sha256> \
+  python -m pytest tests/test_office_trace_v4_pilot.py tests/test_office_trace_v3.py \
+  tests/test_office_source_catalog.py tests/test_office_program_release.py
