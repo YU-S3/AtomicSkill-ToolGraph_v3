@@ -6,10 +6,11 @@ import pytest
 import yaml
 
 from atomic_skillgraph.empirical import math_effect_runtime as r
+from atomic_skillgraph.empirical import math_effect_contract as c
 from atomic_skillgraph.empirical.budget_governor import BudgetGovernor
 from atomic_skillgraph.empirical.contracts import PublicTask
 from atomic_skillgraph.harness.benchmarks import AnswerAdapter
-from test_math_effect_p7_contract import candidate
+from test_math_effect_p7_contract import candidate, proposal
 from test_cf2_contracts import http, response
 
 
@@ -67,3 +68,42 @@ def test_tampered_physical_receipt_rejected(tmp_path,monkeypatch):
     result=r.solve(t,a,[],cfg(),tmp_path/'run',g)
     p=tmp_path/'run/main/requests.json';p.write_text('[]')
     with pytest.raises(ValueError,match='Physical request'):r.verify_trace(result)
+
+
+@pytest.mark.parametrize('applicable',[False,True])
+def test_equal_wires_have_separate_arm_and_policy_allowances(tmp_path,monkeypatch,applicable):
+    t,a,g=setup(tmp_path)
+    v=proposal('local');v['applicability']['required_public_indicators']=['equivalence_syntax']
+    local=c.candidate(v,['s1','s2'],{'response_hash':'local'})
+    policies=[[candidate()]]*3 if applicable else [[],[local],[local]]
+    roots=[tmp_path/'feedback/off',tmp_path/'feedback/on/policy1',tmp_path/'feedback/on/policy2']
+    calls=http(monkeypatch,[response(content='',finish='length'),response(content='A',finish='stop')]*3)
+    traces=[r.solve(t,a,policy,cfg(),root,g) for policy,root in zip(policies,roots)]
+    assert len(calls)==6 and all(t['valid'] and t['http']==2 for t in traces)
+    assert calls[0]==calls[2]==calls[4]
+    rows=list(g.state['attempts'].values())
+    scopes={row['context']['episode_scope'] for row in rows}
+    assert len(scopes)==3
+    for scope in scopes:
+        own=[row for row in rows if row['context']['episode_scope']==scope]
+        assert len(own)==2 and g.headroom(own[0]['context'])['requests']==0
+    for policy,root,trace in zip(policies,roots,traces):
+        assert r.solve(t,a,policy,cfg(),root,g)==trace
+    assert len(calls)==6
+
+
+def test_restart_between_main_and_finish_does_not_refill_allowance(tmp_path,monkeypatch):
+    t,a,g=setup(tmp_path);real_call=r.call
+    calls=http(monkeypatch,[response(content='',finish='length'),response(content='A',finish='stop')])
+    def interrupt_finish(root,*args,**kwargs):
+        if Path(root).name=='finish':raise RuntimeError('simulated interruption before HTTP')
+        return real_call(root,*args,**kwargs)
+    monkeypatch.setattr(r,'call',interrupt_finish)
+    with pytest.raises(RuntimeError,match='simulated interruption'):
+        r.solve(t,a,[],cfg(),tmp_path/'run',g)
+    assert len(calls)==1
+    monkeypatch.setattr(r,'call',real_call)
+    g=BudgetGovernor(tmp_path/'budget.json',token_limit=1000000,request_limit=10,finish_reserve=0)
+    result=r.solve(t,a,[],cfg(),tmp_path/'run',g)
+    assert result['valid'] and result['http']==2 and len(calls)==2
+    assert len({v['context']['episode_scope'] for v in g.state['attempts'].values()})==1

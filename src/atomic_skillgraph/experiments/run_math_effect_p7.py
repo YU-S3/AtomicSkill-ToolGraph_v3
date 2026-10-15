@@ -107,9 +107,12 @@ def checked(root):
         if sha256(Path(path))!=h:raise ValueError('Locked source changed: '+path)
     for path,h in p['prepared_hashes'].items():
         if sha256(root/path)!=h:raise ValueError('Prepared input changed: '+path)
-    ledger=read(root/'budget/ledger.json');prefix=read(root/'budget/prefix.json')
-    if ledger['limits']!=prefix['limits'] or any(ledger['attempts'].get(k)!=v for k,v in prefix['attempts'].items()):
-        raise ValueError('Historical charge changed')
+    ledger=read(root/'budget/ledger.json')
+    anchors=['budget/prefix.json']+(['budget/recovery_prefix.json'] if p.get('continuation') else [])
+    for name in anchors:
+        prefix=read(root/name)
+        if ledger['limits']!=prefix['limits'] or any(ledger['attempts'].get(k)!=v for k,v in prefix['attempts'].items()):
+            raise ValueError('Historical charge changed')
     validate_settings(p['settings']);return p
 
 
