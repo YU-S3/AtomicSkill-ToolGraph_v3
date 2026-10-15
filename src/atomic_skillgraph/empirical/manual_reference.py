@@ -19,6 +19,20 @@ class WorkflowInputError(ValueError):
 
 def validate_config(config):
     e = config['experiment']
+    from .manual_math_v2 import VERSION as V2, FINALIZATION, LIMITS as V2_LIMITS
+    if e.get('manual_reference_version') == V2:
+        if (e.get('benchmark') != 'livemath' or e.get('runtime_mode') != 'frozen'
+                or e.get('choice_method_version') or e.get('manual_reference_limits') != V2_LIMITS
+                or not e.get('manual_reference_manifest') or type(e.get('manual_reference_enabled', True)) is not bool):
+            raise ValueError('V2 requires its independent read-only LiveMath contract')
+        from .math_capability import validate_runtime_contract
+        copy = deepcopy(config)
+        from .public_process import TRUNCATION_FINALIZATION_VERSION
+        if config['runtime']['choice_bounded_finalization'] != {'enabled':True,'version':FINALIZATION}:
+            raise ValueError('V2 requires bounded finish after truncation or tool failure')
+        copy['runtime']['choice_bounded_finalization']['version'] = TRUNCATION_FINALIZATION_VERSION
+        validate_runtime_contract(copy)
+        return
     if e.get('manual_reference_version') == SEARCHQA_VERSION:
         llm = config['llm']
         if (e.get('benchmark') != 'searchqa' or config['harness']['adapter'] != 'searchqa'
@@ -46,7 +60,9 @@ class ReferenceView:
         self.bank = bank
         path = Path(manifest_path)
         manifest = json.loads(path.read_text())
-        if manifest['version'] not in {VERSION, SEARCHQA_VERSION} or manifest['bank_digest'] != bank.digest():
+        from .manual_math_v2 import VERSION as V2, CapabilityRouter
+        self.version = manifest['version']
+        if manifest['version'] not in {VERSION, V2, SEARCHQA_VERSION} or manifest['bank_digest'] != bank.digest():
             raise ValueError('Manual Bank identity changed')
         self.qualified = set()
         for pid, records in manifest['program_receipts'].items():
@@ -70,6 +86,7 @@ class ReferenceView:
             self.qualified.add(pid)
         if self.qualified != {p['id'] for p in bank.all('program')}:
             raise ValueError('The complete manual Program catalog must be checked before Test')
+        self.router = CapabilityRouter(self,manifest['capability_index'],manifest['theorem_registry']) if self.version==V2 else None
 
     def __getattr__(self, name): return getattr(self.bank, name)
 
@@ -77,16 +94,20 @@ class ReferenceView:
         return bool(program and program['id'] in self.qualified and self.bank.get(program['id']) == program)
 
     def program_options(self, query, **kwargs):
-        return [{'id':p['id'], 'state':'manual_reference_docker_checked',
+        cards = [{'id':p['id'], 'state':'manual_reference_docker_checked',
             'documentation':ast.get_docstring(ast.parse(p['source'])) or '',
             'entry_constraints':p['entry_constraints'], 'result_role':p['result_role'],
             'input_schema':p['input_schema'], 'output_schema':p['output_schema'],
             'capabilities':[{'skill_id':i['skill_id'], 'goal':self.get(i['skill_id'])['goal']}
                             for i in self.all('implementation') if i['program_id']==p['id']]}
-            for p in self.all('program') if self.program_eligible(p)]
+            for p in self.all('program') if self.program_eligible(p)
+                and (self.router is None or p['id'] in self.router.programs)]
+        if self.router:
+            for card in cards: card['verified_public_binding'] = self.router.binding(card['id'])
+        return cards
 
     def workflow_options(self):
-        return [deepcopy(w) for w in self.all('workflow')]
+        return [deepcopy(w) for w in self.all('workflow') if self.router is None or w['id'] in self.router.workflows]
 
 
 NODE_PROMPT = '''Execute only the current node of this supplied human-authored workflow.
@@ -125,6 +146,9 @@ def execute_workflow(system, task, broker, workflow_id, arguments, key, remainin
     if set(arguments) & {'goal','inputs'}:
         raise WorkflowInputError('Workflow arguments cannot replace the public question')
     arguments = deepcopy(arguments)
+    if getattr(s.bank,'router',None):
+        try: arguments = s.bank.router.workflow_arguments(workflow_id,arguments)
+        except ValueError as exc: raise WorkflowInputError(str(exc)) from exc
     if version == SEARCHQA_VERSION:
         for name, value in {'question':task.goal, 'context':task.inputs['context']}.items():
             if name in arguments and arguments[name] != value:
@@ -182,6 +206,7 @@ def execute_workflow(system, task, broker, workflow_id, arguments, key, remainin
                 'authority':'human_authored_reference_not_learned_ours'}
             try:
                 raw=s.agent('runtime',SEARCHQA_NODE_PROMPT if version == SEARCHQA_VERSION else NODE_PROMPT,material,None,None,repair_limit=0,
+                    completion_override=4096 if getattr(s.bank,'router',None) else None,
                     owner_state_version=version+':'+key+':'+node['id'])
             except ValueError as exc:
                 if not getattr(exc,'model_authored',False):raise
@@ -193,6 +218,8 @@ def execute_workflow(system, task, broker, workflow_id, arguments, key, remainin
                     'outputs':{'type':'object'},'references':{'type':'array','items':{'type':'object'}}},['status','outputs','references']))
                 if result['status']=='ok':
                     validate_schema_instance(result['outputs'],output_schema)
+                    if getattr(s.bank,'router',None) and set(result['outputs']) & {'relation','truth_values','domain_complete','premises_satisfied','answer'}:
+                        raise ValueError('Dynamic interpretation cannot certify mathematical premises or submit an answer')
                     if (not node.get('after') or version == SEARCHQA_VERSION) and not result['references']:raise ValueError('Missing source grounding')
                     for ref in result['references']:
                         text={'goal':task.goal,'inputs':task.inputs}
