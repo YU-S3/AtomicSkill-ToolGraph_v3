@@ -96,7 +96,8 @@ def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
     adapter.reset(task)
     base={'session_id':identity,'stage':'runtime','phase':task.split,'parent_task_id':task.task_id,
         'parent_scope':str(root.resolve()),'parent_token_limit':settings['runtime']['parent_tokens'],
-        'episode_scope':identity,'episode_request_limit':2,'purpose':'runtime'}
+        # The directory identifies phase/arm/policy/task; equal payloads are still separate paid solves.
+        'episode_scope':digest([identity,str(root.resolve())]),'episode_request_limit':2,'purpose':'runtime'}
     p=(providers or {}).get('main') or provider(llm,'runtime',settings)
     turn,receipt=call(root/'main',p,messages(task,cards),governor,base)
     initial_length=turn.finish_reason=='length';answer=turn.content;receipts=[receipt];censored=False;finish_state='not_needed'

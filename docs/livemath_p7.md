@@ -75,6 +75,17 @@ These files are audit records of human authorization, not tools for granting
 permission to oneself. Repeated stages use saved physical responses; an
 interrupted request lacking a committed response blocks replay.
 
+P7 arm accounting revision `p7.arm-accounting.v2` binds each two-request
+allowance to its phase/arm/policy/task directory, including when a local Skill
+does not apply and both wires are equal. Same-directory resume retains the
+same allowance. `recover_math_effect_p7` provides an explicitly authorized,
+pre-Gate continuation into a separate directory after the original accounting
+stop. It verifies the parent with its original clean checkout, retains all
+committed requests/traces and charges, excludes only requests proven unsent,
+and freezes parent/new code identities in `continuation_manifest.json`.
+Original phase caps still include the inherited P7 charges; Test remains
+disabled. It refuses unresolved HTTP or incomplete task receipts.
+
 Snapshots of historical billing are merged by physical request ID. A new
 directory cannot reset costs or resolve an unknown bill. If another campaign
 is still changing its ledger, prepare/check may be inspected offline, but a
