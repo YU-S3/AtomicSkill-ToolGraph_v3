@@ -1,0 +1,842 @@
+{
+  "schema": "human.frontier.bank.v1",
+  "benchmark": "livemath",
+  "method_version": "human.frontier.20261015.livemath",
+  "seed": 42,
+  "trust": "author_trusted",
+  "admission": {
+    "learning_provenance": false,
+    "train_transfer_gate": false,
+    "utility_promotion": false,
+    "automatic_deletion": false
+  },
+  "source_basis": "Public released strategies, independently edited; NOT a measured superior policy or naturally learned Ours asset.",
+  "skill": [
+    {
+      "id": "skill_hf_livemath_lm01",
+      "method_version": "human.frontier.20261015.livemath",
+      "goal": "Identify the theorem-level decision",
+      "guidance": "Read the hypotheses and what the question asks: a true statement, equivalence, classification, sharp bound, existence/uniqueness, or the strongest provable result. Compare the actual statements, not their letters, length or rhetorical confidence. Separate truth from strength: a stronger false statement is not an answer, while a true weakened statement may miss the requested theorem.",
+      "applicability": {
+        "selector": "always"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "goal",
+          "inputs"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "advice_applied": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "origin": "human_edited_public_checkpoint_strategies",
+      "source_keys": [
+        "skillopt_live",
+        "lite_live"
+      ],
+      "permission": "author_trusted",
+      "state": "authored"
+    },
+    {
+      "id": "skill_hf_livemath_lm02",
+      "method_version": "human.frontier.20261015.livemath",
+      "goal": "Resolve the decisive difference between options",
+      "guidance": "Keep common hypotheses fixed and isolate the clause where plausible options differ: implication versus equivalence, existence versus uniqueness, all versus some/sufficiently large, local versus global, uniform versus parameter-dependent, strict versus non-strict boundary, or an equality/classification clause. Check that clause using the relevant mathematical result or derivation. Do not reject a correct clause merely because you have not re-proved it, and do not add a converse just because the forward result holds.",
+      "applicability": {
+        "selector": "always"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "goal",
+          "inputs"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "advice_applied": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "origin": "human_edited_public_checkpoint_strategies",
+      "source_keys": [
+        "skillopt_live",
+        "lite_live"
+      ],
+      "permission": "author_trusted",
+      "state": "authored"
+    },
+    {
+      "id": "skill_hf_livemath_lm03",
+      "method_version": "human.frontier.20261015.livemath",
+      "goal": "Use meta-options carefully, without letter bias",
+      "guidance": "Identify a literal option saying that another option is correct but a stronger result can be proved; it may appear under ANY label. In this benchmark such an option is a serious empirical prior, not a throwaway alternative. Look for a real strengthening of a valid concrete option: sharp constants, endpoint/equality cases, converse, uniqueness, or complete classification. Prefer the meta-option when that strengthening is supported and not already expressed by a concrete option. Mere inability to prove maximality is not proof of a strengthening. Do not select the last letter by default or invent a meta-option when none is present.",
+      "applicability": {
+        "selector": "meta"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "goal",
+          "inputs"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "advice_applied": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "origin": "human_edited_public_checkpoint_strategies",
+      "source_keys": [
+        "skillopt_live",
+        "lite_live"
+      ],
+      "permission": "author_trusted",
+      "state": "authored"
+    },
+    {
+      "id": "skill_hf_livemath_lm04",
+      "method_version": "human.frontier.20261015.livemath",
+      "goal": "Check assumptions without over-cautious weakening",
+      "guidance": "Match the theorem's actual assumptions, object and conclusion. Do not silently remove compactness/regularity/domain restrictions or upgrade a constant to uniform in time/parameters. Conversely, a cautious-sounding negation such as “need not be injective” or “no such model” is itself a claim needing support. Do not systematically prefer shorter, weaker or more cautious options; decide the mathematical difference, including any appended clause.",
+      "applicability": {
+        "selector": "always"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "goal",
+          "inputs"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "advice_applied": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "origin": "human_edited_public_checkpoint_strategies",
+      "source_keys": [
+        "skillopt_live",
+        "lite_live"
+      ],
+      "permission": "author_trusted",
+      "state": "authored"
+    },
+    {
+      "id": "skill_hf_livemath_lm05",
+      "method_version": "human.frontier.20261015.livemath",
+      "goal": "Quantitative and asymptotic precision",
+      "guidance": "For comparable bounds use the same variables, limit regime, hypotheses and implicit-constant dependencies. A smaller growth exponent improves an upper bound and a larger exponent improves a lower bound only in the appropriate asymptotic regime. Track log factors, derivatives, exceptional sets and endpoints. Do not equate an isolated exponent/epsilon symbol with an asymptotic comparison, and do not confuse pointwise, uniform, subsequential, limsup or liminf conclusions.",
+      "applicability": {
+        "selector": "asymptotic"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "goal",
+          "inputs"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "advice_applied": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "origin": "human_edited_public_checkpoint_strategies",
+      "source_keys": [
+        "skillopt_live",
+        "lite_live"
+      ],
+      "permission": "author_trusted",
+      "state": "authored"
+    },
+    {
+      "id": "skill_hf_livemath_lm06",
+      "method_version": "human.frontier.20261015.livemath",
+      "goal": "Existence, uniqueness, equivalence and counterexamples",
+      "guidance": "For ∀x∃y versus ∃y∀x track whether the witness depends on x; do not manufacture a finite truth table for an unknown predicate. For an equivalence check both directions under the stated domain. A necessary condition alone is not equivalent; weaker congruence moduli may admit extra cases. Existence does not imply uniqueness or realization of every possible parameter. A concrete admissible counterexample can refute a universal claim; failure to find one cannot prove it.",
+      "applicability": {
+        "selector": "logical"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "goal",
+          "inputs"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "advice_applied": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "origin": "human_edited_public_checkpoint_strategies",
+      "source_keys": [
+        "skillopt_live"
+      ],
+      "permission": "author_trusted",
+      "state": "authored"
+    },
+    {
+      "id": "skill_hf_livemath_lm07",
+      "method_version": "human.frontier.20261015.livemath",
+      "goal": "Reach a decisive, well-formed answer",
+      "guidance": "Spend effort on the discriminating clause and the relevant theorem, not an exhaustive re-derivation of every option. Use an exact calculation/counterexample helper only for an actual computational subproblem; otherwise reason directly. Re-read the selected option once for an unearned extra conclusion or missing sharpness. Choose the best-supported option even if uncertainty remains. Return exactly one supplied option label, with no explanation, extra alternatives or empty answer.",
+      "applicability": {
+        "selector": "always"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "goal",
+          "inputs"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "advice_applied": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "origin": "human_edited_public_checkpoint_strategies",
+      "source_keys": [
+        "lite_live",
+        "skillopt_live"
+      ],
+      "permission": "author_trusted",
+      "state": "authored"
+    },
+    {
+      "id": "skill_hf_livemath_exact_compute",
+      "method_version": "human.frontier.20261015.livemath",
+      "goal": "Evaluate a stated arithmetic expression exactly",
+      "guidance": "Evaluate a stated arithmetic expression exactly. Use the exact provided parameter names. This is a callable authored implementation, not a trained asset requiring promotion.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "number",
+                "string"
+              ]
+            }
+          },
+          "digits": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expression"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "exact": {
+            "type": "string"
+          },
+          "decimal": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "exact",
+          "decimal",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "execution_intent": "program_requested",
+      "result_role": "intermediate",
+      "applicability": {
+        "selector": "math_compute"
+      },
+      "permission": "author_trusted",
+      "state": "authored",
+      "origin": "human_authored_source",
+      "source_keys": []
+    },
+    {
+      "id": "skill_hf_livemath_finite_counterexample",
+      "method_version": "human.frontier.20261015.livemath",
+      "goal": "Find an admissible arithmetic counterexample in explicit finite domains",
+      "guidance": "Find an admissible arithmetic counterexample in explicit finite domains. Use the exact provided parameter names. This is a callable authored implementation, not a trained asset requiring promotion.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "premise": {
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "domains": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "premise",
+          "conclusion",
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "counterexample_found": {
+            "type": "boolean"
+          },
+          "witness": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "tested": {
+            "type": "integer"
+          },
+          "admissible": {
+            "type": "integer"
+          },
+          "undefined": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "counterexample_found",
+          "witness",
+          "tested",
+          "admissible",
+          "undefined",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "execution_intent": "program_requested",
+      "result_role": "intermediate",
+      "applicability": {
+        "selector": "math_counterexample"
+      },
+      "permission": "author_trusted",
+      "state": "authored",
+      "origin": "human_authored_source",
+      "source_keys": []
+    }
+  ],
+  "program": [
+    {
+      "source": "\"\"\"Human-authored exact arithmetic. No I/O, eval(), or model calls.\"\"\"\nimport ast\nfrom fractions import Fraction\n\n\ndef _value(node, names=None):\n    names = names or {}\n    if isinstance(node, ast.Expression): return _value(node.body, names)\n    if isinstance(node, ast.Constant) and type(node.value) in (int, float):\n        return Fraction(str(node.value))\n    if isinstance(node, ast.Name) and node.id in names: return Fraction(str(names[node.id]))\n    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):\n        x = _value(node.operand, names); return -x if isinstance(node.op, ast.USub) else x\n    if isinstance(node, ast.BinOp):\n        a, b = _value(node.left, names), _value(node.right, names)\n        if max(a.numerator.bit_length(), a.denominator.bit_length(), b.numerator.bit_length(), b.denominator.bit_length()) > 8192:\n            raise ValueError('operand too large')\n        if isinstance(node.op, ast.Add): return a+b\n        if isinstance(node.op, ast.Sub): return a-b\n        if isinstance(node.op, ast.Mult): return a*b\n        if isinstance(node.op, ast.Div): return a/b\n        if isinstance(node.op, ast.FloorDiv): return Fraction(a//b)\n        if isinstance(node.op, ast.Mod): return a%b\n        if isinstance(node.op, ast.Pow) and b.denominator == 1 and abs(b) <= 100:\n            return a**int(b)\n    raise ValueError('Only numeric arithmetic and supplied variables are supported')\n\n\ndef run(ctx, inputs):\n    try:\n        expression = inputs['expression']\n        if not isinstance(expression,str) or not expression.strip() or len(expression)>2000:\n            raise ValueError('Provide a bounded arithmetic expression')\n        tree=ast.parse(expression, mode='eval')\n        if len(list(ast.walk(tree)))>300: raise ValueError('expression too complex')\n        val = _value(tree, inputs.get('variables', {}))\n        digits = inputs.get('digits', 12)\n        if type(digits) is not int or not 0<=digits<=30: raise ValueError('digits must be 0..30')\n        from decimal import Decimal, localcontext\n        with localcontext() as c:\n            c.prec=max(50,digits+20)\n            dec=Decimal(val.numerator)/Decimal(val.denominator)\n            decimal=format(dec, '.'+str(digits)+'f')\n        return {'status':'ok','outputs':{'exact':str(val),'decimal':decimal,\n            'scope':'Exact arithmetic of the supplied expression; not a proof of its applicability.'}}\n    except (KeyError, ValueError, TypeError, SyntaxError, ZeroDivisionError, OverflowError) as e:\n        return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "number",
+                "string"
+              ]
+            }
+          },
+          "digits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 30
+          }
+        },
+        "required": [
+          "expression"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "exact": {
+            "type": "string"
+          },
+          "decimal": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "exact",
+          "decimal",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "math_compute",
+        "description": "Evaluate a stated arithmetic expression exactly"
+      },
+      "state": "candidate",
+      "method_version": "human.frontier.20261015.livemath",
+      "permission": "author_trusted",
+      "origin": "human_authored_source",
+      "id": "program_7ce605299d7c7ffc17a9097695fd3f05446f4ed315bae9c98fef62f9f11ff68a",
+      "source_file": "programs/exact_compute.py",
+      "title": "Evaluate a stated arithmetic expression exactly"
+    },
+    {
+      "source": "\"\"\"Find a concrete counterexample to a supplied arithmetic implication.\"\"\"\nimport ast\nimport itertools\nfrom fractions import Fraction\n\n\ndef calc(n, env):\n    if isinstance(n,ast.Expression): return calc(n.body,env)\n    if isinstance(n,ast.Constant) and type(n.value) in (int,float,bool):\n        return n.value if type(n.value) is bool else Fraction(str(n.value))\n    if isinstance(n,ast.Name) and n.id in env: return Fraction(str(env[n.id]))\n    if isinstance(n,ast.UnaryOp):\n        v=calc(n.operand,env)\n        if isinstance(n.op,ast.USub): return -v\n        if isinstance(n.op,ast.UAdd): return +v\n        if isinstance(n.op,ast.Not): return not v\n    if isinstance(n,ast.BinOp):\n        a,b=calc(n.left,env),calc(n.right,env)\n        if max(getattr(a,'numerator',0).bit_length(),getattr(b,'numerator',0).bit_length())>4096: raise ValueError('operand too large')\n        if isinstance(n.op,ast.Add): return a+b\n        if isinstance(n.op,ast.Sub): return a-b\n        if isinstance(n.op,ast.Mult): return a*b\n        if isinstance(n.op,ast.Div): return a/b\n        if isinstance(n.op,ast.FloorDiv): return Fraction(a//b)\n        if isinstance(n.op,ast.Mod): return a%b\n        if isinstance(n.op,ast.Pow) and b.denominator==1 and abs(b)<=20:return a**int(b)\n    if isinstance(n,ast.BoolOp):\n        if isinstance(n.op,ast.And):return all(bool(calc(x,env)) for x in n.values)\n        if isinstance(n.op,ast.Or):return any(bool(calc(x,env)) for x in n.values)\n    if isinstance(n,ast.Compare):\n        left=calc(n.left,env)\n        for op,right in zip(n.ops,n.comparators):\n            right=calc(right,env)\n            if isinstance(op,ast.Eq):ok=left==right\n            elif isinstance(op,ast.NotEq):ok=left!=right\n            elif isinstance(op,ast.Lt):ok=left<right\n            elif isinstance(op,ast.LtE):ok=left<=right\n            elif isinstance(op,ast.Gt):ok=left>right\n            elif isinstance(op,ast.GtE):ok=left>=right\n            else:raise ValueError('unsupported comparison')\n            if not ok:return False\n            left=right\n        return True\n    raise ValueError('Unsupported syntax: use arithmetic, comparisons, and/or/not only')\n\n\ndef run(ctx,inputs):\n    try:\n        domain=inputs['domains'];premise=inputs['premise'];conclusion=inputs['conclusion']\n        if not isinstance(domain,dict) or not 1<=len(domain)<=5:raise ValueError('1..5 variables required')\n        if any(not isinstance(k,str) or not k.isidentifier() or k.startswith('_') for k in domain):raise ValueError('invalid variable')\n        total=1\n        for values in domain.values():\n            if not isinstance(values,list) or not values or any(type(v) not in (int,float,str) for v in values):raise ValueError('nonempty numeric domains required')\n            for v in values:Fraction(str(v))\n            total*=len(values)\n        if total>20000:raise ValueError('bounded enumeration limit is 20000 assignments')\n        if any(not isinstance(x,str) or not x.strip() or len(x)>1500 for x in (premise,conclusion)):raise ValueError('bounded premise/conclusion required')\n        p,q=ast.parse(premise,mode='eval'),ast.parse(conclusion,mode='eval')\n        if len(list(ast.walk(p)))+len(list(ast.walk(q)))>400:raise ValueError('formula too complex')\n        tested=admissible=undefined=0;witness=None\n        for row in itertools.product(*domain.values()):\n            env=dict(zip(domain,row));tested+=1\n            try:\n                pv=calc(p,env)\n                if type(pv) is not bool:raise ValueError('premise must be a Boolean comparison')\n                if not pv:continue\n                admissible+=1;qv=calc(q,env)\n                if type(qv) is not bool:raise ValueError('conclusion must be Boolean')\n                if not qv:witness=env;break\n            except ZeroDivisionError:undefined+=1\n        result={'counterexample_found':witness is not None,'witness':witness,'tested':tested,\n                'admissible':admissible,'undefined':undefined,\n                'scope':'Counterexample search in supplied finite domains. No witness does NOT prove a general theorem.'}\n        return {'status':'ok','outputs':result}\n    except (KeyError,ValueError,TypeError,SyntaxError,OverflowError) as e:\n        return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "premise": {
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "domains": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "premise",
+          "conclusion",
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "counterexample_found": {
+            "type": "boolean"
+          },
+          "witness": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "tested": {
+            "type": "integer"
+          },
+          "admissible": {
+            "type": "integer"
+          },
+          "undefined": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "counterexample_found",
+          "witness",
+          "tested",
+          "admissible",
+          "undefined",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "math_counterexample",
+        "description": "Search finite task-related domains for a counterexample. State the actual task/subproblem relation and scope; unrelated toy implications are not evidence. No witness is not a general proof."
+      },
+      "state": "candidate",
+      "method_version": "human.frontier.20261015.livemath",
+      "permission": "author_trusted",
+      "origin": "human_authored_source",
+      "id": "program_7dc3e306aefd869b74d51affe6c1372603f7703837ceef0caf775f6d5089da44",
+      "source_file": "programs/finite_counterexample.py",
+      "title": "Search finite task-related domains for a counterexample. State the actual task/subproblem relation and scope; unrelated toy implications are not evidence. No witness is not a general proof."
+    }
+  ],
+  "implementation": [
+    {
+      "id": "implementation_hf_livemath_exact_compute",
+      "skill_id": "skill_hf_livemath_exact_compute",
+      "program_id": "program_7ce605299d7c7ffc17a9097695fd3f05446f4ed315bae9c98fef62f9f11ff68a",
+      "origin": "human_authored",
+      "permission": "author_trusted"
+    },
+    {
+      "id": "implementation_hf_livemath_finite_counterexample",
+      "skill_id": "skill_hf_livemath_finite_counterexample",
+      "program_id": "program_7dc3e306aefd869b74d51affe6c1372603f7703837ceef0caf775f6d5089da44",
+      "origin": "human_authored",
+      "permission": "author_trusted"
+    }
+  ],
+  "workflow": [
+    {
+      "id": "workflow_hf_livemath_reasoning",
+      "goal": "Select the best-supported supplied label",
+      "interface_version": "empirical.workflow.v2",
+      "nodes": [
+        {
+          "id": "stage_1",
+          "execution_mode": "dynamic",
+          "goal": "Identify the requested theorem and hypotheses; return analysis and, in the final stage, answer.",
+          "reference_skill_ids": [
+            "skill_hf_livemath_lm01",
+            "skill_hf_livemath_lm02",
+            "skill_hf_livemath_lm03"
+          ],
+          "after": [],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "stage_2",
+          "execution_mode": "dynamic",
+          "goal": "Compare the discriminating clauses and mathematical support; return analysis and, in the final stage, answer.",
+          "reference_skill_ids": [
+            "skill_hf_livemath_lm02",
+            "skill_hf_livemath_lm03",
+            "skill_hf_livemath_lm04"
+          ],
+          "after": [
+            "stage_1"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "previous_result": {
+              "from": "stage_1",
+              "field": "analysis"
+            }
+          }
+        },
+        {
+          "id": "stage_3",
+          "execution_mode": "dynamic",
+          "goal": "Select the best-supported supplied label; return analysis and, in the final stage, answer.",
+          "reference_skill_ids": [
+            "skill_hf_livemath_lm03",
+            "skill_hf_livemath_lm04",
+            "skill_hf_livemath_lm05"
+          ],
+          "after": [
+            "stage_2"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "previous_result": {
+              "from": "stage_2",
+              "field": "analysis"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "stage_3",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "execution_permission": "author_trusted",
+      "default_deployment": "compile_in_one_model_context",
+      "note": "Default is a prompt-compiled decision procedure, NOT three executed model turns. --graph uses the native Executor."
+    },
+    {
+      "id": "workflow_hf_livemath_exact_compute",
+      "goal": "Evaluate a stated arithmetic expression exactly followed by answer reasoning",
+      "interface_version": "empirical.workflow.v2",
+      "nodes": [
+        {
+          "id": "operation",
+          "execution_mode": "program",
+          "program_id": "program_8539dd4cdaf2bd5b290e6fb4bb89ccb6019e5108688ba3b9b991a0fa86626349",
+          "after": [],
+          "args": {
+            "expression": {
+              "task": "expression"
+            }
+          }
+        },
+        {
+          "id": "answer",
+          "execution_mode": "dynamic",
+          "goal": "Use the actual operation output within its stated scope, then solve the original task. Return answer.",
+          "reference_skill_ids": [
+            "skill_hf_livemath_lm01",
+            "skill_hf_livemath_lm02",
+            "skill_hf_livemath_lm03"
+          ],
+          "after": [
+            "operation"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "operation_result": {
+              "from": "operation",
+              "field": "exact"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "answer",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "execution_permission": "author_trusted",
+      "required_task_inputs": [
+        "expression"
+      ],
+      "default_deployment": "optional_native_graph",
+      "note": "Only select when the named inputs are actually supplied or acquired. No synthesized task truth table."
+    },
+    {
+      "id": "workflow_hf_livemath_finite_counterexample",
+      "goal": "Find an admissible arithmetic counterexample in explicit finite domains followed by answer reasoning",
+      "interface_version": "empirical.workflow.v2",
+      "nodes": [
+        {
+          "id": "operation",
+          "execution_mode": "program",
+          "program_id": "program_4c4bd2816f8e65864954507c77c184966866851f12863ed930d4daf3c8210929",
+          "after": [],
+          "args": {
+            "premise": {
+              "task": "premise"
+            },
+            "conclusion": {
+              "task": "conclusion"
+            },
+            "domains": {
+              "task": "domains"
+            }
+          }
+        },
+        {
+          "id": "answer",
+          "execution_mode": "dynamic",
+          "goal": "Use the actual operation output within its stated scope, then solve the original task. Return answer.",
+          "reference_skill_ids": [
+            "skill_hf_livemath_lm01",
+            "skill_hf_livemath_lm02",
+            "skill_hf_livemath_lm03"
+          ],
+          "after": [
+            "operation"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "operation_result": {
+              "from": "operation",
+              "field": "counterexample_found"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "answer",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "execution_permission": "author_trusted",
+      "required_task_inputs": [
+        "premise",
+        "conclusion",
+        "domains"
+      ],
+      "default_deployment": "optional_native_graph",
+      "note": "Only select when the named inputs are actually supplied or acquired. No synthesized task truth table."
+    }
+  ],
+  "default_workflow_id": "workflow_hf_livemath_reasoning",
+  "measured_performance": null
+}

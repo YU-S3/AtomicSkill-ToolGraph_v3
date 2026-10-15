@@ -1,0 +1,260 @@
+{
+  "benchmark": "livemath",
+  "method_version": "human.frontier.livemath.r2.20261016",
+  "variant": "upstream_skillopt",
+  "source_manifest": {
+    "name": "skillopt",
+    "repo": "microsoft/SkillOpt",
+    "path": "ckpt/livemath/gpt5.5_skill.md",
+    "git_blob": "2d1ac842841f771f4867aea5bfb2fc257fa806d3",
+    "sha256": "53073aa57ce84de76d9976f76a0f80b301c2e76b334b5206b1de1e0d6abd9357",
+    "license_blob": "cf7bcb2ba475e33648180599c0f83c425f1705d9",
+    "license_sha256": "9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15",
+    "url": "https://api.github.com/repos/microsoft/SkillOpt/git/blobs/2d1ac842841f771f4867aea5bfb2fc257fa806d3"
+  },
+  "raw_source_sha256": "53073aa57ce84de76d9976f76a0f80b301c2e76b334b5206b1de1e0d6abd9357",
+  "assembled_policy_sha256": "53073aa57ce84de76d9976f76a0f80b301c2e76b334b5206b1de1e0d6abd9357",
+  "content_variant": "upstream_skillopt",
+  "workflow_execution": "prompt_compiled",
+  "assembly_order": [
+    "skill_0e9e6aa774bc4c508496af941d34ae2e723ad952940e3bc386552ad6d25b061d",
+    "skill_8430a344c4df184bfa0e1c2185217ddd8486e7a0db575ee2716fcde3598dc4ca",
+    "skill_b88fc54eac14bfef867191cb81f75f6642e7928da2c919172690d239f7702027",
+    "skill_fd307e64876b217e5a77f1f613af1f1e4c54ef2bafbff69b76bb6f786cc5817f",
+    "skill_2be4251310ebc7e98bcb2b7348d85ef661d8f17050e00edfccdcde58a30a49d9",
+    "skill_d3e50cd17be2b188c21f3c4a27a466ea5d8623bbfe1a5c4a3008e9b9b9be47c8"
+  ],
+  "skill": [
+    {
+      "kind": "skill",
+      "goal": "Live Mathematical MCQ Heuristics",
+      "guidance": "# Live Mathematical MCQ Heuristics\n\n",
+      "execution_intent": "guidance_only",
+      "content_variant": "upstream_skillopt",
+      "source_blob": "2d1ac842841f771f4867aea5bfb2fc257fa806d3",
+      "source_segment": {
+        "start": 0,
+        "end": 36,
+        "unit": "unicode_codepoints"
+      },
+      "author_execution_permission": "manual_eval",
+      "origin": "external_human_reference",
+      "rule_basis": "benchmark_prior",
+      "method_version": "human.frontier.livemath.r2.20261016",
+      "id": "skill_0e9e6aa774bc4c508496af941d34ae2e723ad952940e3bc386552ad6d25b061d"
+    },
+    {
+      "kind": "skill",
+      "goal": "Option Comparison",
+      "guidance": "## Option Comparison\n\n### Meta-Options About Stronger Results\n- Treat options of the form “one of the remaining options is correct, but a stronger result can be proven” as serious candidates, especially when the question asks for the strongest statement.\n- If a concrete option is true but your theorem or derivation gives a strictly stronger conclusion not exactly listed, choose the meta-option rather than the weaker concrete statement.\n- When options are nested by strength, rank them explicitly before answering: e.g. finite-time blowup is stronger than merely “not globally bounded”; positive stable growth is stronger than ordinary unboundedness; sharper constants, rates, exceptional-set bounds, endpoint inclusion, or full equivalences are stronger than weaker asymptotic versions.\n- Compare all options before committing. The correct choice is often the strongest statement justified by the question, while nearby distractors are weaker, overstrong, or miss an equality case.\n- Track exact quantifiers such as \"there exists\", \"for every\", \"if and only if\", and \"exactly when\".\n\n",
+      "execution_intent": "guidance_only",
+      "content_variant": "upstream_skillopt",
+      "source_blob": "2d1ac842841f771f4867aea5bfb2fc257fa806d3",
+      "source_segment": {
+        "start": 36,
+        "end": 1124,
+        "unit": "unicode_codepoints"
+      },
+      "author_execution_permission": "manual_eval",
+      "origin": "external_human_reference",
+      "rule_basis": "benchmark_prior",
+      "method_version": "human.frontier.livemath.r2.20261016",
+      "id": "skill_8430a344c4df184bfa0e1c2185217ddd8486e7a0db575ee2716fcde3598dc4ca"
+    },
+    {
+      "kind": "skill",
+      "goal": "Theorem-Level Precision",
+      "guidance": "## Theorem-Level Precision\n\n- Do not add converse, realization, or classification claims unless the theorem explicitly proves them. Phrases such as “conversely,” “every such parameter occurs,” “if and only if,” or “exactly all” add strength beyond a one-way implication.\n- Check whether an option weakens the conclusion by dropping a characterization, equality clause, or full equivalence.\n- Check whether an option overstates the theorem by upgrading regularity, removing scale restrictions, or changing an existential statement into a universal one.\n\n",
+      "execution_intent": "guidance_only",
+      "content_variant": "upstream_skillopt",
+      "source_blob": "2d1ac842841f771f4867aea5bfb2fc257fa806d3",
+      "source_segment": {
+        "start": 1124,
+        "end": 1677,
+        "unit": "unicode_codepoints"
+      },
+      "author_execution_permission": "manual_eval",
+      "origin": "external_human_reference",
+      "rule_basis": "benchmark_prior",
+      "method_version": "human.frontier.livemath.r2.20261016",
+      "id": "skill_b88fc54eac14bfef867191cb81f75f6642e7928da2c919172690d239f7702027"
+    },
+    {
+      "kind": "skill",
+      "goal": "Hypotheses",
+      "guidance": "## Hypotheses\n\n### Exact Conditions and Thresholds\n- For biconditional/equivalence questions, reject conditions that are merely necessary or merely sufficient. A broader condition, such as congruence modulo a divisor instead of modulo the full modulus, is usually weaker and not equivalent unless the domain collapses the extra cases.\n- For threshold conditions, verify the exact sign and endpoint: distinguish \\(\\mu_0\\) from \\(-\\mu_0\\), \\(<\\) from \\(\\le\\), and whether the equality case belongs to the positive, zero, or negative parameter regime.\n- When options differ by “for every” vs “for sufficiently large,” local vs global domains, strict vs non-strict inequalities, or dependence of constants, rank them by logical strength and match the sharpest justified version.\n- Verify the hypotheses and domain carefully. Distractors often keep the theorem shape but alter the required assumptions.\n- Pay close attention to equality cases, extremal conditions, and whether a result applies to the full family or only a restricted subfamily.\n\n",
+      "execution_intent": "guidance_only",
+      "content_variant": "upstream_skillopt",
+      "source_blob": "2d1ac842841f771f4867aea5bfb2fc257fa806d3",
+      "source_segment": {
+        "start": 1677,
+        "end": 2718,
+        "unit": "unicode_codepoints"
+      },
+      "author_execution_permission": "manual_eval",
+      "origin": "external_human_reference",
+      "rule_basis": "benchmark_prior",
+      "method_version": "human.frontier.livemath.r2.20261016",
+      "id": "skill_fd307e64876b217e5a77f1f613af1f1e4c54ef2bafbff69b76bb6f786cc5817f"
+    },
+    {
+      "kind": "skill",
+      "goal": "Final Answer",
+      "guidance": "## Final Answer\n- Output the final answer as the single option label only.\n\n",
+      "execution_intent": "guidance_only",
+      "content_variant": "upstream_skillopt",
+      "source_blob": "2d1ac842841f771f4867aea5bfb2fc257fa806d3",
+      "source_segment": {
+        "start": 2718,
+        "end": 2794,
+        "unit": "unicode_codepoints"
+      },
+      "author_execution_permission": "manual_eval",
+      "origin": "external_human_reference",
+      "rule_basis": "benchmark_prior",
+      "method_version": "human.frontier.livemath.r2.20261016",
+      "id": "skill_2be4251310ebc7e98bcb2b7348d85ef661d8f17050e00edfccdcde58a30a49d9"
+    },
+    {
+      "kind": "skill",
+      "goal": "Exact Scope and Quantitative Wording",
+      "guidance": "## Exact Scope and Quantitative Wording\n- Distinguish global conclusions from localized or completed ones. Equivalence after localization, completion, or at each prime/scale is usually weaker than an unqualified equivalence.\n- In estimate-heavy options, compare every quantitative detail: exponent, derivative index range, constants and their parameter dependence, log factors, additive terms, one-sided vs two-sided notation, and pointwise vs uniform convergence.\n\n<!-- SLOW_UPDATE_START -->\n<!-- SLOW_UPDATE_END -->",
+      "execution_intent": "guidance_only",
+      "content_variant": "upstream_skillopt",
+      "source_blob": "2d1ac842841f771f4867aea5bfb2fc257fa806d3",
+      "source_segment": {
+        "start": 2794,
+        "end": 3311,
+        "unit": "unicode_codepoints"
+      },
+      "author_execution_permission": "manual_eval",
+      "origin": "external_human_reference",
+      "rule_basis": "benchmark_prior",
+      "method_version": "human.frontier.livemath.r2.20261016",
+      "id": "skill_d3e50cd17be2b188c21f3c4a27a466ea5d8623bbfe1a5c4a3008e9b9b9be47c8"
+    }
+  ],
+  "program": [],
+  "implementation": [],
+  "workflow": [
+    {
+      "id": "workflow_03529a4ee8248f1a9354737b71bacfdde8ba4cc838827f37104376c3520b6c35",
+      "goal": "Execute the original authored strategy in source order",
+      "interface_version": "empirical.workflow.v2",
+      "assembly_order": [
+        "skill_0e9e6aa774bc4c508496af941d34ae2e723ad952940e3bc386552ad6d25b061d",
+        "skill_8430a344c4df184bfa0e1c2185217ddd8486e7a0db575ee2716fcde3598dc4ca",
+        "skill_b88fc54eac14bfef867191cb81f75f6642e7928da2c919172690d239f7702027",
+        "skill_fd307e64876b217e5a77f1f613af1f1e4c54ef2bafbff69b76bb6f786cc5817f",
+        "skill_2be4251310ebc7e98bcb2b7348d85ef661d8f17050e00edfccdcde58a30a49d9",
+        "skill_d3e50cd17be2b188c21f3c4a27a466ea5d8623bbfe1a5c4a3008e9b9b9be47c8"
+      ],
+      "workflow_execution": "prompt_compiled",
+      "author_execution_permission": "manual_eval",
+      "nodes": [
+        {
+          "id": "section_0",
+          "execution_mode": "dynamic",
+          "goal": "Live Mathematical MCQ Heuristics",
+          "reference_skill_ids": [
+            "skill_0e9e6aa774bc4c508496af941d34ae2e723ad952940e3bc386552ad6d25b061d"
+          ],
+          "after": [],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "section_1",
+          "execution_mode": "dynamic",
+          "goal": "Option Comparison",
+          "reference_skill_ids": [
+            "skill_8430a344c4df184bfa0e1c2185217ddd8486e7a0db575ee2716fcde3598dc4ca"
+          ],
+          "after": [
+            "section_0"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "section_2",
+          "execution_mode": "dynamic",
+          "goal": "Theorem-Level Precision",
+          "reference_skill_ids": [
+            "skill_b88fc54eac14bfef867191cb81f75f6642e7928da2c919172690d239f7702027"
+          ],
+          "after": [
+            "section_1"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "section_3",
+          "execution_mode": "dynamic",
+          "goal": "Hypotheses",
+          "reference_skill_ids": [
+            "skill_fd307e64876b217e5a77f1f613af1f1e4c54ef2bafbff69b76bb6f786cc5817f"
+          ],
+          "after": [
+            "section_2"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "section_4",
+          "execution_mode": "dynamic",
+          "goal": "Final Answer",
+          "reference_skill_ids": [
+            "skill_2be4251310ebc7e98bcb2b7348d85ef661d8f17050e00edfccdcde58a30a49d9"
+          ],
+          "after": [
+            "section_3"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "section_5",
+          "execution_mode": "dynamic",
+          "goal": "Exact Scope and Quantitative Wording",
+          "reference_skill_ids": [
+            "skill_d3e50cd17be2b188c21f3c4a27a466ea5d8623bbfe1a5c4a3008e9b9b9be47c8"
+          ],
+          "after": [
+            "section_4"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "section_5",
+          "field": "answer"
+        }
+      }
+    }
+  ],
+  "default_workflow_id": "workflow_03529a4ee8248f1a9354737b71bacfdde8ba4cc838827f37104376c3520b6c35",
+  "external_reference_not_learned": true
+}

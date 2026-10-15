@@ -1,0 +1,22 @@
+[
+  {
+    "name": "skillopt",
+    "repo": "microsoft/SkillOpt",
+    "path": "ckpt/livemath/gpt5.5_skill.md",
+    "git_blob": "2d1ac842841f771f4867aea5bfb2fc257fa806d3",
+    "sha256": "53073aa57ce84de76d9976f76a0f80b301c2e76b334b5206b1de1e0d6abd9357",
+    "license_blob": "cf7bcb2ba475e33648180599c0f83c425f1705d9",
+    "license_sha256": "9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15",
+    "url": "https://api.github.com/repos/microsoft/SkillOpt/git/blobs/2d1ac842841f771f4867aea5bfb2fc257fa806d3"
+  },
+  {
+    "name": "skillopt_lite",
+    "repo": "EvolvingLMMs-Lab/SkillOpt-Lite",
+    "path": "skillopt_lite_ckpt/livemath/gpt5.5/skill.md",
+    "git_blob": "6ddea929aa6068501f5f4e7b07dc881b6206bc78",
+    "sha256": "9049ce6748eaea298e4e7407e36f0fd48d20a72f738488bfbda5fe7e545b00e6",
+    "license_blob": "687fe219eb003b39438dbb74a031faf131f046a4",
+    "license_sha256": "61db31044ae2bef464b430f49696c277d51071d9d5886d61180e481c788231cf",
+    "url": "https://api.github.com/repos/EvolvingLMMs-Lab/SkillOpt-Lite/git/blobs/6ddea929aa6068501f5f4e7b07dc881b6206bc78"
+  }
+]

@@ -39,7 +39,7 @@ def messages(task, cards=(), tail=None):
         {'role':'user','content':json.dumps(content,ensure_ascii=False)}]
 
 
-def call(root, p, messages_, governor, context, *, tools=None, tool_choice=None):
+def call(root, p, messages_, governor, context, *, tools=None, tool_choice=None, durable_received=False):
     root=Path(root);root.mkdir(parents=True,exist_ok=True)
     wire=p._build_payload(messages_,tools or [],tool_choice);identity=digest([wire,p.config.snapshot(),context])
     request=root/'request.json';response=root/'response.json'
@@ -49,7 +49,7 @@ def call(root, p, messages_, governor, context, *, tools=None, tool_choice=None)
         if receipt['identity']!=identity or digest(receipt['turn'])!=receipt['response_hash']:raise ValueError('Response changed')
         return AgentTurn(**receipt['turn']),receipt
     journal=root/'received.json'
-    if context.get('method_version')==R2 and journal.exists():
+    if (context.get('method_version')==R2 or durable_received) and journal.exists():
         saved=read(journal)
         if saved['identity']!=identity or saved['received_hash']!=digest({k:v for k,v in saved.items() if k!='received_hash'}):
             raise ValueError('Received response journal identity changed')
@@ -86,7 +86,7 @@ def call(root, p, messages_, governor, context, *, tools=None, tool_choice=None)
         if turn is None:raise
         turn.tool_calls=[]
     records=list(p.request_records_since(start))
-    if context.get('method_version')==R2:
+    if context.get('method_version')==R2 or durable_received:
         saved={'identity':identity,'turn':asdict(turn),'records':records}
         saved['received_hash']=digest(saved);save_json(journal,saved)
     save_json(root/'requests.json',records)
