@@ -419,9 +419,10 @@ def executed_source_capacity(material, learning, default, *, trusted=()):
 
 def capability_capacity(material, learning, purpose, default):
     from .searchqa_guidance import MATERIAL
-    if material.get('learning_material_version') == MATERIAL and purpose in {
+    from .searchqa_guidance_r3 import MATERIAL as R3_MATERIAL
+    if material.get('learning_material_version') in {MATERIAL, R3_MATERIAL} and purpose in {
             'searchqa_induction','searchqa_program_spec','searchqa_builder'}:
-        if learning.get('searchqa_material_version') != MATERIAL or learning.get('searchqa_payload_max_bytes') != 65536:
+        if learning.get('searchqa_material_version') != material['learning_material_version'] or learning.get('searchqa_payload_max_bytes') != 65536:
             raise ValueError('R2 wire capacity needs its explicit versioned configuration')
         return 65536
     from . import CHOICE_CAPABILITY_FULL_MATERIAL_VERSION,MATH_MATERIAL_VERSIONS

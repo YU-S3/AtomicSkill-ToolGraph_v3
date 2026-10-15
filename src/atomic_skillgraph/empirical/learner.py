@@ -79,6 +79,7 @@ class Learner:
         s = self.system
         version = material_version or s.config['learning']['material_version']
         from .searchqa_guidance import MATERIAL as SEARCHQA_MATERIAL
+        from .searchqa_guidance_r3 import MATERIAL as SEARCHQA_R3_MATERIAL
         material = {**material, 'learning_material_version': version}
         if stage=='extractor' and 'image' in s.adapter.capabilities.input_modalities:
             material['content_parts']=s.adapter.content_parts()
@@ -101,7 +102,7 @@ class Learner:
                 s.checkpoint.advance(s.checkpoint.state['stage'], **{
                     key + '_request_material': material, key + '_request_schema': schema})
             else:
-                if version == SEARCHQA_MATERIAL and (snapshot != material or s.checkpoint.state.get(key + '_request_schema') != schema):
+                if version in {SEARCHQA_MATERIAL, SEARCHQA_R3_MATERIAL} and (snapshot != material or s.checkpoint.state.get(key + '_request_schema') != schema):
                     raise ValueError('R2 learning source/schema changed across recovery')
                 if version in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS) and (snapshot != material or
                     s.checkpoint.state.get(key + '_request_schema') != schema):
@@ -113,7 +114,7 @@ class Learner:
         semantics = digest([stage, prompt, material, name, schema,
             {k:v for k,v in kwargs.items() if k in ('completion_override','repair_limit','repair_reason','job_key','decision_purpose')},
             s.config['experiment']['implementation_revision'], version, GUIDANCE_POLICY_VERSION])
-        if version == SEARCHQA_MATERIAL:
+        if version in {SEARCHQA_MATERIAL, SEARCHQA_R3_MATERIAL}:
             semantics = digest([semantics, s.config['experiment'].get('searchqa_method_version'),
                                 s.config['llm'], s.resolve_call_settings(stage, kwargs.get('decision_purpose'))])
         if version in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS):
@@ -123,6 +124,15 @@ class Learner:
             if s.checkpoint.state.get(key + '_semantics') != semantics:
                 raise ValueError('Cached learning response semantics changed')
             return s.checkpoint.state[key]
+        if version == SEARCHQA_R3_MATERIAL and s.checkpoint:
+            rejected = [d for d in s.checkpoint.state['decisions'].values()
+                        if d.get('owner_state_version') == key and d.get('status') == 'rejected']
+            # Rejected is also terminal. The original response was durably saved before parsing.
+            if rejected:
+                error = ValueError('Recovered terminal R3 rejection; inspect the original response/checkpoint, no repeated HTTP')
+                error.model_authored = True
+                error.logical_decision_id = rejected[-1]['logical_decision_id']
+                raise error
         value = s.agent(stage, prompt, material, name, schema, owner_state_version=key, **kwargs)
         if s.checkpoint:
             s.checkpoint.commit_decision(s.last_decision_id, 'applied', **{key: value, key + '_semantics': semantics})

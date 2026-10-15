@@ -267,6 +267,10 @@ def resolve_evidence(binding, experience, skill):
 
 def qualification(program):
     validation = program.get('local_validation', {})
+    from .searchqa_guidance_r3 import VERSION as R3
+    if program.get('method_version') == R3:
+        from .searchqa_program_probe_r3 import qualification as qualify_r3
+        return program.get('state') == 'usable' and qualify_r3(program, validation)
     from .searchqa_guidance import VERSION
     if program.get('method_version')==VERSION:
         from .searchqa_program_probe import qualification as qualify_r2

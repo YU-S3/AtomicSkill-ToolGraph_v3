@@ -6,6 +6,14 @@ def benchmark_config(base, benchmark):
     config=deepcopy(base)
     if benchmark=='searchqa' and config['experiment'].get('searchqa_method_version'):
         from ..empirical.searchqa_guidance import VERSION, MATERIAL, POLICY
+        from ..empirical.searchqa_guidance_r3 import VERSION as R3
+        if config['experiment']['searchqa_method_version'] == R3:
+            from ..empirical.searchqa_guidance_r3 import VERSION, MATERIAL, POLICY, FINALIZATION
+            config['llm'].setdefault('purpose_overrides', {}).update({
+                'searchqa_induction': {'protocol': {'thinking_type': 'disabled'}, 'max_completion_tokens': 4096, 'max_retries': 0},
+                'searchqa_builder': {'protocol': {'thinking_type': 'disabled'}, 'max_completion_tokens': 4096, 'max_retries': 0},
+                'finish_only': {'protocol': {'thinking_type': 'disabled'}, 'max_completion_tokens': 2048, 'max_retries': 0}})
+            config['runtime']['choice_bounded_finalization'] = {'enabled': True, 'version': FINALIZATION}
         if config['experiment']['searchqa_method_version']!=VERSION:raise ValueError('Unknown SearchQA method')
         config['learning'].update(searchqa_material_version=MATERIAL,searchqa_payload_max_bytes=65536)
         config['runtime']['searchqa_selection']=deepcopy(POLICY)

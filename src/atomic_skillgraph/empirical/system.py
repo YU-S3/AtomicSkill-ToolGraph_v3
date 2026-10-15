@@ -46,6 +46,12 @@ def validate_config(config):
             raise ValueError('P5 requires an isolated LiveMath Program trial configuration')
     from .searchqa_guidance import VERSION as SEARCHQA_VERSION, MATERIAL as SEARCHQA_MATERIAL, POLICY as SEARCHQA_POLICY, IMAGE as SEARCHQA_IMAGE
     searchqa = config.get('experiment',{}).get('searchqa_method_version')
+    from .searchqa_guidance_r3 import VERSION as SEARCHQA_R3_VERSION, FINALIZATION as SEARCHQA_R3_FINALIZATION
+    searchqa_r3 = searchqa == SEARCHQA_R3_VERSION
+    if searchqa_r3:
+        from .searchqa_guidance_r3 import VERSION as SEARCHQA_VERSION, MATERIAL as SEARCHQA_MATERIAL, POLICY as SEARCHQA_POLICY
+        if config['experiment'].get('manual_reference_version'):
+            raise ValueError('R3 Ours cannot include a human reference Bank')
     if searchqa:
         if (searchqa!=SEARCHQA_VERSION or config['experiment'].get('benchmark')!='searchqa' or
                 config.get('harness',{}).get('adapter')!='searchqa' or
@@ -73,8 +79,12 @@ def validate_config(config):
     overrides.setdefault('learning_structure_repair',{'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048})
     if overrides['learning_structure_repair'] != {'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}:
         raise ValueError('Structural learning repair requires disabled thinking and 2048 completion')
-    if set(overrides) - ({'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair', 'capability_induction', 'capability_routing'} | ({'math_consolidation'} if math_p3 else set()) | ({'math_program_spec','math_program_build'} if math_program else set())):
+    if set(overrides) - ({'finish_only', 'guidance_learning', 'guidance_grounding', 'learning_structure_repair', 'capability_induction', 'capability_routing'} | ({'math_consolidation'} if math_p3 else set()) | ({'math_program_spec','math_program_build'} if math_program else set()) | ({'searchqa_induction', 'searchqa_builder'} if searchqa_r3 else set())):
         raise ValueError('Unsupported purpose override')
+    if searchqa_r3:
+        for purpose, cap in [('searchqa_induction', 4096), ('searchqa_builder', 4096), ('finish_only', 2048)]:
+            if overrides.get(purpose) != {'protocol': {'thinking_type': 'disabled'}, 'max_completion_tokens': cap, 'max_retries': 0}:
+                raise ValueError('R3 purpose requires fixed disabled thinking, completion cap and zero provider retries')
     if math_program:
         for purpose, cap in [('math_program_spec',4096),('math_program_build',8192)]:
             if overrides.get(purpose) != {'protocol':{'thinking_type':'disabled'},'max_completion_tokens':cap,'max_retries':0}:
@@ -169,8 +179,9 @@ def validate_config(config):
     finalizer=runtime.setdefault('choice_bounded_finalization',{'enabled':False,'version':FINALIZATION_VERSION})
     from .manual_reference import VERSION as MANUAL_MATH_VERSION
     final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 or manual_reference == MANUAL_MATH_VERSION or program_trial else FINALIZATION_VERSION
+    if searchqa_r3: final_version = SEARCHQA_R3_FINALIZATION
     if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=final_version or
-        finalizer['enabled'] and not (config['runtime'].get('choice_guidance',{}).get('public_process') or manual_reference or program_trial)):
+        finalizer['enabled'] and not (config['runtime'].get('choice_guidance',{}).get('public_process') or manual_reference or program_trial or searchqa_r3)):
         raise ValueError('Invalid explicitly versioned choice finalization policy')
     if (config['learning'].get('choice_guidance', {}).get('enabled') is True and
             config['runtime'].get('choice_guidance', {}).get('enabled') is not True):
@@ -474,7 +485,9 @@ class EmpiricalSystem:
             provider=self.provider(stage,purpose)
             tool_choice=({'type':'function','function':{'name':name}} if name and
                 (choice_learning or purpose=='learning_structure_repair' or (stage=='extractor' and name=='submit_learning')
-                 or (self.config['experiment'].get('math_program_method_version') and purpose in {'math_program_spec','math_program_build'}))
+                 or (self.config['experiment'].get('math_program_method_version') and purpose in {'math_program_spec','math_program_build'})
+                 or (self.config['experiment'].get('searchqa_method_version') == 'searchqa.train-trace-capability.r3'
+                     and purpose in {'searchqa_induction', 'searchqa_builder'}))
                 and settings.get('protocol',{}).get('thinking_type')=='disabled'
                 and (not isinstance(provider,OpenAICompatibleProvider) or provider.config.capability_profile['tools']) else None)
             used, cap = self._budget(stage)
@@ -799,6 +812,8 @@ class EmpiricalSystem:
             try:
                 if choice_learning and turn.finish_reason == 'length':
                     raise ValueError('Truncated choice guidance response')
+                if materials.get('learning_material_version') == 'searchqa.train-trace-material.r3' and turn.finish_reason == 'length':
+                    raise ValueError('Truncated R3 learning response')
                 if name == 'answer_step' and not turn.tool_calls:
                     return accepted({'action':'finish','answer':turn.content or ''},repair)
                 if not name:
@@ -846,6 +861,13 @@ class EmpiricalSystem:
                             details = '; text arguments: ' + str(field_error)
                     raise ValueError("Expected one " + name + " ToolCall" + details)
                 value = turn.tool_calls[0].arguments
+                from .searchqa_guidance_r3 import VERSION as SEARCHQA_R3_VERSION, normalize_finish, validate_step
+                if name == 'answer_step' and self.config['experiment'].get('searchqa_method_version') == SEARCHQA_R3_VERSION:
+                    value, normalization = normalize_finish(value, round_schema)
+                    validate_step(value, round_schema)
+                    if normalization:
+                        record['normalized_response'] = normalization
+                        self._save_requests()
                 if materials.get('learning_material_version') in MATH_MATERIAL_VERSIONS:
                     from .model_view import restore_capability_response,restore_math_items
                     normalization=[]
@@ -925,6 +947,9 @@ class EmpiricalSystem:
             identity['officeqa_method_version']=self.config['experiment']['officeqa_method_version']
         if self.config['experiment'].get('searchqa_method_version'):
             from .searchqa_guidance import VERSION, MATERIAL, SELECTION, OUTPUT, QUALIFICATION
+            from .searchqa_guidance_r3 import VERSION as R3
+            if self.config['experiment']['searchqa_method_version'] == R3:
+                from .searchqa_guidance_r3 import VERSION, MATERIAL, SELECTION, OUTPUT, QUALIFICATION
             identity.update(searchqa_method_version=VERSION,learning_material_version=MATERIAL,
                 answer_protocol_version=VERSION+'.answer.v1',searchqa_selection_version=SELECTION,
                 searchqa_output_contract=OUTPUT,searchqa_qualification_policy=QUALIFICATION)

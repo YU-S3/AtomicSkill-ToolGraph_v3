@@ -7,6 +7,7 @@ SEARCH_PAGE = 'native.search-page.v3'
 TEXT_CONTEXT = 'native.text-context.v3'
 FILE_COMPUTE = 'native.file-compute.v1'
 PROGRAM_EXECUTION = 'program.execution-result.v1'
+SEARCHQA_R3_EXECUTION = 'searchqa.program-result.r3'
 MANUAL_PROGRAM_EXECUTION = 'manual-reference.program-result.v1'
 MANUAL_GRAPH_EXECUTION = 'manual-reference.graph-result.v1'
 HOST_FIELDS = {
@@ -15,6 +16,7 @@ HOST_FIELDS = {
     FILE_COMPUTE: {'local_artifact_identities', 'local_artifact_hashes',
                    'worker_cpu_seconds', 'worker_seconds'},
     PROGRAM_EXECUTION: {'cpu_seconds', 'elapsed_seconds', 'program_id'},
+    SEARCHQA_R3_EXECUTION: {'cpu_seconds', 'elapsed_seconds', 'program_id', 'execution_receipt'},
     MANUAL_PROGRAM_EXECUTION: {'cpu_seconds', 'elapsed_seconds', 'program_id', 'execution_receipt'},
     MANUAL_GRAPH_EXECUTION: {'nodes'},
 }

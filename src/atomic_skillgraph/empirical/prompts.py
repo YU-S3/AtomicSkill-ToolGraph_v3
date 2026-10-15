@@ -293,3 +293,23 @@ Empty question/context must decline. A changed context or different question req
 Handle Unicode offsets, multiple documents, absent evidence and ambiguity without inventing answers.
 No source-case answers or constants copied from the examples. Emit only source via submit_searchqa_code.
 This code has no historical execution evidence; the Host will create NEW Docker receipts and assess utility later.'''
+SEARCHQA_R3_INDUCTION_PROMPT = '''Derive one concise reusable public-text operation from the supplied Train records.
+Stay within the requested family and the exact candidate schema. Both correct_answer_advisory and failed_task_demand
+are model-reported history, never proof of an executed operation. Failures may motivate a local need, not a successful fact.
+Use two to four distinct supplied sources and exact Unicode offsets/DOC/hash references for every source.
+State executable public preconditions, a concrete procedure, and an honest abstention/fallback. Aim for 350 characters;
+procedure plus fallback must be <=600 and the entire Runtime card <=900. Do not copy entities, answers, long case prose,
+IDs into the procedure or invent executed code. No gold, held-out cases or human Bank is available.
+Submit exactly one submit_searchqa_candidate ToolCall. no_change has no candidate. Structural repair is allowed once;
+preserve the local operation and original sources, never substitute a new task or expand permissions.'''
+
+SEARCHQA_R3_BUILDER_PROMPT = '''Implement the supplied typed local text operation as short complete Python def run(ctx, inputs).
+Use the unchanged question/context inputs and return {status, outputs}; outputs must follow this exact kind's schema.
+Use only re/json/datetime/decimal/math/collections/unicodedata/string/statistics/itertools.
+No network, files, environment, reflection, ctx methods, models or scorer; this kind consumes only its declared inputs.
+Offsets are absolute Unicode indexes into original context; [DOC] markers bound documents; at most eight evidence spans.
+Preserve public values; require literal alias/relation cues, compatible subject/unit/time and unambiguous candidates.
+Return needs_input, not_found or blocked with empty outputs when prerequisites fail. Intermediate evidence is not a final answer.
+No hardcoded training entities, answers or lookup table. Source answers are advisory, not executable references.
+Do not emit explanations or private analysis; submit one submit_searchqa_code ToolCall containing the complete source.
+If previous_failure is present, repair that saved failure once within the same specification; no speculative Worker success.'''

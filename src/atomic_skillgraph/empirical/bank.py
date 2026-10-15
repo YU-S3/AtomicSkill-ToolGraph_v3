@@ -67,11 +67,12 @@ class Bank:
 
     def bind_searchqa_method(self, version):
         from .searchqa_guidance import VERSION
+        from .searchqa_guidance_r3 import VERSION as R3
         stored=self.db.execute("SELECT value FROM metadata WHERE key='searchqa_method_version'").fetchone()
         if version is None:
             if stored: raise ValueError('R2 Bank requires its matching method identity')
             return
-        if version!=VERSION or stored and stored!=(version,): raise ValueError('SearchQA Bank method changed')
+        if version not in {VERSION, R3} or stored and stored!=(version,): raise ValueError('SearchQA Bank method changed')
         if not stored:
             if self.readonly or self.db.execute('SELECT 1 FROM assets UNION ALL SELECT 1 FROM train_cases LIMIT 1').fetchone():
                 raise ValueError('R2 must start with a fresh empty Bank')
@@ -79,11 +80,39 @@ class Bank:
 
     def retrieve_searchqa_guidance(self, task, policy):
         from .searchqa_guidance import select
+        from .searchqa_guidance_r3 import VERSION as R3
+        if self.db.execute("SELECT value FROM metadata WHERE key='searchqa_method_version'").fetchone() == (R3,):
+            from .searchqa_guidance_r3 import select
         return select(self.all('skill'),task,policy)
 
     def put(self, kind, asset):
         self._writable()
         asset = dict(asset)
+        from .searchqa_guidance_r3 import VERSION as R3, checked_asset as checked_r3
+        stored_searchqa = self.db.execute("SELECT value FROM metadata WHERE key='searchqa_method_version'").fetchone()
+        if stored_searchqa == (R3,) or asset.get('method_version') == R3:
+            if stored_searchqa != (R3,) or asset.get('method_version') != R3:
+                raise ValueError('R3 rejects external/manual assets and cross-version Banks')
+            if kind == 'skill':
+                if not checked_r3(asset): raise ValueError('Invalid R3 Skill')
+                roles = {r['task']['physical_key']: r['experience'].get('searchqa_role') for r in self.train_cases()}
+                if any(roles.get(key) != 'induction' for key in asset['searchqa_metadata']['candidate']['source_case_ids']):
+                    raise ValueError('R3 Skill sources must belong to the locked Train induction partition')
+            if kind == 'program':
+                from .searchqa_program_probe_r3 import validate_declaration, validate_spec
+                validate_declaration(asset)
+                atomic = self.get(asset['entry_constraints']['atomic_skill_id'])
+                if not checked_r3(atomic or {}): raise ValueError('R3 Program needs its actual Atomic')
+                validate_spec(asset['entry_constraints']['spec'], atomic)
+                if asset.get('state', 'candidate') != 'candidate' or asset.get('local_validation'):
+                    raise ValueError('New R3 code must be an unqualified candidate')
+            if kind == 'implementation':
+                program = self.get(asset['program_id'])
+                if (not self.program_eligible(program) or not checked_r3(self.get(asset['skill_id']) or {})
+                        or program['entry_constraints']['atomic_skill_id'] != asset['skill_id']
+                        or asset.get('qualification_hash') != digest(program['local_validation'])):
+                    raise ValueError('R3 Implementation needs the exact qualified Program and Atomic')
+            if kind not in {'skill', 'program', 'implementation'}: raise ValueError('R3 has no Workflow authority')
         from .searchqa_guidance import VERSION as SEARCHQA_VERSION, checked_asset
         if asset.get('method_version')==SEARCHQA_VERSION:
             if self.db.execute("SELECT value FROM metadata WHERE key='searchqa_method_version'").fetchone()!=(SEARCHQA_VERSION,):
@@ -194,7 +223,8 @@ class Bank:
     def program_eligible(self,program):
         from .local_validation import qualification
         from .searchqa_guidance import VERSION
-        if program and program.get('method_version')==VERSION and self.get(program.get('id',''))!=program:
+        from .searchqa_guidance_r3 import VERSION as R3
+        if program and program.get('method_version') in {VERSION, R3} and self.get(program.get('id',''))!=program:
             return False
         return bool(program and qualification(program) and (self.environment is None or program['environment']==self.environment))
 
@@ -203,12 +233,17 @@ class Bank:
         program = self.get(program_id)
         from .local_validation import POLICY
         from .searchqa_guidance import VERSION, QUALIFICATION
+        from .searchqa_guidance_r3 import VERSION as R3
+        if program and program.get('method_version') == R3:
+            from .searchqa_guidance_r3 import VERSION, QUALIFICATION
         r2=bool(program and program.get('method_version')==VERSION)
         if not program or validation.get('policy') != (QUALIFICATION if r2 else POLICY) or not any(
                 a.get('validation') == validation for a in self.attempts(program_id)):
             raise ValueError('Qualification requires a recorded host local execution')
         if r2:
             from .searchqa_program_probe import qualification as qualify_r2
+            if program.get('method_version') == R3:
+                from .searchqa_program_probe_r3 import qualification as qualify_r2
             if not qualify_r2(program,validation): raise ValueError('Invalid R2 Worker source/transfer receipts')
             roles={r['task']['physical_key']:r['experience'].get('searchqa_role') for r in self.train_cases()}
             if any(roles.get(r['task_key'])!=('induction' if r['role']=='source' else 'worker_probe')
@@ -375,6 +410,9 @@ class Bank:
         for kind, asset_id, payload in target.execute('SELECT kind,id,payload FROM assets').fetchall():
             asset = json.loads(payload)
             from .searchqa_guidance import VERSION as SEARCHQA_VERSION, checked_asset as checked_searchqa
+            from .searchqa_guidance_r3 import VERSION as R3
+            if asset.get('method_version') == R3:
+                from .searchqa_guidance_r3 import VERSION as SEARCHQA_VERSION, checked_asset as checked_searchqa
             if asset.get('method_version')==SEARCHQA_VERSION:
                 if kind=='skill' and not checked_searchqa(asset):
                     target.execute('DELETE FROM assets WHERE id=?',(asset_id,));continue
@@ -428,6 +466,9 @@ class Bank:
         searchqa=self.db.execute("SELECT value FROM metadata WHERE key='searchqa_method_version'").fetchone()
         if searchqa:
             from .searchqa_guidance import MATERIAL, SELECTION, OUTPUT, QUALIFICATION
+            from .searchqa_guidance_r3 import VERSION as R3
+            if searchqa[0] == R3:
+                from .searchqa_guidance_r3 import MATERIAL, SELECTION, OUTPUT, QUALIFICATION
             manifest.update(searchqa_method_version=searchqa[0],searchqa_material_version=MATERIAL,
                             learning_material_version=MATERIAL,answer_protocol_version=searchqa[0]+'.answer.v1',
                             searchqa_selection_version=SELECTION,searchqa_output_contract=OUTPUT,

@@ -83,6 +83,11 @@ class AnswerExecutor:
         trial=s.config['experiment'].get('math_program_evaluation_version')
         if trial:version=trial+'.answer.v1'
         from .searchqa_guidance import VERSION as SEARCHQA_VERSION, validate_wire
+        from .searchqa_guidance_r3 import VERSION as R3
+        searchqa_r3 = s.config['experiment'].get('searchqa_method_version') == R3
+        if searchqa_r3:
+            from .searchqa_guidance_r3 import VERSION as SEARCHQA_VERSION, validate_wire
+            truncation_only = True
         searchqa=s.config['experiment'].get('searchqa_method_version')==SEARCHQA_VERSION
         if searchqa:
             version=SEARCHQA_VERSION+'.answer.v1'
@@ -115,6 +120,11 @@ class AnswerExecutor:
                          'internal_execution_count':len(attempts)+len(temporary),'native_calls':0,
                          'submission_producer_attempt_id':producer,'answer_protocol_version':version,
                          'answer_origin':'program' if producer else 'finish_only' if reason in {'budget_finish_only','truncation_final_answer'} else 'runtime_response'}
+            if searchqa_r3:
+                execution['program_usage_layers'] = [{k: deepcopy(a.get(k)) for k in (
+                    'id', 'program_id', 'result_id', 'program_executed', 'exposed_request_ids', 'read_request_ids',
+                    'declared_used_request_ids', 'outputs_consumed', 'submission_by_program')} for a in attempts]
+                execution['paired_utility'] = None
             if manual:
                 execution.update(workflow_attempts=workflows,manual_reference_version=manual,
                     internal_execution_count=len(attempts)+len(temporary)+sum(w['program_executions'] for w in workflows))
@@ -133,11 +143,13 @@ class AnswerExecutor:
             s.executor.partial_execution = execution
             return execution
         finalization=state.get('finalization',{'enabled':finalizer,'version':s.config['runtime']['choice_bounded_finalization']['version'],'attempted':False})
+        def valid_answer(answer):
+            return (not searchqa_r3 or isinstance(answer, str) and bool(answer.strip())) and getattr(s.adapter, 'valid_answer_format', lambda a: True)(answer)
         def final_answer(material,reason):
             from .prompts import finish_text_prompt
             from ..core.errors import BudgetExhausted
             if finalization['attempted'] and not checkpoint:return finish('',reason)
-            if truncation_only:
+            if truncation_only and not searchqa_r3:
                 stored=state.get('finalization_material')
                 if stored is not None:
                     if any(stored.get(k)!=v for k,v in material.items()):raise ValueError('Finalization public input changed during recovery')
@@ -158,7 +170,7 @@ class AnswerExecutor:
                 finalization.update(reason=str(exc),request_ids=[r['id'] for r in s.requests[start:]])
                 if truncation_only:finalization.update(valid_answer=False,parent_budget_exhausted=isinstance(exc,BudgetExhausted) and exc.code in {'parent_task_budget_exhausted','empirical_token_budget_exhausted','runtime_finish_reserved'})
                 return finish('',reason,budget_censored=isinstance(exc,BudgetExhausted))
-            valid=getattr(s.adapter,'valid_answer_format',lambda a:True)(answer)
+            valid=valid_answer(answer)
             finalization.update(request_ids=[r['id'] for r in s.requests[start:]],reason='bounded_final_answer')
             if truncation_only:finalization.update(valid_answer=valid,parent_budget_exhausted=False)
             return finish(answer,'truncation_final_answer' if truncation_only and valid else 'finalization_invalid_answer' if truncation_only else 'budget_finish_only',budget_censored=not truncation_only)
@@ -231,14 +243,21 @@ class AnswerExecutor:
                 except BudgetExhausted:raise exc
                 return finish(answer,'budget_finish_only',budget_censored=True)
             if truncation_only and not state.get('pending_step') and s.requests[-1].get('response',{}).get('finish_reason')=='length':
-                valid=step.get('action')=='finish' and s.adapter.valid_answer_format(step.get('answer',''))
+                valid=step.get('action')=='finish' and valid_answer(step.get('answer',''))
                 finalization.setdefault('first_truncation',{'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':not valid})
                 if not valid:
                     return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'completion_truncated_no_answer')
+            if searchqa_r3:
+                for attempt in attempts:
+                    attempt['exposed_request_ids'] = list(dict.fromkeys([*attempt.get('exposed_request_ids', []),
+                        *[r['id'] for r in s.requests if r.get('response') and any(
+                            attempt['result_id'] in m.get('content', '') for m in r.get('messages', []) if isinstance(m.get('content'), str))]]))
             used,replaced = set(step.get('used_results',[])),set(step.get('replaced_results',[]))
             if (used|replaced)-set(results):return finish('','unknown_result_consumption_reference')
             for a in attempts+temporary+workflows:
                 if a['result_id'] in used-replaced: a['outputs_consumed']=True
+                if searchqa_r3 and a['result_id'] in used-replaced:
+                    a.setdefault('declared_used_request_ids', []).append(s.last_response_request_id)
                 if a['result_id'] in replaced: a.update(outputs_consumed=False,replaced=True)
             if step['action']=='finish':
                 answer=step.get('answer','');process=None
@@ -249,7 +268,7 @@ class AnswerExecutor:
                             validate_schema_instance(optional,object_schema({k:schema['properties'][k] for k in ('public_process','public_steps')},[]))
                         process=validate_process(step,task,context,results,used-replaced,index,s.requests[-1]['id'] if s.requests else None)
                     except ValueError as exc:process={'verification':'rejected','reason':str(exc),'kind':'self_reported_process'}
-                if finalizer and not getattr(s.adapter,'valid_answer_format',lambda a:True)(answer) and s.requests[-1].get('response',{}).get('finish_reason')=='length':
+                if finalizer and not valid_answer(answer) and s.requests[-1].get('response',{}).get('finish_reason')=='length':
                     if truncation_only:finalization['first_truncation']={'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':True}
                     final_material={k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}}
                     if process and process.get('verification')=='source_compatible':final_material['public_process']=process['public_process']
@@ -258,6 +277,10 @@ class AnswerExecutor:
             if step['action']=='read_result':
                 try:context.read(step.get('result_id',''),path=step.get('path',[]))
                 except (ValueError,KeyError):return finish('','invalid_result_read')
+                if searchqa_r3:
+                    for a in attempts:
+                        if a['result_id'] == step['result_id']:
+                            a.setdefault('read_request_ids', []).append(s.last_response_request_id)
                 save(); continue
             if local_used>=local_limit:
                 return finish('','internal_execution_limit')
@@ -306,17 +329,26 @@ class AnswerExecutor:
             if checkpoint: checkpoint.advance(checkpoint.state['stage'],program_started=True)
             before=s.adapter.observe().get('workspace',{})
             result=normalize_program_result(s.adapter,p,s.worker.execute(p,args,broker),workspace_before=before)
+            if searchqa_r3 and kind == 'program' and result['status'] == 'ok':
+                from .searchqa_program_probe_r3 import check
+                try: check(p, args, result)
+                except (ValueError, KeyError, TypeError) as exc:
+                    # Preserve the unmodified Worker result in Host trace; only expose the contract refusal.
+                    result = {'status': 'blocked', 'outputs': {}, 'error': str(exc),
+                              'execution_receipt': {'original_worker_result': result}}
             aid=uuid4().hex
-            from .public_results import PROGRAM_EXECUTION
+            from .public_results import PROGRAM_EXECUTION, SEARCHQA_R3_EXECUTION
             from .public_results import MANUAL_PROGRAM_EXECUTION
             rid=context.register(aid,result,name=p['id'],arguments=args,
-                origin=MANUAL_PROGRAM_EXECUTION if manual_searchqa else PROGRAM_EXECUTION)
+                origin=MANUAL_PROGRAM_EXECUTION if manual_searchqa else SEARCHQA_R3_EXECUTION if searchqa_r3 else PROGRAM_EXECUTION)
             attempt={'id':aid,'program_id':p['id'],'task_key':task.physical_key,'origin':'online','split':task.split,
                 'kind':kind,'arguments':args,'result_id':rid,'status':result['status'],'outcome':'normal',
                 'basis':None,'calls':result.get('calls',0),'local_check':'unavailable','outputs_consumed':False,
                 'output_contract_status':result.get('output_contract_status'),'submission_by_program':False,
                 'worker_seconds':result.get('elapsed_seconds'), 'worker_cpu_seconds':result.get('cpu_seconds'),
                 'input_schema':p['input_schema'],'output_schema':p['output_schema']}
+            if searchqa_r3:
+                attempt.update(program_executed=bool(result.get('execution_receipt')), exposed_request_ids=[], read_request_ids=[], declared_used_request_ids=[])
             if kind=='temporary_python': attempt['source']=p['source']; temporary.append(attempt)
             else: attempts.append(attempt)
             results.append(rid)
