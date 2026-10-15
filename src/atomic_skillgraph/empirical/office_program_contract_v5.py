@@ -8,9 +8,9 @@ from ..agents.protocol import SchemaValidationError, validate_schema_instance
 from .contracts import digest, object_schema
 from .office_operation_mining import at
 
-VERSION = 'office-trace-v5-program-induction.v2'
-MATERIAL_VERSION = 'office.operation-fields.v5.1'
-CANDIDATE_SCHEMA_VERSION = 'office.program-candidate.v5.1'
+VERSION = 'office-trace-v5-program-induction.v3'
+MATERIAL_VERSION = 'office.operation-fields.v5.2'
+CANDIDATE_SCHEMA_VERSION = 'office.program-candidate.v5.2'
 BINDING_VERSION = 'office.observed-binding.v5'
 PROBE_VERSION = 'office.independent-probe.v5'
 STRING = {'type': 'string', 'minLength': 1}
@@ -281,10 +281,14 @@ def field_contract():
         'probe_output_types': OUTPUT_TYPES, 'probe_fixed_outputs': FIXED_OUTPUTS,
         'probe_semantics': PROBE_SEMANTICS, 'operation_probes': OPERATION_PROBES,
         'rules': ['*_input_field and output_field name declared schema properties, never table values.',
+                  'source_opportunity_ids must be exactly [the current source.opportunity.id], both at the top level and in atomic. reuse_existing must name an actual advertised existing_program_id.',
+                  'allowed_tools must be a subset of the advertised permissions.allowed_names, excluding execute_python; Programs cannot recursively run the native Python tool.',
+                  'expected_output_fields must list EVERY output_schema.properties key exactly once, including optional outputs; it is not a subset of important fields.',
+                  'output_schema describes the Program outputs object, not the outer {status,outputs,detail?} envelope or the native-tool result wrapper. Declare only outputs the Program actually produces.',
                   'Every referenced probe input (including an optional reference when present) must be required in input_schema with exactly its advertised type.',
                   'For probe_output_types, output_field names a required output_schema property with exactly that type. For probe_fixed_outputs, all listed names/types are fixed required output properties.',
                   'array:string means {type:array,items:{type:string}}; array:number means {type:array,items:{type:number}}. Neither means a string or array of objects.',
-                  'input_bindings is an object mapping parameter names; no implicit defaults or list conversion.',
+                  'input_bindings is an object mapping only declared input parameter names; every required input must have a binding. No implicit defaults or list conversion. Every bound value must satisfy its declared schema.',
                   'Bind actual advertised controls even when their operation failed: a failed search does not erase its observed query/path inputs. Only genuinely missing inputs are runtime_required. Bindings must name declared input properties.',
                   'runtime_required is a missing prerequisite, never an observed value or successful source probe.',
                   'source_path/source_offset require actual source location; pure text cannot prove a corpus offset.'],

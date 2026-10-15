@@ -143,6 +143,22 @@ def test_paid_schema_error_reports_declared_type_and_no_cross_version_admission(
     diagnostic(p,case,'proposal_shape_invalid')
 
 
+def test_paid_expected_outputs_and_other_cross_field_rules_are_visible_and_enforced(case):
+    published=json.loads(EXTRACTOR.split('validator:\n',1)[1]);rules=' '.join(published['rules'])
+    assert all(key in rules for key in ('expected_output_fields','source_opportunity_ids','existing_program_id','allowed_tools','execute_python','input_bindings'))
+    p=proposal(case[4]);p['program_spec']['output_schema']['properties']['optional_count']={'type':'integer'}
+    d=diagnostic(p,case,'field_ref_not_declared')
+    assert d['field_path']=='program_spec.expected_output_fields'
+    p['program_spec']['expected_output_fields'].append('optional_count')
+    assert validate(p,case)['status']=='spec_valid'
+    p=proposal(case[4]);p['program_spec']['allowed_tools'].append('execute_python')
+    diagnostic(p,case,'field_ref_not_declared')
+    p=proposal(case[4]);p['source_opportunity_ids']=['invented']
+    diagnostic(p,case,'unknown_source_span')
+    p=proposal(case[4]);p['program_spec']['input_bindings']['undeclared']=p['program_spec']['input_bindings']['pattern']
+    diagnostic(p,case,'field_ref_not_declared')
+
+
 @pytest.mark.parametrize('mutation', [lambda s:s.update(required=[{}]), lambda s:s.update(properties=[]),
     lambda s:s.update(required=['absent']), lambda s:s.update(additionalProperties=True),
     lambda s:s.update(required=['pattern','pattern']), lambda s:s['properties']['pattern'].update(minLength='many'),
