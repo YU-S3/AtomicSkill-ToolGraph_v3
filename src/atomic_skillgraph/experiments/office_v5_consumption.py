@@ -1,5 +1,6 @@
 """Optional V5 Train pairs with task-local references and separate exposure/use counters."""
 from copy import deepcopy
+from pathlib import Path
 
 from ..agents.protocol import SchemaValidationError, validate_schema_instance
 from ..core.errors import BudgetExhausted

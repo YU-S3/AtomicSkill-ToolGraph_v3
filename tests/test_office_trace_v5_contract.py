@@ -284,6 +284,37 @@ def test_request_store_no_duplicate_http_or_altered_payload(tmp_path,monkeypatch
     assert len(seen)==1
 
 
+def test_consumption_finishes_scores_and_resumes_without_new_http(tmp_path,case,monkeypatch):
+    from atomic_skillgraph.experiments import office_v5_consumption as consumption
+    root,plan=setup_run(tmp_path,case,monkeypatch)
+    task=asdict(case[1]);other={**task,'task_id':'officeqa:transfer_two','physical_key':'transfer_two'}
+    plan['source']=str(tmp_path/'train')
+    plan['config'].update(transfer_tasks=[task['task_id'],other['task_id']],
+        paired_arm_limits={'tokens':62500,'http':5,'native_calls':48})
+    save_json(root/'pilot_manifest.json',plan)
+    auth=read(root/'authorization.json');auth['manifest_sha256']=sha(root/'pilot_manifest.json');save_json(root/'authorization.json',auth)
+    labels=tmp_path/'private_train_labels.json'
+    save_json(labels,{t['task_id']:{'answer':'42'} for t in (task,other)})
+    save_json(Path(plan['source'])/'config.json',{'harness':{'evaluator_records':str(labels)}})
+    save_json(root/'source_records.json',[{'task':t} for t in (task,other)])
+    candidate=validate(proposal(case[4]),case)
+    program=program_from_response({'source':SOURCE},candidate,case[0].config['program_environment'],['glob'])
+    value=bundle(candidate,program,'intercepted fixture',{'source':SOURCE});value['status']='transfer_checked'
+    monkeypatch.setattr(consumption,'checked',lambda *a,**k:(plan,case[0].config))
+    monkeypatch.setattr(consumption,'verify_candidates',lambda *a:[value])
+    seen=http(monkeypatch,[response(finish='stop',content=json.dumps({'action':'finish','answer':answer}))
+        for answer in ('42','0','42','0')])
+    result=consumption.consume(root)
+    assert len(seen)==4 and len(result['consumption'])==4
+    assert [t['task_correct'] for t in result['consumption']].count(True)==2
+    traces=[read(p) for p in (root/'consumption').glob('*/*/trace.json')]
+    assert all(t['terminal_reason']=='submitted' and t['http']==1 for t in traces)
+    assert all(not t['metrics']['program_invoked'] for t in traces)
+    assert all(bool(t['visible_program_ids'])==(t['arm']=='with_program') for t in traces)
+    consumption.consume(root)
+    assert len(seen)==4
+
+
 def test_repair_material_keeps_whole_text_but_drops_duplicate_catalogs(case):
     p=proposal(case[4]);data={'source':material(case[4],case[3]),'existing_programs':[{'id':'p','source':'HIDDEN_UNUSED_SOURCE'}],
         'permissions':{'allowed_names':['glob','read'],'public_program_abi':{'entry':'run'},
