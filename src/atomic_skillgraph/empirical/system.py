@@ -178,7 +178,9 @@ def validate_config(config):
     from .public_process import TRUNCATION_FINALIZATION_VERSION
     finalizer=runtime.setdefault('choice_bounded_finalization',{'enabled':False,'version':FINALIZATION_VERSION})
     from .manual_reference import VERSION as MANUAL_MATH_VERSION
+    from .manual_math_v2 import VERSION as MANUAL_MATH_V2, FINALIZATION as MANUAL_MATH_FINISH
     final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 or manual_reference == MANUAL_MATH_VERSION or program_trial else FINALIZATION_VERSION
+    if manual_reference == MANUAL_MATH_V2: final_version = MANUAL_MATH_FINISH
     if searchqa_r3: final_version = SEARCHQA_R3_FINALIZATION
     if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=final_version or
         finalizer['enabled'] and not (config['runtime'].get('choice_guidance',{}).get('public_process') or manual_reference or program_trial or searchqa_r3)):
@@ -1048,6 +1050,9 @@ class EmpiricalSystem:
                 selection = self.bank.select_guidance(task,policy) if semantic else None
                 if self.config['experiment'].get('manual_reference_version'):
                     selection={'selected':self.bank.all('skill'),'authority':'human_authored_reference_not_learned_ours'}
+                    if self.bank.router:
+                        selection['selected'] = self.bank.router.bind(task,self.task_context,
+                            enabled=self.config['experiment'].get('manual_reference_enabled',True))
                     trace['manual_reference_version']=self.config['experiment']['manual_reference_version']
                 if self.config['experiment'].get('searchqa_method_version'):
                     selection=self.bank.retrieve_searchqa_guidance(task,self.config['runtime']['searchqa_selection'])
