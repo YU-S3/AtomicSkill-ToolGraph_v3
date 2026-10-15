@@ -27,6 +27,12 @@ not a Program utility qualification. A read in another file alone is not called 
 an explicitly claimed cross-file binding is invalid. Missing read controls return needs_input
 without a Worker invocation. Engineering Docker probes never become learned assets.
 
+The v1.1 learning contract uses forced `submit_policy` tool calls and distinct initial/edit
+schemas. A stopped pre-pair first candidate may be followed by one explicitly identified child
+run. Its existing summaries are replayed only when the exact outgoing payload hash matches;
+all physical charges carry forward and the same 400K/30-HTTP learning ceiling covers both runs.
+This consumes the second candidate opportunity, so no further feedback edit is available.
+
 The utility gate requires wins > losses, losses <= 1, and no increase in empty answers.
 Ties retain the parent. Protocol, frozen-bank, task and source identities are checked; official
 hard/soft scores, physical HTTP usage, guidance exposure and raw traces remain separate.

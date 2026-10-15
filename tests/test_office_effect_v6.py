@@ -7,7 +7,7 @@ import pytest
 
 from atomic_skillgraph.empirical.checkpoint import save_json
 from atomic_skillgraph.empirical.contracts import PublicTask, digest
-from atomic_skillgraph.empirical.office_effect_contract import validate_candidate, VERSION
+from atomic_skillgraph.empirical.office_effect_contract import validate_candidate, schema_for, VERSION
 from atomic_skillgraph.empirical.office_effect_handoff import observed_hits, resolve_hit, bind_read, recover_handoffs
 from atomic_skillgraph.empirical.office_effect_sources import partition, load_case
 from atomic_skillgraph.empirical.office_effect_optimizer import evaluate_pairs, choose_version
@@ -77,6 +77,7 @@ def test_partition_and_loading_reject_heldout(tmp_path):
 
 
 def test_single_local_edit_and_content_budget():
+    assert 'edit' not in schema_for()['properties'] and 'edit' in schema_for(True)['properties']
     parent=validate_candidate(policy(),['source'])
     raw=policy();raw['procedure'][1]='Use a current result reference.';raw['edit']={'operation':'replace','index':1}
     child=validate_candidate(raw,['source'],parent)
@@ -85,6 +86,20 @@ def test_single_local_edit_and_content_budget():
     with pytest.raises(ValueError):validate_candidate(raw,['source'],parent)
     raw=policy();raw['procedure'][0]='x'*1000
     with pytest.raises(ValueError):validate_candidate(raw,['source'])
+
+
+def test_policy_uses_forced_native_submission_and_replays_without_http(tmp_path,monkeypatch):
+    from atomic_skillgraph.empirical.office_effect_learning import PolicyRequestStore
+    from atomic_skillgraph.experiments.run_office_trace_v4_pilot import provider_for
+    old,task=local_system(tmp_path);cfg=deepcopy(old.config);old.close()
+    sent=http(monkeypatch,[response([policy()],name='submit_policy')])
+    client=PolicyRequestStore(tmp_path/'requests',provider_for(cfg,'extractor',None),phase='learning')
+    first,record=client.policy('proposal','Test fixture only',{'source_ids':['source']})
+    again,_=client.policy('proposal','Test fixture only',{'source_ids':['source']})
+    assert first==again==policy() and len(sent)==1
+    assert sent[0]['tool_choice']=={'type':'function','function':{'name':'submit_policy'}}
+    assert 'edit' not in sent[0]['tools'][0]['function']['parameters']['properties']
+    assert record['turn']['total_tokens']==5
     raw=policy();raw['source_case_ids']=['heldout']
     with pytest.raises(ValueError):validate_candidate(raw,['source'])
 

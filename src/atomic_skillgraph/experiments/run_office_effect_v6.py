@@ -13,7 +13,7 @@ from ..empirical.budget_governor import BudgetGovernor, input_token_bound, billi
 from ..empirical.checkpoint import save_json
 from ..empirical.contracts import PublicTask, digest
 from ..empirical import office_effect_contract as c, office_effect_sources as sources
-from ..empirical.office_effect_learning import learn
+from ..empirical.office_effect_learning import learn, PolicyRequestStore
 from ..empirical.office_effect_optimizer import evaluate_pairs
 from ..empirical.office_operation_mining import read, sha
 from ..empirical.office_trace_program_induction import RequestStore
@@ -28,7 +28,7 @@ def immutable(path, value):
     else: save_json(path, value)
 
 
-def prepare(root, v5, config):
+def prepare(root, v5, config, prior_effect=None):
     root, v5 = Path(root).resolve(), Path(v5).resolve()
     if root.exists(): raise ValueError('V6 requires an independent fresh directory')
     code = code_identity()
@@ -57,6 +57,19 @@ def prepare(root, v5, config):
     reserve = read(v5/'budget/sibling_reservations.json')
     ledger = read(v5/'budget/usage.json')
     if billing_blocked(ledger): raise ValueError('Unreconciled primary billing')
+    prior=None
+    if prior_effect:
+        prior=Path(prior_effect).resolve(); prior_plan=read(prior/'manifest.json')
+        if (prior_plan.get('prior_effect_run') or read(prior/'launch_status.json')['status'] not in {'failed','completed'}
+                or read(prior/'partition.json')!=split or prior_plan['settings']!=settings
+                or (prior/'feedback0').exists()):
+            raise ValueError('Only the single stopped pre-pair first candidate can carry into this second attempt')
+        previous=read(prior/'budget/usage.json')
+        if billing_blocked(previous):raise ValueError('Prior V6 billing must be resolved')
+        for key,row in ledger['attempts'].items():
+            if previous['attempts'].get(key)!=row:raise ValueError('Prior V6 changed historical charges')
+        ledger=deepcopy(previous)
+        files.update({str(p):sha(p) for p in prior.rglob('*.json')})
     root.mkdir(parents=True)
     cfg['experiment'].update(office_effect_version=c.VERSION, output_dir=str(root), runtime_mode='frozen')
     cfg['data_dir'] = str(root/'empty_bank')
@@ -74,6 +87,10 @@ def prepare(root, v5, config):
         'runtime_config.json':cfg,'budget/inherited.json':inherited,'budget/usage.json':inherited,
         'sibling_reservations.json':reserve}
     for name,value in outputs.items(): save_json(root/name,value)
+    if prior:
+        import shutil
+        for p in (prior/'candidate0/requests').glob('notes_*.json'):
+            target=root/'candidate0/requests'/p.name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(p,target)
     datasets = Path(cfg['harness']['evaluator_records']).parent
     public = {}
     for phase in ('train','val','test'):
@@ -86,7 +103,8 @@ def prepare(root, v5, config):
     save_json(root/'public_tasks.json',public)
     manifest = {'method_version':c.VERSION,'material_version':c.MATERIAL,'runtime_version':c.RUNTIME,
         'selection_version':c.SELECTION,'created_at':utc(),'code':code,'settings':settings,
-        'historical_files':files,'v5_run':str(v5),'parent_frozen':old['parent_frozen'],'parent_bank':old['parent_bank'],
+        'historical_files':files,'v5_run':str(v5),'prior_effect_run':str(prior) if prior else None,
+        'candidate_attempts_before':1 if prior else 0,'parent_frozen':old['parent_frozen'],'parent_bank':old['parent_bank'],
         'corpus_root':str(corpus),'corpus_identity':old['corpus_identity'],'datasets':str(datasets),
         'empty_bank_digest':bank_hash,'empty_bank_identity':tree_identity(root/'empty_bank'),
         'inputs':{n:sha(root/n) for n in [*outputs,'public_tasks.json'] if n != 'budget/usage.json'},
@@ -213,6 +231,7 @@ def induce(root, edit=False):
     folder = root/('candidate1' if edit else 'candidate0')
     parent = feedback = None
     if edit:
+        if plan.get('candidate_attempts_before',0):raise ValueError('Both finite candidate opportunities have already been used')
         parent = read(root/'candidate0/learning.json')['candidate']
         feedback = read(root/'feedback0/pairs.json')
         if feedback['selection']['accepted']: raise ValueError('Positive first candidate needs no further edit')
@@ -226,7 +245,7 @@ def induce(root, edit=False):
                 if digest(trace) != row[arm]['trace_sha256']: raise ValueError('New feedback trace changed')
                 row[arm]['observed_experience'] = sources.learning_projection(
                     sources.material(trace,sha(path),plan['corpus_identity']['sha256']))
-    client = RequestStore(folder/'requests',provider_for(cfg,'extractor',governor),phase='learning',
+    client = PolicyRequestStore(folder/'requests',provider_for(cfg,'extractor',governor),phase='learning',
                           wire_max_bytes=plan['settings']['wire_max_bytes'])
     result = learn(folder,client,read(root/'induction.json'),parent=parent,feedback=feedback)
     immutable(root/'learner_memory'/('edit.json' if edit else 'induction.json'),result)
@@ -278,7 +297,7 @@ def read_candidate(root, index):
     c.verify_candidate(candidate)
     path = folder/'requests'/('repair.json' if (folder/'requests/repair.json').exists() else 'proposal.json')
     response = read(path)
-    if (digest(response) != result['response_sha256'] or RequestStore.decode(response) != result['proposal']
+    if (digest(response) != result['response_sha256'] or PolicyRequestStore.decode_policy(response) != result['proposal']
             or response['payload_sha256'] != digest(response['payload'])):
         raise ValueError('Policy must match its natural paid model evidence')
     parent = read_candidate(root,0) if index else None
@@ -364,9 +383,10 @@ def main():
     parser.add_argument('--output',required=True); parser.add_argument('--v5-run'); parser.add_argument('--config')
     parser.add_argument('--env-file')
     parser.add_argument('--approval')
+    parser.add_argument('--prior-effect-run')
     args = parser.parse_args(); root = Path(args.output).resolve()
     if args.env_file: load_env(args.env_file)
-    if args.stage == 'prepare': result = prepare(root,args.v5_run,args.config)
+    if args.stage == 'prepare': result = prepare(root,args.v5_run,args.config,args.prior_effect_run)
     else:
         with FileLock(str(root/'.v6.lock'),timeout=0):
             if args.stage == 'check':

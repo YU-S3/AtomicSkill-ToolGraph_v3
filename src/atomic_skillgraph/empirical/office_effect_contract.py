@@ -5,7 +5,7 @@ from ..agents.protocol import validate_schema_instance
 from .contracts import digest
 
 VERSION = 'officeqa.effect-evolution.v6'
-MATERIAL = 'officeqa.effect-trace.v1'
+MATERIAL = 'officeqa.effect-trace.v1.1'
 SELECTION = 'officeqa.effect-selection.v1'
 RUNTIME = 'officeqa.effect-runtime.v1'
 FEATURES = ['all', 'time_series_or_comparison', 'calculation']
@@ -23,12 +23,19 @@ SCHEMA = {'type': 'object', 'additionalProperties': False,
                      'index': {'type': 'integer', 'minimum': 0}}}}}
 
 
+def schema_for(editing=False):
+    schema=deepcopy(SCHEMA)
+    if not editing:schema['properties'].pop('edit')
+    schema['properties']['stop_condition']={**TEXT,'description':'Include the stop condition AND missing-evidence fallback in this single field. There is no separate fallback property.'}
+    return schema
+
+
 def guidance(candidate):
     return '\n'.join([candidate['goal'], *candidate['procedure'], candidate['stop_condition']])
 
 
 def validate_candidate(value, sources, parent=None):
-    validate_schema_instance(value, SCHEMA)
+    validate_schema_instance(value, schema_for(parent is not None))
     if not set(value['source_case_ids']) <= set(sources):
         raise ValueError('source_case_ids must name only admitted Train induction/feedback cases')
     if value['decision'] == 'no_change': return None
