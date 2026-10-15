@@ -10,7 +10,7 @@ from ..empirical.checkpoint import save_json
 from ..empirical.contracts import digest, object_schema
 from ..empirical.office_operation_mining import read, sha, at
 from ..empirical.office_operation_mining_v5 import material
-from ..empirical.office_program_contract_v5 import (ContractError, validate_candidate, check_schema, BINDING_KINDS)
+from ..empirical.office_program_contract_v5 import (ContractError, validate_candidate, validate_probe_contract, check_schema, BINDING_KINDS)
 from ..empirical.office_trace_program_induction_v5 import EXTRACTOR, repair_material
 from ..empirical.office_program_probe_v5 import expected, execute_probe, table_negatives
 from .office_v4_offline import SEARCH_FIXTURE, engineering_program
@@ -75,6 +75,39 @@ def replay_v4(root):
     return result
 
 
+def replay_prior_v5(root, plan, spans, ops, permissions, provider):
+    """Inspect old semantic failures without rewriting their version or accepting candidates."""
+    records = []
+    for prior_name in plan.get('prior_v5_runs', []):
+        prior = Path(prior_name); selected = read(prior / 'selection.json')['paid_opportunities']
+        for path in sorted((prior / 'requests').glob('op*/*.json')):
+            record = read(path)
+            if not record['payload']['messages'][0]['content'].startswith('Propose one small reusable operation'): continue
+            op = ops[selected[int(path.parent.name[2:])]]
+            source = material(op, spans); diagnostic = None
+            try:
+                proposal = parse_json_strict(record['turn']['content'])
+                if isinstance(proposal, dict) and proposal.get('decision') == 'propose_program':
+                    spec = proposal.get('program_spec', {})
+                    for key in ('input_schema', 'output_schema'): check_schema(spec.get(key), 'program_spec.' + key, digest(source))
+                    validate_probe_contract(spec, digest(source))
+            except ContractError as exc: diagnostic = exc.diagnostic
+            except ValueError as exc: diagnostic = {'code': 'model_response_invalid', 'expected': str(exc), 'evidence_hash': digest(source)}
+            row = {'path': str(path), 'sha256': sha(path), 'semantic_diagnostic': diagnostic,
+                   'new_generation': False, 'candidate_accepted': False, 'http': 0}
+            if diagnostic:
+                repaired = repair_material(record, diagnostic, {'source': source, 'permissions': permissions, 'existing_programs': []})
+                payload = provider._build_payload([{'role': 'system', 'content': EXTRACTOR},
+                    {'role': 'user', 'content': json.dumps(repaired, ensure_ascii=False, allow_nan=False)}], [])
+                row['repair_wire_bytes'] = len(json.dumps(payload, allow_nan=False).encode())
+                row['within_cap'] = row['repair_wire_bytes'] <= plan['config']['wire_max_bytes']
+            records.append(row)
+    result = {'records': records, 'http': 0, 'passed': all(r.get('within_cap', True) for r in records),
+              'claim': 'Unmodified old responses, semantic diagnosis only; no cross-version candidate admission'}
+    save_json(root / 'zero_http/prior_v5_response_replay.json', result)
+    return result
+
+
 CELL_FIXTURE = '''def run(ctx, inputs):
     text = inputs['text']
     if not inputs['unit'] or inputs['unit'].lower() not in text.lower():
@@ -104,6 +137,7 @@ def check(root):
     replay = replay_v4(root); spans = rows(root / 'source_span_catalog.jsonl')
     ops = {o['id']: o for o in rows(root / 'opportunity_catalog.jsonl')}; selection = read(root / 'selection.json')
     permissions = permission(config); provider = provider_for(config, 'extractor', None)
+    prior_replay = replay_prior_v5(root, plan, spans, ops, permissions, provider)
     existing = [{k:p.get(k) for k in ('id', 'input_schema', 'output_schema', 'allowed_tools')} for p in read(root / 'parent_programs.json')]
     wires = []
     for oid in selection['opportunities']:
@@ -168,9 +202,10 @@ def check(root):
         raise AssertionError('Corpus path escape not refused')
     bad.update(passed=True, reason='actual_broker_scope_refusal', engineering_fixture_only=True)
     save_json(root / 'zero_http/path_escape.json', bad); receipts.append(bad)
-    result = {'passed': all(w['within_cap'] for w in wires), 'time': utc(), 'http': 0,
+    result = {'passed': all(w['within_cap'] for w in wires) and prior_replay['passed'], 'time': utc(), 'http': 0,
         'manifest_sha256': sha(root / 'pilot_manifest.json'), 'real_train_sources': len(sources),
         'replay_physical_requests': replay['physical_requests'], 'replay_categories': replay['categories_nonexclusive'],
+        'prior_v5_replayed_responses': len(prior_replay['records']),
         'request_capacity': wires, 'docker_engineering_probes': sum(not r.get('host_validation_only') for r in receipts),
         'host_input_rejection_checks': sum(r.get('host_validation_only',False) for r in receipts), 'candidate_assets_created': 0,
         'ledger_unchanged': sha(root / 'budget/usage.json') == before, 'parent_frozen_unchanged': True,

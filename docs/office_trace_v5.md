@@ -1,6 +1,12 @@
 # OfficeQA Trace V5
 
-Method: `office-trace-v5-program-induction.v1`. V5 lives in explicitly versioned
+Method: `office-trace-v5-program-induction.v2`, material `office.operation-fields.v5.1`.
+The first paid V5 run exposed omitted output/scope type requirements in the model-visible
+contract. Required input references, optional scope references, output types and fixed
+retrieval outputs now use the same tables in the exported prompt and Host validation.
+Glob filename discovery and grep/read retrieval are explicitly distinct probe contracts.
+Schema diagnostics include the actual declared type and required membership.
+No oracle, formal promotion or repair limit is relaxed. V5 lives in explicitly versioned
 modules so V4 checkpoints, prompts, receipts and qualification semantics remain
 reproducible. The ordinary Ours Bank, `record_validation`, `program_eligible`,
 Office tool defaults and running reference experiments are unchanged.
@@ -74,6 +80,12 @@ optional consume 250,000 tokens / 20 HTTP. They do not inherit V4 approval. A ne
 `authorization.json` must name this method, exact `manifest_sha256`,
 `phase_limits`, `approved_phases`, and actual `user_authorization`, with
 `approved: true`. There is no authorization creation command.
+
+For a newly authorized implementation revision, pass `--prior-v5-run` for completed
+prior V5 attempts. Settled physical attempt IDs are carried exactly once; conflicting
+or unresolved billing is rejected. The original V5 phase ceilings are shared across
+those attempts and the new run, not reset by a version change. Old responses are
+replayed only for zero-HTTP semantic diagnostics, never imported as new candidates.
 
 After that explicit decision, the stages are `learn`, `probe`, and optionally
 `consume`, with `--output` set to the same prepared directory. `learn`/`consume`

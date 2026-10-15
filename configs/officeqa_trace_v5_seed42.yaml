@@ -1,4 +1,4 @@
-method_version: office-trace-v5-program-induction.v1
+method_version: office-trace-v5-program-induction.v2
 seed: 42
 focus_v4_opportunities: [2, 3]
 source_task_count: 8

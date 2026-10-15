@@ -8,9 +8,9 @@ from ..agents.protocol import SchemaValidationError, validate_schema_instance
 from .contracts import digest, object_schema
 from .office_operation_mining import at
 
-VERSION = 'office-trace-v5-program-induction.v1'
-MATERIAL_VERSION = 'office.operation-fields.v5'
-CANDIDATE_SCHEMA_VERSION = 'office.program-candidate.v5'
+VERSION = 'office-trace-v5-program-induction.v2'
+MATERIAL_VERSION = 'office.operation-fields.v5.1'
+CANDIDATE_SCHEMA_VERSION = 'office.program-candidate.v5.1'
 BINDING_VERSION = 'office.observed-binding.v5'
 PROBE_VERSION = 'office.independent-probe.v5'
 STRING = {'type': 'string', 'minLength': 1}
@@ -48,6 +48,16 @@ PROBE_FIELDS = {
 }
 OUTPUT_TYPES = {'table_cell': 'number', 'series_extract': 'array:number', 'numeric': 'number',
                 'evidence_check': 'boolean', 'source_locator': 'array:string'}
+OPTIONAL_PROBE_FIELDS = {'retrieval': {'paths_input_field': 'array:string'}}
+FIXED_OUTPUTS = {'retrieval': {'text': 'string', 'source_path': 'string', 'source_offset': 'integer', 'complete': 'boolean'}}
+PROBE_SEMANTICS = {
+    'source_locator': 'Glob filename discovery: pattern is a glob, not a text regex. The referenced output is the exact array of paths returned by ctx.call(glob). For grep plus reading a window, use table_locator/retrieval.',
+    'retrieval': 'Search the supplied regex with grep/grep_page, then read/read_context at an actual matching hit path and offset. Return the exact read text, actual source_path and window start source_offset; complete reflects search pagination. Optional paths input is an array of filenames; omit the contract reference to search without a scope. A text window is not a verified table cell.',
+    'table_cell': 'Extract one numeric cell from uniquely identified observed text, row, column and unit. Text-only output is not this numeric oracle.',
+    'series_extract': 'Extract a numeric array in the exact requested row order, with an independently identifiable column and unit; do not fill missing rows.',
+    'numeric': 'Compute on the supplied nonempty numeric array: sum/mean; sample_std uses n-1; difference is values[1]-values[0], ratio is values[1]/values[0], log_ratio is its natural log. The last three require exactly two values. Undefined operations return an explicit gap.',
+    'evidence_check': 'Case-insensitive containment of every supplied nonempty required string in actual text. Complete evidence returns true; missing text/requirements returns needs_input with a gap, not status=ok with false.',
+}
 OPERATION_PROBES = {'source_locator': 'source_locator', 'table_locator': 'retrieval',
                     'table_cell': 'table_cell', 'series_extract': 'series_extract',
                     'numeric_compute': 'numeric', 'evidence_check': 'evidence_check'}
@@ -58,7 +68,7 @@ for _kind, _fields in PROBE_FIELDS.items():
     if _kind == 'numeric':
         _properties['operation'] = {'enum': ['sum', 'mean', 'difference', 'ratio', 'log_ratio', 'sample_std']}
     _required = list(_properties)
-    if _kind == 'retrieval': _properties['paths_input_field'] = STRING
+    _properties.update({name: STRING for name in OPTIONAL_PROBE_FIELDS.get(_kind, {})})
     PROBES[_kind] = closed(_properties, _required)
 
 ATOMIC_SCHEMA = closed({'goal': STRING, 'applicability': STRING, 'preconditions': {'type': 'array', 'items': STRING},
@@ -142,6 +152,16 @@ def schema_type(schema):
     return 'array:' + schema_type(schema['items']) if kind == 'array' else kind
 
 
+def require_field_type(schema, name, expected, path, evidence_hash):
+    declared = schema_type(schema['properties'][name])
+    required = name in schema['required']
+    if declared != expected or not required:
+        exc = ContractError('value_type_mismatch', path + '.properties.' + name,
+            'required ' + expected, schema['properties'][name], evidence_hash)
+        exc.diagnostic.update(declared_type=declared, field_required=required)
+        raise exc
+
+
 def validate_probe_contract(spec, evidence_hash):
     contract = spec.get('probe_contract')
     if not isinstance(contract, dict): fail('probe_contract_invalid', 'program_spec.probe_contract', 'tagged object', contract, evidence_hash)
@@ -152,24 +172,20 @@ def validate_probe_contract(spec, evidence_hash):
         fail('probe_contract_invalid', 'program_spec.operation_kind', 'matching operation/probe kind', spec.get('operation_kind'), evidence_hash)
     props, outputs = spec['input_schema']['properties'], spec['output_schema']['properties']
     required_fields = {**PROBE_FIELDS[kind]}
-    if 'paths_input_field' in contract: required_fields['paths_input_field'] = 'array:string'
+    required_fields.update({name: typ for name, typ in OPTIONAL_PROBE_FIELDS.get(kind, {}).items() if name in contract})
     for field, expected_type in required_fields.items():
         name = contract.get(field)
         if not isinstance(name, str) or name not in props:
             fail('probe_input_field_missing', 'program_spec.probe_contract.' + field, list(props), name, evidence_hash)
-        if schema_type(props[name]) != expected_type:
-            fail('value_type_mismatch', 'program_spec.input_schema.properties.' + name, expected_type, props[name], evidence_hash)
-        if name not in spec['input_schema']['required']:
-            fail('schema_invalid', 'program_spec.input_schema.required', 'all probe inputs required', name, evidence_hash)
+        require_field_type(spec['input_schema'], name, expected_type, 'program_spec.input_schema', evidence_hash)
     if kind in OUTPUT_TYPES and not isinstance(contract.get('output_field'), str):
         fail('probe_output_field_missing', 'program_spec.probe_contract.output_field', list(outputs), contract.get('output_field'), evidence_hash)
     checks = ({contract['output_field']: OUTPUT_TYPES[kind]} if kind in OUTPUT_TYPES else
-              {'text': 'string', 'source_path': 'string', 'source_offset': 'integer', 'complete': 'boolean'})
+              FIXED_OUTPUTS[kind])
     for name, expected_type in checks.items():
         if not isinstance(name, str) or name not in outputs:
             fail('probe_output_field_missing', 'program_spec.probe_contract.output_field', list(outputs), name, evidence_hash)
-        if schema_type(outputs[name]) != expected_type or name not in spec['output_schema']['required']:
-            fail('value_type_mismatch', 'program_spec.output_schema.properties.' + name, 'required ' + expected_type, outputs[name], evidence_hash)
+        require_field_type(spec['output_schema'], name, expected_type, 'program_spec.output_schema', evidence_hash)
     instance(contract, PROBES[kind], 'program_spec.probe_contract', evidence_hash, 'probe_contract_invalid')
 
 
@@ -261,9 +277,15 @@ def field_contract():
             'bounds': 'size bounds are nonnegative integers; numeric bounds are finite; minimum <= maximum',
             'enum': 'nonempty list of values that satisfy the same declared schema',
             'unsupported': 'No type unions, defaults, tuple items, schema references, or additional keywords'},
-        'probe_field_types': PROBE_FIELDS, 'operation_probes': OPERATION_PROBES,
+        'probe_field_types': PROBE_FIELDS, 'optional_probe_field_types': OPTIONAL_PROBE_FIELDS,
+        'probe_output_types': OUTPUT_TYPES, 'probe_fixed_outputs': FIXED_OUTPUTS,
+        'probe_semantics': PROBE_SEMANTICS, 'operation_probes': OPERATION_PROBES,
         'rules': ['*_input_field and output_field name declared schema properties, never table values.',
+                  'Every referenced probe input (including an optional reference when present) must be required in input_schema with exactly its advertised type.',
+                  'For probe_output_types, output_field names a required output_schema property with exactly that type. For probe_fixed_outputs, all listed names/types are fixed required output properties.',
+                  'array:string means {type:array,items:{type:string}}; array:number means {type:array,items:{type:number}}. Neither means a string or array of objects.',
                   'input_bindings is an object mapping parameter names; no implicit defaults or list conversion.',
+                  'Bind actual advertised controls even when their operation failed: a failed search does not erase its observed query/path inputs. Only genuinely missing inputs are runtime_required. Bindings must name declared input properties.',
                   'runtime_required is a missing prerequisite, never an observed value or successful source probe.',
                   'source_path/source_offset require actual source location; pure text cannot prove a corpus offset.'],
         'field_reference_examples': {'valid_if_declared': {'column_input_field': 'column_label'},

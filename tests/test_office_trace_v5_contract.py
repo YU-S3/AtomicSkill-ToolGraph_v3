@@ -108,6 +108,41 @@ def test_probe_fields_never_literals_and_output_types(case):
     diagnostic(p, case, 'value_type_mismatch')
 
 
+@pytest.mark.parametrize('kind', ['source_locator','retrieval','table_cell','series_extract','numeric','evidence_check'])
+def test_actual_prompt_advertises_all_host_probe_types_and_required_fields(kind):
+    published=json.loads(EXTRACTOR.split('validator:\n',1)[1])
+    def schema(name):
+        return {'type':'array','items':schema(name[6:])} if name.startswith('array:') else {'type':name}
+    fields={**published['probe_field_types'][kind],**published['optional_probe_field_types'].get(kind,{})}
+    contract={'kind':kind,**{name:name.removesuffix('_field') for name in fields}}
+    inputs={contract[name]:schema(typ) for name,typ in fields.items()}
+    if kind in published['probe_output_types']:
+        contract['output_field']='value';outputs={'value':schema(published['probe_output_types'][kind])}
+    else:outputs={name:schema(typ) for name,typ in published['probe_fixed_outputs'][kind].items()}
+    if kind=='numeric':contract['operation']='sum'
+    spec={'operation_kind':next(op for op,probe in published['operation_probes'].items() if probe==kind),
+        'input_schema':object_schema(inputs,list(inputs)), 'output_schema':object_schema(outputs,list(outputs)),
+        'probe_contract':contract}
+    validate_probe_contract(spec,'published-contract')
+    for side in ('input_schema','output_schema'):
+        for name in spec[side]['properties']:
+            bad=deepcopy(spec);bad[side]['required'].remove(name)
+            with pytest.raises(ContractError) as exc:validate_probe_contract(bad,'published-contract')
+            assert exc.value.diagnostic['field_required'] is False
+            bad=deepcopy(spec);bad[side]['properties'][name]={'type':'null'}
+            with pytest.raises(ContractError) as exc:validate_probe_contract(bad,'published-contract')
+            assert exc.value.diagnostic['declared_type']=='null'
+    assert kind in published['probe_semantics']
+
+
+def test_paid_schema_error_reports_declared_type_and_no_cross_version_admission(case):
+    p=proposal(case[4]);p['program_spec']['output_schema']['properties']['paths']={'type':'array','items':object_schema()}
+    d=diagnostic(p,case,'value_type_mismatch')
+    assert d['declared_type']=='array:object' and d['expected']=='required array:string'
+    p=proposal(case[4]);p['program_spec']['contract_version']='office.program-candidate.v5'
+    diagnostic(p,case,'proposal_shape_invalid')
+
+
 @pytest.mark.parametrize('mutation', [lambda s:s.update(required=[{}]), lambda s:s.update(properties=[]),
     lambda s:s.update(required=['absent']), lambda s:s.update(additionalProperties=True),
     lambda s:s.update(required=['pattern','pattern']), lambda s:s['properties']['pattern'].update(minLength='many'),
@@ -270,6 +305,28 @@ def test_phase_and_cumulative_budget_no_old_authorization_or_unresolved_retry(tm
     with pytest.raises(BudgetExhausted):runner.PhaseGovernor(root,'learn').admit('again',{'max_tokens':100},{})
     auth=read(root/'authorization.json');auth['method_version']='office-trace-v4-pilot.v1';save_json(root/'authorization.json',auth)
     with pytest.raises(ValueError,match='V5'):runner.PhaseGovernor(root,'learn')
+
+
+def test_prior_attempts_are_carried_once_and_share_original_phase_allowance(tmp_path,case,monkeypatch):
+    root,plan=setup_run(tmp_path,case,monkeypatch)
+    prior=tmp_path/'prior';ledger=read(root/'budget/usage.json')
+    paid={'status':'metered','accounted_tokens':490000,'reserved_tokens':490000,
+        'context':{'office_v5_run':'old_v5','office_v5_phase':'learn'}}
+    save_json(prior/'pilot_manifest.json',{'method_version':'office-trace-v5-program-induction.v1','v4_run':str(tmp_path/'v4')})
+    save_json(prior/'launch_status.json',{'status':'completed'})
+    save_json(prior/'budget/usage.json',{**ledger,'attempts':{'physical_1':paid}})
+    inherited,paths=runner.carry_prior_runs(ledger,[str(prior),str(prior)],tmp_path/'v4')
+    assert len(inherited['attempts'])==1 and paths and ledger['attempts']=={}
+    plan['phase_budget_run_ids']=['old_v5',plan['run_id']];save_json(root/'pilot_manifest.json',plan)
+    auth=read(root/'authorization.json');auth['manifest_sha256']=sha(root/'pilot_manifest.json');save_json(root/'authorization.json',auth)
+    save_json(root/'budget/usage.json',inherited)
+    governor=runner.PhaseGovernor(root,'learn')
+    assert governor.headroom({})['tokens']==10000
+    with pytest.raises(BudgetExhausted):governor.admit('new',{'max_tokens':10001},{})
+    paid['accounted_tokens']=489999;save_json(prior/'budget/usage.json',{**ledger,'attempts':{'physical_1':paid}})
+    with pytest.raises(ValueError,match='Conflicting'):runner.carry_prior_runs(inherited,[str(prior)],tmp_path/'v4')
+    paid['status']='admitted';save_json(prior/'budget/usage.json',{**ledger,'attempts':{'physical_1':paid}})
+    with pytest.raises(ValueError,match='Resolve prior billing'):runner.carry_prior_runs(ledger,[str(prior)],tmp_path/'v4')
 
 
 def test_request_store_no_duplicate_http_or_altered_payload(tmp_path,monkeypatch):

@@ -24,6 +24,26 @@ from .run_office_trace_v4_pilot import jsonl, rows, assets, permission, provider
 PHASE_LIMITS = {'learn': {'tokens': 500000, 'http': 60}, 'consume': {'tokens': 250000, 'http': 20}}
 
 
+def carry_prior_runs(ledger, names, v4_run):
+    """Carry settled physical attempts, never responses/assets or reset phase allowances."""
+    result = deepcopy(ledger); paths = []
+    for name in names:
+        prior = Path(name).resolve(); plan = read(prior / 'pilot_manifest.json')
+        if (not plan['method_version'].startswith('office-trace-v5-program-induction.')
+                or Path(plan['v4_run']).resolve() != Path(v4_run).resolve()
+                or read(prior / 'launch_status.json')['status'] not in {'completed', 'stopped'}):
+            raise ValueError('Carryforward requires a stopped V5 run with the same V4 parent')
+        previous = read(prior / 'budget/usage.json')
+        if previous['unknown_billing'] or any(a['status'] != 'metered' for a in previous['attempts'].values()):
+            raise ValueError('Resolve prior billing before a new paid version')
+        for key, attempt in previous['attempts'].items():
+            if key in result['attempts'] and result['attempts'][key] != attempt:
+                raise ValueError('Conflicting physical attempt identity: ' + key)
+            result['attempts'][key] = deepcopy(attempt)
+        paths.extend(prior.rglob('*.json'))
+    return result, paths
+
+
 def settings(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding='utf-8'))
     if (cfg['method_version'] != VERSION or cfg['seed'] != 42 or cfg['phase_limits'] != PHASE_LIMITS
@@ -43,7 +63,8 @@ def prepare(args):
     cfg = settings(args.config); old = read(prior / 'pilot_manifest.json')
     if old.get('method_version') != 'office-trace-v4-pilot.v1': raise ValueError('Expected the actual V4 pilot')
     source, parent, corpus = (Path(old[k]).resolve() for k in ('source', 'parent_bank', 'corpus_root'))
-    if any(p == root or p in root.parents or root in p.parents for p in (source, parent, corpus, prior, Path(old['parent_run']).resolve())):
+    protected = [source, parent, corpus, prior, Path(old['parent_run']).resolve(), *[Path(p).resolve() for p in args.prior_v5_run or []]]
+    if any(p == root or p in root.parents or root in p.parents for p in protected):
         raise ValueError('V5 must not overlap historical runs or corpus')
     code = code_identity()
     if not code['git_sha'] or code['tracked_dirty']: raise ValueError('Prepare only clean committed source')
@@ -61,6 +82,7 @@ def prepare(args):
     if (ledger['unknown_billing'] or any(a['status'] != 'metered' for a in ledger['attempts'].values())
             or ledger['limits'] != {'token_limit': 90000000, 'request_limit': 480000, 'finish_reserve': 0}):
         raise ValueError('Historical V4 ledger must be fully reconciled under the existing 90M authority')
+    ledger, prior_paths = carry_prior_runs(ledger, args.prior_v5_run or [], prior)
     # Reserve other ongoing Office experiments at their full remaining ceiling. This is accounting
     # metadata only: no authored Bank/source/content is admitted to the learning inputs.
     reservations = []
@@ -76,7 +98,10 @@ def prepare(args):
     limits['token_limit'] -= sum(r['tokens'] for r in reservations)
     limits['request_limit'] -= sum(r['http'] for r in reservations)
     inherited_tokens = sum(a['accounted_tokens'] for a in ledger['attempts'].values())
-    if inherited_tokens + sum(v['tokens'] for v in PHASE_LIMITS.values()) > limits['token_limit'] or len(ledger['attempts']) + 80 > limits['request_limit']:
+    group = [a for a in ledger['attempts'].values() if a['context'].get('office_v5_run')]
+    remaining_tokens = sum(max(0, cap['tokens'] - sum(a['accounted_tokens'] for a in group if a['context'].get('office_v5_phase') == phase)) for phase, cap in PHASE_LIMITS.items())
+    remaining_http = sum(max(0, cap['http'] - sum(a['context'].get('office_v5_phase') == phase for a in group)) for phase, cap in PHASE_LIMITS.items())
+    if inherited_tokens + remaining_tokens > limits['token_limit'] or len(ledger['attempts']) + remaining_http > limits['request_limit']:
         raise ValueError('Proposed V5 phases and concurrent reservations exceed cumulative authority')
     inherited = {**deepcopy(ledger), 'limits': limits}
     runtime = deepcopy(read(prior / 'runtime_config.json'))
@@ -103,10 +128,13 @@ def prepare(args):
     immutable = ['source_span_catalog.jsonl', 'opportunity_catalog.jsonl', 'source_records.json', 'selection.json',
                  'inventory.json', 'runtime_config.json', 'parent_programs.json', 'field_contract.json',
                  'budget/inherited.json', 'budget/sibling_reservations.json']
-    audit_paths = [*prior.rglob('*.json'), canonical_path, Path(old['parent_run']) / 'val/summary.json']
+    audit_paths = [*prior.rglob('*.json'), *prior_paths, canonical_path, Path(old['parent_run']) / 'val/summary.json']
     plan = {'method_version': VERSION, 'material_version': MATERIAL_VERSION, 'probe_version': PROBE_VERSION,
         'run_id': root.name, 'created_at': utc(), 'code': code, 'config': cfg, 'source': str(source),
         'v4_run': str(prior), 'parent_bank': str(parent), 'parent_frozen': tree_identity(parent),
+        'prior_v5_runs': [str(Path(p).resolve()) for p in args.prior_v5_run or []],
+        'phase_budget_run_ids': sorted({root.name, *[a['context']['office_v5_run'] for a in ledger['attempts'].values()
+                                                   if a['context'].get('office_v5_run')]}),
         'source_projection': 'public Train task/observed operations only; no final answers, gold, scores or authored assets',
         'parent_files': {str(p): sha(p) for p in audit_paths if p.is_file()},
         'corpus_root': str(corpus), 'corpus_identity': tree_identity(corpus),
@@ -155,7 +183,7 @@ class PhaseGovernor(BudgetGovernor):
 
     def headroom(self, context):
         room = super().headroom(context)
-        owned = [a for a in self.state['attempts'].values() if a['context'].get('office_v5_run') == self.plan['run_id']
+        owned = [a for a in self.state['attempts'].values() if a['context'].get('office_v5_run') in self.plan.get('phase_budget_run_ids', [self.plan['run_id']])
                  and a['context'].get('office_v5_phase') == self.phase]
         room['tokens'] = min(room['tokens'], self.cap['tokens'] - sum(a.get('accounted_tokens', a['reserved_tokens']) for a in owned))
         room['requests'] = min(room['requests'], self.cap['http'] - len(owned))
@@ -291,6 +319,7 @@ def report(root):
     bundles = [read(p) for p in sorted((root / 'candidate_bank').glob('*.json'))]
     decisions = [read(p) for p in sorted((root / 'decisions').glob('*.json'))]
     own = [a for a in ledger['attempts'].values() if a['context'].get('office_v5_run') == plan['run_id']]
+    group = [a for a in ledger['attempts'].values() if a['context'].get('office_v5_run') in plan.get('phase_budget_run_ids', [plan['run_id']])]
     selected = read(root / 'selection.json')['paid_opportunities']
     complete = len(decisions) == len(selected) and all(d['status'] == 'complete' for d in decisions)
     status = ('completed_no_candidate' if not bundles else 'learn_complete') if complete else 'prepared' if not decisions else 'learning'
@@ -307,6 +336,8 @@ def report(root):
         'phase_usage': {phase: {'tokens': sum(a.get('accounted_tokens', a['reserved_tokens']) for a in own if a['context'].get('office_v5_phase') == phase),
             'http': sum(a['context'].get('office_v5_phase') == phase for a in own)} for phase in PHASE_LIMITS},
         'inherited_tokens': plan['inherited_tokens'], 'inherited_http': plan['inherited_http'],
+        'phase_budget_usage_including_prior': {phase: {'tokens': sum(a.get('accounted_tokens', a['reserved_tokens']) for a in group if a['context'].get('office_v5_phase') == phase),
+            'http': sum(a['context'].get('office_v5_phase') == phase for a in group)} for phase in PHASE_LIMITS},
         'sibling_reservations': read(root / 'budget/sibling_reservations.json'), 'unknown_billing': ledger['unknown_billing'],
         'parent_frozen_unchanged': tree_identity(plan['parent_bank']) == plan['parent_frozen'],
         'consumption': [{k:t[k] for k in ('arm', 'metrics', 'task_correct', 'tokens', 'http')} | {'task_id':t['task']['task_id']} for t in consumption],
@@ -320,6 +351,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('stage', choices=['prepare', 'check', 'learn', 'probe', 'consume', 'report'])
     parser.add_argument('--v4-run'); parser.add_argument('--reserved-run', action='append')
+    parser.add_argument('--prior-v5-run', action='append')
     parser.add_argument('--config', default='configs/officeqa_trace_v5_seed42.yaml')
     parser.add_argument('--output', required=True); parser.add_argument('--env-file'); parser.add_argument('--zero-http', action='store_true')
     args = parser.parse_args(); root = Path(args.output).resolve()
