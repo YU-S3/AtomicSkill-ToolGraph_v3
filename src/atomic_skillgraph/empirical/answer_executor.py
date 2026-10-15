@@ -79,6 +79,9 @@ class AnswerExecutor:
         from .manual_reference import SEARCHQA_VERSION as MANUAL_SEARCHQA_VERSION
         from .manual_math_v2 import VERSION as MANUAL_MATH_V2, action_schema, action_errors, tool_headroom, budget_snapshot
         manual_v2 = manual == MANUAL_MATH_V2
+        from .math_operation_contract_p6 import VERSION as P6
+        p6 = s.config['experiment'].get('math_program_evaluation_version') == P6
+        strict_math = manual_v2 or p6
         manual_searchqa = manual == MANUAL_SEARCHQA_VERSION
         local_limit = s.config['experiment']['manual_reference_limits']['program_executions'] if manual else 2
         if manual:version=manual+'.answer.v1'
@@ -99,7 +102,8 @@ class AnswerExecutor:
         if public:
             schema['properties'].update(public_process={'type':'string','minLength':1,'maxLength':512},
                 public_steps={'type':'array','items':PUBLIC_STEP,'minItems':1,'maxItems':4})
-        if manual_v2: schema = action_schema()
+        if strict_math: schema = action_schema()
+        if p6:schema['oneOf']=[b for b in schema['oneOf'] if b['properties']['action']['const']!='call_workflow']
         state = deepcopy(checkpoint.state.get('answer_executor', {})) if checkpoint else {}
         attempts, temporary, results = state.get('attempts', []), state.get('temporary', []), state.get('results', [])
         workflows=state.get('workflows',[])
@@ -134,7 +138,7 @@ class AnswerExecutor:
             if manual:
                 execution.update(workflow_attempts=workflows,manual_reference_version=manual,
                     internal_execution_count=len(attempts)+len(temporary)+sum(w['program_executions'] for w in workflows))
-            if manual_v2:
+            if strict_math:
                 audit=deepcopy(s.bank.router.audit)
                 audit.update(attempted=[{'request_id':r['id'],'action':c['arguments']['action'],'name':c['arguments'].get('name')}
                         for r in {r['id']:r for r in s.requests}.values() for c in r.get('response',{}).get('tool_calls',[])
@@ -143,6 +147,10 @@ class AnswerExecutor:
                     used=[a.get('program_id',a.get('workflow_id')) for a in attempts+temporary+workflows if a.get('outputs_consumed')],
                     failed=[a.get('program_id',a.get('workflow_id')) for a in attempts+temporary+workflows if a.get('status')!='ok'])
                 execution.update(reference_routing=audit,action_contract_failures=action_failures)
+                if p6:
+                    from .math_program_trial_p6 import usage_layers
+                    execution['math_program_routing']=execution.pop('reference_routing')
+                    execution['program_usage_layers']=usage_layers(execution,s.requests,context.local_reads)
             if budget_censored: execution['budget_censored'] = True
             from .answer_status import classify_answer
             answer_request=next((r for r in reversed(s.requests) if r.get('response')), {})
@@ -152,7 +160,7 @@ class AnswerExecutor:
                 valid_format=getattr(s.adapter,'valid_answer_format',lambda a:True)(answer)))
             if response.get('finish_reason')=='length' and execution['answer_status']!='valid':
                 execution.update(answer_status='truncated_empty')
-                if not manual_v2 or reason!='finish_budget_inadmissible':execution['reason']='completion_truncated_no_answer'
+                if not strict_math or reason!='finish_budget_inadmissible':execution['reason']='completion_truncated_no_answer'
             if process is not None:execution['public_process_evidence']=process
             if finalizer:execution['choice_bounded_finalization']=deepcopy(finalization)
             save(execution)
@@ -170,7 +178,7 @@ class AnswerExecutor:
             from .prompts import finish_text_prompt
             from ..core.errors import BudgetExhausted
             if finalization['attempted'] and not checkpoint:return finish('',reason)
-            if (truncation_only or manual_v2) and not searchqa_r3 and getattr(s,'last_response_turn',None):
+            if (truncation_only or strict_math) and not searchqa_r3 and getattr(s,'last_response_turn',None):
                 stored=state.get('finalization_material')
                 if stored is not None:
                     if any(stored.get(k)!=v for k,v in material.items()):raise ValueError('Finalization public input changed during recovery')
@@ -181,7 +189,7 @@ class AnswerExecutor:
                 tail=material['previous_reasoning_tail']
                 finalization['reasoning_tail']={k:v for k,v in tail.items() if k!='text'}
             finalization['attempted']=True
-            if manual_v2:
+            if strict_math:
                 state.update(finalization_input=deepcopy(material),finalization_reason=reason,finalization_index=index)
             if checkpoint:checkpoint.advance(checkpoint.state['stage'],answer_executor={**state,'finalization':finalization})
             start=len(s.requests)
@@ -190,17 +198,17 @@ class AnswerExecutor:
                     None,None,repair_limit=0,decision_purpose='finish_only',owner_state_version=version+':finish:'+str(index))
             except (BudgetExhausted,ValueError) as exc:
                 if isinstance(exc,ValueError) and not getattr(exc,'model_authored',False) and not str(exc).startswith('material_too_large'):raise
-                if manual_v2 and isinstance(exc,BudgetExhausted) and exc.code in {'diagnostic_budget_exhausted','capability_batch_budget_exhausted','manual_stage_budget_exhausted'}:raise
+                if strict_math and isinstance(exc,BudgetExhausted) and exc.code in {'diagnostic_budget_exhausted','capability_batch_budget_exhausted','manual_stage_budget_exhausted'}:raise
                 finalization.update(reason=str(exc),request_ids=[r['id'] for r in s.requests[start:]])
-                if truncation_only or manual_v2:finalization.update(valid_answer=False,parent_budget_exhausted=isinstance(exc,BudgetExhausted) and exc.code in {'parent_task_budget_exhausted','empirical_token_budget_exhausted','runtime_finish_reserved'})
-                if manual_v2:
+                if truncation_only or strict_math:finalization.update(valid_answer=False,parent_budget_exhausted=isinstance(exc,BudgetExhausted) and exc.code in {'parent_task_budget_exhausted','empirical_token_budget_exhausted','runtime_finish_reserved'})
+                if strict_math:
                     finalization['budget_state']=budget_snapshot(s)
                     used,cap=s._budget('runtime')
                     finalization.update(parent_budget_exhausted=used>=cap,admission_rejected=isinstance(exc,BudgetExhausted))
-                return finish('','finish_budget_inadmissible' if manual_v2 and isinstance(exc,BudgetExhausted) else reason,budget_censored=isinstance(exc,BudgetExhausted))
+                return finish('','finish_budget_inadmissible' if strict_math and isinstance(exc,BudgetExhausted) else reason,budget_censored=isinstance(exc,BudgetExhausted))
             valid=valid_answer(answer)
             finalization.update(request_ids=[r['id'] for r in s.requests[start:]],reason='bounded_final_answer')
-            if manual_v2:
+            if strict_math:
                 finalization.update(valid_answer=valid,parent_budget_exhausted=False,trigger=reason)
                 return finish(answer,('truncation_final_answer' if reason=='completion_truncated_no_answer' else 'budget_finish_only') if valid else 'finalization_invalid_answer')
             if truncation_only:finalization.update(valid_answer=valid,parent_budget_exhausted=False)
@@ -223,7 +231,7 @@ class AnswerExecutor:
                 'Direct Programs require explicit inputs or argument_refs to real earlier results. '
                 'Program matches/offset checks are intermediate evidence, not semantic entailment. '
                 'If a program does not apply, solve directly. Submit <answer>short answer</answer> and mark used_results when used.')
-        elif manual and not manual_v2:
+        elif manual and not strict_math:
             prompt+='\nThis is an explicitly human-authored reference Bank control arm. All twelve supplied Skills are conditional procedures, not facts or proofs. '+(
                 'You may call_workflow using a supplied workflow ID in name and explicit arguments. At most one Workflow and two total Program executions. '
                 'Its stored ordered nodes run with actual dataflow; dynamic nodes use this same Runtime and parent budget. '
@@ -245,6 +253,9 @@ class AnswerExecutor:
                 'Only call a Program when the complete finite parameters follow from this public task. '
                 'Never invent a toy relation or option truth values to force a call. If unsuitable, solve directly. '
                 'Mark actual consumption with used_results; an execution alone is not evidence of usefulness.')
+        if p6:
+            prompt=prompt.replace('supplied usable ID','supplied currently executable experimental Program ID')
+            prompt+='\nP6 execution permission is experimental_trial_only: local algorithm checked, mathematical utility unproved. Use verified_public_binding exactly. Respect proof_scope. No ready card means solve directly. Use the action-specific schema; execute_python requires top-level source/input_schema/output_schema/arguments, never arguments.code. Return only status/outputs from run(ctx, inputs). After a tool failure use bounded finalization. Explicit used_results is required for actual consumption.'
         if public:
             prompt+='\n'+(
                 'For finish you may attach public_process (at most 512 Unicode characters) describing the actual '
@@ -254,7 +265,7 @@ class AnswerExecutor:
                 'References have quote plus task_path (e.g. ["goal"] or ["inputs","choices",0,"text"]), '
                 'or an actually used result_id/path. Quotes must occur at those public locations. '
                 'A computation requires a real successful result. Do not invent steps. Plain text answers remain valid.')
-        if manual_v2 and state.get('finalization_input') is not None:
+        if strict_math and state.get('finalization_input') is not None:
             index=state['finalization_index']
             return final_answer(state['finalization_input'],state['finalization_reason'])
         for index in range(state.get('next_index',0),8):
@@ -265,8 +276,8 @@ class AnswerExecutor:
                 'worker_resources':getattr(s.adapter,'worker_resources',{}), 'local_reads':context.local_reads[-2:],
                 'content_parts':getattr(s.adapter,'content_parts',lambda:[])(), 'answer_protocol_version':version}
             if manual:material.update(workflows=s.bank.workflow_options(),remaining_workflow_calls=max(0,1-len(workflows)))
-            if manual_v2:
-                material['reference_knowledge'] = s.bank.router.knowledge() if s.config['experiment'].get('manual_reference_enabled',True) else []
+            if strict_math:
+                if manual_v2:material['reference_knowledge'] = s.bank.router.knowledge() if s.config['experiment'].get('manual_reference_enabled',True) else []
                 if action_failures:
                     material['action_contract_feedback'] = action_failures[-1]['feedback']
                     original=action_failures[-1]['original_tool_calls']
@@ -275,14 +286,14 @@ class AnswerExecutor:
             from ..core.errors import BudgetExhausted
             try:
                 step = state.get('pending_step') or s.agent('runtime',prompt,material,'answer_step',schema,repair_limit=0,owner_state_version=version+':'+str(index),
-                    completion_override=(4096 if action_failures else 16384) if manual_v2 and index else None,
+                    completion_override=(4096 if action_failures else 16384) if strict_math and index else None,
                     finish_request_material={k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}})
             except ValueError as exc:
                 if not getattr(exc,'model_authored',False):raise
-                if (truncation_only or manual_v2) and s.requests[-1].get('response',{}).get('finish_reason')=='length':
+                if (truncation_only or strict_math) and s.requests[-1].get('response',{}).get('finish_reason')=='length':
                     finalization['first_truncation']={'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':True}
                     return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'completion_truncated_no_answer')
-                if manual_v2:
+                if strict_math:
                     calls=s.last_response_turn.tool_calls
                     invalid=calls[0].arguments if len(calls)==1 else {}
                     feedback=action_errors(invalid) or [{'field_path':'$','required':str(exc)[:500]}]
@@ -293,7 +304,7 @@ class AnswerExecutor:
                     return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'action_contract_invalid')
                 return finish('','runtime_model_failure')
             except BudgetExhausted as exc:
-                if manual_v2 and exc.code!='diagnostic_budget_exhausted':
+                if strict_math and exc.code!='diagnostic_budget_exhausted':
                     return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'runtime_admission_refused')
                 if truncation_only:raise
                 if exc.code not in {'parent_task_budget_exhausted','runtime_finish_reserved'} or not (results or finalizer):raise
@@ -305,7 +316,7 @@ class AnswerExecutor:
                         'finish_answer',None,repair_limit=0,owner_state_version=VERSION+':finish:'+str(index))
                 except BudgetExhausted:raise exc
                 return finish(answer,'budget_finish_only',budget_censored=True)
-            if (truncation_only or manual_v2) and not state.get('pending_step') and s.requests[-1].get('response',{}).get('finish_reason')=='length':
+            if (truncation_only or strict_math) and not state.get('pending_step') and s.requests[-1].get('response',{}).get('finish_reason')=='length':
                 valid=step.get('action')=='finish' and valid_answer(step.get('answer',''))
                 finalization.setdefault('first_truncation',{'request_id':s.requests[-1]['id'],'finish_reason':'length','no_valid_answer':not valid})
                 if not valid:
@@ -314,7 +325,7 @@ class AnswerExecutor:
                 sync_exposure()
             used,replaced = set(step.get('used_results',[])),set(step.get('replaced_results',[]))
             if (used|replaced)-set(results):
-                if manual_v2:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'unknown_result_consumption_reference')
+                if strict_math:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'unknown_result_consumption_reference')
                 return finish('','unknown_result_consumption_reference')
             for a in attempts+temporary+workflows:
                 if a['result_id'] in used-replaced: a['outputs_consumed']=True
@@ -339,7 +350,7 @@ class AnswerExecutor:
             if step['action']=='read_result':
                 try:context.read(step.get('result_id',''),path=step.get('path',[]))
                 except (ValueError,KeyError):
-                    if manual_v2:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'invalid_result_read')
+                    if strict_math:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'invalid_result_read')
                     return finish('','invalid_result_read')
                 if searchqa_r3:
                     for a in attempts:
@@ -347,14 +358,14 @@ class AnswerExecutor:
                             a.setdefault('read_request_ids', []).append(s.last_response_request_id)
                 save(); continue
             if local_used>=local_limit:
-                if manual_v2:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'internal_execution_limit')
+                if strict_math:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'internal_execution_limit')
                 return finish('','internal_execution_limit')
-            if manual_v2 and not tool_headroom(s,task):
+            if strict_math and not tool_headroom(s,task):
                 return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'tool_headroom_refused')
             if manual and step['action']=='call_workflow':
                 from .manual_reference import execute_workflow, WorkflowInputError
                 if workflows:
-                    if manual_v2:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'manual_workflow_call_limit')
+                    if strict_math:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'manual_workflow_call_limit')
                     return finish('','manual_workflow_call_limit')
                 save(pending=step)
                 try:
@@ -364,15 +375,15 @@ class AnswerExecutor:
                 except WorkflowInputError as exc:
                     result={'status':'needs_input','outputs':{},'reason':str(exc),'program_executions':0,'nodes':[]}
                 except BudgetExhausted as exc:
-                    if not manual_v2 or exc.code=='diagnostic_budget_exhausted':raise
+                    if not strict_math or exc.code=='diagnostic_budget_exhausted':raise
                     return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'workflow_admission_refused')
                 from .public_results import MANUAL_GRAPH_EXECUTION
                 rid=context.register(digest([version,index,'workflow']),result,name=step.get('name',''),
-                    origin=MANUAL_GRAPH_EXECUTION if manual_searchqa or manual_v2 else None)
+                    origin=MANUAL_GRAPH_EXECUTION if manual_searchqa or strict_math else None)
                 workflows.append({'workflow_id':step.get('name'),'result_id':rid,'status':result['status'],
                     'program_executions':result['program_executions'],'outputs_consumed':False,'nodes':result['nodes']})
                 results.append(rid)
-                if manual_v2 and result['status']!='ok':
+                if strict_math and result['status']!='ok':
                     save()
                     return final_answer({'goal':task.goal,'inputs':task.inputs,'local_results':[context.view(r) for r in results],'local_reads':context.local_reads[-2:]},'workflow_failed')
                 if truncation_only and s.requests and s.requests[-1].get('response',{}).get('finish_reason')=='length' and result['status']!='ok':
@@ -391,7 +402,7 @@ class AnswerExecutor:
                     p=s.bank.get(step.get('name',''))
                     if not s.bank.program_eligible(p): raise ValueError('Program is not visible and locally validated')
                     if p['environment']!=s.config['program_environment']: raise ValueError('Program environment is incompatible')
-                    if manual_v2:s.bank.router.validate_call(p['id'],args)
+                    if strict_math:s.bank.router.validate_call(p['id'],args)
                     if searchqa:
                         from .searchqa_program_probe import inputs
                         expected=inputs(task)
@@ -402,11 +413,16 @@ class AnswerExecutor:
             except (ValueError,KeyError,SyntaxError) as exc:
                 rid=context.register(uuid4().hex,{'status':'blocked','error':str(exc)})
                 results.append(rid); save()
-                if manual_v2:return final_answer({'goal':task.goal,'inputs':task.inputs,'local_results':[context.view(r) for r in results],'local_reads':context.local_reads[-2:]},'tool_input_invalid')
+                if strict_math:return final_answer({'goal':task.goal,'inputs':task.inputs,'local_results':[context.view(r) for r in results],'local_reads':context.local_reads[-2:]},'tool_input_invalid')
                 continue
             if checkpoint: checkpoint.advance(checkpoint.state['stage'],program_started=True)
             before=s.adapter.observe().get('workspace',{})
             result=normalize_program_result(s.adapter,p,s.worker.execute(p,args,broker),workspace_before=before)
+            if p6 and kind=='program' and result['status']=='ok':
+                from .math_operation_contract_p6 import oracle
+                if result.get('outputs')!=oracle(p['entry_constraints']['operation_kind'],args):
+                    result={'status':'blocked','outputs':{},'error':'P6 current-input oracle mismatch',
+                        'execution_receipt':{'original_worker_result':result}}
             if searchqa_r3 and kind == 'program' and result['status'] == 'ok':
                 from .searchqa_program_probe_r3 import check
                 try: check(p, args, result)
@@ -428,11 +444,12 @@ class AnswerExecutor:
                 'input_schema':p['input_schema'],'output_schema':p['output_schema']}
             if searchqa_r3:
                 attempt.update(program_executed=bool(result.get('execution_receipt')), exposed_request_ids=[], read_request_ids=[], declared_used_request_ids=[])
-            if manual_v2:attempt['program_executed']=bool(result.get('execution_receipt'))
+            if strict_math:attempt['program_executed']=bool(result.get('execution_receipt'))
+            if p6:attempt['argument_refs']=deepcopy(step.get('argument_refs',{}))
             if kind=='temporary_python': attempt['source']=p['source']; temporary.append(attempt)
             else: attempts.append(attempt)
             results.append(rid)
-            if manual_v2 and result['status']!='ok':
+            if strict_math and result['status']!='ok':
                 save()
                 return final_answer({'goal':task.goal,'inputs':task.inputs,'local_results':[context.view(r) for r in results],'local_reads':context.local_reads[-2:]},'worker_failed')
             if kind=='program' and result['status']=='ok' and p.get('result_role')=='final_answer':
@@ -441,5 +458,5 @@ class AnswerExecutor:
                     attempt.update(outputs_consumed=True,submission_by_program=True)
                     return finish(prepared['payload'],'program_submitted',aid)
             save()
-        if manual_v2:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'answer_decision_limit')
+        if strict_math:return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'answer_decision_limit')
         return finish('','answer_decision_limit')

@@ -37,12 +37,13 @@ def validate_config(config):
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
     math_program = config.get('experiment',{}).get('math_program_method_version')
+    from .math_operation_contract_p6 import VERSION as P6, FINALIZATION as P6_FINISH
     if math_program:
         from .math_program_induction import VERSION as P5, IMAGE as P5_IMAGE
-        if (math_program != P5 or config['experiment'].get('benchmark') != 'livemath'
+        if (math_program not in {P5,P6} or config['experiment'].get('benchmark') != 'livemath'
                 or config.get('harness',{}).get('adapter') != 'livemath'
                 or config['program_environment'].get('image_digest') != P5_IMAGE
-                or config['experiment'].get('choice_method_version')):
+                or config['experiment'].get('choice_method_version') or config['experiment'].get('manual_reference_version')):
             raise ValueError('P5 requires an isolated LiveMath Program trial configuration')
     from .searchqa_guidance import VERSION as SEARCHQA_VERSION, MATERIAL as SEARCHQA_MATERIAL, POLICY as SEARCHQA_POLICY, IMAGE as SEARCHQA_IMAGE
     searchqa = config.get('experiment',{}).get('searchqa_method_version')
@@ -181,6 +182,7 @@ def validate_config(config):
     from .manual_math_v2 import VERSION as MANUAL_MATH_V2, FINALIZATION as MANUAL_MATH_FINISH
     final_version=TRUNCATION_FINALIZATION_VERSION if math_p3 or manual_reference == MANUAL_MATH_VERSION or program_trial else FINALIZATION_VERSION
     if manual_reference == MANUAL_MATH_V2: final_version = MANUAL_MATH_FINISH
+    if program_trial == P6: final_version = P6_FINISH
     if searchqa_r3: final_version = SEARCHQA_R3_FINALIZATION
     if (set(finalizer)!={'enabled','version'} or type(finalizer['enabled']) is not bool or finalizer['version']!=final_version or
         finalizer['enabled'] and not (config['runtime'].get('choice_guidance',{}).get('public_process') or manual_reference or program_trial or searchqa_r3)):
@@ -201,6 +203,8 @@ def validate_config(config):
         validate_reference(config)
     if program_trial:
         from .math_program_trial import validate_config as validate_trial
+        if program_trial == P6:
+            from .math_program_trial_p6 import validate_config as validate_trial
         validate_trial(config)
     allowed = {'mechanism_profile', 'schema_version', 'data_dir', 'experiment', 'harness', 'runtime',
                'learning', 'planning', 'program_worker', 'program_environment', 'llm', 'benchmark_profile', 'manifest', 'budget'}
@@ -270,6 +274,9 @@ class EmpiricalSystem:
             self.bank = bank_view_factory(self.bank)
         if self.config['experiment'].get('math_program_evaluation_version'):
             from .math_program_trial import TrialView
+            from .math_operation_contract_p6 import VERSION as P6
+            if self.config['experiment']['math_program_evaluation_version']==P6:
+                from .math_program_trial_p6 import TrialView
             try:
                 if bank_view_factory:raise ValueError('Mathematical trial cannot stack another view')
                 self.bank=TrialView(self.bank,self.config['experiment']['math_program_trial_manifest'])
@@ -882,7 +889,14 @@ class EmpiricalSystem:
                             'raw_arguments_hash':digest(turn.tool_calls[0].arguments),'normalized_arguments_hash':digest(value),
                             'items':normalization}
                         self._save_requests()
-                if choice_learning and validator:
+                from .math_operation_contract_p6 import MATERIAL as P6_MATERIAL
+                if materials.get('learning_material_version')==P6_MATERIAL and validator:
+                    checked_value=validator(value)
+                    if name=='submit_math_program_spec' and checked_value!=value:
+                        record['normalized_response']={'version':P6_MATERIAL,'raw_arguments_hash':digest(value),
+                            'arguments':deepcopy(checked_value),'reason':'terminal_abstention'}
+                        value=checked_value;self._save_requests()
+                elif choice_learning and validator:
                     validator(value)
                 else:
                     if validator and name=='submit_learning':validator(value)
@@ -971,7 +985,8 @@ class EmpiricalSystem:
         budget = self.config.get('budget',{})
         self.request_attribution.update(parent_scope=str(self.config['experiment']['output_dir'])+':'+task.physical_key,
             parent_token_limit=budget.get('train_task_tokens' if task.split=='train' else 'eval_task_tokens'),train_parent=task.split=='train')
-        if self.config['experiment'].get('searchqa_method_version') and self.readonly:
+        if self.readonly and (self.config['experiment'].get('searchqa_method_version') or
+                self.config['experiment'].get('math_program_evaluation_version') == 'livemath.math-capability-program.p6'):
             self.request_attribution.update(parent_token_limit=budget['eval_task_tokens'],train_parent=False)
         self.request_attribution['parent_task_id'] = task.task_id
         self.last_decision_id = None
@@ -1048,6 +1063,11 @@ class EmpiricalSystem:
                     policy = {**policy, 'capability_matches': matches}
                     trace['capability_match_audit'] = {'matches': matches, 'rejected': rejected}
                 selection = self.bank.select_guidance(task,policy) if semantic else None
+                from .math_operation_contract_p6 import VERSION as P6
+                if self.config['experiment'].get('math_program_evaluation_version')==P6:
+                    selection={'selected':self.bank.bind(task,self.task_context,
+                        enabled=self.config['experiment'].get('math_program_trial_arm','program')!='off'),
+                        'authority':'p6_grounded_experimental_trial'}
                 if self.config['experiment'].get('manual_reference_version'):
                     selection={'selected':self.bank.all('skill'),'authority':'human_authored_reference_not_learned_ours'}
                     if self.bank.router:
@@ -1176,6 +1196,9 @@ class EmpiricalSystem:
         """One durable solve/score boundary for normal, budget and explicit recovery endings."""
         sealed = self.adapter.submit(execution.get('prediction')) if sealed is None else sealed
         score = self.adapter.evaluate(sealed) if score is None else score
+        from .math_operation_contract_p6 import VERSION as P6
+        if self.config['experiment'].get('math_program_evaluation_version')==P6:
+            for layer in execution.get('program_usage_layers',[]):layer['task_correct']=score['hard']
         producer = execution.get('submission_producer_attempt_id')
         if producer:
             execution['submission_seal'] = {'producer_attempt_id': producer, 'sealed_digest': digest(sealed),
