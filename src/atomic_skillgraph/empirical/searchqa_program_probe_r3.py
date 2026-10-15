@@ -309,12 +309,25 @@ def repair_feedback(previous, bank):
     return material
 
 
+def builder_sources(sources):
+    projected = deepcopy(sources)
+    for source in projected:
+        for doc in source['documents']:
+            quote = source['context'][doc['start']:doc['end']]
+            if quote != doc['quote'] or hashlib.sha256(quote.encode()).hexdigest() != doc['quote_sha']:
+                raise ValueError('Builder source document identity changed')
+            del doc['quote']
+    return projected
+
+
 def build(learner, spec, asset, sources, *, generation=0, previous=None):
     from .prompts import SEARCHQA_R3_BUILDER_PROMPT
     from .program_worker import public_program_abi
     if generation not in {0, 1} or bool(previous) != bool(generation): raise ValueError('Exactly one bounded Builder repair')
     material = {'atomic': asset['searchqa_metadata']['candidate'], 'spec': spec,
-        'sources': [sources[k] for k in spec['source_case_ids']], 'input_schema': INPUT,
+        'sources': builder_sources([sources[k] for k in spec['source_case_ids']]),
+        'document_quote_contract': 'Each document quote is exactly source.context[start:end] using Unicode indexes; the complete context is retained once.',
+        'input_schema': INPUT,
         'output_schema': OUTPUTS[spec['kind']], 'public_program_abi': public_program_abi(),
         'allowed_tools': [], 'output_contract': OUTPUT, 'previous_failure': repair_feedback(previous, learner.system.bank),
         'environment': learner.system.config['program_environment']}
