@@ -1,0 +1,21 @@
+method_version: livemath.math-capability-program.p6
+seed: 42
+max_units: 8
+max_sources_per_unit: 2
+shared_repairs_per_unit: 1
+learning_wire_bytes: 65536
+source_train: /home/yangchengyu/livemath_p2_formal_seed42_20261013/livemath/seed42
+source_p4: /home/yangchengyu/livemath_p4_seed42_20261014
+source_p5: /home/yangchengyu/livemath_p5_trace_seed42_20261015
+parallel_manual_run: /home/yangchengyu/livemath_manual_bank_v2_seed42_20261015
+cumulative_limits:
+  token_limit: 45000000
+  request_limit: 9165
+  finish_reserve: 0
+stage_limits_proposed_not_authorized:
+  learning: {token_limit: 1000000, request_limit: 100}
+  smoke: {token_limit: 400000, request_limit: 30}
+smoke_tasks: 1
+smoke_arms: [off, program]
+qualification: experimental_trial_only
+val_test_authorized: false
