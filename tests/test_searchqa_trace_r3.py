@@ -135,6 +135,19 @@ def test_S04_S07_actual_repair_loop_and_builder_wire(tmp_path, monkeypatch):
     finally: system.close()
 
 
+def test_S05_repair_keeps_complete_source_members_and_cannot_swap_ids():
+    c, sources = candidate(); broken = deepcopy(c); broken['evidence_refs'][0]['quote_sha'] = 'bad'
+    validate = full_validator(sources, {'source_hash': digest(sources)})
+    with pytest.raises(ValueError) as error:
+        validate({'decision': 'candidate', 'candidate': broken, 'reason': 'fixture'})
+    assert error.value.repair_material['source_member_checks'] == [
+        {'source_id': 'physical:1', 'reference_consistent': False}, {'source_id': 'physical:2', 'reference_consistent': True}]
+    changed = deepcopy(c); changed['source_case_ids'].reverse()
+    with pytest.raises(ValueError, match='replace'):
+        validate({'decision': 'candidate', 'candidate': changed, 'reason': 'changed sources'})
+    validate({'decision': 'candidate', 'candidate': c, 'reason': 'original sources repaired'})
+
+
 @pytest.mark.parametrize('kind', FAMILIES)
 def test_S08_typed_contracts_have_real_positive_examples(tmp_path, kind):
     program, _, _ = make_program(tmp_path, kind)

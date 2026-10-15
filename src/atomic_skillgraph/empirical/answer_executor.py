@@ -116,6 +116,7 @@ class AnswerExecutor:
             if finished is not None: state['finished'] = finished
             checkpoint.commit_decision(s.last_decision_id,'applied',answer_executor=state,program_started=False)
         def finish(answer, reason, producer=None, *, budget_censored=False, process=None):
+            if searchqa_r3: sync_exposure()
             execution = {'prediction':answer,'reason':reason,'attempts':attempts,'temporary_executions':temporary,
                          'internal_execution_count':len(attempts)+len(temporary),'native_calls':0,
                          'submission_producer_attempt_id':producer,'answer_protocol_version':version,
@@ -143,6 +144,11 @@ class AnswerExecutor:
             s.executor.partial_execution = execution
             return execution
         finalization=state.get('finalization',{'enabled':finalizer,'version':s.config['runtime']['choice_bounded_finalization']['version'],'attempted':False})
+        def sync_exposure():
+            for attempt in attempts:
+                attempt['exposed_request_ids'] = list(dict.fromkeys([*attempt.get('exposed_request_ids', []),
+                    *[r['id'] for r in s.requests if r.get('response') and any(
+                        attempt['result_id'] in m.get('content', '') for m in r.get('messages', []) if isinstance(m.get('content'), str))]]))
         def valid_answer(answer):
             return (not searchqa_r3 or isinstance(answer, str) and bool(answer.strip())) and getattr(s.adapter, 'valid_answer_format', lambda a: True)(answer)
         def final_answer(material,reason):
@@ -248,10 +254,7 @@ class AnswerExecutor:
                 if not valid:
                     return final_answer({k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},'completion_truncated_no_answer')
             if searchqa_r3:
-                for attempt in attempts:
-                    attempt['exposed_request_ids'] = list(dict.fromkeys([*attempt.get('exposed_request_ids', []),
-                        *[r['id'] for r in s.requests if r.get('response') and any(
-                            attempt['result_id'] in m.get('content', '') for m in r.get('messages', []) if isinstance(m.get('content'), str))]]))
+                sync_exposure()
             used,replaced = set(step.get('used_results',[])),set(step.get('replaced_results',[]))
             if (used|replaced)-set(results):return finish('','unknown_result_consumption_reference')
             for a in attempts+temporary+workflows:
@@ -335,6 +338,7 @@ class AnswerExecutor:
                 except (ValueError, KeyError, TypeError) as exc:
                     # Preserve the unmodified Worker result in Host trace; only expose the contract refusal.
                     result = {'status': 'blocked', 'outputs': {}, 'error': str(exc),
+                              'elapsed_seconds': result.get('elapsed_seconds'), 'cpu_seconds': result.get('cpu_seconds'),
                               'execution_receipt': {'original_worker_result': result}}
             aid=uuid4().hex
             from .public_results import PROGRAM_EXECUTION, SEARCHQA_R3_EXECUTION

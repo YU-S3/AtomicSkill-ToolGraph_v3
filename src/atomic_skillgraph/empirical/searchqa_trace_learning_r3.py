@@ -102,17 +102,37 @@ def validate_candidate(candidate, sources, known_parents=()):
 
 
 def full_validator(sources, material, parents=()):
+    original_ids = None
     def validate(value):
+        nonlocal original_ids
+        c = value.get('candidate') if isinstance(value, dict) else None
+        c = c if isinstance(c, dict) else {}
+        ids = c.get('source_case_ids')
+        if original_ids is None and isinstance(ids, list) and all(isinstance(k, str) for k in ids):
+            original_ids = deepcopy(ids)
         try:
             validate_schema_instance(value, INDUCTION_R3)
             if value['decision'] == 'no_change':
                 if 'candidate' in value: raise ValueError('no_change cannot include candidate')
             else:
+                if ids != original_ids: raise ValueError('repair cannot replace the original candidate source IDs')
                 validate_candidate(value.get('candidate'), sources, parents)
         except ValueError as exc:
+            members = []
+            raw_refs = c.get('evidence_refs')
+            for key in ids if isinstance(ids, list) else []:
+                source = sources.get(key) if isinstance(key, str) else None
+                refs = [r for r in (raw_refs if isinstance(raw_refs, list) else []) if isinstance(r, dict) and r.get('case_id') == key]
+                valid = bool(source and refs)
+                for ref in refs:
+                    doc = next((d for d in source['documents'] if d['doc_index'] == ref.get('doc_index')), None) if source else None
+                    a, b = ref.get('start'), ref.get('end')
+                    valid = valid and bool(doc and type(a) is int and type(b) is int and doc['start'] <= a < b <= doc['end']
+                                           and quote_hash(source['context'][a:b]) == ref.get('quote_sha'))
+                members.append({'source_id': key, 'reference_consistent': valid})
             exc.repair_material = {'original_proposal': deepcopy(value), 'field_errors': [str(exc)],
                 'original_material_hash': digest(material), 'legal_source_ids': sorted(sources),
-                'sources': list(sources.values()), 'known_parent_ids': list(parents), 'candidate_contract': ATOMIC}
+                'source_member_checks': members, 'sources': list(sources.values()), 'known_parent_ids': list(parents), 'candidate_contract': ATOMIC}
             raise
     return validate
 
