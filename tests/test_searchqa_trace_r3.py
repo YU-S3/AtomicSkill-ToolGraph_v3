@@ -204,10 +204,57 @@ def test_real_capacity_refusal_replays_within_unchanged_wire_cap(tmp_path, monke
         assert len(seen) == 1 and len(json.dumps(seen[0]).encode()) < 65536
         material = json.loads(seen[0]['messages'][1]['content'])
         old = json.loads(refused['material_refusal']['payload']['messages'][1]['content'])
-        for key in ('atomic', 'spec', 'sources', 'historical_failed_spec_parent'):
+        for key in ('atomic', 'spec', 'historical_failed_spec_parent'):
             assert material[key] == old[key]
+        restored = deepcopy(material['sources'])
+        for source in restored:
+            for doc in source['documents']:
+                doc['quote'] = source['context'][doc['start']:doc['end']]
+        assert restored == old['sources']
         assert material['previous_failure']['original_source'] == program['source']
         assert system.requests[-1]['payload_max_bytes'] == 65536
+    finally: system.close()
+
+
+def test_builder_source_projection_is_lossless_and_rejects_stale_offsets():
+    _, sources = candidate()
+    original = list(sources.values()); projected = probe.builder_sources(original)
+    for source in projected:
+        for doc in source['documents']:
+            assert 'quote' not in doc
+            doc['quote'] = source['context'][doc['start']:doc['end']]
+    assert projected == original
+    broken = deepcopy(original); broken[0]['documents'][0]['start'] += 1
+    with pytest.raises(ValueError, match='identity changed'): probe.builder_sources(broken)
+
+
+def test_all_three_real_specs_fit_repair_with_maximum_source(tmp_path, monkeypatch):
+    root = os.environ.get('SEARCHQA_R3_REPAIR_RUN')
+    if not root: pytest.skip('requires the three real D1 candidates')
+    from atomic_skillgraph.empirical.searchqa_trace_learning import read
+    root = Path(root); sources = read(root / 'learning_sources.json'); tasks = read(root / 'train_tasks.json')
+    bank = Bank(root / 'train/bank', readonly=True, seed=42)
+    try: assets = bank.all('skill')
+    finally: bank.close()
+    assert len(assets) == 3
+    seen = http(monkeypatch, [response([{'source': SOURCE}], name='submit_searchqa_code') for _ in assets])
+    system = EmpiricalSystem(config(tmp_path), harness=AnswerAdapter('searchqa', {}))
+    max_source = SOURCE + '\n#' + 'x' * (16000 - len(SOURCE) - 2)
+    assert len(max_source) == 16000
+    try:
+        for asset in assets:
+            for key in asset['searchqa_metadata']['candidate']['source_case_ids']:
+                system.bank.save_case(PublicTask(**tasks[key]), {'searchqa_role': 'induction'})
+            system.bank.put('skill', asset)
+            spec = specification(asset)
+            program = system.bank.put('program', probe.prepare(max_source, spec, asset, system.config['program_environment']))
+            previous = read(root / 'reuse_spec' / asset['id'] / 'generation_0/rejection.json')
+            previous['program_id'] = program['id']
+            probe.build(system.learner, spec, asset, sources, generation=1, previous=previous)
+            sent = json.loads(seen[-1]['messages'][1]['content'])
+            assert sent['previous_failure']['original_source'] == max_source
+            assert len(json.dumps(seen[-1]).encode()) < 65536
+        assert len(seen) == 3
     finally: system.close()
 
 
