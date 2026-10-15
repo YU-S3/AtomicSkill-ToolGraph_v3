@@ -376,6 +376,9 @@ def report(root):
         'new_metered_tokens':sum(r.get('accounted_tokens',0) for r in new.values()),
         'new_reserved_unresolved_tokens':sum(r['reserved_tokens'] for r in new.values() if 'accounted_tokens' not in r),
         'billing_ready':not billing_blocked(ledger),'recommend_release':False,'test_development_history_disclosed':True}
+    result['progress']={phase:{'off_completed':len(list((root/phase/'off').glob('*/trace.json'))),
+        'on_completed':len(list((root/phase/'on').glob('*/*/trace.json')))} for phase in ('feedback','gate','val','test')}
+    result['candidate_versions']=len(memory.events(root/'candidate_versions'))
     for stage,path in [('learning','learning/initial/learning.json'),('feedback','feedback/result.json'),('gate','gate/result.json'),('review','review.json')]:
         if (root/path).exists():result[stage]=read(root/path)
     result['recommend_release']=result.get('review',{}).get('recommend_release',False)
