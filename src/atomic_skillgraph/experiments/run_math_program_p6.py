@@ -372,7 +372,8 @@ def main():
         if name=='execute':
             p.add_argument('--env-file',required=True);p.add_argument('--paid-approved',action='store_true')
             p.add_argument('--phase',choices=['learning','smoke','all'],default='learning')
-    args=vars(parser.parse_args());name=args.pop('command');print(json.dumps(globals()[name](**args),ensure_ascii=False))
+    args=vars(parser.parse_args());name=args.pop('command');output=args.pop('output')
+    print(json.dumps(globals()[name](output,**args),ensure_ascii=False))
 
 
 if __name__=='__main__':main()

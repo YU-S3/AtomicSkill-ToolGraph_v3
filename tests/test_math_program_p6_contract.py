@@ -52,6 +52,20 @@ def config(tmp):
     return cfg
 
 
+@pytest.mark.parametrize('command',['prepare','check','report','execute'])
+def test_cli_dispatch_preserves_output_and_options(command,monkeypatch,capsys):
+    import sys
+    argv=['p6',command,'--output','/fixed/run']
+    if command=='execute':argv+=['--env-file','/unused.env']
+    seen=[]
+    def entry(root,**kwargs):
+        seen.append((root,kwargs));return {'status':'fixture_no_http'}
+    monkeypatch.setattr(runner,command,entry);monkeypatch.setattr(sys,'argv',argv)
+    runner.main()
+    assert seen[0][0]=='/fixed/run' and json.loads(capsys.readouterr().out)['status']=='fixture_no_http'
+    if command=='execute':assert seen[0][1]['paid_approved'] is False
+
+
 def test_types_diagnostics_and_exact_contract():
     data=rows();unit=m.catalog(data)[1][0];v=proposal(unit,data)
     assert c.validate_spec(v,unit,data)==v
