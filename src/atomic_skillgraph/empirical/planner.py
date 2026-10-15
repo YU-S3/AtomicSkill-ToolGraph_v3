@@ -21,7 +21,7 @@ class Planner:
     def plan(self, task, adapter, feedback=None, completed_results=None):
         self.last_decision_id = None
         related = self.bank.retrieve(task.goal)
-        if adapter.capabilities.interaction == "single_answer" or not related:
+        if adapter.capabilities.interaction == "single_answer" or (not related and not getattr(self.bank, 'force_planner', False)):
             return dynamic(task)
         workflows = {a['id']: a for a in related if 'nodes' in a}
         def instantiate(value):
@@ -46,6 +46,9 @@ class Planner:
                      'current_tools': adapter.available_tools(), 'public_state': public_view(adapter)}
         if feedback or completed_results:
             materials.update(feedback=feedback or [], completed_results=completed_results or {})
+        if hasattr(self.bank, 'effect_guidance'):
+            materials['active_guidance_ids'] = [s['id'] for s in self.bank.effect_guidance(task)]
+            materials['guidance_view_hash'] = self.bank.view_hash
         context = getattr(getattr(self.agent, '__self__', None), 'task_context', None)
         materials = project('planner', materials, task=task, adapter=adapter, context=context)
         try:

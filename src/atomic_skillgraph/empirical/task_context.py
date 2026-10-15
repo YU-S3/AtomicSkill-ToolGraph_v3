@@ -16,6 +16,8 @@ class TaskContext:
         self.result_origins, self.window_sources, self.sent_windows = {}, {}, []
         self.pending_outputs = {}
         self.public_notes = []
+        self.effect_notice_versions = {}
+        self.effect_owner_version = 0
         self.active_node = None
         self.progress_observations, self.progress_contents, self.progress_states = [], set(), set()
         self.loop_hits, self.loop_feedback = {}, None

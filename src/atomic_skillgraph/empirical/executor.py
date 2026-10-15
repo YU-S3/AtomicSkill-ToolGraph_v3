@@ -104,7 +104,8 @@ class Executor:
                 'recovery_needed': recovery_needed,
                 'context': {k: sorted(getattr(context,k)) if k in {'progress_contents','progress_states'} else getattr(context,k)
                     for k in ['scope','results','sources','memory','local_reads','result_origins','window_sources','sent_windows','pending_outputs','public_notes','active_node',
-                              'progress_observations','progress_contents','progress_states','loop_hits','loop_feedback']}}
+                              'progress_observations','progress_contents','progress_states','loop_hits','loop_feedback',
+                              'effect_notice_versions','effect_owner_version']}}
             if status:
                 checkpoint.commit_decision(pending_decision_id, status, executor_state=state, program_started=False)
                 pending_decision_id = None
@@ -435,6 +436,8 @@ class Executor:
             guidance = guidance[:3]
             if not guidance:
                 guidance = [s for s in self.bank.retrieve(interface['node_goal']) if 'guidance' in s][:3]
+            if hasattr(self.bank, 'effect_guidance'):
+                guidance = self.bank.effect_guidance(task)
             requirements = handoff_requirements(plan, node['id'], completed)
             aliases = node.get('output_aliases', {})
             reverse_aliases = {target: source for source, target in aliases.items()}
@@ -452,6 +455,10 @@ class Executor:
                 'allowed_calls': '1-3 independent read_only/batchable calls; otherwise one operation' if any(t.get('batchable') for t in broker.available_tools()) else 'one operation',
                 'may_replan': replans == 0, 'may_escape': escapes == 0, 'loop_feedback': context.loop_feedback,
                 'completed_results': values.model_view()}
+            if hasattr(self.bank, 'effect_guidance'):
+                context.effect_owner_version = owner_version
+                materials['active_guidance_ids'] = [s['id'] for s in guidance]
+                materials['guidance_view_hash'] = self.bank.view_hash
             materials = project('runtime', materials, task=task, adapter=adapter, context=context)
             save(pending_step)
             def validate_step(step):

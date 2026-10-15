@@ -36,6 +36,9 @@ def validate_config(config):
     if config.get("mechanism_profile") != PROFILE:
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
+    if config.get('experiment', {}).get('office_effect_version'):
+        from .office_effect_runtime import validate_runtime
+        validate_runtime(config)
     from .math_effect_contract import VERSION as P7
     if config.get('experiment', {}).get('choice_method_version') == P7:
         from ..experiments.run_math_effect_p7 import validate_settings
@@ -281,6 +284,13 @@ class EmpiricalSystem:
         if bank_view_factory:
             if not self.readonly: raise ValueError('Bank views require readonly evaluation')
             self.bank = bank_view_factory(self.bank)
+        if self.config['experiment'].get('office_effect_version'):
+            from .office_effect_runtime import OfficeEffectView
+            try:
+                if bank_view_factory: raise ValueError('V6 cannot stack another Bank view')
+                self.bank = OfficeEffectView(self.bank, self.config['experiment']['office_effect_manifest'])
+            except BaseException:
+                self.bank.close(); raise
         if self.config['experiment'].get('math_program_evaluation_version'):
             from .math_program_trial import TrialView
             from .math_operation_contract_p6 import VERSION as P6
@@ -998,6 +1008,7 @@ class EmpiricalSystem:
         self.request_attribution.update(parent_scope=str(self.config['experiment']['output_dir'])+':'+task.physical_key,
             parent_token_limit=budget.get('train_task_tokens' if task.split=='train' else 'eval_task_tokens'),train_parent=task.split=='train')
         if self.readonly and (self.config['experiment'].get('searchqa_method_version') or
+                self.config['experiment'].get('office_effect_version') or
                 self.config['experiment'].get('math_program_evaluation_version') == 'livemath.math-capability-program.p6'):
             self.request_attribution.update(parent_token_limit=budget['eval_task_tokens'],train_parent=False)
         self.request_attribution['parent_task_id'] = task.task_id

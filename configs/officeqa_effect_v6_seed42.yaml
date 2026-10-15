@@ -1,0 +1,16 @@
+method_version: officeqa.effect-evolution.v6
+seed: 42
+max_candidates: 2
+max_losses: 1
+wire_max_bytes: 524288
+phase_limits:
+  learning: {tokens: 400000, http: 30}
+  feedback: {tokens: 1536000, http: 16840}
+  revision: {tokens: 768000, http: 8420}
+  gate: {tokens: 7680000, http: 84200}
+  val: {tokens: 9216000, http: 101040}
+  test: {tokens: 39168000, http: 429420}
+# Phase numbers are ceilings, not authorization. No phase can borrow from another.
+# feedback = four tasks x two arms; revision reuses the same NoSkill physical records.
+# HTTP = tasks * (2 * (4*48+16) + 4 + 1) * (4 transport retries + 1).
+cumulative_limits: {token_limit: 90000000, request_limit: 480000, finish_reserve: 0}
