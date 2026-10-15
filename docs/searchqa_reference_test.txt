@@ -42,3 +42,17 @@ unknown billing is not blindly replayed. test/STOP_AFTER_TASK pauses at a bounda
 This test does not initialize or replace an Ours Bank, resume Train, run Val,
 retrain R3 or claim that manual assets were naturally learned. It runs one Test arm
 and stops. Any accuracy/token benefit must come from its actual completed records.
+
+Manual Bank v2 (reference_banks/searchqa_v2) is explicitly revised from the first
+Test's failure patterns. It has the same 12/8/8/5 catalog sizes and runtime contract,
+new asset identities and no Test answer mappings. Its results are a development
+reference, not an unseen-Test estimate or naturally learned Ours.
+
+prepare --selection <json> selects distinct observed parent failures in canonical
+order for one bounded replay. The file contains task_ids; exact public task rows
+still come from the unchanged canonical materialization. The scorer stays private.
+--authority <ancestor-run> releases a completed parent's unused phase reservation
+under that actual ancestor's cumulative limit; every charged parent request remains
+in the child ledger unchanged. Incomplete ancestors or missing charges are rejected.
+For a new full Test, use the completed replay as parent, the same authority, and
+omit --selection. Each stage owns a new output directory and frozen identity.

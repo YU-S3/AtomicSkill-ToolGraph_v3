@@ -88,7 +88,27 @@ def qualify(package, root, cfg):
     return counts
 
 
-def prepare(package, parent, datasets, output):
+def cumulative_authority(parent, authority):
+    """A child phase may release a finished sibling's reservation, never its costs."""
+    parent = Path(parent).resolve()
+    authority = Path(authority).resolve() if authority else parent
+    cursor, visited = parent, set()
+    while cursor != authority:
+        if cursor in visited: raise ValueError('Cyclic cost ancestry')
+        visited.add(cursor)
+        receipt = cursor/'cost_carryforward_manifest.json'
+        if not receipt.exists() or not read(receipt).get('parent'):
+            raise ValueError('Authority must be an actual cost ancestor')
+        if read(cursor/'result.json').get('status') != 'completed':
+            raise ValueError('Finish the parent phase before releasing its reservation')
+        cursor = Path(read(receipt)['parent']).resolve()
+    prefix, authorized = read(parent/'budget.json'), read(authority/'budget.json')
+    if any(prefix['attempts'].get(k) != v for k,v in authorized['attempts'].items()):
+        raise ValueError('Cumulative ancestor costs were lost or changed')
+    return authority, authorized['limits']
+
+
+def prepare(package, parent, datasets, output, selection=None, authority=None):
     package,parent,datasets,root = [Path(p).resolve() for p in (package,parent,datasets,output)]
     if root.exists(): raise ValueError('Use a new independent output directory')
     code = code_identity()
@@ -97,7 +117,8 @@ def prepare(package, parent, datasets, output):
     for name,expected in sums.items():
         path = (package/name).resolve()
         if not path.is_relative_to(package) or sha256(path)!=expected: raise ValueError('Package hash mismatch: '+name)
-    cfg = configuration(read(parent/'resolved_config.json'),root,datasets)
+    cfg_path = parent/'resolved_config.json'
+    cfg = configuration(read(cfg_path if cfg_path.exists() else parent/'config.json'),root,datasets)
     canonical = Path(cfg['manifest']);verify(canonical.parent.parent)
     official = read(canonical)['tasks'];public = read(datasets/'test.json');tasks = public['tasks']
     if (len(tasks)!=1400 or [r['task_id'] for r in tasks]!=[r['task_id'] for r in official]
@@ -105,12 +126,23 @@ def prepare(package, parent, datasets, output):
             or public['authority_sha256']!=sha256(canonical.parent.parent/'manifest.json')
             or any(r['split']!='test' for r in tasks)):
         raise ValueError('Canonical Test1400 identity/order changed')
+    if selection:
+        selection = Path(selection).resolve()
+        selected = read(selection)['task_ids']
+        failed = {r['task']['task_id'] for r in read(parent/'test/summary.json')['cases'] if not r['score']['hard']}
+        if not selected or len(selected) != len(set(selected)) or not set(selected) <= failed:
+            raise ValueError('Replay must select distinct observed parent failures')
+        tasks = [r for r in tasks if r['task_id'] in set(selected)]
+        if [r['task_id'] for r in tasks] != selected:
+            raise ValueError('Replay must retain canonical input identity/order')
+    authority, authorized_limits = cumulative_authority(parent, authority)
     prefix = read(parent/'budget.json')
     if prefix['unknown_billing'] or any(a['status']!='metered' for a in prefix['attempts'].values()):
         raise ValueError('Resolve existing billing before Test')
     cost = sum(a['accounted_tokens'] for a in prefix['attempts'].values())
-    limits = dict(token_limit=cost+TEST_TOKENS,request_limit=len(prefix['attempts'])+TEST_HTTP,finish_reserve=0)
-    if any(limits[k]>prefix['limits'][k] for k in ('token_limit','request_limit')):
+    tokens, http = len(tasks)*96000, len(tasks)*10*5
+    limits = dict(token_limit=cost+tokens,request_limit=len(prefix['attempts'])+http,finish_reserve=0)
+    if any(limits[k]>authorized_limits[k] for k in ('token_limit','request_limit')):
         raise ValueError('Independent Test exceeds existing cumulative authorization')
     root.mkdir(parents=True)
     shutil.copytree(package,root/'input',ignore=shutil.ignore_patterns('__pycache__','.pytest_cache'))
@@ -119,15 +151,19 @@ def prepare(package, parent, datasets, output):
     for name,value in [('config.json',cfg),('tasks.json',{'tasks':tasks}),('budget.json',ledger),
                        ('inherited_budget.json',prefix)]: write_json(root/name,value)
     write_json(root/'cost_carryforward_manifest.json',{'parent':str(parent),'parent_ledger_sha256':sha256(parent/'budget.json'),
-        'historical_tokens':cost,'historical_http':len(prefix['attempts']),'test_tokens':TEST_TOKENS,'test_http':TEST_HTTP,
+        'historical_tokens':cost,'historical_http':len(prefix['attempts']),'test_tokens':tokens,'test_http':http,
+        'authority':str(authority),'authorized_limits':authorized_limits,
         'parent_limits':prefix['limits'],'child_limits':limits,'accounting':'Historical costs once plus this child delta; never sum inherited totals.'})
     paths = [root/name for name in ('config.json','tasks.json','reference_manifest.json','inherited_budget.json','cost_carryforward_manifest.json')]
-    paths += [canonical,canonical.parent.parent/'manifest.json',datasets/'test.json',Path(cfg['harness']['evaluator_records']),parent/'budget.json']
+    paths += [canonical,canonical.parent.parent/'manifest.json',datasets/'test.json',Path(cfg['harness']['evaluator_records']),parent/'budget.json',authority/'budget.json']
+    if selection: paths += [selection,parent/'test/summary.json']
+    bank_version = read(package/'bank/bank.json').get('bank_version','human.searchqa.reference.v1')
     plan = dict(version=VERSION,code=code,created_at=utc(),files={str(p):sha256(p) for p in paths},
         frozen=tree_identity(root/'frozen_bank'),input_identity=tree_identity(root/'input'),counts=counts,
-        test_tasks=1400,test_limits={'tokens':TEST_TOKENS,'http':TEST_HTTP},
-        provenance='human_authored_external_reference_not_learned_ours',
-        user_authorization='2026-10-15: 将这个bank接入再单独做一次test。',stop_after='canonical_test1400')
+        test_tasks=len(tasks),test_limits={'tokens':tokens,'http':http},bank_version=bank_version,
+        provenance='human_authored_test_feedback_revision_not_unseen_test' if bank_version.endswith('.v2') else 'human_authored_external_reference_not_learned_ours',
+        user_authorization='2026-10-15: 编辑完善人工bank，在失败任务上重放，然后重新启动test。' if bank_version.endswith('.v2') else '2026-10-15: 将这个bank接入再单独做一次test。',
+        stop_after='failure_replay' if selection else 'canonical_test1400')
     write_json(root/'plan.json',plan);write_json(root/'plan_identity.json',{'sha256':digest(plan)})
     return check(root)
 
@@ -149,7 +185,7 @@ def check(output):
     finally: bank.close()
     from .run_math_program_p5 import docker_ready
     if not docker_ready()['ready']: raise ValueError('Locked Docker unavailable')
-    return {'status':'passed','version':VERSION,'http':0,'tasks':1400,'counts':plan['counts'],'test_limits':plan['test_limits']}
+    return {'status':'passed','version':VERSION,'http':0,'tasks':plan['test_tasks'],'counts':plan['counts'],'test_limits':plan['test_limits']}
 
 
 def evaluate(output, env_file):
@@ -192,7 +228,7 @@ def status(output):
     ledger=read(root/'budget.json');prefix=read(root/'inherited_budget.json')
     attempts=[a for key,a in ledger['attempts'].items() if key not in prefix['attempts']]
     correct=sum(bool(r['score']['hard']) for r in finished)
-    return {'completed':len(finished),'total':1400,'correct':correct,
+    return {'completed':len(finished),'total':read(root/'plan.json')['test_tasks'],'correct':correct,
         'em':correct/len(finished) if finished else None,
         'f1':sum(r['score']['soft'] for r in finished)/len(finished) if finished else None,
         'active_tasks':[r[0] for r in rows if r[1]=='running'],
@@ -206,6 +242,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='stage',required=True)
     a=sub.add_parser('prepare')
     for key in ('package','parent','datasets','output'):a.add_argument('--'+key,required=True)
+    a.add_argument('--selection',help='Locked parent failure IDs for a diagnostic replay in canonical order')
+    a.add_argument('--authority',help='Completed-phase cost ancestor retaining the original cumulative limits')
     a=sub.add_parser('check');a.add_argument('--output',required=True)
     a=sub.add_parser('status');a.add_argument('--output',required=True)
     a=sub.add_parser('test');a.add_argument('--output',required=True);a.add_argument('--env-file',required=True)
