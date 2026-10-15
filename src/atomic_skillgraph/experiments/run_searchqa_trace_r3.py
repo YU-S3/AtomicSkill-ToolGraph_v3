@@ -88,6 +88,7 @@ def prepare(args):
     if limits['token_limit'] < billed + 13800000 or limits['request_limit'] < len(ledger['attempts']) + 332:
         raise ValueError('Remaining cumulative authority cannot cover the proposed R3 allocation')
     source = read(root / 'source_identity.json'); config = configuration(read(root / 'source_config.json'), root)
+    config['budget'].update(limits)
     if (root / 'train/bank').exists(): raise ValueError('R3 preparation must start from an empty Bank')
     bank = Bank(root / 'train/bank', seed=42, environment=config['program_environment']); bank.bind_searchqa_method(VERSION)
     groups, tasks = read(root / 'train_partition.json'), read(root / 'train_tasks.json')
@@ -508,7 +509,10 @@ def main():
                 if sha(name) != expected: raise ValueError('Historical artifact changed: ' + name)
         if args.stage in {'verify', 'prepare', 'reuse_spec', 'induce', 'build', 'worker'}:
             raise SystemExit(subprocess.call(isolation_command(args)))
-    if args.stage in {'verify', 'prepare', 'reuse_spec', 'induce', 'build', 'worker'}: validate_isolation()
+    if args.stage in {'verify', 'prepare', 'reuse_spec', 'induce', 'build', 'worker'}:
+        validate_isolation()
+        write_json(root / 'isolation' / (args.stage + '.json'), {'passed': True, 'http': 0,
+            'denied_paths': json.loads(os.environ['SEARCHQA_R3_DENIED']), 'source_mount': 'readonly'})
     if args.env_file: load_env(args.env_file)
     with (root / '.run.lock').open('a') as lock:
         try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
