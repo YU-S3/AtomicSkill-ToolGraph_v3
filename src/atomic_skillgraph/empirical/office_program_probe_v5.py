@@ -117,21 +117,12 @@ def probe_cases(value, transfer_spans=()):
     missing['inputs'].pop(value['program']['input_schema']['required'][0])
     cases.append(missing)
     # Each pre-registered transfer task uses its first structurally bindable event, not the first
-    # successful Worker. Original string slices are never silently copied to another text field.
+    # successful Worker. Sliced controls must occur uniquely in the new observed field;
+    # old offsets are never reused, and fields from one source span stay together.
     transfers = []
     for task_id in dict.fromkeys(s['source_task']['task_id'] for s in transfer_spans):
         group = [s for s in transfer_spans if s['source_task']['task_id'] == task_id and s['origin'] == 'observed_local_step']
-        bound = {}; refs = {}
-        for name, ref in candidate['input_provenance'].items():
-            if ref['kind'] == 'observed_text_slice': break
-            for span in group:
-                if span['name'] != ref['tool_name']: continue
-                try:
-                    v = at(span['source_task'] if ref['section'] == 'task' else span[ref['section']], ref['path'])
-                    validate_schema_instance(v, value['program']['input_schema']['properties'][name])
-                except ValueError: continue
-                bound[name] = v; refs[name] = {'span_id': span['id'], 'section': ref['section'], 'path': ref['path'], 'value_sha256': digest(v)}
-                break
+        bound, refs = transfer_inputs(candidate, group)
         if set(bound) != set(inputs):
             transfers.append({'task_id': task_id, 'status': 'coverage_insufficient', 'reason': 'no_complete_observed_transfer_binding'}); continue
         case = {'label': 'transfer' + str(len(transfers)), 'inputs': bound, 'source_case_id': group[0]['source_task']['physical_key'],
@@ -144,10 +135,36 @@ def probe_cases(value, transfer_spans=()):
     return {'status': 'ready', 'probe_version': PROBE_VERSION, 'cases': cases, 'transfer_coverage': transfers}
 
 
+def transfer_inputs(candidate, spans):
+    bound, provenance = {}, {}
+    original = candidate['input_provenance']
+    for source_id in dict.fromkeys(ref['span_id'] for ref in original.values()):
+        members = {name:ref for name,ref in original.items() if ref['span_id'] == source_id}
+        for span in spans:
+            if span['name'] != next(iter(members.values()))['tool_name']: continue
+            values, refs = {}, {}
+            try:
+                for name, ref in members.items():
+                    v = at(span['source_task'] if ref['section'] == 'task' else span[ref['section']], ref['path'])
+                    fresh = {'span_id':span['id'], 'kind':ref['kind'], 'section':ref['section'], 'path':ref['path'],
+                             'source_trace_sha256':span['source_trace_sha256']}
+                    if ref['kind'] == 'observed_text_slice':
+                        control = candidate['bound_inputs'][name]
+                        if not isinstance(v,str) or v.count(control) != 1: raise ValueError('Transfer control not uniquely observed')
+                        start = v.index(control); fresh.update(start=start,end=start+len(control)); v = v[start:start+len(control)]
+                    validate_schema_instance(v,candidate['program_spec']['input_schema']['properties'][name])
+                    values[name] = v; refs[name] = {**fresh,'value_sha256':digest(v)}
+            except ValueError: continue
+            bound.update(values); provenance.update(refs); break
+    return bound, provenance
+
+
 def table_negatives(contract, inputs, source_case_id=None):
     if contract['kind'] not in {'table_cell', 'series_extract'}: return []
     text_key, column_key = contract['text_input_field'], contract['column_input_field']
-    text = inputs[text_key]; header = next(line for line in text.splitlines() if inputs[column_key] in line)
+    text = inputs[text_key]
+    header = next(line for line in text.splitlines() if inputs[column_key] in
+                  ([p.strip() for p in line.strip().strip('|').split('|')] if line.strip().startswith('|') else re.split(r'\t+| {2,}',line.strip())))
     scale = 'millions' if 'billion' in inputs[contract['unit_input_field']].lower() else 'billions'
     variants = {'ambiguous_header': {text_key: text + '\n' + text},
                 'conflicting_unit': {text_key: text.replace(header, 'In ' + scale + '\n' + header, 1)},

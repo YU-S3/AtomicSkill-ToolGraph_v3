@@ -17,6 +17,11 @@ STRING = {'type': 'string', 'minLength': 1}
 STRINGS = {'type': 'array', 'items': STRING, 'minItems': 1, 'uniqueItems': True}
 PATH = {'type': 'array', 'items': {'oneOf': [STRING, {'type': 'integer', 'minimum': 0}]}}
 BINDING_KINDS = ['observed_field', 'observed_text_slice', 'runtime_required']
+PARAMETER_NAME = r'[A-Za-z_][A-Za-z0-9_]*'
+SCHEMA_KEYWORDS = {kind: sorted({'type', 'description', 'enum', *extra}) for kind, extra in {
+    'object': ['properties', 'required', 'additionalProperties'], 'array': ['items', 'minItems', 'maxItems', 'uniqueItems'],
+    'string': ['minLength', 'maxLength'], 'integer': ['minimum', 'maximum'], 'number': ['minimum', 'maximum'],
+    'boolean': [], 'null': []}.items()}
 
 
 def closed(properties, required=None):
@@ -98,11 +103,10 @@ def check_schema(schema, path, evidence_hash):
     """Validate the supported schema language itself before validating any instance."""
     if not isinstance(schema, dict): fail('schema_invalid', path, 'JSON Schema object', schema, evidence_hash)
     kind = schema.get('type')
-    allowed = {'type', 'description', 'enum'}
-    if not isinstance(kind, str) or kind not in {'object', 'array', 'string', 'integer', 'number', 'boolean', 'null'}:
+    if not isinstance(kind, str) or kind not in SCHEMA_KEYWORDS:
         fail('schema_invalid', path + '.type', 'one supported JSON type', kind, evidence_hash)
+    allowed = set(SCHEMA_KEYWORDS[kind])
     if kind == 'object':
-        allowed |= {'properties', 'required', 'additionalProperties'}
         props, required = schema.get('properties'), schema.get('required')
         if not isinstance(props, dict) or not isinstance(required, list) or not all(isinstance(n, str) for n in required):
             fail('schema_invalid', path, 'properties object and required string array', schema, evidence_hash)
@@ -110,16 +114,13 @@ def check_schema(schema, path, evidence_hash):
                 or set(required) - set(props)):
             fail('schema_invalid', path, 'closed properties and unique declared required names', schema, evidence_hash)
         for name, child in props.items():
-            if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name):
+            if not isinstance(name, str) or not re.fullmatch(PARAMETER_NAME, name):
                 fail('schema_invalid', path + '.properties', 'parameter identifiers', name, evidence_hash)
             check_schema(child, path + '.properties.' + name, evidence_hash)
     elif kind == 'array':
-        allowed |= {'items', 'minItems', 'maxItems', 'uniqueItems'}
         check_schema(schema.get('items'), path + '.items', evidence_hash)
         if 'uniqueItems' in schema and type(schema['uniqueItems']) is not bool:
             fail('schema_invalid', path + '.uniqueItems', 'boolean', schema['uniqueItems'], evidence_hash)
-    elif kind == 'string': allowed |= {'minLength', 'maxLength'}
-    elif kind in {'number', 'integer'}: allowed |= {'minimum', 'maximum'}
     if set(schema) - allowed: fail('schema_invalid', path, sorted(allowed), schema, evidence_hash)
     for lo, hi in [('minimum', 'maximum'), ('minItems', 'maxItems'), ('minLength', 'maxLength')]:
         for key in (lo, hi):
@@ -254,6 +255,12 @@ def validate_candidate(proposal, opportunity, spans, tools, existing, material):
 def field_contract():
     """Exactly the same schemas used by Host validation, serialized for the Learner."""
     return {'version': VERSION, 'candidate_schema': CANDIDATE_SCHEMA, 'binding_version': BINDING_VERSION,
+        'schema_language': {'keywords_by_type': SCHEMA_KEYWORDS, 'parameter_name_fullmatch': PARAMETER_NAME,
+            'object': 'properties and unique required array are mandatory; required must be a subset; additionalProperties must be false, recursively',
+            'array': 'items must be one supported schema object, not a list; uniqueItems is boolean',
+            'bounds': 'size bounds are nonnegative integers; numeric bounds are finite; minimum <= maximum',
+            'enum': 'nonempty list of values that satisfy the same declared schema',
+            'unsupported': 'No type unions, defaults, tuple items, schema references, or additional keywords'},
         'probe_field_types': PROBE_FIELDS, 'operation_probes': OPERATION_PROBES,
         'rules': ['*_input_field and output_field name declared schema properties, never table values.',
                   'input_bindings is an object mapping parameter names; no implicit defaults or list conversion.',

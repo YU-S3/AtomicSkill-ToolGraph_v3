@@ -17,7 +17,7 @@ from atomic_skillgraph.empirical.office_program_contract_v5 import (VERSION, CAN
     MATERIAL_VERSION, PROBE_VERSION, validate_candidate, validate_probe_contract, check_schema, field_contract, CANDIDATE_SCHEMA)
 from atomic_skillgraph.empirical.office_trace_program_induction_v5 import (program_from_response, bundle, EXTRACTOR,
     RequestStore, ModelOutputError, repair_material)
-from atomic_skillgraph.empirical.office_program_probe_v5 import expected, probe_cases, verify_result, execute_probe
+from atomic_skillgraph.empirical.office_program_probe_v5 import expected, probe_cases, verify_result, execute_probe, transfer_inputs
 from atomic_skillgraph.empirical.task_context import TaskContext
 from atomic_skillgraph.experiments import run_office_trace_v5_pilot as runner
 from atomic_skillgraph.experiments.office_v5_consumption import execute_action, consumption_metrics
@@ -127,6 +127,16 @@ def test_pending_is_not_default_or_source_probe_and_builder_keeps_schema(case):
     value = bundle(candidate, program, 'fixture', {'source':SOURCE})
     assert probe_cases(value)['status'] == 'pending_inputs' and probe_cases(value)['cases'] == []
     assert program['input_schema'] == p['program_spec']['input_schema'] and not value['formal_publication']
+
+
+def test_transfer_slices_rebind_to_new_observed_offsets_and_same_span(case):
+    p=proposal(case[4]);ref=p['program_spec']['input_bindings']['pattern'];ref.update(kind='observed_text_slice',start=0,end=1)
+    candidate=validate(p,case);span=deepcopy(next(s for s in case[3] if s['id']==ref['span_id']))
+    span['id']='new_train_span';span['source_task']['physical_key']='new_train';span['arguments']['path']='prefix_a.txt'
+    values,refs=transfer_inputs(candidate,[span])
+    assert values=={'pattern':'a'} and refs['pattern']['start']==7 and refs['pattern']['span_id']=='new_train_span'
+    span['arguments']['path']='a_a.txt'
+    assert transfer_inputs(candidate,[span])==({}, {})
 
 
 def test_binding_value_types_ids_unicode_visibility_and_no_inference(case):

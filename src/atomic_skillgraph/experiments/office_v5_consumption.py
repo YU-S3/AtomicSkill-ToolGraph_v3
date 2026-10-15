@@ -52,7 +52,7 @@ def execute_action(action, broker, visible, worker, state):
                     'program_invoked': False, 'resolved_refs': refs}
     record = execute_v4_action({k:v for k,v in action.items() if k != 'used_results'}, broker, visible, worker, state)
     record['used_results_declared'] = declarations
-    record['program_invoked'] = kind == 'program'
+    record['program_invoked'] = kind == 'program' and record.get('result', {}).get('worker_status') != 'not_started'
     if kind == 'native': record['name'] = action['name']
     return record
 
