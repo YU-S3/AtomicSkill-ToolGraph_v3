@@ -152,3 +152,20 @@ def test_budget_stop_and_unresolved_http_never_send(prepared,monkeypatch):
     owner.admit('unresolved',{'messages':[],'max_tokens':10},{'parent_scope':'p6_fixture:unknown'})
     with pytest.raises(BudgetExhausted):runner.learn(root)
     assert not seen
+
+
+def test_failed_transfer_is_preserved_and_runtime_rechecks(prepared,monkeypatch):
+    root,plan=prepared
+    wrong=FIXTURE.replace('    if not tokens:return',"    if text.endswith(' 2'):tokens=tokens[:-1]\n    if not tokens:return")
+    http(monkeypatch,[response([proposal()],name='submit_math_program_spec'),response([{'source':wrong}],name='submit_program')])
+    summary=runner.learn(root)
+    assert summary['units'][0]['local_algorithm_checked'] and not summary['units'][0]['task_transfer_checked']
+    manifest=runner.trial_bank(root);pid=next(iter(manifest['program_hashes']))
+    task=PublicTask(**rows()[2]['task']);cfg=runner.smoke_config(root,'program')
+    seen=http(monkeypatch,[response([{'action':'call_program','name':pid,'arguments':{'statement':task.goal}}],name='answer_step'),
+        response(content='<answer>A</answer>')])
+    s=EmpiricalSystem(cfg,harness=AnswerAdapter('livemath',{task.task_id:{'correct_choice':task.inputs['choices'][0],'choices':task.inputs['choices']}}),readonly=True)
+    try:trace=s.run_task(task,learn=False)
+    finally:s.close()
+    assert trace['execution']['attempts'][0]['status']=='blocked'
+    assert not trace['execution']['attempts'][0]['outputs_consumed'] and len(seen)==2

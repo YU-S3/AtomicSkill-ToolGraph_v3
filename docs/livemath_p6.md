@@ -30,7 +30,7 @@ Use a clean Linux checkout of the committed revision:
 ```bash
 export PYTHONPATH="$PWD/src"
 PY=/home/yangchengyu/asg_alfworld_venv/bin/python
-OUT=/home/yangchengyu/livemath_p6_seed42_offline_20261015
+OUT=/home/yangchengyu/livemath_p6_seed42_ready_20261015
 "$PY" -m atomic_skillgraph.experiments.run_math_program_p6 prepare --output "$OUT"
 "$PY" -m atomic_skillgraph.experiments.run_math_program_p6 check --output "$OUT"
 "$PY" -m atomic_skillgraph.experiments.run_math_program_p6 report --output "$OUT"

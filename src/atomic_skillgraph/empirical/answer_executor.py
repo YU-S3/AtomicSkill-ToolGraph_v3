@@ -418,6 +418,11 @@ class AnswerExecutor:
             if checkpoint: checkpoint.advance(checkpoint.state['stage'],program_started=True)
             before=s.adapter.observe().get('workspace',{})
             result=normalize_program_result(s.adapter,p,s.worker.execute(p,args,broker),workspace_before=before)
+            if p6 and kind=='program' and result['status']=='ok':
+                from .math_operation_contract_p6 import oracle
+                if result.get('outputs')!=oracle(p['entry_constraints']['operation_kind'],args):
+                    result={'status':'blocked','outputs':{},'error':'P6 current-input oracle mismatch',
+                        'execution_receipt':{'original_worker_result':result}}
             if searchqa_r3 and kind == 'program' and result['status'] == 'ok':
                 from .searchqa_program_probe_r3 import check
                 try: check(p, args, result)
