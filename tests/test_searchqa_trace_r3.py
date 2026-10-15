@@ -148,6 +148,69 @@ def test_S05_repair_keeps_complete_source_members_and_cannot_swap_ids():
     validate({'decision': 'candidate', 'candidate': c, 'reason': 'original sources repaired'})
 
 
+def test_worker_repair_keeps_code_and_all_failure_groups_without_repeating_receipts(tmp_path):
+    program, _, _ = make_program(tmp_path)
+    rows = [{'id': digest(i), 'task_key': 'physical:' + str(i), 'role': 'transfer',
+             'passed': False, 'reason': 'Exact Unicode offset/DOC boundary/quote mismatch'} for i in range(30)]
+    rows += [{'id': digest('unicode'), 'task_key': 'physical:1', 'role': 'boundary:unicode_parameter',
+              'passed': False, 'reason': 'not_found'}]
+    original = {'program_id': 'program:fixture', 'worker_report_hash': 'retained-host-report',
+                'worker_feedback': {'passed': False, 'reason': 'partial_or_not_qualified', 'checks': rows}}
+    saved = deepcopy(original)
+    material = probe.repair_feedback(original, SimpleNamespace(get=lambda _: program))
+    assert original == saved
+    assert material['original_source'] == program['source']
+    feedback = material['worker_feedback']
+    assert feedback['total_checks'] == 31 and feedback['checks_hash'] == digest(rows)
+    assert [g['count'] for g in feedback['check_groups']] == [30, 1]
+    assert [g['reason'] for g in feedback['check_groups']] == [rows[0]['reason'], 'not_found']
+    assert material['worker_report_hash'] == original['worker_report_hash']
+    assert 'checks' not in feedback
+
+
+def test_continuation_phase_includes_parent_paid_attempts():
+    governor = object.__new__(PhaseGovernor)
+    governor.plan = {'run_id': 'child', 'accounted_parent_run_ids': ['parent']}
+    governor.phase = 'D3'
+    assert governor.owns({'context': {'searchqa_run_id': 'parent', 'searchqa_phase': 'D3a'}})
+    assert governor.owns({'context': {'searchqa_run_id': 'child', 'searchqa_phase': 'D3'}})
+    assert not governor.owns({'context': {'searchqa_run_id': 'parent', 'searchqa_phase': 'D2'}})
+    assert not governor.owns({'context': {'searchqa_run_id': 'manual', 'searchqa_phase': 'D3'}})
+
+
+def test_real_capacity_refusal_replays_within_unchanged_wire_cap(tmp_path, monkeypatch):
+    root = os.environ.get('SEARCHQA_R3_FAILED_RUN')
+    if not root: pytest.skip('requires the real first R3 Worker failure')
+    from atomic_skillgraph.empirical.searchqa_trace_learning import read
+    root = Path(root)
+    generation = next((root / 'reuse_spec').glob('*/generation_0'))
+    program = read(generation / 'program.json'); previous = read(generation / 'rejection.json')
+    refused = read(generation.parent / 'generation_1/requests.json')['requests'][-1]
+    assert refused['material_refusal']['wire_bytes'] > 65536 and not refused['http_attempts']
+    original_bank = Bank(root / 'train/bank', readonly=True, seed=42)
+    try: asset = original_bank.get(program['entry_constraints']['atomic_skill_id'])
+    finally: original_bank.close()
+    seen = http(monkeypatch, [response([{'source': SOURCE}], name='submit_searchqa_code')])
+    system = EmpiricalSystem(config(tmp_path), harness=AnswerAdapter('searchqa', {}))
+    try:
+        tasks = read(root / 'train_tasks.json')
+        for key in asset['searchqa_metadata']['candidate']['source_case_ids']:
+            system.bank.save_case(PublicTask(**tasks[key]), {'searchqa_role': 'induction'})
+        system.bank.put('skill', asset)
+        assert system.bank.put('program', program)['id'] == program['id']
+        result = probe.build(system.learner, read(generation.parent / 'spec.json'), asset,
+                             read(root / 'learning_sources.json'), generation=1, previous=previous)
+        assert result['entry_constraints']['parent_program_id'] == program['id']
+        assert len(seen) == 1 and len(json.dumps(seen[0]).encode()) < 65536
+        material = json.loads(seen[0]['messages'][1]['content'])
+        old = json.loads(refused['material_refusal']['payload']['messages'][1]['content'])
+        for key in ('atomic', 'spec', 'sources', 'historical_failed_spec_parent'):
+            assert material[key] == old[key]
+        assert material['previous_failure']['original_source'] == program['source']
+        assert system.requests[-1]['payload_max_bytes'] == 65536
+    finally: system.close()
+
+
 @pytest.mark.parametrize('kind', FAMILIES)
 def test_S08_typed_contracts_have_real_positive_examples(tmp_path, kind):
     program, _, _ = make_program(tmp_path, kind)

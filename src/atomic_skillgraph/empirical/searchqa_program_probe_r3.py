@@ -290,6 +290,25 @@ def qualify(bank, program, rows):
     return {'passed': True, 'program_id': program['id'], 'receipt_count': len(good)}
 
 
+def repair_feedback(previous, bank):
+    if not previous or 'worker_feedback' not in previous:
+        return deepcopy(previous)
+    material = deepcopy(previous)
+    program = bank.get(previous['program_id'])
+    if not program: raise ValueError('Repair Program identity changed')
+    material['original_source'] = program['source']
+    feedback = material['worker_feedback']; checks = feedback.pop('checks')
+    grouped = {}
+    for row in checks:
+        key = (row['role'], row['passed'], row['reason'])
+        if key not in grouped:
+            grouped[key] = {k: row[k] for k in ('role', 'passed', 'reason')}
+            grouped[key].update(count=0, example_receipt_id=row['id'])
+        grouped[key]['count'] += 1
+    feedback.update(check_groups=list(grouped.values()), total_checks=len(checks), checks_hash=digest(checks))
+    return material
+
+
 def build(learner, spec, asset, sources, *, generation=0, previous=None):
     from .prompts import SEARCHQA_R3_BUILDER_PROMPT
     from .program_worker import public_program_abi
@@ -297,7 +316,7 @@ def build(learner, spec, asset, sources, *, generation=0, previous=None):
     material = {'atomic': asset['searchqa_metadata']['candidate'], 'spec': spec,
         'sources': [sources[k] for k in spec['source_case_ids']], 'input_schema': INPUT,
         'output_schema': OUTPUTS[spec['kind']], 'public_program_abi': public_program_abi(),
-        'allowed_tools': [], 'output_contract': OUTPUT, 'previous_failure': previous,
+        'allowed_tools': [], 'output_contract': OUTPUT, 'previous_failure': repair_feedback(previous, learner.system.bank),
         'environment': learner.system.config['program_environment']}
     if asset['searchqa_metadata'].get('legacy_parent'):
         parent = asset['searchqa_metadata']['legacy_parent']

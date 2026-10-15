@@ -153,7 +153,8 @@ class PhaseGovernor(BudgetGovernor):
 
     def owns(self, row):
         phase = row.get('context', {}).get('searchqa_phase')
-        return row.get('context', {}).get('searchqa_run_id') == self.plan['run_id'] and (phase == self.phase or self.phase == 'D3' and phase == 'D3a')
+        run_ids = [self.plan['run_id'], *self.plan.get('accounted_parent_run_ids', [])]
+        return row.get('context', {}).get('searchqa_run_id') in run_ids and (phase == self.phase or self.phase == 'D3' and phase == 'D3a')
 
     def headroom(self, context):
         room = super().headroom(context); own = [a for a in self.state['attempts'].values() if self.owns(a)]
