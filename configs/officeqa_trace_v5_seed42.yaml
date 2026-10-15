@@ -1,0 +1,16 @@
+method_version: office-trace-v5-program-induction.v1
+seed: 42
+focus_v4_opportunities: [2, 3]
+source_task_count: 8
+max_opportunities: 10
+paid_candidates: 4
+transfer_tasks: ["officeqa:UID0181", "officeqa:UID0208"]
+repairs_per_candidate: 1
+wire_max_bytes: 65536
+source_window_chars: 12000
+phase_limits:
+  learn: {tokens: 500000, http: 60}
+  consume: {tokens: 250000, http: 20}
+paired_arm_limits: {tokens: 62500, http: 5, native_calls: 48}
+authorization: pending_explicit_user_approval
+stop_after: train_only_pilot_review
