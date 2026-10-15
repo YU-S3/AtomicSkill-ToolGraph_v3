@@ -12,7 +12,7 @@ from ..empirical.office_operation_mining import read, sha, at
 from ..empirical.office_operation_mining_v5 import material
 from ..empirical.office_program_contract_v5 import (ContractError, validate_candidate, check_schema, BINDING_KINDS)
 from ..empirical.office_trace_program_induction_v5 import EXTRACTOR, repair_material
-from ..empirical.office_program_probe_v5 import expected, execute_probe, table_cells
+from ..empirical.office_program_probe_v5 import expected, execute_probe, table_negatives
 from .office_v4_offline import SEARCH_FIXTURE, engineering_program
 from .run_office_trace_v5_pilot import checked, rows, permission, provider_for
 from .formal_log import utc
@@ -79,6 +79,8 @@ CELL_FIXTURE = '''def run(ctx, inputs):
     text = inputs['text']
     if not inputs['unit'] or inputs['unit'].lower() not in text.lower():
         return {'status':'needs_input','outputs':{},'detail':'unit missing'}
+    scales = [u for u in ('thousands','millions','billions') if 'in '+u in text.lower()]
+    if len(scales) > 1: return {'status':'needs_input','outputs':{},'detail':'unit conflict'}
     lines = text.splitlines()
     matches = [i for i,line in enumerate(lines) if line.strip().startswith('|') and inputs['column'] in [c.strip() for c in line.strip().strip('|').split('|')]]
     if len(matches) != 1: return {'status':'needs_input','outputs':{},'detail':'ambiguous header'}
@@ -148,6 +150,9 @@ def check(root):
     for label, values in cases:
         case = {'label': label, 'inputs': values, 'expected': expected(contract, values) if label != 'negative' else 'abstain_with_gap'}
         run('real_table_' + label, value, case)
+    for case in table_negatives(contract, inputs): run('real_table_' + case['label'], value, case)
+    run('missing_required', value, {'label':'host_missing_required','inputs':{k:v for k,v in inputs.items() if k!='text'},
+                                   'expected':'missing_runtime_precondition','host_rejection':True})
     search_inputs = {'pattern': re.escape('Federal Expenditures - General'), 'paths': [span['arguments']['path']], 'legacy': False}
     search_props = {'pattern': {'type': 'string'}, 'paths': {'type': 'array', 'items': {'type': 'string'}}, 'legacy': {'type': 'boolean'}}
     outputs = {'text': {'type': 'string'}, 'source_path': {'type': 'string'}, 'source_offset': {'type': 'integer'}, 'complete': {'type': 'boolean'}}
@@ -159,12 +164,15 @@ def check(root):
         run(label, value, {'label': 'negative' if label == 'empty_search' else 'positive', 'inputs': {**search_inputs, **changes}, 'expected': None})
     # Illegal paths must fail at the production Broker; an unsuccessful query is not a valid oracle.
     bad = execute_probe(value, {'label': 'negative', 'inputs': {**search_inputs, 'paths': ['../outside.txt']}, 'expected': None}, config, task)
-    if bad['result']['status'] != 'blocked': raise AssertionError('Corpus path escape not refused')
-    bad['engineering_fixture_only'] = True; save_json(root / 'zero_http/path_escape.json', bad); receipts.append(bad)
+    if bad['result']['status'] != 'blocked' or not any(not e.get('result',{}).get('accepted') for e in bad['events']):
+        raise AssertionError('Corpus path escape not refused')
+    bad.update(passed=True, reason='actual_broker_scope_refusal', engineering_fixture_only=True)
+    save_json(root / 'zero_http/path_escape.json', bad); receipts.append(bad)
     result = {'passed': all(w['within_cap'] for w in wires), 'time': utc(), 'http': 0,
         'manifest_sha256': sha(root / 'pilot_manifest.json'), 'real_train_sources': len(sources),
         'replay_physical_requests': replay['physical_requests'], 'replay_categories': replay['categories_nonexclusive'],
-        'request_capacity': wires, 'docker_engineering_probes': len(receipts), 'candidate_assets_created': 0,
+        'request_capacity': wires, 'docker_engineering_probes': sum(not r.get('host_validation_only') for r in receipts),
+        'host_input_rejection_checks': sum(r.get('host_validation_only',False) for r in receipts), 'candidate_assets_created': 0,
         'ledger_unchanged': sha(root / 'budget/usage.json') == before, 'parent_frozen_unchanged': True,
         'claim': 'Engineering fixtures only; no naturally generated V5 candidate or accuracy claim'}
     checked(root, corpus=True)

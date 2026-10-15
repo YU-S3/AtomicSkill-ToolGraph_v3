@@ -278,7 +278,7 @@ def probe(root):
             receipts.append(receipt)
         local = [r for r in receipts if not r['case']['label'].startswith('transfer')]
         cross = [r for r in receipts if r['case']['label'].startswith('transfer')]
-        passed = len(local) == 3 and all(r['passed'] for r in local)
+        passed = {'positive', 'variation', 'negative'} <= {r['case']['label'] for r in local} and all(r['passed'] for r in local)
         value.update(probe_complete=True, status='worker_checked' if passed else 'worker_failed',
             probe_receipts=[str(folder / (c['label'] + '.json')) for c in probes['cases']], transfer_coverage=probes['transfer_coverage'])
         if passed and len(cross) == 2 and all(r['passed'] for r in cross): value['status'] = 'transfer_checked'

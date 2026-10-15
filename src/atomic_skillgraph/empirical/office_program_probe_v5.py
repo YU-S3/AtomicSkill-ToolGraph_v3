@@ -112,6 +112,10 @@ def probe_cases(value, transfer_spans=()):
         if variation['inputs'] == base['inputs']: raise ValueError('no_changed_legal_parameters')
     except ORACLE_ERRORS as exc: return {'status': 'coverage_insufficient', 'reason': str(exc), 'cases': []}
     cases = [base, variation, negative]
+    cases.extend(table_negatives(contract, inputs, base['source_case_id']))
+    missing = deepcopy(base); missing.update(label='host_missing_required', host_rejection=True, expected='missing_runtime_precondition')
+    missing['inputs'].pop(value['program']['input_schema']['required'][0])
+    cases.append(missing)
     # Each pre-registered transfer task uses its first structurally bindable event, not the first
     # successful Worker. Original string slices are never silently copied to another text field.
     transfers = []
@@ -140,22 +144,37 @@ def probe_cases(value, transfer_spans=()):
     return {'status': 'ready', 'probe_version': PROBE_VERSION, 'cases': cases, 'transfer_coverage': transfers}
 
 
+def table_negatives(contract, inputs, source_case_id=None):
+    if contract['kind'] not in {'table_cell', 'series_extract'}: return []
+    text_key, column_key = contract['text_input_field'], contract['column_input_field']
+    text = inputs[text_key]; header = next(line for line in text.splitlines() if inputs[column_key] in line)
+    scale = 'millions' if 'billion' in inputs[contract['unit_input_field']].lower() else 'billions'
+    variants = {'ambiguous_header': {text_key: text + '\n' + text},
+                'conflicting_unit': {text_key: text.replace(header, 'In ' + scale + '\n' + header, 1)},
+                'missing_row': {contract['row_input_field']: '__missing_row_probe__'} if contract['kind'] == 'table_cell'
+                    else {contract['rows_input_field']: [*inputs[contract['rows_input_field']], '__missing_row_probe__']}}
+    return [{'label': 'negative_' + name, 'inputs': {**deepcopy(inputs), **change}, 'expected': 'abstain_with_gap',
+             'source_case_id': source_case_id, 'transformation': name + '; new probe, never a rewritten historical event'}
+            for name, change in variants.items()]
+
+
 def verify_result(contract, case, result, events):
     if contract['kind'] == 'source_locator':
         calls = [e for e in events if e['name'] == 'glob' and e.get('arguments', {}).get('pattern') == case['inputs'][contract['pattern_input_field']]
                  and e.get('result', {}).get('accepted') is True]
         if not calls: return False, 'no_matching_glob_receipt'
         paths = calls[-1]['result']['data']
-        if case['label'] == 'negative':
+        if case['label'].startswith('negative'):
             return not paths and result.get('status') in {'not_found', 'needs_input'} and bool(result.get('detail')), 'empty_glob_gap'
         return (bool(paths) and result.get('status') == 'ok' and result.get('outputs', {}).get(contract['output_field']) == paths), 'actual_glob_receipt'
     if contract['kind'] == 'retrieval':
         legacy = {'kind': 'retrieval', 'query_input': contract['query_input_field']}
         adapted = deepcopy(case)
+        if case['label'].startswith('negative'): adapted['label'] = 'negative'
         if 'paths_input_field' in contract:
             adapted['inputs']['paths'] = case['inputs'][contract['paths_input_field']]
         return verify_v4(legacy, adapted, result, events)
-    if case['label'] == 'negative':
+    if case['label'].startswith('negative'):
         return (result.get('status') in {'not_found', 'needs_input', 'blocked'} and bool(result.get('detail'))
                 and not (result.get('status') == 'not_found' and unfinished_search(events))), 'explicit_gap_required'
     if result.get('status') != 'ok': return False, 'worker_not_ok'
@@ -163,7 +182,14 @@ def verify_result(contract, case, result, events):
 
 
 def execute_probe(value, case, config, task):
-    validate_schema_instance(case['inputs'], value['program']['input_schema'])
+    try: validate_schema_instance(case['inputs'], value['program']['input_schema'])
+    except SchemaValidationError as exc:
+        if not case.get('host_rejection'): raise
+        return {'probe_version': PROBE_VERSION, 'program_id': value['id'], 'case': case, 'passed': True,
+                'reason': 'missing_runtime_precondition', 'result': {'status': 'needs_input', 'detail': str(exc)},
+                'events': [], 'host_validation_only': True, 'worker_invoked': False, 'http': 0,
+                'input_sha256': digest(case['inputs']), 'source_sha256': digest(value['program']['source'])}
+    if case.get('host_rejection'): raise RuntimeError('Host rejection probe did not contain a missing required input')
     adapter = OfficeAdapter({task['task_id']: {}}, config); adapter.reset(PublicTask(**task))
     broker = Broker(adapter, 32, context=TaskContext(config.get('runtime')))
     try:
