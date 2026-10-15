@@ -39,8 +39,8 @@ def validate_config(config):
     if config.get('experiment', {}).get('office_effect_version'):
         from .office_effect_runtime import validate_runtime
         validate_runtime(config)
-    from .math_effect_contract import VERSION as P7
-    if config.get('experiment', {}).get('choice_method_version') == P7:
+    from .math_effect_contract import VERSION as P7, R2 as P7_R2
+    if config.get('experiment', {}).get('choice_method_version') in {P7,P7_R2}:
         from ..experiments.run_math_effect_p7 import validate_settings
         validate_settings(config['effect_p7'])
         if (config['experiment'].get('benchmark') != 'livemath' or config['harness']['adapter'] != 'livemath'
@@ -276,7 +276,7 @@ class EmpiricalSystem:
             self.bank.close()
             raise
         if (self.config['runtime'].get('choice_guidance',{}).get('public_process') or
-                self.config['experiment'].get('choice_method_version') == 'livemath.effect-evolution.p7'):
+                self.config['experiment'].get('choice_method_version') in {'livemath.effect-evolution.p7','livemath.effect-evolution.p7.r2'}):
             try:self.bank.bind_choice_method(self.config['experiment']['choice_method_version'])
             except Exception:
                 self.bank.close()
@@ -965,7 +965,7 @@ class EmpiricalSystem:
                     "If you returned JSON as text, submit those same arguments through the requested ToolCall: " + str(exc)[:2048]})
 
     def run_task(self, task, *, learn=None, attempt_id=None):
-        if self.config['experiment'].get('choice_method_version') == 'livemath.effect-evolution.p7':
+        if self.config['experiment'].get('choice_method_version') in {'livemath.effect-evolution.p7','livemath.effect-evolution.p7.r2'}:
             from .math_effect_runtime import system_task
             return system_task(self, task, not self.readonly if learn is None else learn)
         if not isinstance(task, PublicTask):

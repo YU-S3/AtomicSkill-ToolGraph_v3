@@ -8,6 +8,7 @@ from .contracts import digest, object_schema
 from .math_operation_contract_p6 import ContractError, error, require
 
 VERSION = 'livemath.effect-evolution.p7'
+R2 = VERSION + '.r2'
 MATERIAL = VERSION + '.train-experience.v1'
 ANSWER = 'effect_answer.v1'
 TEXT = {'type':'string','minLength':1,'maxLength':512}
@@ -37,7 +38,9 @@ EDIT = object_schema({'decision':{'type':'string','enum':['edit','no_change']},
 
 
 def card(candidate):
-    return {k:deepcopy(candidate[k]) for k in ('goal','applicability','steps','stop_condition')}
+    keys=('goal','applicability','steps','stop_condition')
+    if 'rule_basis' in candidate:keys=(*keys,'rule_basis')
+    return {k:deepcopy(candidate[k]) for k in keys}
 
 
 @lru_cache(maxsize=4)
@@ -71,9 +74,9 @@ def validate_candidate(value, sources, *, tokenizer_path=None, max_tokens=600):
     return deepcopy(value)
 
 
-def candidate(value, sources, evidence, *, parent=None, delta=None):
-    validate_candidate(value,sources)
-    record={'schema':'math.effect-candidate.v1','method_version':VERSION,'candidate':deepcopy(value),
+def candidate(value, sources, evidence, *, parent=None, delta=None, version=VERSION):
+    (validate_candidate_r2 if version==R2 else validate_candidate)(value,sources)
+    record={'schema':'math.effect-candidate.v2' if version==R2 else 'math.effect-candidate.v1','method_version':version,'candidate':deepcopy(value),
         'parent_id':parent['id'] if parent else None,'parent_hash':digest(parent) if parent else None,
         'source_manifest_hash':digest(sources),'source_checked':True,'model_evidence':evidence,
         'edit_delta':deepcopy(delta),'qualification':'unproven_hypothesis'}
@@ -86,13 +89,18 @@ def checked_candidate(value):
         if set(value)!={'id','schema','method_version','candidate','parent_id','parent_hash','source_manifest_hash',
             'source_checked','model_evidence','edit_delta','qualification'}:return False
         raw={k:v for k,v in value.items() if k!='id'}
-        if value['method_version']!=VERSION or value['id']!='effect_'+digest(raw) or not value['source_checked']:return False
-        require(value['candidate'],CANDIDATE)
+        if value['method_version'] not in {VERSION,R2} or value['id']!='effect_'+digest(raw) or not value['source_checked']:return False
+        if value['method_version']==R2:
+            if value['schema']!='math.effect-candidate.v2':return False
+            validate_candidate_r2(value['candidate'],value['candidate']['source_case_ids'])
+        else:require(value['candidate'],CANDIDATE)
         return bool(value['model_evidence']['response_hash'])
     except (KeyError,TypeError,ValueError):return False
 
 
 def checked_effect_asset(asset, *, usable=True):
+    if asset.get('method_version')==R2:
+        return False if usable else checked_experimental_asset(asset)
     try:
         if set(asset)-{'id','method_version','effect_candidate','goal','guidance','knowledge_type','execution_intent','state','train_utility_receipts'}:return False
         c=asset['effect_candidate']
@@ -110,9 +118,85 @@ def checked_effect_asset(asset, *, usable=True):
 
 
 def asset(c, receipts=None):
+    if c['method_version']==R2:
+        value={'method_version':R2,'effect_candidate':deepcopy(c),'goal':c['candidate']['goal'],
+            'guidance':json.dumps(card(c['candidate']),ensure_ascii=False),'knowledge_type':c['candidate']['rule_basis'],
+            'execution_intent':'guidance_only','state':'candidate','evaluation_status':'experimental_not_claimed_effective',
+            'train_utility_receipts':deepcopy(receipts or [])}
+        value['id']='skill_'+digest(value)
+        return value
     value={'method_version':VERSION,'effect_candidate':deepcopy(c),'goal':c['candidate']['goal'],
         'guidance':json.dumps(card(c['candidate']),ensure_ascii=False),'knowledge_type':'procedural',
         'execution_intent':'guidance_only','state':'active_usable' if receipts else 'candidate',
         'train_utility_receipts':deepcopy(receipts or [])}
     value['id']='skill_'+digest(value)
     return value
+
+
+# R2 is deliberately separate: frozen v1 candidates/receipts keep their old meaning.
+R2_TEXT={'type':'string','minLength':1}
+R2_INDICATORS=[*INDICATORS,'has_stronger_meta']
+R2_CONDITIONS={'type':'array','items':{'type':'string','enum':R2_INDICATORS},'maxItems':len(R2_INDICATORS)}
+CANDIDATE_R2=object_schema({
+    'category':{'type':'string','minLength':1,'maxLength':80},'goal':R2_TEXT,
+    'applicability':object_schema({'mode':{'type':'string','enum':['all_tasks','when']},
+        'require_all':R2_CONDITIONS,'exclude_any':R2_CONDITIONS},['mode','require_all','exclude_any']),
+    'steps':{'type':'array','items':R2_TEXT,'minItems':1,'maxItems':8},'stop_condition':R2_TEXT,
+    'rule_basis':{'type':'string','enum':['reasoning_procedure','benchmark_prior','mixed']},
+    'source_case_ids':{'type':'array','items':R2_TEXT,'minItems':1,'maxItems':60},'edit_rationale':R2_TEXT},
+    ['category','goal','applicability','steps','stop_condition','rule_basis','source_case_ids','edit_rationale'])
+BATCH_R2=object_schema({'decision':{'type':'string','enum':['propose','no_change']},
+    'candidates':{'type':'array','items':CANDIDATE_R2,'minItems':1,'maxItems':3}},['decision'])
+EDIT_ITEM_R2=object_schema({'parent_id':R2_TEXT,'replacement':CANDIDATE_R2,'rationale':R2_TEXT},
+    ['parent_id','replacement','rationale'])
+EDIT_R2=object_schema({'decision':{'type':'string','enum':['edit','no_change']},
+    'edits':{'type':'array','items':EDIT_ITEM_R2,'minItems':1,'maxItems':2}},['decision'])
+REPAIR_R2=object_schema({'decision':{'type':'string','enum':['repair','no_change']},
+    'repairs':{'type':'array','maxItems':3,'items':object_schema({'index':{'type':'integer','minimum':0,'maximum':2},
+        'replacement':CANDIDATE_R2},['index','replacement'])}},['decision'])
+REPAIR_EDIT_R2=object_schema({'decision':{'type':'string','enum':['repair','no_change']},
+    'repairs':{'type':'array','maxItems':2,'items':object_schema({'index':{'type':'integer','minimum':0,'maximum':1},
+        'replacement':EDIT_ITEM_R2},['index','replacement'])}},['decision'])
+
+
+def validate_candidate_r2(value,sources,*,tokenizer_path=None,max_tokens=600):
+    require(value,CANDIDATE_R2)  # All item types are checked before set operations.
+    errors=[];ids=value['source_case_ids'];a=value['applicability']
+    yes,no=a['require_all'],a['exclude_any']
+    if len(set(ids))!=len(ids) or not set(ids)<=set(sources):
+        errors.append(error('invalid_source','$.source_case_ids','distinct shown Train physical IDs',ids))
+    if (len(set(yes))!=len(yes) or len(set(no))!=len(no) or set(yes)&set(no) or
+        a['mode']=='all_tasks' and (yes or no) or a['mode']=='when' and not yes):
+        errors.append(error('invalid_applicability','$.applicability','all_tasks empty lists or when with positive noncontradictory conditions',a))
+    text=json.dumps(card(value),ensure_ascii=False)
+    # Benchmark priors may refer to public option semantics, never a fixed answer label.
+    if (any(k in text for k in sources) or re.search(r'livemath:\d',text) or
+        re.search(r'(?i:choose|select|return|output|predict|answer\s*(?:is|:|=))\s*(?i:option\s*|label\s*)?[A-Z]\b|(?i:<answer>)[A-Za-z](?i:</answer>)',text)):
+        errors.append(error('answer_or_id_shortcut','$','no physical IDs or fixed answer labels',text))
+    if tokenizer_path and token_count(card(value),tokenizer_path)>max_tokens:
+        errors.append(error('injection_too_long','$','card <= '+str(max_tokens)+' tokenizer tokens',value))
+    if errors:raise ContractError(errors)
+    return deepcopy(value)
+
+
+def migrate_candidate_r2(value,sources,*,all_have_choices):
+    """Lossless v1 routing migration; only proven redundant global guards are removed."""
+    require(value,CANDIDATE);a=value['applicability'];yes=a['required_public_indicators'];no=a['excluded_indicators']
+    if value['scope']=='global' and (yes or no) and not (all_have_choices and yes==['comparable_conclusions'] and not no):
+        raise ContractError([error('migration_needs_model','$.applicability','retain real conditions as when or explicitly repair all_tasks',a)])
+    result={k:deepcopy(v) for k,v in value.items() if k not in {'scope','applicability'}}
+    result['applicability']={'mode':'all_tasks' if value['scope']=='global' else 'when',
+        'require_all':[] if value['scope']=='global' else yes,'exclude_any':[] if value['scope']=='global' else no}
+    result['rule_basis']='reasoning_procedure'
+    return validate_candidate_r2(result,sources)
+
+
+def checked_experimental_asset(a):
+    try:
+        expected=asset(a['effect_candidate'],a['train_utility_receipts'])
+        if a!=expected or a['method_version']!=R2 or not checked_candidate(a['effect_candidate']):return False
+        from .math_effect_optimizer import verify_receipt_r2
+        return all(verify_receipt_r2(r) and a['effect_candidate']['id'] in r['candidate_ids'] and
+            digest(a['effect_candidate'])==r['candidate_hashes'][r['candidate_ids'].index(a['effect_candidate']['id'])]
+            for r in a['train_utility_receipts'])
+    except (KeyError,TypeError,ValueError):return False

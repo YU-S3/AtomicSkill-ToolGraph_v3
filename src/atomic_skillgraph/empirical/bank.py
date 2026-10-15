@@ -88,10 +88,11 @@ class Bank:
     def put(self, kind, asset):
         self._writable()
         asset = dict(asset)
-        from .math_effect_contract import VERSION as P7, checked_effect_asset
-        p7 = self.db.execute("SELECT value FROM metadata WHERE key='choice_method_version'").fetchone() == (P7,)
-        if p7 or asset.get('method_version') == P7:
-            if not p7 or kind != 'skill' or not checked_effect_asset(asset, usable=False):
+        from .math_effect_contract import VERSION as P7, R2 as P7_R2, checked_effect_asset
+        stored_p7 = self.db.execute("SELECT value FROM metadata WHERE key='choice_method_version'").fetchone()
+        p7 = stored_p7 in {(P7,),(P7_R2,)}
+        if p7 or asset.get('method_version') in {P7,P7_R2}:
+            if not p7 or stored_p7!=(asset.get('method_version'),) or kind != 'skill' or not checked_effect_asset(asset, usable=False):
                 raise ValueError('P7 requires its own checked text Skill; external assets are not admitted')
             sources = self.db.execute("SELECT value FROM metadata WHERE key='effect_source_keys'").fetchone()
             if not sources or asset['effect_candidate']['source_manifest_hash'] != digest(json.loads(sources[0])):
@@ -422,6 +423,12 @@ class Bank:
             from .math_effect_contract import VERSION as P7, checked_effect_asset
             if asset.get('method_version') == P7 and (kind != 'skill' or not checked_effect_asset(asset)):
                 target.execute('DELETE FROM assets WHERE id=?', (asset_id,));continue
+            from .math_effect_contract import R2 as P7_R2, checked_experimental_asset
+            if asset.get('method_version')==P7_R2:
+                deployed=target.execute("SELECT value FROM metadata WHERE key='effect_deployed_ids'").fetchone()
+                if (kind!='skill' or not deployed or not checked_experimental_asset(asset) or
+                    asset['effect_candidate']['id'] not in json.loads(deployed[0])):
+                    target.execute('DELETE FROM assets WHERE id=?',(asset_id,));continue
             from .searchqa_guidance import VERSION as SEARCHQA_VERSION, checked_asset as checked_searchqa
             from .searchqa_guidance_r3 import VERSION as R3
             if asset.get('method_version') == R3:

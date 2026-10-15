@@ -46,6 +46,8 @@ def receipt(off, on, candidates, source_hash, evaluation_set, policy):
 
 
 def verify_receipt(value):
+    from .math_effect_contract import R2
+    if value.get('method_version')==R2:return verify_receipt_r2(value)
     try:
         if value['receipt_hash']!=digest({k:v for k,v in value.items() if k!='receipt_hash'}):return False
         if value['method_version']!=VERSION or value['off_on_contract_equal_except_skill'] is not True:return False
@@ -70,6 +72,10 @@ def verify_receipt(value):
 
 
 def rank(r):
+    from .math_effect_contract import R2
+    if r.get('method_version')==R2:
+        x=r['groups']['intervened']
+        return (-x['net_correct'],x['losses'],-r['net_correct'],r['tokens_on']+r['tokens_off'],r['candidate_ids'])
     return (-r['net_correct'],r['losses'],r['tokens_on']+r['tokens_off'],r['http_on'],r['candidate_ids'])
 
 
@@ -102,3 +108,86 @@ def apply_edits(value, parents, sources, evidence, tokenizer_path):
         if card(v)==card(parent['candidate']):raise ValueError('Unchanged edit is not a new candidate')
         children.append(candidate(v,sources,evidence,parent=parent,delta=edit['operations']))
     return children
+
+
+def main_wire_hash(trace):
+    from .math_effect_source import read
+    paths=[p for p in trace['request_files'] if p.endswith('/main/request.json')]
+    if len(paths)!=1:raise ValueError('Missing unique actual main payload')
+    request=read(paths[0])
+    if digest(request)!=trace['request_files'][paths[0]]:raise ValueError('Actual request changed')
+    result=digest(request['payload'])
+    if trace.get('main_wire_hash',result)!=result:raise ValueError('Trace main payload hash differs')
+    return result
+
+
+def pairs_r2(off,on):
+    from .math_effect_selection import stronger_meta
+    from .contracts import PublicTask
+    rows=pairs(off,on)
+    for row in rows:
+        a,b=row['off'],row['on'];x,y=main_wire_hash(a),main_wire_hash(b)
+        row.update(on_selected_ids=list(b['selection']['selected']),off_wire_hash=x,on_wire_hash=y,
+            intervention_applied=x!=y,meta_option_present=stronger_meta(PublicTask(**a['task']))['has_stronger_meta'],
+            off_correct=a['score']['hard'],on_correct=b['score']['hard'],
+            attribution='policy_intervention_observation' if x!=y else 'same_policy_sampling_difference')
+    return rows
+
+
+def statistics_r2(rows):
+    def group(values):
+        wins=sum(r['outcome']=='win' for r in values);losses=sum(r['outcome']=='loss' for r in values)
+        return {'tasks':len(values),'wins':wins,'losses':losses,'net_correct':wins-losses,
+            **{a+'_correct':sum(r[a]['score']['hard'] for r in values) for a in ('off','on')},
+            **{'empty_'+a:sum(not r[a]['valid'] for r in values) for a in ('off','on')}}
+    groups={'all':group(rows),'intervened':group([r for r in rows if r['intervention_applied']]),
+        'not_intervened':group([r for r in rows if not r['intervention_applied']]),
+        'meta':group([r for r in rows if r['meta_option_present']]),
+        'non_meta':group([r for r in rows if not r['meta_option_present']])}
+    for intervention in (True,False):
+        for meta in (True,False):
+            groups[('intervened' if intervention else 'not_intervened')+('_meta' if meta else '_non_meta')]=group(
+                [r for r in rows if r['intervention_applied']==intervention and r['meta_option_present']==meta])
+    return groups
+
+
+def receipt_r2(off,on,candidates,source_hash,evaluation_set,policy=None):
+    from .math_effect_contract import R2
+    return build_receipt_r2(pairs_r2(off,on),[c['id'] for c in candidates],[digest(c) for c in candidates],source_hash,evaluation_set)
+
+
+def build_receipt_r2(rows,ids,hashes,source_hash,evaluation_set):
+    from .math_effect_contract import R2
+    groups=statistics_r2(rows);total=groups['all']
+    value={'schema':'math.effect-utility.v2','method_version':R2,'statistics_version':'actual-wire-intervention.v1',
+        'candidate_ids':ids,'candidate_hashes':hashes,'source_manifest_hash':source_hash,
+        'evaluation_set':evaluation_set,'rows':rows,'groups':groups,'evaluated_task_keys':[r['physical_key'] for r in rows],
+        'off_on_contract_equal_except_skill':True,'wins':total['wins'],'losses':total['losses'],
+        'net_correct':total['net_correct'],'empty_off':total['empty_off'],'empty_on':total['empty_on'],
+        'tokens_off':sum(r['off']['tokens'] for r in rows),'tokens_on':sum(r['on']['tokens'] for r in rows),
+        'http_off':sum(r['off']['http'] for r in rows),'http_on':sum(r['on']['http'] for r in rows),
+        'injections':sum(bool(r['on_selected_ids']) for r in rows),'qualified':False,
+        'observed_gain':groups['intervened']['net_correct']>0,
+        'evaluation_status':'experimental_not_claimed_effective','usage_qualified':'observed_model_usage'}
+    value['receipt_hash']=digest(value);return value
+
+
+def verify_receipt_r2(value):
+    try:
+        rows=pairs_r2([r['off'] for r in value['rows']],[r['on'] for r in value['rows']])
+        expected=build_receipt_r2(rows,value['candidate_ids'],value['candidate_hashes'],value['source_manifest_hash'],value['evaluation_set'])
+        return (value==expected and len(value['candidate_ids'])==len(value['candidate_hashes']) and
+            all(set(r['on_selected_ids'])<=set(value['candidate_ids']) for r in rows))
+    except (KeyError,TypeError,ValueError,OSError):return False
+
+
+def apply_edit_r2(edit,parents,sources,evidence,tokenizer_path):
+    from . import math_effect_contract as c
+    c.require(edit,c.EDIT_ITEM_R2)
+    if edit['parent_id'] not in parents:
+        raise c.ContractError([c.error('unknown_parent','$.parent_id','shown actual candidate ID',edit['parent_id'])])
+    parent=parents[edit['parent_id']];v=deepcopy(edit['replacement'])
+    c.validate_candidate_r2(v,sources,tokenizer_path=tokenizer_path)
+    if c.card(v)==c.card(parent['candidate']):return None
+    delta={key:{'before':parent['candidate'].get(key),'after':v.get(key)} for key in v if v.get(key)!=parent['candidate'].get(key)}
+    return c.candidate(v,sources,evidence,parent=parent,delta={'diff':delta,'rationale':edit['rationale']},version=c.R2)

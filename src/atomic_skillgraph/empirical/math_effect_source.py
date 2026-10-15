@@ -101,3 +101,40 @@ def proposal_material(source, trace_bytes=4096):
             'historical_trace':window(json.dumps(process,ensure_ascii=False),trace_bytes),
             'evidence_status':'observed_task_feedback_not_mathematical_proof','trace_hash':digest(t)})
     return rows
+
+
+def proposal_material_r2(source,process_bytes=4096):
+    """Complete public questions plus typed, honestly bounded observed process fields."""
+    rows=[];catalog={x['physical_key']:x for x in source['catalog']}
+    for task in source['tasks']['train']:
+        key=task['physical_key'];t=source['traces'][key];observed=[]
+        public=t['execution'].get('public_process_evidence')
+        if public:observed.append({'kind':'public_process_evidence','value':deepcopy(public),'qualification':'observed_not_proven'})
+        for i,r in enumerate(t['requests']):
+            if r.get('stage')!='runtime':continue
+            response=r.get('response',{})
+            if response.get('tool_calls'):
+                observed.append({'kind':'recorded_tool_calls','request_index':i,'value':deepcopy(response['tool_calls'])})
+            reasoning=response.get('reasoning_content')
+            if reasoning:
+                observed.append({'kind':'model_reported_reasoning','request_index':i,
+                    'excerpt':window(reasoning,process_bytes),'qualification':'unverified_model_process'})
+        # A label-only response is task feedback, not an invented mathematical derivation.
+        rows.append({'case_id':key,'public_task':{'goal':task['goal'],'choices':deepcopy(task['inputs']['choices'])},
+            'historical_prediction':t['execution'].get('prediction',''),'historical_correct':t['score']['hard'],
+            'observed_process':observed,'process_status':'recorded' if observed else 'not_recorded',
+            'source_trace_hash':catalog[key]['trace_sha256'],'evidence_status':'task_feedback_not_proof'})
+    return rows
+
+
+def material_batches_r2(rows,max_bytes):
+    batches=[];current=[]
+    for row in rows:
+        if len(json.dumps([row],allow_nan=False).encode())>max_bytes:
+            raise ValueError('Complete source question exceeds one learning batch; no truncation')
+        if current and len(json.dumps([*current,row],allow_nan=False).encode())>max_bytes:
+            batches.append(current);current=[]
+        current.append(row)
+    if current:batches.append(current)
+    if len({r['case_id'] for b in batches for r in b})!=len(rows):raise ValueError('Duplicate learning source')
+    return batches

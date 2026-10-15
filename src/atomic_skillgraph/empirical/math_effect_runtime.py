@@ -8,7 +8,7 @@ from ..agents.provider import OpenAICompatibleConfig, OpenAICompatibleProvider
 from ..core.errors import BudgetExhausted
 from .checkpoint import save_json
 from .contracts import digest
-from .math_effect_contract import ANSWER, VERSION, card
+from .math_effect_contract import ANSWER, VERSION, R2, card
 from .math_effect_source import read
 from .math_effect_selection import select
 
@@ -48,6 +48,20 @@ def call(root, p, messages_, governor, context, *, tools=None, tool_choice=None)
         receipt=read(response)
         if receipt['identity']!=identity or digest(receipt['turn'])!=receipt['response_hash']:raise ValueError('Response changed')
         return AgentTurn(**receipt['turn']),receipt
+    journal=root/'received.json'
+    if context.get('method_version')==R2 and journal.exists():
+        saved=read(journal)
+        if saved['identity']!=identity or saved['received_hash']!=digest({k:v for k,v in saved.items() if k!='received_hash'}):
+            raise ValueError('Received response journal identity changed')
+        for record in saved['records']:
+            charge=governor.state['attempts'].get(record['request_id'],{})
+            if charge.get('status')!='metered' or charge.get('actual_usage')!=record['raw_usage']:
+                raise ValueError('Received response does not match committed billing')
+        save_json(root/'requests.json',saved['records'])
+        receipt={'identity':identity,'turn':saved['turn'],'response_hash':digest(saved['turn']),
+            'request_ids':[r['request_id'] for r in saved['records']],'request_hash':digest(saved['records'])}
+        save_json(response,receipt)
+        return AgentTurn(**saved['turn']),receipt
     if (root/'started.json').exists():
         raise RuntimeError('Interrupted physical request without committed response; no blind repeated HTTP')
     save_json(request,{'identity':identity,'payload':wire,'context':context,'provider':p.config.snapshot()})
@@ -71,7 +85,11 @@ def call(root, p, messages_, governor, context, *, tools=None, tool_choice=None)
         turn=getattr(exc,'usage_turn',None)
         if turn is None:raise
         turn.tool_calls=[]
-    records=list(p.request_records_since(start));save_json(root/'requests.json',records)
+    records=list(p.request_records_since(start))
+    if context.get('method_version')==R2:
+        saved={'identity':identity,'turn':asdict(turn),'records':records}
+        saved['received_hash']=digest(saved);save_json(journal,saved)
+    save_json(root/'requests.json',records)
     receipt={'identity':identity,'turn':asdict(turn),'response_hash':digest(asdict(turn)),
         'request_ids':[r['request_id'] for r in records],'request_hash':digest(records)}
     save_json(response,receipt)
@@ -81,7 +99,7 @@ def call(root, p, messages_, governor, context, *, tools=None, tool_choice=None)
 def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
     from .answer_executor import reasoning_tail
     root=Path(root);settings=cfg['effect_p7'];llm=cfg['llm']
-    selection=select(candidates,task,settings['tokenizer_path'],settings['max_injection_tokens'])
+    selection=select(candidates,task,settings['tokenizer_path'],settings['max_injection_tokens'],version=settings.get('method_version'))
     cards=[card(c['candidate']) for c in selection['selected']]
     identity=digest([task.__dict__,cards,settings,llm]);path=root/'trace.json'
     if path.exists():
@@ -98,6 +116,7 @@ def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
         'parent_scope':str(root.resolve()),'parent_token_limit':settings['runtime']['parent_tokens'],
         # The directory identifies phase/arm/policy/task; equal payloads are still separate paid solves.
         'episode_scope':digest([identity,str(root.resolve())]),'episode_request_limit':2,'purpose':'runtime'}
+    if settings.get('method_version')==R2:base['method_version']=R2
     p=(providers or {}).get('main') or provider(llm,'runtime',settings)
     turn,receipt=call(root/'main',p,messages(task,cards),governor,base)
     initial_length=turn.finish_reason=='length';answer=turn.content;receipts=[receipt];censored=False;finish_state='not_needed'
@@ -132,6 +151,10 @@ def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
         'runtime_contract_hash':digest([ANSWER,PROMPT,FINISH,llm,settings['runtime']]),'program_calls':0,
         'request_files':{str(p.resolve()):digest(read(p)) for sub in ('main','finish') for name in ('request.json','response.json','requests.json')
             if (p:=root/sub/name).exists()}}
+    if settings.get('method_version')==R2:
+        result['method_version']=R2
+        result['main_wire_hash']=digest(read(root/'main/request.json')['payload'])
+        result['main_wire_hash_contract']='actual_provider_payload.v1; excludes HTTP headers and audit context only'
     result['trace_hash']=digest(result);save_json(path,result);return result
 
 
@@ -147,8 +170,15 @@ def verify_trace(trace):
 
 def system_task(system,task,learn):
     if learn:raise ValueError('P7 learning is an explicit Train-trace batch, never per-task Runtime learning')
-    from .math_effect_contract import checked_effect_asset
+    from .math_effect_contract import checked_effect_asset, checked_experimental_asset
     assets=system.bank.all('skill')
-    if any(not checked_effect_asset(a) for a in assets):raise ValueError('P7 Runtime requires qualified Frozen assets')
+    if system.config['effect_p7']['method_version']==R2:
+        if not system.readonly or any(not checked_experimental_asset(a) for a in assets):raise ValueError('R2 experimental view requires readonly R2 assets')
+        row=system.bank.db.execute("SELECT value FROM metadata WHERE key='effect_deployed_ids'").fetchone()
+        if not row:raise ValueError('Missing frozen R2 deployment policy')
+        by_id={a['effect_candidate']['id']:a for a in assets}
+        if set(by_id)!=set(json.loads(row[0])):raise ValueError('Experimental deployment changed')
+        assets=[by_id[k] for k in json.loads(row[0])]
+    elif any(not checked_effect_asset(a) for a in assets):raise ValueError('P7 Runtime requires qualified Frozen assets')
     return solve(task,system.adapter,[a['effect_candidate'] for a in assets],system.config,
         Path(system.config['experiment']['output_dir'])/task.physical_key,system.budget_governor)
