@@ -109,6 +109,7 @@ def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
     result={'schema':ANSWER,'identity':identity,'task':task.__dict__,'prediction':answer,'valid':valid,'score':score,
         'score_hash':digest([score,adapter.score_audit]),'scorer_audit':adapter.score_audit,'first_truncated':initial_length,
         'finish_state':finish_state,'budget_censored':censored,'response_hashes':[r['response_hash'] for r in receipts],
+        'response_models':[r['turn']['provider_metadata'].get('response_model') for r in receipts],
         'request_ids':[r['request_id'] for r in records],'raw_usage':[r['raw_usage'] for r in records],
         'tokens':sum(r['usage']['total_tokens'] for r in records if r['usage']), 'http':len(records),
         'latency_ms':sum(r['attempt_latency_ms'] for r in records),

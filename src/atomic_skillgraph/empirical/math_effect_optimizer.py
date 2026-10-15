@@ -11,6 +11,8 @@ def pairs(off, on):
     for a,b in zip(off,on):
         if (a['task']!=b['task'] or a['public_input_hash']!=b['public_input_hash'] or
                 a['runtime_contract_hash']!=b['runtime_contract_hash']):raise ValueError('Off/on input or protocol differs')
+        if set(a.get('response_models',[]))!=set(b.get('response_models',[])):
+            raise ValueError('Off/on actual response model differs')
         for r in (a,b):
             if r['trace_hash']!=digest({k:v for k,v in r.items() if k!='trace_hash'}):raise ValueError('Changed task receipt')
             if not r['request_ids'] or len(r['request_ids'])!=r['http'] or len(r['raw_usage'])!=r['http']:

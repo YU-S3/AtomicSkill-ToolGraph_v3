@@ -68,7 +68,9 @@ tokens; 12M requires observed-cost preflight and separate review approval.
 `human_instruction`, and `phases` mapping approved phase names to the exact
 limits above. `test_authorization.json` additionally contains the exact
 `review_identity` printed in `review.json` and Test `limits`. Test requires a
-positive completed Val review and a matching Bank/model/plan/task list.
+completed Val review, cost-sufficiency check and a matching Bank/model/plan/task
+list. Val is descriptive; the Train/Gate thresholds are not reused as an
+unapproved additional Val selection rule.
 These files are audit records of human authorization, not tools for granting
 permission to oneself. Repeated stages use saved physical responses; an
 interrupted request lacking a committed response blocks replay.

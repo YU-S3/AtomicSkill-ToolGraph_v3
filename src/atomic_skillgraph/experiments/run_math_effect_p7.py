@@ -132,7 +132,8 @@ def authorize(root,phase,plan):
         raise ValueError('Paid authority does not match frozen phase/plan')
     if phase=='test':
         identity=test_identity(root,plan)
-        if value.get('review_identity')!=identity or not read(Path(root)/'review.json')['recommend_release']:
+        review=read(Path(root)/'review.json')
+        if value.get('review_identity')!=identity or not review['review_completed'] or not review['test_budget_sufficiency']:
             raise ValueError('Test needs approval bound to the completed Val review and exact Frozen')
     if billing_blocked(read(Path(root)/'budget/ledger.json')):raise ValueError('Unresolved billing blocks P7')
 
@@ -236,7 +237,7 @@ def run_edit(root,plan):
     initial=read(root/'learning/initial/learning.json');candidates=initial['candidates']
     if not candidates:
         result={'status':'completed_no_candidate','best':None};write_json(root/'feedback/result.json',result);return result
-    cfg=read(root/'config.json');members=read(root/'partition.json')['members'];history=[];known={c['id']:c for c in candidates}
+    cfg=read(root/'config.json');members=read(root/'partition.json')['members'];history=[]
     queue=policies(candidates);best=None;best_policy=[]
     for round_ in range(plan['settings']['edit_rounds']+1):
         for policy in queue:
@@ -253,7 +254,7 @@ def run_edit(root,plan):
         memory.append(root/'memory',{'stage':'edit','round':round_+1,'result':edited})
         queue=[]
         for child in edited['candidates']:
-            known[child['id']]=child;memory.append(root/'candidate_versions',child)
+            memory.append(root/'candidate_versions',child)
             policy=[child if c['id']==child['parent_id'] else c for c in best_policy]
             queue.append(policy)
         if not queue:break
@@ -265,6 +266,7 @@ def run_edit(root,plan):
 def run_gate(root,plan):
     root=Path(root);selection=read(root/'feedback/result.json')
     if selection['status']!='feedback_qualified':raise ValueError('No positive Train policy for Gate')
+    authorize(root,'gate',plan)
     lock={'policy':selection['policy'],'feedback_hash':digest(selection),'plan_hash':digest(plan)}
     path=root/'gate/lock.json'
     if path.exists() and read(path)!=lock:raise ValueError('Gate already locked to a different policy')
@@ -329,11 +331,11 @@ def review(root,plan):
     tokens=[row[arm]['tokens'] for row in r['rows'] for arm in ('off','on')]
     estimate=max(tokens)*200  # conservative observed maximum; not a theoretical guarantee
     allowance=plan['settings']['phase_limits']['test']['token_limit']
-    value={'recommend_release':r['qualified'] and estimate<=allowance,'metrics':metrics(r),
+    value={'review_completed':True,'recommend_release':r['net_correct']>0 and estimate<=allowance,'metrics':metrics(r),
         'val_net_correct':r['net_correct'],'val_losses':r['losses'],'val_qualified':r['qualified'],
         'test_observed_max_projection_tokens':estimate,'test_theoretical_max_tokens':25600000,
         'test_budget_sufficiency':estimate<=allowance,'test_identity':test_identity(root,plan),
-        'reason':'Review actual paired effects and cost before separately authorizing Test',
+        'reason':'Val is descriptive, not an additional trained selection threshold. Explicit human Test review is required.',
         'test_development_history_disclosed':True}
     write_json(root/'review.json',value);return value
 
@@ -371,7 +373,8 @@ def report(root):
     root=Path(root);plan=checked(root);ledger=read(root/'budget/ledger.json');prefix=read(root/'budget/prefix.json')
     new={k:v for k,v in ledger['attempts'].items() if k not in prefix['attempts']}
     result={'method_version':c.VERSION,'run_id':plan['run_id'],'code':plan['code'],'new_http':len(new),
-        'new_tokens':sum(r.get('accounted_tokens',r['reserved_tokens']) for r in new.values()),
+        'new_metered_tokens':sum(r.get('accounted_tokens',0) for r in new.values()),
+        'new_reserved_unresolved_tokens':sum(r['reserved_tokens'] for r in new.values() if 'accounted_tokens' not in r),
         'billing_ready':not billing_blocked(ledger),'recommend_release':False,'test_development_history_disclosed':True}
     for stage,path in [('learning','learning/initial/learning.json'),('feedback','feedback/result.json'),('gate','gate/result.json'),('review','review.json')]:
         if (root/path).exists():result[stage]=read(root/path)
@@ -402,12 +405,20 @@ def main():
         elif args.stage=='check':result=check(root)
         elif args.stage=='report':result=report(root)
         else:
-            plan=checked(root)
-            functions={'learn':run_learn,'edit':run_edit,'gate':run_gate,'freeze':freeze,'review':review}
-            result=functions[args.stage](root,plan) if args.stage in functions else run_eval(root,plan,args.stage)
+            import fcntl
+            with (root/'execution.lock').open('a') as lock:
+                try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                except BlockingIOError:raise RuntimeError('Another P7 stage is already executing') from None
+                plan=checked(root)
+                functions={'learn':run_learn,'edit':run_edit,'gate':run_gate,'freeze':freeze,'review':review}
+                result=functions[args.stage](root,plan) if args.stage in functions else run_eval(root,plan,args.stage)
     except BudgetExhausted as exc:
         result={'status':'budget_stopped','code':exc.code,'stage':args.stage,'automatic_retry':False}
         write_json(root/'review_required.json',result)
+    except Exception as exc:
+        if root.exists():write_json(root/'review_required.json',{'status':'stopped','stage':args.stage,
+            'error_type':type(exc).__name__,'reason':str(exc),'automatic_retry':False})
+        raise
     print(json.dumps(result,ensure_ascii=False,indent=2))
 
 

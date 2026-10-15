@@ -83,6 +83,8 @@ def candidate(value, sources, evidence, *, parent=None, delta=None):
 
 def checked_candidate(value):
     try:
+        if set(value)!={'id','schema','method_version','candidate','parent_id','parent_hash','source_manifest_hash',
+            'source_checked','model_evidence','edit_delta','qualification'}:return False
         raw={k:v for k,v in value.items() if k!='id'}
         if value['method_version']!=VERSION or value['id']!='effect_'+digest(raw) or not value['source_checked']:return False
         require(value['candidate'],CANDIDATE)
@@ -92,6 +94,7 @@ def checked_candidate(value):
 
 def checked_effect_asset(asset, *, usable=True):
     try:
+        if set(asset)-{'id','method_version','effect_candidate','goal','guidance','knowledge_type','execution_intent','state','train_utility_receipts'}:return False
         c=asset['effect_candidate']
         if asset['method_version']!=VERSION or not checked_candidate(c):return False
         if asset['goal']!=c['candidate']['goal'] or asset['guidance']!=json.dumps(card(c['candidate']),ensure_ascii=False):return False
