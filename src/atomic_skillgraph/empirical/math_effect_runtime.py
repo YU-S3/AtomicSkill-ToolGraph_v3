@@ -56,7 +56,11 @@ def call(root, p, messages_, governor, context, *, tools=None, tool_choice=None)
     room=governor.headroom(context)
     from .budget_governor import input_token_bound
     if room['requests']<1 or input_token_bound(wire)+p.config.max_completion_tokens>room['tokens']:
-        raise BudgetExhausted('p7_budget_exhausted','P7 parent/phase/campaign admission refused')
+        owned=[a for a in governor.state['attempts'].values() if a['context'].get('parent_scope')==context['parent_scope']]
+        parent_used=sum(a.get('accounted_tokens',a['reserved_tokens']) for a in owned)
+        parent_exhausted=parent_used+input_token_bound(wire)+p.config.max_completion_tokens>context['parent_token_limit']
+        raise BudgetExhausted('parent_task_budget_exhausted' if parent_exhausted else 'p7_budget_exhausted',
+            'P7 parent/phase/campaign admission refused')
     save_json(root/'started.json',{'identity':identity})
     p.budget_governor=governor;p.set_request_context(**context)
     start=p.request_record_count
@@ -97,12 +101,21 @@ def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
     turn,receipt=call(root/'main',p,messages(task,cards),governor,base)
     initial_length=turn.finish_reason=='length';answer=turn.content;receipts=[receipt];censored=False;finish_state='not_needed'
     if not adapter.valid_answer_format(answer):
-        tail=reasoning_tail(turn,receipt['request_ids'][-1],settings['runtime']['tail_bytes'])
         p=(providers or {}).get('finish') or provider(llm,'finish',settings)
+        from .budget_governor import input_token_bound
+        remaining=governor.headroom({**base,'purpose':'finish_only'})['tokens']-p.config.max_completion_tokens
+        low,high=0,settings['runtime']['tail_bytes']
+        while low<high:
+            mid=(low+high+1)//2
+            tail=reasoning_tail(turn,receipt['request_ids'][-1],mid)
+            if input_token_bound(p._build_payload(messages(task,cards,tail),[]))<=remaining:low=mid
+            else:high=mid-1
+        tail=reasoning_tail(turn,receipt['request_ids'][-1],low)
         try:
             turn,receipt=call(root/'finish',p,messages(task,cards,tail),governor,{**base,'purpose':'finish_only'})
             receipts.append(receipt);answer=turn.content;finish_state='valid' if adapter.valid_answer_format(answer) else 'invalid'
-        except BudgetExhausted:
+        except BudgetExhausted as exc:
+            if exc.code!='parent_task_budget_exhausted':raise
             censored=True;finish_state='budget_refused'
     valid=adapter.valid_answer_format(answer);score=adapter.evaluate(adapter.submit(answer))
     records=[r for sub in ('main','finish') if (root/sub/'requests.json').exists() for r in read(root/sub/'requests.json')]
