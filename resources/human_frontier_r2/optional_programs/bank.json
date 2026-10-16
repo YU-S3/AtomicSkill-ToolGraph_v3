@@ -730,7 +730,7 @@
         {
           "id": "operation",
           "execution_mode": "program",
-          "program_id": "program_8539dd4cdaf2bd5b290e6fb4bb89ccb6019e5108688ba3b9b991a0fa86626349",
+          "program_id": "program_7ce605299d7c7ffc17a9097695fd3f05446f4ed315bae9c98fef62f9f11ff68a",
           "after": [],
           "args": {
             "expression": {
@@ -783,7 +783,7 @@
         {
           "id": "operation",
           "execution_mode": "program",
-          "program_id": "program_4c4bd2816f8e65864954507c77c184966866851f12863ed930d4daf3c8210929",
+          "program_id": "program_7dc3e306aefd869b74d51affe6c1372603f7703837ceef0caf775f6d5089da44",
           "after": [],
           "args": {
             "premise": {
@@ -838,5 +838,6 @@
     }
   ],
   "default_workflow_id": "workflow_hf_livemath_reasoning",
-  "measured_performance": null
+  "measured_performance": null,
+  "export_revision": "human.frontier.r2.optional-reference.v1"
 }

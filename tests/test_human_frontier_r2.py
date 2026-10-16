@@ -134,6 +134,19 @@ def test_real_legacy_schema400_is_absent():
     s=run.integration().action_schema();assert s['type']=='object'
     assert all(branch['type']=='object' for branch in s['oneOf'])
 
+
+def test_optional_native_import_has_no_stale_workflow_references(banks,tmp_path):
+    bundle=run.read(banks/'banks/optional_programs/bank.json')
+    ids={p['id'] for p in bundle['program']}
+    assert all(n['program_id'] in ids for w in bundle['workflow'] for n in w['nodes'] if n.get('program_id'))
+    imported=run.integration().native_import(bundle,tmp_path/'native_optional',bundle['program'][0]['environment'])
+    bank=Bank(tmp_path/'native_optional',readonly=True)
+    try:
+        assert len(bank.all('program'))==2 and len(bank.all('workflow'))==3
+        assert all(bank.get(n['program_id']) for w in bank.all('workflow') for n in w['nodes'] if n.get('program_id'))
+        assert all(p['state']=='candidate' and 'local_validation' not in p for p in bank.all('program'))
+    finally:bank.close()
+
 def fixture_run(tmp_path,monkeypatch):
     data=tmp_path/'data';data.mkdir()
     for split,n in [('train',60),('val',17),('test',100)]:

@@ -85,6 +85,7 @@ def build(output, package=PACKAGE):
         (dest/'SKILL.md').write_bytes(raw)
     legacy = json.loads((package/'legacy_humanfrontier/bank/bank.json').read_text())
     optional = deepcopy(legacy)
+    remap = {}
     for p in optional['program']:
         if p['source_file'].endswith('exact_compute.py'):
             p['input_schema']['properties']['digits'].update(minimum=0,maximum=30)
@@ -93,8 +94,13 @@ def build(output, package=PACKAGE):
                 'relation and scope; unrelated toy implications are not evidence. No witness is not a general proof.')
             p['entry_constraints']['description'] = p['title']
         old = p['id'];p['id'] = 'program_'+program_digest(p)
+        remap[old] = p['id']
         for i in optional['implementation']:
             if i['program_id']==old:i['program_id']=p['id']
+    for workflow in optional['workflow']:
+        for node in workflow['nodes']:
+            if node.get('program_id') in remap:node['program_id']=remap[node['program_id']]
+    optional['export_revision'] = 'human.frontier.r2.optional-reference.v1'
     write_json(output/'optional_programs/bank.json',optional)
     write_json(output/'variant_manifest.json',{'method_version':VERSION,'variants':variants,
         'benchmark_prior_equivalent_to':'upstream_skillopt_lite','programs':'off','graph':False,

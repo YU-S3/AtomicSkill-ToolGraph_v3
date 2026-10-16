@@ -31,6 +31,8 @@ policy exactly once. All paid arms use programs=off and graph=false. Composite
 execution is prompt_compiled; it does not count as Program or graph node calls.
 The two original optional programs remain in `optional_programs/`; digits is
 bounded to 0–30, and finite examples require a task-related scope.
+The optional export remaps both Implementation and Workflow Program references.
+This packaging correction does not change either paid text policy or its Runtime.
 
 Campaign CLI (from a committed native checkout with PYTHONPATH=src):
 
