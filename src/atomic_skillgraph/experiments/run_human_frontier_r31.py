@@ -120,7 +120,9 @@ def prepare(root, previous):
              *[datasets/n for n in ['train.json','val.json','test.json','evaluator_records_train.json','evaluator_records_test.json']]]
     plan = {'schema':VERSION,'created_at':utc(),'code':code,'previous_run':str(previous),
             'data_root':str(datasets),'model':cfg['llm']['model'],'seed':42,'variant':'benchmark_prior',
-            'runtime':rt.RUNTIME,'phase_limits':PHASES,'cumulative_limits':LIMITS,
+            'runtime':{**rt.RUNTIME,'programs':'author_trusted_docker','graph':True,
+                       'workflow_execution':'programmatic'},
+            'dynamic_subsolver_runtime':rt.RUNTIME,'phase_limits':PHASES,'cumulative_limits':LIMITS,
             'historical_tokens_or_reserved':used,'historical_http':len(prefix['attempts']),
             'source_integration':str(root/'bundle/integration/episode_bridge.py'),
             'asset_import':assets,'bank_tree':tree_identity(root/'bank'),'bundle_tree':tree_identity(root/'bundle'),
