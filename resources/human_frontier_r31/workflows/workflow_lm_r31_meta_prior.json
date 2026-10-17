@@ -1,0 +1,65 @@
+{
+  "id": "workflow_lm_r31_meta_prior",
+  "goal": "Execute public meta prior as a programmatic two-step graph",
+  "interface_version": "empirical.workflow.v2",
+  "workflow_execution": "native_program_nodes",
+  "nodes": [
+    {
+      "id": "scan",
+      "execution_mode": "program",
+      "program_id": "program_ee63c2a2fe550c4e4f860f939ceda247e4ce0fa920096c076d7216737521ccc7",
+      "after": [],
+      "args": {
+        "choices": {
+          "task": "choices"
+        }
+      }
+    },
+    {
+      "id": "prior_commit",
+      "execution_mode": "program",
+      "program_id": "program_48e4d4ac47658d49aa23e8a5fae8e4d46ea12126a9248a71ab60ed56b8d82661",
+      "after": [
+        "scan"
+      ],
+      "args": {
+        "labels": {
+          "from": "scan",
+          "field": "labels"
+        },
+        "meta_labels": {
+          "from": "scan",
+          "field": "meta_labels"
+        },
+        "meta_count": {
+          "from": "scan",
+          "field": "meta_count"
+        },
+        "meta_label": {
+          "from": "scan",
+          "field": "meta_label"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "answer": {
+      "from": "prior_commit",
+      "field": "answer"
+    }
+  },
+  "data_flow_edges": [
+    {
+      "from": "scan",
+      "to": "prior_commit",
+      "fields": [
+        "labels",
+        "meta_labels",
+        "meta_count",
+        "meta_label"
+      ]
+    }
+  ],
+  "fallback": "nonmeta_dynamic_on_zero_or_duplicate_meta_or_worker_failure",
+  "rule_basis": "benchmark_specific_prior_not_math_proof"
+}

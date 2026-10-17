@@ -1,0 +1,1223 @@
+{
+  "schema": "human.programmatic-atomic-skill.bank.v1",
+  "benchmark": "livemath",
+  "method_version": "human.frontier.livemath.programmatic.r3.1",
+  "seed": 42,
+  "learning_identity": "human_authored_reference_not_ours",
+  "capability_graph": "Atomic with typed I/O -> Implementation -> bounded Tool; Composite with occurrence and data-flow edges",
+  "permission": "author_trusted_manual_worker_path",
+  "score_modes": {
+    "benchmark_prior": "wf_meta when exactly 1 public meta else wf_dynamic",
+    "theorem_reasoning": "always wf_dynamic; no meta prior submit"
+  },
+  "source_basis": {
+    "previous_r3": "LiveMath_HumanFrontier_R3_Candidate_20261017.zip",
+    "observed_r2_score": {
+      "upstream_skillopt_lite_test100": "57/100",
+      "score_source": "different R2 run, NOT R3.1"
+    },
+    "public_references": [
+      "microsoft/SkillOpt",
+      "EvolvingLMMs-Lab/SkillOpt-Lite"
+    ],
+    "licenses": [
+      "reference/skillopt_LICENSE",
+      "reference/skillopt_lite_LICENSE"
+    ]
+  },
+  "program_environment": {
+    "backend": "sandbox_python_v1",
+    "python": "3.12",
+    "dependencies": [
+      "openpyxl==3.1.5",
+      "pandas==2.3.3",
+      "pillow==11.3.0"
+    ],
+    "adapter_abi": "simple.v2",
+    "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+  },
+  "skill": [
+    {
+      "id": "skill_lm_r31_public_choices",
+      "kind": "atomic",
+      "goal": "Read and type the public A-E option array",
+      "guidance": "Obtain the actual labels and complete visible statements; detect but never prove the meaning of the stronger-result meta option.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "choices": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "choices"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "choices": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "meta_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "meta_count": {
+            "type": "integer"
+          },
+          "meta_label": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "labels",
+          "choices",
+          "meta_labels",
+          "meta_count",
+          "meta_label",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "Public task exposes ordered labeled choice text, not evaluator gold"
+      ],
+      "effects": [
+        "Read-only; derive observed labels and meta counts"
+      ],
+      "execution_intent": "programmatic",
+      "provenance": {
+        "origin": "human_authored_not_ours",
+        "basis": "general",
+        "upstream": "MIT reference skill sources"
+      },
+      "validation": {
+        "status": "unmeasured",
+        "note": "No actual DeepSeek Test R3.1 results"
+      },
+      "manual_permission": "author_trusted",
+      "method_version": "human.frontier.livemath.programmatic.r3.1"
+    },
+    {
+      "id": "skill_lm_r31_prior_decision",
+      "kind": "atomic",
+      "goal": "Select uniquely matched meta label under explicit benchmark prior",
+      "guidance": "When a unique public stronger-result meta-choice exists and this benchmark-prior arm is explicitly selected, return its actual label. This is not a mathematical proof.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "meta_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "meta_count": {
+            "type": "integer"
+          },
+          "meta_label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "labels",
+          "meta_labels",
+          "meta_count",
+          "meta_label"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "basis"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "Arm=benchmark_prior; one unique public match",
+        "Explicit publication distinguishes shortcut from theorem reasoning"
+      ],
+      "effects": [
+        "Read-only final label decision limited to benchmark-prior evaluation"
+      ],
+      "execution_intent": "programmatic",
+      "provenance": {
+        "origin": "human_authored_not_ours",
+        "basis": "benchmark_specific_prior",
+        "upstream": "MIT reference skill sources"
+      },
+      "validation": {
+        "status": "unmeasured",
+        "note": "No actual DeepSeek Test R3.1 results"
+      },
+      "manual_permission": "author_trusted",
+      "method_version": "human.frontier.livemath.programmatic.r3.1"
+    },
+    {
+      "id": "skill_lm_r31_clause_features",
+      "kind": "atomic",
+      "goal": "Extract clause-level lexical contrasts without claiming truth",
+      "guidance": "Identify candidate option differences in quantifiers, scope, uniqueness, constants, sharpness and endpoint language; do not decide validity from their surface markers.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "choices": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "choices"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "flags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "label",
+                "flags"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "contrasts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "left": {
+                  "type": "string"
+                },
+                "right": {
+                  "type": "string"
+                },
+                "left_only": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "right_only": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "left",
+                "right",
+                "left_only",
+                "right_only"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "features",
+          "contrasts",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "Original choices available"
+      ],
+      "effects": [
+        "Read-only structural hints; logical truth unverified"
+      ],
+      "execution_intent": "programmatic",
+      "provenance": {
+        "origin": "human_authored_not_ours",
+        "basis": "general",
+        "upstream": "MIT reference skill sources"
+      },
+      "validation": {
+        "status": "unmeasured",
+        "note": "No actual DeepSeek Test R3.1 results"
+      },
+      "manual_permission": "author_trusted",
+      "method_version": "human.frontier.livemath.programmatic.r3.1"
+    },
+    {
+      "id": "skill_lm_r31_dynamic_theorem",
+      "kind": "atomic",
+      "goal": "Decide the mathematically best-supported visible theorem statement",
+      "guidance": "## NON-META branch — compare the decisive hypotheses and claims\n\nThere is no unique stronger-result meta-option in the visible choices. Do not apply a meta-prior and do not favor a fixed letter. The highest-value step is identifying the narrow mathematical difference between the two most plausible concrete options. Align domains and hypotheses before deciding whether a stronger conclusion is justified. Preserve exact endpoints, quantifier order and dependence of constants. Avoid assuming a theorem is sharp merely from a familiar title or a polished option.\n\n## Option Comparison\n- Compare all options before committing. The correct choice is often the strongest statement justified by the question, while nearby distractors are weaker, overstrong, or miss an equality case.\n- Track exact quantifiers such as \"there exists\", \"for every\", \"if and only if\", and \"exactly when\".\n\n## Theorem-Level Precision\n- Check whether an option weakens the conclusion by dropping a characterization, equality clause, or full equivalence.\n- Check whether an option overstates the theorem by upgrading regularity, removing scale restrictions, or changing an existential statement into a universal one.\n- **\"Stronger\" is not the same as \"more sweeping.\"** The provable statement usually keeps a *necessary qualifier*, and the trap option is the one that strips it: a constant that depends on $T$ (not a $T$-uniform/global-in-time bound), a *consistency* result (not an outright impossibility/\"no model\" claim), a *positive* stable invariant (not its vanishing), a *strict* boundary of a parameter range (not its non-strict closure, e.g. $0<q<1-\\theta$ rather than $0<q\\le 1-\\theta$), or a property attached to the exact object named (not a decorated/restricted variant). When two options differ only by such a qualifier, do **not** upgrade to the unconditional/uniform/extremal cousin unless that upgrade is itself provable; pick the option whose qualifier matches what the hypotheses actually supply.\n- **The \"appended clause\" tell.** When two concrete options read word-for-word the same except that one tacks on an extra clause — a converse (\"conversely, every ... occurs\"), an upgrade to full equivalence (\"all three are equivalent\"), an extra bound/constant, or a uniform-in-time/global claim — that appended clause is usually the unprovable trap. Prefer the shorter option without the add-on unless you can positively prove the add-on. (This does not override the literal \"stronger result\" meta-option, which is chosen by its wording, not by being longer.)\n- **Hedged-negation vs sharper affirmative.** When one option states a clean positive property of the named object (\"$f$ is an embedding\", \"such a situation is consistent (with WUA)\", \"the constant is sharp\") and another only states a weaker structure plus a *negative* qualifier (\"$f$ is a Poisson map but need not be injective\", \"no model satisfying WUA can contain such a pair\", \"the bound is not extremal\"), do **not** pick the hedged-negation option unless you can positively prove the negation. A hedged negation reads as cautious but is itself a strong (and usually unprovable) non-existence/non-property claim; the affirmative is generally the strongest provable statement.\n\n## Hypotheses\n- Verify the hypotheses and domain carefully. Distractors often keep the theorem shape but alter the required assumptions.\n- Pay close attention to equality cases, extremal conditions, and whether a result applies to the full family or only a restricted subfamily.\n\n\n## Final decision on concrete statements\n\nSelect the single best-supported concrete statement. A valid stronger claim requires its *additional clause* to follow, not merely sound plausible. Distinguish the existence of some valid constant from sharp constants; one-way implications from equivalences; restricted from full scope; sample-specific from uniform statements; and open from closed endpoints. Do not hallucinate unavailable theorem text, and avoid long unproductive re-derivations. Output exactly the chosen display label.\n\n\nMeta option requires actual mathematical or explicit prior evidence; never infer proof from syntactic patterns.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "flags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "label",
+                "flags"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "contrasts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "left": {
+                  "type": "string"
+                },
+                "right": {
+                  "type": "string"
+                },
+                "left_only": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "right_only": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "left",
+                "right",
+                "left_only",
+                "right_only"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "goal",
+          "choices"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "Public original question/choices; optional verified structural output"
+      ],
+      "effects": [
+        "An LLM decides final label; there is NO deterministic theorem oracle"
+      ],
+      "execution_intent": "dynamic_guidance",
+      "provenance": {
+        "origin": "human_authored_not_ours",
+        "basis": "general",
+        "upstream": "MIT reference skill sources"
+      },
+      "validation": {
+        "status": "unmeasured",
+        "note": "No actual DeepSeek Test R3.1 results"
+      },
+      "manual_permission": "author_trusted",
+      "method_version": "human.frontier.livemath.programmatic.r3.1"
+    }
+  ],
+  "program": [
+    {
+      "source": "\"\"\"Extract the only public stronger-result meta-choice; never access model or gold.\"\"\"\nimport re\nMETA = re.compile(r'(?:one of (?:the )?(?:remaining|other) options is correct.{0,120}(?:stronger result|stronger statement|stronger conclusion) can be proven)|(?:none of the above.{0,80}strongest)', re.I | re.S)\n\ndef run(ctx, inputs):\n    choices=inputs.get('choices',[])\n    if not isinstance(choices,list) or not 2<=len(choices)<=8:\n        return {'status':'needs_input','outputs':{},'detail':'2..8 real public choices required'}\n    labels=[]; matches=[]; raw=[]\n    for c in choices:\n        if not isinstance(c,dict) or not isinstance(c.get('text'),str) or not isinstance(c.get('label'),str):\n            return {'status':'needs_input','outputs':{},'detail':'Each choice needs public label/text'}\n        label,text=c['label'],c['text']\n        if label not in {'A','B','C','D','E','F','G','H'} or label in labels or len(text)>16000:\n            return {'status':'needs_input','outputs':{},'detail':'Invalid/repeated label or oversized choice'}\n        labels.append(label)\n        if META.search(text):matches.append(label)\n        raw.append({'label':label,'text':text})\n    return {'status':'ok','outputs':{\n        'labels':labels,'choices':raw,'meta_labels':matches,'meta_count':len(matches),\n        'meta_label':matches[0] if len(matches)==1 else '',\n        'scope':'public_choices_only_not_theorem_proof'}}\n",
+      "entry": "run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "choices": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "choices"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "choices": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "meta_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "meta_count": {
+            "type": "integer"
+          },
+          "meta_label": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "labels",
+          "choices",
+          "meta_labels",
+          "meta_count",
+          "meta_label",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "description": "Extract one unique public meta choice and stable original labels; no truth claim.",
+        "proof_scope": "public_options_only",
+        "tool_ir": "pure_no_rpc"
+      },
+      "id": "program_ee63c2a2fe550c4e4f860f939ceda247e4ce0fa920096c076d7216737521ccc7",
+      "title": "Public choice scanner",
+      "state": "candidate",
+      "permission": "author_trusted",
+      "origin": "human_authored_not_ours",
+      "source_file": "programs/public_choice_scan.py"
+    },
+    {
+      "source": "\"\"\"Human-approved BENCHMARK-PRIOR answer routing, not theorem proof.\"\"\"\ndef run(ctx, inputs):\n    labels=inputs.get('labels',[]);meta_labels=inputs.get('meta_labels',[])\n    count=inputs.get('meta_count');label=inputs.get('meta_label')\n    if (type(count) is not int or count!=1 or not isinstance(label,str)\n        or not isinstance(labels,list) or not isinstance(meta_labels,list)\n        or len(set(labels))!=len(labels) or len(meta_labels)!=1\n        or meta_labels[0]!=label or label not in labels):\n        return {'status':'needs_input','outputs':{},'detail':'Not exactly one matching visible meta-option'}\n    return {'status':'ok','outputs':{'answer':label,'basis':'public_benchmark_prior_not_math_proof'}}\n",
+      "entry": "run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "meta_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "meta_count": {
+            "type": "integer"
+          },
+          "meta_label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "labels",
+          "meta_labels",
+          "meta_count",
+          "meta_label"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "basis"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "description": "Benchmark-only authorized choice of public meta label; never a theorem proof.",
+        "proof_scope": "public_options_only",
+        "tool_ir": "pure_no_rpc"
+      },
+      "id": "program_48e4d4ac47658d49aa23e8a5fae8e4d46ea12126a9248a71ab60ed56b8d82661",
+      "title": "Public benchmark-prior commit",
+      "state": "candidate",
+      "permission": "author_trusted",
+      "origin": "human_authored_not_ours",
+      "source_file": "programs/meta_prior_commit.py"
+    },
+    {
+      "source": "\"\"\"Extract visible wording contrasts only. No mathematical theorem oracle.\"\"\"\nimport re\nMARKERS = (\n  ('universal',r'\\\\forall|\\\\text\\{for all\\}|\\bfor (?:all|every|each)\\b|\\ball\\s+'),\n  ('existential',r'\\\\exists|\\bthere exists\\b|\\bexists\\b'),\n  ('unique',r'\\bunique(?:ly)?\\b|\\bexactly one\\b|\\\\exists!'),\n  ('equivalence',r'\\\\iff|\\\\Leftrightarrow|\\bif and only if\\b|\\bequivalent\\b'),\n  ('converse',r'\\bconversely\\b|\\bvice versa\\b'),\n  ('uniform',r'\\buniform(?:ly)?\\b|\\bglobal(?:ly)?\\b'),\n  ('local',r'\\blocal(?:ly)?\\b|\\bneighborhood\\b|\\bnear\\b'),\n  ('sharp',r'\\bsharp\\b|\\boptimal\\b|\\bbest possible\\b'),\n  ('strict_ineq',r'(?<![<>=])<(?![=<])|(?<![<>=])>(?![=>])'),\n  ('weak_ineq',r'\\\\leq|\\\\geq|≤|≥|<=|>='),\n  ('only_if',r'\\bonly if\\b'),\n  ('boundary',r'\\bboundary\\b|\\bendpoint\\b|\\bequality case\\b'),\n  ('constant_dependence',r'\\bdepending on\\b|\\bdepends on\\b|\\bindependent of\\b'),\n)\ndef run(ctx, inputs):\n    choices=inputs.get('choices')\n    if not isinstance(choices,list) or not 2<=len(choices)<=8:\n        return {'status':'needs_input','outputs':{},'detail':'Public choice array missing'}\n    features=[]\n    for c in choices:\n        label,text=c.get('label'),c.get('text')\n        if not isinstance(label,str) or not isinstance(text,str) or len(text)>16000:\n            return {'status':'needs_input','outputs':{},'detail':'Invalid visible choice'}\n        flags=[name for name,regex in MARKERS if re.search(regex,text,re.I)]\n        features.append({'label':label,'flags':flags})\n    contrasts=[]\n    for i in range(len(features)):\n        for j in range(i+1,len(features)):\n            a,b=features[i],features[j]\n            only_a=sorted(set(a['flags'])-set(b['flags']))\n            only_b=sorted(set(b['flags'])-set(a['flags']))\n            if only_a or only_b:\n                contrasts.append({'left':a['label'],'right':b['label'],\n                    'left_only':only_a,'right_only':only_b})\n    return {'status':'ok','outputs':{'features':features,'contrasts':contrasts[:28],\n        'scope':'surface_differences_only_no_truth_verification'}}\n",
+      "entry": "run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "choices": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "choices"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "flags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "label",
+                "flags"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "contrasts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "left": {
+                  "type": "string"
+                },
+                "right": {
+                  "type": "string"
+                },
+                "left_only": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "right_only": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "left",
+                "right",
+                "left_only",
+                "right_only"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "features",
+          "contrasts",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "description": "Compare visible clause features; all flags are lexical, never theorem validity.",
+        "proof_scope": "public_options_only",
+        "tool_ir": "pure_no_rpc"
+      },
+      "id": "program_17c42982655acb528c0d8ec75cd0d0e78c86abd4a781cb7fc27c79179c60180e",
+      "title": "Visible clause contrast",
+      "state": "candidate",
+      "permission": "author_trusted",
+      "origin": "human_authored_not_ours",
+      "source_file": "programs/claim_clause_features.py"
+    }
+  ],
+  "implementation": [
+    {
+      "id": "implementation_lm_r31_public_choices",
+      "skill_id": "skill_lm_r31_public_choices",
+      "program_id": "program_ee63c2a2fe550c4e4f860f939ceda247e4ce0fa920096c076d7216737521ccc7",
+      "binding": {
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "choices": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label",
+                  "text"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "choices"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "labels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8
+            },
+            "choices": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label",
+                  "text"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "meta_labels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8
+            },
+            "meta_count": {
+              "type": "integer"
+            },
+            "meta_label": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "labels",
+            "choices",
+            "meta_labels",
+            "meta_count",
+            "meta_label",
+            "scope"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "origin": "human_authored_not_ours",
+      "permission": "author_trusted",
+      "qualification": "manual_runtime_only_no_fake_worker_receipt"
+    },
+    {
+      "id": "implementation_lm_r31_prior_decision",
+      "skill_id": "skill_lm_r31_prior_decision",
+      "program_id": "program_48e4d4ac47658d49aa23e8a5fae8e4d46ea12126a9248a71ab60ed56b8d82661",
+      "binding": {
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "labels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8
+            },
+            "meta_labels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8
+            },
+            "meta_count": {
+              "type": "integer"
+            },
+            "meta_label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "labels",
+            "meta_labels",
+            "meta_count",
+            "meta_label"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "answer": {
+              "type": "string"
+            },
+            "basis": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "answer",
+            "basis"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "origin": "human_authored_not_ours",
+      "permission": "author_trusted",
+      "qualification": "manual_runtime_only_no_fake_worker_receipt"
+    },
+    {
+      "id": "implementation_lm_r31_clause_features",
+      "skill_id": "skill_lm_r31_clause_features",
+      "program_id": "program_17c42982655acb528c0d8ec75cd0d0e78c86abd4a781cb7fc27c79179c60180e",
+      "binding": {
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "choices": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label",
+                  "text"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "choices"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "features": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "flags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "label",
+                  "flags"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "contrasts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "left": {
+                    "type": "string"
+                  },
+                  "right": {
+                    "type": "string"
+                  },
+                  "left_only": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "right_only": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "left",
+                  "right",
+                  "left_only",
+                  "right_only"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "scope": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "features",
+            "contrasts",
+            "scope"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "origin": "human_authored_not_ours",
+      "permission": "author_trusted",
+      "qualification": "manual_runtime_only_no_fake_worker_receipt"
+    }
+  ],
+  "workflow": [
+    {
+      "id": "workflow_lm_r31_meta_prior",
+      "goal": "Execute public meta prior as a programmatic two-step graph",
+      "interface_version": "empirical.workflow.v2",
+      "workflow_execution": "native_program_nodes",
+      "nodes": [
+        {
+          "id": "scan",
+          "execution_mode": "program",
+          "program_id": "program_ee63c2a2fe550c4e4f860f939ceda247e4ce0fa920096c076d7216737521ccc7",
+          "after": [],
+          "args": {
+            "choices": {
+              "task": "choices"
+            }
+          }
+        },
+        {
+          "id": "prior_commit",
+          "execution_mode": "program",
+          "program_id": "program_48e4d4ac47658d49aa23e8a5fae8e4d46ea12126a9248a71ab60ed56b8d82661",
+          "after": [
+            "scan"
+          ],
+          "args": {
+            "labels": {
+              "from": "scan",
+              "field": "labels"
+            },
+            "meta_labels": {
+              "from": "scan",
+              "field": "meta_labels"
+            },
+            "meta_count": {
+              "from": "scan",
+              "field": "meta_count"
+            },
+            "meta_label": {
+              "from": "scan",
+              "field": "meta_label"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "prior_commit",
+          "field": "answer"
+        }
+      },
+      "data_flow_edges": [
+        {
+          "from": "scan",
+          "to": "prior_commit",
+          "fields": [
+            "labels",
+            "meta_labels",
+            "meta_count",
+            "meta_label"
+          ]
+        }
+      ],
+      "fallback": "nonmeta_dynamic_on_zero_or_duplicate_meta_or_worker_failure",
+      "rule_basis": "benchmark_specific_prior_not_math_proof"
+    },
+    {
+      "id": "workflow_lm_r31_claim_reasoning",
+      "goal": "Programmatic choice extraction and clause comparison, followed by dynamic theorem reasoning",
+      "interface_version": "empirical.workflow.v2",
+      "workflow_execution": "native_program_then_dynamic",
+      "nodes": [
+        {
+          "id": "scan",
+          "execution_mode": "program",
+          "program_id": "program_ee63c2a2fe550c4e4f860f939ceda247e4ce0fa920096c076d7216737521ccc7",
+          "after": [],
+          "args": {
+            "choices": {
+              "task": "choices"
+            }
+          }
+        },
+        {
+          "id": "contrast",
+          "execution_mode": "program",
+          "program_id": "program_17c42982655acb528c0d8ec75cd0d0e78c86abd4a781cb7fc27c79179c60180e",
+          "after": [
+            "scan"
+          ],
+          "args": {
+            "choices": {
+              "from": "scan",
+              "field": "choices"
+            }
+          }
+        },
+        {
+          "id": "theorem_decide",
+          "execution_mode": "dynamic",
+          "reference_skill_ids": [
+            "skill_lm_r31_dynamic_theorem"
+          ],
+          "goal": "Determine the best-supported original option label without treating lexical hints as proof.",
+          "after": [
+            "contrast"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "choices": {
+              "task": "choices"
+            },
+            "features": {
+              "from": "contrast",
+              "field": "features"
+            },
+            "contrasts": {
+              "from": "contrast",
+              "field": "contrasts"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "theorem_decide",
+          "field": "answer"
+        }
+      },
+      "data_flow_edges": [
+        {
+          "from": "scan",
+          "to": "contrast",
+          "fields": [
+            "choices"
+          ]
+        },
+        {
+          "from": "contrast",
+          "to": "theorem_decide",
+          "fields": [
+            "features",
+            "contrasts"
+          ]
+        }
+      ],
+      "fallback": "dynamic_original_full_question_if_worker_fails",
+      "rule_basis": "theorem_reasoning_with_structural_hints"
+    }
+  ],
+  "counts": {
+    "skill": 4,
+    "program": 3,
+    "implementation": 3,
+    "workflow": 2
+  },
+  "runtime_requirement": "Use integration/native_programmatic_runtime.py and actual ProgramWorker for production; prompt compilation alone does NOT count.",
+  "measured_performance": null,
+  "gold_used_for_qualification": false
+}

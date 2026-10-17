@@ -1,0 +1,85 @@
+{
+  "id": "workflow_lm_r31_claim_reasoning",
+  "goal": "Programmatic choice extraction and clause comparison, followed by dynamic theorem reasoning",
+  "interface_version": "empirical.workflow.v2",
+  "workflow_execution": "native_program_then_dynamic",
+  "nodes": [
+    {
+      "id": "scan",
+      "execution_mode": "program",
+      "program_id": "program_ee63c2a2fe550c4e4f860f939ceda247e4ce0fa920096c076d7216737521ccc7",
+      "after": [],
+      "args": {
+        "choices": {
+          "task": "choices"
+        }
+      }
+    },
+    {
+      "id": "contrast",
+      "execution_mode": "program",
+      "program_id": "program_17c42982655acb528c0d8ec75cd0d0e78c86abd4a781cb7fc27c79179c60180e",
+      "after": [
+        "scan"
+      ],
+      "args": {
+        "choices": {
+          "from": "scan",
+          "field": "choices"
+        }
+      }
+    },
+    {
+      "id": "theorem_decide",
+      "execution_mode": "dynamic",
+      "reference_skill_ids": [
+        "skill_lm_r31_dynamic_theorem"
+      ],
+      "goal": "Determine the best-supported original option label without treating lexical hints as proof.",
+      "after": [
+        "contrast"
+      ],
+      "args": {
+        "goal": {
+          "task": "goal"
+        },
+        "choices": {
+          "task": "choices"
+        },
+        "features": {
+          "from": "contrast",
+          "field": "features"
+        },
+        "contrasts": {
+          "from": "contrast",
+          "field": "contrasts"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "answer": {
+      "from": "theorem_decide",
+      "field": "answer"
+    }
+  },
+  "data_flow_edges": [
+    {
+      "from": "scan",
+      "to": "contrast",
+      "fields": [
+        "choices"
+      ]
+    },
+    {
+      "from": "contrast",
+      "to": "theorem_decide",
+      "fields": [
+        "features",
+        "contrasts"
+      ]
+    }
+  ],
+  "fallback": "dynamic_original_full_question_if_worker_fails",
+  "rule_basis": "theorem_reasoning_with_structural_hints"
+}
