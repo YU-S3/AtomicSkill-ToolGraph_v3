@@ -19,12 +19,12 @@ def save_json(path, value):
 class TaskCheckpoint:
     def __init__(self, root, *, response_namespace=None):
         self.root = Path(root)
-        self.response_namespace = Path(response_namespace) if response_namespace else self.root
         self.path = self.root / 'state.json'
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {
             'schema': 'empirical.checkpoint.v2', 'stage': 'task_started', 'decisions': {}}
         if self.state.get('schema') != 'empirical.checkpoint.v2':
             raise ValueError('Checkpoint policy changed; use an independent run directory')
+        self.response_namespace = Path(response_namespace or self.state.get('recovery_identity',{}).get('response_namespace') or self.root)
 
     def advance(self, stage, **values):
         updated = {**self.state, 'stage': stage, **values}

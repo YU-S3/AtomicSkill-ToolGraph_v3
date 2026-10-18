@@ -1023,6 +1023,9 @@ class EmpiricalSystem:
         budget = self.config.get('budget',{})
         self.request_attribution.update(parent_scope=str(self.config['experiment']['output_dir'])+':'+task.physical_key,
             parent_token_limit=budget.get('train_task_tokens' if task.split=='train' else 'eval_task_tokens'),train_parent=task.split=='train')
+        recovery=self.checkpoint.state.get('recovery_identity',{}) if self.checkpoint else {}
+        if recovery.get('parent_budget_scope'):
+            self.request_attribution['parent_scope']=recovery['parent_budget_scope']
         if self.readonly and (self.config['experiment'].get('searchqa_method_version') or
                 self.config['experiment'].get('office_effect_version') or
                 self.config['experiment'].get('math_program_evaluation_version') == 'livemath.math-capability-program.p6'):

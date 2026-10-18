@@ -13,6 +13,13 @@ CONTRACT_FIELDS = ('input_schema', 'output_schema', 'result_role', 'entry_constr
 
 def pack_material(material):
     """Intern only identical contracts/jobs; every referenced value stays in this request."""
+    def has_literal_references(v):
+        if isinstance(v,dict):
+            return bool({'contract_ref','job_ref','material_tables','material_reference_note'} & v.keys()) or any(has_literal_references(x) for x in v.values())
+        return isinstance(v,list) and any(has_literal_references(x) for x in v)
+    # A model proposal may echo these field names. Do not create an enclosing
+    # reference table that would reinterpret those literal fields as Host refs.
+    if has_literal_references(material):return deepcopy(material)
     groups = {'contracts': {}, 'jobs': {}}
     def candidates(v):
         if isinstance(v, dict):
@@ -55,6 +62,7 @@ def pack_material(material):
 
 def expand_material(material):
     tables = material.get('material_tables', {})
+    packed='material_tables' in material and 'material_reference_note' in material
     texts = material.get('p2_text_table', {})
     p2='p2_text_table' in material and 'p2_table_note' in material
     trace_values=material.get('trace_value_table',{})
@@ -64,14 +72,15 @@ def expand_material(material):
         if not isinstance(v, dict): return deepcopy(v)
         if trace and set(v)=={'trace_value_ref'}:return expand(deepcopy(trace_values[v['trace_value_ref']]))
         if p2 and set(v)=={'p2_text_ref'}:return texts[v['p2_text_ref']]
-        if set(v) == {'job_ref'}: return expand(deepcopy(tables['jobs'][v['job_ref']]))
-        result = {k:expand(x) for k,x in v.items() if k != 'contract_ref'}
-        if 'contract_ref' in v: result.update(expand(deepcopy(tables['contracts'][v['contract_ref']])))
+        if packed and set(v) == {'job_ref'}: return expand(deepcopy(tables['jobs'][v['job_ref']]))
+        result = {k:expand(x) for k,x in v.items() if not (packed and k == 'contract_ref')}
+        if packed and 'contract_ref' in v: result.update(expand(deepcopy(tables['contracts'][v['contract_ref']])))
         if p2 and 'p2_span_table' in result:
             table=result.pop('p2_span_table')
             result['spans']=[dict(span_id=row[0],task_path=table['paths'][row[1]],start=row[2],end=row[3]) for row in table['rows']]
         return result
-    return expand({k:v for k,v in material.items() if k not in {'material_tables','material_reference_note','p2_text_table','p2_table_note','trace_value_table','trace_table_note'}})
+    metadata=({'material_tables','material_reference_note'} if packed else set()) | ({'p2_text_table','p2_table_note'} if p2 else set()) | ({'trace_value_table','trace_table_note'} if trace else set())
+    return expand({k:v for k,v in material.items() if k not in metadata})
 
 
 def pack_trace_material(material):
