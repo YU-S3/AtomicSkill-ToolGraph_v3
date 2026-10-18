@@ -1,0 +1,27 @@
+method_version: livemath.effect-evolution.p7.r3
+seed: 42
+initial_candidates: 3
+edit_rounds: 2
+structural_repair_limit: 1
+runtime: {completion: 65536, finish_completion: 16384, timeout: 600, parent_tokens: 128000, tail_bytes: 16384}
+learning_completion: 8192
+learning_wire_bytes: 524288
+max_injection_tokens: 600
+tokenizer_path: /mnt/d/T3S_exp/resources/tokenizers/deepseek-v4-flash/tokenizer.json
+tokenizer_sha256: 8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf
+baseline_run: /home/yangchengyu/livemath_effect_p7_r2_seed42_20261016
+ledger_sources:
+  - /home/yangchengyu/livemath_learned_program_r3_seed42_20261018/budget/ledger.json
+cumulative_limits: {token_limit: 45000000, request_limit: 9165, finish_reserve: 0}
+phase_limits:
+  # Kept solely for the inherited conservative material capacity check; not authorized for new learning HTTP.
+  learning: {token_limit: 400000, request_limit: 6}
+  feedback: {token_limit: 0, request_limit: 0}
+  val: {token_limit: 1400000, request_limit: 68}
+  test: {token_limit: 4000000, request_limit: 200}
+derivation:
+  version: livemath.effect-evolution.p7.r3.neighborhood.v1
+  parent_run: /home/yangchengyu/livemath_learned_program_r3_seed42_20261018
+  text_source_run: /home/yangchengyu/livemath_effect_p7_r2_seed42_20261016
+  max_neighbors_per_parent: 6
+  max_val_policies: 2

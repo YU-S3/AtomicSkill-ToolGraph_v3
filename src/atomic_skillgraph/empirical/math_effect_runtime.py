@@ -96,10 +96,10 @@ def call(root, p, messages_, governor, context, *, tools=None, tool_choice=None,
     return turn,receipt
 
 
-def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
+def solve(task, adapter, candidates, cfg, root, governor, *, providers=None, selection_override=None):
     from .answer_executor import reasoning_tail
     root=Path(root);settings=cfg['effect_p7'];llm=cfg['llm']
-    selection=select(candidates,task,settings['tokenizer_path'],settings['max_injection_tokens'],version=settings.get('method_version'))
+    selection=selection_override if selection_override is not None else select(candidates,task,settings['tokenizer_path'],settings['max_injection_tokens'],version=settings.get('method_version'))
     cards=[card(c['candidate']) for c in selection['selected']]
     identity=digest([task.__dict__,cards,settings,llm]);path=root/'trace.json'
     if path.exists():
@@ -116,9 +116,10 @@ def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
         'parent_scope':str(root.resolve()),'parent_token_limit':settings['runtime']['parent_tokens'],
         # The directory identifies phase/arm/policy/task; equal payloads are still separate paid solves.
         'episode_scope':digest([identity,str(root.resolve())]),'episode_request_limit':2,'purpose':'runtime'}
-    if settings.get('method_version')==R2:base['method_version']=R2
+    if settings.get('method_version')==R2 or selection_override is not None:base['method_version']=settings['method_version']
+    if settings.get('derivation'):base['experiment_method_version']=settings['derivation']['version']
     p=(providers or {}).get('main') or provider(llm,'runtime',settings)
-    turn,receipt=call(root/'main',p,messages(task,cards),governor,base)
+    turn,receipt=call(root/'main',p,messages(task,cards),governor,base,durable_received=selection_override is not None)
     initial_length=turn.finish_reason=='length';answer=turn.content;receipts=[receipt];censored=False;finish_state='not_needed'
     if not adapter.valid_answer_format(answer):
         p=(providers or {}).get('finish') or provider(llm,'finish',settings)
@@ -132,7 +133,7 @@ def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
             else:high=mid-1
         tail=reasoning_tail(turn,receipt['request_ids'][-1],low)
         try:
-            turn,receipt=call(root/'finish',p,messages(task,cards,tail),governor,{**base,'purpose':'finish_only'})
+            turn,receipt=call(root/'finish',p,messages(task,cards,tail),governor,{**base,'purpose':'finish_only'},durable_received=selection_override is not None)
             receipts.append(receipt);answer=turn.content;finish_state='valid' if adapter.valid_answer_format(answer) else 'invalid'
         except BudgetExhausted as exc:
             if exc.code!='parent_task_budget_exhausted':raise
@@ -151,8 +152,8 @@ def solve(task, adapter, candidates, cfg, root, governor, *, providers=None):
         'runtime_contract_hash':digest([ANSWER,PROMPT,FINISH,llm,settings['runtime']]),'program_calls':0,
         'request_files':{str(p.resolve()):digest(read(p)) for sub in ('main','finish') for name in ('request.json','response.json','requests.json')
             if (p:=root/sub/name).exists()}}
-    if settings.get('method_version')==R2:
-        result['method_version']=R2
+    if settings.get('method_version')==R2 or selection_override is not None:
+        result['method_version']=settings['method_version']
         result['main_wire_hash']=digest(read(root/'main/request.json')['payload'])
         result['main_wire_hash_contract']='actual_provider_payload.v1; excludes HTTP headers and audit context only'
     result['trace_hash']=digest(result);save_json(path,result);return result

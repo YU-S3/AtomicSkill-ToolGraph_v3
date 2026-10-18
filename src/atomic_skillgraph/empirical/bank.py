@@ -88,6 +88,34 @@ class Bank:
     def put(self, kind, asset):
         self._writable()
         asset = dict(asset)
+        from .math_effect_program_r3 import VERSION as EFFECT_R3, checked as checked_effect_r3
+        effect_method = self.db.execute("SELECT value FROM metadata WHERE key='choice_method_version'").fetchone()
+        if effect_method == (EFFECT_R3,) or asset.get('method_version') == EFFECT_R3:
+            from .math_effect_runtime_r3 import verify_utility
+            if effect_method != (EFFECT_R3,) or asset.get('method_version') != EFFECT_R3:
+                raise ValueError('Learned R3 Bank rejects external assets')
+            if kind == 'skill':
+                candidate=asset.get('effect_candidate',{});receipt=asset.get('val_receipt',{})
+                sources=self.db.execute("SELECT value FROM metadata WHERE key='effect_source_keys'").fetchone()
+                if (not checked_effect_r3(candidate) or not sources or candidate['source_manifest_hash']!=digest(json.loads(sources[0]))
+                        or not set(candidate['candidate']['source_case_ids'])<=set(json.loads(sources[0]))
+                        or not verify_utility(receipt) or not receipt['qualified'] or candidate['id'] not in receipt['candidate_ids']
+                        or digest(candidate)!=receipt['candidate_hashes'][receipt['candidate_ids'].index(candidate['id'])]):
+                    raise ValueError('R3 Skill needs matching source and Val evidence')
+                from .math_effect_contract import card
+                if (asset.get('id')!='skill_'+candidate['id'] or asset.get('goal')!=candidate['candidate']['goal'] or
+                    asset.get('guidance')!=json.dumps(card(candidate['candidate']),ensure_ascii=False)):
+                    raise ValueError('R3 rendered Skill differs from the actual learned candidate')
+            elif kind == 'program':
+                from .math_effect_program_r3 import compile_program
+                matches=[s for s in self.all('skill') if s['effect_candidate']['id']==asset.get('entry_constraints',{}).get('candidate_id')]
+                if len(matches)!=1 or asset!=compile_program(matches[0]['effect_candidate'],asset['environment']):
+                    raise ValueError('R3 Program must be the exact compilation of its learned Skill')
+            elif kind == 'implementation':
+                skill=self.get(asset['skill_id']);program=self.get(asset['program_id'])
+                if not skill or not self.program_eligible(program) or program['entry_constraints']['candidate_id']!=skill['effect_candidate']['id']:
+                    raise ValueError('R3 Implementation must bind its qualified learned Program')
+            else:raise ValueError('R3 admits Skills, Programs and their exact Implementations only')
         from .math_effect_contract import VERSION as P7, R2 as P7_R2, checked_effect_asset
         stored_p7 = self.db.execute("SELECT value FROM metadata WHERE key='choice_method_version'").fetchone()
         p7 = stored_p7 in {(P7,),(P7_R2,)}
@@ -232,6 +260,12 @@ class Bank:
             self.observer.asset('program', program)
 
     def program_eligible(self,program):
+        from .math_effect_program_r3 import VERSION as EFFECT_R3
+        if program and program.get('method_version')==EFFECT_R3:
+            from .math_effect_runtime_r3 import qualification as effect_qualification
+            return bool(program['state']=='usable' and self.get(program['id'])==program and
+                effect_qualification(program,program.get('local_validation',{})) and
+                (self.environment is None or program['environment']==self.environment))
         from .local_validation import qualification
         from .searchqa_guidance import VERSION
         from .searchqa_guidance_r3 import VERSION as R3
@@ -242,6 +276,14 @@ class Bank:
     def record_validation(self, program_id, validation):
         self._writable()
         program = self.get(program_id)
+        from .math_effect_program_r3 import VERSION as EFFECT_R3
+        if program and program.get('method_version')==EFFECT_R3:
+            from .math_effect_runtime_r3 import qualification as effect_qualification
+            if not effect_qualification(program,validation) or not any(a.get('validation')==validation for a in self.attempts(program_id)):
+                raise ValueError('R3 qualification needs recorded Docker and native paired Val evidence')
+            program.update(local_validation=dict(validation),state='usable')
+            self.db.execute('UPDATE assets SET payload=? WHERE id=?',(json.dumps(program,ensure_ascii=False),program_id));self.db.commit()
+            return program
         from .local_validation import POLICY
         from .searchqa_guidance import VERSION, QUALIFICATION
         from .searchqa_guidance_r3 import VERSION as R3
