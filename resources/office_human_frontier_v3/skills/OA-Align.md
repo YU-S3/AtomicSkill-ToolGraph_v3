@@ -1,0 +1,3 @@
+# OA-Align
+
+Align the title, header, row, footnotes, period and unit before using adjacent OCR numbers. Use table_extract only with a complete relevant table window and exact column/row labels. Ambiguous OCR needs native read_context, not guessed cells. Keep each operand with its source_ref and exact quote in evidence_state; name it by its computation field (e.g. numerator, denominator, from_value, to_value, values.0). Preserve period order and missing observations; never fill gaps. Gross/net, offered/accepted, old/new securities, currency quotation direction and 32nds are different quantities, not interchangeable units.

@@ -1,0 +1,3 @@
+# OA-Compute
+
+Use series_metrics for its listed formulas when it fits; otherwise use existing temporary Python. Difference names FROM and TO plus absolute; ratio names numerator and denominator; change/growth names base_value and new_value. Set output_percent explicitly, never multiply twice. periods means elapsed intervals, not number of observations. Programs prove local arithmetic only. Persist the computed output via answer_candidate.result_ref with matching operation, output_unit and covers_task. Temporary Python may return operand_values alongside answer to retain its binding. If the target is solved, finish now rather than search again for the same quantity.

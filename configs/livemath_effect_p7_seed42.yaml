@@ -1,0 +1,28 @@
+method_version: livemath.effect-evolution.p7
+seed: 42
+partition: {proposal_train: 28, edit_feedback: 12, protected_gate: 20}
+initial_candidates: 3
+edit_rounds: 2
+edits_per_round: 2
+gate: {min_net: 2, max_losses: 1, no_new_empty: true}
+program_enabled: false
+runtime: {completion: 65536, finish_completion: 16384, timeout: 600, parent_tokens: 128000, tail_bytes: 16384}
+learning_completion: 8192
+learning_wire_bytes: 524288
+trace_window_bytes: 4096
+max_injection_tokens: 600
+tokenizer_path: /mnt/d/T3S_exp/resources/tokenizers/deepseek-v4-flash/tokenizer.json
+tokenizer_sha256: 8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf
+tokenizer_source: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/resolve/60d8d70770c6776ff598c94bb586a859a38244f1/tokenizer.json
+ledger_sources:
+  - /home/yangchengyu/livemath_p6_seed42_preflight_20261015/budget.json
+  - /home/yangchengyu/livemath_manual_bank_v2_seed42_20261015/budget.json
+cumulative_limits: {token_limit: 45000000, request_limit: 9165, finish_reserve: 0}
+# Proposed only. No human paid authorization is created by prepare/check.
+# Zero HTTP retries: initial + two editors; Runtime main + at most one finish.
+phase_limits:
+  learning: {token_limit: 700000, request_limit: 3}
+  feedback: {token_limit: 2400000, request_limit: 192}
+  gate: {token_limit: 1600000, request_limit: 80}
+  val: {token_limit: 1500000, request_limit: 68}
+  test: {token_limit: 12000000, request_limit: 400}

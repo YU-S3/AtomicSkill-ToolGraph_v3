@@ -1,11 +1,15 @@
 # OfficeQA Trace V5
 
-Method: `office-trace-v5-program-induction.v2`, material `office.operation-fields.v5.1`.
+Method: `office-trace-v5-program-induction.v3`, material `office.operation-fields.v5.2`.
 The first paid V5 run exposed omitted output/scope type requirements in the model-visible
 contract. Required input references, optional scope references, output types and fixed
 retrieval outputs now use the same tables in the exported prompt and Host validation.
 Glob filename discovery and grep/read retrieval are explicitly distinct probe contracts.
 Schema diagnostics include the actual declared type and required membership.
+Cross-field rules also declare exact output-field coverage, current opportunity IDs,
+existing IDs, tool permissions and the distinction between Program outputs and native
+tool wrappers. The v2 paid attempt and its candidate/pending/truncation records remain
+immutable; v3 does not reinterpret them as new successes.
 No oracle, formal promotion or repair limit is relaxed. V5 lives in explicitly versioned
 modules so V4 checkpoints, prompts, receipts and qualification semantics remain
 reproducible. The ordinary Ours Bank, `record_validation`, `program_eligible`,

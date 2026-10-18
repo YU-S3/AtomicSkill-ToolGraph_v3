@@ -1,0 +1,34 @@
+{
+  "method_version": "human.frontier.livemath.r2.20261016",
+  "variants": {
+    "upstream_skillopt": {
+      "native_bank_digest": "26925706b299f7eaa23f4cad0884ac7f5cdaa779bb2f2a196f37e784592c27a4",
+      "bundle_hash": "ba04d2d4d716401c8aad248e3a27fec1d4f044b30725e5c2532541b746fdd149",
+      "source_hash": "53073aa57ce84de76d9976f76a0f80b301c2e76b334b5206b1de1e0d6abd9357",
+      "assembly_hash": "53073aa57ce84de76d9976f76a0f80b301c2e76b334b5206b1de1e0d6abd9357",
+      "atomic_count": 6,
+      "workflow_execution": "prompt_compiled"
+    },
+    "upstream_skillopt_lite": {
+      "native_bank_digest": "31545a3a942dfb1d1a1ea5dc2e7aa7a9a8ea0b1cb12a639d25d7a1ccbe8a5745",
+      "bundle_hash": "f403c1d5cd2f3991b324cf71525d3f6d174587572a0ec105eb5e5b7f1bcee661",
+      "source_hash": "9049ce6748eaea298e4e7407e36f0fd48d20a72f738488bfbda5fe7e545b00e6",
+      "assembly_hash": "9049ce6748eaea298e4e7407e36f0fd48d20a72f738488bfbda5fe7e545b00e6",
+      "atomic_count": 6,
+      "workflow_execution": "prompt_compiled"
+    },
+    "benchmark_prior": {
+      "native_bank_digest": "31545a3a942dfb1d1a1ea5dc2e7aa7a9a8ea0b1cb12a639d25d7a1ccbe8a5745",
+      "bundle_hash": "37b87947ebcdc036b05538546d987c9ebd66738ec20e476e4ad01a2bb902b442",
+      "source_hash": "9049ce6748eaea298e4e7407e36f0fd48d20a72f738488bfbda5fe7e545b00e6",
+      "assembly_hash": "9049ce6748eaea298e4e7407e36f0fd48d20a72f738488bfbda5fe7e545b00e6",
+      "atomic_count": 6,
+      "workflow_execution": "prompt_compiled"
+    }
+  },
+  "benchmark_prior_equivalent_to": "upstream_skillopt_lite",
+  "programs": "off",
+  "graph": false,
+  "provenance": "external human reference; upstream optimization may overlap the exposed Test",
+  "legacy_retained_at": "legacy_humanfrontier/"
+}

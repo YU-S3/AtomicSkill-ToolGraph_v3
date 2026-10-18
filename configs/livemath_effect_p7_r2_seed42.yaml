@@ -1,0 +1,28 @@
+method_version: livemath.effect-evolution.p7.r2
+seed: 42
+learning_scope: all_train60
+initial_candidates: 3
+edit_rounds: 2
+edits_per_round: 2
+structural_repair_limit: 1
+program_enabled: false
+runtime: {completion: 65536, finish_completion: 16384, timeout: 600, parent_tokens: 128000, tail_bytes: 16384}
+learning_completion: 8192
+learning_wire_bytes: 524288
+source_batch_bytes: 262144
+process_excerpt_bytes: 4096
+max_injection_tokens: 600
+tokenizer_path: /mnt/d/T3S_exp/resources/tokenizers/deepseek-v4-flash/tokenizer.json
+tokenizer_sha256: 8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf
+parent_run: /home/yangchengyu/livemath_effect_p7_scope_recovery_seed42_20261015
+ledger_sources:
+  - /home/yangchengyu/livemath_effect_p7_scope_recovery_seed42_20261015/budget/ledger.json
+  - /home/yangchengyu/livemath_human_frontier_schema_v2_seed42_20261015/budget.json
+  - /home/yangchengyu/livemath_lm1_validation_20261010/budget.json
+cumulative_limits: {token_limit: 45000000, request_limit: 9165, finish_reserve: 0}
+# Only the unspent old P7 authority: 6,200,000 - 1,823,708 = 4,376,292.
+# The unused Gate allowance moves to feedback; historical charges remain immutable.
+phase_limits:
+  learning: {token_limit: 647694, request_limit: 16}
+  feedback: {token_limit: 2228598, request_limit: 205}
+  val: {token_limit: 1500000, request_limit: 68}

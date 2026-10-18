@@ -20,7 +20,11 @@ PROGRAM_RESULT_SCHEMA = {'type': 'object', 'properties': {
 def validate_context_source(source):
     """Narrow API diagnostics, never a source rewriter or a replacement sandbox."""
     import ast
-    for node in ast.walk(ast.parse(source)):
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise ValueError(f'python_syntax_error: {exc.msg} (line {exc.lineno}, column {exc.offset})') from exc
+    for node in ast.walk(tree):
         if isinstance(node, ast.Name) and node.id == 'ctx' and isinstance(node.ctx, (ast.Store, ast.Del)):
             raise ValueError('context_api_misuse: preserve ctx; store results in a different local variable')
         if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)

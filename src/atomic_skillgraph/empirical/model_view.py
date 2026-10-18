@@ -568,6 +568,10 @@ def project(stage, material, *, task=None, adapter=None, context=None):
         recent = value.pop('recent')
         if getattr(adapter,'trace_retrieval',False) and context:
             from .office_runtime import evidence_view, compact_recent
+            if getattr(adapter, 'config', {}).get('experiment', {}).get('office_effect_version'):
+                from .office_effect_runtime import runtime_evidence
+                def evidence_view(ctx, goal):
+                    return runtime_evidence(ctx, goal, adapter.config['experiment'].get('corpus_sha256'))
             state['retrieval_evidence']=evidence_view(context,task.goal)
             recent=compact_recent(recent,context)
         completed = value.pop('completed_results')

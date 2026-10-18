@@ -13,6 +13,7 @@ dependencies = [
 alfworld = ["alfworld==0.4.2"]
 benchmarks = ["openpyxl==3.1.5", "pyarrow>=19", "Pillow==11.3.0", "iterative-stratification==0.1.9"]
 dev = ["pytest>=7.0"]
+p7 = ["tokenizers==0.22.2"]
 
 [project.scripts]
 skillcompiler = "atomic_skillgraph.experiments.run_empirical:main"

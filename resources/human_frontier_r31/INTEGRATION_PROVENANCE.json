@@ -1,0 +1,19 @@
+{
+  "schema": "human.frontier.r31.integration.provenance.v1",
+  "upstream_zip": "LiveMath_HumanFrontier_R3_Programmatic_R31_20261017.zip",
+  "upstream_zip_sha256": "18e59f0ed60f6d31b1b53db64f383da5317785ae2b2c59ae21703b4f04df7d6a",
+  "upstream_all_hashes_verified": true,
+  "upstream_changed_paths": [
+    "README.md",
+    "integration/native_programmatic_runtime.py",
+    "integration/episode_bridge.py",
+    "tests/test_graph_execution.py"
+  ],
+  "bank_assets_unchanged": true,
+  "production_changes": [
+    "Execute real Workflow references and Implementation bindings",
+    "Dynamic injects actual new Atomic guidance",
+    "Atomic Docker receipts and strict resume identity",
+    "Model responses retain official scores and raw usage"
+  ]
+}

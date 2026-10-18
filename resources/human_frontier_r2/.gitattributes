@@ -1,0 +1,4 @@
+sources/* -text
+licenses/* -text
+variants/*/SKILL.md -text
+variants/*/bank.sqlite3 binary

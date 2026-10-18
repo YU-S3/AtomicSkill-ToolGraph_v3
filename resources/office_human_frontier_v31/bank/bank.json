@@ -1,0 +1,920 @@
+{
+  "schema": "human.frontier.bank.v1",
+  "benchmark": "officeqa",
+  "method_version": "office.human.phase.v3.1.20261017",
+  "seed": 42,
+  "trust": "author_trusted",
+  "admission": {
+    "learning_provenance": false,
+    "train_transfer_gate": false,
+    "utility_promotion": false,
+    "automatic_deletion": false
+  },
+  "source_basis": "Public released strategies, independently edited; NOT a measured superior policy or naturally learned Ours asset.",
+  "skill": [
+    {
+      "kind": "skill",
+      "title": "OA-Target",
+      "goal": "Type the target before retrieving",
+      "guidance": "Lock the exact measure, observation periods, fiscal/calendar basis, reporting vintage, requested statistic, output unit and format; a percentage numeric scale is distinct from its percent symbol. Source amounts only from acquired evidence. Search hits locate a source; they are not automatically the correct table, column or value. Focus on the single missing target field.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "external_human_reference",
+      "author_execution_permission": "manual_eval",
+      "method_version": "office.human.phase.v3.1.20261017",
+      "id": "skill_865cfeb3115ec54437e4969a8c3a8a0df918dac0002402a3ac27a944e77c03a9"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Locate",
+      "goal": "Acquire the relevant source with bounded search",
+      "guidance": "Use a narrow file scope and distinctive measure. The scoped_search Program can batch search and read real hit paths/offsets within this task budget. A returned ok proves only acquired source windows; it does not establish table/period alignment or a final answer. After empty hits vary one query dimension. Read the exact hit and nearby header/unit; do not repeatedly expand to the whole corpus or treat an exhausted search as complete target coverage.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "external_human_reference",
+      "author_execution_permission": "manual_eval",
+      "method_version": "office.human.phase.v3.1.20261017",
+      "id": "skill_30c793bd17233e146073eef679a020f7307d040454450643d47c4e1a8cdaa1fc"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Align",
+      "goal": "Bind quantities to the actual header, period and unit",
+      "guidance": "Align the title, header, row, footnotes, period and unit before using adjacent OCR numbers. Use table_extract only with a complete relevant table window and exact column/row labels. Ambiguous OCR needs native read_context, not guessed cells. Keep each operand with its source_ref and exact quote in evidence_state; name it by its computation field (e.g. numerator, denominator, from_value, to_value, values.0). Preserve period order and missing observations; never fill gaps. Accumulate operands across rounds; repeated reports are deduplicated. Retrieve only missing observation periods in human_office_progress.period_coverage. Conflicting values need explicit source disambiguation; to correct a record, supply replaces_source_ref for that exact old source. Gross/net, offered/accepted, old/new securities, currency quotation direction and 32nds are different quantities, not interchangeable units.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "external_human_reference",
+      "author_execution_permission": "manual_eval",
+      "method_version": "office.human.phase.v3.1.20261017",
+      "id": "skill_f873d945459e50012e7fb1b9ed97f6bf41b2c6fd704525b8dbaf715833e79c8c"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Compute",
+      "goal": "Compute from explicitly named operands",
+      "guidance": "Use series_metrics for its listed formulas when it fits; otherwise use existing temporary Python. Difference names FROM and TO plus absolute; ratio names numerator and denominator; change/growth names base_value and new_value. Set output_percent explicitly, never multiply twice. periods means elapsed intervals, not number of observations. Programs prove local arithmetic only. Persist the computed output via answer_candidate.result_ref with matching operation, output_unit and covers_task. Choose an actual scalar path from recent_scalar_result_refs, never its parent dictionary. Only the current executed operands need bindings; use answer_candidate.operand_bindings by operand name to disambiguate saved sources. Temporary Python may return operand_values alongside answer to retain its binding. If the target is solved, finish now rather than search again for the same quantity.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "external_human_reference",
+      "author_execution_permission": "manual_eval",
+      "method_version": "office.human.phase.v3.1.20261017",
+      "id": "skill_522eb7f1f5685b0244058b0b5b6377b845fd8d15be2c490724fd45299a1f3f6d"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Commit",
+      "goal": "Submit the best supported result through the native protocol",
+      "guidance": "If the exact requested target has been computed from the required observations, immediately use native runtime_step(action=\"finish\", answer=<only the requested numeric/list/date payload>). No XML tags. For percentages keep the numeric scale and omit a trailing percent symbol unless the question explicitly requires it in a template. Do not restart a broad search or replace a grounded value with an unverified one. A candidate is not semantic certification: check its target, direction, period, unit and precision against its actual evidence. When forced to finish, preserve the best genuinely supported result and remaining uncertainty; do not invent a completion receipt.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "external_human_reference",
+      "author_execution_permission": "manual_eval",
+      "method_version": "office.human.phase.v3.1.20261017",
+      "id": "skill_990d719f96ca4d95af996492a49e6be0bbefa599a93f5ef6dd6529393cc07aea"
+    }
+  ],
+  "program": [
+    {
+      "source": "\"\"\"Bounded Office retrieval using only advertised native tools and actual hits.\"\"\"\n\n\ndef run(ctx,inputs):\n    try:\n        query=inputs['query']\n        if not isinstance(query,str) or not query.strip():raise ValueError('nonempty query required')\n        available={t['name'] for t in ctx.available_tools()}\n        paths=inputs.get('paths');pattern=inputs.get('file_pattern')\n        if paths is None and pattern:\n            r=ctx.call('glob',{'pattern':pattern})\n            if not r.get('accepted'):return {'status':'blocked','outputs':{},'detail':r.get('error','glob failed')}\n            paths=r['data']\n        maximum=min(4,max(1,inputs.get('max_windows',3)))\n        pages=min(4,max(1,inputs.get('max_pages',2)))\n        before=min(4000,max(0,inputs.get('before',1000)));after=min(8000,max(500,inputs.get('after',3500)))\n        args={'pattern':query}\n        if paths is not None:args['paths']=paths\n        hits=[];complete=False;cursor=None;seen=set()\n        for _ in range(pages):\n            if ctx.remaining_calls()<=0:break\n            if 'grep_page' in available:\n                call={**args,'limit':40}\n                if cursor is not None:call['cursor']=cursor\n                r=ctx.call('grep_page',call)\n                if not r.get('accepted'):return {'status':'blocked','outputs':{},'detail':r.get('error','search failed')}\n                data=r['data'];hits.extend(data['hits']);complete=data['complete'];cursor=data.get('next_cursor')\n                if complete or not cursor or cursor in seen or len(hits)>=maximum:break\n                seen.add(cursor)\n            else:\n                r=ctx.call('grep',args)\n                if not r.get('accepted'):return {'status':'blocked','outputs':{},'detail':r.get('error','search failed')}\n                hits.extend(r['data']);complete=len(r['data'])<40;break\n        windows=[];read_seen=set();read_errors=[]\n        for hit in hits:\n            if len(windows)>=maximum or ctx.remaining_calls()<=0:break\n            path,offset=hit['path'],hit['offset'];key=(path,offset)\n            if key in read_seen:continue\n            read_seen.add(key)\n            if 'read_context' in available:\n                r=ctx.call('read_context',{'path':path,'offset':offset,'before':before,'after':after})\n                if not r.get('accepted'):read_errors.append(r.get('error','read_context failed'));continue\n                data=r['data'];start=data['start_offset'];text=data['text']\n            else:\n                start=max(0,offset-before);r=ctx.call('read',{'path':path,'offset':start})\n                if not r.get('accepted'):read_errors.append(r.get('error','read failed'));continue\n                text=r['data']['text'][:before+after]\n            if text:windows.append({'path':path,'start_offset':start,'hit_offset':offset,'text':text})\n        if not windows and read_errors:return {'status':'blocked','outputs':{},'detail':str(read_errors)}\n        if not windows:return {'status':'not_found' if complete and not hits else 'needs_input','outputs':{},\n            'detail':'No acquired matching window; broaden query/scope or read an actual hit. Incomplete search is not proof of absence.'}\n        return {'status':'ok','outputs':{'windows':windows,'search_exhausted':complete,\n            'target_periods_complete':None,'table_header_bound':False,'next_cursor':cursor,\n            'scope':'retrieval_window_only'}}\n    except (KeyError,ValueError,TypeError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file_pattern": {
+            "type": "string"
+          },
+          "max_pages": {
+            "type": "integer"
+          },
+          "max_windows": {
+            "type": "integer"
+          },
+          "before": {
+            "type": "integer"
+          },
+          "after": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "start_offset": {
+                  "type": "integer"
+                },
+                "hit_offset": {
+                  "type": "integer"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "start_offset",
+                "hit_offset",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": "string"
+          },
+          "search_exhausted": {
+            "type": "boolean"
+          },
+          "target_periods_complete": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "table_header_bound": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "windows",
+          "search_exhausted",
+          "target_periods_complete",
+          "table_header_bound",
+          "next_cursor",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [
+        "glob",
+        "grep",
+        "grep_page",
+        "read",
+        "read_context"
+      ],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "retrieval_program",
+        "description": "Batch scoped search and real hit reads. Acquired windows are usable intermediate evidence; ok is local retrieval success only; table/period binding remains."
+      },
+      "state": "candidate",
+      "method_version": "office.human.phase.v3.1.20261017",
+      "permission": "author_trusted",
+      "origin": "human_authored_source",
+      "id": "program_a2ab568429f17ed6f92826014b63b4b82761ba8653f0a321a990b18c41934bf3",
+      "source_file": "programs/scoped_search.py",
+      "title": "Batch scoped search and real hit reads. Acquired windows are usable intermediate evidence; ok is local retrieval success only; table/period binding remains."
+    },
+    {
+      "source": "\"\"\"Conservative row/column extraction from supplied Treasury text; no made-up cells.\"\"\"\nimport re\nfrom decimal import Decimal, InvalidOperation\n\n\ndef cells(line):\n    s=line.strip()\n    if '|' in s:return [x.strip() for x in s.strip('|').split('|')]\n    return [x.strip() for x in re.split(r'\\t+| {2,}',s)]\n\n\ndef number(s):\n    t=re.sub(r'(?<=\\d)[*†‡]+$','',s.strip()).replace(',','')\n    if re.fullmatch(r'\\(?[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\)?',t) is None:raise ValueError('not a unique numeric cell: '+s)\n    if t.startswith('(') and t.endswith(')'):t='-'+t[1:-1]\n    d=Decimal(t)\n    if not d.is_finite():raise ValueError('nonfinite cell')\n    return str(d)\n\n\ndef run(ctx,inputs):\n    try:\n        text=inputs['text'];wanted=inputs['rows'];column=inputs['column']\n        if not isinstance(text,str) or not text.strip() or not isinstance(wanted,list) or not wanted:\n            raise ValueError('text and nonempty rows required')\n        if any(not isinstance(x,str) or not x.strip() for x in wanted) or not isinstance(column,str):raise ValueError('row and column labels must be strings')\n        raw=text.splitlines(keepends=True);offsets=[];off=0\n        for line in raw:offsets.append(off);off+=len(line)\n        parsed=[cells(line) for line in raw]\n        norm=lambda s:' '.join(s.casefold().split())\n        hints=inputs.get('header_hint','');headers=[]\n        for i,row in enumerate(parsed):\n            indexes=[j for j,c in enumerate(row) if norm(c)==norm(column)]\n            if len(indexes)==1 and (not hints or norm(hints) in norm(' '.join(raw[max(0,i-6):i+1]))):headers.append((i,indexes[0]))\n        if len(headers)!=1:raise ValueError('missing or ambiguous header; supply a tighter table window/header_hint')\n        h,col=headers[0];unit=inputs.get('unit','')\n        if not unit:raise ValueError('Bind the actual unit from the supplied window; use native read for missing header/unit/footnotes')\n        if unit and norm(unit) not in norm(text):raise ValueError('requested unit is absent from this window')\n        # Require a tight table window; repeated target labels are rejected, not merged.\n        matches=[]\n        for label in wanted:\n            found=[]\n            for i in range(h+1,len(parsed)):\n                row=parsed[i]\n                if len(row)<=col:continue\n                if any(norm(c)==norm(label) for j,c in enumerate(row) if j!=col):\n                    try:value=number(row[col])\n                    except ValueError:continue\n                    found.append({'row':label,'column':column,'value':value,'unit':unit,\n                        'source_line':i+1,'start':offsets[i],'end':offsets[i]+len(raw[i].rstrip('\\r\\n')),'quote':raw[i].rstrip('\\r\\n')})\n            if len(found)!=1:raise ValueError('missing/ambiguous row '+label+'; do not merge repeated year blocks')\n            matches.append(found[0])\n        return {'status':'ok','outputs':{'cells':matches,'values':[x['value'] for x in matches],\n            'header':raw[h].rstrip('\\r\\n'),'unit':unit,'requested_rows':wanted,\n            'table_header_bound':True,'target_periods_complete':True,\n            'proof_scope':'requested_literal_rows_only',\n            'scope':'Every requested row label matched once under this header/unit. This does not verify that your requested labels or fiscal/calendar interpretation match the question. Read the actual source if OCR is ambiguous.'}}\n    except (KeyError,ValueError,TypeError,InvalidOperation) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "column": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "header_hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "rows",
+          "column",
+          "unit"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "cells": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "row": {
+                  "type": "string"
+                },
+                "column": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "source_line": {
+                  "type": "integer"
+                },
+                "start": {
+                  "type": "integer"
+                },
+                "end": {
+                  "type": "integer"
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "row",
+                "column",
+                "value",
+                "unit",
+                "source_line",
+                "start",
+                "end",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "string"
+          },
+          "header": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "requested_rows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "table_header_bound": {
+            "type": "boolean"
+          },
+          "target_periods_complete": {
+            "type": "boolean"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cells",
+          "values",
+          "scope",
+          "header",
+          "unit",
+          "requested_rows",
+          "table_header_bound",
+          "target_periods_complete",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "table_program",
+        "description": "Extract unique requested rows under an exact header and actual unit from an acquired table window. Ambiguous OCR needs native read."
+      },
+      "state": "candidate",
+      "method_version": "office.human.phase.v3.1.20261017",
+      "permission": "author_trusted",
+      "origin": "human_authored_source",
+      "id": "program_3e41af88c5cc75e1811aad87e7ee7fb30e7b789d7af05e98bdbf835e40a7b2c6",
+      "source_file": "programs/table_extract.py",
+      "title": "Extract unique requested rows under an exact header and actual unit from an acquired table window. Ambiguous OCR needs native read."
+    },
+    {
+      "source": "\"\"\"Named formulas with explicit conventions; computation, not operand provenance.\"\"\"\nimport math\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx,inputs):\n    try:\n        op=inputs['operation'];direction='as_supplied';formula=op\n        named={'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}\n        if 'output_scale' in inputs:raise ValueError('output_scale is unsupported; specify output_percent explicitly')\n        if op in named:\n            if 'values' in inputs:raise ValueError('This operation requires named operands, not positional values')\n            if op=='difference':\n                raw=[inputs['from_value'],inputs['to_value']]\n                if type(inputs['absolute']) is not bool:raise ValueError('absolute must be explicit boolean')\n                formula='abs(to_value-from_value)' if inputs['absolute'] else 'to_value-from_value'\n                direction='absolute' if inputs['absolute'] else 'to_minus_from'\n            elif op=='ratio':\n                raw=[inputs['denominator'],inputs['numerator']];formula='numerator/denominator';direction='numerator_over_denominator'\n            else:\n                raw=[inputs['base_value'],inputs['new_value']];direction='base_to_new'\n                formula={'percent_change':'(new_value-base_value)/base_value','log_return':'ln(new_value/base_value)',\n                         'cagr':'exp(ln(new_value/base_value)/periods)-1',\n                         'annual_log_growth':'ln(new_value/base_value)/periods'}[op]\n        else:raw=inputs['values']\n        if not isinstance(raw,list) or not raw or len(raw)>5000:raise ValueError('1..5000 values required')\n        if any(type(v) not in (str,int,float) for v in raw):raise ValueError('numeric strings/numbers required')\n        with localcontext() as context:\n            context.prec=50\n            x=[Decimal(str(v)) for v in raw]\n            if any(not v.is_finite() for v in x):raise ValueError('nonfinite operand')\n            n=Decimal(len(x));mean=sum(x)/n;convention=op\n            if op=='sum':v=sum(x)\n            elif op=='mean':v=mean\n            elif op=='median':\n                a=sorted(x);mid=len(a)//2;v=a[mid] if len(a)%2 else (a[mid-1]+a[mid])/2\n            elif op in {'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}:\n                if len(x)!=2:raise ValueError('exactly two values in [start,end] order required')\n                a,b=x\n                if op=='difference':v=abs(b-a) if inputs['absolute'] else b-a\n                elif op=='ratio':v=b/a\n                elif op=='percent_change':v=(b-a)/a\n                else:\n                    if a<=0 or b<=0:raise ValueError('growth operands must be positive')\n                    ratio=b/a\n                    if op=='log_return':v=ratio.ln()\n                    else:\n                        periods=Decimal(str(inputs.get('periods','0')))\n                        if periods<=0:raise ValueError('positive elapsed interval count required, not observation count')\n                        v=ratio.ln()/periods if op=='annual_log_growth' else (ratio.ln()/periods).exp()-1\n            elif op in {'std_population','std_sample','variance_population','variance_sample'}:\n                denominator=n-(1 if op.endswith('sample') else 0)\n                if denominator<=0:raise ValueError('sample requires at least two observations')\n                v=sum((a-mean)**2 for a in x)/denominator\n                if op.startswith('std_'):v=v.sqrt()\n            elif op in {'gini_population','gini_sample_adjusted'}:\n                if min(x)<0 or sum(x)<=0:raise ValueError('Gini requires nonnegative values and positive sum')\n                a=sorted(x);v=sum(Decimal(2*i-len(a)-1)*z for i,z in enumerate(a,1))/(n*sum(a))\n                if op=='gini_sample_adjusted':\n                    if n<=1:raise ValueError('sample correction requires n>1')\n                    v=v*n/(n-1)\n            elif op in {'correlation','ols_slope','ols_intercept'}:\n                raw_y=inputs.get('other_values',[])\n                if len(raw_y)!=len(x) or len(x)<2:raise ValueError('paired x/y arrays of equal length required')\n                y=[Decimal(str(z)) for z in raw_y]\n                if any(not z.is_finite() for z in y):raise ValueError('nonfinite y')\n                my=sum(y)/n;sxx=sum((a-mean)**2 for a in x);sxy=sum((a-mean)*(b-my) for a,b in zip(x,y))\n                if sxx==0:raise ValueError('zero x variance')\n                slope=sxy/sxx\n                if op=='ols_slope':v=slope\n                elif op=='ols_intercept':v=my-slope*mean\n                else:\n                    syy=sum((b-my)**2 for b in y)\n                    if syy==0:raise ValueError('zero y variance')\n                    v=sxy/(sxx*syy).sqrt()\n            elif op=='geometric_growth':\n                if any(1+a<=0 for a in x):raise ValueError('growth factors must be positive')\n                v=(sum((1+a).ln() for a in x)/n).exp()-1\n            else:raise ValueError('unsupported named operation')\n            percent=inputs.get('output_percent',False)\n            if type(percent) is not bool:raise ValueError('output_percent must be boolean')\n            if percent:\n                if op not in {'ratio','percent_change','cagr','geometric_growth'}:raise ValueError('percent output is not supported for this operation')\n                v*=100;formula='100*('+formula+')'\n            digits=inputs.get('decimals')\n            if digits is not None:\n                if type(digits) is not int or not 0<=digits<=18:raise ValueError('decimals must be 0..18')\n                answer=format(v.quantize(Decimal(1).scaleb(-digits),rounding=ROUND_HALF_UP),'.'+str(digits)+'f')\n            else:answer=format(v,'f').rstrip('0').rstrip('.') if '.' in format(v,'f') else format(v,'f')\n            if answer in ('-0',''):answer='0'\n            return {'status':'ok','outputs':{'value':str(v),'answer':answer,'formula':formula,'direction':direction,\n                'operand_refs':inputs.get('operand_refs',[]),'periods':str(inputs.get('periods','not_applicable')),\n                'unit':inputs['unit'],'output_percent':percent,'proof_scope':'local_computation_only',\n                'convention':convention,'count':len(x)}}\n    except (KeyError,ValueError,TypeError,ArithmeticError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "unit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              },
+              "operand_refs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "output_percent": {
+                "type": "boolean"
+              },
+              "operation": {
+                "const": "difference"
+              },
+              "from_value": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "to_value": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "absolute": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "operation",
+              "from_value",
+              "to_value",
+              "absolute",
+              "unit"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "unit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              },
+              "operand_refs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "output_percent": {
+                "type": "boolean"
+              },
+              "operation": {
+                "const": "ratio"
+              },
+              "numerator": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "denominator": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "numerator",
+              "denominator",
+              "output_percent",
+              "unit"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "unit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              },
+              "operand_refs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "output_percent": {
+                "type": "boolean"
+              },
+              "operation": {
+                "enum": [
+                  "percent_change",
+                  "log_return",
+                  "cagr",
+                  "annual_log_growth"
+                ]
+              },
+              "base_value": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "new_value": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "periods": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "base_value",
+              "new_value",
+              "output_percent",
+              "unit"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "unit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              },
+              "operand_refs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "output_percent": {
+                "type": "boolean"
+              },
+              "operation": {
+                "enum": [
+                  "sum",
+                  "mean",
+                  "median",
+                  "std_population",
+                  "std_sample",
+                  "variance_population",
+                  "variance_sample",
+                  "gini_population",
+                  "gini_sample_adjusted",
+                  "correlation",
+                  "ols_slope",
+                  "ols_intercept",
+                  "geometric_growth"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 5000
+              },
+              "other_values": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 5000
+              }
+            },
+            "required": [
+              "operation",
+              "values",
+              "unit"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "proof_scope": {
+            "type": "string"
+          },
+          "convention": {
+            "type": "string"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "output_percent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "answer",
+          "formula",
+          "direction",
+          "operand_refs",
+          "periods",
+          "unit",
+          "proof_scope",
+          "convention",
+          "count",
+          "output_percent"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "calculation_program",
+        "description": "Named local arithmetic: explicit numerator/denominator, from/to+absolute, base/new+output_percent. Never certify question semantics."
+      },
+      "state": "candidate",
+      "method_version": "office.human.phase.v3.1.20261017",
+      "permission": "author_trusted",
+      "origin": "human_authored_source",
+      "id": "program_49a8a4d7a03430eda81a9ed7a9afa4bb40f6c038577b66006e67fc480c1104b2",
+      "source_file": "programs/series_metrics.py",
+      "title": "Named local arithmetic: explicit numerator/denominator, from/to+absolute, base/new+output_percent. Never certify question semantics."
+    }
+  ],
+  "implementation": [
+    {
+      "id": "implementation_466dc707aa477a2ecd820b4f9e0e1bc77e4c8a62a1d5b732d5ed7203f3c46565",
+      "skill_id": "skill_30c793bd17233e146073eef679a020f7307d040454450643d47c4e1a8cdaa1fc",
+      "program_id": "program_a2ab568429f17ed6f92826014b63b4b82761ba8653f0a321a990b18c41934bf3",
+      "origin": "human_authored",
+      "permission": "author_trusted"
+    },
+    {
+      "id": "implementation_31c72f66836db9de16323a0499c335a0d3a2fd3c7d9e1e0b6bbff732e4fbe809",
+      "skill_id": "skill_f873d945459e50012e7fb1b9ed97f6bf41b2c6fd704525b8dbaf715833e79c8c",
+      "program_id": "program_3e41af88c5cc75e1811aad87e7ee7fb30e7b789d7af05e98bdbf835e40a7b2c6",
+      "origin": "human_authored",
+      "permission": "author_trusted"
+    },
+    {
+      "id": "implementation_3ebfa7543dfe1c15738509ba3a5a96656c0a69f349fb577d3ee9859ed8b06f7c",
+      "skill_id": "skill_522eb7f1f5685b0244058b0b5b6377b845fd8d15be2c490724fd45299a1f3f6d",
+      "program_id": "program_49a8a4d7a03430eda81a9ed7a9afa4bb40f6c038577b66006e67fc480c1104b2",
+      "origin": "human_authored",
+      "permission": "author_trusted"
+    }
+  ],
+  "workflow": [
+    {
+      "id": "workflow_db18a91deba95afcb193abae9481508597edec57f7bebd38c161871f4ed53a95",
+      "goal": "Compute the requested quantity and return its requested format",
+      "interface_version": "empirical.workflow.v2",
+      "nodes": [
+        {
+          "id": "stage_1",
+          "execution_mode": "dynamic",
+          "goal": "Acquire the relevant report/table window; return analysis and, in the final stage, answer.",
+          "reference_skill_ids": [
+            "skill_865cfeb3115ec54437e4969a8c3a8a0df918dac0002402a3ac27a944e77c03a9",
+            "skill_30c793bd17233e146073eef679a020f7307d040454450643d47c4e1a8cdaa1fc",
+            "skill_f873d945459e50012e7fb1b9ed97f6bf41b2c6fd704525b8dbaf715833e79c8c"
+          ],
+          "after": [],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "stage_2",
+          "execution_mode": "dynamic",
+          "goal": "Align periods, columns, units and operands; return analysis and, in the final stage, answer.",
+          "reference_skill_ids": [
+            "skill_30c793bd17233e146073eef679a020f7307d040454450643d47c4e1a8cdaa1fc",
+            "skill_f873d945459e50012e7fb1b9ed97f6bf41b2c6fd704525b8dbaf715833e79c8c"
+          ],
+          "after": [
+            "stage_1"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "previous_result": {
+              "from": "stage_1",
+              "field": "analysis"
+            }
+          }
+        },
+        {
+          "id": "stage_3",
+          "execution_mode": "dynamic",
+          "goal": "Compute the requested quantity and return its requested format; return analysis and, in the final stage, answer.",
+          "reference_skill_ids": [
+            "skill_f873d945459e50012e7fb1b9ed97f6bf41b2c6fd704525b8dbaf715833e79c8c",
+            "skill_522eb7f1f5685b0244058b0b5b6377b845fd8d15be2c490724fd45299a1f3f6d"
+          ],
+          "after": [
+            "stage_2"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "previous_result": {
+              "from": "stage_2",
+              "field": "analysis"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "stage_3",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "execution_permission": "author_trusted",
+      "default_deployment": "compile_in_one_model_context",
+      "note": "Default is a prompt-compiled decision procedure, NOT three executed model turns. --graph uses the native Executor."
+    }
+  ],
+  "default_workflow_id": "workflow_db18a91deba95afcb193abae9481508597edec57f7bebd38c161871f4ed53a95",
+  "measured_performance": null,
+  "revision_basis": "Public interface/evidence audit; no task IDs, golds or answer lookup rules",
+  "runtime_mode": "native_dynamic_tool_loop; authored stage cards, graph not forced"
+}
