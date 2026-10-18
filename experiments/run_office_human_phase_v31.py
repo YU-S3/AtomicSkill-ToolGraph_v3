@@ -121,20 +121,29 @@ class GuardedGovernor(BudgetGovernor):
             raise RuntimeError('Prior campaign ledger changed; refuse stale cumulative authority')
         return super().admit(*args,**kwargs)
 
+def require_open_billing(governor):
+    if governor.billing_blocked:
+        raise RuntimeError('infrastructure_billing_unknown: preserve the reservation and stop before the next episode')
+
 def status(root):
     plan=read(root/'plan.json');ledger=read(root/'budget.json');prefix=read(root/'budget_prefix.json')['attempts']
     new=[v for k,v in ledger['attempts'].items() if k not in prefix]
+    observation_prefix=read(plan.get('observation_prefix_path',root/'budget_prefix.json'))['attempts']
+    observation=[v for k,v in ledger['attempts'].items() if k not in observation_prefix]
     results=[]
     for episode in plan['episodes']:
         summary=Path(episode['path'])/'summary.json'
         if summary.exists():
             s=read(summary);results.append({'task_id':episode['task_id'],'arm':episode['arm'],
                 'complete':s['complete'],'correct':s['successes'],'tokens':s['total_tokens'],
+                'known_tokens':s['known_total_tokens'],'unknown_billing_attempts':s['unknown_billing_attempts'],
+                'retained':bool(episode.get('retained_from')),'finish_recovery':bool(episode.get('recovery_source')),
                 'program_calls':s['program_invocations'],
                 'terminal_reasons':[x['execution']['reason'] for x in s['cases']]})
     return {'launch':read(root/'launch_status.json'),'completed_episodes':len(results),'expected_episodes':len(plan['episodes']),
         'results':results,'new_tokens_used_or_reserved':sum(map(charge,new)),'new_http':len(new),
         'new_unsettled':sum(v['status']!='metered' for v in new),
+        'observation_tokens_used_or_reserved':sum(map(charge,observation)),'observation_http':len(observation),
         'cumulative_tokens_used_or_reserved':sum(map(charge,ledger['attempts'].values())),
         'new_token_cap':plan['new_token_cap'],'new_http_cap':plan['new_http_cap']}
 
@@ -152,6 +161,7 @@ def execute(root,env):
             for i,e in enumerate(plan['episodes']):
                 out=Path(e['path']);summary=out/'summary.json'
                 if summary.exists() and read(summary)['complete']:continue
+                require_open_billing(governor)
                 if (root/'STOP_AFTER_EPISODE').exists():state='paused';exit_code=75;break
                 save_json(root/'launch_status.json',{'status':'running','started_at':started,
                     'pid':os.getpid(),'episode_index':i,'task_id':e['task_id'],'arm':e['arm']})
@@ -161,10 +171,15 @@ def execute(root,env):
                     resume=(out/'formal/run_manifest.json').exists())
                 try:
                     with frontier.bridge():
-                        result=run(config,[tasks[e['task_id']]],out,readonly=True,
-                            resume=(out/'execution_manifest.json').exists(),formal_log=formal,
-                            bank_view_factory=lambda bank:frontier.HumanBankView(bank,bundle,e['arm']),
-                            budget_governor=governor,freeze_on_complete=False)
+                        if e.get('recovery_source'):
+                            from recover_office_human_phase_v31 import finish_episode
+                            result=finish_episode(config,tasks[e['task_id']],out,e,governor,formal,frontier,bundle)
+                        else:
+                            result=run(config,[tasks[e['task_id']]],out,readonly=True,
+                                resume=(out/'execution_manifest.json').exists(),formal_log=formal,
+                                bank_view_factory=lambda bank:frontier.HumanBankView(bank,bundle,e['arm']),
+                                budget_governor=governor,freeze_on_complete=False)
+                    require_open_billing(governor)
                     formal.finish('completed' if result['complete'] else 'stopped')
                     if not result['complete']:raise RuntimeError('Incomplete episode; inspect the original record')
                 except BaseException as exc:
