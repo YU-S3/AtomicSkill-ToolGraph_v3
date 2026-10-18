@@ -1,0 +1,16 @@
+{
+  "lite_office": {
+    "repository": "EvolvingLMMs-Lab/SkillOpt-Lite",
+    "path": "skillopt_lite_ckpt/officeqa/gpt5.5/skill.md",
+    "blob_sha": "b320a2dae089c7186e69b753a951a3beba116fb8",
+    "url": "https://github.com/EvolvingLMMs-Lab/SkillOpt-Lite/blob/main/skillopt_lite_ckpt/officeqa/gpt5.5/skill.md",
+    "license": "MIT"
+  },
+  "skillopt_office": {
+    "repository": "microsoft/SkillOpt",
+    "path": "ckpt/officeqa/gpt5.5_skill.md",
+    "blob_sha": "869c1d4865ce75713825ab7b53fa3a4410371bf3",
+    "url": "https://github.com/microsoft/SkillOpt/blob/main/ckpt/officeqa/gpt5.5_skill.md",
+    "license": "MIT"
+  }
+}
