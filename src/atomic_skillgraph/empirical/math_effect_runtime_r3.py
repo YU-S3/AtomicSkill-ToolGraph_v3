@@ -14,6 +14,13 @@ def contract(cfg):
 
 def verify(trace):
     base.verify_trace(trace)
+    if trace.get('reused_model_response'):
+        proof=trace['reused_model_response'];original=read(proof['source_trace'])
+        base.verify_trace(original)
+        if (original['trace_hash']!=proof['source_trace_hash'] or original['runtime_contract_hash']!=trace['runtime_contract_hash'] or
+            any(original[k]!=trace[k] for k in ('task','prediction','score','request_ids','raw_usage','request_files','tokens','http')) or
+            original['public_input_hash']!=trace['public_input_hash'] or proof['actual_wire_hash']!=trace['main_wire_hash']):
+            raise ValueError('Reused physical response identity changed')
     for path,h in trace.get('program_receipts',{}).items():
         r=read(path)
         if digest(r)!=h or r['receipt_hash']!=digest({k:v for k,v in r.items() if k!='receipt_hash'}):
@@ -25,7 +32,7 @@ def verify(trace):
             trace['http'] or trace['tokens'] or not trace['consumed_program_ids']):raise ValueError('Invalid zero-HTTP takeover')
 
 
-def solve(task,adapter,candidates,qualifications,cfg,root,governor,*,providers=None,worker=None):
+def solve(task,adapter,candidates,qualifications,cfg,root,governor,*,providers=None,worker=None,reuse_trace=None,require_reuse=False):
     root=Path(root);identity=digest([task.__dict__,candidates,qualifications,cfg]);path=root/'trace.json'
     if path.exists():
         saved=read(path)
@@ -58,14 +65,42 @@ def solve(task,adapter,candidates,qualifications,cfg,root,governor,*,providers=N
             'public_input_hash':digest({'goal':task.goal,'choices':task.inputs['choices']}),
             'runtime_contract_hash':contract(cfg),'answer_origin':'learned_program'}
     else:
-        trace=deepcopy(base.solve(task,adapter,candidates,cfg,root/'dynamic',governor,
-            providers=providers,selection_override=selection))
-        trace.pop('trace_hash');trace['answer_origin']='dynamic'
-    trace.update(identity=identity,method_version=p.VERSION,program_calls=len(receipts),program_receipts=receipts,
+        expected=base.provider(cfg['llm'],'runtime',settings)._build_payload(
+            base.messages(task,[p.old.card(c['candidate']) for c in selection['selected']]),[])
+        reusable=compatible_response(reuse_trace,task,cfg,expected) if reuse_trace else None
+        if reusable:
+            trace=deepcopy(reusable);trace.pop('trace_hash')
+            trace['selection']={**selection,'selected':[c['id'] for c in selection['selected']]}
+            trace['answer_origin']='dynamic_reused'
+            trace['reused_model_response']={'source_trace':str(Path(reuse_trace).resolve()),
+                'source_trace_hash':reusable['trace_hash'],'actual_wire_hash':digest(expected),'new_tokens':0,'new_http':0,
+                'qualification':'exact_public_input_provider_payload_and_runtime_contract; original physical response preserved'}
+            adapter.reset(task)
+            if adapter.evaluate(adapter.submit(trace['prediction']))!=trace['score']:raise ValueError('Reused native score changed')
+        else:
+            if require_reuse:raise ValueError('This Train stage cannot issue a new Runtime solve; exact response reuse is required')
+            trace=deepcopy(base.solve(task,adapter,candidates,cfg,root/'dynamic',governor,
+                providers=providers,selection_override=selection))
+            trace.pop('trace_hash');trace['answer_origin']='dynamic'
+    trace.update(identity=identity,method_version=p.VERSION,
+        experiment_method_version=cfg['effect_p7'].get('derivation',{}).get('version',p.VERSION),
+        program_calls=len(receipts),program_receipts=receipts,
         program_votes=votes,program_conflict=len(set(votes))>1,program_execution_failure=not valid_programs,
         consumed_program_ids=[x[1] for x in used] if agreed else [],
         program_admission_hash=digest(qualifications))
     trace['trace_hash']=digest(trace);save_json(path,trace);return trace
+
+
+def compatible_response(path,task,cfg,payload):
+    """Optional exact-wire reuse; no nearest prompt, score substitution or Test imports."""
+    from .math_effect_optimizer import main_wire_hash
+    path=Path(path)
+    if not path.exists():return None
+    saved=read(path);verify(saved)
+    if (task.split=='test' or saved['task']!=task.__dict__ or not saved['http'] or
+        saved['runtime_contract_hash']!=contract(cfg) or main_wire_hash(saved)!=digest(payload)):
+        return None
+    return saved
 
 
 def verify_train(q,c,environment):

@@ -247,7 +247,9 @@ def execute(root):
 def freeze(root,plan,result):
     if not r.verify_utility(result['val_receipt']) or not result['val_receipt']['qualified']:raise ValueError('Val gate not passed')
     cfg=read(root/'config.json');bank=Bank(root/'deployment_bank',environment=cfg['program_environment']);bank.bind_choice_method(p.VERSION)
-    with bank.db:bank.db.execute('INSERT OR REPLACE INTO metadata VALUES(?,?)',('effect_source_keys',json.dumps(plan['learning_source_keys'])))
+    with bank.db:
+        bank.db.execute('INSERT OR REPLACE INTO metadata VALUES(?,?)',('effect_source_keys',json.dumps(plan['learning_source_keys'])))
+        bank.db.execute('INSERT OR REPLACE INTO metadata VALUES(?,?)',('experiment_method_version',plan.get('method_version',p.VERSION)))
     try:
         for c in result['policy']:
             skill={'id':'skill_'+c['id'],'method_version':p.VERSION,'effect_candidate':c,'goal':c['candidate']['goal'],
@@ -273,7 +275,8 @@ def freeze(root,plan,result):
                 raise ValueError('Frozen snapshot did not preserve all qualified learned Programs')
         finally:frozen_bank.close()
     finally:bank.close()
-    value={'method_version':p.VERSION,'policy':result['policy'],'qualifications':result['qualifications'],
+    value={'method_version':plan.get('method_version',p.VERSION),'asset_contract_version':p.VERSION,
+        'policy':result['policy'],'qualifications':result['qualifications'],
         'manifest':manifest,'frozen_tree':tree_identity(root/'frozen_bank'),'selection_hash':digest(read(root/'selection.json')),
         'plan_hash':digest(plan),'freeze_time':utc()}
     write_json(root/'freeze_identity.json',value);return value
@@ -296,7 +299,8 @@ def test(root):
             traces.append(r.solve(t,adapter,v['policy'],v['qualifications'],cfg,root/'test'/t.physical_key,g))
             frozen(root);progress(root,'test',completed=len(traces),total=100,correct=sum(x['score']['hard'] for x in traces))
     finally:adapter.close()
-    result={'tasks':100,'correct':sum(x['score']['hard'] for x in traces),'tokens':sum(x['tokens'] for x in traces),
+    result={'method_version':plan['method_version'],'asset_contract_version':p.VERSION,
+        'tasks':100,'correct':sum(x['score']['hard'] for x in traces),'tokens':sum(x['tokens'] for x in traces),
         'http':sum(x['http'] for x in traces),'program_answers':sum(x['answer_origin']=='learned_program' for x in traces),
         'target_reached':sum(x['score']['hard'] for x in traces)>=70,'frozen_unchanged':frozen(root)==v,
         'development_exposed_test':True,'trace_hashes':[x['trace_hash'] for x in traces]}

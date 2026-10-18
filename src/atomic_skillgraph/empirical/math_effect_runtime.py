@@ -117,6 +117,7 @@ def solve(task, adapter, candidates, cfg, root, governor, *, providers=None, sel
         # The directory identifies phase/arm/policy/task; equal payloads are still separate paid solves.
         'episode_scope':digest([identity,str(root.resolve())]),'episode_request_limit':2,'purpose':'runtime'}
     if settings.get('method_version')==R2 or selection_override is not None:base['method_version']=settings['method_version']
+    if settings.get('derivation'):base['experiment_method_version']=settings['derivation']['version']
     p=(providers or {}).get('main') or provider(llm,'runtime',settings)
     turn,receipt=call(root/'main',p,messages(task,cards),governor,base,durable_received=selection_override is not None)
     initial_length=turn.finish_reason=='length';answer=turn.content;receipts=[receipt];censored=False;finish_state='not_needed'
