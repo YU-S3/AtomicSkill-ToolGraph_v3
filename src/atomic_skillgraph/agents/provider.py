@@ -66,8 +66,13 @@ class OpenAICompatibleConfig:
     token_limit_field: str = 'max_tokens'
     generation_seed: int | None = None
     capability_profile: dict | None = None
+    image_input: dict | None = None
 
     def __post_init__(self) -> None:
+        from .image_input import validate_policy
+        validate_policy(self.image_input)
+        if self.image_input is not None and 'image' not in self.input_modalities:
+            raise ValueError('Image input policy requires a visual capability lock')
         defaults = {'tools':True, 'thinking':self.dialect=='deepseek_v4_chat',
                     'reasoning_effort':self.dialect=='deepseek_v4_chat', 'generation_seed':False}
         if self.capability_profile is not None and (not isinstance(self.capability_profile,dict) or
@@ -139,6 +144,7 @@ class OpenAICompatibleConfig:
             "request_timeout_seconds": self.request_timeout_seconds,
             "max_retries": self.max_retries,
             "capability_profile": dict(self.capability_profile),
+            **({'image_input':dict(self.image_input)} if self.image_input else {}),
         }
 
 
@@ -216,6 +222,13 @@ class OpenAICompatibleProvider:
             payload['seed'] = self.config.generation_seed
         return payload
 
+    def input_measure(self, payload):
+        from .image_input import measure
+        return measure(payload, self.config.image_input)
+
+    def input_token_bound(self, payload):
+        return self.input_measure(payload)['input_token_bound']
+
     def complete(
         self,
         messages: list[AgentMessage],
@@ -230,11 +243,15 @@ class OpenAICompatibleProvider:
             if type(max_completion_tokens) is not int or max_completion_tokens <= 0:
                 raise ValueError('Request completion cap must be positive')
             payload[self.config.token_limit_field] = max_completion_tokens
-        from ..empirical.budget_governor import input_token_bound
-        payload_bytes = input_token_bound(payload)
+        image_audit = self.input_measure(payload)
+        payload_bytes = image_audit['text_wire_bytes']
+        if self.config.image_input is not None:
+            self._request_context.value = {**getattr(self._request_context, 'value', {}),
+                'image_input': self.config.image_input, 'image_audit': image_audit}
         maximum = getattr(self._request_context, 'value', {}).get('payload_max_bytes')
         if maximum is not None and payload_bytes > maximum:
-            error = ValueError('material_too_large: complete provider payload ' + str(payload_bytes) + ' > ' + str(maximum))
+            scope = 'provider text payload' if self.config.image_input else 'complete provider payload'
+            error = ValueError('material_too_large: ' + scope + ' ' + str(payload_bytes) + ' > ' + str(maximum))
             error.code = 'material_too_large'
             raise error
         # This observes the final serialized HTTP surface, after all Session
@@ -272,7 +289,8 @@ class OpenAICompatibleProvider:
                 for segment in policy_segments],
             'tools': copy.deepcopy(payload.get('tools', [])),
             'captured_after_build_payload': True,
-            'serialized_payload_utf8_bytes': payload_bytes,
+            'serialized_payload_utf8_bytes': image_audit['wire_bytes'],
+            **({'text_material_utf8_bytes':payload_bytes,'image_audit':image_audit} if self.config.image_input else {}),
         }
         if tool_choice is not None:
             self._request_context.final_payload_audit['tool_choice'] = copy.deepcopy(payload['tool_choice'])

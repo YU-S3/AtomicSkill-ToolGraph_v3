@@ -249,7 +249,7 @@ def model_settings(base, model):
         base_url=model['endpoint'], api_key_env=model['api_key_env'], dialect=model.get('dialect', base['llm']['dialect']),
         input_modalities=model['input_modalities'], token_limit_field=model.get('token_limit_field', 'max_tokens'),
         generation_seed_supported=model.get('generation_seed_supported', False))
-    for key in ('reasoning_effort', 'request_timeout_seconds', 'max_retries', 'capability_profile'):
+    for key in ('reasoning_effort', 'request_timeout_seconds', 'max_retries', 'capability_profile', 'image_input'):
         if key in model:
             settings['llm'][key] = deepcopy(model[key])
     if 'thinking_type' in model:
@@ -278,6 +278,8 @@ def main():
     if args.env_file:
         load_env(args.env_file)
     spec = yaml.safe_load(Path(args.config).read_text())
+    if spec.get('benchmark_scope'):
+        raise ValueError('Scoped configurations require run_single_cell; do not launch the six-benchmark matrix')
     if spec['split_seed'] != 42 or spec['run_seeds'] != [42, 43, 44] or tuple(spec['benchmarks']) != BENCHMARKS:
         raise ValueError('Formal matrix must cover all six benchmarks and the three fixed run seeds')
     base = yaml.safe_load(Path(spec['base_config']).read_text())

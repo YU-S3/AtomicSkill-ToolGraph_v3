@@ -28,6 +28,8 @@ def main(argv=None):
     if spec['split_seed'] != 42 or spec['run_seeds'] != [42, 43, 44] or tuple(spec['benchmarks']) != BENCHMARKS:
         raise ValueError('Use the fixed main-experiment specification')
     verify(spec['authority'])
+    if spec.get('benchmark_scope') and args.benchmark not in spec['benchmark_scope']:
+        raise ValueError('Benchmark is outside this frozen configuration scope')
     if args.benchmark == 'officeqa' and not args.corpus_root: parser.error('OfficeQA requires --corpus-root')
     models = configured_models(json.loads(Path(spec['model_lock']).read_text()))
     if args.model_key:

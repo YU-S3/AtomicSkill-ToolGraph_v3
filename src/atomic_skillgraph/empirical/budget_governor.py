@@ -83,7 +83,10 @@ class BudgetGovernor:
             if audit_id in attempts: raise ValueError('Duplicate HTTP audit identity')
             if context.get('decision_purpose') == 'repair' and not self.repair_available():
                 raise ValueError('Batch proposal repair limit reached')
-            reserved = input_token_bound(payload) + payload.get('max_tokens', payload.get('max_completion_tokens', 0))
+            from ..agents.image_input import measure
+            image_audit = measure(payload, context.get('image_input'))
+            estimated = image_audit['input_token_bound']
+            reserved = estimated + payload.get('max_tokens', payload.get('max_completion_tokens', 0))
             used = sum(a.get('accounted_tokens', a['reserved_tokens']) for a in attempts.values())
             cap = self.limits['token_limit'] - (0 if context.get('purpose') == 'finish_only' else self.limits['finish_reserve'])
             scope = context.get('episode_scope')
@@ -111,8 +114,9 @@ class BudgetGovernor:
                 raise BudgetExhausted('parent_task_budget_exhausted','Parent task HTTP admission refused')
             if exhausted:
                 raise BudgetExhausted('diagnostic_budget_exhausted', 'HTTP admission refused', layer=FailureLayer.RUNTIME_AGENT)
-            attempts[audit_id] = {'reserved_tokens': reserved, 'input_estimate': input_token_bound(payload),
-                'estimate_method': 'utf8_byte_upper_bound_text', 'context': dict(context), 'status': 'admitted'}
+            attempts[audit_id] = {'reserved_tokens': reserved, 'input_estimate': estimated,
+                'estimate_method': 'utf8_text_plus_locked_image_bound' if context.get('image_input') else 'utf8_byte_upper_bound_text',
+                'context': dict(context), 'status': 'admitted'}
             save_json(self.path, self.state)
 
     def admit_validation(self, identity):

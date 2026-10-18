@@ -1,0 +1,27 @@
+{
+  "schema": "skillcompiler.models.v1",
+  "formal_models": [{
+    "display_name": "DeepSeek-V4.1-Flash-1017",
+    "run_label": "deepseek-v41-flash-1017",
+    "model_id": "deepseek-flash",
+    "endpoint": "https://api.deepseek.com/chat/completions",
+    "api_key_env": "MODEL_API_KEY",
+    "dialect": "deepseek_v4_chat",
+    "input_modalities": ["text", "image"],
+    "thinking_type": "enabled",
+    "reasoning_effort": "high",
+    "token_limit_field": "max_tokens",
+    "generation_seed_supported": false,
+    "capability_profile": {"tools": true, "thinking": true, "reasoning_effort": true, "generation_seed": false},
+    "image_input": {
+      "version": "image-input.v1", "tokens_per_image": 1024,
+      "request_bytes": 50331648, "image_bytes": 33554432,
+      "max_images": 14, "max_dimension": 8192
+    },
+    "evidence_checked_at": "2026-10-18",
+    "model_version_source": "https://api-docs.deepseek.com/",
+    "vision_source": "https://api-docs.deepseek.com/guides/vision/",
+    "release_source": "https://api-docs.deepseek.com/news/news261017",
+    "image_policy_note": "Original image bytes, detail=high (officially original). At most 14 images retains the documented 8192px limit; this dataset has one image per task. No OCR or alternate model. The service alias is mutable; raw response model is logged."
+  }]
+}
