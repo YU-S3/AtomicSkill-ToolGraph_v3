@@ -312,7 +312,7 @@ class AnswerExecutor:
                 from .prompts import finish_text_prompt
                 try:
                     answer=s.agent('runtime',finish_text_prompt(s.adapter.answer_contract()),
-                        {k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads'}},
+                        {k:v for k,v in material.items() if k in {'goal','inputs','local_results','local_reads','content_parts'}},
                         'finish_answer',None,repair_limit=0,owner_state_version=VERSION+':finish:'+str(index))
                 except BudgetExhausted:raise exc
                 return finish(answer,'budget_finish_only',budget_censored=True)

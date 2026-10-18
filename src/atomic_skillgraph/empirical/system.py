@@ -394,7 +394,7 @@ class EmpiricalSystem:
             self.providers[key] = OpenAICompatibleProvider(OpenAICompatibleConfig(
                 base_url=llm["base_url"], model=llm["model"], api_key_env=llm["api_key_env"],
                 dialect=llm.get('dialect', 'deepseek_v4_chat'),
-                input_modalities=tuple(llm.get('input_modalities', ['text'])),
+                input_modalities=tuple(llm.get('input_modalities', ['text'])), image_input=llm.get('image_input'),
                 token_limit_field=llm.get('token_limit_field', 'max_tokens'),
                 generation_seed=self.config['experiment']['seed'] if llm.get('generation_seed_supported') is True else None,
                 max_completion_tokens=settings["max_completion_tokens"],
@@ -553,6 +553,12 @@ class EmpiricalSystem:
                         finish_reserve=input_token_bound(finish_wire)+finish_cap+margin
                     else:
                         finish_reserve=input_token_bound(finish_material)+finish_cap
+                        if isinstance(provider,OpenAICompatibleProvider) and provider.config.image_input:
+                            from .prompts import finish_text_prompt
+                            finish_messages=[{'role':'system','content':finish_text_prompt(self.adapter.answer_contract())},
+                                {'role':'user','content':[{'type':'text','text':json.dumps(finish_material,ensure_ascii=False)},
+                                    *materials.get('content_parts',[])]}]
+                            finish_reserve=provider.input_token_bound({'messages':finish_messages})+finish_cap
             payload_max=None
             if stage in {'extractor','tool_builder'}:
                 key='structural_repair_payload_max_bytes' if purpose=='learning_structure_repair' else 'builder_payload_max_bytes' if stage=='tool_builder' else 'extractor_payload_max_bytes'
@@ -575,13 +581,17 @@ class EmpiricalSystem:
                     payload_max=executed_source_capacity(materials,self.config['learning'],payload_max, trusted=trusted)
                 if isinstance(provider,OpenAICompatibleProvider):
                     from .model_view import pack_material, expand_material, shrink_learning_preview
-                    from .budget_governor import input_token_bound
+                    from ..agents.image_input import text_payload
+                    def material_size(value):return provider.input_measure(value)['text_wire_bytes']
+                    def replace_material(content):
+                        current=messages[1]['content']
+                        return [{'type':'text','text':content},*[p for p in current if p.get('type')!='text']] if isinstance(current,list) else content
                     while True:
                         payload=provider._build_payload(messages,tools,tool_choice)
                         payload[provider.config.token_limit_field]=completion_cap
-                        if input_token_bound(payload)<=payload_max:break
+                        if material_size(payload)<=payload_max:break
                         # Only optional complete history/candidate records may be removed.
-                        try: projected=expand_material(json.loads(messages[1]['content']))
+                        try: projected=expand_material(json.loads(text_payload({'messages':messages})['messages'][1]['content']))
                         except (TypeError,ValueError):break
                         compact=[]
                         forms=[projected,pack_material(projected)]
@@ -593,11 +603,11 @@ class EmpiricalSystem:
                             forms.append(reference_exact_span_quotes(projected))
                         for form in forms:
                             content=json.dumps(form,ensure_ascii=False,separators=(',',':'),allow_nan=False)
-                            candidate=deepcopy(payload);candidate['messages'][1]['content']=content
-                            compact.append((input_token_bound(candidate),content))
+                            candidate=deepcopy(payload);candidate['messages'][1]['content']=replace_material(content)
+                            compact.append((material_size(candidate),content))
                         size,content=min(compact,key=lambda row:row[0])
-                        if size<input_token_bound(payload):
-                            messages[1]={'role':'user','content':content};continue
+                        if size<material_size(payload):
+                            messages[1]={'role':'user','content':replace_material(content)};continue
                         removable=next((k for k in ('completed_train_cases','related','related_guidance') if projected.get(k)),None)
                         if removable is not None: projected[removable].pop()
                         else:
@@ -605,13 +615,14 @@ class EmpiricalSystem:
                             if not shrink_learning_preview(projected):
                                 if len(cards) <= 1: break
                                 cards.pop()
-                        messages[1]={'role':'user','content':json.dumps(pack_material(projected),ensure_ascii=False,separators=(',',':'))}
+                        messages[1]={'role':'user','content':replace_material(json.dumps(pack_material(projected),ensure_ascii=False,separators=(',',':')))}
             cached_runtime=(self.checkpoint.response(response_key_for({**settings,'max_completion_tokens':completion_cap},completion_cap))
                 if p3_runtime_recovery else None)
             if used>=cap and not cached_runtime:
                 raise BudgetExhausted('empirical_token_budget_exhausted','Role token budget exhausted',layer=FailureLayer.RUNTIME_AGENT)
             if stage == 'runtime' and preserve_finish and not cached_runtime:
                 from .budget_governor import input_token_bound
+                if isinstance(provider,OpenAICompatibleProvider):input_token_bound=provider.input_token_bound
                 wire = provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages,'tools':[t.to_openai() for t in tools]}
                 field = provider.config.token_limit_field if isinstance(provider,OpenAICompatibleProvider) else 'max_tokens'
                 wire[field] = completion_cap
@@ -619,11 +630,12 @@ class EmpiricalSystem:
                 if input_token_bound(wire) + completion_cap > remaining:
                     # Drop only optional duplicate history, never task/schema/current inputs.
                     from .model_view import expand_material, pack_material
-                    projected = expand_material(json.loads(messages[1]['content']))
+                    from ..agents.image_input import text_payload, replace_text
+                    projected = expand_material(json.loads(text_payload({'messages':messages})['messages'][1]['content']))
                     memory = projected.get('memory',{})
                     while memory.get('operations') and input_token_bound(wire) + completion_cap > remaining:
                         memory['operations'].pop(0)
-                        messages[1]['content'] = json.dumps(pack_material(projected),ensure_ascii=False,allow_nan=False)
+                        messages[1]['content'] = replace_text(messages[1]['content'],json.dumps(pack_material(projected),ensure_ascii=False,allow_nan=False))
                         wire = provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages,'tools':[t.to_openai() for t in tools]}
                         wire[field] = completion_cap
                     floor = self.config['runtime']['dynamic_output_min_tokens']
@@ -633,7 +645,7 @@ class EmpiricalSystem:
                                 if {'source_ref','content','unit','offset','end'} <= set(value):
                                     def fits(window):
                                         value.clear();value.update(window)
-                                        messages[1]['content'] = json.dumps(pack_material(projected),ensure_ascii=False,allow_nan=False)
+                                        messages[1]['content'] = replace_text(messages[1]['content'],json.dumps(pack_material(projected),ensure_ascii=False,allow_nan=False))
                                         payload = provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages,'tools':[t.to_openai() for t in tools]}
                                         payload[field] = floor
                                         return input_token_bound(payload) + floor <= remaining
@@ -644,7 +656,7 @@ class EmpiricalSystem:
                             elif isinstance(value,list):
                                 for child in value:fit_pages(child)
                         fit_pages(projected)
-                        messages[1]['content'] = json.dumps(pack_material(projected),ensure_ascii=False,allow_nan=False)
+                        messages[1]['content'] = replace_text(messages[1]['content'],json.dumps(pack_material(projected),ensure_ascii=False,allow_nan=False))
                         wire = provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages,'tools':[t.to_openai() for t in tools]}
                         wire[field] = completion_cap
                     if self.config['runtime']['dynamic_output_min_tokens']:
@@ -745,16 +757,20 @@ class EmpiricalSystem:
                     from .budget_governor import input_token_bound
                     payload=provider._build_payload(messages,tools,tool_choice)
                     payload[provider.config.token_limit_field]=completion_cap
-                    parts={'system':len(messages[0]['content'].encode('utf-8')),
-                           'user':len(messages[1]['content'].encode('utf-8')),
+                    from ..agents.image_input import text_payload
+                    capacity_payload=text_payload(payload)
+                    parts={'system':len(capacity_payload['messages'][0]['content'].encode('utf-8')),
+                           'user':len(capacity_payload['messages'][1]['content'].encode('utf-8')),
                            'tools':len(json.dumps(payload.get('tools',[]),allow_nan=False).encode('utf-8'))}
                     record['material_refusal']={'status':'material_too_large','payload':payload,
                         'wire_bytes':input_token_bound(payload),'limit_bytes':payload_max,
                         'parts_bytes':{**parts,'serialization_and_parameters':input_token_bound(payload)-sum(parts.values())},
                         'required_fields':['proposal','errors','tools'] if purpose=='learning_structure_repair' else ['current task','current evidence','tools'],
                         'reason':'Required proposal/contracts/errors and referenced provenance cannot be dropped; optional history is exhausted.'}
+                    if provider.config.image_input:
+                        record['material_refusal']['image_audit']=provider.input_measure(payload)
                     from .model_view import learning_capacity_audit
-                    capacity=learning_capacity_audit(payload,payload_max,stage,purpose)
+                    capacity=learning_capacity_audit(capacity_payload,payload_max,stage,purpose)
                     record['material_refusal'].update(capacity)
                     if capacity['classification']=='learning_capacity_rejected':
                         record['failure_code']=exc.learning_outcome='learning_capacity_rejected'
