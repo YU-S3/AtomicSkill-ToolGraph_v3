@@ -201,7 +201,8 @@ def evaluate(root,plan,phase,policy,qualifications):
 
 
 def rank(receipt):
-    g=receipt['groups']['all'];return (-g['on_correct'],g['losses'],g['empty_on'],g['tokens_on'],receipt['candidate_ids'])
+    g=receipt['groups']['all'];i=receipt['groups']['intervened']
+    return (-(i['on_correct']-i['off_correct']),i['losses'],-g['on_correct'],g['empty_on'],g['tokens_on'],receipt['candidate_ids'])
 
 
 def execute(root):

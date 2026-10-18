@@ -34,6 +34,10 @@ are in-sample checks. Paired Train12 then selects the policy; Val17 evaluates th
 fixed policy. The initial finite cycle does not edit candidates from Val labels.
 Frozen publication requires paired Val net gain >=2, losses <=1, no increase in
 empty answers and at least 12/17 correct. Failure remains a real negative result.
+At least two net gains must also belong to actual Program or prompt interventions;
+same-payload sampling differences cannot qualify a Skill. Reused NoSkill responses
+are historical comparisons with matched inputs and parameters, not simultaneous
+randomized solves, and their original timestamps and charges remain visible.
 
 The Runtime retains P7's 65,536-token high-thinking main request, 600s timeout,
 128,000-token parent budget and one bounded 16,384-token low-thinking finalizer.

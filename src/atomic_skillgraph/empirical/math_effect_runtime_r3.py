@@ -106,12 +106,13 @@ def pair_report(off,on,candidates,split):
             'losses':sum(x['loss'] for x in rs),'empty_off':sum(not x['off']['valid'] for x in rs),
             'empty_on':sum(not x['on']['valid'] for x in rs),'program_answers':sum(x['on'].get('answer_origin')=='learned_program' for x in rs),
             'tokens_off':sum(x['off']['tokens'] for x in rs),'tokens_on':sum(x['on']['tokens'] for x in rs)}
-    total=stats(rows);net=total['on_correct']-total['off_correct']
+    total=stats(rows);net=total['on_correct']-total['off_correct'];intervened=stats([x for x in rows if x['intervened']])
     result={'method_version':p.VERSION,'split':split,'candidate_ids':[x['id'] for x in candidates],
         'candidate_hashes':[digest(x) for x in candidates],'rows':rows,'groups':{'all':total,
         'meta':stats([r for r in rows if r['meta']]),'non_meta':stats([r for r in rows if not r['meta']]),
-        'intervened':stats([r for r in rows if r['intervened']])},'net_correct':net,
+        'intervened':intervened},'net_correct':net,
         'qualified':split=='val' and len(rows)==17 and net>=2 and total['losses']<=1 and
+            intervened['on_correct']-intervened['off_correct']>=2 and
             total['empty_on']<=total['empty_off'] and total['on_correct']>=12,
         'baseline_cost_is_reused':True,'evaluation_scope':'development_observation'}
     result['receipt_hash']=digest(result);return result

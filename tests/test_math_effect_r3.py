@@ -158,3 +158,16 @@ def test_billing_refusal_does_not_start_http(tmp_path,monkeypatch):
     calls=http(monkeypatch,[]);g=BudgetGovernor(tmp_path/'budget.json',token_limit=1,request_limit=1,finish_reserve=0)
     with pytest.raises(BudgetExhausted):p.learn(tmp_path/'learning',config(),g,{},['s0','s1'])
     assert not calls and not (tmp_path/'learning/request/started.json').exists()
+
+
+def test_same_payload_sampling_wins_do_not_qualify(tmp_path,monkeypatch):
+    ts=tasks('val',17);a=adapter(ts)
+    calls=http(monkeypatch,[response(content='<answer>'+label+'</answer>') for _ in ts for label in ('A','B')])
+    g=BudgetGovernor(tmp_path/'budget.json',token_limit=4000000,request_limit=68,finish_reserve=0)
+    off=[];on=[];selection={'selected':[],'features':{},'skipped':[],'injection_tokens':0,'routing_http':0}
+    for task in ts:
+        off.append(base.solve(task,a,[],config(),tmp_path/'off'/task.physical_key,g,selection_override=selection))
+        on.append(base.solve(task,a,[],config(),tmp_path/'on'/task.physical_key,g,selection_override=selection))
+    receipt=r.pair_report(off,on,[],'val')
+    assert receipt['net_correct']==17 and receipt['groups']['intervened']['tasks']==0 and not receipt['qualified']
+    assert len(calls)==34 and r.verify_utility(receipt);a.close()
