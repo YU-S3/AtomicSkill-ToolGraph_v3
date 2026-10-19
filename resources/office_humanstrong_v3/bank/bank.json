@@ -1,0 +1,2064 @@
+{
+  "schema": "human.frontier.bank.v1",
+  "benchmark": "officeqa",
+  "method_version": "office.humanstrong.programmatic.v3.20261020",
+  "seed": 42,
+  "asset_origin": "external_human_edited_reference_not_learned_ours",
+  "admission": {
+    "learning_provenance": false,
+    "train_transfer_gate": false,
+    "utility_promotion": false
+  },
+  "input_protocol": "office.external-minimax.public-pages.v1",
+  "default_workflow_id": null,
+  "workflow_runtime": "stored_reference_only_native_dynamic_runtime",
+  "measured_performance": null,
+  "status": "authored_revision_requires_paired_observation",
+  "source_basis": "V2 development failures: incomplete evidence and missing polynomial calculation; no gold or task-specific constants in assets.",
+  "skill": [
+    {
+      "kind": "skill",
+      "title": "OA-Target",
+      "goal": "OA-Target: Interpret the exact requested quantity before choosing a formula",
+      "guidance": "Interpret the exact requested quantity before choosing a formula. Identify the entity, measure, row population, observation dates, reporting vintage, nominal/real basis, units, direction, statistic, and output precision. Distinguish a balance (stock at a date) from transactions over a period (flow), total from component, gross from net, and issuance from amount outstanding. A similar-looking number is not a substitute. The supplied source pages are genuine public inputs, not guessed search summaries. If they already establish the answer, solve and submit without an obligatory search. Do not enumerate a large formal checklist in the answer.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "id": "skill_9e71ca527e661d466afe303b34b4fa9a380ee0bd83eba8cc8c0101107b0a110d"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Locate",
+      "goal": "OA-Locate: Read the supplied page titles, table captions, headers and relevant rows first",
+      "guidance": "Inspect supplied titles, headers and rows before searching. Search only a specific missing fact, first in candidate files. A search hit establishes a location, not the table's contents: read its body at the returned offset; read_result on grep only rereads hits. Native grep uses regex pattern and paths; read uses Unicode offsets, not lines. Retain heading, unit, row and footnote together. Widen to another issue only for a missing period or vintage; a zero-match search is not numeric zero. scoped_search batches retrieval, without certifying answers. Stop once the evidence is sufficient.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "skill_47892f459e8b759e47847ca804a8af71b7add3326510451961bf5feff9b67550"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Table",
+      "goal": "OA-Table: Match the full hierarchy of a column header, not just a repeated word such as Total",
+      "guidance": "Match the complete column hierarchy and row period, including total/component, fiscal/calendar and holdings categories. Preserve signs, decimals, footnotes and units; blank, dash, unavailable and zero differ. A continuation may need the preceding header. Repeated months without year labels or shifted cells make positional extraction ambiguous. Seek a legible labeled occurrence in the authorized corpus, respecting the requested vintage; do not guess a year or move a value toward an expected answer. Use table_extract only for an unambiguous literal mapping, or temporary Python with an explicit mapping. Calculation success does not verify transcription.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "skill_46055d84f24b1ad7a4cd2cf3ebce80434183c97f253fe0873cde85022b079b10"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Units",
+      "goal": "OA-Units: Carry the source unit with each operand",
+      "guidance": "Carry the source unit with each operand. Convert both operands to a common unit before subtraction or ratio; cancel equal units without unnecessary scaling. Millions of dollars to dollars is multiplication by 1,000,000; thousands to millions is division by 1,000. Percent, decimal fraction, percentage-point difference and basis points are different quantities. A difference of two shares in percentage points is 100*(part2/total2-part1/total1), not a percent change in the part amounts. Convert 32nds quotations as whole + fraction/32; verify any sub-32nd convention. For currency conversion state the rate's direction and multiply or divide accordingly. For precious metals use the source's stated pricing basis and mass unit; troy pounds have 12 troy ounces, not 16. Never assume a historical conversion price from memory. treasury_transform performs supported conversions after these semantics are established; for an unsupported combination use one small temporary calculation.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "id": "skill_a65ed1594d00ed1884ea24ac71896c8ad89f8d5f26048112e4de066efecab82c"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Stats",
+      "goal": "OA-Stats: Select the formula from the wording before calling a calculator",
+      "guidance": "Choose the formula before computing. Difference=new-old; absolute difference=abs(new-old); base-relative change=(new-base)/base; symmetric difference=abs(new-old)/((abs(old)+abs(new))/2). A defined denominator takes priority. ratio=numerator/denominator. Share difference=part2/total2-part1/total1; multiply by 100 only for percent/percentage points. Annual log growth=ln(new/base)/elapsed_intervals; CAGR=exp(ln(new/base)/elapsed_intervals)-1. Arithmetic/weighted averages, geometric growth and ratios of sums differ; never count both totals and components. Population variance divides by n, explicitly requested sample variance by n-1; these are different estimands, not answers to try. Use series_metrics's exact named operation or temporary Python. Execute multi-step or long-series calculations before finish-only, retain full precision, and round only the final result. Computation verifies supplied operands and formula, not their source semantics.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "skill_9eb48620c4e067d756f3e8cc61e125a64c49e035e9eefa653bef27f0ad8fee81"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Commit",
+      "goal": "OA-Commit: When the question is answered by supported operands and the intended calculation, use the native runtime_step finish action immediately",
+      "guidance": "Once operands and the requested calculation establish the answer, submit immediately with the native runtime_step finish action. Return only the requested scalar, ordered list or date with correct sign, scale and precision. 'As a percentage' specifies scale, not a literal percent-sign suffix: include a symbol/unit only when the answer template explicitly requests it. Do not submit an intermediate table or add evidence_state/answer_candidate fields. Retain provenance through existing result refs; no extra bookkeeping or compulsory verification call. Do not recalculate or replace a supported result solely because finish-only begins.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "skill_958ca25ba706af7c65ec0dace76134573012376887e5f4d976ef8ffba91bcc22"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Fallback",
+      "goal": "OA-Fallback: Use the smallest execution path that resolves the task",
+      "guidance": "Use the smallest sufficient path; all six Programs remain callable and phase labels are advisory. Direct table extraction plus a calculator can suffice; scoped_search helps repeated retrieval, period_ledger checks coverage, polynomial_forecast handles explicit OLS. Pass real source refs; provided pages can be read with read_result without corpus search. If no Program matches, use one bounded temporary execute_python calculation while tools remain. Temporary Python is top-level code with existing ctx: do not assign ctx, define run(ctx,inputs), or assume inputs exists. Persistent Programs use run(ctx,inputs). Print compact JSON operands/results. Internal ctx.call shares the tool budget; no bash, network or direct corpus access. Correct a schema error from its contract once, not unchanged retries. Preserve missing evidence honestly instead of guessing.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "skill_eccfa9fc16218382c9a16b042c7e0d9a28d073649e4ed5a3a8be0ea5a8a460de"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Periods",
+      "goal": "OA-Periods: List the required observations and their exact time basis before computing a series statistic",
+      "guidance": "List the requested periods and basis. Distinguish inclusive observation counts from elapsed intervals (end-start), monthly from annual and fiscal from calendar values. Match exact weekly/month-end dates; enumerate reporting dates for relative positions. Keep one sourced value per required period; do not silently shorten, interpolate, duplicate vintages, or substitute a nearby date. period_ledger checks explicit coverage, not extraction. Forecast error also requires the independently published target actual, separate from fitting observations. A bulletin's issue month can lag its last observation: retrieve the missing actual from an appropriate later issue, never substitute the forecast or last fitting value.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "skill_44c3e8147d2d4d0e6d741f653757b60b4d4461ca37ba98c255dee9c6cadbe291"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Fiscal",
+      "goal": "OA-Fiscal: Use the table's period labels to distinguish fiscal years, calendar years, monthly totals and year-to-date amounts",
+      "guidance": "Use the table's period labels to distinguish fiscal years, calendar years, monthly totals and year-to-date amounts. Fiscal-year start/end conventions can change historically; use the applicable source definition, including transition quarters. A month in a bulletin date does not by itself identify the fiscal period. Do not sum cumulative year-to-date observations as independent monthly flows; difference adjacent cumulative totals only when their basis and vintage agree and that is the intended reconstruction. Annualize only if explicitly requested. Preserve a period label such as FY or CY on each operand during calculation so the two bases cannot silently mix.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "id": "skill_a1af1b6cc25c74d4f93166a622faf4b6a36f9516215bd86ee8f1d978414ec802"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Treasury",
+      "goal": "OA-Treasury: Read Treasury categories literally: issued, retired, redeemed, tenders received, tenders accepted, public debt outstanding, net cash raised, refunding, public holdings and government accounts describe different quantities",
+      "guidance": "Read Treasury categories literally: issued, retired, redeemed, tenders received, tenders accepted, public debt outstanding, net cash raised, refunding, public holdings and government accounts describe different quantities. Use accepted bids for allocations, not tenders received; use cash/new financing rather than gross issuance when that is requested. Do not combine maturity buckets with totals that already include them. For interest rates distinguish coupon, yield, discount rate and effective rate and retain their day-count/price basis. Government-held amounts are not the same as Federal Reserve holdings unless the table defines them so. Gold assets/liabilities and monetary stocks can use different revisions and valuation bases; select the named table and stated unit, not a familiar historical price. Preserve footnotes excluding special issues, matured debt or particular accounts before comparing totals.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "id": "skill_c6a8d7570b84c1f53bd94c43b0eb73abb3b444684959bc40626920558bf09736"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Advanced",
+      "goal": "OA-Advanced: For correlation and OLS, align x and y by identical observation periods and specify dependent versus independent variable; slope changes if they are reversed",
+      "guidance": "Align x/y observations and dependent/independent variables; preserve model order, intercept, time scale and horizon. polynomial_forecast fits unweighted OLS, degree 1..5, with an intercept. Supply required_periods, ordered observations {period,x,value,unit,source_ref}, prediction_x, unit, decimals and operation='predict' or 'absolute_error'. Equal monthly intervals use consecutive x coordinates. absolute_error requires actual={value,unit,source_ref} from acquired evidence. The Program checks explicit coverage/rank and returns coefficients, prediction and error; it does not choose columns or infer missing values. For other models use supported temporary Python, not invented coefficients or a substituted linear trend. Distinguish population/sample sigma, Gini corrections and percentile interpolation. Box-Cox uses (x^lambda-1)/lambda, log at zero; CPI adjustment uses nominal*reference_CPI/current_CPI with matched periods.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "skill_eae74db3b681eed748b8209f542a33ad75536de0b57265b0b3249560f6d1fd7c"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Revision",
+      "goal": "OA-Revision: Treat publication vintage as part of a value's identity when the question names a report, issue, as-of date, preliminary or revised basis",
+      "guidance": "Treat publication vintage as part of a value's identity when the question names a report, issue, as-of date, preliminary or revised basis. Prefer the provided page matching that vintage. If two sources disagree, first compare observation period, scale, component coverage and revision label; do not average them or choose the value that looks plausible. Later revised figures are not automatically the right answer to a historical as-reported question. If no vintage is specified and an actual revision is relevant, retain the source's explicit revision context and use a coherent series. A file's publication year must not replace the year printed on a data row.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "id": "skill_e1a447504aa2546f5d3b7c6b306442465d735d6bf67b94fb44327b9c904f17c2"
+    }
+  ],
+  "program": [
+    {
+      "source": "\"\"\"Bounded Office retrieval using only advertised native tools and actual hits.\"\"\"\n\n\ndef run(ctx,inputs):\n    try:\n        query=inputs['query']\n        if not isinstance(query,str) or not query.strip():raise ValueError('nonempty query required')\n        available={t['name'] for t in ctx.available_tools()}\n        paths=inputs.get('paths');pattern=inputs.get('file_pattern')\n        if paths is None and pattern:\n            r=ctx.call('glob',{'pattern':pattern})\n            if not r.get('accepted'):return {'status':'blocked','outputs':{},'detail':r.get('error','glob failed')}\n            paths=r['data']\n        maximum=min(4,max(1,inputs.get('max_windows',3)))\n        pages=min(4,max(1,inputs.get('max_pages',2)))\n        before=min(4000,max(0,inputs.get('before',1000)));after=min(8000,max(500,inputs.get('after',3500)))\n        args={'pattern':query}\n        if paths is not None:args['paths']=paths\n        hits=[];complete=False;cursor=None;seen=set()\n        for _ in range(pages):\n            if ctx.remaining_calls()<=0:break\n            if 'grep_page' in available:\n                call={**args,'limit':40}\n                if cursor is not None:call['cursor']=cursor\n                r=ctx.call('grep_page',call)\n                if not r.get('accepted'):return {'status':'blocked','outputs':{},'detail':r.get('error','search failed')}\n                data=r['data'];hits.extend(data['hits']);complete=data['complete'];cursor=data.get('next_cursor')\n                if complete or not cursor or cursor in seen or len(hits)>=maximum:break\n                seen.add(cursor)\n            else:\n                r=ctx.call('grep',args)\n                if not r.get('accepted'):return {'status':'blocked','outputs':{},'detail':r.get('error','search failed')}\n                hits.extend(r['data']);complete=len(r['data'])<40;break\n        windows=[];read_seen=set();read_errors=[]\n        for hit in hits:\n            if len(windows)>=maximum or ctx.remaining_calls()<=0:break\n            path,offset=hit['path'],hit['offset'];key=(path,offset)\n            if key in read_seen:continue\n            read_seen.add(key)\n            if 'read_context' in available:\n                r=ctx.call('read_context',{'path':path,'offset':offset,'before':before,'after':after})\n                if not r.get('accepted'):read_errors.append(r.get('error','read_context failed'));continue\n                data=r['data'];start=data['start_offset'];text=data['text']\n            else:\n                start=max(0,offset-before);r=ctx.call('read',{'path':path,'offset':start})\n                if not r.get('accepted'):read_errors.append(r.get('error','read failed'));continue\n                text=r['data']['text'][:before+after]\n            if text:windows.append({'path':path,'start_offset':start,'hit_offset':offset,'text':text})\n        if not windows and read_errors:return {'status':'blocked','outputs':{},'detail':str(read_errors)}\n        if not windows:return {'status':'not_found' if complete and not hits else 'needs_input','outputs':{},\n            'detail':'No acquired matching window; broaden query/scope or read an actual hit. Incomplete search is not proof of absence.'}\n        return {'status':'ok','outputs':{'windows':windows,'search_exhausted':complete,\n            'target_periods_complete':None,'table_header_bound':False,'next_cursor':cursor,\n            'scope':'retrieval_window_only'}}\n    except (KeyError,ValueError,TypeError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file_pattern": {
+            "type": "string"
+          },
+          "max_pages": {
+            "type": "integer"
+          },
+          "max_windows": {
+            "type": "integer"
+          },
+          "before": {
+            "type": "integer"
+          },
+          "after": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "start_offset": {
+                  "type": "integer"
+                },
+                "hit_offset": {
+                  "type": "integer"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "start_offset",
+                "hit_offset",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": "string"
+          },
+          "search_exhausted": {
+            "type": "boolean"
+          },
+          "target_periods_complete": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "table_header_bound": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "windows",
+          "search_exhausted",
+          "target_periods_complete",
+          "table_header_bound",
+          "next_cursor",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [
+        "glob",
+        "grep",
+        "grep_page",
+        "read",
+        "read_context"
+      ],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "retrieval_program",
+        "description": "Scoped issue/text retrieval (local windows only)",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_b81b047cbb68a37ed1501de4fe096dad8459d0211229fea640d632135d607b6a",
+      "source_file": "../office_humanstrong_v2/programs/scoped_search.py",
+      "title": "Scoped issue/text retrieval (local windows only)"
+    },
+    {
+      "source": "\"\"\"Conservative row/column extraction from supplied Treasury text; no made-up cells.\"\"\"\nimport re\nfrom decimal import Decimal, InvalidOperation\n\n\ndef cells(line):\n    s=line.strip()\n    if '|' in s:return [x.strip() for x in s.strip('|').split('|')]\n    return [x.strip() for x in re.split(r'\\t+| {2,}',s)]\n\n\ndef number(s):\n    t=re.sub(r'(?<=\\d)[*†‡]+$','',s.strip()).replace(',','')\n    if re.fullmatch(r'\\(?[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\)?',t) is None:raise ValueError('not a unique numeric cell: '+s)\n    if t.startswith('(') and t.endswith(')'):t='-'+t[1:-1]\n    d=Decimal(t)\n    if not d.is_finite():raise ValueError('nonfinite cell')\n    return str(d)\n\n\ndef run(ctx,inputs):\n    try:\n        text=inputs['text'];wanted=inputs['rows'];column=inputs['column']\n        if not isinstance(text,str) or not text.strip() or not isinstance(wanted,list) or not wanted:\n            raise ValueError('text and nonempty rows required')\n        if any(not isinstance(x,str) or not x.strip() for x in wanted) or not isinstance(column,str):raise ValueError('row and column labels must be strings')\n        raw=text.splitlines(keepends=True);offsets=[];off=0\n        for line in raw:offsets.append(off);off+=len(line)\n        parsed=[cells(line) for line in raw]\n        norm=lambda s:' '.join(s.casefold().split())\n        hints=inputs.get('header_hint','');headers=[]\n        for i,row in enumerate(parsed):\n            indexes=[j for j,c in enumerate(row) if norm(c)==norm(column)]\n            if len(indexes)==1 and (not hints or norm(hints) in norm(' '.join(raw[max(0,i-6):i+1]))):headers.append((i,indexes[0]))\n        if len(headers)!=1:raise ValueError('missing or ambiguous header; supply a tighter table window/header_hint')\n        h,col=headers[0];unit=inputs.get('unit','')\n        if not unit:raise ValueError('Bind the actual unit from the supplied window; use native read for missing header/unit/footnotes')\n        if unit and norm(unit) not in norm(text):raise ValueError('requested unit is absent from this window')\n        # Require a tight table window; repeated target labels are rejected, not merged.\n        matches=[]\n        for label in wanted:\n            found=[]\n            for i in range(h+1,len(parsed)):\n                row=parsed[i]\n                if len(row)<=col:continue\n                if any(norm(c)==norm(label) for j,c in enumerate(row) if j!=col):\n                    try:value=number(row[col])\n                    except ValueError:continue\n                    found.append({'row':label,'column':column,'value':value,'unit':unit,\n                        'source_line':i+1,'start':offsets[i],'end':offsets[i]+len(raw[i].rstrip('\\r\\n')),'quote':raw[i].rstrip('\\r\\n')})\n            if len(found)!=1:raise ValueError('missing/ambiguous row '+label+'; do not merge repeated year blocks')\n            matches.append(found[0])\n        return {'status':'ok','outputs':{'cells':matches,'values':[x['value'] for x in matches],\n            'header':raw[h].rstrip('\\r\\n'),'unit':unit,'requested_rows':wanted,\n            'table_header_bound':True,'target_periods_complete':True,\n            'proof_scope':'requested_literal_rows_only',\n            'scope':'Every requested row label matched once under this header/unit. This does not verify that your requested labels or fiscal/calendar interpretation match the question. Read the actual source if OCR is ambiguous.'}}\n    except (KeyError,ValueError,TypeError,InvalidOperation) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "column": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "header_hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "rows",
+          "column",
+          "unit"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "cells": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "row": {
+                  "type": "string"
+                },
+                "column": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "source_line": {
+                  "type": "integer"
+                },
+                "start": {
+                  "type": "integer"
+                },
+                "end": {
+                  "type": "integer"
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "row",
+                "column",
+                "value",
+                "unit",
+                "source_line",
+                "start",
+                "end",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "string"
+          },
+          "header": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "requested_rows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "table_header_bound": {
+            "type": "boolean"
+          },
+          "target_periods_complete": {
+            "type": "boolean"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cells",
+          "values",
+          "scope",
+          "header",
+          "unit",
+          "requested_rows",
+          "table_header_bound",
+          "target_periods_complete",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "table_program",
+        "description": "Exact bounded table row/column extraction",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_af68df97f52f402640a5fb287fde73534587a3ec3b24bc6b24ec8d3116d754d0",
+      "source_file": "../office_humanstrong_v2/programs/table_extract.py",
+      "title": "Exact bounded table row/column extraction"
+    },
+    {
+      "source": "\"\"\"Named formulas with explicit conventions; computation, not operand provenance.\"\"\"\nimport math\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx,inputs):\n    try:\n        op=inputs['operation'];direction='as_supplied';formula=op\n        named={'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}\n        if 'output_scale' in inputs:raise ValueError('output_scale is unsupported; specify output_percent explicitly')\n        if op in named:\n            if 'values' in inputs:raise ValueError('This operation requires named operands, not positional values')\n            if op=='difference':\n                raw=[inputs['from_value'],inputs['to_value']]\n                if type(inputs['absolute']) is not bool:raise ValueError('absolute must be explicit boolean')\n                formula='abs(to_value-from_value)' if inputs['absolute'] else 'to_value-from_value'\n                direction='absolute' if inputs['absolute'] else 'to_minus_from'\n            elif op=='ratio':\n                raw=[inputs['denominator'],inputs['numerator']];formula='numerator/denominator';direction='numerator_over_denominator'\n            else:\n                raw=[inputs['base_value'],inputs['new_value']];direction='base_to_new'\n                formula={'percent_change':'(new_value-base_value)/base_value','log_return':'ln(new_value/base_value)',\n                         'cagr':'exp(ln(new_value/base_value)/periods)-1',\n                         'annual_log_growth':'ln(new_value/base_value)/periods'}[op]\n        else:raw=inputs['values']\n        if not isinstance(raw,list) or not raw or len(raw)>5000:raise ValueError('1..5000 values required')\n        if any(type(v) not in (str,int,float) for v in raw):raise ValueError('numeric strings/numbers required')\n        with localcontext() as context:\n            context.prec=50\n            x=[Decimal(str(v)) for v in raw]\n            if any(not v.is_finite() for v in x):raise ValueError('nonfinite operand')\n            n=Decimal(len(x));mean=sum(x)/n;convention=op\n            if op=='sum':v=sum(x)\n            elif op=='mean':v=mean\n            elif op=='symmetric_difference':\n                if len(x)!=2:raise ValueError('values must be [first,second]')\n                v=abs(x[1]-x[0])/((abs(x[0])+abs(x[1]))/2)\n                formula='abs(second-first)/((abs(first)+abs(second))/2)';direction='absolute_symmetric'\n            elif op=='share_difference':\n                if len(x)!=4:raise ValueError('values must be [first_part,first_total,second_part,second_total]')\n                if type(inputs.get('absolute')) is not bool:raise ValueError('absolute must be explicit boolean')\n                v=x[2]/x[3]-x[0]/x[1]\n                formula='second_part/second_total-first_part/first_total';direction='second_share_minus_first_share'\n                if inputs['absolute']:v=abs(v);formula='abs('+formula+')';direction='absolute_share_difference'\n            elif op=='median':\n                a=sorted(x);mid=len(a)//2;v=a[mid] if len(a)%2 else (a[mid-1]+a[mid])/2\n            elif op in {'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}:\n                if len(x)!=2:raise ValueError('exactly two values in [start,end] order required')\n                a,b=x\n                if op=='difference':v=abs(b-a) if inputs['absolute'] else b-a\n                elif op=='ratio':v=b/a\n                elif op=='percent_change':v=(b-a)/a\n                else:\n                    if a<=0 or b<=0:raise ValueError('growth operands must be positive')\n                    ratio=b/a\n                    if op=='log_return':v=ratio.ln()\n                    else:\n                        periods=Decimal(str(inputs.get('periods','0')))\n                        if periods<=0:raise ValueError('positive elapsed interval count required, not observation count')\n                        v=ratio.ln()/periods if op=='annual_log_growth' else (ratio.ln()/periods).exp()-1\n            elif op in {'std_population','std_sample','variance_population','variance_sample'}:\n                denominator=n-(1 if op.endswith('sample') else 0)\n                if denominator<=0:raise ValueError('sample requires at least two observations')\n                v=sum((a-mean)**2 for a in x)/denominator\n                if op.startswith('std_'):v=v.sqrt()\n            elif op in {'gini_population','gini_sample_adjusted'}:\n                if min(x)<0 or sum(x)<=0:raise ValueError('Gini requires nonnegative values and positive sum')\n                a=sorted(x);v=sum(Decimal(2*i-len(a)-1)*z for i,z in enumerate(a,1))/(n*sum(a))\n                if op=='gini_sample_adjusted':\n                    if n<=1:raise ValueError('sample correction requires n>1')\n                    v=v*n/(n-1)\n            elif op in {'correlation','ols_slope','ols_intercept'}:\n                raw_y=inputs.get('other_values',[])\n                if len(raw_y)!=len(x) or len(x)<2:raise ValueError('paired x/y arrays of equal length required')\n                y=[Decimal(str(z)) for z in raw_y]\n                if any(not z.is_finite() for z in y):raise ValueError('nonfinite y')\n                my=sum(y)/n;sxx=sum((a-mean)**2 for a in x);sxy=sum((a-mean)*(b-my) for a,b in zip(x,y))\n                if sxx==0:raise ValueError('zero x variance')\n                slope=sxy/sxx\n                if op=='ols_slope':v=slope\n                elif op=='ols_intercept':v=my-slope*mean\n                else:\n                    syy=sum((b-my)**2 for b in y)\n                    if syy==0:raise ValueError('zero y variance')\n                    v=sxy/(sxx*syy).sqrt()\n            elif op=='geometric_growth':\n                if any(1+a<=0 for a in x):raise ValueError('growth factors must be positive')\n                v=(sum((1+a).ln() for a in x)/n).exp()-1\n            else:raise ValueError('unsupported named operation')\n            percent=inputs.get('output_percent',False)\n            if type(percent) is not bool:raise ValueError('output_percent must be boolean')\n            if percent:\n                if op not in {'ratio','percent_change','cagr','geometric_growth','symmetric_difference','share_difference'}:raise ValueError('percent output is not supported for this operation')\n                v*=100;formula='100*('+formula+')'\n            digits=inputs.get('decimals')\n            if digits is not None:\n                if type(digits) is not int or not 0<=digits<=18:raise ValueError('decimals must be 0..18')\n                answer=format(v.quantize(Decimal(1).scaleb(-digits),rounding=ROUND_HALF_UP),'.'+str(digits)+'f')\n            else:answer=format(v,'f').rstrip('0').rstrip('.') if '.' in format(v,'f') else format(v,'f')\n            if answer in ('-0',''):answer='0'\n            return {'status':'ok','outputs':{'value':str(v),'answer':answer,'formula':formula,'direction':direction,\n                'operand_refs':inputs.get('operand_refs',[]),'periods':str(inputs.get('periods','not_applicable')),\n                'unit':inputs['unit'],'output_percent':percent,'proof_scope':'local_computation_only',\n                'convention':convention,'count':len(x)}}\n    except (KeyError,ValueError,TypeError,ArithmeticError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "output_percent": {
+            "type": "boolean"
+          },
+          "operation": {
+            "enum": [
+              "difference",
+              "ratio",
+              "percent_change",
+              "log_return",
+              "cagr",
+              "annual_log_growth",
+              "sum",
+              "mean",
+              "median",
+              "std_population",
+              "std_sample",
+              "variance_population",
+              "variance_sample",
+              "gini_population",
+              "gini_sample_adjusted",
+              "correlation",
+              "ols_slope",
+              "ols_intercept",
+              "geometric_growth",
+              "symmetric_difference",
+              "share_difference"
+            ]
+          },
+          "from_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "to_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "absolute": {
+            "type": "boolean"
+          },
+          "numerator": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "denominator": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "base_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "new_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "periods": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 5000
+          },
+          "other_values": {
+            "type": "array",
+            "items": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 5000
+          }
+        },
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "properties": {
+              "operation": {
+                "const": "difference"
+              }
+            },
+            "required": [
+              "operation",
+              "from_value",
+              "to_value",
+              "absolute",
+              "unit"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "from_value",
+                "to_value",
+                "absolute"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "const": "ratio"
+              }
+            },
+            "required": [
+              "operation",
+              "numerator",
+              "denominator",
+              "output_percent",
+              "unit"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "numerator",
+                "denominator"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "percent_change",
+                  "log_return",
+                  "cagr",
+                  "annual_log_growth"
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "base_value",
+              "new_value",
+              "output_percent",
+              "unit"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "base_value",
+                "new_value",
+                "periods"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "sum",
+                  "mean",
+                  "median",
+                  "std_population",
+                  "std_sample",
+                  "variance_population",
+                  "variance_sample",
+                  "gini_population",
+                  "gini_sample_adjusted",
+                  "correlation",
+                  "ols_slope",
+                  "ols_intercept",
+                  "geometric_growth"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 5000
+              }
+            },
+            "required": [
+              "operation",
+              "values",
+              "unit"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "values",
+                "other_values"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "const": "symmetric_difference"
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "operation",
+              "values",
+              "unit",
+              "output_percent"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "values"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "const": "share_difference"
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            },
+            "required": [
+              "operation",
+              "values",
+              "unit",
+              "output_percent",
+              "absolute"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "values",
+                "absolute"
+              ]
+            }
+          }
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "proof_scope": {
+            "type": "string"
+          },
+          "convention": {
+            "type": "string"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "output_percent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "answer",
+          "formula",
+          "direction",
+          "operand_refs",
+          "periods",
+          "unit",
+          "proof_scope",
+          "convention",
+          "count",
+          "output_percent"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "calculation_program",
+        "description": "Typed arithmetic on already acquired operands",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_c76cbe063d5676e5d9e4a1beb6fb3befadbbfd7097e24f894c8abe513b475c61",
+      "source_file": "../office_humanstrong_v2/programs/series_metrics.py",
+      "title": "Exact scalar/series formulas; explicit change, symmetric difference, share difference and units"
+    },
+    {
+      "source_file": "../office_humanstrong_v2/programs/period_ledger.py",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "state": "candidate",
+      "result_role": "intermediate",
+      "allowed_tools": [],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "required_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 240
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "period": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_ref": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "period",
+                "value",
+                "unit",
+                "source_ref"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 500
+          }
+        },
+        "required": [
+          "required_periods",
+          "observations"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "required_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "observed_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "missing_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "conflicting_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "aligned_observations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "period": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_ref": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "period",
+                "value",
+                "unit",
+                "source_ref"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "matched_count": {
+            "type": "integer"
+          },
+          "expected_count": {
+            "type": "integer"
+          },
+          "proof_scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "complete",
+          "required_periods",
+          "observed_periods",
+          "missing_periods",
+          "conflicting_periods",
+          "aligned_observations",
+          "matched_count",
+          "expected_count",
+          "proof_scope",
+          "note"
+        ],
+        "additionalProperties": false
+      },
+      "source": "\"\"\"Deterministic completeness check for an *explicitly specified* observation series.\n\nThis Program does not discover observations and cannot assert that the user's\nrequested period list matches the source question. Evidence references are\npreserved for downstream use, not independently certified here.\n\"\"\"\nfrom decimal import Decimal, InvalidOperation\n\n\ndef run(ctx, inputs):\n    try:\n        required = inputs['required_periods']\n        observations = inputs['observations']\n        if not isinstance(required, list) or not required or len(required) > 240:\n            raise ValueError('required_periods must contain 1..240 explicit period strings')\n        if any(not isinstance(p, str) or not p.strip() for p in required) or len(set(required)) != len(required):\n            raise ValueError('required_periods must be distinct and nonblank')\n        if not isinstance(observations, list) or len(observations) > 500:\n            raise ValueError('observations must be a bounded list')\n        groups = {}\n        for obs in observations:\n            if not isinstance(obs, dict) or not {'period','value','unit','source_ref'} <= obs.keys():\n                raise ValueError('each observation needs period, value, unit and source_ref')\n            p, unit = obs['period'], obs['unit']\n            if p not in required or not isinstance(unit, str) or not unit.strip():\n                raise ValueError('observation period is not requested or unit is missing')\n            v = Decimal(str(obs['value']).replace(',',''))\n            if not v.is_finite():\n                raise ValueError('observation is nonfinite')\n            ref = obs['source_ref']\n            if not isinstance(ref, dict) or not isinstance(ref.get('result_id'), str) or not isinstance(ref.get('path'), list):\n                raise ValueError('source_ref must reference a real previously obtained result')\n            groups.setdefault(p, []).append({'period': p, 'value': str(v), 'unit': unit, 'source_ref': ref})\n        aligned, missing, conflicts = [], [], []\n        for p in required:\n            rows = groups.get(p, [])\n            if not rows:\n                missing.append(p);continue\n            signatures = {(r['value'], r['unit']) for r in rows}\n            if len(signatures) != 1:\n                conflicts.append(p);continue\n            aligned.append(rows[0])\n        units = {r['unit'] for r in aligned}\n        if len(units) > 1:\n            conflicts.extend(p for p in required if p in groups and p not in conflicts)\n        conflicts = list(dict.fromkeys(conflicts))\n        complete = not missing and not conflicts and len(aligned) == len(required)\n        return {'status':'ok','outputs':{\n            'complete':complete,'required_periods':required,'observed_periods':[p for p in required if p in groups],\n            'missing_periods':missing,'conflicting_periods':conflicts,\n            'aligned_observations':aligned if not conflicts else [],\n            'matched_count':len(aligned),'expected_count':len(required),\n            'proof_scope':'explicit_period_bookkeeping_only',\n            'note':'No source text was read here. Period semantics, quoted values, and referenced files must be checked in the actual task.'}}\n    except (KeyError,ValueError,TypeError,InvalidOperation) as exc:\n        return {'status':'needs_input','outputs':{},'detail':str(exc)}\n",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "title": "Explicit period completeness ledger without missing-value guesses",
+      "entry_constraints": {
+        "selector": "period_ledger",
+        "description": "Explicit period completeness ledger without missing-value guesses",
+        "proof_scope": "local_only"
+      },
+      "id": "program_a6bf157bfb964f4ef70038a8e07a25619488afc9c75d089f26a955ffaeef2710"
+    },
+    {
+      "source_file": "../office_humanstrong_v2/programs/treasury_transform.py",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "state": "candidate",
+      "result_role": "intermediate",
+      "allowed_tools": [],
+      "input_schema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "unit_scale"
+              },
+              "value": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              },
+              "source_unit": {
+                "enum": [
+                  "dollars",
+                  "thousands_of_dollars",
+                  "millions_of_dollars",
+                  "billions_of_dollars"
+                ]
+              },
+              "target_unit": {
+                "enum": [
+                  "dollars",
+                  "thousands_of_dollars",
+                  "millions_of_dollars",
+                  "billions_of_dollars"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              }
+            },
+            "required": [
+              "operation",
+              "value",
+              "source_unit",
+              "target_unit"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "price_32nds"
+              },
+              "quote": {
+                "type": "string",
+                "minLength": 1
+              },
+              "quote_basis": {
+                "const": "thirty_seconds"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              }
+            },
+            "required": [
+              "operation",
+              "quote",
+              "quote_basis"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "box_cox"
+              },
+              "value": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "lambda": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              }
+            },
+            "required": [
+              "operation",
+              "value",
+              "lambda"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "currency_convert"
+              },
+              "amount": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "rate": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "rate_orientation": {
+                "enum": [
+                  "foreign_per_usd",
+                  "usd_per_foreign"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              }
+            },
+            "required": [
+              "operation",
+              "amount",
+              "rate",
+              "rate_orientation"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "minLength": 1
+          },
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "formula": {
+            "type": "string",
+            "minLength": 1
+          },
+          "proof_scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "value",
+          "answer",
+          "unit",
+          "formula",
+          "proof_scope",
+          "note"
+        ],
+        "additionalProperties": false
+      },
+      "source": "\"\"\"Treasury-specific exact local transforms with explicit conventions.\n\nCannot identify a table, currency orientation, or task target by itself.\n\"\"\"\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\nimport re\n\nSCALES={'dollars':Decimal(1),'thousands_of_dollars':Decimal(1000),\n        'millions_of_dollars':Decimal(1000000),'billions_of_dollars':Decimal(1000000000)}\n\n\ndef run(ctx,inputs):\n    try:\n        op=inputs['operation']\n        with localcontext() as c:\n            c.prec=44\n            if op=='unit_scale':\n                source=inputs['source_unit'];target=inputs['target_unit']\n                if source not in SCALES or target not in SCALES:raise ValueError('unsupported unit direction')\n                x=Decimal(str(inputs['value']).replace(',',''));y=x*SCALES[source]/SCALES[target]\n                rule=f'{source}->{target}';unit=target\n            elif op=='price_32nds':\n                if inputs.get('quote_basis')!='thirty_seconds':raise ValueError('source table must state quote basis as 32nds')\n                raw=str(inputs['quote']).strip();m=re.fullmatch(r'(\\d{1,3})\\.(\\d{1,2})',raw)\n                if not m:raise ValueError('price quote must be an integer part and 0..31 32nd ticks')\n                whole,ticks=map(int,m.groups())\n                if not 0<=ticks<=31:raise ValueError('32nd ticks out of range')\n                y=Decimal(whole)+Decimal(ticks)/Decimal(32)\n                rule='integer + ticks/32';unit='price_points'\n            elif op=='box_cox':\n                x=Decimal(str(inputs['value']));lam=Decimal(str(inputs['lambda']))\n                if x<=0 or not x.is_finite() or not lam.is_finite():raise ValueError('Box-Cox requires x>0 and finite lambda')\n                y=x.ln() if lam==0 else ((lam*x.ln()).exp()-1)/lam\n                rule='ln(x)' if lam==0 else '(x^lambda-1)/lambda';unit='transformed'\n            elif op=='currency_convert':\n                amount=Decimal(str(inputs['amount']));rate=Decimal(str(inputs['rate']))\n                direction=inputs['rate_orientation']\n                if rate<=0 or not rate.is_finite() or not amount.is_finite():raise ValueError('valid positive exchange rate required')\n                if direction=='foreign_per_usd':y=amount/rate;unit='usd';rule='foreign_amount / foreign_per_usd'\n                elif direction=='usd_per_foreign':y=amount*rate;unit='usd';rule='foreign_amount * usd_per_foreign'\n                else:raise ValueError('exchange-rate orientation must be explicit')\n            else:raise ValueError('unsupported Treasury transform')\n            if not y.is_finite():raise ValueError('nonfinite transformed output')\n            digits=inputs.get('decimals')\n            if digits is None:ans=format(y,'f').rstrip('0').rstrip('.') if '.' in format(y,'f') else format(y,'f')\n            else:\n                if type(digits) is not int or not 0<=digits<=18:raise ValueError('decimals must be 0..18')\n                ans=format(y.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP),f'.{digits}f')\n            if ans in ('-0',''):ans='0'\n            return {'status':'ok','outputs':{\n                'value':str(y),'answer':ans,'unit':unit,'formula':rule,\n                'proof_scope':'local_transform_only',\n                'note':'Input numbers and quote/currency convention must be grounded in a real source table.'}}\n    except (ValueError,TypeError,KeyError,ArithmeticError) as exc:\n        return {'status':'needs_input','outputs':{},'detail':str(exc)}\n",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "title": "Exact Treasury unit, quote, Box-Cox and exchange transform",
+      "entry_constraints": {
+        "selector": "treasury_transform",
+        "description": "Exact Treasury unit, quote, Box-Cox and exchange transform",
+        "proof_scope": "local_only"
+      },
+      "id": "program_bd52f6290acc346460ec4cd7404eb95792d47459c47ff82f771c196f1c9e0fb6"
+    },
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "retrieval_program",
+        "description": "Scoped issue/text retrieval (local windows only)",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "Polynomial OLS forecast or absolute prediction error; explicit period coverage and source operands",
+      "source_file": "programs/polynomial_forecast.py",
+      "source": "\"\"\"Polynomial OLS over explicit public observations; no implicit imputation.\n\nInputs are public, explicitly aligned observations. This computes a polynomial\nOLS forecast with an intercept; it cannot certify source/column semantics.\n\"\"\"\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx, inputs):\n    try:\n        degree = inputs['degree']\n        if type(degree) is not int or not 1 <= degree <= 5:\n            raise ValueError('degree must be 1..5')\n        rows = inputs['observations']\n        expected = inputs['required_periods']\n        if not degree < len(expected) <= 240 or len(set(expected)) != len(expected):\n            raise ValueError('distinct required periods and at least degree+1 observations required')\n        if len(rows) != len(expected) or [r['period'] for r in rows] != expected:\n            raise ValueError('observations must cover every required period once, in specified order')\n        if any(r['unit'] != inputs['unit'] or not r.get('source_ref') for r in rows):\n            raise ValueError('consistent units and source references required')\n        operation = inputs['operation']\n        if operation not in ('predict', 'absolute_error'):\n            raise ValueError('choose predict or absolute_error')\n        actual = inputs.get('actual')\n        if operation == 'absolute_error' and actual is None:\n            raise ValueError('absolute_error requires an independently acquired actual value')\n        if actual is not None and (actual['unit'] != inputs['unit'] or not actual.get('source_ref')):\n            raise ValueError('actual value needs matching units and a source reference')\n        digits = inputs['decimals']\n        if type(digits) is not int or not 0 <= digits <= 18:\n            raise ValueError('decimals must be 0..18')\n        with localcontext() as context:\n            context.prec = 60\n            x = [Decimal(str(r['x'])) for r in rows]\n            y = [Decimal(str(r['value'])) for r in rows]\n            target = Decimal(str(inputs['prediction_x']))\n            observed = Decimal(str(actual['value'])) if actual is not None else None\n            if not all(v.is_finite() for v in x+y+[target]+([] if observed is None else [observed])):\n                raise ValueError('finite numeric values required')\n            if len(set(x)) < degree+1:\n                raise ValueError('rank deficient design')\n            center = sum(x)/len(x)\n            scale = max(abs(v-center) for v in x)\n            z = [(v-center)/scale for v in x]\n            design = [[Decimal(1)]+[v**j for j in range(1, degree+1)] for v in z]\n            width = degree+1\n            matrix = [[sum(r[i]*r[j] for r in design) for j in range(width)]\n                      +[sum(r[i]*v for r, v in zip(design, y))] for i in range(width)]\n            for i in range(width):\n                pivot = max(range(i, width), key=lambda j: abs(matrix[j][i]))\n                matrix[i], matrix[pivot] = matrix[pivot], matrix[i]\n                divisor = matrix[i][i]\n                if divisor == 0:\n                    raise ValueError('rank deficient design')\n                matrix[i] = [v/divisor for v in matrix[i]]\n                for j in range(width):\n                    if j != i:\n                        factor = matrix[j][i]\n                        matrix[j] = [a-factor*b for a, b in zip(matrix[j], matrix[i])]\n            coefficients = [r[-1] for r in matrix]\n            target_z = (target-center)/scale\n            prediction = coefficients[-1]\n            for c in reversed(coefficients[:-1]):\n                prediction = prediction*target_z+c\n            error = abs(prediction-observed) if observed is not None else None\n            value = prediction if operation == 'predict' else error\n            answer = format(value.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP), f'.{digits}f')\n            return {'status': 'ok', 'outputs': {\n                'count': len(rows), 'degree': degree, 'unit': inputs['unit'],\n                'center': str(center), 'scale': str(scale),\n                'coefficient_basis': 'ascending powers of (x-center)/scale, including intercept',\n                'coefficients': [str(v) for v in coefficients],\n                'prediction': str(prediction), 'actual': str(observed) if observed is not None else None,\n                'absolute_difference': str(error) if error is not None else None, 'answer': answer,\n                'formula': 'unweighted polynomial OLS with intercept; '+('prediction' if operation == 'predict' else 'abs(prediction-actual)'),\n                'proof_scope': 'calculation and explicit coverage only; source semantics not certified'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:\n        return {'status': 'needs_input', 'outputs': {}, 'detail': str(exc)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "enum": [
+              "predict",
+              "absolute_error"
+            ]
+          },
+          "degree": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "required_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 2,
+            "maxItems": 240,
+            "uniqueItems": true
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "period": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "x": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_ref": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "period",
+                "x",
+                "value",
+                "unit",
+                "source_ref"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 2,
+            "maxItems": 240
+          },
+          "prediction_x": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18
+          },
+          "actual": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "unit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_ref": {
+                "type": "object",
+                "properties": {
+                  "result_id": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "integer"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "result_id",
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "value",
+              "unit",
+              "source_ref"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "operation",
+          "degree",
+          "required_periods",
+          "observations",
+          "prediction_x",
+          "unit",
+          "decimals"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "type": "string"
+          },
+          "center": {
+            "type": "string"
+          },
+          "scale": {
+            "type": "string"
+          },
+          "coefficient_basis": {
+            "type": "string"
+          },
+          "prediction": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "proof_scope": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "degree": {
+            "type": "integer"
+          },
+          "coefficients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "actual": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "absolute_difference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "unit",
+          "center",
+          "scale",
+          "coefficient_basis",
+          "prediction",
+          "answer",
+          "formula",
+          "proof_scope",
+          "count",
+          "degree",
+          "coefficients",
+          "actual",
+          "absolute_difference"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "id": "program_a82b9d873d367a665277d9530d7580bab1ebcf297abef550979bcd276db86b0b"
+    }
+  ],
+  "implementation": [
+    {
+      "kind": "implementation",
+      "skill_id": "skill_47892f459e8b759e47847ca804a8af71b7add3326510451961bf5feff9b67550",
+      "program_id": "program_b81b047cbb68a37ed1501de4fe096dad8459d0211229fea640d632135d607b6a",
+      "goal": "Execute verified local operation of OA-Locate",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "implementation_bfcdca406f36d6e04b61c04dca49bcc2f2db25df36444fa942f7ac3ca6764f74"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_46055d84f24b1ad7a4cd2cf3ebce80434183c97f253fe0873cde85022b079b10",
+      "program_id": "program_af68df97f52f402640a5fb287fde73534587a3ec3b24bc6b24ec8d3116d754d0",
+      "goal": "Execute verified local operation of OA-Table",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "implementation_e5bfc14fe7b3b8e1756b35791e4d84c2fc6baf50ed23ce02238a459e3d7530c3"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_9eb48620c4e067d756f3e8cc61e125a64c49e035e9eefa653bef27f0ad8fee81",
+      "program_id": "program_c76cbe063d5676e5d9e4a1beb6fb3befadbbfd7097e24f894c8abe513b475c61",
+      "goal": "Execute verified local operation of OA-Stats",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "implementation_854777774aa1dff53274f731b3dc0c858e365ee04459c7f6a30cc6d9dcb28b9e"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_44c3e8147d2d4d0e6d741f653757b60b4d4461ca37ba98c255dee9c6cadbe291",
+      "program_id": "program_a6bf157bfb964f4ef70038a8e07a25619488afc9c75d089f26a955ffaeef2710",
+      "goal": "Execute verified local operation of OA-Periods",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "implementation_2eac135d73fd553b771d10764dcaa2ef49c60086ba92b74661f70deaee8e7899"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_a65ed1594d00ed1884ea24ac71896c8ad89f8d5f26048112e4de066efecab82c",
+      "program_id": "program_bd52f6290acc346460ec4cd7404eb95792d47459c47ff82f771c196f1c9e0fb6",
+      "goal": "Execute verified local operation of OA-Units",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "implementation_bc67a89b027c8288576070ea76c06b586516603547e34b28c4dc4e99285c1313"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_eae74db3b681eed748b8209f542a33ad75536de0b57265b0b3249560f6d1fd7c",
+      "program_id": "program_a82b9d873d367a665277d9530d7580bab1ebcf297abef550979bcd276db86b0b",
+      "goal": "Execute explicitly specified polynomial OLS and prediction error",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "id": "implementation_cd3e666c62850609dcfdc6164d89b24909f8cba36991885f68a62f27c4eaec7e"
+    }
+  ],
+  "workflow": [
+    {
+      "interface_version": "empirical.workflow.v2",
+      "title": "search_to_anchored_read",
+      "goal": "Acquire real document windows and interpret their exact table role",
+      "nodes": [
+        {
+          "id": "plan_query",
+          "execution_mode": "dynamic",
+          "goal": "Derive a narrow query and permitted file pattern from task without guessing values; return query.",
+          "reference_skill_ids": [
+            "skill_9e71ca527e661d466afe303b34b4fa9a380ee0bd83eba8cc8c0101107b0a110d",
+            "skill_47892f459e8b759e47847ca804a8af71b7add3326510451961bf5feff9b67550"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          },
+          "after": []
+        },
+        {
+          "id": "retrieve",
+          "execution_mode": "program",
+          "program_id": "program_b81b047cbb68a37ed1501de4fe096dad8459d0211229fea640d632135d607b6a",
+          "args": {
+            "query": {
+              "from": "plan_query",
+              "field": "query"
+            }
+          },
+          "after": [
+            "plan_query"
+          ]
+        },
+        {
+          "id": "interpret",
+          "execution_mode": "dynamic",
+          "goal": "Inspect acquired windows and verify table title/period/unit; return final answer only if genuinely resolved.",
+          "reference_skill_ids": [
+            "skill_46055d84f24b1ad7a4cd2cf3ebce80434183c97f253fe0873cde85022b079b10",
+            "skill_958ca25ba706af7c65ec0dace76134573012376887e5f4d976ef8ffba91bcc22"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "windows": {
+              "from": "retrieve",
+              "field": "windows"
+            }
+          },
+          "after": [
+            "retrieve"
+          ]
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "interpret",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "execution_permission": "manual_optional_not_auto",
+      "id": "workflow_b0fe0b2a884fd357fd8f39d3f34552c6bc14346d1483cc421b692675146fd6e7"
+    },
+    {
+      "interface_version": "empirical.workflow.v2",
+      "title": "table_to_numeric",
+      "goal": "Acquire a verified table window and compute from literal cells",
+      "nodes": [
+        {
+          "id": "spec",
+          "execution_mode": "dynamic",
+          "goal": "Acquire an actual bounded table window with target row/column/unit; return text, rows, column, unit, not invented values.",
+          "reference_skill_ids": [
+            "skill_46055d84f24b1ad7a4cd2cf3ebce80434183c97f253fe0873cde85022b079b10",
+            "skill_9e71ca527e661d466afe303b34b4fa9a380ee0bd83eba8cc8c0101107b0a110d"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          },
+          "after": []
+        },
+        {
+          "id": "extract",
+          "execution_mode": "program",
+          "program_id": "program_af68df97f52f402640a5fb287fde73534587a3ec3b24bc6b24ec8d3116d754d0",
+          "args": {
+            "text": {
+              "from": "spec",
+              "field": "text"
+            },
+            "rows": {
+              "from": "spec",
+              "field": "rows"
+            },
+            "column": {
+              "from": "spec",
+              "field": "column"
+            },
+            "unit": {
+              "from": "spec",
+              "field": "unit"
+            }
+          },
+          "after": [
+            "spec"
+          ]
+        },
+        {
+          "id": "answer",
+          "execution_mode": "dynamic",
+          "goal": "Use extracted values only with correct question semantics; compute if needed and provide the target.",
+          "reference_skill_ids": [
+            "skill_9eb48620c4e067d756f3e8cc61e125a64c49e035e9eefa653bef27f0ad8fee81",
+            "skill_958ca25ba706af7c65ec0dace76134573012376887e5f4d976ef8ffba91bcc22"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "cells": {
+              "from": "extract",
+              "field": "cells"
+            }
+          },
+          "after": [
+            "extract"
+          ]
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "answer",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "execution_permission": "manual_optional_not_auto",
+      "id": "workflow_18069c0e973476a137b39e3c30a71cd580c0cb2117d0cecae8378149f0e9511e"
+    },
+    {
+      "interface_version": "empirical.workflow.v2",
+      "title": "complete_time_series",
+      "goal": "Check all explicitly requested years before calculation",
+      "nodes": [
+        {
+          "id": "collect",
+          "execution_mode": "dynamic",
+          "goal": "From real acquired evidence collect each period-value-source_ref and required period list; never fill missing.",
+          "reference_skill_ids": [
+            "skill_44c3e8147d2d4d0e6d741f653757b60b4d4461ca37ba98c255dee9c6cadbe291",
+            "skill_46055d84f24b1ad7a4cd2cf3ebce80434183c97f253fe0873cde85022b079b10"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          },
+          "after": []
+        },
+        {
+          "id": "coverage",
+          "execution_mode": "program",
+          "program_id": "program_a6bf157bfb964f4ef70038a8e07a25619488afc9c75d089f26a955ffaeef2710",
+          "args": {
+            "required_periods": {
+              "from": "collect",
+              "field": "required_periods"
+            },
+            "observations": {
+              "from": "collect",
+              "field": "observations"
+            }
+          },
+          "after": [
+            "collect"
+          ]
+        },
+        {
+          "id": "finish_or_search",
+          "execution_mode": "dynamic",
+          "goal": "If missing periods, retrieve only actual missing sources; otherwise compute the exact requested statistic.",
+          "reference_skill_ids": [
+            "skill_44c3e8147d2d4d0e6d741f653757b60b4d4461ca37ba98c255dee9c6cadbe291",
+            "skill_9eb48620c4e067d756f3e8cc61e125a64c49e035e9eefa653bef27f0ad8fee81",
+            "skill_958ca25ba706af7c65ec0dace76134573012376887e5f4d976ef8ffba91bcc22"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "coverage": {
+              "from": "coverage",
+              "field": "complete"
+            },
+            "missing_periods": {
+              "from": "coverage",
+              "field": "missing_periods"
+            },
+            "series": {
+              "from": "coverage",
+              "field": "aligned_observations"
+            }
+          },
+          "after": [
+            "coverage"
+          ]
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "finish_or_search",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "execution_permission": "manual_optional_not_auto",
+      "id": "workflow_0e02748ff8f3619a2f9c28379ed633ef52f08be7b255f2081d467bb65adddebd"
+    },
+    {
+      "interface_version": "empirical.workflow.v2",
+      "title": "array_statistic",
+      "goal": "Run an array-style statistic (sum, mean, dispersion, correlation or OLS) with real source values; named ratio/change/difference use their separate Program ABI.",
+      "nodes": [
+        {
+          "id": "align",
+          "execution_mode": "dynamic",
+          "goal": "Read actual aligned source values for a supported array statistic; produce operation, values, unit (and other_values only when supported).",
+          "reference_skill_ids": [
+            "skill_46055d84f24b1ad7a4cd2cf3ebce80434183c97f253fe0873cde85022b079b10",
+            "skill_9eb48620c4e067d756f3e8cc61e125a64c49e035e9eefa653bef27f0ad8fee81"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          },
+          "after": []
+        },
+        {
+          "id": "compute",
+          "execution_mode": "program",
+          "program_id": "program_c76cbe063d5676e5d9e4a1beb6fb3befadbbfd7097e24f894c8abe513b475c61",
+          "args": {
+            "operation": {
+              "from": "align",
+              "field": "operation"
+            },
+            "values": {
+              "from": "align",
+              "field": "values"
+            },
+            "unit": {
+              "from": "align",
+              "field": "unit"
+            }
+          },
+          "after": [
+            "align"
+          ]
+        },
+        {
+          "id": "finalize",
+          "execution_mode": "dynamic",
+          "goal": "Check that executed formula and input semantics match question; commit only requested output.",
+          "reference_skill_ids": [
+            "skill_9eb48620c4e067d756f3e8cc61e125a64c49e035e9eefa653bef27f0ad8fee81",
+            "skill_958ca25ba706af7c65ec0dace76134573012376887e5f4d976ef8ffba91bcc22"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "calculation": {
+              "from": "compute",
+              "field": "answer"
+            }
+          },
+          "after": [
+            "compute"
+          ]
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "finalize",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "execution_permission": "manual_optional_not_auto",
+      "id": "workflow_2861919357266da4fa447451eb6efa0feeb352ebae2f4bd496675c7df74a15c0"
+    }
+  ],
+  "parent_bank_digest": "d211ceb049300052270f666827d1e1e108935f143aa3fe4779d91a14916b19ab"
+}
