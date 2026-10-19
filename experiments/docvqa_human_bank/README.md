@@ -1,5 +1,10 @@
 # DocVQA 人工 Bank 独立对照 v1.2
 
+**状态：候选版本，未通过提升验收。** 固定 Val22 对照中，v1.1 为21/22、75,796 tokens；
+v1.2 为20/22、84,187 tokens。没有启动新版 Test201，不能宣称达到95%完全正确率。
+原 v1.1 的180/201 Test结果和独立固定checkout保留。受测提交为 `8905bc6`；
+后续只给启动入口加上了默认停止于Val的保护，没有追加模型调用。
+
 来源：用户提供的 `DocVQA_HumanIdeal_ProgrammaticAtomic_Bank_v1_20261019.zip`。
 原包与资产哈希见 `source_manifest.json`，公开来源见 `sources/SOURCES.md`。
 本目录只接入独立人工对照，不更改 Ours 的自然学习、晋升、评分或已有实验。
@@ -19,8 +24,8 @@ Program 保持 candidate，只读人工视图显式授权，不伪造 usable 收
 裁剪图仅在指定 Program 真实执行成功、源图 SHA 和输出 SHA 核验后发送到下一轮。
 仍发送原图，base64 不充当文本证据；文字核对程序不能证明读图正确。
 
-固定 seed42，默认先用 canonical Val 前2题检查真实接口；`--validation-count 22` 使用完整 Val22。
-可用 `--validation-only` 在 Val 后停止，比较通过后才能显式 resume Test201。
+固定 seed42，默认使用完整 canonical Val22并停止；`--validation-count 2` 仅作接口检查。
+只有本版本 `validation_gate.json` 明确通过且显式给出 `--allow-test`，才允许继续 Test201。
 不学习、不按分数选 Bank，不重切数据；Test 开始后不更改提示和资产。
 96,000 tokens/题，总上限仍为19,488,000 tokens /9,135 HTTP；增加验证数量不自动扩大总额度。
 实际费用以 raw_usage 为准。

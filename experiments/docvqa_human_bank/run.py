@@ -1,4 +1,4 @@
-"""Independent human Bank: fixed Val2 interface check, then canonical Test201."""
+"""Independent human Bank candidate: Val22 first; no automatic Test launch."""
 import argparse
 import fcntl
 import json
@@ -111,7 +111,8 @@ def main():
     parser.add_argument('--expected-sha', required=True)
     parser.add_argument('--env-file')
     parser.add_argument('--validation-only', action='store_true')
-    parser.add_argument('--validation-count', type=int, choices=[2,22], default=2)
+    parser.add_argument('--validation-count', type=int, choices=[2,22], default=22)
+    parser.add_argument('--allow-test', action='store_true', help='Requires a passed fixed-version validation_gate.json')
     args = parser.parse_args()
     root = Path(args.output).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -133,8 +134,12 @@ def main():
         frozen = log.freeze(root / 'bank', newly_created=not (root / 'final_frozen_manifest.json').exists())
         try:
             for phase in ('validation', 'test'):
-                if phase == 'test' and args.validation_only:
-                    log.finish('validation_completed'); return
+                if phase == 'test':
+                    if args.validation_only or not args.allow_test:
+                        log.finish('validation_completed'); return
+                    gate = json.loads((root / 'validation_gate.json').read_text())
+                    if gate.get('gate_passed') is not True or gate.get('candidate_commit') != args.expected_sha:
+                        raise ValueError('Candidate has not passed its fixed-version validation comparison')
                 existing = root / phase / 'summary.json'
                 if existing.exists() and json.loads(existing.read_text()).get('complete'):
                     continue
