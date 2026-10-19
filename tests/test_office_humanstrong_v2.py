@@ -207,3 +207,39 @@ def test_every_materialized_task_reaches_native_request_intact(setup,monkeypatch
         out=Path(output);out.mkdir(parents=True,exist_ok=True)
         (out/f'wire_preflight_{arm}.json').write_text(json.dumps({'model_http':0,'responses':'offline_fixture_not_model_performance',
             'arm':arm,'count':len(audit),'tasks':audit},ensure_ascii=False,indent=2))
+
+
+def test_paired_launcher_carries_ledger_and_runs_frozen_aligned_arms(setup,tmp_path,monkeypatch):
+    parent=os.environ.get('OFFICE_V2_BILLING_PARENT')
+    if not parent:pytest.skip('Completed parent ledger required for launcher acceptance')
+    _,_,_,resources=setup
+    monkeypatch.syspath_prepend(str(ROOT.parents[1]/'experiments'))
+    launcher=load(ROOT.parents[1]/'experiments/run_office_humanstrong_v2.py','strong2_launcher')
+    common=launcher.common
+    for name in ('PACKAGE','frontier','VERSION'):
+        monkeypatch.setattr(common,name,getattr(common,name))
+    launcher.bind_runner()
+    identity=lambda:{'git_sha':'offline-fixture','tracked_dirty':False,'source_sha256':'offline-fixture'}
+    monkeypatch.setattr(common,'code_identity',identity)
+    monkeypatch.setattr('atomic_skillgraph.experiments.run_empirical.code_identity',identity)
+    monkeypatch.setattr(common,'load_env',lambda path:None)
+    parent=Path(parent);before=common.sha(parent/'budget.json');root=tmp_path/'pairs'
+    launcher.prepare(root,parent,resources)
+    plan=common.verify(root)
+    assert plan['new_token_cap']==4608000 and plan['new_http_cap']==2400
+    assert plan['ledger_limits']['token_limit']<=116000000 and len(plan['episodes'])==24
+    seen=http(monkeypatch,[response([{'action':'finish','answer':'offline_fixture'}]) for _ in range(24)])
+    assert common.execute(root,'unused-offline-env')==0
+    receipt=common.status(root)
+    assert receipt['completed_episodes']==24 and receipt['new_http']==24 and receipt['new_unsettled']==0
+    assert common.sha(parent/'budget.json')==before
+    common.verify(root)
+    tasks={t['task_id']:t for t in common.read(root/'tasks.json')['tasks']}
+    for episode,wire in zip(plan['episodes'],seen):
+        body=json.loads(wire['messages'][1]['content'])
+        assert body['task']['inputs']==tasks[episode['task_id']]['inputs']
+        assert len(body['calls']['programs'])==(5 if episode['arm']=='manual' else 0)
+        assert common.read(Path(episode['path'])/'freeze_record.json')['unchanged']
+    changed=common.read(root/'tasks.json');changed['tasks'][0]['goal']='modified'
+    common.save_json(root/'tasks.json',changed)
+    with pytest.raises(AssertionError):common.verify(root)

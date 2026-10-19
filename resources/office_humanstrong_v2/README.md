@@ -38,6 +38,17 @@ python resources/office_humanstrong_v2/tools/prepare_runtime.py \
 
 准备步骤生成原生 Bank SQLite、导入身份和 Train/Val/Test 三份有效配置，零模型请求。不要把这些配置交给缺少人工视图的普通 Bank 运行器；调用 `integration/evaluate.py` 的 `evaluate(config, tasks, output, budget_governor=..., arm='manual'|'off')`，它绑定 `HumanBankView` 与输入 bridge，复用原生 evaluator、checkpoint、请求账本和 frozen 执行。调用方应使用当前累计账本的 Governor、固定源码和独立输出目录。准备步骤不分配新的付费额度。
 
+2026-10-20 已授权的固定 Train12 双臂使用 `experiments/run_office_humanstrong_v2.py`：
+
+```bash
+python experiments/run_office_humanstrong_v2.py prepare --root <新的运行目录>
+python experiments/run_office_humanstrong_v2.py check --root <新的运行目录>
+python experiments/run_office_humanstrong_v2.py launch --root <新的运行目录>
+python experiments/run_office_humanstrong_v2.py status --root <运行目录>
+```
+
+该入口绑定相同 V2 人工视图和输入 bridge，复用已有双臂运行器；继承最新已完成证据交接实验的账本及历史锁，固定 24 次解题、每次 192,000 tokens／48 次原生工具调用。本轮最多 4,608,000 tokens／2,400 HTTP，累计仍限 116M。只运行已开发暴露的 canonical Train 前 12 题，不学习、不运行 Val/Test、不按成绩选择题目或自动重跑。源码须为已提交的独立 WSL 固定 checkout。
+
 配置启用公共证据交接版本和无损紧凑 JSON。正常请求保留全部公开源页，不继承原生文件输入预览的截断；收尾仅从已提供/已获得的内容中打包，容量不足仍有明确收据。源页登记为 `provided_public_input`，不会伪造工具调用。两臂共享同一公开输入。模型、thinking、任务总额度和工具调用上限没有被偷换成外部模型的设置。
 
 ## 验收与解释范围
