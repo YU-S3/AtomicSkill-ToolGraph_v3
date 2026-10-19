@@ -1,16 +1,16 @@
-"""One immutable manual Skill, one text response, no tool or graph exposure."""
+"""One immutable manual Skill; optional source-image crop, no graph routing."""
 from contextlib import contextmanager
 from copy import deepcopy
 import json
 from pathlib import Path
 
-METHOD = 'docvqa.human.single-node.v1'
+METHOD = 'docvqa.human.single-node.v2'
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def prepare(repo, config_path, destination):
+def prepare(repo, config_path, destination, *, crop=False):
     from atomic_skillgraph.empirical.bank import Bank
-    from atomic_skillgraph.empirical.contracts import digest
+    from atomic_skillgraph.empirical.contracts import digest, program_digest
     config = json.loads(Path(config_path).read_text())
     source = json.loads((ROOT / 'bank/single_node.json').read_text())
     output = Path(destination)
@@ -20,12 +20,22 @@ def prepare(repo, config_path, destination):
     bank = Bank(output, seed=42, environment=config['program_environment'])
     try:
         asset = bank.put('skill', source)
+        if crop:
+            bundle = json.loads((ROOT / 'bank/bank.json').read_text())
+            program = next(p for p in bundle['program'] if p['source_file'] == 'programs/image_region.py')
+            program.update(environment=config['program_environment'], method_version=METHOD,
+                           source=(ROOT / program['source_file']).read_text())
+            program['id'] = 'program_' + program_digest(program)
+            program = bank.put('program', program)
+            bank.put('implementation', {'skill_id': asset['id'], 'program_id': program['id'],
+                'method_version': METHOD, 'origin': 'human_authored_unqualified'})
         manifest = {'method_version': METHOD, 'origin': 'human_authored_only_not_learned',
             'bank_digest': bank.digest(), 'source_bundle_hash': digest(source),
-            'counts': {'skill': 1, 'program': 0, 'implementation': 0, 'workflow': 0},
-            'program_status': 'disabled', 'seed': 42}
+            'counts': {k: len(bank.all(k)) for k in ('skill', 'program', 'implementation', 'workflow')},
+            'program_status': 'optional_image_crop' if crop else 'disabled', 'seed': 42}
         (output / 'manual_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        (output / 'imported_bank.json').write_text(json.dumps({'skill': [asset]}, indent=2) + '\n')
+        (output / 'imported_bank.json').write_text(json.dumps(
+            {k: bank.all(k) for k in manifest['counts']}, indent=2) + '\n')
     finally:
         bank.close()
 
@@ -33,13 +43,15 @@ def prepare(repo, config_path, destination):
 class SingleNodeDocVQAView:
     def __init__(self, bank, manifest, **kwargs):
         from atomic_skillgraph.empirical.contracts import digest
-        expected = {'skill': 1, 'program': 0, 'implementation': 0, 'workflow': 0}
+        self.crop_enabled = manifest['program_status'] == 'optional_image_crop'
+        expected = {'skill': 1, 'program': int(self.crop_enabled), 'implementation': int(self.crop_enabled), 'workflow': 0}
         if (not bank.readonly or manifest['method_version'] != METHOD
                 or manifest['bank_digest'] != bank.digest()
                 or {k: len(bank.all(k)) for k in expected} != expected):
             raise ValueError('Expected the immutable single-Skill manual Bank')
         self.bank = bank
-        self.view_hash = digest([METHOD, manifest, 'one_text_response_no_tools'])
+        self.programs = {'image_region': bank.all('program')[0]} if self.crop_enabled else {}
+        self.view_hash = digest([METHOD, manifest, 'one_skill_optional_image_crop'])
 
     def __getattr__(self, key):
         return getattr(self.bank, key)
@@ -56,7 +68,8 @@ class SingleNodeDocVQAView:
     def workflow_options(self): return []
     def planning_cards(self, query): return []
     def routes(self, *args, **kwargs): return []
-    def program_eligible(self, program): return False
+    def program_eligible(self, program):
+        return bool(self.crop_enabled and program and program == self.programs['image_region'])
 
 
 @contextmanager
@@ -74,6 +87,44 @@ def single_node_bridge():
                 'Return only the requested answer, without a plan or explanation. '
                 + s.adapter.answer_contract())
             material = deepcopy({k: materials[k] for k in ('goal', 'guidance', 'content_parts')})
+            if s.bank.crop_enabled:
+                from human_view import safe_crop_parts
+                failures = [{k: r[k] for k in ('result_id', 'status', 'error', 'reason') if k in r}
+                    for r in materials.get('local_results', []) if r.get('status') not in (None, 'ok')]
+                if failures:
+                    material['inspection_failures'] = failures
+                for crop in safe_crop_parts(s.task_context, s.adapter.task, s.bank):
+                    if len(material['content_parts']) >= s.config['llm']['image_input']['max_images']:
+                        break
+                    material['content_parts'].append(crop['part'])
+                    material.setdefault('crop_evidence', []).append({'result_id': crop['result_id'],
+                        'source_bbox': crop['bbox'], 'image_index': len(material['content_parts']) - 1})
+                if materials['remaining_local_executions'] > 0:
+                    schema = {'type': 'object', 'properties': {
+                        'action': {'enum': ['inspect', 'finish']},
+                        'region': {'enum': ['top', 'middle', 'bottom', 'left', 'right', 'whole']},
+                        'bbox': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0, 'maximum': 1000},
+                                 'minItems': 4, 'maxItems': 4},
+                        'answer': {'type': 'string'},
+                        'used_results': {'type': 'array', 'items': {'type': 'string'}}},
+                        'required': ['action'], 'additionalProperties': False,
+                        'allOf': [
+                            {'if': {'properties': {'action': {'const': 'inspect'}}},
+                             'then': {'oneOf': [{'required': ['region'], 'not': {'required': ['bbox']}},
+                                                {'required': ['bbox'], 'not': {'required': ['region']}}]}},
+                            {'if': {'properties': {'action': {'const': 'finish'}}}, 'then': {'required': ['answer']}}]}
+                    prompt += (' If the selected text is visually unclear, inspect its region or original-page '
+                        'bbox [left,top,right,bottom] in 0..1000 coordinates, origin top-left. '
+                        'This only enlarges real source pixels. Prefer a broad region when location is uncertain. '
+                        'Otherwise answer directly. At most two inspections; no mandatory second pass. '
+                        'Use finish with actual used_results when a crop supports the answer.')
+                    material['remaining_inspections'] = materials['remaining_local_executions']
+                    step = old(s, stage, prompt, material, name, schema, **kwargs)
+                    if step['action'] == 'inspect':
+                        return {'action': 'call_program', 'name': s.bank.programs['image_region']['id'],
+                            'arguments': {'image_path': '/workspace/inputs/image_0.png',
+                                **{k: step[k] for k in ('region', 'bbox') if k in step}}}
+                    return step
             answer = old(s, stage, prompt, material, None, None, **kwargs)
             return {'action': 'finish', 'answer': answer or ''}
         return old(s, stage, prompt, materials, name, schema, **kwargs)

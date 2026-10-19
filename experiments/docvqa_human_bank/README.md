@@ -74,7 +74,8 @@ python experiments/docvqa_human_bank/evaluate.py \
 run_seed42 固定题单，Provider 不支持 generation seed；响应不是确定性复现。
 累计上限19,488,000 tokens /9,135 HTTP，结转旧人工对照819,414 tokens /270 HTTP。
 账本排他锁序列化评测，失败与所有对照费用均保留，不因换候选扩大预算。
-# Single-node manual candidate (2026-10-20)
+
+## Single-node manual candidate (2026-10-20)
 
 `evaluate.py --single-node` imports one immutable text Skill from
 `bank/single_node.json`. It sends the original image, public question and complete
@@ -91,3 +92,12 @@ conditional source-selection and answer-boundary rules, but do not establish
 that this candidate improves accuracy. Fixed paired evaluation is pending; no
 95% or stability claim is made.
 
+V1 produced 33/36 twice, matching both fresh old-Bank controls; total tokens
+fell from 222,571 to 159,211, but the strict accuracy advancement gate failed.
+V1 did not advance to Val or Test. V2 refines compound-page and answer-boundary
+rules using those Train traces. `--single-node-crop` additionally offers one
+small inspect/finish interface to the existing real image-region Program, with
+Host-bound source path and at most two executions. It exposes no generic Python
+executor or graph. Compare this optional-crop arm with the same text Skill with
+`--single-node`; retaining Programs depends on measured benefit. Neither V2 arm
+has yet qualified for an accuracy or stability claim.

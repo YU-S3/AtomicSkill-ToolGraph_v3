@@ -16,9 +16,11 @@ def main():
     parser.add_argument('--bank', help='Existing immutable control Bank; otherwise import this source')
     parser.add_argument('--crop-mode', choices=['guidance', 'grounded'], default='grounded')
     parser.add_argument('--single-node', action='store_true', help='One manual Skill; text-only response with no tools')
+    parser.add_argument('--single-node-crop', action='store_true', help='One manual Skill with only optional image inspection')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
+    args.single_node = args.single_node or args.single_node_crop
     repo, root, campaign = map(lambda x: Path(x).resolve(), (args.repo,args.output,args.campaign))
     sys.path.insert(0,str(repo/'src'))
     sys.path.insert(0,str(repo/'experiments/docvqa_human_bank/integration'))
@@ -65,7 +67,8 @@ def main():
         config['experiment'].update(output_dir=str(root/split),runtime_mode='frozen')
         config['experiment']['docvqa_human_reference']={'method':METHOD,'crop_mode':None if args.single_node else args.crop_mode,
             'development_only':split=='train','workflow_execution':False,
-            'single_node':args.single_node,'programs':'off' if args.single_node else 'auto'}
+            'single_node':args.single_node,
+            'programs':'optional_image_crop' if args.single_node_crop else 'off' if args.single_node else 'auto'}
         config['budget'].update(limits,train_task_tokens=96000,eval_task_tokens=96000)
         config['budget'].pop('train_solve_tokens',None);config['budget'].pop('train_learning_tokens',None)
         config['program_worker']['record_execution_receipt']=True
@@ -78,9 +81,11 @@ def main():
                     from single_node import prepare
                 else:
                     from import_native import prepare
-                prepare(repo,root/'import_config.json',root/'bank')
+                prepare(repo,root/'import_config.json',root/'bank',**({'crop':args.single_node_crop} if args.single_node else {}))
         manual=json.loads((root/'bank/manual_manifest.json').read_text())
         if manual['method_version']!=METHOD:raise ValueError('Bank/view version differs')
+        if args.single_node and manual['program_status']!=('optional_image_crop' if args.single_node_crop else 'disabled'):
+            raise ValueError('Requested crop mode differs from the frozen Bank')
         factory=lambda bank:HumanDocVQAView(bank,manual,**({} if args.bank else {'crop_mode':args.crop_mode}))
         bank=Bank(root/'bank',readonly=True,seed=42,environment=config['program_environment'])
         try:view_hash=factory(bank).view_hash
