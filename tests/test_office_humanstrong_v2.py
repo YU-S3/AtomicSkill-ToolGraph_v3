@@ -105,6 +105,7 @@ def test_supplied_pages_survive_finish_with_no_tool_events(setup,monkeypatch,arm
     assert trace['score']['hard'] and trace['execution']['reason']=='finish_only'
     assert not seen[0].get('tools') and len(seen)==1
     assert seen[0]['max_tokens']==32768
+    assert seen[0]['thinking']['type']=='disabled'
     body=json.loads(seen[0]['messages'][1]['content'])
     assert any(w['content']==task.inputs['source_pages'][0]['text'] for w in body['finish_evidence'])
     assert not trace['execution']['attempts']
@@ -127,7 +128,7 @@ def test_expanded_finish_preserves_solve_headroom_and_old_config(setup,monkeypat
                 s.run_task(task,learn=False)
                 reserves.append(s.requests[0]['parent_finish_reserve'])
             finally:s.close()
-    assert reserves[1]-reserves[0] in (24576,24577)  # serialized cap gains one digit
+    assert reserves[1]-reserves[0]==24578  # cap gains one digit; disabled gains one character
     assert seen[0]['max_tokens']==seen[1]['max_tokens']==32768
     bad=deepcopy(cfg);bad['budget']['eval_task_tokens']=192000
     from atomic_skillgraph.empirical.system import validate_config
@@ -135,7 +136,7 @@ def test_expanded_finish_preserves_solve_headroom_and_old_config(setup,monkeypat
 
 
 @pytest.mark.parametrize('arm',['manual','off'])
-def test_saved_empty_finish_replay_changes_only_output_capacity(setup,monkeypatch,arm):
+def test_saved_empty_finish_replay_preserves_material_with_body_capacity(setup,monkeypatch,arm):
     parent=os.environ.get('OFFICE_FINISH_FAILED_PAIRS')
     if not parent:pytest.skip('Completed paired records required for finish replay')
     cfg,_,_,_=setup;root=Path(parent)
@@ -147,7 +148,7 @@ def test_saved_empty_finish_replay_changes_only_output_capacity(setup,monkeypatc
     adapter=OfficeAdapter({},cfg);adapter.task=PublicTask(**json.loads(next((out/'traces').glob('*.json')).read_text())['task'])
     fixture=response(content='offline_nonempty_body',finish='stop')
     fixture['usage']={'prompt_tokens':10000,'completion_tokens':9000,'total_tokens':19000,
-        'completion_tokens_details':{'reasoning_tokens':8990}}
+        'completion_tokens_details':{'reasoning_tokens':0}}
     seen=http(monkeypatch,[fixture]);s=EmpiricalSystem(cfg,harness=adapter,readonly=True)
     s.task_context=TaskContext(cfg['runtime'])
     try:
@@ -155,7 +156,8 @@ def test_saved_empty_finish_replay_changes_only_output_capacity(setup,monkeypatc
             decision_purpose='finish_only')
         assert answer=='offline_nonempty_body' and seen[0]['messages']==old['messages']
         assert not seen[0].get('tools') and seen[0]['max_tokens']==32768
-        assert s.requests[-1]['response']['usage']['reasoning_tokens']==8990
+        assert seen[0]['thinking']['type']=='disabled'
+        assert s.requests[-1]['response']['usage']['reasoning_tokens']==0
     finally:s.close()
     assert hashlib.sha256(path.read_bytes()).hexdigest()==before
 

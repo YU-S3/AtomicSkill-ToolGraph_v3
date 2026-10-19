@@ -36,7 +36,8 @@ def configure(base,resources,split,*,finish_output_tokens=FINISH_OUTPUT_TOKENS):
     cfg['runtime'].update(evidence_handoff_version=HANDOFF,finish_input_max_bytes=65536,dynamic_output_min_tokens=8192,
                           compact_request_json=True)
     cfg['llm'].setdefault('purpose_overrides',{})['finish_only']={
-        'protocol':{'thinking_type':'enabled'},'max_completion_tokens':finish_output_tokens}
+        'protocol':{'thinking_type':'disabled' if finish_output_tokens==FINISH_OUTPUT_TOKENS else 'enabled'},
+        'max_completion_tokens':finish_output_tokens}
     task_tokens=192000+finish_output_tokens-8192
     cfg['llm']['runtime']['max_total_tokens_per_task']=task_tokens
     cfg['budget'].update(train_task_tokens=task_tokens,eval_task_tokens=task_tokens)

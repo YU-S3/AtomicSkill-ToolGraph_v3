@@ -137,6 +137,7 @@ def validate_config(config):
         expected_calls=48 if config['experiment'].get('runtime_mode')=='frozen' else 64
         finish_cap=overrides.get('finish_only',{}).get('max_completion_tokens')
         finish_caps=(8192,32768) if span_handoff else (2048,)
+        finish_protocols=('enabled','disabled') if span_handoff and finish_cap==32768 else ('enabled',) if span_handoff else ('disabled',)
         # An expanded finish gets its own task-budget increment; it must not
         # displace the previously admitted solving capacity.
         expected_eval_tokens=192000+(24576 if span_handoff and finish_cap==32768 else 0)
@@ -148,7 +149,8 @@ def validate_config(config):
                 or runtime_settings.get('max_completion_tokens')!=32768 or runtime_settings.get('reasoning_effort')!='high'
                 or thinking.get('thinking_type')!='enabled'
                 or finish_cap not in finish_caps
-                or overrides.get('finish_only')!={'protocol':{'thinking_type':'enabled' if span_handoff else 'disabled'},'max_completion_tokens':finish_cap}):
+                or overrides.get('finish_only') not in [
+                    {'protocol':{'thinking_type':mode},'max_completion_tokens':finish_cap} for mode in finish_protocols]):
             raise ValueError('Office V3 Runtime/finish contract changed')
     if source_capacity is not None and (type(source_capacity) is not int or not 16384 <= source_capacity <= 24576):
         raise ValueError('Executed-source learning capacity must be explicit and bounded to 24 KiB')
