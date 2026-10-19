@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-METHOD='docvqa.human-ideal.programmatic.v1.3'
+METHOD='docvqa.human-ideal.programmatic.v1.4'
 
 
 def skill_selection(question):
@@ -24,7 +24,7 @@ def skill_selection(question):
       ('DV03',r'\b(table|column|row|across|percentage of|figure in|net|gross|total on|highest|lowest|largest|smallest|higher|lower|maximum|minimum|most|least)\b'),
       ('DV05',r'\b(handwrit\w*|scribbl\w*|tiny|blurred|illegible)\b'),
       ('DV02',r'\b(form|invoice|receipt|issued to|address|telephone|phone|name of|signature|signed by|account)\b'),
-      ('DV04',r'\b(page number|contents|agenda|item number|section|chapter|bullet|list|which point)\b'),
+      ('DV04',r'\b(page (?:number|no)|contents|agenda|item number|section|chapter|bullet|list|which point)\b'),
       ('DV05',r'\b(written|signature|serial|id number|registration|number on|code)\b'),
       ('DV06',r'\b(how many|how much|how long|date|year|amount|percent|\%|currency|price|number|time)\b'),
       ('DV07',r'\b(diagram|graph|chart|drawn|arrow|checkbox|checked|circle|tick|figure|symbol|mark)\b'),
@@ -35,7 +35,7 @@ def skill_selection(question):
         if re.search(pattern,q) and key not in extra: extra.append(key)
     # Handwriting/legibility is an image property, not a question keyword.
     # Keep one compact general card, one visual-reading card, one specialist.
-    specialist = next((k for k in extra if k != 'DV05'), 'DV09')
+    specialist = next((k for k in extra if k != 'DV05'), 'DV10')
     return ['DV01', 'DV05', specialist]
 
 
@@ -155,7 +155,7 @@ def image_result_bridge():
             prompt=prompt.replace('supplied usable ID','supplied manually authorized reference ID')
             prompt+='\nHuman-authored document-reading reference: Skills are procedures, not facts. Give the short answer directly, or exactly ONE answer_step per response. call_program must include name (the displayed Program ID) and arguments (its complete input object). Crops are actual source pixels displayed alongside the original on the next turn, not OCR. The ORIGINAL page has origin (0,0) at its top-left, x increases right and y down, both normalized to 1000. Keep the requested label/header and value together. A crop without that anchor does not resolve the question. You may correct it within the existing two-execution limit. Interpolation adds no detail. Prefer enhancement=none. numeric_compute checks arithmetic on supplied operands; transcription_check checks supplied text, neither verifies image reading. If a result supports your answer, finish with its actual ID in used_results. Return only the requested answer, without explanation.'
             if s.bank.crop_mode=='grounded':
-                prompt+=' For image_region, use region=top/middle/bottom/left/right/whole when you can locate only a broad area; these overlap to retain context. Use bbox only for a confidently located smaller area. Supply region OR bbox, never both. After a crop, locate any correction on the original page, not in crop-relative coordinates.'
+                prompt+=' For the FIRST image_region crop, choose region=top/middle/bottom/left/right/whole to establish visible label context; these regions overlap. If another crop is needed, use bbox on the original page for the now-located field. Supply region OR bbox, never both. After a crop, locate any correction on the original page, not in crop-relative coordinates.'
             if name=='answer_step':
                 schema=deepcopy(schema)
                 schema['allOf']=[{'if':{'properties':{'action':{'const':action}}},
