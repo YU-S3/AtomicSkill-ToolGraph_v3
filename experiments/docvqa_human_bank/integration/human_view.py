@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-METHOD='docvqa.human-ideal.programmatic.v1.7'
+METHOD='docvqa.human-ideal.programmatic.v1.8'
 
 
 def skill_selection(question):
@@ -33,7 +33,7 @@ def skill_selection(question):
     ]
     for key,pattern in patterns:
         if re.search(pattern,q) and key not in extra: extra.append(key)
-    # Universal legibility guidance is in DV01; retain the proven concise DV10.
+    # DV01 owns target/scope; DV10 only finalizes that same plan.
     return ['DV01', 'DV10', *extra[:1]]
 
 
