@@ -1,7 +1,7 @@
 {
   "schema": "human.docvqa.reference.v1",
   "benchmark": "docvqa",
-  "method_version": "docvqa.human-ideal.programmatic.v1.5",
+  "method_version": "docvqa.human-ideal.programmatic.v1.6",
   "origin": "human_authored_external_inspiration",
   "qualification": "none_not_naturally_learned",
   "dataset_profile": "docvqa.main_experiment_v1",
@@ -21,10 +21,10 @@
     {
       "title": "DV01",
       "goal": "Visual evidence first",
-      "guidance": "Read the requested field from the document image. Match its label or table row and column. Return only the requested value, name or phrase, not a sentence or the field label. Omit introductory a/an and numbering markers when they are not part of the requested value. Preserve actual spelling, digits and punctuation; do not expand abbreviations or normalize date/time formats. Answer directly when clear; use a crop only for an unresolved visual detail.",
+      "guidance": "Read the actual supplied document image. Interpret the question as an exact target (person, date, quantity, title, field, or yes/no). Locate the target by its label and visual layout before responding. Do not invent a field from general knowledge. The earliest/most prominent text need not be the answer. For uncertain handwriting or tiny digits, use a crop retaining the label, then inspect the actual strokes. A crop missing the target provides no evidence about it.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -38,15 +38,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_43fa4a528aa97f0b6f4d2da878d329065bf059a32a0da67be5d9394bac53f939"
+      "id": "skill_e14bcd403858fa2f0ef4000f00d5e282d0057979d1df140159188237042dbf96"
     },
     {
       "title": "DV02",
       "goal": "Adjacent labeled fields",
-      "guidance": "Identify the requested entity and its field: sender, recipient, person, employer, role and address are different. Follow the label-value alignment, including continuation lines belonging to that field. Exclude unrelated adjacent fields; retain qualifying words that are part of the requested name.",
+      "guidance": "On forms, letters, receipts or IDs, find the exact printed label and read the value in the same box, row or neighboring keyed block. Keep the label-value direction and distinguish sender/recipient, issue/expiry, account/phone/ID and similar nearby entries.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -60,15 +60,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_43956ad4b21a3deaddcb36fcc771fe44b1ac314b83ca659589761ff428b97bbd"
+      "id": "skill_a389f9fdbb8dfa972252b04ed7b26b9af40ee33e1b49fa0002f578eb56a2f262"
     },
     {
       "title": "DV03",
       "goal": "Table row and column alignment",
-      "guidance": "Locate the exact requested column and row, including year, measure and header hierarchy. For largest/smallest questions compare the eligible rows within that same column and return the winning row label. Do not compare a neighboring measure or mix a subtotal with its components. A useful crop retains the headers as well as the values.",
+      "guidance": "In a table, identify the requested row and exact header/date column, including merged headers. Read their intersection. Use caption units to interpret values; do not append a neighboring label, unit or total unless the question requests it.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -82,15 +82,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_0ee4adee3b689031e120b264af442182664d88825dd61250bbad13d679a1240f"
+      "id": "skill_f210e49a1d9c056d5f00a5dd3a550f9e90e9354b4cf719649658212b1341183f"
     },
     {
       "title": "DV04",
       "goal": "Lists and document sections",
-      "guidance": "For a list or contents page, match the exact item and its associated text or page value. For a printed page indicator, preserve the pagination text as it appears, excluding decorative framing. For an item or amendment number, return the identifier value rather than its printed field heading or enumeration marker.",
+      "guidance": "For contents, numbered lists and agendas, anchor to the exact item number/name and copy the associated title, page number or bullet. Preserve row/list order; do not conflate the section heading with its answer.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -104,15 +104,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_172bb5756a0aa122f26bc53980e452fae6684bd19617e541ddece93fa43560a1"
+      "id": "skill_895c1f31f86fc2461ab29e962111725c5e736a73d4e4d9ebc6e608803e82fc1b"
     },
     {
       "title": "DV05",
       "goal": "Handwriting and tiny characters",
-      "guidance": "For tiny text or handwriting, first locate the field on the full page using its label and surrounding layout. If the strokes are ambiguous, crop the label AND value with a generous margin. Inspect whether the returned crop actually contains that field before reading it. If it misses, relocate on the original page within the remaining tool budget. Distinguish written characters from dotted rules, crossings and decorative marks; preserve unusual spellings rather than replacing them with familiar ones.",
+      "guidance": "For unclear, handwritten or tiny text, locate its label and compare visible strokes in context without guessing familiar words. If the uncertainty matters, optionally call the supplied image_region Program with the current mounted image path and the indicated region or bbox, then inspect the returned crop alongside the original. No automatic character substitutions.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -126,15 +126,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_1821b2503d72202794aea2234653ca97521d59af0dc3591016d252aa1c978946"
+      "id": "skill_90b2ebc8c092b2ae30db92762781712ea9b68cf539e932a18dc0d9860bece150"
     },
     {
       "title": "DV06",
       "goal": "Quantities dates and currency",
-      "guidance": "Transcribe the visible numeric field as written. Preserve meaningful signs, decimals, zeros and separators; do not supply punctuation that is absent. A selected qualifier such as a time period or unit can be part of a value; an unrelated label is not. For a calculation, read the specified operands and units first, then compute only what is asked.",
+      "guidance": "Copy the visible requested value without expanding, converting or reformatting it. Return only the requested count/date/amount. Preserve symbols that belong to the answer; do not append an adjacent unit or explanatory phrase just because it appears on the page.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -148,7 +148,7 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_b807273e1ed826df348a4b305a22188063f098e61c5ec1033121b9966304b7e8"
+      "id": "skill_d71de7fcabf170569393f49c2a0832be6ce314ca7103e45c6f8a42a4b394921e"
     },
     {
       "title": "DV07",
@@ -156,7 +156,7 @@
       "guidance": "When asked about a figure, chart, arrow, checkbox, signature, stamp or diagram, reason from the actual marks and spatial relationships in the image, not only from nearby OCR-like text. Count distinct items carefully and distinguish checked from empty boxes.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -170,7 +170,7 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_d57d3028337299fc2cb9ac9c9b6c092a044f29601ca40288df9b44b736a8ebb9"
+      "id": "skill_3638972b7753524b385327097f82057993e62907b8bc1176d1843100be0ee9e5"
     },
     {
       "title": "DV08",
@@ -178,7 +178,7 @@
       "guidance": "Use arithmetic only when the question asks for a derived quantity. Read and label the needed operands from the image first. For difference use [from_value,to_value]; for ratio use [denominator,numerator]; for percent_change use [old_value,new_value]. The numeric Program checks arithmetic only, not the visual reading of operands.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -192,15 +192,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_bebdecfd337354bbc34d0e9a92d418a6d70c37585eba8c28410658632e840061"
+      "id": "skill_f29ae123d78241b42a9c357569e2620e74a81266607d73958a3662190d66832a"
     },
     {
       "title": "DV09",
       "goal": "Verbatim transcription and answer granularity",
-      "guidance": "Extract the requested entity or phrase from its local context. Do not include a preceding sentence article, field label, nearby job role or address. Retain modifiers that are part of a proper name or title. Copy the source spelling without paraphrasing.",
+      "guidance": "Return the smallest complete span that answers the question. Copy visible wording without expanding abbreviations or adding explanations, leading labels, adjacent organizations or unrequested units. Keep symbols and name parts needed to identify the requested entity; do not shorten it by guessing.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -214,15 +214,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_3563968155f5d83d3fee2765d1b3fb434b7e750e4841e16265e1fa30da42065a"
+      "id": "skill_e1dca0744956ef9e15515b6308bd61999caba94207add03d7e384091495bf559"
     },
     {
       "title": "DV10",
       "goal": "Decisive final answer",
-      "guidance": "Give only the requested value or entity, without an explanatory sentence, repeated question label or introductory article. Preserve the exact visible answer characters and necessary qualifiers. Do not silently normalize or correct the text.",
+      "guidance": "Return only the smallest complete answer span, copied from the image without expanding abbreviations or adding explanations, labels, adjacent organizations or unrequested units. Preserve symbols and name parts belonging to the requested answer. Submit as plain text or answer_step finish. If the evidence is sufficient, answer immediately; tools and a second pass are optional. Revisit only a concrete ambiguity; change an answer only for actual contradictory image evidence. Transcribe dates and times as printed, without inserting separators or changing their format.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -236,7 +236,7 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_e0ce2a297fe421d9106dbbc0b6ec368f7a013c0dfa9432971ec4a028a46ef015"
+      "id": "skill_0c43ed41b483346b1b998b1543bfa962e0887b0316cc575ab03237c0fb38f363"
     }
   ],
   "program": [
@@ -408,7 +408,7 @@
         "proof_scope": "image_transform_only_not_reading"
       },
       "state": "candidate",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "id": "program_3b94a6bdaf83e89f74cbb6178e0099831dbea8a38f5477d483d415b5643d3de5"
     },
     {
@@ -514,7 +514,7 @@
         "proof_scope": "local_arithmetic_only"
       },
       "state": "candidate",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "id": "program_2f2c48bef8f46fd028e21b4d76dbe47428f58a7b5cfeeecd751681df1e031f33"
     },
     {
@@ -593,31 +593,31 @@
         "proof_scope": "text_occurrence_not_source_authenticity"
       },
       "state": "candidate",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "id": "program_a5a67cb8b54266e714d4c3d41182958ea64f03b150a06e0463b38591923f5500"
     }
   ],
   "implementation": [
     {
-      "skill_id": "skill_1821b2503d72202794aea2234653ca97521d59af0dc3591016d252aa1c978946",
+      "skill_id": "skill_90b2ebc8c092b2ae30db92762781712ea9b68cf539e932a18dc0d9860bece150",
       "program_id": "program_3b94a6bdaf83e89f74cbb6178e0099831dbea8a38f5477d483d415b5643d3de5",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "origin": "human_authored_unqualified",
-      "id": "implementation_46d50c043db78fb4da43c25dadb49a3a45e0a266f606d6dbd9f388d36522d8ab"
+      "id": "implementation_8ecaacc043bc8103a66731add8fcd61be18a4ff7f8954141cbd7b889e2d48433"
     },
     {
-      "skill_id": "skill_bebdecfd337354bbc34d0e9a92d418a6d70c37585eba8c28410658632e840061",
+      "skill_id": "skill_f29ae123d78241b42a9c357569e2620e74a81266607d73958a3662190d66832a",
       "program_id": "program_2f2c48bef8f46fd028e21b4d76dbe47428f58a7b5cfeeecd751681df1e031f33",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "origin": "human_authored_unqualified",
-      "id": "implementation_8f71b30018f18cb38dc3e9d714542c6082ffdbf6cfb230aced1b62bccb88a8fe"
+      "id": "implementation_2a243a62f5ff258b1e198ad5bf24dabeefb31e5d3b75a45ce24186b9dfbc470d"
     },
     {
-      "skill_id": "skill_3563968155f5d83d3fee2765d1b3fb434b7e750e4841e16265e1fa30da42065a",
+      "skill_id": "skill_e1dca0744956ef9e15515b6308bd61999caba94207add03d7e384091495bf559",
       "program_id": "program_a5a67cb8b54266e714d4c3d41182958ea64f03b150a06e0463b38591923f5500",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "origin": "human_authored_unqualified",
-      "id": "implementation_b8188b7d93fa6268f2b3dc7a81a10034fec58c86f7653c12643886a990c9d405"
+      "id": "implementation_2aab0715c28316ff0e13f25d2577e8fa13364438114bef99df3ae7921b3704cf"
     }
   ],
   "workflow": [
@@ -625,7 +625,7 @@
       "title": "ROI zoom then answer",
       "goal": "Read a small or handwritten region of an original document image",
       "interface_version": "empirical.workflow.v2",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "nodes": [
         {
           "id": "locate",
@@ -679,13 +679,13 @@
           "field": "answer"
         }
       },
-      "id": "workflow_31a03866d1121f108562bf2c2e6e2d1ad44f31cf7abf6ff290862d3ea4ff5e8f"
+      "id": "workflow_4ac27167ca7c7a62e36c634b35323cc405a3f26178a5cb21719853843ce5e9e2"
     },
     {
       "title": "Read values then deterministic arithmetic",
       "goal": "Compute a numeric answer using operands read from the actual image",
       "interface_version": "empirical.workflow.v2",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "nodes": [
         {
           "id": "read_values",
@@ -743,13 +743,13 @@
           "field": "answer"
         }
       },
-      "id": "workflow_b1341966e2ae03a0afb6757cfdf4cfbd498b2263b5a2cb7ee23f4cd1cdbe8b68"
+      "id": "workflow_9d83796900214ce91c464160bdcc91e8e019469d8242c3ffaa91a01111697ad9"
     },
     {
       "title": "Visual transcript and anchored check",
       "goal": "Read an exact text answer from a crowded form or handwritten label",
       "interface_version": "empirical.workflow.v2",
-      "method_version": "docvqa.human-ideal.programmatic.v1.5",
+      "method_version": "docvqa.human-ideal.programmatic.v1.6",
       "nodes": [
         {
           "id": "read_text",
@@ -807,7 +807,7 @@
           "field": "answer"
         }
       },
-      "id": "workflow_243fcde06810df6b7fcb7a1466e6a582a638360549a3adbbe450d2db588c3ee8"
+      "id": "workflow_b77c5d09f5892e9fd64374935d49a9497c0feae11939a3beb3405fda88f77643"
     }
   ]
 }

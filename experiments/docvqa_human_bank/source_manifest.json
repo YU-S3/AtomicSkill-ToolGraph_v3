@@ -2,7 +2,7 @@
   "original_zip_sha256": "54446ff3a07940b7ddab67026aee98e3b778c496cb886a67a9843736024624a2",
   "original_bank_sha256": "dc20f3404628e74beb48e7816dab95a73d63e30736b9e5c05984c0acbf0c9fa8",
   "origin": "user supplied human-authored reference; not learned Ours",
-  "method_version": "docvqa.human-ideal.programmatic.v1.5",
+  "method_version": "docvqa.human-ideal.programmatic.v1.6",
   "edits": [
     "DV01",
     "DV04",
@@ -11,7 +11,7 @@
   ],
   "no_task_answer_rules": true,
   "workflow_execution": false,
-  "prior_version": "docvqa.human-ideal.programmatic.v1.4",
+  "prior_version": "docvqa.human-ideal.programmatic.v1.5",
   "validation_policy": "Fixed Train development comparison; frozen candidate repeated Val and paired exploratory Test; all runs/costs retained",
-  "revision_basis": "Train36 actual calls ignored first-region guidance. Expose/enforce region-only arguments for first crop, bbox remains available for second. No additional execution or repair."
+  "revision_basis": "Train36 rejected v1.3-1.5 as not improving. Restore concise v1.1 Skills, merge universal legibility into DV01, retain literal time/date instruction, first-region contract, and fix schema scrubbing. No Val/Test tuning during this campaign."
 }

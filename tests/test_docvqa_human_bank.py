@@ -45,9 +45,10 @@ def test_native_ids_readonly_and_reference_scope(imported):
     bank = Bank(c['data_dir'], readonly=True, seed=42, environment=c['program_environment'])
     try:
         view = HumanDocVQAView(bank, manifest)
-        assert [s['title'] for s in view.retrieve_guidance('What date?', limit=3)][:2] == ['DV01', 'DV05']
+        assert [s['title'] for s in view.retrieve_guidance('What date?', limit=3)][:2] == ['DV01', 'DV10']
+        assert 'handwriting' in view.retrieve_guidance('What date?', limit=3)[0]['guidance']
         assert view.retrieve_guidance('Which region has the highest attendance?', limit=3)[-1]['title']=='DV03'
-        assert [s['title'] for s in view.retrieve_guidance('Read this handwritten address', limit=3)]==['DV01','DV05','DV02']
+        assert [s['title'] for s in view.retrieve_guidance('Read this handwritten address', limit=3)]==['DV01','DV10','DV05']
         assert view.program_options('Where was the meeting?')[0]['id'] == view.programs['image_region']['id']
         for p in bank.all('program'):
             assert p['state'] == 'candidate' and not bank.program_eligible(p)
@@ -82,6 +83,10 @@ def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
             'origins': system.task_context.result_origins, 'memory': system.task_context.memory,
             'results': {k: {f: v for f, v in r.items() if f != 'outputs'} for k, r in system.task_context.results.items()}}
         first = sent[0]['messages'][1]['content']; second = sent[1]['messages'][1]['content']
+        material=json.loads(next(x['text'] for x in first if x['type']=='text'))
+        import jsonschema
+        for card in material['programs']:
+            jsonschema.Draft202012Validator.check_schema(card['output_schema'])
         images = lambda parts: [x for x in parts if x['type'] == 'image_url']
         assert len(images(first)) == 1 and len(images(second)) == 2
         assert len(images(sent[2]['messages'][1]['content']))==3
