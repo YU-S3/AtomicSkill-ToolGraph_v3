@@ -15,6 +15,7 @@ def main():
         parser.add_argument('--'+key, required=True)
     parser.add_argument('--bank', help='Existing immutable control Bank; otherwise import this source')
     parser.add_argument('--crop-mode', choices=['guidance', 'grounded'], default='grounded')
+    parser.add_argument('--single-node', action='store_true', help='One manual Skill; text-only response with no tools')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
@@ -22,6 +23,8 @@ def main():
     sys.path.insert(0,str(repo/'src'))
     sys.path.insert(0,str(repo/'experiments/docvqa_human_bank/integration'))
     from human_view import HumanDocVQAView, METHOD, image_result_bridge
+    if args.single_node:
+        from single_node import SingleNodeDocVQAView as HumanDocVQAView, METHOD, single_node_bridge as image_result_bridge
     from atomic_skillgraph.empirical.budget_governor import BudgetGovernor
     from atomic_skillgraph.empirical.bank import Bank
     from atomic_skillgraph.empirical.contracts import PublicTask, digest
@@ -60,8 +63,9 @@ def main():
         config['harness']['evaluator_records']=str(gold_path)
         config['manifest']=str(authority/'docvqa'/(split+'.json'))
         config['experiment'].update(output_dir=str(root/split),runtime_mode='frozen')
-        config['experiment']['docvqa_human_reference']={'method':METHOD,'crop_mode':args.crop_mode,
-            'development_only':split=='train','workflow_execution':False}
+        config['experiment']['docvqa_human_reference']={'method':METHOD,'crop_mode':None if args.single_node else args.crop_mode,
+            'development_only':split=='train','workflow_execution':False,
+            'single_node':args.single_node,'programs':'off' if args.single_node else 'auto'}
         config['budget'].update(limits,train_task_tokens=96000,eval_task_tokens=96000)
         config['budget'].pop('train_solve_tokens',None);config['budget'].pop('train_learning_tokens',None)
         config['program_worker']['record_execution_receipt']=True
@@ -70,7 +74,10 @@ def main():
             if args.bank:shutil.copytree(args.bank,root/'bank')
             else:
                 sys.path.insert(0,str(repo/'experiments/docvqa_human_bank/tools'))
-                from import_native import prepare
+                if args.single_node:
+                    from single_node import prepare
+                else:
+                    from import_native import prepare
                 prepare(repo,root/'import_config.json',root/'bank')
         manual=json.loads((root/'bank/manual_manifest.json').read_text())
         if manual['method_version']!=METHOD:raise ValueError('Bank/view version differs')

@@ -74,3 +74,20 @@ python experiments/docvqa_human_bank/evaluate.py \
 run_seed42 固定题单，Provider 不支持 generation seed；响应不是确定性复现。
 累计上限19,488,000 tokens /9,135 HTTP，结转旧人工对照819,414 tokens /270 HTTP。
 账本排他锁序列化评测，失败与所有对照费用均保留，不因换候选扩大预算。
+# Single-node manual candidate (2026-10-20)
+
+`evaluate.py --single-node` imports one immutable text Skill from
+`bank/single_node.json`. It sends the original image, public question and complete
+Skill through the production provider, budget ledger, checkpoint and scorer.
+The model receives no tools, Programs, Workflows, routing cards or crop images;
+one text response completes the task. This is an external manually authored
+control, not a naturally learned Ours asset. Existing programmatic experiments
+and their pinned results remain available through the default entry point.
+
+This candidate follows the user's explicit authorization to simplify DocVQA for
+answer quality. The three supplied Trace2Skill seeds scored 181/201, 185/201 and
+185/201; the model differs from this DeepSeek experiment. Their results motivate
+conditional source-selection and answer-boundary rules, but do not establish
+that this candidate improves accuracy. Fixed paired evaluation is pending; no
+95% or stability claim is made.
+

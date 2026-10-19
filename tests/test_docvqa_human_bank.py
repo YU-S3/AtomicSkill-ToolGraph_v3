@@ -13,6 +13,7 @@ sys.path.insert(0, str(ASSETS / 'integration'))
 sys.path.insert(0, str(ASSETS / 'tools'))
 from human_view import HumanDocVQAView, image_result_bridge, safe_crop_parts
 from import_native import prepare
+from single_node import SingleNodeDocVQAView, single_node_bridge, prepare as prepare_single
 from atomic_skillgraph.empirical.bank import Bank
 from atomic_skillgraph.empirical.contracts import PublicTask
 from atomic_skillgraph.empirical.system import EmpiricalSystem
@@ -80,6 +81,42 @@ def test_native_ids_readonly_and_reference_scope(imported):
         assert not HumanDocVQAView(bank, manifest, arm='off').program_options('total')
     finally:
         bank.close()
+
+
+def test_single_node_delivers_one_skill_and_original_image_without_tools(imported, tmp_path, monkeypatch):
+    c, _ = imported
+    c['data_dir'] = str(tmp_path / 'single_bank')
+    config_path = tmp_path / 'single_config.json'
+    config_path.write_text(json.dumps(c))
+    prepare_single(ROOT, config_path, c['data_dir'])
+    manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
+    adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': ['74216']}}, c)
+    system = EmpiricalSystem(c, harness=adapter, readonly=True,
+        bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
+    image = ASSETS / 'fixtures/synthetic_form.png'
+    task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the account number?',
+        {'images': [str(image)]}, 'test')
+    sent = http(monkeypatch, [response(content='74216', finish='stop')])
+    try:
+        before = system.bank.digest()
+        with single_node_bridge(): trace = system.run_task(task, learn=False)
+        assert trace['execution']['prediction'] == '74216'
+        assert trace['score']['hard'] is True
+        assert trace['execution']['internal_execution_count'] == 0
+        assert len(sent) == 1 and not sent[0].get('tools')
+        parts = sent[0]['messages'][1]['content']
+        material = json.loads(next(p['text'] for p in parts if p['type'] == 'text'))
+        assert set(material) == {'goal', 'guidance'}
+        assert len(material['guidance']) == 1
+        assert 'Set the answer boundary by its type' in json.dumps(material['guidance'])
+        images = [p['image_url']['url'] for p in parts if p['type'] == 'image_url']
+        assert len(images) == 1 and base64.b64decode(images[0].split(',')[1]) == image.read_bytes()
+        assert 'answer_step' not in sent[0]['messages'][0]['content']
+        assert not system.bank.program_options('calculate total')
+        assert not system.bank.workflow_options()
+        assert system.bank.digest() == before
+    finally:
+        system.close()
 
 
 def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
