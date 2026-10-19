@@ -30,11 +30,15 @@ def select_names(goal, phase='locate', *, max_cards=3):
     return cards[:max_cards]
 
 
-def callable_programs(goal,phase,table_window_available=False):
+def callable_programs(goal,phase,table_window_available=False,acquired_pages=0):
     special=category(goal)
     if phase=='locate':return ['scoped_search.py']
     if phase=='extract':
-        return (['table_extract.py'] if table_window_available else []) + (['period_ledger.py'] if special in {'OA-Periods','OA-Fiscal'} else [])
+        programs=(['table_extract.py'] if table_window_available else []) + (['period_ledger.py'] if special in {'OA-Periods','OA-Fiscal'} else [])
+        if acquired_pages and re.search(r'percent|difference|ratio|sum|total|average|mean|median|deviation|growth|rate|convert|correlat|regress|forecast|box.cox|in dollars|fine pounds',goal,re.I):
+            programs.append('series_metrics.py')
+            if special in {'OA-Units','OA-Advanced'}:programs.append('treasury_transform.py')
+        return programs
     if phase=='compute':
         priority={'OA-Periods':['period_ledger.py','series_metrics.py'],
                   'OA-Fiscal':['period_ledger.py','series_metrics.py'],

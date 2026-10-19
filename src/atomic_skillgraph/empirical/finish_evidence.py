@@ -4,7 +4,24 @@ import json
 
 from .contracts import digest
 from .budget_governor import input_token_bound
-from .public_results import FILE_COMPUTE, PROGRAM_EXECUTION
+from .public_results import FILE_COMPUTE, PROGRAM_EXECUTION, TEXT_PAGE, TEXT_CONTEXT
+
+
+def source_text_refs(context):
+    """Latest acquired source bodies, not their possibly older displayed previews."""
+    refs, seen = [], set()
+    order = {rid: i for i, rid in enumerate(context.results)}
+    for row in sorted(context.memory.values(), key=lambda r: order[r['result_id']], reverse=True):
+        rid = row['result_id']
+        if context.origin(rid) not in {TEXT_PAGE, TEXT_CONTEXT} or row.get('accepted') is False:
+            continue
+        ref = {'result_id': rid, 'path': ['data', 'text']}
+        try: text = context.resolve_public(ref)
+        except ValueError: continue
+        if not isinstance(text, str) or not text or digest(text) in seen: continue
+        seen.add(digest(text))
+        refs.append(ref)
+    return refs
 
 
 def wire_bytes(prompt, materials):
@@ -60,7 +77,21 @@ def build_finish_evidence(context, materials, prompt, *, max_bytes=65536, window
             omitted.append({'material_key': key, 'reason': 'optional_reference_directory_input_limit'})
             materials[key] = []
     if bound(materials) > max_bytes: raise ValueError('finish_unavailable:base_input_exceeds_limit')
-    windows = []
+    # Give each recently acquired source a bounded body before spending space on
+    # older displayed windows. A tool-free finish cannot dereference directories.
+    source_refs = source_text_refs(context)
+    if source_refs:
+        for key in ('recent', 'working_memory'):
+            if materials.get(key):
+                omitted.append({'material_key': key, 'reason': 'replaced_by_acquired_source_bodies'})
+                materials[key] = []
+    windows, source_keys = [], set()
+    for ref in source_refs:
+        if allowed_result_ids is not None and ref['result_id'] not in allowed_result_ids:
+            unresolved.append({**ref, 'reason': 'not_in_obtained_results'}); continue
+        window = context.result_window(ref, 0, min(3000, window_chars, context.settings['result_read_window_chars']))
+        windows.append(window)
+        source_keys.add(digest([window['source_ref'], window['offset'], window['end']]))
     for ref in refs:
         rid, path = ref.get('result_id'), ref.get('path', [])
         if allowed_result_ids is not None and rid not in allowed_result_ids:
@@ -93,7 +124,9 @@ def build_finish_evidence(context, materials, prompt, *, max_bytes=65536, window
             and ref['path'][:1] in [['data'], ['outputs']]
             and len(json.dumps(window['content'], ensure_ascii=False).encode('utf-8'))
                 <= context.settings['result_inline_max_chars'])
-        return 0 if compact_output else 1
+        if compact_output: return 0
+        if digest([ref, window['offset'], window['end']]) in source_keys: return 1
+        return 2
     # Reserve acquired compact computation outputs before fitting long source pages.
     # Equal-priority windows retain the original reference order and exact provenance.
     ranges = {}

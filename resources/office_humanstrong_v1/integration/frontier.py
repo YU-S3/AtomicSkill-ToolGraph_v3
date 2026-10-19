@@ -80,7 +80,7 @@ class HumanBankView:
     def program_options(self, *args, **kwargs):
         phase=self.observed['phase']
         wanted=selection.callable_programs(self.task.goal if self.task else '',phase,
-            self.observed.get('table_window_available',False))
+            self.observed.get('table_window_available',False),self.observed.get('acquired_pages',0))
         return [{'id':p['id'], 'state':'callable_manual', 'execution_permission':'author_trusted',
                  'goal':p['title'], 'input_schema':p['input_schema'], 'output_schema':p['output_schema'],
                  'result_role':p['result_role']} for p in self.bank.all('program')

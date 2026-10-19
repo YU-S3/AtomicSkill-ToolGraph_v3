@@ -60,8 +60,8 @@ def test_supplied_assets_unchanged_and_bridge_delta_audited():
     receipt=json.loads((ROOT/'integration_receipt.json').read_text())
     for name,expected in original.items():
         path=ROOT/name
-        if name=='integration/frontier.py':
-            assert hashlib.sha256((ROOT/'sources/original_frontier.py.txt').read_bytes()).hexdigest()==expected
+        if name in receipt['local_changes']:
+            assert hashlib.sha256((ROOT/'sources'/('original_'+Path(name).name+'.txt')).read_bytes()).hexdigest()==expected
             expected=receipt['local_changes'][name]['after_sha256']
         assert hashlib.sha256(path.read_bytes()).hexdigest()==expected
 

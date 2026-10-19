@@ -5,9 +5,16 @@
   "local_changes": {
     "integration/frontier.py": {
       "before_sha256": "6eb1363524da6b3b299196cc561bb4c1038bb9b38609125952995bfdf7d6b82c",
-      "after_sha256": "c2797091eafbe2a564d526a890623a0b0179d7fba123cdf83429fd661abf7cb0",
-      "reason": "finish_only must not append normal OA-Commit runtime_step instructions; use the supplied plain-text FINISH_ONLY_RULE only"
+      "after_sha256": "37aa2364e6bae22b64d5f3b8b8ec5330608ec85fb9c9e9830dd44798192eea54",
+      "reason": "Keep tool-free finish policy; pass actual acquired page count to calculation Program selector",
+      "parent_b563819_sha256": "c2797091eafbe2a564d526a890623a0b0179d7fba123cdf83429fd661abf7cb0"
+    },
+    "integration/selection.py": {
+      "before_sha256": "36fd7253594a21e403b2929a94525af525bf712d2c50ad40753af6927977b4fc",
+      "after_sha256": "0ab802b14eddf7fea493df4b840ed5a8db21ea73da20fc935d08badf4fce71b4",
+      "reason": "Offer calculation Programs after acquired material without requiring optional evidence_state; no forced execution"
     }
   },
-  "assets_unchanged": true
+  "assets_unchanged": true,
+  "integration_revision": "office.humanstrong.test102.evidence.v1.20261019"
 }

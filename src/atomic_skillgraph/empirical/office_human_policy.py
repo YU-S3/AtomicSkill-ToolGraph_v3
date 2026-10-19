@@ -155,6 +155,8 @@ def finish_evidence(context, materials, prompt, *, max_bytes, output_cap, payloa
         refs.append((0, candidate.get('result_ref'), None))
     for row in state.get('operands', []):
         refs.append((1, row['source_ref'], row['quote']))
+    from .finish_evidence import source_text_refs
+    refs.extend((3, ref, None) for ref in source_text_refs(context))
     for row in reversed(list(context.memory.values())):
         rid = row['result_id']
         try:
