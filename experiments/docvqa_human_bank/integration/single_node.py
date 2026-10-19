@@ -4,7 +4,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-METHOD = 'docvqa.human.single-node.v2'
+METHOD = 'docvqa.human.single-node.v3'
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -85,7 +85,7 @@ def single_node_bridge():
                 raise ValueError('Unexpected single-node decision')
             prompt = ('Answer the question from the supplied document image. The manual Skill is '
                 'procedural guidance, not document evidence. Apply its relevant rules together. '
-                'Return only the requested answer, without a plan or explanation. '
+                'Return the requested source text faithfully, without a plan or explanation. '
                 + s.adapter.answer_contract())
             material = deepcopy({k: materials[k] for k in ('goal', 'guidance', 'content_parts') if k in materials})
             if not material.get('content_parts'):
@@ -116,7 +116,8 @@ def single_node_bridge():
                              'then': {'oneOf': [{'required': ['region'], 'not': {'required': ['bbox']}},
                                                 {'required': ['bbox'], 'not': {'required': ['region']}}]}},
                             {'if': {'properties': {'action': {'const': 'finish'}}}, 'then': {'required': ['answer']}}]}
-                    prompt += (' If the selected text is visually unclear, inspect its region or original-page '
+                    prompt += (' If a target character or punctuation mark is visually unclear, including '
+                        'whether it belongs to a printed rule rather than the value, inspect its region or original-page '
                         'bbox [left,top,right,bottom] in 0..1000 coordinates, origin top-left. '
                         'This only enlarges real source pixels. Prefer a broad region when location is uncertain. '
                         'Otherwise answer directly. At most two inspections; no mandatory second pass. '
