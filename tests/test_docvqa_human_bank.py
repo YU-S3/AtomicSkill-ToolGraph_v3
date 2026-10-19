@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'experiments/docvqa_human_bank'
 sys.path.insert(0, str(ASSETS / 'integration'))
 sys.path.insert(0, str(ASSETS / 'tools'))
-from human_view import HumanDocVQAView, image_result_bridge, safe_crop_part
+from human_view import HumanDocVQAView, image_result_bridge, safe_crop_parts
 from import_native import prepare
 from atomic_skillgraph.empirical.bank import Bank
 from atomic_skillgraph.empirical.contracts import PublicTask
@@ -46,7 +46,9 @@ def test_native_ids_readonly_and_reference_scope(imported):
     try:
         view = HumanDocVQAView(bank, manifest)
         assert [s['title'] for s in view.retrieve_guidance('What date?', limit=3)][:2] == ['DV01', 'DV10']
-        assert 'smallest complete answer span' in view.retrieve_guidance('What date?', limit=3)[1]['guidance']
+        assert 'exact granularity' in view.retrieve_guidance('What date?', limit=3)[1]['guidance']
+        assert view.retrieve_guidance('Which region has the highest attendance?', limit=3)[-1]['title']=='DV03'
+        assert view.retrieve_guidance('Read this handwritten address', limit=3)[-1]['title']=='DV05'
         assert view.program_options('Where was the meeting?')[0]['id'] == view.programs['image_region']['id']
         for p in bank.all('program'):
             assert p['state'] == 'candidate' and not bank.program_eligible(p)
@@ -67,29 +69,37 @@ def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
     task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the account number?', {'images': [str(image)]}, 'test')
     crop_id = system.bank.programs['image_region']['id']
     sent = http(monkeypatch, [response([{'action': 'call_program', 'name': crop_id,
-        'arguments': {'image_path': '/workspace/inputs/image_0.png', 'bbox': [0, 0, 1000, 1000]}}], name='answer_step'),
+        'arguments': {'image_path': '/workspace/inputs/image_0.png', 'bbox': [0, 0, 250, 250]}}], name='answer_step'),
+        response([{'action': 'call_program', 'name': crop_id,
+        'arguments': {'image_path': '/workspace/inputs/image_0.png', 'bbox': [250, 250, 500, 500]}}], name='answer_step'),
         response(content='74216', finish='stop')])
     try:
         before = system.bank.digest()
         with image_result_bridge(): trace = system.run_task(task, learn=False)
-        assert len(sent) == 2
+        assert len(sent) == 3
         attempt = trace['execution']['attempts'][0]
         assert attempt['status'] == 'ok', attempt
-        assert safe_crop_part(system.task_context, task, system.bank), {
+        assert safe_crop_parts(system.task_context, task, system.bank), {
             'origins': system.task_context.result_origins, 'memory': system.task_context.memory,
             'results': {k: {f: v for f, v in r.items() if f != 'outputs'} for k, r in system.task_context.results.items()}}
         first = sent[0]['messages'][1]['content']; second = sent[1]['messages'][1]['content']
         images = lambda parts: [x for x in parts if x['type'] == 'image_url']
         assert len(images(first)) == 1 and len(images(second)) == 2
+        assert len(images(sent[2]['messages'][1]['content']))==3
         assert images(first)[0] == images(second)[0]
         text = next(x['text'] for x in second if x['type'] == 'text')
         assert 'crop_visual_evidence' in text
-        crop = safe_crop_part(system.task_context, task, system.bank)
+        crops = safe_crop_parts(system.task_context, task, system.bank)
+        assert len(crops)==2
+        crop = crops[0]
         assert hashlib.sha256(base64.b64decode(images(second)[1]['image_url']['url'].split(',')[1])).hexdigest() == crop['image_sha256']
         rid = crop['result_id']
         record = system.task_context.results[rid]
+        out = record['outputs']
+        assert out['crop_width']==out['source_crop_width']*3 and out['resize_scale']==3
+        assert out['image_mime']=='image/png'
         record['outputs']['source_sha256'] = '0' * 64
-        assert safe_crop_part(system.task_context, task, system.bank) is None
+        assert len(safe_crop_parts(system.task_context, task, system.bank))==1
         assert system.bank.digest() == before
         broker = Broker(adapter, 1, context=TaskContext(c['runtime']))
         worker = ProgramWorker(c['program_worker'])

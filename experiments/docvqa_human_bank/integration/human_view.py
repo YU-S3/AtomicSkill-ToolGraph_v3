@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-METHOD='docvqa.human-ideal.programmatic.v1.1'
+METHOD='docvqa.human-ideal.programmatic.v1.2'
 
 
 def skill_selection(question):
@@ -21,17 +21,18 @@ def skill_selection(question):
     q=question.lower()
     extra=[]
     patterns=[
-      ('DV03',r'\b(table|column|row|across|percentage of|figure in|net|gross|total on)\b'),
+      ('DV03',r'\b(table|column|row|across|percentage of|figure in|net|gross|total on|highest|lowest|largest|smallest|higher|lower|maximum|minimum|most|least)\b'),
+      ('DV05',r'\b(handwrit\w*|scribbl\w*|tiny|blurred|illegible)\b'),
       ('DV02',r'\b(form|invoice|receipt|issued to|address|telephone|phone|name of|signature|signed by|account)\b'),
       ('DV04',r'\b(page number|contents|agenda|item number|section|chapter|bullet|list|which point)\b'),
-      ('DV05',r'\b(handwrit|written|scribbl|signature|serial|id number|registration|number on|code)\b'),
+      ('DV05',r'\b(written|signature|serial|id number|registration|number on|code)\b'),
       ('DV06',r'\b(how many|how much|how long|date|year|amount|percent|\%|currency|price|number|time)\b'),
       ('DV07',r'\b(diagram|graph|chart|drawn|arrow|checkbox|checked|circle|tick|figure|symbol|mark)\b'),
       ('DV08',r'\b(total|sum|difference|average|ratio|growth|increase|decrease|between|combined)\b'),
       ('DV09',r'\b(exact|quote|word|phrase|title|written|label|called|name)\b'),
     ]
     for key,pattern in patterns:
-        if re.search(pattern,q): extra.append(key)
+        if re.search(pattern,q) and key not in extra: extra.append(key)
     # Short, verbatim answers apply regardless of question wording.
     return ['DV01', 'DV10', *extra[:2]]
 
@@ -89,34 +90,38 @@ class HumanDocVQAView:
                and p['id'] not in excluded and self.program_eligible(p)][:limit]
 
 
-def safe_crop_part(context,task,bank):
-    """After a *real* Program result, return one verified crop for an image user message."""
-    if context is None:return None
+def safe_crop_parts(context,task,bank):
+    """Retain up to two real verified crops, so the header and value can coexist."""
+    if context is None:return []
     try:
         from atomic_skillgraph.empirical.public_results import PROGRAM_EXECUTION
-    except ImportError:return None
+    except ImportError:return []
     sources={hashlib.sha256(Path(p).read_bytes()).hexdigest()
              for p in task.inputs.get('images',[]) if Path(p).is_file()}
     crop=bank.programs.get('image_region')
-    if not crop or not bank.program_eligible(crop):return None
+    if not crop or not bank.program_eligible(crop):return []
     produced={r['result_id'] for r in context.memory.values() if r['name']==crop['id']}
+    parts=[]
     for rid,record in reversed(list(context.results.items())):
         try:
             if rid not in produced or not record.get('execution_receipt'):continue
             if context.origin(rid)!=PROGRAM_EXECUTION or record.get('status')!='ok':continue
             out=record.get('outputs',{})
             if not all(k in out for k in ('crop_base64','image_mime','image_sha256','source_sha256')):continue
-            if out['image_mime']!='image/jpeg' or out['source_sha256'] not in sources:continue
+            formats={'image/jpeg':'JPEG','image/png':'PNG'}
+            if out['image_mime'] not in formats or out['source_sha256'] not in sources:continue
             raw=base64.b64decode(out['crop_base64'],validate=True)
             if len(raw)>1_000_000 or hashlib.sha256(raw).hexdigest()!=out['image_sha256']:continue
             with Image.open(BytesIO(raw)) as im:
-                if im.format!='JPEG' or max(im.size)>1600:continue
+                if im.format!=formats[out['image_mime']] or max(im.size)>1600:continue
                 im.verify()
-            return {'result_id':rid,'image_sha256':out['image_sha256'],
+            if any(p['image_sha256']==out['image_sha256'] for p in parts):continue
+            parts.append({'result_id':rid,'image_sha256':out['image_sha256'],
                     'bbox':out['bbox_normalized'],
-                    'part':{'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+out['crop_base64'],'detail':'high'}}}
+                    'part':{'type':'image_url','image_url':{'url':'data:'+out['image_mime']+';base64,'+out['crop_base64'],'detail':'high'}}})
+            if len(parts)==2:break
         except (ValueError,KeyError,TypeError,OSError):continue
-    return None
+    return list(reversed(parts))
 
 
 def scrub_crop_binary(value):
@@ -135,18 +140,19 @@ def image_result_bridge():
     def agent(s,stage,prompt,materials,name,schema,**kwargs):
         if stage=='runtime' and isinstance(s.bank,HumanDocVQAView) and s.bank.arm=='human':
             prompt=prompt.replace('supplied usable ID','supplied manually authorized reference ID')
-            prompt+='\nHuman-authored DocVQA reference arm: these assets are guidance, not facts. Answer directly when the document is clear. Programs are optional. call_program requires name=the exact displayed ID and arguments matching that Program input_schema. image_region returns a real crop visible in the next request alongside the original image; never read base64 as text. numeric_compute requires already observed operands in the documented order. A transcription match only checks your own text, not the image. After a failed or unhelpful tool result, answer from the image rather than repeat the same operation. No extra explanation in the final answer.'
+            prompt+='\nHuman-authored DocVQA reference arm: these assets are guidance, not facts. Return one direct answer or exactly ONE answer_step tool call per response, never parallel calls. Programs are optional. call_program requires name=the exact displayed ID and arguments matching that Program input_schema. image_region crops and enlarges original pixels, preferring lossless PNG; the actual crop is visible next to the original image in the next request. Use original-image bbox coordinates and preserve label/row/column context. Prefer enhancement=none for original strokes. Interpolation adds no new source detail. Never read base64 as text. numeric_compute requires already observed operands in the documented order. Transcription matching checks your own text, not the image. At most two executions; do not repeat an unchanged crop. After seeing a relevant crop, answer the exact requested field from actual evidence. If using a program result, finish with its actual result_id in used_results; do not invent use. No explanation in the final answer.'
             v=deepcopy(materials)
             v['content_parts']=deepcopy(v.get('content_parts') or s.adapter.content_parts())
-            entry=safe_crop_part(s.task_context,s.adapter.task,s.bank)
+            entries=safe_crop_parts(s.task_context,s.adapter.task,s.bank)
             # Respect the actual provider lock. No extra image if the Provider cannot take it.
-            if entry and 'image' in s.config.get('llm',{}).get('input_modalities',[]):
+            if entries and 'image' in s.config.get('llm',{}).get('input_modalities',[]):
                 maximum=s.config.get('llm',{}).get('image_input',{}).get('max_images',1)
-                if len(v['content_parts'])<maximum:
+                for entry in entries[:max(0,maximum-len(v['content_parts']))]:
                     v['content_parts'].append(entry['part'])
-                    v['crop_visual_evidence']={'result_id':entry['result_id'],'image_sha256':entry['image_sha256'],
+                    v.setdefault('crop_visual_evidence',[]).append({'result_id':entry['result_id'],'image_sha256':entry['image_sha256'],
                                                'bbox_normalized':entry['bbox'],
-                                               'note':'This is a crop of the original document, not separate proof'}
+                                               'image_index':len(v['content_parts'])-1,
+                                               'note':'A crop of the original document, not separate proof'})
             for key in tuple(v):
                 if key!='content_parts':v[key]=scrub_crop_binary(v[key])
             if v.get('remaining_local_executions')==0:

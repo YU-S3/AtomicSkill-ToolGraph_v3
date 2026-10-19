@@ -2,15 +2,19 @@
   "original_zip_sha256": "54446ff3a07940b7ddab67026aee98e3b778c496cb886a67a9843736024624a2",
   "original_bank_sha256": "dc20f3404628e74beb48e7816dab95a73d63e30736b9e5c05984c0acbf0c9fa8",
   "origin": "user supplied human-authored reference; not learned Ours",
-  "method_version": "docvqa.human-ideal.programmatic.v1.1",
+  "method_version": "docvqa.human-ideal.programmatic.v1.2",
   "edits": [
+    "DV01",
+    "DV02",
     "DV03",
+    "DV04",
     "DV05",
     "DV06",
-    "DV08",
     "DV09",
     "DV10"
   ],
   "no_task_answer_rules": true,
-  "workflow_execution": false
+  "workflow_execution": false,
+  "prior_version": "docvqa.human-ideal.programmatic.v1.1",
+  "validation_policy": "one fixed candidate; paired canonical Val22; optional one full Test201 after predeclared gate, report as repeated exploratory Test"
 }

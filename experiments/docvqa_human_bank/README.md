@@ -1,11 +1,15 @@
-# DocVQA 人工 Bank 独立对照 v1.1
+# DocVQA 人工 Bank 独立对照 v1.2
 
 来源：用户提供的 `DocVQA_HumanIdeal_ProgrammaticAtomic_Bank_v1_20261019.zip`。
 原包与资产哈希见 `source_manifest.json`，公开来源见 `sources/SOURCES.md`。
 本目录只接入独立人工对照，不更改 Ours 的自然学习、晋升、评分或已有实验。
 
 审查后修正：简短逐字回答始终可见；不强制复核、扩写缩写或附加单位；
-裁剪工具不按题干关键词隐藏；算术参数明确先后顺序。所有改动只依据接口和通用答题约束，
+裁剪工具不按题干关键词隐藏；算术参数明确先后顺序。v1.2 修正 thumbnail 不放大的问题，
+将小区域按比例最多放大3倍，优先无损 PNG；两次裁剪同时可见，保留表头与目标行。
+修正 handwrit 词干无法命中 handwritten 的路由，并覆盖最大/最小比较问题。
+明确角色、分类、完整名称的不同答案范围以及单响应仅一个动作，不增加 repair 次数。
+所有改动只依据接口和通用答题约束，
 不使用具体 Test 答案。Skill、Program、关系均通过生产 Bank.put 重新计算 ID。
 Program 保持 candidate，只读人工视图显式授权，不伪造 usable 收据。
 
@@ -15,9 +19,11 @@ Program 保持 candidate，只读人工视图显式授权，不伪造 usable 收
 裁剪图仅在指定 Program 真实执行成功、源图 SHA 和输出 SHA 核验后发送到下一轮。
 仍发送原图，base64 不充当文本证据；文字核对程序不能证明读图正确。
 
-固定 seed42，先用 canonical Val 前2题检查真实接口，再运行 canonical Test201。
+固定 seed42，默认先用 canonical Val 前2题检查真实接口；`--validation-count 22` 使用完整 Val22。
+可用 `--validation-only` 在 Val 后停止，比较通过后才能显式 resume Test201。
 不学习、不按分数选 Bank，不重切数据；Test 开始后不更改提示和资产。
-96,000 tokens/题，总计19,488,000 tokens /9,135 HTTP（含验证2题）；实际费用以 raw_usage 为准。
+96,000 tokens/题，总上限仍为19,488,000 tokens /9,135 HTTP；增加验证数量不自动扩大总额度。
+实际费用以 raw_usage 为准。
 这是独立人工对照的新预算账本，旧 Ours 费用与成绩保留在原目录，不改写、不重复计入。
 
 在独立 clean WSL checkout 中：

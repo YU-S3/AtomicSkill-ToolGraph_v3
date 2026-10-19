@@ -22,7 +22,7 @@ from atomic_skillgraph.experiments.run_empirical import code_identity, load_env,
 from atomic_skillgraph.experiments.run_formal import model_settings, resolved_config
 
 
-def prepare(root, datasets, expected_sha):
+def prepare(root, datasets, expected_sha, validation_count=2):
     code = code_identity()
     if code['git_sha'] != expected_sha or code['tracked_dirty']:
         raise ValueError('Use the exact reviewed clean source')
@@ -39,7 +39,7 @@ def prepare(root, datasets, expected_sha):
     base['budget'].update(token_limit=203 * 96000, request_limit=203 * 9 * (base['llm']['max_retries'] + 1))
     configs, tasks, metadata = {}, {}, {}
     image_hashes = {}
-    for phase, split, count in [('validation', 'val', 2), ('test', 'test', 201)]:
+    for phase, split, count in [('validation', 'val', validation_count), ('test', 'test', 201)]:
         public_path = datasets / 'docvqa' / (split + '.json')
         gold_path = datasets / 'docvqa' / ('evaluator_records_' + split + '.json')
         for path in (public_path, gold_path):
@@ -92,7 +92,7 @@ def prepare(root, datasets, expected_sha):
         'public_materialization_sha256': sha256(datasets / 'materialization.json'),
         'bank_digest': manual['bank_digest'], 'bank_view_hash': view_hash,
         'bank_origin': 'external human authored', 'workflow_execution': False,
-        'validation_policy': 'fixed canonical first two Val tasks; interface gate only, no score selection',
+        'validation_policy': {'canonical_prefix_count':validation_count,'bank_update_during_eval':False},
         'original_images_sha256': digest(image_hashes),
         'source_bundle': json.loads((ROOT / 'source_manifest.json').read_text())}
     plan = {'identity': identity, 'configs': configs,
@@ -111,12 +111,13 @@ def main():
     parser.add_argument('--expected-sha', required=True)
     parser.add_argument('--env-file')
     parser.add_argument('--validation-only', action='store_true')
+    parser.add_argument('--validation-count', type=int, choices=[2,22], default=2)
     args = parser.parse_args()
     root = Path(args.output).resolve()
     root.mkdir(parents=True, exist_ok=True)
     with (root / 'run.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        plan, tasks, metadata, manual = prepare(root, Path(args.datasets).resolve(), args.expected_sha)
+        plan, tasks, metadata, manual = prepare(root, Path(args.datasets).resolve(), args.expected_sha, args.validation_count)
         if args.action == 'check':
             print(json.dumps({'ready': True, 'model_http': 0, 'counts': {k: len(v) for k, v in tasks.items()},
                               'bank': manual['counts'], 'limits': plan['limits']}))

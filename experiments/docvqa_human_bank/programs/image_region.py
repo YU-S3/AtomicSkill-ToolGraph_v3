@@ -38,18 +38,23 @@ def crop_bytes(raw, bbox, max_edge=1280, enhancement='none'):
         region = ImageOps.grayscale(region).convert('RGB')
     elif enhancement == 'contrast':
         region = ImageEnhance.Contrast(region).enhance(1.25)
-    region.thumbnail((max_edge,max_edge), Image.Resampling.LANCZOS)
-    for quality in (82,70,58):
+    source_crop_width, source_crop_height = region.size
+    scale = min(3.0, max_edge / max(region.size))
+    region = region.resize((max(1, round(region.width * scale)),
+                            max(1, round(region.height * scale))), Image.Resampling.LANCZOS)
+    # Prefer lossless line strokes; bound all formats by the same RPC ceiling.
+    for fmt, quality in [('PNG', None), ('JPEG', 90), ('JPEG', 82), ('JPEG', 70)]:
         stream = BytesIO()
-        region.save(stream,format='JPEG',quality=quality,optimize=True)
+        region.save(stream, format=fmt, optimize=True, **({'quality': quality} if quality else {}))
         image_bytes = stream.getvalue()
         encoded = base64.b64encode(image_bytes).decode('ascii')
         if len(encoded) <= 680_000:
-            return {'crop_base64':encoded,'image_mime':'image/jpeg',
+            return {'crop_base64':encoded,'image_mime':'image/png' if fmt=='PNG' else 'image/jpeg',
                     'image_sha256':hashlib.sha256(image_bytes).hexdigest(),
                     'source_sha256':hashlib.sha256(raw).hexdigest(),
                     'source_width':width,'source_height':height,
                     'crop_width':region.width,'crop_height':region.height,
+                    'resize_scale':scale,'source_crop_width':source_crop_width,'source_crop_height':source_crop_height,
                     'source_bbox_pixels':[x0,y0,x1,y1],
                     'bbox_normalized':bbox,
                     'scope':'crop_of_current_authorized_public_image_not_ocr'}
