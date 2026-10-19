@@ -38,7 +38,7 @@ python resources/office_humanstrong_v2/tools/prepare_runtime.py \
 
 准备步骤生成原生 Bank SQLite、导入身份和 Train/Val/Test 三份有效配置，零模型请求。不要把这些配置交给缺少人工视图的普通 Bank 运行器；调用 `integration/evaluate.py` 的 `evaluate(config, tasks, output, budget_governor=..., arm='manual'|'off')`，它绑定 `HumanBankView` 与输入 bridge，复用原生 evaluator、checkpoint、请求账本和 frozen 执行。调用方应使用当前累计账本的 Governor、固定源码和独立输出目录。准备步骤不分配新的付费额度。
 
-2026-10-20 已授权的固定 Train12 双臂使用 `experiments/run_office_humanstrong_v2.py`：
+2026-10-20 已完成的固定 Train12 双臂使用 `experiments/run_office_humanstrong_v2.py`；该历史入口显式保留原预算，以下命令用于定位原观察流程，不代表授权重复运行：
 
 ```bash
 python experiments/run_office_humanstrong_v2.py prepare --root <新的运行目录>
@@ -50,6 +50,8 @@ python experiments/run_office_humanstrong_v2.py status --root <运行目录>
 该入口绑定相同 V2 人工视图和输入 bridge，复用已有双臂运行器；继承最新已完成证据交接实验的账本及历史锁，固定 24 次解题、每次 192,000 tokens／48 次原生工具调用。本轮最多 4,608,000 tokens／2,400 HTTP，累计仍限 116M。只运行已开发暴露的 canonical Train 前 12 题，不学习、不运行 Val/Test、不按成绩选择题目或自动重跑。源码须为已提交的独立 WSL 固定 checkout。
 
 配置启用公共证据交接版本和无损紧凑 JSON。正常请求保留全部公开源页，不继承原生文件输入预览的截断；收尾仅从已提供/已获得的内容中打包，容量不足仍有明确收据。源页登记为 `provided_public_input`，不会伪造工具调用。两臂共享同一公开输入。模型、thinking、任务总额度和工具调用上限没有被偷换成外部模型的设置。
+
+完成 Train12 后，用户授权扩大收尾输出。32,768 thinking 收尾的真实诊断仍出现思考耗尽额度而空答，因此新的 `configure()` 默认收尾 cap 为 32,768，**仅收尾关闭 thinking，额度供正文使用**。每题输入＋输出总额度同步由 192,000 增至 216,576，只增加 24,576 的收尾差额；正常请求 thinking/high、cap 32,768 和原生工具上限 48 不变，不增加收尾调用或 repair 次数。运行器按实际收尾输入和新 cap 预留预算。`finish_output_tokens=8192` 仅用于原固定观察的兼容配置，旧记录和固定源码不变。新额度不自动提高累计 116M 上限，也不授权重开整批实验；完整运行须另存新配置及预算计划。正文输出不能代替求解阶段的正确取数和计算，不能保证答案正确。
 
 ## 验收与解释范围
 

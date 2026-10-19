@@ -104,11 +104,62 @@ def test_supplied_pages_survive_finish_with_no_tool_events(setup,monkeypatch,arm
         finally:s.close()
     assert trace['score']['hard'] and trace['execution']['reason']=='finish_only'
     assert not seen[0].get('tools') and len(seen)==1
+    assert seen[0]['max_tokens']==32768
+    assert seen[0]['thinking']['type']=='disabled'
     body=json.loads(seen[0]['messages'][1]['content'])
     assert any(w['content']==task.inputs['source_pages'][0]['text'] for w in body['finish_evidence'])
     assert not trace['execution']['attempts']
     from atomic_skillgraph.empirical.budget_governor import input_token_bound
     assert input_token_bound(seen[0])==trace['execution']['finish_evidence']['serialized_input_bytes']
+
+
+def test_expanded_finish_preserves_solve_headroom_and_old_config(setup,monkeypatch):
+    cfg,bridge,bundle,resources=setup
+    configuration=load(ROOT/'integration/configuration.py','strong2_finish_config')
+    old=configuration.configure(cfg,resources,'train',finish_output_tokens=8192)
+    assert cfg['budget']['eval_task_tokens']==216576 and old['budget']['eval_task_tokens']==192000
+    task=fixture_task(bridge);seen=http(monkeypatch,[response([{'action':'finish','answer':'0.15'}])]*2)
+    reserves=[]
+    for config in (old,cfg):
+        with bridge.bridge():
+            s=EmpiricalSystem(config,harness=OfficeAdapter({'s':{'answer':'0.15'}},config),readonly=True,
+                bank_view_factory=lambda b:bridge.HumanBankView(b,bundle))
+            try:
+                s.run_task(task,learn=False)
+                reserves.append(s.requests[0]['parent_finish_reserve'])
+            finally:s.close()
+    assert reserves[1]-reserves[0]==24578  # cap gains one digit; disabled gains one character
+    assert seen[0]['max_tokens']==seen[1]['max_tokens']==32768
+    bad=deepcopy(cfg);bad['budget']['eval_task_tokens']=192000
+    from atomic_skillgraph.empirical.system import validate_config
+    with pytest.raises(ValueError,match='Runtime/finish contract'):validate_config(bad)
+
+
+@pytest.mark.parametrize('arm',['manual','off'])
+def test_saved_empty_finish_replay_preserves_material_with_body_capacity(setup,monkeypatch,arm):
+    parent=os.environ.get('OFFICE_FINISH_FAILED_PAIRS')
+    if not parent:pytest.skip('Completed paired records required for finish replay')
+    cfg,_,_,_=setup;root=Path(parent)
+    episode=next(e for e in json.loads((root/'plan.json').read_text())['episodes']
+        if e['arm']==arm and json.loads((Path(e['path'])/'summary.json').read_text())['cases'][0]['execution']['reason']=='finish_only_empty_answer')
+    out=Path(episode['path']);path=next((out/'requests').glob('*attempt1.json'))
+    before=hashlib.sha256(path.read_bytes()).hexdigest();old=json.loads(path.read_text())['requests'][-1]
+    assert old['completion_cap']==8192 and old['provider_finish_reason']=='length'
+    adapter=OfficeAdapter({},cfg);adapter.task=PublicTask(**json.loads(next((out/'traces').glob('*.json')).read_text())['task'])
+    fixture=response(content='offline_nonempty_body',finish='stop')
+    fixture['usage']={'prompt_tokens':10000,'completion_tokens':9000,'total_tokens':19000,
+        'completion_tokens_details':{'reasoning_tokens':0}}
+    seen=http(monkeypatch,[fixture]);s=EmpiricalSystem(cfg,harness=adapter,readonly=True)
+    s.task_context=TaskContext(cfg['runtime'])
+    try:
+        answer=s.agent('runtime',old['messages'][0]['content'],json.loads(old['messages'][1]['content']),None,None,
+            decision_purpose='finish_only')
+        assert answer=='offline_nonempty_body' and seen[0]['messages']==old['messages']
+        assert not seen[0].get('tools') and seen[0]['max_tokens']==32768
+        assert seen[0]['thinking']['type']=='disabled'
+        assert s.requests[-1]['response']['usage']['reasoning_tokens']==0
+    finally:s.close()
+    assert hashlib.sha256(path.read_bytes()).hexdigest()==before
 
 
 def test_five_programs_in_real_docker_and_no_implicit_workflow(setup,tmp_path,monkeypatch):

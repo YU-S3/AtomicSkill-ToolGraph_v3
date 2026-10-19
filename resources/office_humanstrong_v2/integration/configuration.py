@@ -8,6 +8,8 @@ from atomic_skillgraph.empirical.evidence_handoff import VERSION as HANDOFF
 from atomic_skillgraph.empirical.system import validate_config
 
 INPUT_VERSION='office.external-minimax.public-pages.v1'
+FINISH_OUTPUT_TOKENS=32768
+TASK_TOKENS=192000+FINISH_OUTPUT_TOKENS-8192
 
 
 def verify_resources(resources):
@@ -20,8 +22,9 @@ def verify_resources(resources):
     return root,manifest
 
 
-def configure(base,resources,split):
+def configure(base,resources,split,*,finish_output_tokens=FINISH_OUTPUT_TOKENS):
     if split not in ('train','val','test'):raise ValueError('Unknown split')
+    if finish_output_tokens not in (8192,FINISH_OUTPUT_TOKENS):raise ValueError('Unsupported frozen finish budget')
     root,manifest=verify_resources(resources)
     cfg=deepcopy(base)
     cfg['manifest']=str(root/(split+'.json'))
@@ -33,5 +36,9 @@ def configure(base,resources,split):
     cfg['runtime'].update(evidence_handoff_version=HANDOFF,finish_input_max_bytes=65536,dynamic_output_min_tokens=8192,
                           compact_request_json=True)
     cfg['llm'].setdefault('purpose_overrides',{})['finish_only']={
-        'protocol':{'thinking_type':'enabled'},'max_completion_tokens':8192}
+        'protocol':{'thinking_type':'disabled' if finish_output_tokens==FINISH_OUTPUT_TOKENS else 'enabled'},
+        'max_completion_tokens':finish_output_tokens}
+    task_tokens=192000+finish_output_tokens-8192
+    cfg['llm']['runtime']['max_total_tokens_per_task']=task_tokens
+    cfg['budget'].update(train_task_tokens=task_tokens,eval_task_tokens=task_tokens)
     return validate_config(cfg)
