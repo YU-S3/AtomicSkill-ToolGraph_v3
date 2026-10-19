@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-METHOD='docvqa.human-ideal.programmatic.v1.4'
+METHOD='docvqa.human-ideal.programmatic.v1.5'
 
 
 def skill_selection(question):
@@ -164,6 +164,17 @@ def image_result_bridge():
                         ('execute_python',['source','arguments','input_schema','output_schema']),
                         ('read_result',['result_id']),('finish',['answer'])]]
             v=deepcopy(materials)
+            if s.bank.crop_mode=='grounded' and v.get('remaining_local_executions')==2:
+                for card in v.get('programs',[]):
+                    if card['id']==s.bank.programs['image_region']['id']:
+                        card['input_schema']=deepcopy(card['input_schema'])
+                        card['input_schema']['properties'].pop('bbox',None)
+                        card['input_schema'].pop('oneOf',None)
+                        card['input_schema']['required']=['image_path','region']
+                        card['input_schema']['description']='First crop establishes broad original-page context. A later crop may use exact bbox.'
+                        if name=='answer_step':
+                            schema['allOf'].append({'if':{'properties':{'action':{'const':'call_program'},'name':{'const':card['id']}},'required':['name']},
+                                'then':{'properties':{'arguments':deepcopy(card['input_schema'])}}})
             v['content_parts']=deepcopy(v.get('content_parts') or s.adapter.content_parts())
             entries=safe_crop_parts(s.task_context,s.adapter.task,s.bank)
             # Respect the actual provider lock. No extra image if the Provider cannot take it.

@@ -68,7 +68,7 @@ def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
     task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the account number?', {'images': [str(image)]}, 'test')
     crop_id = system.bank.programs['image_region']['id']
     sent = http(monkeypatch, [response([{'action': 'call_program', 'name': crop_id,
-        'arguments': {'image_path': '/workspace/inputs/image_0.png', 'bbox': [0, 0, 250, 250]}}], name='answer_step'),
+        'arguments': {'image_path': '/workspace/inputs/image_0.png', 'region': 'top'}}], name='answer_step'),
         response([{'action': 'call_program', 'name': crop_id,
         'arguments': {'image_path': '/workspace/inputs/image_0.png', 'bbox': [250, 250, 500, 500]}}], name='answer_step'),
         response(content='74216', finish='stop')])
@@ -95,7 +95,9 @@ def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
         rid = crop['result_id']
         record = system.task_context.results[rid]
         out = record['outputs']
-        assert out['crop_width']==out['source_crop_width']*3 and out['resize_scale']==3
+        assert out['bbox_normalized']==[0,0,1000,400]
+        enlarged=system.task_context.results[crops[1]['result_id']]['outputs']
+        assert enlarged['crop_width']==enlarged['source_crop_width']*3 and enlarged['resize_scale']==3
         assert out['image_mime']=='image/png'
         record['outputs']['source_sha256'] = '0' * 64
         assert len(safe_crop_parts(system.task_context, task, system.bank))==1
