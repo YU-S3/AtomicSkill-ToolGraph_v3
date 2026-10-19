@@ -149,6 +149,8 @@ def validate_config(config):
     if runtime.get('evidence_handoff_version') not in {None,evidence_handoff_version}:
         raise ValueError('Unknown runtime evidence handoff version')
     runtime.setdefault('finish_input_max_bytes', 65536)
+    if type(runtime.get('compact_request_json',False)) is not bool:
+        raise ValueError('compact_request_json must be boolean')
     runtime.setdefault('dynamic_output_min_tokens', 0)
     for key in ('finish_input_max_bytes', 'dynamic_output_min_tokens'):
         if type(runtime[key]) is not int or runtime[key] < (1 if key == 'finish_input_max_bytes' else 0):
@@ -429,6 +431,10 @@ class EmpiricalSystem:
             remaining = min(remaining, room['tokens'])
         return remaining
 
+    def material_json(self,value):
+        return json.dumps(value,ensure_ascii=False,allow_nan=False,
+            **({'separators':(',',':')} if self.config['runtime'].get('compact_request_json') else {}))
+
     def prepare_finish(self, materials, prompt, *, allowed_result_ids=None):
         from .finish_evidence import build_finish_evidence
         provider = self.provider('runtime', 'finish_only')
@@ -437,7 +443,7 @@ class EmpiricalSystem:
                         self._remaining('runtime', 'finish_only') - output_cap)
         if input_cap <= 0: raise ValueError('finish_unavailable:remaining_budget')
         def payload(value, completion):
-            messages = [{'role':'system','content':prompt}, {'role':'user','content':json.dumps(value,ensure_ascii=False,allow_nan=False)}]
+            messages = [{'role':'system','content':prompt}, {'role':'user','content':self.material_json(value)}]
             wire = provider._build_payload(messages, []) if isinstance(provider, OpenAICompatibleProvider) else {'messages':messages}
             wire[provider.config.token_limit_field if isinstance(provider, OpenAICompatibleProvider) else 'max_tokens'] = completion
             return wire
@@ -472,7 +478,7 @@ class EmpiricalSystem:
             wire_material=pack_capability_material(wire_material)
         messages = [{"role": "system", "content": prompt},
                     {"role": "user", "content": json.dumps(wire_material, ensure_ascii=False, allow_nan=False,
-                        **({'separators':(',',':')} if full_p2 or manual_reference or program_trial else {}))}]
+                    **({'separators':(',',':')} if full_p2 or manual_reference or program_trial or self.config['runtime'].get('compact_request_json') else {}))}]
         content_parts = materials.get('content_parts') if isinstance(materials, dict) else None
         if content_parts:
             if 'image' not in self.config.get('llm', {}).get('input_modalities', ['text']):
@@ -646,9 +652,14 @@ class EmpiricalSystem:
                         'acquired_evidence':finish['materials']}
                     projected.setdefault('recovery',{})['budget_phase']='consolidate'
                     projected['recovery']['instruction']='Limited remaining budget: use acquired sources to bind operands and execute the target calculation now. Search again only for a specific missing fact. Submit once supported. Source-span ranking is not a proof of relevance.'
-                    messages[1]['content']=replace_text(messages[1]['content'],json.dumps(pack_material(projected),ensure_ascii=False,allow_nan=False))
-                    wire=provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages,'tools':[t.to_openai() for t in tools]}
-                    wire[field]=completion_cap
+                    candidate_messages=deepcopy(messages)
+                    candidate_messages[1]['content']=replace_text(messages[1]['content'],self.material_json(pack_material(projected)))
+                    candidate_wire=provider._build_payload(candidate_messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':candidate_messages,'tools':[t.to_openai() for t in tools]}
+                    candidate_wire[field]=completion_cap
+                    # Provided task evidence may already contain these spans. A
+                    # consolidation must not duplicate it and force an early finish.
+                    if input_token_bound(candidate_wire)<input_token_bound(wire):
+                        messages,wire=candidate_messages,candidate_wire
                 if input_token_bound(wire) + completion_cap > remaining:
                     # Drop only optional duplicate history, never task/schema/current inputs.
                     from .model_view import expand_material, pack_material
@@ -657,7 +668,7 @@ class EmpiricalSystem:
                     memory = projected.get('memory',{})
                     while memory.get('operations') and input_token_bound(wire) + completion_cap > remaining:
                         memory['operations'].pop(0)
-                        messages[1]['content'] = replace_text(messages[1]['content'],json.dumps(pack_material(projected),ensure_ascii=False,allow_nan=False))
+                        messages[1]['content'] = replace_text(messages[1]['content'],self.material_json(pack_material(projected)))
                         wire = provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages,'tools':[t.to_openai() for t in tools]}
                         wire[field] = completion_cap
                     floor = self.config['runtime']['dynamic_output_min_tokens']
