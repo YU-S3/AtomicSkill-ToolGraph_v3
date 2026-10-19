@@ -33,10 +33,14 @@ def archived():
 
 
 @pytest.mark.parametrize('arm', ['off', 'manual'])
-def test_saved_source_bodies_reach_tool_free_wire_in_both_paths(tmp_path, monkeypatch, arm):
+@pytest.mark.parametrize('span_handoff', [False, True])
+def test_saved_source_bodies_reach_tool_free_wire_in_both_paths(tmp_path, monkeypatch, arm, span_handoff):
     # Reuse the *same* public NoSkill state to compare retention, never its gold.
     ep = archived()/'episodes/02_UID0153/off'
     cfg = json.loads((ep/'config.json').read_text())
+    if span_handoff:
+        from test_evidence_handoff import configure
+        configure(cfg)
     trace = json.loads((ep/'traces/officeqa:UID0153.json').read_text())
     saved = json.loads((ep/'checkpoints/officeqa:UID0153/1/state.json').read_text())
     old = next(q for q in trace['requests'] if q['purpose']=='finish_only')
@@ -48,6 +52,7 @@ def test_saved_source_bodies_reach_tool_free_wire_in_both_paths(tmp_path, monkey
     task = PublicTask(**trace['task']); adapter = OfficeAdapter({}, cfg); adapter.task = task
     context = TaskContext(cfg['runtime'])
     for k,v in saved['executor_state']['context'].items(): setattr(context, k, deepcopy(v))
+    context.settings.update(cfg['runtime'])
     before = digest(context.results)
     seen = http(monkeypatch, [response(content='offline-fixture', finish='stop')])
     with bridge.bridge():
@@ -68,13 +73,14 @@ def test_saved_source_bodies_reach_tool_free_wire_in_both_paths(tmp_path, monkey
                 assert 'Assets, liabilities, and capital' in w['content'] and 'Total assets' in w['content']
                 original = context.resolve_public(w['source_ref'])
                 assert original[w['offset']:w['end']]==w['content']
-            assert not wire.get('tools') and wire['thinking']['type']=='disabled'
-            assert wire['max_tokens']==2048 and input_token_bound(wire)==prepared['serialized_input_bytes']<=16384
+            assert not wire.get('tools') and wire['thinking']['type']==('enabled' if span_handoff else 'disabled')
+            assert wire['max_tokens']==(8192 if span_handoff else 2048)
+            assert input_token_bound(wire)==prepared['serialized_input_bytes']<=(65536 if span_handoff else 16384)
             assert digest(context.results)==before
             output = os.environ.get('HUMANSTRONG_TEST_EVIDENCE')
             if output:
                 root=Path(output);root.mkdir(parents=True,exist_ok=True)
-                (root/f'UID0153_rebuilt_{arm}.json').write_text(json.dumps({'payload':wire,'receipt':prepared,
+                (root/f'UID0153_rebuilt_{arm}_{span_handoff}.json').write_text(json.dumps({'payload':wire,'receipt':prepared,
                     'source_context_hash':before,'model_http':0},ensure_ascii=False,indent=2))
         finally: system.close()
 

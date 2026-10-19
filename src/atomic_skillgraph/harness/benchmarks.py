@@ -131,10 +131,14 @@ class FileAdapter(AnswerAdapter):
         from ..empirical.program_worker import public_program_abi, DIAGNOSTIC_MAX_BYTES
         from .simple_protocol import PROGRAM_FORBIDDEN_TOOLS
         if not any(t['name'] == 'execute_python' for t in tools): return None
+        from ..empirical.evidence_handoff import enabled
+        from ..empirical.temporary_python import STDOUT_MAX_BYTES
+        spans=enabled(self.config.get('runtime',{}))
         return {'tool': 'execute_python', 'context_methods': public_program_abi()['methods'],
                 'allowed_tools': [t['name'] for t in tools if t['name'] not in PROGRAM_FORBIDDEN_TOOLS],
                 'max_internal_calls': self.worker.settings['max_tool_calls_per_invocation'],
-                'max_stdout_bytes': DIAGNOSTIC_MAX_BYTES,
+                'max_stdout_bytes': STDOUT_MAX_BYTES if spans else DIAGNOSTIC_MAX_BYTES,
+                **({'source_contract':'Top-level source with ctx already defined. No run function or inputs variable. Do not assign ctx. Print one JSON object; data.computed is the parsed result. data.stdout remains readable and stdout_receipt reports truncation.'} if spans else {}),
                 'wall_timeout_seconds': self.worker.settings['wall_timeout_seconds'],
                 'budget': 'launch and every internal call share recovery.remaining_calls; the earlier owner deadline applies',
                 'persistence': 'none; no Bank mutation or automatic promotion'}
@@ -213,9 +217,18 @@ shutil.copyfile('/tmp/recalculated/input.xlsx', OUTPUT_PATH)
         wrapper += '    exec(' + repr(source) + ', namespace)\n'
         wrapper += '    return {"status": "ok", "outputs": {"files": inputs["files"], "deleted_files": inputs["deleted_files"]}}\n'
         output_fields = {'files': {'type': 'array', 'items': {'type': 'string'}}, 'deleted_files': {'type': 'array', 'items': {'type': 'string'}}}
+        from ..empirical.evidence_handoff import enabled
+        spans=enabled(self.config.get('runtime',{}))
+        if spans:
+            from ..empirical.temporary_python import source_wrapper
+            wrapper=source_wrapper(source)
+        output_schema=object_schema(output_fields,['files','deleted_files'])
+        if spans:
+            output_schema=object_schema({**output_fields,'computed':{'type':'object'},'stdout':{'type':'string'},
+                'stdout_receipt':{'type':'object'}},['files','deleted_files','stdout','stdout_receipt'])
         program = {'id': 'temporary_' + digest(wrapper), 'source': wrapper, 'entry': 'run',
             'input_schema': object_schema(output_fields, ['files', 'deleted_files']),
-            'output_schema': object_schema(output_fields, ['files', 'deleted_files']),
+            'output_schema': output_schema,
             'allowed_tools': [t['name'] for t in broker.available_tools() if t['name'] != 'execute_python'] if broker else [],
             'environment': self.config['program_environment']}
         result = self.worker.execute(program, {'files': files, 'deleted_files': list(deleted_files)},
@@ -225,7 +238,7 @@ shutil.copyfile('/tmp/recalculated/input.xlsx', OUTPUT_PATH)
         published = self.workspace.root/json.loads(pointer.read_text())['version'] if pointer.exists() else None
         identities = {name:artifact_record(published/name) for name in files} if result['status']=='ok' and published else {}
         outputs = dict(result.get('outputs', {}))
-        if result['status']=='ok':
+        if result['status']=='ok' and not spans:
             try:
                 from ..agents.protocol import parse_json_strict
                 computed = parse_json_strict(result.get('diagnostic', ''))

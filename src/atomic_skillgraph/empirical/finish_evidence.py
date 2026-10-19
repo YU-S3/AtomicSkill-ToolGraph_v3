@@ -31,6 +31,14 @@ def wire_bytes(prompt, materials):
 
 def build_finish_evidence(context, materials, prompt, *, max_bytes=65536, window_chars=12000,
                           allowed_result_ids=None, payload_builder=None, output_cap=2048):
+    from . import evidence_handoff
+    if evidence_handoff.enabled(context.settings):
+        payload_builder = payload_builder or (lambda v, cap: {'messages':[
+            {'role':'system','content':prompt},{'role':'user','content':json.dumps(v,ensure_ascii=False,allow_nan=False)}], 'max_tokens':cap})
+        outputs, refs = evidence_handoff.output_material(materials)
+        return evidence_handoff.prepare(context, {'original_goal':materials.get('original_goal',''),
+            'public_notes':materials.get('public_notes',[]), **outputs},max_bytes=max_bytes,output_cap=output_cap,
+            payload_builder=payload_builder,priority_refs=refs,allowed_result_ids=allowed_result_ids)
     materials = deepcopy(materials)
     included, omitted, unresolved, refs = [], [], [], []
     def bound(value):
@@ -169,6 +177,8 @@ def finalize_text(agent, context, materials, prompt, *, owner_state_version, all
     if checkpoint and (not saved or saved['owner_state_version'] != owner_state_version):
         checkpoint.advance(checkpoint.state['stage'], finish_prepared={
             'owner_state_version':owner_state_version, 'evidence':evidence})
+    if evidence.get('required_evidence_missing'):
+        raise ValueError('finish_unavailable:required_evidence_exceeds_capacity')
     answer = agent('runtime', prompt, evidence['materials'], None, None, repair_limit=0,
                    owner_state_version=owner_state_version, decision_purpose='finish_only')
     return answer, {k: v for k, v in evidence.items() if k != 'materials'}
