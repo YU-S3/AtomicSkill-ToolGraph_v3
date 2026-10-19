@@ -1,7 +1,7 @@
 {
   "schema": "human.docvqa.reference.v1",
   "benchmark": "docvqa",
-  "method_version": "docvqa.human-ideal.programmatic.v1.9",
+  "method_version": "docvqa.human-ideal.programmatic.v1.10",
   "origin": "human_authored_external_inspiration",
   "qualification": "none_not_naturally_learned",
   "dataset_profile": "docvqa.main_experiment_v1",
@@ -21,10 +21,10 @@
     {
       "title": "DV01",
       "goal": "Bind the question to one evidence unit",
-      "guidance": "Use one question-to-evidence plan, in this order. (1) Decide what the question selects: an entity or complete entry, a component of a field, a relation between entries, or a derived value. Keep this target fixed while reading. (2) Locate its source using the exact label, row/column headers, or named relation. Distinguish a field label from the field value and from neighboring entries. (3) Read that source unit literally. Only then project the component actually asked for. Do not first guess a short answer and search for support. A specific year/number/component request selects that component; a request for an event, title, recipient or entry retains the wording and qualifiers belonging to that entry. Brevity removes explanation, not parts of the selected source unit. Use the following specialist procedure only within this plan; it must not silently change the target. For handwriting or tiny text, distinguish uncertainty about WHERE the field is from uncertainty about WHICH characters it contains. Locate before zooming; a crop missing the selected label/value is not evidence for a different answer. When cropping, supply selection_target with the visible source_anchor and the requested answer_unit, never a guessed answer. The returned target is your unverified plan, not document evidence; keep that requested unit across views and reconsider the anchor only when the actual image contradicts it.",
+      "guidance": "Answer extraction has two different boundaries: the context needed to identify a source, and the words needed to fill the question's answer slot. First identify that slot and its type (entity, place, identifier, quantity, date/time component, relation, or explicitly requested quotation). Use all names and relations in the question to locate the matching source. Read enough surrounding context to bind it, then select only the words that fill the slot. Do not copy the evidence sentence or field label as the answer. A question asking for a number selects the numeric value; a question asking for a name selects that name, not the surrounding sentence or an explanation. Keep components needed to identify a multiword name or address. Return a complete title/quotation only when that is the requested slot. The specialist helps locate and read evidence but must not enlarge the answer slot. For handwriting or tiny text, resolve WHERE the source is before interpreting WHICH characters it contains. A crop missing the chosen source is not support for changing the answer. When cropping, carry selection_target with the visible source_anchor and the requested answer_unit, not a guessed answer. It is your unverified plan, not document evidence.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -38,15 +38,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_a32d69ce5cb401d9170e3f38fd9d5d5bd14c01d331770d54343d01f79d35ce6d"
+      "id": "skill_bb702909c316ab21116858fef17874e4e08f659b5c57733e8470c4106140ab0a"
     },
     {
       "title": "DV02",
       "goal": "Bind a labeled field to its value",
-      "guidance": "Find the requested label and follow its box, row, leader or keyed block to the value. Keep sender/recipient, issue/expiry and account/phone/identifier roles separate. Read all lines belonging to that one value before applying the question's requested component. Adjacent values are separate even if visually closer than a continuation line. Do not omit a qualifier belonging to the selected entry merely to shorten the answer.",
+      "guidance": "Find the requested label and follow its box, row, leader or keyed block to the value. Keep sender/recipient, issue/expiry and account/phone/identifier roles separate. Read all lines belonging to that value to identify the source, then extract the requested slot. Adjacent values are separate even when closer than a continuation line. A label or sentence introducing a name is not part of that name.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -60,15 +60,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_029c597f1b9fcbfb4921c962684f23d02c07843f0b8cb234feab31cd9ed12511"
+      "id": "skill_1f228e549d711f6239d5484631d7c131b4f5af07eb0e04221d9e3ffcacab79f3"
     },
     {
       "title": "DV03",
       "goal": "Resolve table coordinates before reading",
-      "guidance": "Bind both the row and the exact column header, including merged headers and date periods, before reading their intersection. Preserve this pair across any crop. For an extremum, compare all eligible rows of that same column, excluding subtotals, then return the requested winning label or value. Units help interpret the column; whether they belong in the answer follows the selected source field, not a blanket add/remove-units rule.",
+      "guidance": "Bind the row and exact column header, including merged headers and periods, before reading their intersection. Keep that pair across crops. For an extremum compare all eligible rows of that column, excluding subtotals, and return the requested winning label or value. Use header units to interpret the cell; do not append header text to a value that is printed without it.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -82,7 +82,7 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_3fc91f2a50e9f0b44d897452a41629606248dd4f8faa1e041c828289dd140651"
+      "id": "skill_ae70935c10cae3f23895a56442a54e979d19b70ed901e3a6063ca068e0fd6c2d"
     },
     {
       "title": "DV04",
@@ -90,7 +90,7 @@
       "guidance": "Anchor to the named or numbered item before following below/above/next/associated-page relations. Keep the complete item separate from its heading and neighboring items. A printed pagination marker is one document locator; preserve its full printed form. An item/revision identifier is the identifier value, not its introducing label. Apply the requested relation once, then transcribe the selected unit.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -104,7 +104,7 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_2cf964dbb580715ad45194b19de80a0ba86c70f4aeb01887db6726e033c9fcd5"
+      "id": "skill_9afa5d906f7a80ee30163c6e9fe345f5ec2cb0b2ff04bbebc4060bff1a10689c"
     },
     {
       "title": "DV05",
@@ -112,7 +112,7 @@
       "guidance": "First identify the selected label/value region in the original page. If its location is uncertain, inspect broader context; if location is established but strokes are unclear, enlarge that region with enough label context to keep the binding. Coordinates always refer to the original page edges, never a previous crop. Inspect the actual crop before accepting a reading. A misplaced crop should not replace a supported original-page reading. Do not reconstruct letters from familiarity with a likely name.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -126,7 +126,7 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_17061ffe068e7d90fff59df084b0bd5aed387076289a91c0f960c08e0de3efa5"
+      "id": "skill_17377153bca23a64bacde7550a9cbe72fc68b10c7e48de51d1e58865171da45d"
     },
     {
       "title": "DV06",
@@ -134,7 +134,7 @@
       "guidance": "Determine whether the question requests a whole field or one numeric/date component. Read the chosen value literally, preserving its internal signs, decimal marks, separators and selected AM/PM mark. Do not convert it to a customary format. A field introducer such as No. or # is separate from an index value; punctuation inside an identifier belongs to the value. Do not infer extra zeros, digits, units or a longer date than the requested component.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -148,7 +148,7 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_002ecfa381a511e0bf28b0252932de01840618f034f907845770b63994d27bd6"
+      "id": "skill_b8bad148af6420ae081a38e624eb525e5d9f9dbcf931a854b2f35ba0d522f7b3"
     },
     {
       "title": "DV07",
@@ -156,7 +156,7 @@
       "guidance": "Use spatial association in the actual image to bind marks, symbols, chart series and checkboxes to their labels. Distinguish selected from empty boxes. For a label question, return that label rather than an adjacent plotted value; for a value question, use the bound axis/legend. Count only objects within the requested category and region.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -170,7 +170,7 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_bb7b24de4bda03e5896304369e087dccc2a19f325a39e232b33a14edf3f1364e"
+      "id": "skill_c940896217bf357fbedaf4a3bf58275a6369db4c28c8f7dc9308cc9c60cfa1df"
     },
     {
       "title": "DV08",
@@ -178,7 +178,7 @@
       "guidance": "For a derived quantity, bind each operand to its source field and role before computation. Do not compute when the requested value is already printed. The numeric Program uses [from_value,to_value] for difference, [denominator,numerator] for ratio, and [old_value,new_value] for percent_change. Its output checks arithmetic, not whether the operands were read from the correct fields.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -192,15 +192,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_5f8fd5421263a81485c1d461db7d5e54c4fd7775052ba921e2e817ff84cf7104"
+      "id": "skill_fb82a20873a9300e104cd9a7caa72a9a789581a8b7d8a0b513805c713d6dc6b9"
     },
     {
       "title": "DV09",
       "goal": "Project a complete source unit",
-      "guidance": "Copy the selected source wording instead of paraphrasing it. Resolve answer scope from the question: complete entity/entry versus expressly requested component. Keep meaningful name parts and qualifiers within that scope; exclude a field's introducing label and neighboring unrelated material. Do not use character count or a preference for a shorter phrase to decide scope.",
+      "guidance": "Copy the words filling the requested answer slot, not a paraphrase or the whole supporting sentence. Preserve the identifying parts and spelling of multiword names and titles. Exclude sentence introductions, field labels and neighboring explanations. Use the question's requested slot to set boundaries; do not expand it just because more words are visible.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -214,15 +214,15 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_c3ce3219253d7649a63d38a6b64b11135ca459d0fd593cd64d74a3482b9ef74e"
+      "id": "skill_1643a4a3e31722ad9603d145b83c481f8b82c1a9ca8244a9e7195950db92a665"
     },
     {
       "title": "DV10",
       "goal": "Finish the established evidence plan",
-      "guidance": "Once the selected source unit and requested component are established, return that answer without a new summarization or formatting pass. Preserve its spelling and notation. Revise only if actual image evidence changes the selected source or reading, not because another wording sounds neater. Use a Program only to resolve a specific remaining uncertainty or calculation; a successful tool execution alone is not visual confirmation. Submit one direct answer, or exactly one action per response. When no useful observation remains, give the best supported reading rather than continue speculative reinterpretation. Do not add an explanation or describe this plan in the final answer.",
+      "guidance": "Finish with the one source-supported answer selected for the question's slot. Preserve its spelling and notation; do not add labels, alternatives, parenthetical explanations or units taken from elsewhere. Do not rewrite a supported reading just to sound natural. Change it only when actual image evidence contradicts it. Use a Program to resolve a specific visual uncertainty or computation; execution success is not proof of correct reading. Submit one direct answer or exactly one action per response. Do not print the plan or evidence sentence.",
       "execution_intent": "guidance_only",
       "knowledge_type": "procedural",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "input_schema": {
         "type": "object",
         "properties": {},
@@ -236,7 +236,7 @@
         "additionalProperties": false
       },
       "origin": "human_authored_reference",
-      "id": "skill_218747f73b97e8f5997a7763d38b5f341d94d093769c11a7ad61eb8c9e077f3d"
+      "id": "skill_07e769c9294c273544ce59ff8322626b742d27bef40700d745689b711ad5da39"
     }
   ],
   "program": [
@@ -244,7 +244,7 @@
       "title": "Crop authorized DocVQA image region",
       "goal": "Crop and enlarge a relevant original-image region up to 3x, preferring lossless PNG, retaining source coordinates",
       "source_file": "programs/image_region.py",
-      "source": "\"\"\"Image ROI tool for the actual DocVQA public image, not an OCR system.\n\nInput path must be an AnswerAdapter worker_resources path mounted read-only at\n/workspace/inputs/image_N.ext. It returns a bounded image for the runtime's\nmultimodal bridge, plus dimensions and the exact region used.\n\"\"\"\nimport base64\nimport hashlib\nfrom io import BytesIO\nfrom pathlib import Path\nimport re\n\nfrom PIL import Image, ImageEnhance, ImageOps\n\n\ndef crop_bytes(raw, bbox, max_edge=1280, enhancement='none'):\n    \"\"\"Pure transform used by the Worker and by zero-HTTP fixture tests.\"\"\"\n    if (not isinstance(bbox, list) or len(bbox) != 4 or\n            any(type(x) is not int or not 0 <= x <= 1000 for x in bbox) or\n            not (bbox[0] < bbox[2] and bbox[1] < bbox[3])):\n        raise ValueError('bbox must be [left,top,right,bottom] in [0,1000], nonempty')\n    if type(max_edge) is not int or not 384 <= max_edge <= 1600:\n        raise ValueError('max_edge must be 384..1600')\n    if enhancement not in ('none', 'contrast', 'grayscale'):\n        raise ValueError('Unsupported enhancement')\n    with Image.open(BytesIO(raw)) as original:\n        original.load()\n        if original.width * original.height > 75_000_000:\n            raise ValueError('Image is too large for a bounded crop')\n        frame = ImageOps.exif_transpose(original).convert('RGB')\n    width, height = frame.size\n    x0 = max(0, min(width-1, round(width*bbox[0]/1000)))\n    x1 = max(x0+1, min(width, round(width*bbox[2]/1000)))\n    y0 = max(0, min(height-1, round(height*bbox[1]/1000)))\n    y1 = max(y0+1, min(height, round(height*bbox[3]/1000)))\n    region = frame.crop((x0,y0,x1,y1))\n    if enhancement == 'grayscale':\n        region = ImageOps.grayscale(region).convert('RGB')\n    elif enhancement == 'contrast':\n        region = ImageEnhance.Contrast(region).enhance(1.25)\n    source_crop_width, source_crop_height = region.size\n    scale = min(3.0, max_edge / max(region.size))\n    region = region.resize((max(1, round(region.width * scale)),\n                            max(1, round(region.height * scale))), Image.Resampling.LANCZOS)\n    # Prefer lossless line strokes; bound all formats by the same RPC ceiling.\n    for fmt, quality in [('PNG', None), ('JPEG', 90), ('JPEG', 82), ('JPEG', 70)]:\n        stream = BytesIO()\n        region.save(stream, format=fmt, optimize=True, **({'quality': quality} if quality else {}))\n        image_bytes = stream.getvalue()\n        encoded = base64.b64encode(image_bytes).decode('ascii')\n        if len(encoded) <= 680_000:\n            return {'crop_base64':encoded,'image_mime':'image/png' if fmt=='PNG' else 'image/jpeg',\n                    'image_sha256':hashlib.sha256(image_bytes).hexdigest(),\n                    'source_sha256':hashlib.sha256(raw).hexdigest(),\n                    'source_width':width,'source_height':height,\n                    'crop_width':region.width,'crop_height':region.height,\n                    'resize_scale':scale,'source_crop_width':source_crop_width,'source_crop_height':source_crop_height,\n                    'source_bbox_pixels':[x0,y0,x1,y1],\n                    'bbox_normalized':bbox,\n                    'scope':'crop_of_current_authorized_public_image_not_ocr'}\n    raise ValueError('Compressed crop still exceeds the RPC payload bound')\n\n\nREGIONS = {'top': [0, 0, 1000, 400], 'middle': [0, 300, 1000, 700],\n           'bottom': [0, 600, 1000, 1000], 'left': [0, 0, 600, 1000],\n           'right': [400, 0, 1000, 1000], 'whole': [0, 0, 1000, 1000]}\n\n\ndef run(ctx, inputs):\n    try:\n        path = inputs['image_path']\n        if (not isinstance(path,str) or not re.fullmatch(\n                r'/workspace/inputs/image_\\d+\\.(?:png|jpg|jpeg|webp|gif|bmp)',path,re.I)):\n            raise ValueError('Only an advertised /workspace/inputs/image_N.ext is allowed')\n        source = Path(path)\n        if not source.is_file() or source.is_symlink():\n            raise ValueError('Authorized public image is not mounted')\n        raw = source.read_bytes()\n        if len(raw) > 33_554_432:\n            raise ValueError('Input exceeds DocVQA frozen image-byte policy')\n        if ('bbox' in inputs) == ('region' in inputs):\n            raise ValueError('Provide exactly one of bbox or region')\n        bbox = inputs['bbox'] if 'bbox' in inputs else REGIONS[inputs['region']]\n        outputs = crop_bytes(raw, bbox,inputs.get('max_edge',1280),\n                             inputs.get('enhancement','none'))\n        target = inputs.get('selection_target', {})\n        if target and (not isinstance(target, dict) or set(target) != {'source_anchor','answer_unit'} or\n                any(not isinstance(v,str) or not v.strip() or len(v)>160 for v in target.values())):\n            raise ValueError('selection_target needs a source_anchor and answer_unit, each 1..160 characters')\n        # This is the caller's plan, not OCR output or verified document evidence.\n        outputs['selection_target'] = target\n        return {'status':'ok','outputs':outputs}\n    except (KeyError,ValueError,OSError,TypeError) as exc:\n        return {'status':'needs_input','outputs':{},'detail':str(exc)[:400]}\n",
+      "source": "\"\"\"Image ROI tool for the actual DocVQA public image, not an OCR system.\n\nInput path must be an AnswerAdapter worker_resources path mounted read-only at\n/workspace/inputs/image_N.ext. It returns a bounded image for the runtime's\nmultimodal bridge, plus dimensions and the exact region used.\n\"\"\"\nimport base64\nimport hashlib\nfrom io import BytesIO\nfrom pathlib import Path\nimport re\n\nfrom PIL import Image, ImageEnhance, ImageOps\n\n\ndef crop_bytes(raw, bbox, max_edge=1280, enhancement='none'):\n    \"\"\"Pure transform used by the Worker and by zero-HTTP fixture tests.\"\"\"\n    if (not isinstance(bbox, list) or len(bbox) != 4 or\n            any(type(x) is not int or not 0 <= x <= 1000 for x in bbox) or\n            not (bbox[0] < bbox[2] and bbox[1] < bbox[3])):\n        raise ValueError('bbox must be [left,top,right,bottom] in [0,1000], nonempty')\n    if type(max_edge) is not int or not 384 <= max_edge <= 1600:\n        raise ValueError('max_edge must be 384..1600')\n    if enhancement not in ('none', 'contrast', 'grayscale'):\n        raise ValueError('Unsupported enhancement')\n    with Image.open(BytesIO(raw)) as original:\n        original.load()\n        if original.width * original.height > 75_000_000:\n            raise ValueError('Image is too large for a bounded crop')\n        frame = ImageOps.exif_transpose(original).convert('RGB')\n    width, height = frame.size\n    x0 = max(0, min(width-1, round(width*bbox[0]/1000)))\n    x1 = max(x0+1, min(width, round(width*bbox[2]/1000)))\n    y0 = max(0, min(height-1, round(height*bbox[1]/1000)))\n    y1 = max(y0+1, min(height, round(height*bbox[3]/1000)))\n    region = frame.crop((x0,y0,x1,y1))\n    if enhancement == 'grayscale':\n        region = ImageOps.grayscale(region).convert('RGB')\n    elif enhancement == 'contrast':\n        region = ImageEnhance.Contrast(region).enhance(1.25)\n    source_crop_width, source_crop_height = region.size\n    scale = min(3.0, max_edge / max(region.size))\n    edge = max(1, round(max(region.size) * scale))\n    # Retry encoding at a smaller size, always from the original crop. The RPC\n    # ceiling stays fixed; repeated resizing would unnecessarily blur letters.\n    while True:\n        scale = edge / max(region.size)\n        resized = region.resize((max(1, round(region.width * scale)),\n                                 max(1, round(region.height * scale))), Image.Resampling.LANCZOS)\n        for fmt, quality in [('PNG', None), ('JPEG', 90), ('JPEG', 82), ('JPEG', 70)]:\n            stream = BytesIO()\n            resized.save(stream, format=fmt, optimize=True, **({'quality': quality} if quality else {}))\n            image_bytes = stream.getvalue()\n            encoded = base64.b64encode(image_bytes).decode('ascii')\n            if len(encoded) > 680_000:\n                continue\n            return {'crop_base64':encoded,'image_mime':'image/png' if fmt=='PNG' else 'image/jpeg',\n                    'image_sha256':hashlib.sha256(image_bytes).hexdigest(),\n                    'source_sha256':hashlib.sha256(raw).hexdigest(),\n                    'source_width':width,'source_height':height,\n                    'crop_width':resized.width,'crop_height':resized.height,\n                    'resize_scale':scale,'source_crop_width':source_crop_width,'source_crop_height':source_crop_height,\n                    'source_bbox_pixels':[x0,y0,x1,y1],\n                    'bbox_normalized':bbox,\n                    'scope':'crop_of_current_authorized_public_image_not_ocr'}\n        if edge <= 384:\n            raise ValueError('Compressed crop still exceeds the RPC payload bound')\n        edge = max(384, round(edge * .8))\n\n\nREGIONS = {'top': [0, 0, 1000, 400], 'middle': [0, 300, 1000, 700],\n           'bottom': [0, 600, 1000, 1000], 'left': [0, 0, 600, 1000],\n           'right': [400, 0, 1000, 1000], 'whole': [0, 0, 1000, 1000]}\n\n\ndef run(ctx, inputs):\n    try:\n        path = inputs['image_path']\n        if (not isinstance(path,str) or not re.fullmatch(\n                r'/workspace/inputs/image_\\d+\\.(?:png|jpg|jpeg|webp|gif|bmp)',path,re.I)):\n            raise ValueError('Only an advertised /workspace/inputs/image_N.ext is allowed')\n        source = Path(path)\n        if not source.is_file() or source.is_symlink():\n            raise ValueError('Authorized public image is not mounted')\n        raw = source.read_bytes()\n        if len(raw) > 33_554_432:\n            raise ValueError('Input exceeds DocVQA frozen image-byte policy')\n        if ('bbox' in inputs) == ('region' in inputs):\n            raise ValueError('Provide exactly one of bbox or region')\n        bbox = inputs['bbox'] if 'bbox' in inputs else REGIONS[inputs['region']]\n        outputs = crop_bytes(raw, bbox,inputs.get('max_edge',1280),\n                             inputs.get('enhancement','none'))\n        target = inputs.get('selection_target', {})\n        if target and (not isinstance(target, dict) or set(target) != {'source_anchor','answer_unit'} or\n                any(not isinstance(v,str) or not v.strip() or len(v)>160 for v in target.values())):\n            raise ValueError('selection_target needs a source_anchor and answer_unit, each 1..160 characters')\n        # This is the caller's plan, not OCR output or verified document evidence.\n        outputs['selection_target'] = target\n        return {'status':'ok','outputs':outputs}\n    except (KeyError,ValueError,OSError,TypeError) as exc:\n        return {'status':'needs_input','outputs':{},'detail':str(exc)[:400]}\n",
       "entry": "run",
       "allowed_tools": [],
       "environment": {
@@ -452,8 +452,8 @@
         "proof_scope": "image_transform_only_not_reading"
       },
       "state": "candidate",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
-      "id": "program_40bfd2af0f42985768c4b01df6e073a57f6b9a82c59a389feba2feff14bb6a05"
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
+      "id": "program_1f9045027ece8b9252208e3c092386a1a151624e1ec51a938b741afea8288f81"
     },
     {
       "title": "Exact arithmetic from model-observed document numbers",
@@ -558,7 +558,7 @@
         "proof_scope": "local_arithmetic_only"
       },
       "state": "candidate",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "id": "program_2f2c48bef8f46fd028e21b4d76dbe47428f58a7b5cfeeecd751681df1e031f33"
     },
     {
@@ -637,31 +637,31 @@
         "proof_scope": "text_occurrence_not_source_authenticity"
       },
       "state": "candidate",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "id": "program_a5a67cb8b54266e714d4c3d41182958ea64f03b150a06e0463b38591923f5500"
     }
   ],
   "implementation": [
     {
-      "skill_id": "skill_17061ffe068e7d90fff59df084b0bd5aed387076289a91c0f960c08e0de3efa5",
-      "program_id": "program_40bfd2af0f42985768c4b01df6e073a57f6b9a82c59a389feba2feff14bb6a05",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "skill_id": "skill_17377153bca23a64bacde7550a9cbe72fc68b10c7e48de51d1e58865171da45d",
+      "program_id": "program_1f9045027ece8b9252208e3c092386a1a151624e1ec51a938b741afea8288f81",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "origin": "human_authored_unqualified",
-      "id": "implementation_12a389e4533c7b58f9def97c7391aedcbf087ec2ff6539f49d5050e9cd57a728"
+      "id": "implementation_51d8af8bd2f58dc25fe0e9d84e3fb1ca2c9de03f5554fe0effa224f4fe5278ff"
     },
     {
-      "skill_id": "skill_5f8fd5421263a81485c1d461db7d5e54c4fd7775052ba921e2e817ff84cf7104",
+      "skill_id": "skill_fb82a20873a9300e104cd9a7caa72a9a789581a8b7d8a0b513805c713d6dc6b9",
       "program_id": "program_2f2c48bef8f46fd028e21b4d76dbe47428f58a7b5cfeeecd751681df1e031f33",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "origin": "human_authored_unqualified",
-      "id": "implementation_72c86e8496efde272656444dbb9ac2a50614b82a9256eec948566b2d2a98ea9b"
+      "id": "implementation_305fa42ff7de0a7c0dc4da71108af4914e9813934891cccaa74b57d8c311b3a5"
     },
     {
-      "skill_id": "skill_c3ce3219253d7649a63d38a6b64b11135ca459d0fd593cd64d74a3482b9ef74e",
+      "skill_id": "skill_1643a4a3e31722ad9603d145b83c481f8b82c1a9ca8244a9e7195950db92a665",
       "program_id": "program_a5a67cb8b54266e714d4c3d41182958ea64f03b150a06e0463b38591923f5500",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "origin": "human_authored_unqualified",
-      "id": "implementation_81ba0279bf6321fcb12dcf98e9c826d5278fa95da15fe3d37565daf4fc392625"
+      "id": "implementation_d4d65069fef4c6ec7d8f2b04683051d856127019e229649321c825e4a556e4ff"
     }
   ],
   "workflow": [
@@ -669,7 +669,7 @@
       "title": "ROI zoom then answer",
       "goal": "Read a small or handwritten region of an original document image",
       "interface_version": "empirical.workflow.v2",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "nodes": [
         {
           "id": "locate",
@@ -684,7 +684,7 @@
         {
           "id": "crop",
           "execution_mode": "program",
-          "program_id": "program_40bfd2af0f42985768c4b01df6e073a57f6b9a82c59a389feba2feff14bb6a05",
+          "program_id": "program_1f9045027ece8b9252208e3c092386a1a151624e1ec51a938b741afea8288f81",
           "after": [
             "locate"
           ],
@@ -723,13 +723,13 @@
           "field": "answer"
         }
       },
-      "id": "workflow_d65df72d605635725394615c330a36347de39d13d529f114a0f8e96eebf515d5"
+      "id": "workflow_bbada2f7be5d1d4094747551f1076fec4e8b79dd19ef91fdf8d97f48c20ffa9a"
     },
     {
       "title": "Read values then deterministic arithmetic",
       "goal": "Compute a numeric answer using operands read from the actual image",
       "interface_version": "empirical.workflow.v2",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "nodes": [
         {
           "id": "read_values",
@@ -787,13 +787,13 @@
           "field": "answer"
         }
       },
-      "id": "workflow_cefa2fa009bfaa77489b4c7ef2c27b48b262cf3d3ca37f58e296a43a13fc2976"
+      "id": "workflow_88a8e6966c939d85374de02f7016e7743d7e038de22a1eb026f7cb167b9608f4"
     },
     {
       "title": "Visual transcript and anchored check",
       "goal": "Read an exact text answer from a crowded form or handwritten label",
       "interface_version": "empirical.workflow.v2",
-      "method_version": "docvqa.human-ideal.programmatic.v1.9",
+      "method_version": "docvqa.human-ideal.programmatic.v1.10",
       "nodes": [
         {
           "id": "read_text",
@@ -851,7 +851,7 @@
           "field": "answer"
         }
       },
-      "id": "workflow_6ca0cba953c2453af3820c435cce2f71a55cd5df84b8a2306ca2f623f3c3600d"
+      "id": "workflow_ff7a0987032a5467db06e82d6ced38718e546b3af98ec90589fb228880b61285"
     }
   ]
 }

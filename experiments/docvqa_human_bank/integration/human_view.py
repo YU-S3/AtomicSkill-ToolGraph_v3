@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-METHOD='docvqa.human-ideal.programmatic.v1.9'
+METHOD='docvqa.human-ideal.programmatic.v1.10'
 
 
 def skill_selection(question):

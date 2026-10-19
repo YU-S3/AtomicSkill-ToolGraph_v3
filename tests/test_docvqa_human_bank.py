@@ -24,6 +24,26 @@ from atomic_skillgraph.experiments.run_formal import model_settings, resolved_co
 from test_cf2_contracts import http, response
 
 
+def test_noisy_crop_fits_fixed_transport_bound():
+    from importlib.util import module_from_spec, spec_from_file_location
+    from io import BytesIO
+    import random
+    from PIL import Image
+    spec = spec_from_file_location('manual_crop', ASSETS / 'programs/image_region.py')
+    crop = module_from_spec(spec); spec.loader.exec_module(crop)
+    image = Image.frombytes('RGB', (1600, 1600), random.Random(42).randbytes(1600 * 1600 * 3))
+    stream = BytesIO(); image.save(stream, format='PNG')
+    raw = stream.getvalue()
+    out = crop.crop_bytes(raw, [0, 0, 1000, 1000], max_edge=1600)
+    assert len(out['crop_base64']) <= 680_000
+    assert out['source_sha256'] == hashlib.sha256(raw).hexdigest()
+    assert out['source_bbox_pixels'] == [0, 0, 1600, 1600]
+    with Image.open(BytesIO(base64.b64decode(out['crop_base64']))) as encoded:
+        assert encoded.size == (out['crop_width'], out['crop_height'])
+        assert 384 <= max(encoded.size) < 1600
+        assert out['resize_scale'] == max(encoded.size) / 1600
+
+
 @pytest.fixture
 def imported(tmp_path):
     import yaml

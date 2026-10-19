@@ -40,25 +40,32 @@ def crop_bytes(raw, bbox, max_edge=1280, enhancement='none'):
         region = ImageEnhance.Contrast(region).enhance(1.25)
     source_crop_width, source_crop_height = region.size
     scale = min(3.0, max_edge / max(region.size))
-    region = region.resize((max(1, round(region.width * scale)),
-                            max(1, round(region.height * scale))), Image.Resampling.LANCZOS)
-    # Prefer lossless line strokes; bound all formats by the same RPC ceiling.
-    for fmt, quality in [('PNG', None), ('JPEG', 90), ('JPEG', 82), ('JPEG', 70)]:
-        stream = BytesIO()
-        region.save(stream, format=fmt, optimize=True, **({'quality': quality} if quality else {}))
-        image_bytes = stream.getvalue()
-        encoded = base64.b64encode(image_bytes).decode('ascii')
-        if len(encoded) <= 680_000:
+    edge = max(1, round(max(region.size) * scale))
+    # Retry encoding at a smaller size, always from the original crop. The RPC
+    # ceiling stays fixed; repeated resizing would unnecessarily blur letters.
+    while True:
+        scale = edge / max(region.size)
+        resized = region.resize((max(1, round(region.width * scale)),
+                                 max(1, round(region.height * scale))), Image.Resampling.LANCZOS)
+        for fmt, quality in [('PNG', None), ('JPEG', 90), ('JPEG', 82), ('JPEG', 70)]:
+            stream = BytesIO()
+            resized.save(stream, format=fmt, optimize=True, **({'quality': quality} if quality else {}))
+            image_bytes = stream.getvalue()
+            encoded = base64.b64encode(image_bytes).decode('ascii')
+            if len(encoded) > 680_000:
+                continue
             return {'crop_base64':encoded,'image_mime':'image/png' if fmt=='PNG' else 'image/jpeg',
                     'image_sha256':hashlib.sha256(image_bytes).hexdigest(),
                     'source_sha256':hashlib.sha256(raw).hexdigest(),
                     'source_width':width,'source_height':height,
-                    'crop_width':region.width,'crop_height':region.height,
+                    'crop_width':resized.width,'crop_height':resized.height,
                     'resize_scale':scale,'source_crop_width':source_crop_width,'source_crop_height':source_crop_height,
                     'source_bbox_pixels':[x0,y0,x1,y1],
                     'bbox_normalized':bbox,
                     'scope':'crop_of_current_authorized_public_image_not_ocr'}
-    raise ValueError('Compressed crop still exceeds the RPC payload bound')
+        if edge <= 384:
+            raise ValueError('Compressed crop still exceeds the RPC payload bound')
+        edge = max(384, round(edge * .8))
 
 
 REGIONS = {'top': [0, 0, 1000, 400], 'middle': [0, 300, 1000, 700],
