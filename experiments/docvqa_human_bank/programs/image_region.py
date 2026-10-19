@@ -61,6 +61,11 @@ def crop_bytes(raw, bbox, max_edge=1280, enhancement='none'):
     raise ValueError('Compressed crop still exceeds the RPC payload bound')
 
 
+REGIONS = {'top': [0, 0, 1000, 400], 'middle': [0, 300, 1000, 700],
+           'bottom': [0, 600, 1000, 1000], 'left': [0, 0, 600, 1000],
+           'right': [400, 0, 1000, 1000], 'whole': [0, 0, 1000, 1000]}
+
+
 def run(ctx, inputs):
     try:
         path = inputs['image_path']
@@ -73,7 +78,10 @@ def run(ctx, inputs):
         raw = source.read_bytes()
         if len(raw) > 33_554_432:
             raise ValueError('Input exceeds DocVQA frozen image-byte policy')
-        outputs = crop_bytes(raw, inputs['bbox'],inputs.get('max_edge',1280),
+        if ('bbox' in inputs) == ('region' in inputs):
+            raise ValueError('Provide exactly one of bbox or region')
+        bbox = inputs['bbox'] if 'bbox' in inputs else REGIONS[inputs['region']]
+        outputs = crop_bytes(raw, bbox,inputs.get('max_edge',1280),
                              inputs.get('enhancement','none'))
         return {'status':'ok','outputs':outputs}
     except (KeyError,ValueError,OSError,TypeError) as exc:

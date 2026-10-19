@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-METHOD='docvqa.human-ideal.programmatic.v1.2'
+METHOD='docvqa.human-ideal.programmatic.v1.3'
 
 
 def skill_selection(question):
@@ -33,25 +33,29 @@ def skill_selection(question):
     ]
     for key,pattern in patterns:
         if re.search(pattern,q) and key not in extra: extra.append(key)
-    # Short, verbatim answers apply regardless of question wording.
-    return ['DV01', 'DV10', *extra[:2]]
+    # Handwriting/legibility is an image property, not a question keyword.
+    # Keep one compact general card, one visual-reading card, one specialist.
+    specialist = next((k for k in extra if k != 'DV05'), 'DV09')
+    return ['DV01', 'DV05', specialist]
 
 
 class HumanDocVQAView:
     """Manual evaluation view over a native Bank; Program calls are not Ours learning claims."""
-    def __init__(self,bank,manifest,*,arm='human',programs='auto'):
+    def __init__(self,bank,manifest,*,arm='human',programs='auto',crop_mode='grounded'):
         if not bank.readonly: raise ValueError('Readonly Bank required')
         if arm not in ('human','off') or programs not in ('off','auto','all'):
             raise ValueError('Unrecognized arm or program mode')
+        if crop_mode not in ('guidance','grounded'):raise ValueError('Unknown crop ablation')
         from atomic_skillgraph.empirical.contracts import digest
         self.bank,self.arm,self.program_mode=bank,arm,programs
+        self.crop_mode=crop_mode
         self.manifest=deepcopy(manifest)
         if manifest['method_version']!=METHOD or manifest['bank_digest']!=bank.digest():
             raise ValueError('Native Bank identity differs from manual manifest')
         self.skills={s['title']:s for s in bank.all('skill')}
         self.programs={Path(p['source_file']).stem:p for p in bank.all('program')}
         self.allowed_ids={p['id'] for p in self.programs.values()}
-        self.view_hash=digest([METHOD,manifest,arm,programs])
+        self.view_hash=digest([METHOD,manifest,arm,programs,crop_mode])
 
     def __getattr__(self,key):return getattr(self.bank,key)
     def get(self,key):return self.bank.get(key) if self.arm=='human' else None
@@ -81,13 +85,22 @@ class HumanDocVQAView:
             names.append('numeric_compute')
         if self.program_mode=='all' or re.search(r'\b(phrase|written|title|quote|label|form)\b',q):
             names.append('transcription_check')
-        return [{'id':p['id'],'state':'callable_manual',
+        options = [{'id':p['id'],'state':'callable_manual',
                  'goal':p['goal'],'result_role':p['result_role'],
                  'input_schema':p['input_schema'],'output_schema':p['output_schema'],
                  'entry_constraints':p.get('entry_constraints',{}),
                  'manual_authority':METHOD}
                for k in names if (p:=self.programs.get(k)) is not None
                and p['id'] not in excluded and self.program_eligible(p)][:limit]
+        if self.crop_mode=='guidance':
+            options=deepcopy(options)
+            for option in options:
+                if option['id']==self.programs['image_region']['id']:
+                    schema=option['input_schema']
+                    schema['properties'].pop('region',None)
+                    schema.pop('oneOf',None)
+                    schema['required']=['image_path','bbox']
+        return options
 
 
 def safe_crop_parts(context,task,bank):
@@ -140,7 +153,16 @@ def image_result_bridge():
     def agent(s,stage,prompt,materials,name,schema,**kwargs):
         if stage=='runtime' and isinstance(s.bank,HumanDocVQAView) and s.bank.arm=='human':
             prompt=prompt.replace('supplied usable ID','supplied manually authorized reference ID')
-            prompt+='\nHuman-authored DocVQA reference arm: these assets are guidance, not facts. Return one direct answer or exactly ONE answer_step tool call per response, never parallel calls. Programs are optional. call_program requires name=the exact displayed ID and arguments matching that Program input_schema. image_region crops and enlarges original pixels, preferring lossless PNG; the actual crop is visible next to the original image in the next request. Use original-image bbox coordinates and preserve label/row/column context. Prefer enhancement=none for original strokes. Interpolation adds no new source detail. Never read base64 as text. numeric_compute requires already observed operands in the documented order. Transcription matching checks your own text, not the image. At most two executions; do not repeat an unchanged crop. After seeing a relevant crop, answer the exact requested field from actual evidence. If using a program result, finish with its actual result_id in used_results; do not invent use. No explanation in the final answer.'
+            prompt+='\nHuman-authored document-reading reference: Skills are procedures, not facts. Give the short answer directly, or exactly ONE answer_step per response. call_program must include name (the displayed Program ID) and arguments (its complete input object). Crops are actual source pixels displayed alongside the original on the next turn, not OCR. The ORIGINAL page has origin (0,0) at its top-left, x increases right and y down, both normalized to 1000. Keep the requested label/header and value together. A crop without that anchor does not resolve the question. You may correct it within the existing two-execution limit. Interpolation adds no detail. Prefer enhancement=none. numeric_compute checks arithmetic on supplied operands; transcription_check checks supplied text, neither verifies image reading. If a result supports your answer, finish with its actual ID in used_results. Return only the requested answer, without explanation.'
+            if s.bank.crop_mode=='grounded':
+                prompt+=' For image_region, use region=top/middle/bottom/left/right/whole when you can locate only a broad area; these overlap to retain context. Use bbox only for a confidently located smaller area. Supply region OR bbox, never both. After a crop, locate any correction on the original page, not in crop-relative coordinates.'
+            if name=='answer_step':
+                schema=deepcopy(schema)
+                schema['allOf']=[{'if':{'properties':{'action':{'const':action}}},
+                                  'then':{'required':required}}
+                    for action,required in [('call_program',['name','arguments']),
+                        ('execute_python',['source','arguments','input_schema','output_schema']),
+                        ('read_result',['result_id']),('finish',['answer'])]]
             v=deepcopy(materials)
             v['content_parts']=deepcopy(v.get('content_parts') or s.adapter.content_parts())
             entries=safe_crop_parts(s.task_context,s.adapter.task,s.bank)

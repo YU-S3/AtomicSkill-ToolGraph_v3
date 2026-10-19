@@ -45,10 +45,9 @@ def test_native_ids_readonly_and_reference_scope(imported):
     bank = Bank(c['data_dir'], readonly=True, seed=42, environment=c['program_environment'])
     try:
         view = HumanDocVQAView(bank, manifest)
-        assert [s['title'] for s in view.retrieve_guidance('What date?', limit=3)][:2] == ['DV01', 'DV10']
-        assert 'exact granularity' in view.retrieve_guidance('What date?', limit=3)[1]['guidance']
+        assert [s['title'] for s in view.retrieve_guidance('What date?', limit=3)][:2] == ['DV01', 'DV05']
         assert view.retrieve_guidance('Which region has the highest attendance?', limit=3)[-1]['title']=='DV03'
-        assert view.retrieve_guidance('Read this handwritten address', limit=3)[-1]['title']=='DV05'
+        assert [s['title'] for s in view.retrieve_guidance('Read this handwritten address', limit=3)]==['DV01','DV05','DV02']
         assert view.program_options('Where was the meeting?')[0]['id'] == view.programs['image_region']['id']
         for p in bank.all('program'):
             assert p['state'] == 'candidate' and not bank.program_eligible(p)
@@ -109,5 +108,12 @@ def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
         assert text_check['status'] == 'ok' and text_check['outputs']['candidate_present']
         refused = worker.execute(system.bank.programs['image_region'], {'image_path': '/etc/passwd', 'bbox': [0, 0, 1000, 1000]}, broker)
         assert refused['status'] == 'needs_input'
+        broad = worker.execute(system.bank.programs['image_region'],
+            {'image_path': '/workspace/inputs/image_0.png', 'region': 'bottom'}, broker)
+        assert broad['status']=='ok' and broad['outputs']['bbox_normalized']==[0,600,1000,1000]
+        from atomic_skillgraph.empirical.contracts import validate_schema_instance
+        with pytest.raises(ValueError):
+            validate_schema_instance({'image_path':'/workspace/inputs/image_0.png',
+                'region':'bottom','bbox':[0,0,1000,1000]},system.bank.programs['image_region']['input_schema'])
     finally:
         system.close()
