@@ -1,0 +1,765 @@
+{
+  "schema": "human.docvqa.reference.v1",
+  "benchmark": "docvqa",
+  "method_version": "docvqa.human-ideal.programmatic.v1.1",
+  "origin": "human_authored_external_inspiration",
+  "qualification": "none_not_naturally_learned",
+  "dataset_profile": "docvqa.main_experiment_v1",
+  "canonical_counts": {
+    "train": 180,
+    "val": 22,
+    "test": 201,
+    "reserve": 131
+  },
+  "asset_counts": {
+    "skill": 10,
+    "program": 3,
+    "implementation": 3,
+    "workflow": 3
+  },
+  "skill": [
+    {
+      "title": "DV01",
+      "goal": "Visual evidence first",
+      "guidance": "Read the actual supplied document image. Interpret the question as an exact target (person, date, quantity, title, field, or yes/no). Locate the target by its label and visual layout before responding. Do not invent a field from general knowledge. The earliest/most prominent text need not be the answer.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_e169163482b9fc31d48d260277fc13d8764419f0dba7f81e50697a33378c1d94"
+    },
+    {
+      "title": "DV02",
+      "goal": "Adjacent labeled fields",
+      "guidance": "On forms, letters, receipts or IDs, find the exact printed label and read the value in the same box, row or neighboring keyed block. Keep the label-value direction and distinguish sender/recipient, issue/expiry, account/phone/ID and similar nearby entries.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_d5e477fcf831c9fb08d483d770b1b1e2207311be3e5ba80ebdacd83c506850c8"
+    },
+    {
+      "title": "DV03",
+      "goal": "Table row and column alignment",
+      "guidance": "In a table, identify the requested row and exact header/date column, including merged headers. Read their intersection. Use caption units to interpret values; do not append a neighboring label, unit or total unless the question requests it.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_902bb57fe82a3feb78d283889aac7c924c364167a24324880075eb0b9b2f7d6a"
+    },
+    {
+      "title": "DV04",
+      "goal": "Lists and document sections",
+      "guidance": "For contents, numbered lists and agendas, anchor to the exact item number/name and copy the associated title, page number or bullet. Preserve row/list order; do not conflate the section heading with its answer.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_4f2c0889194abcde973cbf15d6823e2027b75b308ee4f6c1044244d94ed6e12f"
+    },
+    {
+      "title": "DV05",
+      "goal": "Handwriting and tiny characters",
+      "guidance": "For unclear, handwritten or tiny text, locate its label and compare visible strokes in context without guessing familiar words. If the uncertainty matters, optionally call the supplied image_region Program with the current mounted image path and a relevant bbox, then inspect the returned crop alongside the original. No automatic character substitutions.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_8ff28e7bfad4c1049c1420c7c5ca34ee1bcdcd44ab45bc0b8a4a5795ebfbf238"
+    },
+    {
+      "title": "DV06",
+      "goal": "Quantities dates and currency",
+      "guidance": "Copy the visible requested value without expanding, converting or reformatting it. Return only the requested count/date/amount. Preserve symbols that belong to the answer; do not append an adjacent unit or explanatory phrase just because it appears on the page.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_a23d5148a53107daa3986dfef50327dbff43af6af11de318e47731a8ac248c3e"
+    },
+    {
+      "title": "DV07",
+      "goal": "Charts figures and visual marks",
+      "guidance": "When asked about a figure, chart, arrow, checkbox, signature, stamp or diagram, reason from the actual marks and spatial relationships in the image, not only from nearby OCR-like text. Count distinct items carefully and distinguish checked from empty boxes.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_d922738f7e540bbb5ffedf067390fe59eb1016fada37e55f708db2a192ad95ff"
+    },
+    {
+      "title": "DV08",
+      "goal": "Derive only after reading operands",
+      "guidance": "Use arithmetic only when the question asks for a derived quantity. Read and label the needed operands from the image first. For difference use [from_value,to_value]; for ratio use [denominator,numerator]; for percent_change use [old_value,new_value]. The numeric Program checks arithmetic only, not the visual reading of operands.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_7d6501137f705940c4160b7a55bf8707b6850126c804cdc8190e91292e7cf4b2"
+    },
+    {
+      "title": "DV09",
+      "goal": "Verbatim transcription and answer granularity",
+      "guidance": "Return the smallest complete span that answers the question. Copy visible wording without expanding abbreviations or adding explanations, leading labels, adjacent organizations or unrequested units. Keep symbols and name parts needed to identify the requested entity; do not shorten it by guessing.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_c7d0adb442159e9a74d3419f31b1afff43ee0871c8d409149d6eea54e22dfc5a"
+    },
+    {
+      "title": "DV10",
+      "goal": "Decisive final answer",
+      "guidance": "Return only the smallest complete answer span, copied from the image without expanding abbreviations or adding explanations, labels, adjacent organizations or unrequested units. Preserve symbols and name parts belonging to the requested answer. Submit as plain text or answer_step finish. If the evidence is sufficient, answer immediately; tools and a second pass are optional. Revisit only a concrete ambiguity; change an answer only for actual contradictory image evidence.",
+      "execution_intent": "guidance_only",
+      "knowledge_type": "procedural",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_authored_reference",
+      "id": "skill_62d3fdf46c1f044c5b1f8917b31c47783b9b791d136642b8f635af8ad925608d"
+    }
+  ],
+  "program": [
+    {
+      "title": "Crop authorized DocVQA image region",
+      "goal": "Magnify a bounded region of the current public document image using Pillow",
+      "source_file": "programs/image_region.py",
+      "source": "\"\"\"Image ROI tool for the actual DocVQA public image, not an OCR system.\n\nInput path must be an AnswerAdapter worker_resources path mounted read-only at\n/workspace/inputs/image_N.ext. It returns a bounded JPEG for the runtime's\nmultimodal bridge, plus dimensions and the exact region used.\n\"\"\"\nimport base64\nimport hashlib\nfrom io import BytesIO\nfrom pathlib import Path\nimport re\n\nfrom PIL import Image, ImageEnhance, ImageOps\n\n\ndef crop_bytes(raw, bbox, max_edge=1280, enhancement='none'):\n    \"\"\"Pure transform used by the Worker and by zero-HTTP fixture tests.\"\"\"\n    if (not isinstance(bbox, list) or len(bbox) != 4 or\n            any(type(x) is not int or not 0 <= x <= 1000 for x in bbox) or\n            not (bbox[0] < bbox[2] and bbox[1] < bbox[3])):\n        raise ValueError('bbox must be [left,top,right,bottom] in [0,1000], nonempty')\n    if type(max_edge) is not int or not 384 <= max_edge <= 1600:\n        raise ValueError('max_edge must be 384..1600')\n    if enhancement not in ('none', 'contrast', 'grayscale'):\n        raise ValueError('Unsupported enhancement')\n    with Image.open(BytesIO(raw)) as original:\n        original.load()\n        if original.width * original.height > 75_000_000:\n            raise ValueError('Image is too large for a bounded crop')\n        frame = ImageOps.exif_transpose(original).convert('RGB')\n    width, height = frame.size\n    x0 = max(0, min(width-1, round(width*bbox[0]/1000)))\n    x1 = max(x0+1, min(width, round(width*bbox[2]/1000)))\n    y0 = max(0, min(height-1, round(height*bbox[1]/1000)))\n    y1 = max(y0+1, min(height, round(height*bbox[3]/1000)))\n    region = frame.crop((x0,y0,x1,y1))\n    if enhancement == 'grayscale':\n        region = ImageOps.grayscale(region).convert('RGB')\n    elif enhancement == 'contrast':\n        region = ImageEnhance.Contrast(region).enhance(1.25)\n    region.thumbnail((max_edge,max_edge), Image.Resampling.LANCZOS)\n    for quality in (82,70,58):\n        stream = BytesIO()\n        region.save(stream,format='JPEG',quality=quality,optimize=True)\n        image_bytes = stream.getvalue()\n        encoded = base64.b64encode(image_bytes).decode('ascii')\n        if len(encoded) <= 680_000:\n            return {'crop_base64':encoded,'image_mime':'image/jpeg',\n                    'image_sha256':hashlib.sha256(image_bytes).hexdigest(),\n                    'source_sha256':hashlib.sha256(raw).hexdigest(),\n                    'source_width':width,'source_height':height,\n                    'crop_width':region.width,'crop_height':region.height,\n                    'source_bbox_pixels':[x0,y0,x1,y1],\n                    'bbox_normalized':bbox,\n                    'scope':'crop_of_current_authorized_public_image_not_ocr'}\n    raise ValueError('Compressed crop still exceeds the RPC payload bound')\n\n\ndef run(ctx, inputs):\n    try:\n        path = inputs['image_path']\n        if (not isinstance(path,str) or not re.fullmatch(\n                r'/workspace/inputs/image_\\d+\\.(?:png|jpg|jpeg|webp|gif|bmp)',path,re.I)):\n            raise ValueError('Only an advertised /workspace/inputs/image_N.ext is allowed')\n        source = Path(path)\n        if not source.is_file() or source.is_symlink():\n            raise ValueError('Authorized public image is not mounted')\n        raw = source.read_bytes()\n        if len(raw) > 33_554_432:\n            raise ValueError('Input exceeds DocVQA frozen image-byte policy')\n        outputs = crop_bytes(raw, inputs['bbox'],inputs.get('max_edge',1280),\n                             inputs.get('enhancement','none'))\n        return {'status':'ok','outputs':outputs}\n    except (KeyError,ValueError,OSError,TypeError) as exc:\n        return {'status':'needs_input','outputs':{},'detail':str(exc)[:400]}\n",
+      "entry": "run",
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_path": {
+            "type": "string",
+            "description": "Use the exact path advertised in worker_resources, e.g. /workspace/inputs/image_0.png."
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "minItems": 4,
+            "maxItems": 4,
+            "description": "[left,top,right,bottom] in normalized 0..1000 coordinates of the ORIGINAL image; left<right, top<bottom."
+          },
+          "max_edge": {
+            "type": "integer",
+            "minimum": 384,
+            "maximum": 1600
+          },
+          "enhancement": {
+            "enum": [
+              "none",
+              "contrast",
+              "grayscale"
+            ]
+          }
+        },
+        "required": [
+          "image_path",
+          "bbox"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "crop_base64": {
+            "type": "string"
+          },
+          "image_mime": {
+            "const": "image/jpeg"
+          },
+          "image_sha256": {
+            "type": "string"
+          },
+          "source_sha256": {
+            "type": "string"
+          },
+          "source_width": {
+            "type": "integer"
+          },
+          "source_height": {
+            "type": "integer"
+          },
+          "crop_width": {
+            "type": "integer"
+          },
+          "crop_height": {
+            "type": "integer"
+          },
+          "source_bbox_pixels": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "bbox_normalized": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "crop_base64",
+          "image_mime",
+          "image_sha256",
+          "source_sha256",
+          "source_width",
+          "source_height",
+          "crop_width",
+          "crop_height",
+          "source_bbox_pixels",
+          "bbox_normalized",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "entry_constraints": {
+        "scope": "Only already mounted /workspace/inputs/image_N.ext public images",
+        "result_role": "intermediate",
+        "proof_scope": "image_transform_only_not_reading"
+      },
+      "id": "program_b3ce2befe1197baf1c1c17e48c0a2eab33530923d29555ca26d98a2d45f58e67",
+      "state": "candidate",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1"
+    },
+    {
+      "title": "Exact arithmetic from model-observed document numbers",
+      "goal": "Compute simple quantitative operations on actual model-transcribed operands",
+      "source_file": "programs/numeric_compute.py",
+      "source": "\"\"\"Deterministic arithmetic on values already visually obtained by the model.\n\nNo source OCR, no image parsing, no answer lookup and no statement that model-\ntranscribed operands are correct. result_role must remain intermediate.\n\"\"\"\nfrom decimal import Decimal, InvalidOperation, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx, inputs):\n    try:\n        op=inputs['operation']\n        data=inputs['values']\n        if not isinstance(data,list) or not 1 <= len(data) <= 256:\n            raise ValueError('1..256 observed values required')\n        if any(type(x) not in (str,int,float) for x in data):\n            raise ValueError('Only numeric inputs')\n        with localcontext() as precision:\n            precision.prec=44\n            nums=[Decimal(str(x).replace(',','')) for x in data]\n            if any(not x.is_finite() for x in nums):raise ValueError('Nonfinite operand')\n            if op=='count':value=Decimal(len(nums));formula='count(values)'\n            elif op=='sum':value=sum(nums);formula='sum(values)'\n            elif op=='mean':value=sum(nums)/Decimal(len(nums));formula='sum(values)/n'\n            elif op=='max':value=max(nums);formula='max(values)'\n            elif op=='min':value=min(nums);formula='min(values)'\n            elif op in ('difference','absolute_difference','ratio','percent_change'):\n                if len(nums)!=2:raise ValueError('Exactly two named values are required')\n                a,b=nums\n                if op=='difference':value=b-a;formula='to_value - from_value'\n                elif op=='absolute_difference':value=abs(b-a);formula='abs(to_value - from_value)'\n                elif a==0:raise ValueError('Denominator/base value is zero')\n                elif op=='ratio':value=b/a;formula='numerator / denominator'\n                else:value=(b-a)/a*100;formula='100*(new_value-base_value)/base_value'\n            else:raise ValueError('Unsupported operation')\n            digits=inputs.get('decimals')\n            if digits is not None:\n                if type(digits) is not int or not 0<=digits<=12:raise ValueError('decimals must be 0..12')\n                answer=format(value.quantize(Decimal(1).scaleb(-digits),rounding=ROUND_HALF_UP),f'.{digits}f')\n            else:\n                answer=format(value,'f')\n                if '.' in answer:answer=answer.rstrip('0').rstrip('.')\n            if answer in ('','-0'):answer='0'\n            return {'status':'ok','outputs':{'answer':answer,'value':str(value),\n                'formula':formula,'source_values':[str(x) for x in nums],\n                'unit':inputs.get('unit','unspecified'),\n                'scope':'local_arithmetic_only_operands_must_be_verified_against_image'}}\n    except (KeyError,InvalidOperation,ValueError,TypeError,ArithmeticError) as exc:\n        return {'status':'needs_input','outputs':{},'detail':str(exc)[:400]}\n",
+      "entry": "run",
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "enum": [
+              "count",
+              "sum",
+              "mean",
+              "max",
+              "min",
+              "difference",
+              "absolute_difference",
+              "ratio",
+              "percent_change"
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 256,
+            "description": "Read operands from the image. difference/absolute_difference: [from_value,to_value]; ratio: [denominator,numerator]; percent_change: [old_value,new_value]."
+          },
+          "decimals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "values"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "source_values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unit": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "value",
+          "formula",
+          "source_values",
+          "unit",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "entry_constraints": {
+        "scope": "Only numerical values actually observed by the current model from the image",
+        "result_role": "intermediate",
+        "proof_scope": "local_arithmetic_only"
+      },
+      "id": "program_502beb982528be7800701f4d3a5aa0fadf2950fe761b4b03a51b5fca43042a4d",
+      "state": "candidate",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1"
+    },
+    {
+      "title": "Compare candidate with model-provided transcription",
+      "goal": "Check string and anchor occurrence in a model-supplied visual transcription, never certify the image",
+      "source_file": "programs/transcription_check.py",
+      "source": "\"\"\"Bounded check against model-provided transcription, not against image truth.\"\"\"\nimport re\n\n\ndef run(ctx,inputs):\n    try:\n        line=inputs['observed_text']\n        candidate=inputs['candidate']\n        anchor=inputs.get('anchor','')\n        if not isinstance(line,str) or not isinstance(candidate,str) or not isinstance(anchor,str):\n            raise ValueError('All inputs are strings')\n        if not 0<len(candidate)<=300 or len(line)>12000 or len(anchor)>300:\n            raise ValueError('Invalid text length')\n        norm=lambda s:' '.join(s.split()).casefold()\n        match=norm(candidate) in norm(line)\n        anchored=not anchor or norm(anchor) in norm(line)\n        raw_exact=candidate in line\n        return {'status':'ok','outputs':{'candidate_present':match,\n            'anchor_present':anchored,'verbatim_present':raw_exact,\n            'candidate':candidate,\n            'scope':'model_supplied_transcription_only_not_visual_source_certification'}}\n    except (KeyError,ValueError,TypeError) as exc:\n        return {'status':'needs_input','outputs':{},'detail':str(exc)[:400]}\n",
+      "entry": "run",
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "observed_text": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "candidate": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "anchor": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "observed_text",
+          "candidate"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "candidate_present": {
+            "type": "boolean"
+          },
+          "anchor_present": {
+            "type": "boolean"
+          },
+          "verbatim_present": {
+            "type": "boolean"
+          },
+          "candidate": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_present",
+          "anchor_present",
+          "verbatim_present",
+          "candidate",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "entry_constraints": {
+        "scope": "Model-supplied transcription only; check the image separately",
+        "result_role": "intermediate",
+        "proof_scope": "text_occurrence_not_source_authenticity"
+      },
+      "id": "program_a5a67cb8b54266e714d4c3d41182958ea64f03b150a06e0463b38591923f5500",
+      "state": "candidate",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1"
+    }
+  ],
+  "implementation": [
+    {
+      "skill_id": "skill_8ff28e7bfad4c1049c1420c7c5ca34ee1bcdcd44ab45bc0b8a4a5795ebfbf238",
+      "program_id": "program_b3ce2befe1197baf1c1c17e48c0a2eab33530923d29555ca26d98a2d45f58e67",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "origin": "human_authored_unqualified",
+      "id": "implementation_b88a8c087bf7e5df2772db08a379d8c2a30a62e839b1d198d57e54b5cf887866"
+    },
+    {
+      "skill_id": "skill_7d6501137f705940c4160b7a55bf8707b6850126c804cdc8190e91292e7cf4b2",
+      "program_id": "program_502beb982528be7800701f4d3a5aa0fadf2950fe761b4b03a51b5fca43042a4d",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "origin": "human_authored_unqualified",
+      "id": "implementation_d8aee424bde04f41d651a9d9b0d5e0bd0ba03f8eaab6b4808ffb2c041c53a294"
+    },
+    {
+      "skill_id": "skill_c7d0adb442159e9a74d3419f31b1afff43ee0871c8d409149d6eea54e22dfc5a",
+      "program_id": "program_a5a67cb8b54266e714d4c3d41182958ea64f03b150a06e0463b38591923f5500",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "origin": "human_authored_unqualified",
+      "id": "implementation_6de8a08d8db1c206fd9f2fa118ecda4ee0a82a3a68fee93466bc3ed47e16b7a0"
+    }
+  ],
+  "workflow": [
+    {
+      "title": "ROI zoom then answer",
+      "goal": "Read a small or handwritten region of an original document image",
+      "interface_version": "empirical.workflow.v2",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "nodes": [
+        {
+          "id": "locate",
+          "execution_mode": "dynamic",
+          "goal": "Inspect the original image; locate the question target. Output bbox (0..1000) and the exact advertised worker_resources image_path; do not invent text.",
+          "args": {
+            "question": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "crop",
+          "execution_mode": "program",
+          "program_id": "program_b3ce2befe1197baf1c1c17e48c0a2eab33530923d29555ca26d98a2d45f58e67",
+          "after": [
+            "locate"
+          ],
+          "args": {
+            "image_path": {
+              "from": "locate",
+              "field": "image_path"
+            },
+            "bbox": {
+              "from": "locate",
+              "field": "bbox"
+            }
+          }
+        },
+        {
+          "id": "read_crop",
+          "execution_mode": "dynamic",
+          "goal": "Read the actual cropped image, verify it against original spatial context and return only the answer.",
+          "after": [
+            "crop"
+          ],
+          "args": {
+            "question": {
+              "task": "goal"
+            },
+            "crop_sha256": {
+              "from": "crop",
+              "field": "image_sha256"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "read_crop",
+          "field": "answer"
+        }
+      },
+      "id": "workflow_41bd5b6650de2afb6084693ab5e013cfb59132fe99b8df9f133867a73807fc9f"
+    },
+    {
+      "title": "Read values then deterministic arithmetic",
+      "goal": "Compute a numeric answer using operands read from the actual image",
+      "interface_version": "empirical.workflow.v2",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "nodes": [
+        {
+          "id": "read_values",
+          "execution_mode": "dynamic",
+          "goal": "Read every needed operand and order it correctly from the original image, returning operation/values/unit.",
+          "args": {
+            "question": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "compute",
+          "execution_mode": "program",
+          "program_id": "program_502beb982528be7800701f4d3a5aa0fadf2950fe761b4b03a51b5fca43042a4d",
+          "after": [
+            "read_values"
+          ],
+          "args": {
+            "operation": {
+              "from": "read_values",
+              "field": "operation"
+            },
+            "values": {
+              "from": "read_values",
+              "field": "values"
+            },
+            "unit": {
+              "from": "read_values",
+              "field": "unit"
+            }
+          }
+        },
+        {
+          "id": "answer",
+          "execution_mode": "dynamic",
+          "goal": "Use the computed numeric result only if its operands match the image and the requested target; return exact final answer.",
+          "after": [
+            "compute"
+          ],
+          "args": {
+            "question": {
+              "task": "goal"
+            },
+            "computed_answer": {
+              "from": "compute",
+              "field": "answer"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "answer",
+          "field": "answer"
+        }
+      },
+      "id": "workflow_a1740c1c0de49de88365fbd567079183287e26c61db029057fab0e77835e0350"
+    },
+    {
+      "title": "Visual transcript and anchored check",
+      "goal": "Read an exact text answer from a crowded form or handwritten label",
+      "interface_version": "empirical.workflow.v2",
+      "method_version": "docvqa.human-ideal.programmatic.v1.1",
+      "nodes": [
+        {
+          "id": "read_text",
+          "execution_mode": "dynamic",
+          "goal": "Read the image near the requested label and propose candidate, observed_text, and anchor; retain visual uncertainty.",
+          "args": {
+            "question": {
+              "task": "goal"
+            }
+          }
+        },
+        {
+          "id": "check",
+          "execution_mode": "program",
+          "program_id": "program_a5a67cb8b54266e714d4c3d41182958ea64f03b150a06e0463b38591923f5500",
+          "after": [
+            "read_text"
+          ],
+          "args": {
+            "observed_text": {
+              "from": "read_text",
+              "field": "observed_text"
+            },
+            "candidate": {
+              "from": "read_text",
+              "field": "candidate"
+            },
+            "anchor": {
+              "from": "read_text",
+              "field": "anchor"
+            }
+          }
+        },
+        {
+          "id": "finalize",
+          "execution_mode": "dynamic",
+          "goal": "Return exact target from original image; note text check verifies only transcription self-consistency.",
+          "after": [
+            "check"
+          ],
+          "args": {
+            "question": {
+              "task": "goal"
+            },
+            "candidate_seen": {
+              "from": "check",
+              "field": "candidate_present"
+            }
+          }
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "finalize",
+          "field": "answer"
+        }
+      },
+      "id": "workflow_73b20ef2b63ded7f331419958479ef48db85479dc4ff7c0101f635302829c8e3"
+    }
+  ]
+}

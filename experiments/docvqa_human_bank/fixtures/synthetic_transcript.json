@@ -1,0 +1,10 @@
+{
+  "read_text": {
+    "observed_text": "Account No.: 63744",
+    "candidate": "63744",
+    "anchor": "Account No."
+  },
+  "finalize": {
+    "answer": "63744"
+  }
+}

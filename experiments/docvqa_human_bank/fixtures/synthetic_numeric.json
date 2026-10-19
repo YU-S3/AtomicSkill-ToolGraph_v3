@@ -1,0 +1,14 @@
+{
+  "read_values": {
+    "operation": "sum",
+    "values": [
+      "4",
+      "5",
+      "6"
+    ],
+    "unit": "items"
+  },
+  "answer": {
+    "answer": "15"
+  }
+}

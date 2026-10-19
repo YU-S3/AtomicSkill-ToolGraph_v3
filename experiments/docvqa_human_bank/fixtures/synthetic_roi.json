@@ -1,0 +1,14 @@
+{
+  "locate": {
+    "image_path": "/workspace/inputs/image_0.png",
+    "bbox": [
+      90,
+      160,
+      910,
+      760
+    ]
+  },
+  "read_crop": {
+    "answer": "63744"
+  }
+}
