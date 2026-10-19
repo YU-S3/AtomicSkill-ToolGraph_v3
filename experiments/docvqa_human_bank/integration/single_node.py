@@ -80,13 +80,16 @@ def single_node_bridge():
 
     def agent(s, stage, prompt, materials, name, schema, **kwargs):
         if stage == 'runtime' and isinstance(s.bank, SingleNodeDocVQAView):
-            if name != 'answer_step':
-                raise ValueError('Single-node evaluation permits one answer decision only')
+            answer_step = name == 'answer_step'
+            if name not in ('answer_step', 'finish_answer', None):
+                raise ValueError('Unexpected single-node decision')
             prompt = ('Answer the question from the supplied document image. The manual Skill is '
                 'procedural guidance, not document evidence. Apply its relevant rules together. '
                 'Return only the requested answer, without a plan or explanation. '
                 + s.adapter.answer_contract())
-            material = deepcopy({k: materials[k] for k in ('goal', 'guidance', 'content_parts')})
+            material = deepcopy({k: materials[k] for k in ('goal', 'guidance', 'content_parts') if k in materials})
+            if not material.get('content_parts'):
+                material['content_parts'] = s.adapter.content_parts()
             if s.bank.crop_enabled:
                 from human_view import safe_crop_parts
                 failures = [{k: r[k] for k in ('result_id', 'status', 'error', 'reason') if k in r}
@@ -99,7 +102,7 @@ def single_node_bridge():
                     material['content_parts'].append(crop['part'])
                     material.setdefault('crop_evidence', []).append({'result_id': crop['result_id'],
                         'source_bbox': crop['bbox'], 'image_index': len(material['content_parts']) - 1})
-                if materials['remaining_local_executions'] > 0:
+                if answer_step and materials['remaining_local_executions'] > 0:
                     schema = {'type': 'object', 'properties': {
                         'action': {'enum': ['inspect', 'finish']},
                         'region': {'enum': ['top', 'middle', 'bottom', 'left', 'right', 'whole']},
@@ -125,8 +128,8 @@ def single_node_bridge():
                             'arguments': {'image_path': '/workspace/inputs/image_0.png',
                                 **{k: step[k] for k in ('region', 'bbox') if k in step}}}
                     return step
-            answer = old(s, stage, prompt, material, None, None, **kwargs)
-            return {'action': 'finish', 'answer': answer or ''}
+            answer = old(s, stage, prompt, material, None if answer_step else name, None, **kwargs)
+            return {'action': 'finish', 'answer': answer or ''} if answer_step else answer
         return old(s, stage, prompt, materials, name, schema, **kwargs)
 
     EmpiricalSystem.agent = agent

@@ -119,7 +119,8 @@ def test_single_node_delivers_one_skill_and_original_image_without_tools(importe
         system.close()
 
 
-def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, monkeypatch):
+@pytest.mark.parametrize('finish_reserved', [False, True])
+def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, monkeypatch, finish_reserved):
     c, _ = imported
     c['data_dir'] = str(tmp_path / 'crop_bank')
     config_path = tmp_path / 'crop_config.json'
@@ -133,6 +134,14 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
     sent = http(monkeypatch, [response([{'action': 'inspect', 'region': 'top'}], name='answer_step'),
         response(content='74216', finish='stop')])
+    if finish_reserved:
+        from atomic_skillgraph.core.errors import BudgetExhausted
+        original = EmpiricalSystem.agent
+        def reserve(s, stage, prompt, materials, name, schema, **kwargs):
+            if name == 'answer_step' and len(s.requests) == 1:
+                raise BudgetExhausted('runtime_finish_reserved', 'Exercise the existing bounded finish path')
+            return original(s, stage, prompt, materials, name, schema, **kwargs)
+        monkeypatch.setattr(EmpiricalSystem, 'agent', reserve)
     try:
         before = system.bank.digest()
         with single_node_bridge(): trace = system.run_task(task, learn=False)
@@ -145,7 +154,12 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         parts = sent[1]['messages'][1]['content']
         images = [p for p in parts if p['type'] == 'image_url']
         material = json.loads(next(p['text'] for p in parts if p['type'] == 'text'))
-        assert len(images) == 2 and len(material['guidance']) == 1
+        assert len(images) == 2
+        if finish_reserved:
+            assert not sent[1].get('tools')
+            assert trace['execution']['reason'] == 'budget_finish_only'
+        else:
+            assert len(material['guidance']) == 1
         assert images[0] == next(p for p in sent[0]['messages'][1]['content'] if p['type'] == 'image_url')
         assert material['crop_evidence'][0]['source_bbox'] == [0, 0, 1000, 400]
         assert not any(k in material for k in ('programs', 'workflows', 'worker_resources'))
