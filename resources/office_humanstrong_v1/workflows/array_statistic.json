@@ -1,0 +1,75 @@
+{
+  "interface_version": "empirical.workflow.v2",
+  "title": "array_statistic",
+  "goal": "Run an array-style statistic (sum, mean, dispersion, correlation or OLS) with real source values; named ratio/change/difference use their separate Program ABI.",
+  "nodes": [
+    {
+      "id": "align",
+      "execution_mode": "dynamic",
+      "goal": "Read actual aligned source values for a supported array statistic; produce operation, values, unit (and other_values only when supported).",
+      "reference_skill_ids": [
+        "skill_4db1996905a381bbfe9e2fa66d0db213639642c20030ad5198f804ee5865a027",
+        "skill_0813692357d6d1df00081f1b03ccc64d8cef7635267a078a9d41eb415e7106bb"
+      ],
+      "args": {
+        "goal": {
+          "task": "goal"
+        }
+      },
+      "after": []
+    },
+    {
+      "id": "compute",
+      "execution_mode": "program",
+      "program_id": "program_f8e91ae94c02937cceee8866a0a601bce3442a30463b4784fee9ede27437719b",
+      "args": {
+        "operation": {
+          "from": "align",
+          "field": "operation"
+        },
+        "values": {
+          "from": "align",
+          "field": "values"
+        },
+        "unit": {
+          "from": "align",
+          "field": "unit"
+        }
+      },
+      "after": [
+        "align"
+      ]
+    },
+    {
+      "id": "finalize",
+      "execution_mode": "dynamic",
+      "goal": "Check that executed formula and input semantics match question; commit only requested output.",
+      "reference_skill_ids": [
+        "skill_0813692357d6d1df00081f1b03ccc64d8cef7635267a078a9d41eb415e7106bb",
+        "skill_ce4f49fe975a756a0748e57bb103e43d4d04a0bd6085326eb2dd1d480c166dad"
+      ],
+      "args": {
+        "goal": {
+          "task": "goal"
+        },
+        "calculation": {
+          "from": "compute",
+          "field": "answer"
+        }
+      },
+      "after": [
+        "compute"
+      ]
+    }
+  ],
+  "outputs": {
+    "answer": {
+      "from": "finalize",
+      "field": "answer"
+    }
+  },
+  "origin": "human_authored",
+  "method_version": "office.humanstrong.programmatic.v1.20261019",
+  "execution_permission": "manual_optional_not_auto",
+  "id": "workflow_19e401c88110b1ef092a27369adf488ba962ee522a512c4ece7eb9d51ea93581"
+}

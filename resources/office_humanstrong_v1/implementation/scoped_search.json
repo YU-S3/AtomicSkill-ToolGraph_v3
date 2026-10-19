@@ -1,0 +1,10 @@
+{
+  "kind": "implementation",
+  "skill_id": "skill_1b06e22b029bca82ec0ac750fadcd073afd5392dc8e7c1fe1c16bc421c22e95d",
+  "program_id": "program_b81b047cbb68a37ed1501de4fe096dad8459d0211229fea640d632135d607b6a",
+  "goal": "Execute verified local operation of OA-Locate",
+  "origin": "human_authored",
+  "permission": "author_trusted",
+  "method_version": "office.humanstrong.programmatic.v1.20261019",
+  "id": "implementation_eb7ac9897b5b17fd342f3fc2019bb358690269ce9ad3cc7c9647939b05809d46"
+}

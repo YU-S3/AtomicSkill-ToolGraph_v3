@@ -1,0 +1,10 @@
+{
+  "kind": "implementation",
+  "skill_id": "skill_6b8ddd8250409c2c8ecf9dcf29705b5e0fda351dfc651a42c7d3b811f79e5624",
+  "program_id": "program_a6bf157bfb964f4ef70038a8e07a25619488afc9c75d089f26a955ffaeef2710",
+  "goal": "Execute verified local operation of OA-Periods",
+  "origin": "human_authored",
+  "permission": "author_trusted",
+  "method_version": "office.humanstrong.programmatic.v1.20261019",
+  "id": "implementation_858e5f7fc9074f09a14d96e2d66350ffa77edf0b2a93064b413dfa3c6ea34173"
+}
