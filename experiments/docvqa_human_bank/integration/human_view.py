@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-METHOD='docvqa.human-ideal.programmatic.v1.10'
+METHOD='docvqa.human-ideal.programmatic.v1.11'
 
 
 def skill_selection(question):
@@ -26,10 +26,11 @@ def skill_selection(question):
       ('DV02',r'\b(form|invoice|receipt|issued to|address|telephone|phone|name of|signature|signed by|account)\b'),
       ('DV04',r'\b(page (?:number|no)|contents|agenda|item number|section|chapter|bullet|list|which point)\b'),
       ('DV05',r'\b(written|signature|serial|id number|registration|number on|code)\b'),
+      ('DV06',r'\bno\.(?=\s|[?]|$)'),
       ('DV06',r'\b(how many|how much|how long|date|year|amount|percent|\%|currency|price|number|time)\b'),
       ('DV07',r'\b(diagram|graph|chart|drawn|arrow|checkbox|checked|circle|tick|figure|symbol|mark)\b'),
       ('DV08',r'\b(total|sum|difference|average|ratio|growth|increase|decrease|between|combined)\b'),
-      ('DV09',r'\b(exact|quote|word|phrase|title|written|label|called|name)\b'),
+      ('DV09',r'\b(exact|quote|word|phrase|title|written|label|called|name|who|which)\b'),
     ]
     for key,pattern in patterns:
         if re.search(pattern,q) and key not in extra: extra.append(key)

@@ -69,6 +69,8 @@ def test_native_ids_readonly_and_reference_scope(imported):
         assert 'handwriting' in view.retrieve_guidance('What date?', limit=3)[0]['guidance']
         assert view.retrieve_guidance('Which region has the highest attendance?', limit=3)[-1]['title']=='DV03'
         assert [s['title'] for s in view.retrieve_guidance('Read this handwritten address', limit=3)]==['DV01','DV10','DV05']
+        assert view.retrieve_guidance('What is the permit no.?', limit=3)[-1]['title']=='DV06'
+        assert view.retrieve_guidance('What is the page no.?', limit=3)[-1]['title']=='DV04'
         assert view.program_options('Where was the meeting?')[0]['id'] == view.programs['image_region']['id']
         for p in bank.all('program'):
             assert p['state'] == 'candidate' and not bank.program_eligible(p)
