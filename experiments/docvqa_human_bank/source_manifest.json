@@ -2,7 +2,7 @@
   "original_zip_sha256": "54446ff3a07940b7ddab67026aee98e3b778c496cb886a67a9843736024624a2",
   "original_bank_sha256": "dc20f3404628e74beb48e7816dab95a73d63e30736b9e5c05984c0acbf0c9fa8",
   "origin": "user supplied human-authored reference; not learned Ours",
-  "method_version": "docvqa.human-ideal.programmatic.v1.11",
+  "method_version": "docvqa.human-ideal.programmatic.v1.12",
   "edits": [
     "DV01",
     "DV02",
@@ -17,7 +17,7 @@
   ],
   "no_task_answer_rules": true,
   "workflow_execution": false,
-  "prior_version": "docvqa.human-ideal.programmatic.v1.10",
+  "prior_version": "docvqa.human-ideal.programmatic.v1.11",
   "validation_policy": "Fixed Train development comparison; frozen candidate repeated Val and paired exploratory Test; all runs/costs retained",
-  "revision_basis": "Train-only injection audit: no. abbreviations did not receive the identifier Skill; the global numeric instruction conflicted with specialist boundaries. Recognize the generic abbreviation and common entity questions, make specialist boundaries authoritative, and retain all values in the selected role. No task-ID or gold-answer rules."
+  "revision_basis": "Public Train image audit confirms a real crop can contain an unrelated paragraph despite valid coordinates. Add a bounded host-rendered locator around the actual verified crop on a whole-page view. Keep the original and both real crops first; locators are optional orientation aids, explicitly not Program output or new evidence. No new model turn, execution, OCR, scoring or task-ID rule."
 }

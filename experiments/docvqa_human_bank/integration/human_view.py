@@ -11,9 +11,9 @@ from io import BytesIO
 import re
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageOps
 
-METHOD='docvqa.human-ideal.programmatic.v1.11'
+METHOD='docvqa.human-ideal.programmatic.v1.12'
 
 
 def skill_selection(question):
@@ -102,14 +102,33 @@ class HumanDocVQAView:
         return options
 
 
+def crop_locator(raw, bbox):
+    """Host-rendered orientation aid, never OCR or additional document evidence."""
+    with Image.open(BytesIO(raw)) as im:
+        frame = ImageOps.exif_transpose(im).convert('RGB')
+    frame.thumbnail((768, 768), Image.Resampling.LANCZOS)
+    x0, y0, x1, y1 = bbox
+    ImageDraw.Draw(frame).rectangle(
+        [min(frame.width-1, round(x0*frame.width/1000)),
+         min(frame.height-1, round(y0*frame.height/1000)),
+         min(frame.width-1, round(x1*frame.width/1000)),
+         min(frame.height-1, round(y1*frame.height/1000))], outline=(255, 0, 180), width=3)
+    stream = BytesIO(); frame.save(stream, format='JPEG', quality=85, optimize=True)
+    data = stream.getvalue()
+    return {'image_sha256': hashlib.sha256(data).hexdigest(),
+            'part': {'type':'image_url','image_url':{
+                'url':'data:image/jpeg;base64,'+base64.b64encode(data).decode('ascii'),'detail':'high'}}}
+
+
 def safe_crop_parts(context,task,bank):
     """Retain up to two real verified crops, so the header and value can coexist."""
     if context is None:return []
     try:
         from atomic_skillgraph.empirical.public_results import PROGRAM_EXECUTION
     except ImportError:return []
-    sources={hashlib.sha256(Path(p).read_bytes()).hexdigest()
-             for p in task.inputs.get('images',[]) if Path(p).is_file()}
+    sources={hashlib.sha256(raw).hexdigest():raw
+             for p in task.inputs.get('images',[]) if Path(p).is_file()
+             for raw in [Path(p).read_bytes()]}
     crop=bank.programs.get('image_region')
     if not crop or not bank.program_eligible(crop):return []
     produced={r['result_id'] for r in context.memory.values() if r['name']==crop['id']}
@@ -130,6 +149,7 @@ def safe_crop_parts(context,task,bank):
             if any(p['image_sha256']==out['image_sha256'] for p in parts):continue
             parts.append({'result_id':rid,'image_sha256':out['image_sha256'],
                     'bbox':out['bbox_normalized'],
+                    'locator':crop_locator(sources[out['source_sha256']],out['bbox_normalized']),
                     'selection_target':deepcopy(out.get('selection_target',{})),
                     'part':{'type':'image_url','image_url':{'url':'data:'+out['image_mime']+';base64,'+out['crop_base64'],'detail':'high'}}})
             if len(parts)==2:break
@@ -154,6 +174,7 @@ def image_result_bridge():
         if stage=='runtime' and isinstance(s.bank,HumanDocVQAView) and s.bank.arm=='human':
             prompt=prompt.replace('supplied usable ID','supplied manually authorized reference ID')
             prompt+='\nHuman reference assets are procedures, not facts. Return a direct short answer or exactly ONE answer_step. call_program requires the displayed ID in name and the complete input object in arguments. image_region returns actual source pixels, visible next to the original; interpolation is not new evidence. A crop must contain the requested label/value to help. Coordinates refer to the original page (0..1000; origin top-left, x right, y down). At most two executions. Use actual result_id in used_results when a result supports the answer. Text checks do not verify the image.'
+            prompt+=' If provided, a locator view outlines the actual crop on a reduced whole page. It is a host-rendered orientation aid, not new evidence. Check that the outlined region contains your intended source; read characters from the original or crop. A wrong region calls for relocation, not a different interpretation of unrelated text.'
             if s.bank.crop_mode=='grounded':
                 prompt+=' First crop: select a broad region to locate the field; second crop may use bbox for the located detail. Do not use crop-relative coordinates.'
             if name=='answer_step':
@@ -180,14 +201,25 @@ def image_result_bridge():
             # Respect the actual provider lock. No extra image if the Provider cannot take it.
             if entries and 'image' in s.config.get('llm',{}).get('input_modalities',[]):
                 maximum=s.config.get('llm',{}).get('image_input',{}).get('max_images',1)
-                for entry in entries[:max(0,maximum-len(v['content_parts']))]:
+                included=entries[:max(0,maximum-len(v['content_parts']))]
+                rendered=[]
+                for entry in included:
                     v['content_parts'].append(entry['part'])
-                    v.setdefault('crop_visual_evidence',[]).append({'result_id':entry['result_id'],'image_sha256':entry['image_sha256'],
+                    evidence={'result_id':entry['result_id'],'image_sha256':entry['image_sha256'],
                                                'bbox_normalized':entry['bbox'],
                                                'selection_target':entry['selection_target'],
                                                'target_authority':'caller_supplied_plan_not_verified_document_evidence',
                                                'image_index':len(v['content_parts'])-1,
-                                               'note':'A crop of the original document, not separate proof'})
+                                               'note':'A crop of the original document, not separate proof'}
+                    v.setdefault('crop_visual_evidence',[]).append(evidence)
+                    rendered.append((entry,evidence))
+                # Actual source/crop pixels take priority over auxiliary locators.
+                for entry,evidence in rendered:
+                    if len(v['content_parts'])>=maximum:break
+                    locator=entry['locator'];v['content_parts'].append(locator['part'])
+                    evidence['locator']={'image_index':len(v['content_parts'])-1,
+                        'image_sha256':locator['image_sha256'],
+                        'authority':'host_rendered_position_aid_not_program_output_or_new_evidence'}
             for key in tuple(v):
                 if key!='content_parts':v[key]=scrub_crop_binary(v[key])
             if v.get('remaining_local_executions')==0:

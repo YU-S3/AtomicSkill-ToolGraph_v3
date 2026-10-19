@@ -112,14 +112,17 @@ def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
         for card in material['programs']:
             jsonschema.Draft202012Validator.check_schema(card['output_schema'])
         images = lambda parts: [x for x in parts if x['type'] == 'image_url']
-        assert len(images(first)) == 1 and len(images(second)) == 2
-        assert len(images(sent[2]['messages'][1]['content']))==3
+        assert len(images(first)) == 1 and len(images(second)) == 3
+        assert len(images(sent[2]['messages'][1]['content']))==5
         assert images(first)[0] == images(second)[0]
         text = next(x['text'] for x in second if x['type'] == 'text')
         assert 'crop_visual_evidence' in text
         evidence = json.loads(text)['crop_visual_evidence'][0]
         assert evidence['selection_target']==target
         assert evidence['target_authority']=='caller_supplied_plan_not_verified_document_evidence'
+        locator=images(second)[evidence['locator']['image_index']]['image_url']['url']
+        assert hashlib.sha256(base64.b64decode(locator.split(',')[1])).hexdigest()==evidence['locator']['image_sha256']
+        assert evidence['locator']['authority']=='host_rendered_position_aid_not_program_output_or_new_evidence'
         crops = safe_crop_parts(system.task_context, task, system.bank)
         assert len(crops)==2
         crop = crops[0]
