@@ -1,7 +1,7 @@
 """Image ROI tool for the actual DocVQA public image, not an OCR system.
 
 Input path must be an AnswerAdapter worker_resources path mounted read-only at
-/workspace/inputs/image_N.ext. It returns a bounded JPEG for the runtime's
+/workspace/inputs/image_N.ext. It returns a bounded image for the runtime's
 multimodal bridge, plus dimensions and the exact region used.
 """
 import base64
@@ -83,6 +83,12 @@ def run(ctx, inputs):
         bbox = inputs['bbox'] if 'bbox' in inputs else REGIONS[inputs['region']]
         outputs = crop_bytes(raw, bbox,inputs.get('max_edge',1280),
                              inputs.get('enhancement','none'))
+        target = inputs.get('selection_target', {})
+        if target and (not isinstance(target, dict) or set(target) != {'source_anchor','answer_unit'} or
+                any(not isinstance(v,str) or not v.strip() or len(v)>160 for v in target.values())):
+            raise ValueError('selection_target needs a source_anchor and answer_unit, each 1..160 characters')
+        # This is the caller's plan, not OCR output or verified document evidence.
+        outputs['selection_target'] = target
         return {'status':'ok','outputs':outputs}
     except (KeyError,ValueError,OSError,TypeError) as exc:
         return {'status':'needs_input','outputs':{},'detail':str(exc)[:400]}

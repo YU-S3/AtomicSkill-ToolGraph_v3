@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-METHOD='docvqa.human-ideal.programmatic.v1.8'
+METHOD='docvqa.human-ideal.programmatic.v1.9'
 
 
 def skill_selection(question):
@@ -129,6 +129,7 @@ def safe_crop_parts(context,task,bank):
             if any(p['image_sha256']==out['image_sha256'] for p in parts):continue
             parts.append({'result_id':rid,'image_sha256':out['image_sha256'],
                     'bbox':out['bbox_normalized'],
+                    'selection_target':deepcopy(out.get('selection_target',{})),
                     'part':{'type':'image_url','image_url':{'url':'data:'+out['image_mime']+';base64,'+out['crop_base64'],'detail':'high'}}})
             if len(parts)==2:break
         except (ValueError,KeyError,TypeError,OSError):continue
@@ -182,6 +183,8 @@ def image_result_bridge():
                     v['content_parts'].append(entry['part'])
                     v.setdefault('crop_visual_evidence',[]).append({'result_id':entry['result_id'],'image_sha256':entry['image_sha256'],
                                                'bbox_normalized':entry['bbox'],
+                                               'selection_target':entry['selection_target'],
+                                               'target_authority':'caller_supplied_plan_not_verified_document_evidence',
                                                'image_index':len(v['content_parts'])-1,
                                                'note':'A crop of the original document, not separate proof'})
             for key in tuple(v):

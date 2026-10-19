@@ -68,8 +68,10 @@ def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
     image = ASSETS / 'fixtures/synthetic_form.png'
     task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the account number?', {'images': [str(image)]}, 'test')
     crop_id = system.bank.programs['image_region']['id']
+    target = {'source_anchor':'Account label in the synthetic form','answer_unit':'account identifier'}
     sent = http(monkeypatch, [response([{'action': 'call_program', 'name': crop_id,
-        'arguments': {'image_path': '/workspace/inputs/image_0.png', 'region': 'top'}}], name='answer_step'),
+        'arguments': {'image_path': '/workspace/inputs/image_0.png', 'region': 'top',
+                      'selection_target':target}}], name='answer_step'),
         response([{'action': 'call_program', 'name': crop_id,
         'arguments': {'image_path': '/workspace/inputs/image_0.png', 'bbox': [250, 250, 500, 500]}}], name='answer_step'),
         response(content='74216', finish='stop')])
@@ -93,6 +95,9 @@ def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
         assert images(first)[0] == images(second)[0]
         text = next(x['text'] for x in second if x['type'] == 'text')
         assert 'crop_visual_evidence' in text
+        evidence = json.loads(text)['crop_visual_evidence'][0]
+        assert evidence['selection_target']==target
+        assert evidence['target_authority']=='caller_supplied_plan_not_verified_document_evidence'
         crops = safe_crop_parts(system.task_context, task, system.bank)
         assert len(crops)==2
         crop = crops[0]
