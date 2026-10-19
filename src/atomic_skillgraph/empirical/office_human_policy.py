@@ -146,6 +146,14 @@ def finish_evidence(context, materials, prompt, *, max_bytes, output_cap, payloa
     value = {'original_goal': materials.get('original_goal', ''), 'finish_evidence': [],
              'answer_candidate': deepcopy(candidate), 'authored_commit_policy': policy,
              'candidate_note': 'Reference integrity is not task/semantic certification. Match the requested target.'}
+    from . import evidence_handoff
+    if evidence_handoff.enabled(context.settings):
+        outputs,required=evidence_handoff.output_material(materials)
+        value.update(outputs)
+        required.extend({'ref':r['source_ref'],'quote':r['quote']} for r in state.get('operands',[]))
+        if candidate and candidate.get('ready'):required.insert(0,{'ref':candidate['result_ref']})
+        return evidence_handoff.prepare(context,value,max_bytes=max_bytes,output_cap=output_cap,
+            payload_builder=payload_builder,priority_refs=required,allowed_result_ids=allowed_result_ids)
     bound = lambda v: input_token_bound(payload_builder(v, output_cap))
     omitted, unresolved, included, refs = [], [], [], []
     # Directory/history summaries are represented by actual cited windows below.

@@ -1,5 +1,6 @@
 """Temporary search uses the current owner, then normal source qualification."""
 from copy import deepcopy
+import pytest
 from atomic_skillgraph.empirical.contracts import object_schema
 from atomic_skillgraph.empirical.local_validation import evidence_from_trace
 from atomic_skillgraph.harness.simple_protocol import Broker
@@ -16,8 +17,14 @@ print(json.dumps({'path': hits[0]['path'], 'text': page['text']}))
 '''
 
 
-def test_empty_bank_searches_in_one_temporary_script_and_accounts_every_call(tmp_path, worker):
+@pytest.mark.parametrize('span_handoff',[False,True])
+def test_empty_bank_searches_in_one_temporary_script_and_accounts_every_call(tmp_path, worker, span_handoff):
     s = office(tmp_path); s.adapter.worker = worker; worker.settings['wall_timeout_seconds'] = 20
+    if span_handoff:
+        from test_evidence_handoff import configure
+        configure(s.config)
+        s.adapter.config=s.config
+        s.task_context.settings.update(s.config["runtime"])
     snapshots = []
     broker = Broker(s.adapter, 5, journal=lambda events:snapshots.append(deepcopy(events)))
     try:
@@ -38,8 +45,14 @@ def test_empty_bank_searches_in_one_temporary_script_and_accounts_every_call(tmp
     finally: s.close()
 
 
-def test_temporary_script_cannot_reset_shared_call_budget(tmp_path, worker):
+@pytest.mark.parametrize('span_handoff',[False,True])
+def test_temporary_script_cannot_reset_shared_call_budget(tmp_path, worker, span_handoff):
     s = office(tmp_path); s.adapter.worker = worker; worker.settings['wall_timeout_seconds'] = 20
+    if span_handoff:
+        from test_evidence_handoff import configure
+        configure(s.config)
+        s.adapter.config=s.config
+        s.task_context.settings.update(s.config["runtime"])
     broker = Broker(s.adapter, 2)
     source = "ctx.call('glob', {'pattern':'*.txt'})\nctx.call('glob', {'pattern':'*.txt'})"
     try:
@@ -70,13 +83,19 @@ def test_runtime_consumes_parent_result_with_no_existing_program(tmp_path, worke
     finally: s.close()
 
 
-def test_temporary_contract_reaches_real_runtime_payload_and_result(tmp_path, monkeypatch, worker):
+@pytest.mark.parametrize('span_handoff',[False,True])
+def test_temporary_contract_reaches_real_runtime_payload_and_result(tmp_path, monkeypatch, worker, span_handoff):
     import json
     from atomic_skillgraph.empirical.executor import Executor
     from atomic_skillgraph.empirical.model_view import expand_material
     from atomic_skillgraph.empirical.planner import dynamic
     from atomic_skillgraph.empirical.program_worker import public_program_abi
     s = office(tmp_path); s.worker = worker; s.adapter.worker = worker
+    if span_handoff:
+        from test_evidence_handoff import configure
+        configure(s.config)
+        s.adapter.config=s.config
+        s.task_context.settings.update(s.config["runtime"])
     worker.settings['wall_timeout_seconds'] = 20
     sent = http(monkeypatch, [response([{'action':'call_tool','name':'execute_python','arguments':{'source':SEARCH}}]),
                              response([{'action':'finish','answer':'target'}])])
@@ -89,7 +108,7 @@ def test_temporary_contract_reaches_real_runtime_payload_and_result(tmp_path, mo
         assert set(contract['allowed_tools']) == {'glob','grep','read','read_result'}
         assert contract['max_internal_calls'] == worker.settings['max_tool_calls_per_invocation']
         from atomic_skillgraph.empirical.program_worker import DIAGNOSTIC_MAX_BYTES
-        assert contract['max_stdout_bytes'] == DIAGNOSTIC_MAX_BYTES
+        assert contract['max_stdout_bytes'] == (65536 if span_handoff else DIAGNOSTIC_MAX_BYTES)
         assert contract['wall_timeout_seconds'] == 20 and initial['recovery']['remaining_calls'] == 5
         actual = expand_material(json.loads(sent[1]['messages'][1]['content']))
         assert actual['recovery']['remaining_calls'] == 1
@@ -133,8 +152,14 @@ def test_temporary_contract_requires_current_permission(tmp_path):
     finally: sheet.close(); s.close()
 
 
-def test_temporary_search_keeps_path_and_recursive_execution_rejections(tmp_path, worker):
+@pytest.mark.parametrize('span_handoff',[False,True])
+def test_temporary_search_keeps_path_and_recursive_execution_rejections(tmp_path, worker, span_handoff):
     s = office(tmp_path); s.adapter.worker = worker; worker.settings['wall_timeout_seconds'] = 20
+    if span_handoff:
+        from test_evidence_handoff import configure
+        configure(s.config)
+        s.adapter.config=s.config
+        s.task_context.settings.update(s.config["runtime"])
     broker = Broker(s.adapter, 5)
     source = '''import json
 bad_path = ctx.call('read', {'path':'../outside.txt','offset':0})

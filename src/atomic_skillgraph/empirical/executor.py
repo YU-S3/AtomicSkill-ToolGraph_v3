@@ -470,7 +470,10 @@ class Executor:
                 else:
                     from .source_catalog import enabled
                     from .program_worker import CONTEXT_EXAMPLES
-                    prompt=RUNTIME_PROMPT+('\n'+CONTEXT_EXAMPLES if enabled(runtime_config) else '')
+                    from .evidence_handoff import enabled as spans_enabled
+                    examples=('Temporary execute_python source runs at top level with ctx already supplied; no inputs variable and no run wrapper. Never reassign ctx. Example: import json; result = ctx.call("glob", {"pattern":"**/*.txt"}); print(json.dumps({"paths":result["data"][:5]})). Check accepted and stdout_receipt; truncated output is incomplete. Persistent Bank Programs separately use def run(ctx, inputs).'
+                        if spans_enabled(runtime_config) else CONTEXT_EXAMPLES)
+                    prompt=RUNTIME_PROMPT+('\n'+examples if enabled(runtime_config) else '')
                     step = self.agent('runtime', prompt, materials, 'runtime_step', STEP,
                                       repair_limit=1, validator=validate_step, owner_state_version=owner_version,
                                       finish_request_material={'original_goal':task.goal,'public_state':public_view(adapter),

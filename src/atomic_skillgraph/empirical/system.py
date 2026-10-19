@@ -130,19 +130,24 @@ def validate_config(config):
     if office_source and source_capacity != 24576:
         raise ValueError('Office source-catalog requires its frozen 24 KiB source capacity')
     if office_version==OFFICE_TRACE_METHOD_VERSION:
+        from .evidence_handoff import enabled as evidence_handoff_enabled
+        span_handoff=evidence_handoff_enabled(config['runtime'])
         runtime_settings={**config['llm'],**config['llm'].get('runtime',{})}
         thinking={**config['llm'].get('protocol',{}),**runtime_settings.get('protocol',{})}
         expected_calls=48 if config['experiment'].get('runtime_mode')=='frozen' else 64
-        if (config['runtime'].get('finish_input_max_bytes')!=16384 or config['runtime'].get('dynamic_output_min_tokens')!=8192
+        if (config['runtime'].get('finish_input_max_bytes')!=(65536 if span_handoff else 16384) or config['runtime'].get('dynamic_output_min_tokens')!=8192
                 or config['runtime'].get('global_action_budget')!=expected_calls
                 or config.get('budget',{}).get('eval_task_tokens')!=192000
                 or runtime_settings.get('max_completion_tokens')!=32768 or runtime_settings.get('reasoning_effort')!='high'
                 or thinking.get('thinking_type')!='enabled'
-                or overrides.get('finish_only')!={'protocol':{'thinking_type':'disabled'},'max_completion_tokens':2048}):
+                or overrides.get('finish_only')!={'protocol':{'thinking_type':'enabled' if span_handoff else 'disabled'},'max_completion_tokens':8192 if span_handoff else 2048}):
             raise ValueError('Office V3 Runtime/finish contract changed')
     if source_capacity is not None and (type(source_capacity) is not int or not 16384 <= source_capacity <= 24576):
         raise ValueError('Executed-source learning capacity must be explicit and bounded to 24 KiB')
     runtime = config['runtime']
+    from .evidence_handoff import VERSION as evidence_handoff_version
+    if runtime.get('evidence_handoff_version') not in {None,evidence_handoff_version}:
+        raise ValueError('Unknown runtime evidence handoff version')
     runtime.setdefault('finish_input_max_bytes', 65536)
     runtime.setdefault('dynamic_output_min_tokens', 0)
     for key in ('finish_input_max_bytes', 'dynamic_output_min_tokens'):
@@ -535,7 +540,9 @@ class EmpiricalSystem:
                     fallback = {'original_goal': getattr(getattr(self.adapter,'task',None),'goal',''),
                                 'public_state': {}, 'completed_results': {}, 'pending_outputs': {}}
                     finish = self.prepare_finish(finish_request_material or fallback, finish_prompt)
-                    finish_reserve = self.config['runtime']['finish_input_max_bytes'] + finish['output_cap']
+                    from .evidence_handoff import enabled as evidence_handoff_enabled
+                    finish_reserve = ((finish['serialized_input_bytes'] + 2048) if evidence_handoff_enabled(self.config['runtime'])
+                        else self.config['runtime']['finish_input_max_bytes']) + finish['output_cap']
                 else:
                     from .budget_governor import input_token_bound
                     finish_material={k:v for k,v in materials.items() if k in {'goal','inputs','local_results','local_reads'}}
@@ -627,6 +634,21 @@ class EmpiricalSystem:
                 field = provider.config.token_limit_field if isinstance(provider,OpenAICompatibleProvider) else 'max_tokens'
                 wire[field] = completion_cap
                 remaining = self._remaining(stage,purpose,finish_reserve=finish_reserve)
+                from .evidence_handoff import enabled as evidence_handoff_enabled
+                if (evidence_handoff_enabled(self.config['runtime']) and self.adapter.capabilities.interaction!='single_answer'
+                        and input_token_bound(wire)+completion_cap>remaining):
+                    # Use the existing Runtime turn for consolidation, with exact retained spans.
+                    # Native tools and Programs remain available; no extra LLM stage or retries.
+                    from .model_view import expand_material,pack_material
+                    from ..agents.image_input import text_payload,replace_text
+                    projected=expand_material(json.loads(text_payload({'messages':messages})['messages'][1]['content']))
+                    projected['memory']={'directory':self.task_context.model_memory(),
+                        'acquired_evidence':finish['materials']}
+                    projected.setdefault('recovery',{})['budget_phase']='consolidate'
+                    projected['recovery']['instruction']='Limited remaining budget: use acquired sources to bind operands and execute the target calculation now. Search again only for a specific missing fact. Submit once supported. Source-span ranking is not a proof of relevance.'
+                    messages[1]['content']=replace_text(messages[1]['content'],json.dumps(pack_material(projected),ensure_ascii=False,allow_nan=False))
+                    wire=provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages,'tools':[t.to_openai() for t in tools]}
+                    wire[field]=completion_cap
                 if input_token_bound(wire) + completion_cap > remaining:
                     # Drop only optional duplicate history, never task/schema/current inputs.
                     from .model_view import expand_material, pack_material
@@ -639,7 +661,7 @@ class EmpiricalSystem:
                         wire = provider._build_payload(messages,tools,tool_choice) if isinstance(provider,OpenAICompatibleProvider) else {'messages':messages,'tools':[t.to_openai() for t in tools]}
                         wire[field] = completion_cap
                     floor = self.config['runtime']['dynamic_output_min_tokens']
-                    if floor and input_token_bound(wire) + floor > remaining:
+                    if floor and input_token_bound(wire) + floor > remaining and not evidence_handoff_enabled(self.config['runtime']):
                         def fit_pages(value):
                             if isinstance(value,dict):
                                 if {'source_ref','content','unit','offset','end'} <= set(value):
