@@ -1,0 +1,79 @@
+{
+  "interface_version": "empirical.workflow.v2",
+  "title": "table_to_numeric",
+  "goal": "Acquire a verified table window and compute from literal cells",
+  "nodes": [
+    {
+      "id": "spec",
+      "execution_mode": "dynamic",
+      "goal": "Acquire an actual bounded table window with target row/column/unit; return text, rows, column, unit, not invented values.",
+      "reference_skill_ids": [
+        "skill_4db1996905a381bbfe9e2fa66d0db213639642c20030ad5198f804ee5865a027",
+        "skill_e731d4e74e7735f2f22db2c5efdd5f3e4d3c0cc01d33b663197a6a9d5e01c2b9"
+      ],
+      "args": {
+        "goal": {
+          "task": "goal"
+        }
+      },
+      "after": []
+    },
+    {
+      "id": "extract",
+      "execution_mode": "program",
+      "program_id": "program_af68df97f52f402640a5fb287fde73534587a3ec3b24bc6b24ec8d3116d754d0",
+      "args": {
+        "text": {
+          "from": "spec",
+          "field": "text"
+        },
+        "rows": {
+          "from": "spec",
+          "field": "rows"
+        },
+        "column": {
+          "from": "spec",
+          "field": "column"
+        },
+        "unit": {
+          "from": "spec",
+          "field": "unit"
+        }
+      },
+      "after": [
+        "spec"
+      ]
+    },
+    {
+      "id": "answer",
+      "execution_mode": "dynamic",
+      "goal": "Use extracted values only with correct question semantics; compute if needed and provide the target.",
+      "reference_skill_ids": [
+        "skill_0813692357d6d1df00081f1b03ccc64d8cef7635267a078a9d41eb415e7106bb",
+        "skill_ce4f49fe975a756a0748e57bb103e43d4d04a0bd6085326eb2dd1d480c166dad"
+      ],
+      "args": {
+        "goal": {
+          "task": "goal"
+        },
+        "cells": {
+          "from": "extract",
+          "field": "cells"
+        }
+      },
+      "after": [
+        "extract"
+      ]
+    }
+  ],
+  "outputs": {
+    "answer": {
+      "from": "answer",
+      "field": "answer"
+    }
+  },
+  "origin": "human_authored",
+  "method_version": "office.humanstrong.programmatic.v1.20261019",
+  "execution_permission": "manual_optional_not_auto",
+  "id": "workflow_77da75f2782227c1fa00354c8a59147894ea57585765ff7cdd2f70942d2a1d0c"
+}

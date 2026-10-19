@@ -1,0 +1,67 @@
+{
+  "interface_version": "empirical.workflow.v2",
+  "title": "search_to_anchored_read",
+  "goal": "Acquire real document windows and interpret their exact table role",
+  "nodes": [
+    {
+      "id": "plan_query",
+      "execution_mode": "dynamic",
+      "goal": "Derive a narrow query and permitted file pattern from task without guessing values; return query.",
+      "reference_skill_ids": [
+        "skill_e731d4e74e7735f2f22db2c5efdd5f3e4d3c0cc01d33b663197a6a9d5e01c2b9",
+        "skill_1b06e22b029bca82ec0ac750fadcd073afd5392dc8e7c1fe1c16bc421c22e95d"
+      ],
+      "args": {
+        "goal": {
+          "task": "goal"
+        }
+      },
+      "after": []
+    },
+    {
+      "id": "retrieve",
+      "execution_mode": "program",
+      "program_id": "program_b81b047cbb68a37ed1501de4fe096dad8459d0211229fea640d632135d607b6a",
+      "args": {
+        "query": {
+          "from": "plan_query",
+          "field": "query"
+        }
+      },
+      "after": [
+        "plan_query"
+      ]
+    },
+    {
+      "id": "interpret",
+      "execution_mode": "dynamic",
+      "goal": "Inspect acquired windows and verify table title/period/unit; return final answer only if genuinely resolved.",
+      "reference_skill_ids": [
+        "skill_4db1996905a381bbfe9e2fa66d0db213639642c20030ad5198f804ee5865a027",
+        "skill_ce4f49fe975a756a0748e57bb103e43d4d04a0bd6085326eb2dd1d480c166dad"
+      ],
+      "args": {
+        "goal": {
+          "task": "goal"
+        },
+        "windows": {
+          "from": "retrieve",
+          "field": "windows"
+        }
+      },
+      "after": [
+        "retrieve"
+      ]
+    }
+  ],
+  "outputs": {
+    "answer": {
+      "from": "interpret",
+      "field": "answer"
+    }
+  },
+  "origin": "human_authored",
+  "method_version": "office.humanstrong.programmatic.v1.20261019",
+  "execution_permission": "manual_optional_not_auto",
+  "id": "workflow_a44a7f0ac10558e6750462d285d9b99a188d8d633c9d6f2ba62db48e2c65d138"
+}

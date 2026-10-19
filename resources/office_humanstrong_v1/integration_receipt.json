@@ -1,0 +1,13 @@
+{
+  "input_archive_sha256": "3532556e80b60c56f953fdd19fe4bb4a225b7db000e94a97a3dda3b3ff6c4658",
+  "original_member_count": 40,
+  "original_members_verified": true,
+  "local_changes": {
+    "integration/frontier.py": {
+      "before_sha256": "6eb1363524da6b3b299196cc561bb4c1038bb9b38609125952995bfdf7d6b82c",
+      "after_sha256": "c2797091eafbe2a564d526a890623a0b0179d7fba123cdf83429fd661abf7cb0",
+      "reason": "finish_only must not append normal OA-Commit runtime_step instructions; use the supplied plain-text FINISH_ONLY_RULE only"
+    }
+  },
+  "assets_unchanged": true
+}

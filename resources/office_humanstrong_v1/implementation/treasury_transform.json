@@ -1,0 +1,10 @@
+{
+  "kind": "implementation",
+  "skill_id": "skill_4f5d72fc440e71babefcfd9764a3a440edda6e47818b76feb1a51f0d0ed09d5f",
+  "program_id": "program_bd52f6290acc346460ec4cd7404eb95792d47459c47ff82f771c196f1c9e0fb6",
+  "goal": "Execute verified local operation of OA-Units",
+  "origin": "human_authored",
+  "permission": "author_trusted",
+  "method_version": "office.humanstrong.programmatic.v1.20261019",
+  "id": "implementation_da5fa74d0d34c410f5d3e72d03d12d76b94d7dee5a1a4e670bb00afbd002d91f"
+}

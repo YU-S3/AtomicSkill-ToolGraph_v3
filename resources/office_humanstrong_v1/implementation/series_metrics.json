@@ -1,0 +1,10 @@
+{
+  "kind": "implementation",
+  "skill_id": "skill_0813692357d6d1df00081f1b03ccc64d8cef7635267a078a9d41eb415e7106bb",
+  "program_id": "program_f8e91ae94c02937cceee8866a0a601bce3442a30463b4784fee9ede27437719b",
+  "goal": "Execute verified local operation of OA-Stats",
+  "origin": "human_authored",
+  "permission": "author_trusted",
+  "method_version": "office.humanstrong.programmatic.v1.20261019",
+  "id": "implementation_6f2a4730deff364702d253444c73e47f9b754b5aa67eb7ed99b9b32a84065548"
+}

@@ -1,0 +1,10 @@
+{
+  "kind": "implementation",
+  "skill_id": "skill_4db1996905a381bbfe9e2fa66d0db213639642c20030ad5198f804ee5865a027",
+  "program_id": "program_af68df97f52f402640a5fb287fde73534587a3ec3b24bc6b24ec8d3116d754d0",
+  "goal": "Execute verified local operation of OA-Table",
+  "origin": "human_authored",
+  "permission": "author_trusted",
+  "method_version": "office.humanstrong.programmatic.v1.20261019",
+  "id": "implementation_d3fb9765e3f847a33eaea29b247e777288b17bf4633920a73aecde30d97b8c65"
+}
