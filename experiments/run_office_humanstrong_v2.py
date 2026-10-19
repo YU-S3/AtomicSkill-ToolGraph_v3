@@ -47,7 +47,8 @@ def prepare(root, base, resources):
     assert len(tasks) == 12 and all(t['split'] == 'train' for t in tasks)
     assert [t['task_id'] for t in tasks] == [t['task_id'] for t in canonical]
     assert not {t['task_id'] for t in tasks} & {t['task_id'] for t in common.read(resources/'test.json')['tasks']}
-    cfg = configuration.configure(common.read(base/'base_config.json'), resources, 'train')
+    # This historical launcher retains the original 4,608,000-token authority.
+    cfg = configuration.configure(common.read(base/'base_config.json'), resources, 'train', finish_output_tokens=8192)
     assert cfg['runtime']['global_action_budget'] == 48
     assert cfg['llm']['runtime']['max_total_tokens_per_task'] == 192000
     cfg['experiment'].update(runtime_mode='frozen', seed=42, output_dir=str(root), observation_version=VERSION)

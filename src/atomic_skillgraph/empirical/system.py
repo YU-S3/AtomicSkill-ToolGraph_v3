@@ -135,12 +135,20 @@ def validate_config(config):
         runtime_settings={**config['llm'],**config['llm'].get('runtime',{})}
         thinking={**config['llm'].get('protocol',{}),**runtime_settings.get('protocol',{})}
         expected_calls=48 if config['experiment'].get('runtime_mode')=='frozen' else 64
+        finish_cap=overrides.get('finish_only',{}).get('max_completion_tokens')
+        finish_caps=(8192,32768) if span_handoff else (2048,)
+        # An expanded finish gets its own task-budget increment; it must not
+        # displace the previously admitted solving capacity.
+        expected_eval_tokens=192000+(24576 if span_handoff and finish_cap==32768 else 0)
         if (config['runtime'].get('finish_input_max_bytes')!=(65536 if span_handoff else 16384) or config['runtime'].get('dynamic_output_min_tokens')!=8192
                 or config['runtime'].get('global_action_budget')!=expected_calls
-                or config.get('budget',{}).get('eval_task_tokens')!=192000
+                or config.get('budget',{}).get('eval_task_tokens')!=expected_eval_tokens
+                or (span_handoff and finish_cap==32768 and config['experiment'].get('runtime_mode')=='frozen'
+                    and runtime_settings.get('max_total_tokens_per_task')!=expected_eval_tokens)
                 or runtime_settings.get('max_completion_tokens')!=32768 or runtime_settings.get('reasoning_effort')!='high'
                 or thinking.get('thinking_type')!='enabled'
-                or overrides.get('finish_only')!={'protocol':{'thinking_type':'enabled' if span_handoff else 'disabled'},'max_completion_tokens':8192 if span_handoff else 2048}):
+                or finish_cap not in finish_caps
+                or overrides.get('finish_only')!={'protocol':{'thinking_type':'enabled' if span_handoff else 'disabled'},'max_completion_tokens':finish_cap}):
             raise ValueError('Office V3 Runtime/finish contract changed')
     if source_capacity is not None and (type(source_capacity) is not int or not 16384 <= source_capacity <= 24576):
         raise ValueError('Executed-source learning capacity must be explicit and bounded to 24 KiB')
