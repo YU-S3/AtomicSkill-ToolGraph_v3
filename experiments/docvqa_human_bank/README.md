@@ -1,6 +1,11 @@
 # DocVQA 人工 Bank 配对评测
 
-当前 v1.12 **未通过完整 Test 验收，不能作为稳定提分版本推荐**。
+当前单节点 v2 **未通过 Val 验收，不能作为稳定提分版本推荐**。
+两轮 Train36 为36、35题正确，对照33、32；同一冻结 Bank 在首对 Val22 为18题，
+对照20题。按预先规则取消第二对和新 Test，没有换用裁剪组覆盖失败。
+可选裁剪 Program 保留；纯文本模式是对照能力，不是全面取消 Program 的方法决策。
+
+此前 v1.12 **未通过完整 Test 验收**。
 它通过固定 Train36、其余 Train144 和 Val22 的推进门槛后，在首对 Test201 中
 得到178/201（88.56%），同期旧 v1.1 对照为182/201（90.55%）：纠正8题、退步12题。
 首对失败后自动取消第二对，没有重试替换原结果。95%目标至少需要191/201，尚未达到。
@@ -75,29 +80,58 @@ run_seed42 固定题单，Provider 不支持 generation seed；响应不是确�
 累计上限19,488,000 tokens /9,135 HTTP，结转旧人工对照819,414 tokens /270 HTTP。
 账本排他锁序列化评测，失败与所有对照费用均保留，不因换候选扩大预算。
 
-## Single-node manual candidate (2026-10-20)
+## 单节点与可选 Program 对照（2026-10-20）
 
-`evaluate.py --single-node` imports one immutable text Skill from
-`bank/single_node.json`. It sends the original image, public question and complete
-Skill through the production provider, budget ledger, checkpoint and scorer.
-The model receives no tools, Programs, Workflows, routing cards or crop images;
-one text response completes the task. This is an external manually authored
-control, not a naturally learned Ours asset. Existing programmatic experiments
-and their pinned results remain available through the default entry point.
+`evaluate.py --single-node` 从 `bank/single_node.json` 导入一个完整的只读 Skill，
+每题注入同一份条件化指导，不经过关键词 top-1 专用 Skill 路由。
+仅将公开问题、原图和 Skill 交给模型，以一次文本回答结束。
+Provider、预算账本、checkpoint 和评分仍使用生产模块。
 
-This candidate follows the user's explicit authorization to simplify DocVQA for
-answer quality. The three supplied Trace2Skill seeds scored 181/201, 185/201 and
-185/201; the model differs from this DeepSeek experiment. Their results motivate
-conditional source-selection and answer-boundary rules, but do not establish
-that this candidate improves accuracy. Fixed paired evaluation is pending; no
-95% or stability claim is made.
+`--single-node-crop` 使用相同 Skill，增加一个最小 `inspect/finish` 接口。
+Host 将区域或 bbox 绑定到原图和已有 image-region Program，最多执行两次。
+保持原图，按真实裁剪回传像素；不暴露通用 Python、复杂节点图或 Program 菜单。
+只在模型明确提供消费引用时记录输出消费，不把普通文本回答伪装成消费证明。
+预算边界上的原有有界最终回答也保留。没有强制复核或额外修复次数。
 
-V1 produced 33/36 twice, matching both fresh old-Bank controls; total tokens
-fell from 222,571 to 159,211, but the strict accuracy advancement gate failed.
-V1 did not advance to Val or Test. V2 refines compound-page and answer-boundary
-rules using those Train traces. `--single-node-crop` additionally offers one
-small inspect/finish interface to the existing real image-region Program, with
-Host-bound source path and at most two executions. It exposes no generic Python
-executor or graph. Compare this optional-crop arm with the same text Skill with
-`--single-node`; retaining Programs depends on measured benefit. Neither V2 arm
-has yet qualified for an accuracy or stability claim.
+用户要求保留能提升准确率或节省成本的自动化。这里仅比较 DocVQA 的可选裁剪；
+没有删除其他基准的检索、读取、计算、提交 Program，也没有证明这些能力无效。
+默认旧版入口、历史 Bank 和固定源码结果均保留。本目录所有 Train 都是人工资产的
+只读评估，不是自然学习。
+
+| 版本／模式 | Train36 两轮正确数 | 合计 tokens | 实际 Program 次数 |
+|---|---|---:|---:|
+| 单节点 v1 | 33、33 | 159,211 | 0 |
+| v1 同期旧 Bank 对照 | 33、33 | 222,571 | 4 |
+| 单节点 v2 纯文本 | 36、35 | 168,114 | 0 |
+| 单节点 v2 可选裁剪 | 35、36 | 245,651 | 13 |
+| v2 同期旧 Bank 对照 | 33、32 | 255,357 | 9 |
+
+v1 只有降本，没有净准确率收益，未进入 Val/Test。
+v2 两组均通过 Train 推进门槛；按事先固定的“正确数优先、平分时 tokens 更少”规则
+选择纯文本组。其 Train tokens 比同期旧 Bank 少34.17%，两轮对错翻转为1题，
+对照和可选裁剪组也均为1题。这些只描述同一36题的开发结果。
+
+首对 Val22：纯文本18/22（81.82%），对照20/22（90.91%），0纠正、2退步；
+tokens 分别49,274与71,416。两组都无空答、无基础设施错误，Bank 哈希不变。
+数字误读的一题旧对照实际使用过裁剪；另一题模型省略原文引号，提交保存了原回答。
+两项均不能靠改变评分或改写提交来修补。失败后没有新增 Test，也没有再选一组覆盖它。
+目前没有证明单节点版能稳定提升准确率，更没有达到95% Test EM。
+
+三份 Trace2Skill DocVQA 原始结果为181、185、185/201，平均91.38%，
+题目、顺序和 gold 与公共 manifest 一致。它们每题实际收到完整 Skill，均为一次回答。
+旧人工 Bank 在201题中有53题没有获得专用 Skill，其他题也最多获得一条；
+这会漏掉跨字段、字符和数值边界的组合指导。新入口修正了这种信息交付限制，
+但 Val 说明“指导送达完整”和“稳定提分”必须分别验证。
+三份 baseline 使用不同训练 Bank，不能据此声称同一 Bank 重复运行稳定；
+图表的 No Skill 原始运行未提供，因此没有独立复算其提升幅度。
+
+本轮12个 run 共404次题目执行，实际新增1,171,594 tokens／434 HTTP。
+累计16,681,423 tokens／4,766 HTTP，仍在原19,488,000／9,135额度内，
+没有在途请求或未知费用。404次执行只涉及 Train36和Val22，不是404道独立题目。
+
+付费源码：v1 `920b7f9`；v2 Train `0625106`；v2 Val `6289fba`。
+后者只补齐预算收尾路径，没有改变 Skill 或正常回答提示；216次 v2 Train 均未走该路径。
+合并 OfficeQA 上游后的 `9909774` 通过3项聚焦零 HTTP 检查，不能将此前付费结果
+改称为合并版的付费验证。审查产物位于
+`D:/T3S_exp/deliveries/docvqa_single_node_20261020/`，原始 run 位于
+`/home/yangchengyu/runs/docvqa_human_bank_v13_campaign_20261019/`。
