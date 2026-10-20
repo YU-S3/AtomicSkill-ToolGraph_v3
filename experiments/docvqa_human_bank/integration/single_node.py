@@ -2,15 +2,32 @@
 from contextlib import contextmanager
 from copy import deepcopy
 import json
+import hashlib
 from pathlib import Path
+import runpy
 
-METHOD = 'docvqa.human.single-node.v5.1'
+METHOD = 'docvqa.human.single-node.v6'
 ROOT = Path(__file__).resolve().parents[1]
 # Four page rows and three columns, with overlap to retain nearby labels.
 TILES = {f'{column}{row + 1}': [
     max(0, col * 1000 // 3 - 50), max(0, row * 250 - 50),
     min(1000, ((col + 1) * 1000 + 2) // 3 + 50), min(1000, (row + 1) * 250 + 50)]
     for row in range(4) for col, column in enumerate('ABC')}
+
+
+def row_context(task, output):
+    """Keep distant row labels with the detail; derived only from the verified source."""
+    for path in task.inputs.get('images', []):
+        raw = Path(path).read_bytes()
+        if hashlib.sha256(raw).hexdigest() == output['source_sha256']:
+            bbox = [0, output['bbox_normalized'][1], 1000, output['bbox_normalized'][3]]
+            render = runpy.run_path(str(ROOT / 'programs/image_region.py'))['crop_bytes']
+            band = render(raw, bbox, max_edge=1600)
+            return {'source_bbox': bbox, 'image_sha256': band['image_sha256'],
+                'authority': 'host_derived_same_source_row_context_not_program_output_or_ocr',
+                'part': {'type': 'image_url', 'image_url': {'detail': 'high',
+                    'url': 'data:' + band['image_mime'] + ';base64,' + band['crop_base64']}}}
+    raise ValueError('Verified crop source is unavailable')
 
 
 def prepare(repo, config_path, destination, *, crop=False):
@@ -104,13 +121,12 @@ def single_node_bridge(*, guidance_role='user'):
                 material['content_parts'] = s.adapter.content_parts()
             if s.bank.crop_enabled:
                 from human_view import safe_crop_parts
-                inspected = set()
+                contexts = []
                 failures = [{k: r[k] for k in ('result_id', 'status', 'error', 'reason') if k in r}
                     for r in materials.get('local_results', []) if r.get('status') not in (None, 'ok')]
                 if failures:
                     material['inspection_failures'] = failures
                 for crop in safe_crop_parts(s.task_context, s.adapter.task, s.bank):
-                    inspected.update(tile for tile, bbox in TILES.items() if bbox == crop['bbox'])
                     if len(material['content_parts']) >= s.config['llm']['image_input']['max_images']:
                         break
                     output = s.task_context.results[crop['result_id']]['outputs']
@@ -121,18 +137,28 @@ def single_node_bridge(*, guidance_role='user'):
                         'resize_scale': output['resize_scale'],
                         'source_crop_size': [output['source_crop_width'], output['source_crop_height']],
                         'delivered_size': [output['crop_width'], output['crop_height']]})
+                    contexts.append((material['crop_evidence'][-1], row_context(s.adapter.task, output)))
+                # Original and actual Program crops take priority over derived context.
+                for evidence, context in contexts:
+                    if len(material['content_parts']) >= s.config['llm']['image_input']['max_images']:
+                        break
+                    material['content_parts'].append(context.pop('part'))
+                    evidence['row_context'] = {**context, 'image_index': len(material['content_parts']) - 1}
                 if answer_step and materials['remaining_local_executions'] > 0:
                     schema = {'type': 'object', 'properties': {
                         'action': {'enum': ['inspect', 'finish']},
-                        'tile': {'enum': [tile for tile in TILES if tile not in inspected],
+                        'tile': {'enum': list(TILES),
                             'description': 'Original page: columns A/B/C left-to-right, rows 1/2/3/4 top-to-bottom. Tiles overlap.'},
+                        'evidence_text': {'type': 'string', 'description': 'Visible supporting field or row, including its label; transcription, not reasoning.'},
+                        'answer_kind': {'enum': ['entity', 'value', 'identifier', 'title', 'text', 'list']},
                         'answer': {'type': 'string'},
                         'used_results': {'type': 'array', 'items': {'type': 'string'}}},
                         'required': ['action'], 'additionalProperties': False,
                         'allOf': [
                             {'if': {'properties': {'action': {'const': 'inspect'}}},
                              'then': {'required': ['tile']}},
-                            {'if': {'properties': {'action': {'const': 'finish'}}}, 'then': {'required': ['answer']}}]}
+                            {'if': {'properties': {'action': {'const': 'finish'}}},
+                             'then': {'required': ['evidence_text', 'answer_kind', 'answer']}}]}
                     prompt += (' For small print, handwriting or ambiguous characters affecting the answer, '
                         'inspect the tile containing the field before committing to a reading. '
                         'Return exactly one answer_step call per response, with one action; never parallel calls. '
@@ -141,10 +167,15 @@ def single_node_bridge(*, guidance_role='user'):
                         'The Program determines the pixel coordinates; it does not identify or transcribe the target. '
                         'Check that the returned region actually contains the requested field and its relevant labels. '
                         'The attached crop_evidence images are inspections ALREADY COMPLETED, named by tile. '
-                        'Read those images directly; do not request their tiles again. '
-                        'A second inspection must use a different tile for missing context or a misplaced field. '
+                        'Read those images directly. Repeating a tile gives the same pixels and consumes another inspection. '
+                        'Use a different tile when context is missing or the field was misplaced. '
+                        'Each detail has a same-source full-width row_context to retain distant labels; '
+                        'match the requested label to its value in that context before reading the detail. '
                         'Otherwise answer directly. At most two inspections; no mandatory second pass. '
-                        'Use finish with actual used_results when a crop supports the answer.')
+                        'For finish, copy the supporting field/row into evidence_text, select answer_kind, '
+                        'then put ONLY the requested constituent in answer, without introductory prose. '
+                        'The evidence transcription is your reading, not independently verified OCR. '
+                        'Use actual used_results when a crop supports the answer.')
                     material['remaining_inspections'] = materials['remaining_local_executions']
                     step = old(s, stage, prompt, material, name, schema, **kwargs)
                     if step['action'] == 'inspect':

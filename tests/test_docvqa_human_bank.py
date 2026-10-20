@@ -138,8 +138,10 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
     task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the account number?',
         {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
-    sent = http(monkeypatch, [response([{'action': 'inspect', 'tile': 'B1'}], name='answer_step'),
-        response(content='74216', finish='stop')])
+    finish = response(content='74216', finish='stop') if finish_reserved else response([{
+        'action': 'finish', 'evidence_text': 'Account: 74216', 'answer_kind': 'identifier',
+        'answer': '74216'}], name='answer_step')
+    sent = http(monkeypatch, [response([{'action': 'inspect', 'tile': 'B1'}], name='answer_step'), finish])
     if finish_reserved:
         from atomic_skillgraph.core.errors import BudgetExhausted
         original = EmpiricalSystem.agent
@@ -164,7 +166,7 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         parts = sent[1]['messages'][1]['content']
         images = [p for p in parts if p['type'] == 'image_url']
         material = json.loads(next(p['text'] for p in parts if p['type'] == 'text'))
-        assert len(images) == 2
+        assert len(images) == 3
         if finish_reserved:
             assert not sent[1].get('tools')
             assert trace['execution']['reason'] == 'budget_finish_only'
@@ -174,8 +176,14 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         assert material['crop_evidence'][0]['source_bbox'] == TILES['B1']
         assert material['crop_evidence'][0]['tile'] == 'B1'
         assert material['crop_evidence'][0]['resize_scale'] > 1
+        context = material['crop_evidence'][0]['row_context']
+        assert context['source_bbox'] == [0, 0, 1000, 300]
+        raw = base64.b64decode(images[context['image_index']]['image_url']['url'].split(',')[1])
+        assert hashlib.sha256(raw).hexdigest() == context['image_sha256']
+        assert context['authority'] == 'host_derived_same_source_row_context_not_program_output_or_ocr'
         if not finish_reserved:
-            assert 'B1' not in sent[1]['tools'][0]['function']['parameters']['properties']['tile']['enum']
+            assert 'B1' in sent[1]['tools'][0]['function']['parameters']['properties']['tile']['enum']
+            assert trace['requests'][-1]['response']['tool_calls'][0]['arguments']['evidence_text'] == 'Account: 74216'
         assert not any(k in material for k in ('programs', 'workflows', 'worker_resources'))
         assert system.bank.digest() == before
     finally:
