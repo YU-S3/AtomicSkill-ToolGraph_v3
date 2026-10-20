@@ -4,7 +4,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-METHOD = 'docvqa.human.single-node.v5'
+METHOD = 'docvqa.human.single-node.v5.1'
 ROOT = Path(__file__).resolve().parents[1]
 # Four page rows and three columns, with overlap to retain nearby labels.
 TILES = {f'{column}{row + 1}': [
@@ -116,6 +116,7 @@ def single_node_bridge(*, guidance_role='user'):
                     output = s.task_context.results[crop['result_id']]['outputs']
                     material['content_parts'].append(crop['part'])
                     material.setdefault('crop_evidence', []).append({'result_id': crop['result_id'],
+                        'tile': next(tile for tile, bbox in TILES.items() if bbox == crop['bbox']),
                         'source_bbox': crop['bbox'], 'image_index': len(material['content_parts']) - 1,
                         'resize_scale': output['resize_scale'],
                         'source_crop_size': [output['source_crop_width'], output['source_crop_height']],
@@ -134,10 +135,13 @@ def single_node_bridge(*, guidance_role='user'):
                             {'if': {'properties': {'action': {'const': 'finish'}}}, 'then': {'required': ['answer']}}]}
                     prompt += (' For small print, handwriting or ambiguous characters affecting the answer, '
                         'inspect the tile containing the field before committing to a reading. '
+                        'Return exactly one answer_step call per response, with one action; never parallel calls. '
                         'Divide the ORIGINAL page into four equal rows (1 top through 4 bottom) and '
                         'three equal columns (A left, B center, C right). Select one overlapping tile. '
                         'The Program determines the pixel coordinates; it does not identify or transcribe the target. '
                         'Check that the returned region actually contains the requested field and its relevant labels. '
+                        'The attached crop_evidence images are inspections ALREADY COMPLETED, named by tile. '
+                        'Read those images directly; do not request their tiles again. '
                         'A second inspection must use a different tile for missing context or a misplaced field. '
                         'Otherwise answer directly. At most two inspections; no mandatory second pass. '
                         'Use finish with actual used_results when a crop supports the answer.')

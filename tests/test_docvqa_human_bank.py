@@ -160,6 +160,7 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         assert 'bbox' not in schema['properties']
         assert len(schema['properties']['tile']['enum']) == 12
         assert all(0 <= b[0] < b[2] <= 1000 and 0 <= b[1] < b[3] <= 1000 for b in TILES.values())
+        assert 'exactly one answer_step call per response' in sent[0]['messages'][0]['content']
         parts = sent[1]['messages'][1]['content']
         images = [p for p in parts if p['type'] == 'image_url']
         material = json.loads(next(p['text'] for p in parts if p['type'] == 'text'))
@@ -171,6 +172,7 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         assert system.bank.all('skill')[0]['guidance'] in sent[1]['messages'][0]['content']
         assert images[0] == next(p for p in sent[0]['messages'][1]['content'] if p['type'] == 'image_url')
         assert material['crop_evidence'][0]['source_bbox'] == TILES['B1']
+        assert material['crop_evidence'][0]['tile'] == 'B1'
         assert material['crop_evidence'][0]['resize_scale'] > 1
         if not finish_reserved:
             assert 'B1' not in sent[1]['tools'][0]['function']['parameters']['properties']['tile']['enum']
