@@ -1,0 +1,11 @@
+{
+  "status": "approved",
+  "at": "2026-10-20T11:23:27.076668+00:00",
+  "user_instruction": "新结果试试test呢？局部题不能代表全部的整体效果",
+  "scope": "Both unchanged V8 Banks, each full canonical Test1400; no training, edits or automatic promotion.",
+  "allocation": {
+    "tokens": 16000000,
+    "http": 6000
+  },
+  "original_cumulative_authority_unchanged": true
+}
