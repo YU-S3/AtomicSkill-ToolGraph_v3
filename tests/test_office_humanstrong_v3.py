@@ -140,6 +140,11 @@ def test_same_pairs_expanded_finish_and_latest_billing_ancestry(setup,tmp_path,m
     monkeypatch.setattr(common,'code_identity',identity)
     monkeypatch.setattr('atomic_skillgraph.experiments.run_empirical.code_identity',identity)
     monkeypatch.setattr(common,'load_env',lambda path:None)
+    # Offline ancestry checks must not acquire a live experiment's actual locks.
+    from filelock import FileLock
+    lock_root=tmp_path/'offline_locks';lock_root.mkdir()
+    monkeypatch.setattr(common,'FileLock',lambda path,timeout=0:
+        FileLock(str(lock_root/(digest(str(path))+'.lock')),timeout=timeout))
     parent=Path('/home/yangchengyu/officeqa_humanstrong_v2_finish32k_body_diagnostic_20261020')
     comparison=Path('/home/yangchengyu/officeqa_humanstrong_v2_train12_pairs_seed42_20261020')
     before=common.sha(parent/'budget.json');root=tmp_path/'pairs'
