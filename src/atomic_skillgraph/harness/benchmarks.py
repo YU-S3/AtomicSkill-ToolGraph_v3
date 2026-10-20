@@ -272,7 +272,8 @@ class OfficeAdapter(FileAdapter):
              'read_only', True, {'line': 'line_1_based', 'offset': 'unicode_codepoint_0_based'}),
             ('execute_python', 'Temporary Python: ctx.call(name, args) uses glob/read/grep/read_result on the task budget. No direct corpus/network or recursive execute_python. Print bounded JSON for data.computed.', object_schema({'source': {'type':'string'}}, ['source']), {'type': 'object'}, 'sandbox_compute', False, {})]}
         from ..empirical.source_catalog import trace_enabled
-        self.trace_retrieval=trace_enabled(config)
+        from ..empirical.process_learning import enabled as process_enabled
+        self.trace_retrieval=trace_enabled(config) or process_enabled(config)
         if self.trace_retrieval:
             from dataclasses import replace
             self.specs['execute_python']=replace(self.specs['execute_python'],description=

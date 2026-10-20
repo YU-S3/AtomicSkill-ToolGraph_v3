@@ -254,6 +254,19 @@ def learning_capacity_audit(payload, limit, stage, purpose):
         refs=[r['local_evidence_ref'] for r in operations]
         if not all(isinstance(r,str) for r in refs):return unverified
     except (ValueError,TypeError,KeyError,IndexError):return unverified
+    from .process_learning import MATERIAL as PROCESS_MATERIAL
+    if value.get('learning_material_version') == PROCESS_MATERIAL and stage == 'extractor' and purpose != 'learning_structure_repair':
+        recognized = (experience.get('compact_learning_directory') is True
+                      and isinstance(experience.get('task', {}).get('inputs'), dict))
+        optional = any(value.get(k) for k in ('completed_train_cases', 'related', 'related_guidance'))
+        compact = deepcopy(payload)
+        compact['messages'][1]['content'] = json.dumps(pack_trace_material(value), ensure_ascii=False,
+                                                       separators=(',', ':'), allow_nan=False)
+        minimum = input_token_bound(compact)
+        return {'classification': 'learning_capacity_rejected' if recognized and not optional and minimum > limit
+                else 'unverified_capacity_refusal', 'recognized_learning_contract': recognized,
+                'optional_material_remaining': optional, 'minimum_equivalent_wire_bytes': minimum,
+                'projection_version': PROCESS_MATERIAL}
     optional=any(value.get(k) for k in ('completed_train_cases','related','related_guidance'))
     optional=optional or len(cards)>1
     from . import OFFICE_SOURCE_MATERIAL_VERSION, OFFICE_TRACE_MATERIAL_VERSION
@@ -320,6 +333,11 @@ def operation_directory(evidence, case_id):
             sort_keys=True,ensure_ascii=False,allow_nan=False))
         unique.setdefault(key,row)
     sources=list(unique.values())
+    from .process_learning import MATERIAL as PROCESS_MATERIAL
+    if evidence.get('process_material_version') == PROCESS_MATERIAL:
+        # Executed parameters precede incidental public URL/filename metadata.
+        # bind_proposal reconstructs this same directory at the Host.
+        sources.sort(key=lambda r: r['kind'] == 'public_json')
     operation=evidence['operation']
     source=operation.get('source') or operation.get('arguments',{}).get('source','')
     if operation.get('source_context'):source='\n\n'.join(c['source'] for c in operation['source_context'])

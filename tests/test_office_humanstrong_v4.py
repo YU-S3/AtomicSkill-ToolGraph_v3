@@ -217,6 +217,12 @@ def test_all_test_pairs_public_input_wire_budget_and_frozen_billing(setup,tmp_pa
     monkeypatch.setattr(common,'code_identity',identity)
     monkeypatch.setattr('atomic_skillgraph.experiments.run_empirical.code_identity',identity)
     monkeypatch.setattr(common,'load_env',lambda p:None)
+    # Offline copies must not contend with a paid run's actual ancestor locks.
+    # Keep real file-lock semantics, scoped to this test's temporary ledger tree.
+    from filelock import FileLock
+    lock_root=tmp_path/'offline_locks';lock_root.mkdir()
+    monkeypatch.setattr(common,'FileLock',lambda path,timeout=0:
+        FileLock(str(lock_root/(digest(str(path))+'.lock')),timeout=timeout))
     before=common.sha(PARENT/'budget.json');root=tmp_path/'pairs'
     launcher.prepare(root,PARENT,RESOURCES);plan=common.verify(root)
     assert plan['new_token_cap']==44181504 and plan['inherited_used_or_reserved']==110804968
