@@ -423,7 +423,7 @@ class EmpiricalSystem:
                 thinking_type=settings.get("protocol", {}).get("thinking_type", "enabled"),
                 reasoning_effort=settings.get("reasoning_effort", "high"),
                 request_timeout_seconds=settings.get("request_timeout_seconds", 180),
-                max_retries=settings.get("max_retries", 4), capability_profile=settings.get('capability_profile')))
+                stream=llm.get("stream", False), max_retries=settings.get("max_retries", 4), capability_profile=settings.get('capability_profile')))
         provider = self.providers[key]
         provider.budget_governor = self.budget_governor
         return provider
