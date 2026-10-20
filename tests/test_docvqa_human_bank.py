@@ -13,7 +13,7 @@ sys.path.insert(0, str(ASSETS / 'integration'))
 sys.path.insert(0, str(ASSETS / 'tools'))
 from human_view import HumanDocVQAView, image_result_bridge, safe_crop_parts
 from import_native import prepare
-from single_node import SingleNodeDocVQAView, single_node_bridge, prepare as prepare_single
+from single_node import SingleNodeDocVQAView, TILES, single_node_bridge, prepare as prepare_single
 from atomic_skillgraph.empirical.bank import Bank
 from atomic_skillgraph.empirical.contracts import PublicTask
 from atomic_skillgraph.empirical.system import EmpiricalSystem
@@ -138,7 +138,7 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
     task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the account number?',
         {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
-    sent = http(monkeypatch, [response([{'action': 'inspect', 'region': 'top'}], name='answer_step'),
+    sent = http(monkeypatch, [response([{'action': 'inspect', 'tile': 'B1'}], name='answer_step'),
         response(content='74216', finish='stop')])
     if finish_reserved:
         from atomic_skillgraph.core.errors import BudgetExhausted
@@ -158,6 +158,8 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         schema = sent[0]['tools'][0]['function']['parameters']
         assert schema['properties']['action']['enum'] == ['inspect', 'finish']
         assert 'bbox' not in schema['properties']
+        assert len(schema['properties']['tile']['enum']) == 12
+        assert all(0 <= b[0] < b[2] <= 1000 and 0 <= b[1] < b[3] <= 1000 for b in TILES.values())
         parts = sent[1]['messages'][1]['content']
         images = [p for p in parts if p['type'] == 'image_url']
         material = json.loads(next(p['text'] for p in parts if p['type'] == 'text'))
@@ -168,7 +170,10 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         assert 'guidance' not in material
         assert system.bank.all('skill')[0]['guidance'] in sent[1]['messages'][0]['content']
         assert images[0] == next(p for p in sent[0]['messages'][1]['content'] if p['type'] == 'image_url')
-        assert material['crop_evidence'][0]['source_bbox'] == [0, 0, 1000, 400]
+        assert material['crop_evidence'][0]['source_bbox'] == TILES['B1']
+        assert material['crop_evidence'][0]['resize_scale'] > 1
+        if not finish_reserved:
+            assert 'B1' not in sent[1]['tools'][0]['function']['parameters']['properties']['tile']['enum']
         assert not any(k in material for k in ('programs', 'workflows', 'worker_resources'))
         assert system.bank.digest() == before
     finally:

@@ -4,8 +4,13 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-METHOD = 'docvqa.human.single-node.v4'
+METHOD = 'docvqa.human.single-node.v5'
 ROOT = Path(__file__).resolve().parents[1]
+# Four page rows and three columns, with overlap to retain nearby labels.
+TILES = {f'{column}{row + 1}': [
+    max(0, col * 1000 // 3 - 50), max(0, row * 250 - 50),
+    min(1000, ((col + 1) * 1000 + 2) // 3 + 50), min(1000, (row + 1) * 250 + 50)]
+    for row in range(4) for col, column in enumerate('ABC')}
 
 
 def prepare(repo, config_path, destination, *, crop=False):
@@ -99,30 +104,41 @@ def single_node_bridge(*, guidance_role='user'):
                 material['content_parts'] = s.adapter.content_parts()
             if s.bank.crop_enabled:
                 from human_view import safe_crop_parts
+                inspected = set()
                 failures = [{k: r[k] for k in ('result_id', 'status', 'error', 'reason') if k in r}
                     for r in materials.get('local_results', []) if r.get('status') not in (None, 'ok')]
                 if failures:
                     material['inspection_failures'] = failures
                 for crop in safe_crop_parts(s.task_context, s.adapter.task, s.bank):
+                    inspected.update(tile for tile, bbox in TILES.items() if bbox == crop['bbox'])
                     if len(material['content_parts']) >= s.config['llm']['image_input']['max_images']:
                         break
+                    output = s.task_context.results[crop['result_id']]['outputs']
                     material['content_parts'].append(crop['part'])
                     material.setdefault('crop_evidence', []).append({'result_id': crop['result_id'],
-                        'source_bbox': crop['bbox'], 'image_index': len(material['content_parts']) - 1})
+                        'source_bbox': crop['bbox'], 'image_index': len(material['content_parts']) - 1,
+                        'resize_scale': output['resize_scale'],
+                        'source_crop_size': [output['source_crop_width'], output['source_crop_height']],
+                        'delivered_size': [output['crop_width'], output['crop_height']]})
                 if answer_step and materials['remaining_local_executions'] > 0:
                     schema = {'type': 'object', 'properties': {
                         'action': {'enum': ['inspect', 'finish']},
-                        'region': {'enum': ['top', 'middle', 'bottom', 'left', 'right', 'whole']},
+                        'tile': {'enum': [tile for tile in TILES if tile not in inspected],
+                            'description': 'Original page: columns A/B/C left-to-right, rows 1/2/3/4 top-to-bottom. Tiles overlap.'},
                         'answer': {'type': 'string'},
                         'used_results': {'type': 'array', 'items': {'type': 'string'}}},
                         'required': ['action'], 'additionalProperties': False,
                         'allOf': [
                             {'if': {'properties': {'action': {'const': 'inspect'}}},
-                             'then': {'required': ['region']}},
+                             'then': {'required': ['tile']}},
                             {'if': {'properties': {'action': {'const': 'finish'}}}, 'then': {'required': ['answer']}}]}
-                    prompt += (' If a specific field remains visually unclear, inspect its named page region. '
+                    prompt += (' For small print, handwriting or ambiguous characters affecting the answer, '
+                        'inspect the tile containing the field before committing to a reading. '
+                        'Divide the ORIGINAL page into four equal rows (1 top through 4 bottom) and '
+                        'three equal columns (A left, B center, C right). Select one overlapping tile. '
                         'The Program determines the pixel coordinates; it does not identify or transcribe the target. '
                         'Check that the returned region actually contains the requested field and its relevant labels. '
+                        'A second inspection must use a different tile for missing context or a misplaced field. '
                         'Otherwise answer directly. At most two inspections; no mandatory second pass. '
                         'Use finish with actual used_results when a crop supports the answer.')
                     material['remaining_inspections'] = materials['remaining_local_executions']
@@ -130,7 +146,7 @@ def single_node_bridge(*, guidance_role='user'):
                     if step['action'] == 'inspect':
                         return {'action': 'call_program', 'name': s.bank.programs['image_region']['id'],
                             'arguments': {'image_path': '/workspace/inputs/image_0.png',
-                                'region': step['region']}}
+                                'bbox': TILES[step['tile']], 'max_edge': 1600}}
                     return step
             answer = old(s, stage, prompt, material, None if answer_step else name, None, **kwargs)
             return {'action': 'finish', 'answer': answer or ''} if answer_step else answer
