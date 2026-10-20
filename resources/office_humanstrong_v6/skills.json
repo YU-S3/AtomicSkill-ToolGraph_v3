@@ -1,0 +1,58 @@
+{
+  "OA-Target": {
+    "goal": "Bind the requested category, operation and output before choosing a computation",
+    "guidance": "Match the question's exact business category, periods, statistic and output template. A subtype is not a broader total. Compute when the required operands and period coverage are available; otherwise retrieve the specific missing fact. Neither a successful calculation nor a numeric output proves that the question was answered."
+  },
+  "OA-Locate": {
+    "goal": "Retrieve a specific missing source fact",
+    "guidance": "Use supplied pages first. Search only the missing period, category or header in candidate documents; read a hit's table body, unit and footnotes. scoped_search can batch search and reading. Avoid overlapping rereads and stop retrieval when the necessary evidence is complete."
+  },
+  "OA-Table": {
+    "goal": "Bind literal source rows to the complete column hierarchy",
+    "guidance": "Select exact rows, leaf column, literal unit and publication scope. Multilevel headers require the observed parent-to-leaf path. Missing-value dashes are not zero. table_calculate is optional for a complete scalar calculation supported by its schema; for irregular tables or compound formulas use source-bound Python. Do not redo a successful computation merely to call a Bank Program."
+  },
+  "OA-Units": {
+    "goal": "Keep source units, calculation scale and requested display distinct",
+    "guidance": "Convert units only when the question requires it and an explicit factor is known. A ratio, percent and percentage-point difference have different scales. Preserve unrounded operands; apply requested rounding once at output. A percent suffix does not itself multiply by 100. Use the question's output template, including whether it requests a unit suffix."
+  },
+  "OA-Stats": {
+    "goal": "Select the exact requested arithmetic convention",
+    "guidance": "Execute the requested operation once operands are complete. Base-relative change uses the base denominator; symmetric difference uses the midpoint; annualized growth uses elapsed intervals. Do not substitute one for another. Use a named Program only when its operation matches; otherwise explicit Python is valid. Preserve intermediate precision."
+  },
+  "OA-Commit": {
+    "goal": "Submit a supported answer with the requested format and no unnecessary recomputation",
+    "guidance": "Confirm that the selected result answers every requested quantity; an input value or diagnostic count is not a final result. computed_scalar or computed_list can format matching executed results without another model rewrite. table_calculate can submit a complete supported scalar calculation. Native finish remains valid for an already established answer, including dates/text. Do not force a Program or recheck merely to end the task."
+  },
+  "OA-Fallback": {
+    "goal": "Resolve the current execution refusal using evidence",
+    "guidance": "Repair the specific reported field from observed source or schema, not guessed alternatives. If a table remains ambiguous, obtain clearer evidence or compute explicitly from a verified source. A subsequent successful computation need not repeat an earlier refused Program. Contract success does not establish question semantics."
+  },
+  "OA-Periods": {
+    "goal": "Preserve complete observation coverage and time basis",
+    "guidance": "List required periods and match fiscal/calendar basis. Inclusive observation count differs from elapsed intervals. Do not omit periods, interpolate missing values or mix vintages silently. Forecast error requires the target-period actual, not the last fitting observation."
+  },
+  "OA-Fiscal": {
+    "goal": "Distinguish fiscal/calendar periods, flows and stocks",
+    "guidance": "Follow the source's fiscal-year definition and transition quarters. Compare flows over matching intervals and stocks at matching dates. Monthly, year-to-date and annual totals are distinct."
+  },
+  "OA-Treasury": {
+    "goal": "Preserve Treasury categories and source conventions",
+    "guidance": "Distinguish outstanding debt, issuance/redemption, holdings and net changes; keep security and investor subtypes separate. Price ticks, fine/troy weights and exchange-rate direction require the source convention. A nearby total is not automatically the target."
+  },
+  "OA-Revision": {
+    "goal": "Bind the publication vintage and as-of basis",
+    "guidance": "When the question names an issue, report or as-of date, use that vintage. Preserve preliminary/revised/adjusted status and footnotes. Later revisions are not substitutes for the originally reported value."
+  },
+  "OA-Correlation": {
+    "goal": "Align paired series and distinguish correlation from regression",
+    "guidance": "Align x and y by identical periods and coverage. Pearson correlation is dimensionless; OLS slope depends on which series is dependent. Do not reverse dependent/independent variables, omit a period or use rounded intermediate values."
+  },
+  "OA-Polynomial": {
+    "goal": "Fit the specified polynomial and evaluate the requested forecast or error",
+    "guidance": "Use the specified degree, intercept, ordered observations, time coordinates and prediction horizon. Forecast error additionally requires the independently observed target actual. Polynomial OLS is not ARIMA or an arbitrary alternative forecast; use the named Program or explicit NumPy when its assumptions fit."
+  },
+  "OA-Dispersion": {
+    "goal": "Apply the requested CV, z-score or distribution statistic",
+    "guidance": "Keep the original series distinct from first differences. Bind population/sample convention before variance, standard deviation, CV or z-score; z-score also needs the specified observation. CV divides standard deviation by the mean. For Gini, preserve the requested population/sample adjustment. Do not transfer a convention between different statistics."
+  }
+}
