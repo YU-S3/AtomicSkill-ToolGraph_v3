@@ -1,0 +1,8 @@
+{
+  "source": "/home/yangchengyu/asg_searchqa_glm53_refusal_release_20261020",
+  "parent": "/home/yangchengyu/asg_searchqa_glm53_v2_v7_release_20261020",
+  "parent_commit": "53f264c4f185cdc24550b5c71844b36ea2d77c13",
+  "release_commit": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+  "provider_sha256": "256c926bf9d696fa890adc84dc66c9a5db54c27b5c90ee11ea507ceec196c958",
+  "scope": "Response classification only; same payload, Bank, runtime and scorer."
+}

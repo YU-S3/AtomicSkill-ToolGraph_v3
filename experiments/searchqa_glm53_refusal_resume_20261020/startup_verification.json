@@ -1,0 +1,99 @@
+{
+  "at": "2026-10-20T07:15:10.646527+00:00",
+  "source": {
+    "git_sha": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+    "tracked_dirty": false,
+    "source_sha256": "b6d3b0d87e55afdbfd5696c06beec04b73122b0773db0f218278839b7008e072"
+  },
+  "plan_identity": {
+    "sha256": "8d580c4bc6ee69be4e131086ba03c0b46a7086d12f47a08d2d59b7ad3dcd1957"
+  },
+  "checks": {
+    "passed": true,
+    "stage": "fulltest1400",
+    "tasks": 1301,
+    "arms": [
+      "v2_direct",
+      "v7_text_compiler"
+    ]
+  },
+  "status": {
+    "stage": "fulltest1400",
+    "arms": {
+      "v2_direct": {
+        "completed": 120,
+        "total": 1400,
+        "correct": 110,
+        "tokens": 296491,
+        "native_graphs": 0,
+        "program_calls": 0,
+        "program_ok": 0,
+        "new_completed": 21,
+        "inherited_completed": 99
+      },
+      "v7_text_compiler": {
+        "completed": 119,
+        "total": 1400,
+        "correct": 106,
+        "tokens": 296179,
+        "native_graphs": 118,
+        "program_calls": 118,
+        "program_ok": 118,
+        "new_completed": 20,
+        "inherited_completed": 99
+      }
+    },
+    "campaign_tokens": 592670,
+    "campaign_http": 240,
+    "inflight_or_unmetered": 3,
+    "unknown_reserved_tokens": 232477,
+    "billing_blocked": true,
+    "refusals": 2,
+    "status": "running",
+    "at": "2026-10-20T07:15:10.528126+00:00"
+  },
+  "parent_results_and_ledger_unchanged": true,
+  "original_refusal_http_count": 1,
+  "unknown_reservations": {
+    "provider_request_cf01f757c97a459f858968372fcd0d76": 77540,
+    "provider_request_94c4826cacf34c5c949dcd5c5e922838": 77614
+  },
+  "refusals": [
+    {
+      "arm": "v2_direct",
+      "task_id": "searchqa:dedcc7b25ccf4ec388788d84adbebe07",
+      "request_id": "provider_request_94c4826cacf34c5c949dcd5c5e922838",
+      "inherited": false,
+      "score": {
+        "hard": false,
+        "soft": 0.0,
+        "raw_score": 0.0,
+        "scorer": "searchqa.skillopt-em-f1"
+      },
+      "billing": {
+        "status": "unknown_billing",
+        "reserved_tokens": 77614,
+        "actual_usage": null,
+        "reservation_receipt": "/home/yangchengyu/searchqa_glm53_v2_v7_test1400_seed42_refusal_resume_20261020/budget.json"
+      }
+    },
+    {
+      "arm": "v7_text_compiler",
+      "task_id": "searchqa:dedcc7b25ccf4ec388788d84adbebe07",
+      "request_id": "provider_request_cf01f757c97a459f858968372fcd0d76",
+      "inherited": true,
+      "score": {
+        "hard": false,
+        "soft": 0.0,
+        "raw_score": 0.0,
+        "scorer": "searchqa.skillopt-em-f1"
+      },
+      "billing": {
+        "status": "unknown_billing",
+        "reserved_tokens": 77540,
+        "actual_usage": null,
+        "reservation_receipt": "/home/yangchengyu/searchqa_glm53_v2_v7_test1400_seed42_refusal_resume_20261020/budget.json"
+      }
+    }
+  ]
+}

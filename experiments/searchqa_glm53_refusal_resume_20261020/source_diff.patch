@@ -1,0 +1,50 @@
+diff --git a/src/atomic_skillgraph/agents/provider.py b/src/atomic_skillgraph/agents/provider.py
+index 6ad794d..f6959b9 100644
+--- a/src/atomic_skillgraph/agents/provider.py
++++ b/src/atomic_skillgraph/agents/provider.py
+@@ -581,6 +581,29 @@ class OpenAICompatibleProvider:
+         response: requests.Response,
+         tools_requested: bool,
+     ) -> AgentTurn:
++        choices = data.get("choices")
++        choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
++        finish = choice.get("finish_reason")
++        outcomes = {"content_filter": "provider_content_filter"}
++        if self.config.dialect == "glm_53_chat":
++            outcomes.update(sensitive="provider_content_filter", network_error="provider_inference_error",
++                            model_context_window_exceeded="provider_context_window_exceeded")
++        if finish in outcomes:
++            # An explicit provider outcome remains identifiable even without billing.
++            error = AgentProviderError(outcomes[finish], "Provider returned finish_reason=" + finish,
++                                       http_status=response.status_code)
++            try:
++                billed, metadata = _parse_usage(data.get("usage"))
++            except (TypeError, ValueError):
++                pass
++            else:
++                error.usage_turn = AgentTurn(content="", tool_calls=[], latency_ms=latency_ms,
++                    finish_reason=finish, prompt_tokens=billed["prompt_tokens"],
++                    completion_tokens=billed["completion_tokens"], total_tokens=billed["total_tokens"],
++                    reasoning_tokens=billed["reasoning_tokens"],
++                    provider_metadata={**metadata, "response_model": data.get("model"),
++                                       "response_id": data.get("id"), "provider_outcome": outcomes[finish]})
++            raise error
+         try:
+             usage, usage_metadata = _parse_usage(data.get("usage"))
+         except (TypeError, ValueError) as exc:
+@@ -643,15 +666,6 @@ class OpenAICompatibleProvider:
+                 "provider_invalid_response", "assistant reasoning_content must be a string",
+                 usage, latency_ms, metadata, content=content, finish_reason=finish_reason,
+             )
+-        if self.config.dialect=='glm_53_chat' and finish_reason in {'network_error','model_context_window_exceeded'}:
+-            code='provider_inference_error' if finish_reason=='network_error' else 'provider_context_window_exceeded'
+-            error=AgentProviderError(code,'GLM returned finish_reason='+finish_reason,http_status=response.status_code)
+-            # Metered infrastructure errors must not become normal scored model answers.
+-            error.billing_turn=AgentTurn(content=content,tool_calls=[],latency_ms=latency_ms,
+-                reasoning_content=reasoning_content,finish_reason=finish_reason,
+-                prompt_tokens=usage['prompt_tokens'],completion_tokens=usage['completion_tokens'],
+-                total_tokens=usage['total_tokens'],reasoning_tokens=usage['reasoning_tokens'],provider_metadata=metadata)
+-            raise error
+         raw_calls = message.get("tool_calls", [])
+         if raw_calls is None:
+             raw_calls = []
