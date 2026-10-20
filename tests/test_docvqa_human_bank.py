@@ -83,7 +83,8 @@ def test_native_ids_readonly_and_reference_scope(imported):
         bank.close()
 
 
-def test_single_node_delivers_one_skill_and_original_image_without_tools(imported, tmp_path, monkeypatch):
+@pytest.mark.parametrize('guidance_role', ['user', 'system'])
+def test_single_node_delivers_one_skill_and_original_image_without_tools(imported, tmp_path, monkeypatch, guidance_role):
     c, _ = imported
     c['data_dir'] = str(tmp_path / 'single_bank')
     config_path = tmp_path / 'single_config.json'
@@ -99,16 +100,21 @@ def test_single_node_delivers_one_skill_and_original_image_without_tools(importe
     sent = http(monkeypatch, [response(content='74216', finish='stop')])
     try:
         before = system.bank.digest()
-        with single_node_bridge(): trace = system.run_task(task, learn=False)
+        with single_node_bridge(guidance_role=guidance_role): trace = system.run_task(task, learn=False)
         assert trace['execution']['prediction'] == '74216'
         assert trace['score']['hard'] is True
         assert trace['execution']['internal_execution_count'] == 0
         assert len(sent) == 1 and not sent[0].get('tools')
         parts = sent[0]['messages'][1]['content']
         material = json.loads(next(p['text'] for p in parts if p['type'] == 'text'))
-        assert set(material) == {'goal', 'guidance'}
-        assert len(material['guidance']) == 1
-        assert 'Set the answer boundary by its type' in json.dumps(material['guidance'])
+        guidance = system.bank.all('skill')[0]['guidance']
+        if guidance_role == 'user':
+            assert set(material) == {'goal', 'guidance'}
+            assert len(material['guidance']) == 1
+            assert material['guidance'][0]['guidance'] == guidance
+        else:
+            assert set(material) == {'goal'}
+            assert sent[0]['messages'][0]['content'].count(guidance) == 1
         images = [p['image_url']['url'] for p in parts if p['type'] == 'image_url']
         assert len(images) == 1 and base64.b64decode(images[0].split(',')[1]) == image.read_bytes()
         assert 'answer_step' not in sent[0]['messages'][0]['content']
@@ -144,13 +150,14 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         monkeypatch.setattr(EmpiricalSystem, 'agent', reserve)
     try:
         before = system.bank.digest()
-        with single_node_bridge(): trace = system.run_task(task, learn=False)
+        with single_node_bridge(guidance_role='system'): trace = system.run_task(task, learn=False)
         assert trace['score']['hard'] is True
         assert len(sent) == 2 and len(sent[0]['tools']) == 1
         assert trace['execution']['internal_execution_count'] == 1
         assert trace['execution']['attempts'][0]['status'] == 'ok'
         schema = sent[0]['tools'][0]['function']['parameters']
         assert schema['properties']['action']['enum'] == ['inspect', 'finish']
+        assert 'bbox' not in schema['properties']
         parts = sent[1]['messages'][1]['content']
         images = [p for p in parts if p['type'] == 'image_url']
         material = json.loads(next(p['text'] for p in parts if p['type'] == 'text'))
@@ -158,8 +165,8 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         if finish_reserved:
             assert not sent[1].get('tools')
             assert trace['execution']['reason'] == 'budget_finish_only'
-        else:
-            assert len(material['guidance']) == 1
+        assert 'guidance' not in material
+        assert system.bank.all('skill')[0]['guidance'] in sent[1]['messages'][0]['content']
         assert images[0] == next(p for p in sent[0]['messages'][1]['content'] if p['type'] == 'image_url')
         assert material['crop_evidence'][0]['source_bbox'] == [0, 0, 1000, 400]
         assert not any(k in material for k in ('programs', 'workflows', 'worker_resources'))

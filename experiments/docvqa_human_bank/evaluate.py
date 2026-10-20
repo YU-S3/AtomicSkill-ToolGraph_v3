@@ -17,10 +17,14 @@ def main():
     parser.add_argument('--crop-mode', choices=['guidance', 'grounded'], default='grounded')
     parser.add_argument('--single-node', action='store_true', help='One manual Skill; text-only response with no tools')
     parser.add_argument('--single-node-crop', action='store_true', help='One manual Skill with only optional image inspection')
+    parser.add_argument('--guidance-role', choices=['user', 'system'], default='user',
+                        help='Single-node ablation: where the complete manual Skill is delivered')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
     args.single_node = args.single_node or args.single_node_crop
+    if not args.single_node and args.guidance_role != 'user':
+        parser.error('--guidance-role applies only to single-node evaluation')
     repo, root, campaign = map(lambda x: Path(x).resolve(), (args.repo,args.output,args.campaign))
     sys.path.insert(0,str(repo/'src'))
     sys.path.insert(0,str(repo/'experiments/docvqa_human_bank/integration'))
@@ -69,6 +73,8 @@ def main():
             'development_only':split=='train','workflow_execution':False,
             'single_node':args.single_node,
             'programs':'optional_image_crop' if args.single_node_crop else 'off' if args.single_node else 'auto'}
+        if args.single_node:
+            config['experiment']['docvqa_human_reference']['guidance_role'] = args.guidance_role
         config['budget'].update(limits,train_task_tokens=96000,eval_task_tokens=96000)
         config['budget'].pop('train_solve_tokens',None);config['budget'].pop('train_learning_tokens',None)
         config['program_worker']['record_execution_receipt']=True
@@ -105,7 +111,7 @@ def main():
         before=tree_identity(root/'bank')['sha256']
         log.freeze(root/'bank',newly_created=not (root/'final_frozen_manifest.json').exists())
         try:
-            with image_result_bridge():
+            with image_result_bridge(**({'guidance_role': args.guidance_role} if args.single_node else {})):
                 summary=run(config,tasks,root/split,readonly=True,resume=args.resume,
                     bank_view_factory=factory,formal_log=log,budget_governor=governor,
                     task_metadata={x['task_id']:x['task_metadata'] for x in canonical},freeze_on_complete=False)

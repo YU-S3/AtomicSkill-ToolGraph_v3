@@ -4,7 +4,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-METHOD = 'docvqa.human.single-node.v3'
+METHOD = 'docvqa.human.single-node.v4'
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -73,8 +73,10 @@ class SingleNodeDocVQAView:
 
 
 @contextmanager
-def single_node_bridge():
+def single_node_bridge(*, guidance_role='user'):
     """Keep production metering/checkpoints/scoring; expose only the image and Skill."""
+    if guidance_role not in ('user', 'system'):
+        raise ValueError('guidance_role must be user or system')
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     old = EmpiricalSystem.agent
 
@@ -88,6 +90,11 @@ def single_node_bridge():
                 'Return the requested source text faithfully, without a plan or explanation. '
                 + s.adapter.answer_contract())
             material = deepcopy({k: materials[k] for k in ('goal', 'guidance', 'content_parts') if k in materials})
+            if not material.get('guidance'):
+                material['guidance'] = s.bank.all('skill')
+            if guidance_role == 'system':
+                prompt += '\n\nManual Skill:\n' + '\n\n'.join(
+                    item['guidance'] for item in material.pop('guidance', []))
             if not material.get('content_parts'):
                 material['content_parts'] = s.adapter.content_parts()
             if s.bank.crop_enabled:
@@ -106,20 +113,16 @@ def single_node_bridge():
                     schema = {'type': 'object', 'properties': {
                         'action': {'enum': ['inspect', 'finish']},
                         'region': {'enum': ['top', 'middle', 'bottom', 'left', 'right', 'whole']},
-                        'bbox': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0, 'maximum': 1000},
-                                 'minItems': 4, 'maxItems': 4},
                         'answer': {'type': 'string'},
                         'used_results': {'type': 'array', 'items': {'type': 'string'}}},
                         'required': ['action'], 'additionalProperties': False,
                         'allOf': [
                             {'if': {'properties': {'action': {'const': 'inspect'}}},
-                             'then': {'oneOf': [{'required': ['region'], 'not': {'required': ['bbox']}},
-                                                {'required': ['bbox'], 'not': {'required': ['region']}}]}},
+                             'then': {'required': ['region']}},
                             {'if': {'properties': {'action': {'const': 'finish'}}}, 'then': {'required': ['answer']}}]}
-                    prompt += (' If a target character or punctuation mark is visually unclear, including '
-                        'whether it belongs to a printed rule rather than the value, inspect its region or original-page '
-                        'bbox [left,top,right,bottom] in 0..1000 coordinates, origin top-left. '
-                        'This only enlarges real source pixels. Prefer a broad region when location is uncertain. '
+                    prompt += (' If a specific field remains visually unclear, inspect its named page region. '
+                        'The Program determines the pixel coordinates; it does not identify or transcribe the target. '
+                        'Check that the returned region actually contains the requested field and its relevant labels. '
                         'Otherwise answer directly. At most two inspections; no mandatory second pass. '
                         'Use finish with actual used_results when a crop supports the answer.')
                     material['remaining_inspections'] = materials['remaining_local_executions']
@@ -127,7 +130,7 @@ def single_node_bridge():
                     if step['action'] == 'inspect':
                         return {'action': 'call_program', 'name': s.bank.programs['image_region']['id'],
                             'arguments': {'image_path': '/workspace/inputs/image_0.png',
-                                **{k: step[k] for k in ('region', 'bbox') if k in step}}}
+                                'region': step['region']}}
                     return step
             answer = old(s, stage, prompt, material, None if answer_step else name, None, **kwargs)
             return {'action': 'finish', 'answer': answer or ''} if answer_step else answer
