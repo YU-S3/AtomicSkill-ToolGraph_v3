@@ -1,0 +1,46 @@
+{
+  "id": "skill_hs_searchqa_solve_v8_guidance",
+  "goal": "Identify the missing relation before selecting a name.",
+  "guidance": "Identify the missing relation before selecting a name.\nApply to every clue; spend extra attention on a bare name, title plus year, quotation or list.\n1. Separate what is given from what is missing. Write the relation mentally as [given subject] --[requested relation]--> [unknown], or the reverse if the clue asks who performed an action. A person mentioned inside a subordinate clause is an anchor, not automatically the answer.\n2. Preserve explicit constraints: subject/object direction, date, place, negation, comparison and number of requested items. An explicit question or blank overrides a category inferred from the clue's appearance.\n3. For an elliptical clue, consider the strongest two missing relations supported by the actual snippets, then settle once. A title and year can ask for a performer, creator or character; a person's name can ask for an office, jurisdiction or association. Neither pattern supplies the category on its own.\n4. Prefer a passage matching the complete clue or a distinctive relation over a generic biography, a famous association or the first search result. If the category remains unstated, choose the best-supported relation; do not manufacture a category or claim certainty from a formatting pattern.\nFictional contrast: \"Who wrote Silver Orchard, dedicated to ruler Varo?\" requests the writer, not Varo. The clue \"Silver Orchard, 1902\" alone does not establish whether the writer or a performer is wanted.\nDeliver one candidate of the requested type. Keep these intermediate comparisons internal; do not output a target explanation or alternative answers.\n\nResolve a concrete evidence conflict, not an imagined one.\nApply when candidate passages disagree about the requested relation, date, edition, location or name.\n1. Determine whether they concern different times, versions, roles or entities. Retain the clue's stated frame; an older officeholder can be correct for a dated clue even when a newer biography names someone else.\n2. Prefer the passage that states the requested relation with the distinguishing constraints. Exact matching clue-and-answer records are useful evidence, but a mismatched date or negation disqualifies a superficial match.\n3. Repeated snippets from the same source or copied wording do not constitute independent corroboration. Mention count and title prominence do not override a conflicting relation.\n4. Compare the strongest alternative once. Change the answer only for an identifiable mismatch or stronger relevant evidence, not because another association is more familiar.\nFictional contrast: \"Kelan led the institute in 1890; Sera succeeded in 1910\" requires Kelan for 1890. Repetition of Sera in later snippets does not change that.\nIf support is incomplete, make the best supported inference without inventing a source quote. Do not require literal answer presence: legitimate inference and aliases may be absent from the context.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      },
+      "source_fields": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "additionalProperties": false
+  },
+  "execution_intent": "guidance_only",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.accuracy.v8_guidance",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "always"
+  }
+}

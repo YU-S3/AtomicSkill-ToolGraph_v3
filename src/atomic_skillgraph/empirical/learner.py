@@ -40,12 +40,20 @@ class Learner:
                 'local_evidence':evidence_from_trace(
                     task,trace,self.system.config['program_environment'])}
         from .source_catalog import trace_enabled
-        if trace_enabled(self.system.config):
+        from .process_learning import enabled as process_enabled
+        if trace_enabled(self.system.config) or process_enabled(self.system.config):
             from .retrieval_chain import recover
             experience['local_evidence'] += recover(task,trace,self.system.config['program_environment'])
+        if process_enabled(self.system.config):
+            from .process_learning import MATERIAL
+            for evidence in experience['local_evidence']:
+                evidence['process_material_version'] = MATERIAL
         return experience
 
     def _view(self, experience, *, source_id):
+        from . import process_learning
+        if process_learning.enabled(self.system.config):
+            return process_learning.case_view(experience, source_id)
         from .source_catalog import trace_enabled
         if trace_enabled(self.system.config):
             from .retrieval_chain import KIND
@@ -78,6 +86,7 @@ class Learner:
     def _receive(self, key, stage, prompt, material, name, schema, *, material_version=None, **kwargs):
         s = self.system
         version = material_version or s.config['learning']['material_version']
+        from .process_learning import MATERIAL as PROCESS_MATERIAL
         from .searchqa_guidance import MATERIAL as SEARCHQA_MATERIAL
         from .searchqa_guidance_r3 import MATERIAL as SEARCHQA_R3_MATERIAL
         from .math_operation_contract_p6 import MATERIAL as P6_MATERIAL
@@ -105,6 +114,12 @@ class Learner:
             else:
                 if version in {SEARCHQA_MATERIAL, SEARCHQA_R3_MATERIAL,P6_MATERIAL} and (snapshot != material or s.checkpoint.state.get(key + '_request_schema') != schema):
                     raise ValueError('R2 learning source/schema changed across recovery')
+                if version == PROCESS_MATERIAL:
+                    from .model_view import expand_material
+                    old, new = expand_material(snapshot), expand_material(material)
+                    immutable = ('experience',) if stage == 'extractor' else ('build_request', 'examples')
+                    if any(old.get(k) != new.get(k) for k in immutable):
+                        raise ValueError('Process learning source/binding changed across recovery')
                 if version in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS) and (snapshot != material or
                     s.checkpoint.state.get(key + '_request_schema') != schema):
                     raise ValueError('Choice guidance source/material/schema changed across recovery')
@@ -232,6 +247,10 @@ class Learner:
                 seen.add(binding['case_id'])
                 if binding['case_id'] not in cases:raise ValueError('TrialCase must be a completed Train case')
                 if not skill:continue
+                from .process_learning import enabled as process_enabled
+                if (process_enabled(self.system.config) and skill.get('result_role') == 'final_answer'
+                        and (cases[binding['case_id']][1].get('score') or {}).get('hard') is not True):
+                    raise ValueError('A failed source task supports local operations, not a verified final answer')
                 from .local_validation import canonical_binding
                 locked=canonical_binding(binding,cases[binding['case_id']][1],skill)
                 self._preflight_binding(locked, skill, cases)
@@ -276,7 +295,10 @@ class Learner:
 
     def learn(self, task, trace, *, focus=None):
         s, bank = self.system, self.system.bank
-        from . import source_catalog
+        from . import source_catalog, process_learning
+        process_mode = process_learning.enabled(s.config)
+        if process_mode and task.split != 'train':
+            raise ValueError('Only Train contributes to process learning')
         catalog=source_catalog.enabled(s.config)
         experience = self._experience(task, trace)
         if source_catalog.trace_enabled(s.config):
@@ -324,7 +346,7 @@ class Learner:
         material = project('extractor',
                 {'experience': self._view(experience, source_id=task.physical_key), 'related': related, 'tools': tools,
                  'program_submission_contract': submission_contract(s.adapter),
-                 'completed_train_cases': [self._view(case,source_id=key) if source_catalog.trace_enabled(s.config) else learning_case(case,key)
+                 'completed_train_cases': [self._view(case,source_id=key) if source_catalog.trace_enabled(s.config) or process_mode else learning_case(case,key)
                      for key, (t, case) in [row for row in sorted(cases.items(), key=lambda row: (
                          -len(bank.words(task.goal) & bank.words(row[1][0].goal)), row[0])) if row[0]!=task.physical_key][:2]],
                  'selected_local_goal': focus}, task=task, adapter=s.adapter, context=s.task_context)
@@ -336,6 +358,8 @@ class Learner:
             material = source_catalog.catalog_material(material,trace=trace_mode)
             schema = source_catalog.proposal_schema(schema,trace=trace_mode)
             prompt = source_catalog.TRACE_PROMPT if trace_mode else source_catalog.PROMPT
+            if process_mode:
+                prompt = process_learning.PROMPT
         def validate(proposal):
             if not catalog: return self.validate_learning_proposal(proposal,cases)
             try:
@@ -363,14 +387,22 @@ class Learner:
         skill = None
         if proposal.get('skill'):
             asset = self._proposal_skill(proposal)
+            if process_mode:
+                # _proposal_skill assigned an ID before attaching provenance.
+                asset.pop('id', None)
+                asset = process_learning.record_skill(asset, bank.get(proposal.get('existing_skill_id') or ''),
+                                                       task, experience)
             # Choice guidance retains its checked-source contract. General operation
             # learning may publish code, but cannot bypass that contract with new text.
             if s.config['learning'].get('choice_guidance',{}).get('enabled') and 'choices' in task.inputs:
                 log['text_publication'] = 'withheld_unchecked_choice_guidance'
             skill = bank.put('skill', asset)
+            if process_mode:
+                log.update(persisted_skill_id=skill['id'], parent_skill_id=skill.get('parent_skill_id'))
         elif proposal.get('existing_skill_id'):
             skill = bank.get(proposal['existing_skill_id'])
             if not skill or 'input_schema' not in skill: raise ValueError('Unknown existing Skill')
+            if process_mode: log['reused_skill_id'] = skill['id']
         new_skill = skill if proposal.get('skill') else None
         request = proposal.get('realization_request')
         if request:
@@ -651,6 +683,14 @@ class Learner:
         log['test_subjects'] = [b['case_id'] for b in bindings]
         from .local_validation import resolve_evidence
         examples = [builder_example(b,resolve_evidence(b,cases[b['case_id']][1],skill)) for b in bindings]
+        from .process_learning import enabled as process_enabled
+        if process_enabled(s.config):
+            from .local_validation import reference_value
+            for example, binding in zip(examples, bindings):
+                example['public_task'] = deepcopy(cases[binding['case_id']][1]['task'])
+                evidence = resolve_evidence(binding, cases[binding['case_id']][1], skill)
+                example['observed_outputs'] = {k: reference_value(evidence, ref)
+                                                for k, ref in binding['reference_fields'].items()}
         from .retrieval_chain import KIND, TOOLS
         if any(example['kind']==KIND for example in examples):
             tools=[t for t in tools if t['name'] in TOOLS]
@@ -788,7 +828,8 @@ class Learner:
             value['content_parts']=image_content_parts(paths)
         if previous_failure is not None: value['previous_failure'] = self._failure_view(previous_failure)
         from .source_catalog import trace_enabled
-        if trace_enabled(self.system.config):
+        from .process_learning import enabled as process_enabled
+        if trace_enabled(self.system.config) or process_enabled(self.system.config):
             from .model_view import pack_trace_material
             return pack_trace_material(value)
         return pack_material(value)
@@ -800,6 +841,13 @@ class Learner:
             if enabled(self.system.config) else '')
         if trace_enabled(self.system.config):
             prompt+='\nFor retrieval_chain return the acquired text, not a numeric answer. Follow actions/roots/edges using inputs; source_context is the original executed code, not a replacement Program. Only the future API whitelist is allowed. No match or incomplete evidence must return not_found/needs_input/blocked. Reading an existing hit is an intermediate success even when grep has more hits.'
+        from .process_learning import enabled as process_enabled
+        if process_enabled(self.system.config):
+            prompt += ('\nFull public source pages are in examples.public_task. They are inputs, not gold. '
+                'At runtime use the current supplied source_ref through ctx.read_result, or declared parameterized values. '
+                'Do not copy a historical result_id or example answer into source. '
+                'Preserve result_role: final_answer returns the source-supported formatted answer:string; '
+                'intermediate returns only the declared local result. No guessed units, dates or numeric transforms.')
         return prompt
 
     def _failure_view(self, failure):

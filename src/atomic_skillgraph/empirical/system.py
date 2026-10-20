@@ -77,10 +77,12 @@ def validate_config(config):
         if settings.get('max_completion_tokens')!=32768 or settings.get('reasoning_effort')!='high' or settings.get('protocol',{}).get('thinking_type')!='enabled':
             raise ValueError('R2 Runtime requires the fixed high-thinking 32768 cap')
     from .source_catalog import enabled as source_catalog_enabled
+    from . import process_learning
+    process_mode = process_learning.enabled(config)
     from . import OFFICE_SOURCE_METHOD_VERSION, OFFICE_SOURCE_MATERIAL_VERSION, OFFICE_TRACE_METHOD_VERSION, OFFICE_TRACE_POLICY
     office_source = source_catalog_enabled(config)
     office_version = config.get('experiment',{}).get('officeqa_method_version')
-    if office_version and (office_version not in {OFFICE_SOURCE_METHOD_VERSION,OFFICE_TRACE_METHOD_VERSION} or config.get('experiment',{}).get('benchmark') != 'officeqa'
+    if office_version and (office_version not in {OFFICE_SOURCE_METHOD_VERSION,OFFICE_TRACE_METHOD_VERSION,process_learning.VERSION} or config.get('experiment',{}).get('benchmark') != 'officeqa'
                           or config.get('harness',{}).get('adapter')!='officeqa'):
         raise ValueError('Office source-catalog identity requires its exact method and benchmark')
     math_p3=config.get('experiment',{}).get('choice_method_version') in MATH_CAPABILITY_VERSIONS
@@ -114,6 +116,7 @@ def validate_config(config):
         if office_source and section=='learning':
             defaults={**defaults,'material_version':OFFICE_SOURCE_MATERIAL_VERSION,'builder_payload_max_bytes':24576}
             if office_version==OFFICE_TRACE_METHOD_VERSION:defaults.update(OFFICE_TRACE_POLICY)
+            if process_mode: defaults.update(process_learning.POLICY)
         config[section] = {**defaults, **config.get(section, {})}
         for key, value in defaults.items():
             if config[section][key] != value:
@@ -127,7 +130,7 @@ def validate_config(config):
         if learning.get('capability_material_version')!=expected_material or learning.get('capability_payload_max_bytes')!=(65536 if math_p3 else 32768):
             raise ValueError('Capability material version/capacity differs from its explicit method contract')
     source_capacity = learning.get('source_program_payload_max_bytes')
-    if office_source and source_capacity != 24576:
+    if office_source and not process_mode and source_capacity != 24576:
         raise ValueError('Office source-catalog requires its frozen 24 KiB source capacity')
     if office_version==OFFICE_TRACE_METHOD_VERSION:
         from .evidence_handoff import enabled as evidence_handoff_enabled
@@ -154,6 +157,8 @@ def validate_config(config):
             raise ValueError('Office V3 Runtime/finish contract changed')
     if source_capacity is not None and (type(source_capacity) is not int or not 16384 <= source_capacity <= 24576):
         raise ValueError('Executed-source learning capacity must be explicit and bounded to 24 KiB')
+    if process_mode:
+        process_learning.validate(config)
     runtime = config['runtime']
     from .evidence_handoff import VERSION as evidence_handoff_version
     if runtime.get('evidence_handoff_version') not in {None,evidence_handoff_version}:
@@ -447,6 +452,9 @@ class EmpiricalSystem:
 
     def prepare_finish(self, materials, prompt, *, allowed_result_ids=None):
         from .finish_evidence import build_finish_evidence
+        from . import process_learning, public_pages
+        if process_learning.enabled(self.config):
+            prompt = public_pages.answer_prompt(prompt)
         provider = self.provider('runtime', 'finish_only')
         output_cap = self.resolve_call_settings('runtime', 'finish_only').get('max_completion_tokens', 2048)
         input_cap = min(self.config['runtime']['finish_input_max_bytes'],
@@ -464,6 +472,13 @@ class EmpiricalSystem:
               completion_override=None, repair_reason=None, job_key=None, owner_state_version=None,
               decision_purpose=None, finish_request_material=None):
         from .model_view import callable_tools
+        from . import process_learning, public_pages
+        if process_learning.enabled(self.config) and stage == 'runtime':
+            prompt = public_pages.answer_prompt(prompt)
+        if (process_learning.enabled(self.config) and stage in {'runtime', 'planner'}
+                and decision_purpose != 'finish_only' and name != 'finish_answer'):
+            materials = public_pages.runtime_material(self, materials)
+            prompt += '\n' + process_learning.RUNTIME
         if self.checkpoint and self.task_context:
             self.checkpoint.advance(self.checkpoint.state['stage'], model_context={k: getattr(self.task_context, k)
                 for k in ('scope', 'results', 'sources', 'memory', 'result_origins', 'window_sources', 'sent_windows')})
@@ -618,7 +633,7 @@ class EmpiricalSystem:
                         except (TypeError,ValueError):break
                         compact=[]
                         forms=[projected,pack_material(projected)]
-                        if trace_enabled(self.config):
+                        if trace_enabled(self.config) or process_learning.enabled(self.config):
                             from .model_view import pack_trace_material
                             forms.append(pack_trace_material(projected))
                         if projected.get('learning_material_version') in CHOICE_CAPABILITY_MATERIAL_VERSIONS:
@@ -634,6 +649,8 @@ class EmpiricalSystem:
                         removable=next((k for k in ('completed_train_cases','related','related_guidance') if projected.get(k)),None)
                         if removable is not None: projected[removable].pop()
                         else:
+                            if process_learning.enabled(self.config):
+                                break  # Complete current experience is required; refuse rather than hide its evidence.
                             cards = projected.get('experience',{}).get('local_evidence',[])
                             if not shrink_learning_preview(projected):
                                 if len(cards) <= 1: break
@@ -1103,6 +1120,9 @@ class EmpiricalSystem:
         if self.checkpoint:
             for key, value in self.checkpoint.state.get('model_context', {}).items():
                 setattr(self.task_context, key, value)
+        from . import process_learning, public_pages
+        if process_learning.enabled(self.config):
+            public_pages.seed(task, self.task_context)
         broker = Broker(self.adapter, self.config.get('runtime', {}).get('global_action_budget', 100),
             step_limit=self.config.get('runtime', {}).get('environment_step_budget'),
             journal=self.checkpoint.native_events if self.checkpoint else None,

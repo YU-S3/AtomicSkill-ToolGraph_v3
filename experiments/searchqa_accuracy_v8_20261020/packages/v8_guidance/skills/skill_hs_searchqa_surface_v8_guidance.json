@@ -1,0 +1,36 @@
+{
+  "id": "skill_hs_searchqa_surface_v8_guidance",
+  "goal": "Choose answer scope after resolving identity.",
+  "guidance": "Choose answer scope after resolving identity.\nApply after selecting the object, not as a shortcut for choosing it.\n1. Ask what constituent is requested: full entity, one name component, title, title gap, category, locality, region or acronym expansion. Return that constituent and all necessary distinguishing words.\n2. For an explicit title or quotation gap, substitute the proposed words into the supplied phrase. Do not repeat the words outside the gap. Preserve pronouns or small words that actually belong inside it.\n3. For people, use a matching answer field when one exists. Otherwise use the supported common name; retain given names when the evidence presents the person that way or ambiguity requires them. A clue explicitly asking for a surname/name component takes priority. There is no profession-wide \"surname only\" or \"always full name\" rule.\n4. For places and organizations, do not append a region, legal suffix, subdivision or descriptive noun merely to sound more official. Keep a qualifier that belongs to the requested conventional name or distinguishes supported alternatives. A city request does not become a state request; a category request does not become a named instance.\n5. When a short and long form both identify the same object, prefer the form tied to the matching clue or decisive relation. Without that support, do not aggressively shorten or restore an encyclopedia-style expansion.\nFictional contrast: in \"Complete the title: The ___ Garden\", return the missing words, not the entire title. If two people named Rell are present, dropping the given name can destroy the distinction; if a surname is explicitly requested, adding it back is also wrong.\n\nPreserve the requested lexical and multi-item form.\n1. Use the spelling supported by the decisive source. Do not add or strip accents globally, translate proper names, replace a requested everyday word with a technical synonym, or expand an acronym unless the expansion is asked for.\n2. Decide singular/plural from the referent and the evidence: one individual, a kind, multiple items or a group. Do not classify all foods, animals or occupations into one default number. A matched explicit answer field is stronger than a generic category convention.\n3. For an actual numeric answer or year, use digits and omit units already supplied by the question unless the unit is needed to identify the value. Preserve lexical numbers in a requested quotation or proper title. A number mentioned as background is not a command to count the answer.\n4. Enforce an explicit word/letter count only when it describes the requested answer. A \"four-letter town\" mentioned as a location does not constrain the name of a person asked about in that town.\n5. If multiple items are requested, return all and only those items in question order or the source's established order. If the question asks what a list has in common, identify the supported common relation instead of selecting one member. Do not infer \"shared category\" from commas alone.\nFictional contrast: \"Name the two tools\" requires both tools, while \"What are these tools used for?\" requests their shared use. A title \"Three Lanterns\" keeps its words, while a request for a count of lanterns calls for a number.\n\nPerform one targeted check, then submit.\nCompare the selected answer only against the constraints already established:\n- Does it fill the missing relation, rather than repeat an anchor or supply another role?\n- Does its date, scope and number of items fit the clue and the decisive evidence?\n- Have unnecessary words been added, or necessary name/gap words removed?\nRevise only the part contradicted by a specific check. When there is no concrete conflict, preserve the supported answer; do not reopen the whole task, add a verification request or replace it with a more familiar association.\nA matching literal field, executed Program or internal consistency check does not prove factual correctness. Do not claim independent validation.\nOutput exactly one <answer>short answer</answer>, without explanation, alternatives or trailing text.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "execution_intent": "guidance_only",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.accuracy.v8_guidance",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "always"
+  }
+}

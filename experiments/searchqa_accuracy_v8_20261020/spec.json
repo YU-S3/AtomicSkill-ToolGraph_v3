@@ -1,0 +1,18 @@
+{
+  "tasks": "/home/yangchengyu/searchqa_accuracy_v8_seed42_20261020/selection_public.json",
+  "arms": {
+    "v7_text_compiler": {
+      "package": "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/v7_text_compiler/input",
+      "kind": "native"
+    },
+    "v8_guidance": {
+      "package": "/mnt/d/T3S_exp/deliveries/searchqa_accuracy_v8_20261020/packages/v8_guidance",
+      "kind": "native"
+    },
+    "v8_programmatic": {
+      "package": "/mnt/d/T3S_exp/deliveries/searchqa_accuracy_v8_20261020/packages/v8_programmatic",
+      "kind": "native"
+    }
+  },
+  "purpose": "Uniform seed20261020 sample of 192 canonical Test tasks, no outcome filtering. Paired V7 / V8 guidance / V8 conditional Program. Post-Test development, not a fresh held-out result. Same DeepSeek high/cap32768/input/scorer; one normal model call per arm/task."
+}

@@ -436,6 +436,9 @@ class Executor:
             guidance = guidance[:3]
             if not guidance:
                 guidance = [s for s in self.bank.retrieve(interface['node_goal']) if 'guidance' in s][:3]
+            from .process_learning import enabled as process_enabled
+            if process_enabled(runtime_config):
+                guidance = self.bank.retrieve_guidance(interface['node_goal'], limit=3)
             if hasattr(self.bank, 'effect_guidance'):
                 guidance = self.bank.effect_guidance(task)
             requirements = handoff_requirements(plan, node['id'], completed)
@@ -455,6 +458,11 @@ class Executor:
                 'allowed_calls': '1-3 independent read_only/batchable calls; otherwise one operation' if any(t.get('batchable') for t in broker.available_tools()) else 'one operation',
                 'may_replan': replans == 0, 'may_escape': escapes == 0, 'loop_feedback': context.loop_feedback,
                 'completed_results': values.model_view()}
+            if process_enabled(runtime_config):
+                materials['guidance'] = [{k: s[k] for k in ('id', 'goal', 'guidance', 'entry_constraints') if k in s}
+                                         for s in guidance]
+                materials['active_guidance_ids'] = [s['id'] for s in guidance]
+                materials['guidance_retrieval'] = self.bank.guidance_retrieval_audit(interface['node_goal'], guidance)
             if hasattr(self.bank, 'effect_guidance'):
                 context.effect_owner_version = owner_version
                 materials['active_guidance_ids'] = [s['id'] for s in guidance]

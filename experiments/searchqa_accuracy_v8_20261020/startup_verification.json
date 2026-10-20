@@ -1,0 +1,93 @@
+{
+  "passed": true,
+  "at": "2026-10-20T09:09:54.112013+00:00",
+  "source": {
+    "git_sha": "b1305aeb7075757be2888813e54e3f7aa7e88683",
+    "tracked_dirty": false,
+    "source_sha256": "378897412ce7b318cbb027fffd8762119156f2ce4a75bbe1c7f01aaaf0d70439"
+  },
+  "plan_sha256": "18c8488e74456a00a5eaa1a8dc7905d6f3ba4aa1597ad45c68b6e23238e1557c",
+  "controller_sha256": "80ce83864b876a4072062cff0f0007e238ed4c27e147b6ba85c6b49ea0b06d24",
+  "arms": {
+    "v7_text_compiler": {
+      "completed": 11,
+      "model_solve_calls_per_completed_task": 1,
+      "tokens": 28077,
+      "source_fields_delivered": 0,
+      "all_native_nodes_completed": true,
+      "all_programs_ok": true,
+      "full_public_input_unchanged": true,
+      "response_models": {
+        "deepseek-flash": 11
+      }
+    },
+    "v8_guidance": {
+      "completed": 11,
+      "model_solve_calls_per_completed_task": 1,
+      "tokens": 32740,
+      "source_fields_delivered": 0,
+      "all_native_nodes_completed": true,
+      "all_programs_ok": true,
+      "full_public_input_unchanged": true,
+      "response_models": {
+        "deepseek-flash": 11
+      }
+    },
+    "v8_programmatic": {
+      "completed": 11,
+      "model_solve_calls_per_completed_task": 1,
+      "tokens": 33595,
+      "source_fields_delivered": 4,
+      "all_native_nodes_completed": true,
+      "all_programs_ok": true,
+      "full_public_input_unchanged": true,
+      "response_models": {
+        "deepseek-flash": 11
+      }
+    }
+  },
+  "run_status": {
+    "stage": "comparison192",
+    "arms": {
+      "v7_text_compiler": {
+        "completed": 11,
+        "total": 192,
+        "correct": 11,
+        "tokens": 28077,
+        "native_graphs": 11,
+        "program_calls": 11,
+        "program_ok": 11,
+        "fields_delivered": 0,
+        "matched_fields": 0
+      },
+      "v8_guidance": {
+        "completed": 11,
+        "total": 192,
+        "correct": 11,
+        "tokens": 32740,
+        "native_graphs": 11,
+        "program_calls": 11,
+        "program_ok": 11,
+        "fields_delivered": 0,
+        "matched_fields": 0
+      },
+      "v8_programmatic": {
+        "completed": 11,
+        "total": 192,
+        "correct": 10,
+        "tokens": 33595,
+        "native_graphs": 11,
+        "program_calls": 15,
+        "program_ok": 15,
+        "fields_delivered": 4,
+        "matched_fields": 0
+      }
+    },
+    "campaign_tokens": 94412,
+    "campaign_http": 34,
+    "inflight_or_unmetered": 1,
+    "status": "running",
+    "at": "2026-10-20T09:09:54.433626+00:00"
+  },
+  "notes": "Startup engineering validation only; no accuracy inference from prefix. An admitted request may be in flight."
+}

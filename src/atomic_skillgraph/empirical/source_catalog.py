@@ -12,7 +12,8 @@ BINDING = object_schema({'operation_id': {'type': 'string'}, 'input_ids': ID_MAP
 
 
 def enabled(config):
-    return config.get('experiment', {}).get('officeqa_method_version') in {OFFICE_SOURCE_METHOD_VERSION,OFFICE_TRACE_METHOD_VERSION}
+    from .process_learning import VERSION
+    return config.get('experiment', {}).get('officeqa_method_version') in {OFFICE_SOURCE_METHOD_VERSION,OFFICE_TRACE_METHOD_VERSION,VERSION}
 
 
 def trace_enabled(config):

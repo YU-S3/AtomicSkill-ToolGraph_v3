@@ -1,0 +1,8 @@
+Identify the missing relation before selecting a name.
+Apply to every clue; spend extra attention on a bare name, title plus year, quotation or list.
+1. Separate what is given from what is missing. Write the relation mentally as [given subject] --[requested relation]--> [unknown], or the reverse if the clue asks who performed an action. A person mentioned inside a subordinate clause is an anchor, not automatically the answer.
+2. Preserve explicit constraints: subject/object direction, date, place, negation, comparison and number of requested items. An explicit question or blank overrides a category inferred from the clue's appearance.
+3. For an elliptical clue, consider the strongest two missing relations supported by the actual snippets, then settle once. A title and year can ask for a performer, creator or character; a person's name can ask for an office, jurisdiction or association. Neither pattern supplies the category on its own.
+4. Prefer a passage matching the complete clue or a distinctive relation over a generic biography, a famous association or the first search result. If the category remains unstated, choose the best-supported relation; do not manufacture a category or claim certainty from a formatting pattern.
+Fictional contrast: "Who wrote Silver Orchard, dedicated to ruler Varo?" requests the writer, not Varo. The clue "Silver Orchard, 1902" alone does not establish whether the writer or a performer is wanted.
+Deliver one candidate of the requested type. Keep these intermediate comparisons internal; do not output a target explanation or alternative answers.

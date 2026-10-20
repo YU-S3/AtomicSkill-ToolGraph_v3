@@ -20,6 +20,10 @@ class Planner:
 
     def plan(self, task, adapter, feedback=None, completed_results=None):
         self.last_decision_id = None
+        from .process_learning import enabled
+        config = getattr(getattr(self.agent, '__self__', None), 'config', {})
+        if enabled(config):
+            return dynamic(task)
         related = self.bank.retrieve(task.goal)
         if adapter.capabilities.interaction == "single_answer" or (not related and not getattr(self.bank, 'force_planner', False)):
             return dynamic(task)

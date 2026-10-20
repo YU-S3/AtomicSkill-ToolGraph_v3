@@ -1,0 +1,47 @@
+{
+  "id": "workflow_hs_searchqa_answer_v8_guidance",
+  "interface_version": "empirical.workflow.v2",
+  "goal": "Apply concrete conditional experience to the public question and submit one supported answer",
+  "method_version": "human.searchqa.accuracy.v8_guidance",
+  "origin": "human_authored",
+  "nodes": [
+    {
+      "id": "solve",
+      "execution_mode": "skill",
+      "skill_id": "skill_hs_searchqa_solve_v8_guidance",
+      "reference_skill_ids": [
+        "skill_hs_searchqa_evidence_v8_guidance",
+        "skill_hs_searchqa_surface_v8_guidance"
+      ],
+      "args": {
+        "question": {
+          "task": "goal"
+        },
+        "context": {
+          "task": "context"
+        }
+      },
+      "after": []
+    },
+    {
+      "id": "submit",
+      "execution_mode": "skill",
+      "skill_id": "skill_hs_searchqa_submit_v8_guidance",
+      "args": {
+        "answer": {
+          "from": "solve",
+          "field": "answer"
+        }
+      },
+      "after": [
+        "solve"
+      ]
+    }
+  ],
+  "outputs": {
+    "answer": {
+      "from": "submit",
+      "field": "answer"
+    }
+  }
+}

@@ -298,6 +298,9 @@ def validate_on_source(system, program, binding, task, experience, trial_id, *, 
         if inherit: inherit(system.adapter)
         adapter.reset(task)
         broker = Broker(adapter, system.config['runtime']['global_action_budget'], context=TaskContext(system.config['runtime']))
+        from . import process_learning, public_pages
+        if process_learning.enabled(system.config):
+            public_pages.seed(task, broker.context, recorded=experience.get('result_store', {}).get('program_results', {}))
         specs={t['name']:t for t in [*adapter.tool_definitions(),*broker.available_tools()]}
         allowed=set(specs)-PROGRAM_FORBIDDEN_TOOLS
         if set(program['allowed_tools'])-allowed:raise ValueError('Program permissions exceed the public Adapter surface')
@@ -361,6 +364,12 @@ def validate_on_source(system, program, binding, task, experience, trial_id, *, 
         # when the original executed operation supplies an independent executable reference.
         numeric = next((k for k,v in binding['inputs'].items() if type(v) in (int,float) and k in operation.get('inputs', {})), None)
         variation = None
+        if passed and process_learning.enabled(system.config):
+            probe = process_learning.parameter_probe(system, program, binding, evidence, broker, trial_id)
+            if probe is not None:
+                variation = probe
+                passed = probe['passed']
+                if not passed: reason = 'parameterized_replay_mismatch'
         from .retrieval_chain import KIND, calls_match, validate_variations
         if passed and evidence['kind']==KIND:
             native_match=calls_match(calls,[{k:a[k] for k in ('name','arguments')} for a in operation['actions']])

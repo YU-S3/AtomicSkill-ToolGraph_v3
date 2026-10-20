@@ -1,0 +1,97 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "checks": [
+    {
+      "mode": "normal",
+      "passed": true,
+      "intercepted_http": 4,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_normal_1gdqcp0e"
+    },
+    {
+      "mode": "refusal_metered",
+      "passed": true,
+      "intercepted_http": 4,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_refusal_metered_qjqykdwb"
+    },
+    {
+      "mode": "refusal_unknown",
+      "passed": true,
+      "intercepted_http": 4,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_refusal_unknown_uczqlcob"
+    },
+    {
+      "mode": "original_replay",
+      "passed": true,
+      "intercepted_http": 3,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_original_replay_o9vnk11i"
+    },
+    {
+      "mode": "missing_usage",
+      "passed": true,
+      "intercepted_http": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_missing_usage_i35rb1qw"
+    },
+    {
+      "mode": "broken_stream",
+      "passed": true,
+      "intercepted_http": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_broken_stream_ebxy0qxx"
+    },
+    {
+      "mode": "network_metered",
+      "passed": true,
+      "intercepted_http": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_network_metered_2d5928nm"
+    },
+    {
+      "mode": "network_unknown",
+      "passed": true,
+      "intercepted_http": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_network_unknown_3o4f6faq"
+    },
+    {
+      "mode": "context_error",
+      "passed": true,
+      "intercepted_http": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_context_error_gx1pdhdi"
+    },
+    {
+      "mode": "crash_before_reservation",
+      "passed": true,
+      "intercepted_http": 4,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_crash_before_reservation_nezlyra4"
+    },
+    {
+      "mode": "crash_before_score",
+      "passed": true,
+      "intercepted_http": 4,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/glm_refusal_crash_before_score__5nr6ey2"
+    }
+  ],
+  "source": {
+    "git_sha": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+    "tracked_dirty": false,
+    "source_sha256": "b6d3b0d87e55afdbfd5696c06beec04b73122b0773db0f218278839b7008e072"
+  },
+  "driver_sha256": "dc3b2cd187fcb34fcb361877914c99cc1c670c0ea174f02faeaa8bcac696f805",
+  "guard_sha256": "c07564fd40c2b4ea2e1a6382ed07aa6c89755181769cedfa24978c7adcd3f56f",
+  "test_sha256": "f1094b7c131cbad1da3f6e293e959aab3c280994745fbc156a12dc32f10ccd5b",
+  "same_messages_and_model_parameters": true,
+  "refusal_never_retried": true,
+  "unknown_usage_not_fabricated": true,
+  "nonterminal_errors_not_scored": true,
+  "original_refusal_replayed_without_http": true,
+  "normal_native_execution_and_resume_verified": true
+}

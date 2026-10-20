@@ -1,0 +1,12 @@
+{
+  "status": "approved",
+  "at": "2026-10-20T09:06:46.820988+00:00",
+  "user_instruction": "按照上面的规划修改好bank，启动相关实验。",
+  "scope": "One bounded same-model three-arm comparison; detailed authored experience, no factual answer memory.",
+  "allocation": {
+    "tokens": 4000000,
+    "http": 720
+  },
+  "automatic_fulltest": false,
+  "automatic_promotion": false
+}

@@ -1,0 +1,49 @@
+{
+  "id": "program_hs_searchqa_submit_v8_guidance",
+  "title": "Seal the selected answer verbatim using the native submit Program; do not normalize, expand or shorten its lexical content.",
+  "entry": "run",
+  "backend": "sandbox_python_v1",
+  "source": "\"\"\"Idempotent answer envelope; deliberately no lexical or factual normalization.\"\"\"\nimport re\n\n\ndef run(ctx, inputs):\n    value = inputs.get(\"answer\")\n    if not isinstance(value, str) or not value.strip():\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"A nonempty answer is required\"}\n    wrapped = re.fullmatch(r\"\\s*<answer>(.*?)</answer>\\s*\", value, re.DOTALL)\n    body = wrapped.group(1) if wrapped else value\n    if not body.strip() or re.search(r\"<\\s*/?\\s*answer\\b\", body, re.IGNORECASE):\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"Supply one plain answer or one complete answer tag pair\"}\n    return {\"status\": \"ok\", \"outputs\": {\"answer\": \"<answer>\" + body + \"</answer>\"}}\n",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "additionalProperties": false
+  },
+  "allowed_tools": [],
+  "environment": {
+    "backend": "sandbox_python_v1",
+    "python": "3.12",
+    "dependencies": [
+      "openpyxl==3.1.5",
+      "pandas==2.3.3",
+      "pillow==11.3.0"
+    ],
+    "adapter_abi": "simple.v2",
+    "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+  },
+  "result_role": "final_answer",
+  "permission": "author_trusted",
+  "origin": "human_authored",
+  "method_version": "human.searchqa.accuracy.v8_guidance"
+}
