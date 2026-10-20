@@ -1,0 +1,12 @@
+{
+  "version": "human.searchqa.accuracy.v8_programmatic",
+  "parent_bundle_sha256": "7905f4c11e61b858fd390dd338b06e2f8183a89bc27d262efdbff27bd9cf7d4c",
+  "source_integration_sha256": "05f230619072b087980ce0a8837b4633236f506ad5060bc29f513d6777edfd37",
+  "source_parser_sha256": "92a92bfab263013ece65e2e6abe162631b7bf2d0c456649962f91888f387f8aa",
+  "no_gold_input": true,
+  "no_answer_memory": true,
+  "fictional_examples": true,
+  "normal_model_requests": 1,
+  "source_fields_enabled": true,
+  "author_trusted_not_learned": true
+}

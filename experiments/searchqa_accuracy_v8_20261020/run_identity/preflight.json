@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "stage": "comparison192",
+  "tasks": 192,
+  "arms": [
+    "v7_text_compiler",
+    "v8_guidance",
+    "v8_programmatic"
+  ],
+  "real_http": 0,
+  "at": "2026-10-20T09:06:49.090945+00:00",
+  "allocation": {
+    "tokens": 4000000,
+    "http": 720
+  }
+}

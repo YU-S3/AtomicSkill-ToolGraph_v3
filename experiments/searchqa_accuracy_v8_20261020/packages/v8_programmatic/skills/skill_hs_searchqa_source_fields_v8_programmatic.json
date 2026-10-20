@@ -1,0 +1,42 @@
+{
+  "id": "skill_hs_searchqa_source_fields_v8_programmatic",
+  "goal": "Execute the mapped pure Program on the original public question/context; pass its actual report to solve. No match is normal. Literal matches do not decide the answer.",
+  "guidance": "Execute the mapped pure Program on the original public question/context; pass its actual report to solve. No match is normal. Literal matches do not decide the answer.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "source_fields": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "source_fields"
+    ],
+    "additionalProperties": false
+  },
+  "execution_intent": "procedural",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.accuracy.v8_programmatic",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "public_structural_markers"
+  }
+}

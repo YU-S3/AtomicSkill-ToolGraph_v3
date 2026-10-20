@@ -1,0 +1,8 @@
+Resolve a concrete evidence conflict, not an imagined one.
+Apply when candidate passages disagree about the requested relation, date, edition, location or name.
+1. Determine whether they concern different times, versions, roles or entities. Retain the clue's stated frame; an older officeholder can be correct for a dated clue even when a newer biography names someone else.
+2. Prefer the passage that states the requested relation with the distinguishing constraints. Exact matching clue-and-answer records are useful evidence, but a mismatched date or negation disqualifies a superficial match.
+3. Repeated snippets from the same source or copied wording do not constitute independent corroboration. Mention count and title prominence do not override a conflicting relation.
+4. Compare the strongest alternative once. Change the answer only for an identifiable mismatch or stronger relevant evidence, not because another association is more familiar.
+Fictional contrast: "Kelan led the institute in 1890; Sera succeeded in 1910" requires Kelan for 1890. Repetition of Sera in later snippets does not change that.
+If support is incomplete, make the best supported inference without inventing a source quote. Do not require literal answer presence: legitimate inference and aliases may be absent from the context.

@@ -1,0 +1,8 @@
+Choose answer scope after resolving identity.
+Apply after selecting the object, not as a shortcut for choosing it.
+1. Ask what constituent is requested: full entity, one name component, title, title gap, category, locality, region or acronym expansion. Return that constituent and all necessary distinguishing words.
+2. For an explicit title or quotation gap, substitute the proposed words into the supplied phrase. Do not repeat the words outside the gap. Preserve pronouns or small words that actually belong inside it.
+3. For people, use a matching answer field when one exists. Otherwise use the supported common name; retain given names when the evidence presents the person that way or ambiguity requires them. A clue explicitly asking for a surname/name component takes priority. There is no profession-wide "surname only" or "always full name" rule.
+4. For places and organizations, do not append a region, legal suffix, subdivision or descriptive noun merely to sound more official. Keep a qualifier that belongs to the requested conventional name or distinguishes supported alternatives. A city request does not become a state request; a category request does not become a named instance.
+5. When a short and long form both identify the same object, prefer the form tied to the matching clue or decisive relation. Without that support, do not aggressively shorten or restore an encyclopedia-style expansion.
+Fictional contrast: in "Complete the title: The ___ Garden", return the missing words, not the entire title. If two people named Rell are present, dropping the given name can destroy the distinction; if a surname is explicitly requested, adding it back is also wrong.

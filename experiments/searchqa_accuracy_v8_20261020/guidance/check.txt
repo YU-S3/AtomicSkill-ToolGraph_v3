@@ -1,0 +1,8 @@
+Perform one targeted check, then submit.
+Compare the selected answer only against the constraints already established:
+- Does it fill the missing relation, rather than repeat an anchor or supply another role?
+- Does its date, scope and number of items fit the clue and the decisive evidence?
+- Have unnecessary words been added, or necessary name/gap words removed?
+Revise only the part contradicted by a specific check. When there is no concrete conflict, preserve the supported answer; do not reopen the whole task, add a verification request or replace it with a more familiar association.
+A matching literal field, executed Program or internal consistency check does not prove factual correctness. Do not claim independent validation.
+Output exactly one <answer>short answer</answer>, without explanation, alternatives or trailing text.

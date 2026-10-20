@@ -1,0 +1,51 @@
+{
+  "id": "program_hs_searchqa_source_fields_v8_programmatic",
+  "title": "Execute the mapped pure Program on the original public question/context; pass its actual report to solve. No match is normal. Literal matches do not decide the answer.",
+  "entry": "run",
+  "backend": "sandbox_python_v1",
+  "source": "\"\"\"Extract literal matching fields from current public input; no answer memory.\"\"\"\nimport re\n\ndef _norm(value):\n    return \" \".join(re.findall(r\"[^\\W_]+\", value.casefold()))\n\n\ndef _documents(text):\n    starts = [match.start() for match in re.finditer(r\"\\[DOC\\]\", text)]\n    if not starts:\n        starts = [0]\n    elif text[:starts[0]].strip():\n        starts.insert(0, 0)\n    records = []\n    for number, start in enumerate(starts):\n        end = starts[number + 1] if number + 1 < len(starts) else len(text)\n        raw = text[start:end]\n        title_marker, paragraph_marker = raw.find(\"[TLE]\"), raw.find(\"[PAR]\")\n        title_start = start + title_marker + 5 if title_marker >= 0 else start\n        title_end = start + paragraph_marker if paragraph_marker >= 0 else end\n        if title_marker < 0 or title_end < title_start:\n            title_start = title_end = start\n        while title_start < title_end and text[title_start].isspace():\n            title_start += 1\n        while title_end > title_start and text[title_end - 1].isspace():\n            title_end -= 1\n        body_start = start + paragraph_marker + 5 if paragraph_marker >= 0 else start\n        while body_start < end and text[body_start].isspace():\n            body_start += 1\n        records.append({\"doc_id\": number, \"start\": start, \"end\": end,\n                        \"title_start\": title_start, \"title_end\": title_end, \"body_start\": body_start})\n    return records\n\n\ndef _explicit_fields(text, question, documents):\n    fields, target = [], _norm(question)\n    if not target:\n        return fields\n    labelled = re.compile(r\"(?:^|\\n)[ \\t]*(?:Q(?:uestion)?|Clue)[ \\t]*:[ \\t]*(?P<q>[^\\n]+?)\"\n                          r\"(?:[ \\t]+|\\n[ \\t]*)(?:A(?:nswer)?)[ \\t]*:[ \\t]*(?P<a>[^\\n]+)\", re.I)\n    for doc in documents:\n        body = text[doc[\"body_start\"]:doc[\"end\"]]\n        matches = []\n        for match in labelled.finditer(body):\n            matches.append((match.group(\"q\"), match.span(\"q\"), match.group(\"a\"), match.span(\"a\"), \"explicit_Q_A_labels\"))\n        cursor = 0\n        for line in body.splitlines(keepends=True):\n            cells = list(re.finditer(r\"[^|\\t\\r\\n]+\", line))\n            if \"|\" in line or \"\\t\" in line:\n                for left, right in zip(cells, cells[1:]):\n                    matches.append((left.group(), (cursor + left.start(), cursor + left.end()),\n                                    right.group(), (cursor + right.start(), cursor + right.end()), \"explicit_pipe_or_tab_fields\"))\n            cursor += len(line)\n        for clue, clue_span, answer, answer_span, form in matches:\n            if _norm(clue) != target or not answer.strip() or len(answer.strip()) > 256:\n                continue\n            left = len(answer) - len(answer.lstrip())\n            right = len(answer.rstrip())\n            start, end = doc[\"body_start\"] + answer_span[0] + left, doc[\"body_start\"] + answer_span[0] + right\n            if any(field[\"answer_span\"] == [start, end] for field in fields):\n                continue\n            fields.append({\"doc_id\": doc[\"doc_id\"], \"candidate\": text[start:end], \"answer_span\": [start, end],\n                           \"clue_span\": [doc[\"body_start\"] + clue_span[0], doc[\"body_start\"] + clue_span[1]],\n                           \"boundary_evidence\": form, \"clue_match\": \"all_normalized_words_in_order\",\n                           \"semantic_status\": \"unverified; check requested type, relation, and answer form\"})\n    return fields\n\n\ndef run(ctx, inputs):\n    question, context = inputs.get(\"question\"), inputs.get(\"context\")\n    if not isinstance(question, str) or not isinstance(context, str):\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"question/context strings required\"}\n    fields = _explicit_fields(context, question, _documents(context))\n    for field in fields:\n        field[\"clue_text\"] = context[slice(*field[\"clue_span\"])]\n    return {\"status\": \"ok\", \"outputs\": {\"source_fields\": {\n        \"fields\": fields[:4], \"omitted\": max(0,len(fields)-4),\n        \"status\": \"matched_literal_fields\" if fields else \"no_matching_field\",\n        \"offset_unit\": \"unicode_character_end_exclusive\",\n        \"semantic_status\": \"unverified; check relation, qualifiers and requested scope\"}}}\n",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "source_fields": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "source_fields"
+    ],
+    "additionalProperties": false
+  },
+  "allowed_tools": [],
+  "environment": {
+    "backend": "sandbox_python_v1",
+    "python": "3.12",
+    "dependencies": [
+      "openpyxl==3.1.5",
+      "pandas==2.3.3",
+      "pillow==11.3.0"
+    ],
+    "adapter_abi": "simple.v2",
+    "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+  },
+  "result_role": "intermediate",
+  "permission": "author_trusted",
+  "origin": "human_authored",
+  "method_version": "human.searchqa.accuracy.v8_programmatic"
+}
