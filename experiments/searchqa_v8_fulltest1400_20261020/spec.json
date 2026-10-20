@@ -1,0 +1,14 @@
+{
+  "tasks": "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/test.json",
+  "arms": {
+    "v8_guidance": {
+      "package": "/home/yangchengyu/searchqa_accuracy_v8_seed42_20261020/comparison192/v8_guidance/input",
+      "kind": "native"
+    },
+    "v8_programmatic": {
+      "package": "/home/yangchengyu/searchqa_accuracy_v8_seed42_20261020/comparison192/v8_programmatic/input",
+      "kind": "native"
+    }
+  },
+  "purpose": "Authorized full Test1400, V8 guidance versus V8 conditional Program. Same DeepSeek parameters, public input and scorer; canonical task order with seed42 arm interleaving. Post-Test development evaluation, not blind. Prior V7 full Test is a historical reference, not a concurrent arm."
+}

@@ -1,0 +1,38 @@
+{
+  "parent": "/home/yangchengyu/searchqa_accuracy_v8_seed42_20261020",
+  "parent_budget_sha256": "49af014865c2a7134bc8af9f34659b80f94158d437947d10ebb8a0639c95126e",
+  "historical_charged_tokens": 65846291,
+  "historical_http": 13935,
+  "allocation": {
+    "tokens": 16000000,
+    "http": 6000
+  },
+  "limits": {
+    "token_limit": 81846291,
+    "request_limit": 19935,
+    "finish_reserve": 0
+  },
+  "original_authority_limits": {
+    "token_limit": 196704000,
+    "finish_reserve": 0,
+    "request_limit": 83580
+  },
+  "r3_remaining_reservation": {
+    "tokens": 13683369,
+    "http": 326
+  },
+  "old_unknown_reservation_preserved": {
+    "schema": "billing-reservation-recovery.v1",
+    "authorization": {
+      "receipt_path": "/home/yangchengyu/searchqa_human_frontier_v5_probe224_seed42_20261019/authorization.json",
+      "sha256": "31495fd91797831353e1888e5d8159dc2cf0bfebce3e86608fba2d1e8c7af7f7",
+      "user_instruction": "启动这次有界对照（推荐）"
+    },
+    "attempts": {
+      "provider_request_f2fcb09d1ee44a84a122b6757cbca6ac": {
+        "entry_hash": "41e3445a2ffbe191a1ed4b71047cb9f1320a5c9bafabedb3bff74dcef2c52693",
+        "reserved_tokens": 59238
+      }
+    }
+  }
+}

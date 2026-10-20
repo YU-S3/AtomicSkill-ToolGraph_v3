@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "stage": "fulltest1400",
+  "tasks": 1400,
+  "arms": [
+    "v8_guidance",
+    "v8_programmatic"
+  ],
+  "at": "2026-10-20T11:23:28.397503+00:00",
+  "real_http": 0,
+  "allocation": {
+    "tokens": 16000000,
+    "http": 6000
+  },
+  "banks_match_comparison192": true,
+  "llm_and_runtime_unchanged": true,
+  "canonical_manifest_verified": true,
+  "source_unchanged": true,
+  "historical_charge": 65846291,
+  "historical_http": 13935
+}
