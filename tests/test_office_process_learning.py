@@ -324,14 +324,70 @@ def test_formal_plan_all_train_then_val_and_cumulative_admission(tmp_path, monke
     assert plan['identity']['train_selection_members'] == []
     assert len(plan['identity']['validation_members']) == 24
     assert plan['new_token_cap'] == 53197824
+    assert plan['authorized_cumulative_ceiling'] == 190000000
+    assert entry.read(root/'cost_carryforward_manifest.json')['authorization'] == entry.AUTHORIZATION
     assert not (root/'train/bank').exists() and plan['identity']['human_bank_loaded'] is False
     original = entry.read(Path(data)/'train.json')['tasks']
     assert set(plan['identity']['learning_members']) == {t['task_id'] for t in original}
     assert plan['identity']['learning_members'] != [t['task_id'] for t in original]
     assert entry.read(parent/'budget.json') == ledger
+    ledger['attempts']['prior'] = {'status': 'metered', 'accounted_tokens': 130000000, 'reserved_tokens': 130000000}
+    entry.write_json(parent/'budget.json', ledger)
+    approved = entry.prepare(tmp_path/'within190m', Path(source)/'base_config.json', data, parent)
+    assert approved['limits']['token_limit'] == 183197824
+    assert entry.read(tmp_path/'within190m/budget.json')['attempts'] == ledger['attempts']
     spent = entry.MAX_CUMULATIVE - 1000000
     ledger['attempts']['prior'] = {'status': 'metered', 'accounted_tokens': spent, 'reserved_tokens': spent}
     entry.write_json(parent/'budget.json', ledger)
     with pytest.raises(ValueError, match='approved ceiling'):
         entry.prepare(tmp_path/'overbudget', Path(source)/'base_config.json', data, parent)
     assert not (tmp_path/'overbudget').exists()
+
+
+def test_repeat_readiness_requires_both_completed_and_settled(tmp_path):
+    campaign = tmp_path/'campaign'
+    entry.write_json(campaign/'status.json', {'status': 'running', 'pid': os.getpid()})
+    assert entry.repeats_settled(campaign) is False
+    entry.write_json(campaign/'status.json', {'status': 'stopped'})
+    with pytest.raises(ValueError, match='stopped'):
+        entry.repeats_settled(campaign)
+    entry.write_json(campaign/'status.json', {'status': 'completed'})
+    for index in (2, 3):
+        parent = campaign/f'repeat_{index}'
+        entry.write_json(parent/'launch_status.json', {'status': 'completed'})
+        entry.write_json(parent/'budget_prefix.json', {'attempts': {}})
+        entry.write_json(parent/'budget.json', {'attempts': {}, 'unknown_billing': False})
+    assert entry.repeats_settled(campaign) is True
+    entry.write_json(campaign/'repeat_3/budget.json', {
+        'attempts': {'inflight': {'status': 'admitted'}}, 'unknown_billing': False})
+    with pytest.raises(ValueError, match='settle'):
+        entry.repeats_settled(campaign)
+    entry.write_json(campaign/'repeat_3/launch_status.json', {'status': 'failed'})
+    with pytest.raises(ValueError, match='Both'):
+        entry.repeats_settled(campaign)
+
+
+def test_waiting_launch_allocates_only_after_repeats_and_never_duplicates(tmp_path, monkeypatch):
+    root, campaign = tmp_path/'natural', tmp_path/'campaign'
+    calls = []
+    monkeypatch.setattr(entry, 'code_identity', lambda: {'git_sha': 'test', 'tracked_dirty': False})
+    readiness = iter((False, True))
+    monkeypatch.setattr(entry, 'repeats_settled', lambda _: next(readiness))
+    def sleep(seconds):
+        assert seconds == 30 and not root.exists() and not calls
+        assert entry.status(root)['launch']['status'] == 'waiting_for_repeats'
+    monkeypatch.setattr(entry.time, 'sleep', sleep)
+    def prepare(actual_root, base, data, parent):
+        assert parent == campaign/'repeat_3' and actual_root == root
+        plan = {'inherited_used_or_reserved': 130000000, 'limits': {'token_limit': 183197824}}
+        entry.write_json(root/'plan.json', plan)
+        calls.append('prepare')
+        return plan
+    monkeypatch.setattr(entry, 'prepare', prepare)
+    monkeypatch.setattr(entry, 'execute', lambda *args: calls.append('execute') or {'train': {}, 'val': {}})
+    entry.after_repeats(root, 'base', 'data', campaign, 'env')
+    assert calls == ['prepare', 'execute']
+    assert entry.status(root)['launch']['status'] == 'completed_train_val'
+    with pytest.raises(ValueError, match='already exists'):
+        entry.after_repeats(root, 'base', 'data', campaign, 'env')
+    assert calls == ['prepare', 'execute']
