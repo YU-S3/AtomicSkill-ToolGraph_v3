@@ -1,0 +1,11 @@
+{
+  "status": "approved",
+  "at": "2026-10-20T16:04:10.520243+00:00",
+  "user_instruction": "V7再启动两次重复的test",
+  "scope": "Two fresh, independent full Test1400 repetitions of the V7 Bank that scored 1190/1400. Same model, input, prompt, parameters and frozen source. No training or Bank edits.",
+  "allocation": {
+    "tokens": 16000000,
+    "http": 6000
+  },
+  "original_cumulative_authority_unchanged": true
+}

@@ -1,0 +1,14 @@
+{
+  "tasks": "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/test.json",
+  "arms": {
+    "v7_repeat_1": {
+      "package": "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/v7_text_compiler/input",
+      "kind": "native"
+    },
+    "v7_repeat_2": {
+      "package": "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/v7_text_compiler/input",
+      "kind": "native"
+    }
+  },
+  "purpose": "Two independent full Test1400 repetitions of identical V7. Canonical task order, seed42 interleaving, separate requests/results/Frozen copies. Same DeepSeek settings; generation seed unsupported. Measure EM/F1/cost and per-task prediction/correctness flips against both repetitions and original1190/1400, without outcome-based edits."
+}
