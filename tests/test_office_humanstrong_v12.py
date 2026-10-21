@@ -157,3 +157,39 @@ def test_complete_four_arm_plan_and_no_gold_leakage(tmp_path,monkeypatch):
     assert len(seen)==48 and common.sha(PARENT/'budget.json')==before
     result=runner.analysis(root)
     assert result['new_http']==48 and all(a['completed']==12 for a in result['metrics'].values())
+
+
+def test_test_gate_requires_settlement_and_nonregressing_positive_direction():
+    sys.path.insert(0,str(ROOT.parents[1]/'experiments'))
+    from run_office_humanstrong_v12_test import choose
+    result={'status':{'status':'completed'},'new_unsettled':0,
+        'metrics':{a:{'completed':12,'correct':score,'tokens':cost} for a,score,cost in
+                   [('off',8,100),('rules',9,120),('selective',9,110),('guarded',10,150)]},
+        'vs_off':{'rules':{'net':1,'losses':[]},'selective':{'net':1,'losses':[]},'guarded':{'net':2,'losses':['one']}}}
+    assert choose(result)=='selective'  # More total wins do not excuse the disallowed regression.
+    result['new_unsettled']=1
+    with pytest.raises(ValueError,match='settled'):choose(result)
+    result['new_unsettled']=0
+    for row in result['vs_off'].values():row['losses']=['one']
+    with pytest.raises(ValueError,match='No direction'):choose(result)
+
+
+@pytest.mark.parametrize('arm',['off','rules','selective','guarded'])
+def test_complete_test_public_input_admission(tmp_path,monkeypatch,arm):
+    cfg,bridge,bundle=setup(tmp_path,monkeypatch)
+    rows=json.loads((fixtures.RESOURCES/'test.json').read_text())['tasks']
+    seen=http(monkeypatch,[response([{'action':'finish','answer':'offline fixture'}]) for _ in rows])
+    with bridge.bridge():
+        for row in rows:
+            system=EmpiricalSystem(cfg,harness=OfficeAdapter({row['task_id']:{'answer':'PRIVATE_OFFLINE_FIXTURE'}},cfg),
+                readonly=True,bank_view_factory=lambda b:bridge.HumanBankView(b,bundle,arm))
+            try:trace=system.run_task(PublicTask(**row),learn=False)
+            finally:system.close()
+            assert trace['execution']['reason']=='agent_submitted',(row['task_id'],trace['execution'])
+    assert len(seen)==102
+    for row,wire in zip(rows,seen):
+        body=json.loads(wire['messages'][1]['content'])
+        assert body['task']['inputs']==row['inputs'] and wire.get('tools')
+        assert 'PRIVATE_OFFLINE_FIXTURE' not in json.dumps(wire)
+        if arm in ('off','rules'):assert not body['calls']['programs']
+        if arm=='off':assert 'human_frontier_skill_ids' not in body
