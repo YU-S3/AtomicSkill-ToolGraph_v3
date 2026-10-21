@@ -287,6 +287,9 @@ def test_typed_final_submission_preserves_selected_value(imported, tmp_path, mon
             trace = system.run_task(task, learn=False)
         assert trace['execution']['prediction'] == expected and trace['score']['hard']
         assert len(sent) == 1 + int(inspect)  # No model turn after Program submission.
+        for index, payload in enumerate(sent):
+            material = json.loads(next(p['text'] for p in payload['messages'][1]['content'] if p['type'] == 'text'))
+            assert material['remaining_inspections'] == 1 - index
         attempts = trace['execution']['attempts']
         assert len(attempts) == int(inspect) + int(kind != 'verbatim') <= 2
         assert system.bank.digest() == before
