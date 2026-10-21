@@ -1,0 +1,15 @@
+{
+  "pid": 29612,
+  "at": "2026-10-21T09:01:31.579953+00:00",
+  "command": [
+    "/home/yangchengyu/asg_alfworld_venv/bin/python",
+    "-B",
+    "-u",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_crossmodel_test1400_20261021/run_models.py",
+    "run",
+    "--model",
+    "kimi_k26"
+  ],
+  "resume": false,
+  "plan_sha256": "a687df7b61d5d289a1ffaf3eb2e9793c22dfff614cec29c2be7638ca3ddcc5c1"
+}

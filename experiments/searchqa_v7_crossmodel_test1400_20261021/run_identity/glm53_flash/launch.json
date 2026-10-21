@@ -1,0 +1,15 @@
+{
+  "pid": 29622,
+  "at": "2026-10-21T09:01:33.676009+00:00",
+  "command": [
+    "/home/yangchengyu/asg_alfworld_venv/bin/python",
+    "-B",
+    "-u",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_crossmodel_test1400_20261021/run_models.py",
+    "run",
+    "--model",
+    "glm53_flash"
+  ],
+  "resume": false,
+  "plan_sha256": "b033aa023f25eaf532d0c24f2ca8352d6265f7a272fbad4db72337e72b0caec3"
+}

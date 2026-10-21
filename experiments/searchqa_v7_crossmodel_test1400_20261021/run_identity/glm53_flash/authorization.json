@@ -1,0 +1,10 @@
+{
+  "status": "approved",
+  "at": "2026-10-21T09:01:07.746327+00:00",
+  "allocation": {
+    "tokens": 8000000,
+    "http": 3000
+  },
+  "user_instruction": "启动同样的bank做kimi-k2.6和GLM-5.3-flash的各一遍完整test",
+  "scope": "One full fresh Test1400, unchanged V7, configured model; no automatic budget expansion."
+}

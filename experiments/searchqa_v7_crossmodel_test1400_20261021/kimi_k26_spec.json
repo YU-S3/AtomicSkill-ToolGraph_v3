@@ -1,0 +1,12 @@
+{
+  "tasks": "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/test.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_v7_crossmodel_test1400_20261021/kimi_k26_config.json",
+  "arms": {
+    "v7_text_compiler": {
+      "package": "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/v7_text_compiler/input",
+      "kind": "native",
+      "frozen_source": "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/v7_text_compiler/frozen_bank"
+    }
+  },
+  "purpose": "One fresh full canonical Test1400 with configured kimi-k2.6; identical V7 Bank, prompt, public context, workflow and official scorer. No training or outcome-based edits."
+}
