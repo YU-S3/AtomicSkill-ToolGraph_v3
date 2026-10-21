@@ -146,11 +146,11 @@ def single_node_bridge(*, guidance_role='user'):
                     evidence['row_context'] = {**context, 'image_index': len(material['content_parts']) - 1}
                 if answer_step and materials['remaining_local_executions'] > 0:
                     schema = {'type': 'object', 'properties': {
-                        'action': {'enum': ['inspect', 'finish']},
-                        'tile': {'enum': list(TILES),
+                        'action': {'type': 'string', 'enum': ['inspect', 'finish']},
+                        'tile': {'type': 'string', 'enum': list(TILES),
                             'description': 'Original page: columns A/B/C left-to-right, rows 1/2/3/4 top-to-bottom. Tiles overlap.'},
                         'evidence_text': {'type': 'string', 'description': 'Visible supporting field or row, including its label; transcription, not reasoning.'},
-                        'answer_kind': {'enum': ['entity', 'value', 'identifier', 'title', 'text', 'list']},
+                        'answer_kind': {'type': 'string', 'enum': ['entity', 'value', 'identifier', 'title', 'text', 'list']},
                         'answer': {'type': 'string'},
                         'used_results': {'type': 'array', 'items': {'type': 'string'}}},
                         'required': ['action'], 'additionalProperties': False,
