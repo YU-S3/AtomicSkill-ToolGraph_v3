@@ -35,7 +35,10 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
     from atomic_skillgraph.empirical.contracts import digest, program_digest
     config = json.loads(Path(config_path).read_text())
     sources = {'v6': 'single_node.json', 'v7': 'single_node_v7.json'}
-    if skill_revision == 'v9':
+    if skill_revision == 'v10':
+        from rule_search import skills
+        source = skills(principle_ids)
+    elif skill_revision == 'v9':
         if principle_ids:
             raise ValueError('v9 uses its frozen public-intent clauses')
         from typed_answer import skills
@@ -53,7 +56,7 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
     output.mkdir(parents=True)
     bank = Bank(output, seed=42, environment=config['program_environment'])
     try:
-        assets = [bank.put('skill', item) for item in (source if skill_revision == 'v9' else [source])]
+        assets = [bank.put('skill', item) for item in (source if skill_revision in ('v9', 'v10') else [source])]
         asset = assets[0]
         if crop:
             bundle = json.loads((ROOT / 'bank/bank.json').read_text())
@@ -64,7 +67,7 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
             program = bank.put('program', program)
             bank.put('implementation', {'skill_id': asset['id'], 'program_id': program['id'],
                 'method_version': METHOD, 'origin': 'human_authored_unqualified'})
-        if skill_revision == 'v9':
+        if skill_revision in ('v9', 'v10'):
             from typed_answer import program as typed_program
             formatter = bank.put('program', typed_program(config['program_environment'], METHOD))
             bank.put('implementation', {'skill_id': asset['id'], 'program_id': formatter['id'],
@@ -74,8 +77,10 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
             'counts': {k: len(bank.all(k)) for k in ('skill', 'program', 'implementation', 'workflow')},
             'program_status': 'optional_image_crop' if crop else 'disabled', 'seed': 42,
             'skill_revision': skill_revision}
-        if skill_revision == 'v9':
+        if skill_revision in ('v9', 'v10'):
             manifest.update(typed_submission=True, routing='public_intent_first_match.v1')
+        if skill_revision == 'v10':
+            manifest['principle_ids'] = [a['principle_id'] for a in assets if a['principle_id'] != 'core']
         if skill_revision == 'v8':
             manifest['principle_ids'] = source['principle_ids']
         (output / 'manual_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
@@ -92,14 +97,18 @@ class SingleNodeDocVQAView:
         self.formatter_enabled = manifest.get('typed_submission', False)
         count = int(self.crop_enabled) + int(self.formatter_enabled)
         expected = {'skill': 4 if self.formatter_enabled else 1, 'program': count, 'implementation': count, 'workflow': 0}
+        if manifest.get('skill_revision') == 'v10':
+            expected['skill'] = 1 + len(manifest['principle_ids'])
+            if sorted(a['principle_id'] for a in bank.all('skill')) != sorted(['core'] + manifest['principle_ids']):
+                raise ValueError('Frozen rule variants differ from the manifest')
         if (not bank.readonly or manifest['method_version'] != METHOD
                 or manifest['bank_digest'] != bank.digest()
                 or {k: len(bank.all(k)) for k in expected} != expected):
             raise ValueError('Manual Bank content does not match its frozen view')
         self.bank = bank
         self.programs = {Path(p['source_file']).stem: p for p in bank.all('program')}
-        if self.formatter_enabled != (manifest.get('skill_revision') == 'v9'):
-            raise ValueError('Typed submission requires the v9 Bank')
+        if self.formatter_enabled != (manifest.get('skill_revision') in ('v9', 'v10')):
+            raise ValueError('Typed submission requires a matching Bank')
         self.view_hash = digest([METHOD, manifest,
             'public_intent_typed_submission.v9' if self.formatter_enabled else 'one_skill_optional_image_crop'])
 

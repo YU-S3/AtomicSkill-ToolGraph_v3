@@ -259,6 +259,42 @@ def test_principle_sets_are_explicit_and_compact():
         with pytest.raises(ValueError): compile_skill(invalid)
 
 
+def test_independent_rule_bank_and_typed_handoff(imported, tmp_path, monkeypatch):
+    from rule_search import skills
+    from typed_answer import select
+    assert len(skills([])) == 1
+    for invalid in [['phone_raw', 'phone_partition'], ['phone_raw', 'phone_raw'], ['unknown']]:
+        with pytest.raises(ValueError): skills(invalid)
+    chosen = skills(['entity_slot', 'comparison_header', 'phone_raw'])
+    assert [s['principle_id'] for s in select(chosen, 'Who has the most meetings?')] == ['core', 'comparison_header']
+    assert [s['principle_id'] for s in select(chosen, 'What is the phone number?')] == ['core', 'phone_raw']
+    assert [s['principle_id'] for s in select(chosen, 'What date is printed?')] == ['core']
+    c, _ = imported
+    c['data_dir'] = str(tmp_path / 'rule_bank')
+    config = tmp_path / 'rule_config.json'; config.write_text(json.dumps(c))
+    prepare_single(ROOT, config, c['data_dir'], crop=False, skill_revision='v10', principle_ids=['phone_raw'])
+    manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
+    expected = '(123) 456 7890'
+    adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': [expected]}}, c)
+    system = EmpiricalSystem(c, harness=adapter, readonly=True,
+        bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
+    task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the phone number?',
+        {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
+    sent = http(monkeypatch, [response([{'action': 'finish', 'answer': expected, 'answer_kind': 'phone',
+        'evidence_sources': ['page']}], name='answer_step')])
+    try:
+        before = system.bank.digest()
+        with single_node_bridge(guidance_role='system', evidence_interface='typed'):
+            trace = system.run_task(task, learn=False)
+        assert trace['execution']['reason'] == 'program_submitted' and trace['score']['hard']
+        assert len(sent) == 1 and system.bank.digest() == before
+        assert manifest['counts'] == {'skill': 2, 'program': 1, 'implementation': 1, 'workflow': 0}
+        assert skills(['phone_raw'])[1]['guidance'] in sent[0]['messages'][0]['content']
+        assert 'one inspection' not in sent[0]['messages'][0]['content'].lower()
+    finally:
+        system.close()
+
+
 @pytest.mark.parametrize('kind,value,expected,inspect', [
     ('phone', '+44 1234 567890', '+441234567890', False),
     ('page', '- 27 -', '27', False),
