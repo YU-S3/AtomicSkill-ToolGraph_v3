@@ -66,12 +66,12 @@ def prepare(root, base, resources, config_run, *, split='val', selector=None):
     used = sum(map(common.charge, ledger['attempts'].values()))
     configuration = load('office_v6_paired_config', PACKAGE/'integration/configuration.py')
     resources, manifest = configuration.verify_resources(resources)
-    if split not in ('val', 'test') or (split != 'val' and selector is None):
-        raise ValueError('A Test development observation requires an explicit selector')
+    if split not in ('train', 'val', 'test') or (split != 'val' and selector is None):
+        raise ValueError('A Train/Test development observation requires an explicit selector')
     tasks = common.read(resources/(split+'.json'))['tasks']
     canonical_path = common.SOURCE/'data/main_experiment_v1/officeqa'/f'{split}.json'
     canonical = common.read(canonical_path)['tasks']
-    if len(tasks) != (24 if split == 'val' else 102) or any(t['split'] != split for t in tasks):
+    if len(tasks) != {'train':120,'val':24,'test':102}[split] or any(t['split'] != split for t in tasks):
         raise ValueError('Complete canonical split required before selection')
     if [t['task_id'] for t in tasks] != [t['task_id'] for t in canonical]:
         raise ValueError('Canonical membership/order changed')
@@ -137,13 +137,13 @@ def prepare(root, base, resources, config_run, *, split='val', selector=None):
         'selection': selection_note,
         'development_exposed': True, 'prior_scores_used_for_selection': False,
         'comparison_caveat': ('Internal local Val, with source hints and corpus retrieval but no supplied external page bodies. '
-            if split == 'val' else 'Selected, development-exposed Test tasks with approved external public pages. '
+            if split == 'val' else 'Development-exposed '+split+' tasks with approved external public pages. '
             'Results may guide Bank selection and are not independent final Test estimates. ')+
             'This does not establish external full-public-page Test parity or paper performance. Human-authored reference Bank. '
             'Both fresh arms share public input, scorer, native tools, task budget and output contract. '
             'Not a blind or naturally learned Ours result.',
         'input_alignment': manifest['val_policy'] if split == 'val' else cfg['experiment']['input_alignment'],
-        'test_runs_authorized_in_this_plan': 0 if split == 'val' else 2,
+        'test_runs_authorized_in_this_plan': 2 if split == 'test' else 0,
         'seed': 42, 'episodes': episodes,
         'corpus_identity': common.read(config_run/'plan.json')['corpus_identity'],
         'protected_files': {str(p): common.sha(p) for p in protected}, 'ledger_limits': limits,
