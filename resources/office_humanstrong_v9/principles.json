@@ -1,0 +1,6 @@
+[
+  {"title":"normalized_midpoint","when":"mid[ -]?point.normalized difference",
+   "goal":"Dimensionless midpoint-normalized difference",
+   "guidance":"A midpoint-normalized difference is a dimensionless ratio: difference / midpoint. Keep it as a decimal, with no x100 or % suffix unless explicitly requested. Round only the final ratio.",
+   "operation":"symmetric_difference"}
+]
